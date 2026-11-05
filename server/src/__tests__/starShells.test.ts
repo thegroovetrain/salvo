@@ -10,7 +10,7 @@
 // real weapon flow.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SLOT_BOOST, encodeTurretAngles, type InputMsg } from '@salvo/shared';
+import { CONFIG, SLOT_BOOST, encodeTurretAngles, familySlotFor, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -19,10 +19,9 @@ import { neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const LIT_R = CONFIG.starShells.litRadius;
-/** Battleship slot index under the NINE-SLOT spawn (Story 8.5):
- *  [gun, boost, broadside, starShells, empty x5] — the spawn seed fits
- *  `broadside` then `starShells` into the weapon row, so the flare is slot 3. */
-const SLOT_STAR = 3;
+/** The flare's slot: the special-SHELL family slot (Story 10.5 — a card
+ *  lands in its family's slot). */
+const SLOT_STAR = familySlotFor('starShells')!;
 
 /** World whose islands are cleared, for exact-geometry cases. The raster is
  *  flattened too (Story 4.11): real terrain must not radar-shadow a world the
@@ -49,13 +48,13 @@ function place(w: World, id: string, hull: 'yamato' | 'bismarck' | 'warspite', x
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Click for `firer` via the real input channel and step until the burst (or
  *  a boom) resolves. Returns the world time the terminal event landed. */
 function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTicks = 120): { seen: string[]; at: number } {
-  w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...input });
+  w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_STAR, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...input });
   const seen: string[] = [];
   for (let i = 0; i < maxTicks; i++) {
     w.step();
@@ -159,7 +158,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     // zone's radius and lifetime are the numbers the shell carried at launch.
     const w = bareWorld();
     const a = place(w, 'a', 'yamato', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step(); // consumes the click; the flare is airborne at tier I
     expect(w.shells.size).toBe(1);
     for (let i = 0; i < 4; i++) w.applyCard(a, 'starShells'); // tier V lands while the flare flies
@@ -269,7 +268,7 @@ describe('star shells — denials', () => {
     // seed is `navalMines` alone and the radar buoy is deleted (Story 8.16),
     // so the flare's index on a Mine Layer holds nothing. What this case has
     // always pinned survives verbatim: the slot is NOT the star shell — no
-    // flare, no shell, no zone, no mine and no decoy.
+    // flare, no shell, no zone and no mine.
     const w = bareWorld();
     const ml = place(w, 'ml', 'warspite', 0, 0);
     expect(ml.loadout[SLOT_STAR]).toEqual({ equipmentId: null, state: null });
@@ -278,7 +277,6 @@ describe('star shells — denials', () => {
     expect(w.shells.size).toBe(0);
     expect(w.litZones.size).toBe(0);
     expect(w.mines.size).toBe(0);
-    expect(w.decoys.size).toBe(0);
   });
 
   it('the BOOST slot stays an ABILITY on every hull: a forged click is inert through the weapon-only wall', () => {
@@ -287,7 +285,7 @@ describe('star shells — denials', () => {
     const w = bareWorld();
     const tb = place(w, 'tb', 'bismarck', 0, 0);
     expect(tb.loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_BOOST, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_BOOST, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(tb.boostUntil).toBe(0); // the click never reached the ability row
     expect(tb.loadout[SLOT_BOOST].state).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });

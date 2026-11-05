@@ -455,7 +455,7 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
             fireT: 0,
             slot: 0,
             actSeq: 0,
-            actSlot: 0, hornSeq: 0, held: false,
+            act: 0, hornSeq: 0, held: false,
           });
         }
         w.step();

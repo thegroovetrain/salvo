@@ -5,7 +5,7 @@
 // WHY IT USED TO FLAKE. Every hull carried a heuristic pilot (rendezvous to
 // the midpoint, hold-station loiter, island-avoid rudder bias, nearest-mine
 // chase) on a RANDOM map, while the 60 s PvE fleet wave and passive regen
-// (gone since Story 10.3) raced every kill — so a red run measured the piloting, not the weapon.
+// raced every kill — so a red run measured the piloting, not the weapon.
 // Now nothing sails by heuristic: every phase gets its OWN fresh room on a
 // PINNED map (`mapSeed`), every hull is PLACED by the dev-only `spawnOverride`
 // pose, the fleet wave is off (`matchOverride.fleetWaves: false`), and the
@@ -17,7 +17,7 @@
 //   1. TORPEDO KILL — an Iowa posed broadside-on to a stationary Yamato, bow
 //      on the bearing, clicks the heavy tube every tick. The KILL
 //      PLAN (torpedo count, time) is simulated below from the fitted row and
-//      the target's hp (no regen since Story 10.3), and printed; the budget is the plan
+//      the target's hp (with the R8 passive regen, Story 10.5), and printed; the budget is the plan
 //      plus one reload. Asserts a hit at the armor-curve blow, the roster
 //      death + kill. The radar half of the torpedo contract (a torpedo's WATER
 //      paints while the torpedo itself stays silent beyond detect, amendment 196)
@@ -59,10 +59,32 @@
 //      implies (ceil(mine hp / the settled round damage)), not before.
 //   9. MAIN BATTERY IGNORES A MINE — a full broadside lands on a mine's
 //      marker; the mine is still on the water afterwards.
+//  10. HULL REPAIR (Story 10.5, R1) — a full hull's `C` press is denied
+//      'blocked' and starts no cooldown; a torpedo hurts it; the next press
+//      lands the instant heal (+ the first pool tick at most) and the own
+//      block shows `repairReadyAt` ≈ the frame's server time + the cooldown;
+//      a press inside the cooldown is denied 'cooling' (carrying `act`) and
+//      heals nothing new.
+//  11. PASSIVE REGEN (R8) — the same hull, left unhurt, holds its hp after
+//      the repair pool is spent and starts rising only once
+//      `CONFIG.regen.outOfCombatMs` have passed since the blow, at the shared
+//      `regenGain` rate. (Adds ~20 s of wall time: the wait is CONFIG's 15 s
+//      and no dev override shortens it.)
+//  12. SMOKE (R2) — `V` puts a cloud in the presser's own frame at its
+//      position and shows `smokeReadyAt`; a second press is denied 'cooling'.
+//  13. ONE KIND PER SLOT — a dev fit of LIGHT + HEAVY torpedo + naval mines +
+//      FLASH SHELLS: the heavy is refused (a second torpedo kind), the light
+//      holds Q (slot 2), the mine E (slot 3), the flash shells R (slot 4) —
+//      read off the client's own `cards` through the shared `slotsWithCards`
+//      and off `you.ammo`.
+//  14. A MOVED WEAPON FIRES FROM ITS SLOT — the same hull fires FLASH SHELLS
+//      from slot 4: its own frame shows the tagged burst (`f`, `r` = the
+//      folded radius) at the aim point and slot 4 reloading.
 //
 // THE WEAPONS ARE PRE-FITTED through the DEV-ONLY `fitOverride` join option
-// (Story 8.10, EPIC-8 amendment 65): the fitted line lands in slot 2 (Q) under
-// the Story 8.5 nine-slot fixed roles [gun, boost, <fitted weapon>, ...].
+// (Story 8.10, EPIC-8 amendment 65): each fitted line lands in its FAMILY's
+// slot (Story 10.5 — 2 torpedo Q, 3 mine E, 4 special shell R; 0 is the main
+// battery, 1 the Shift).
 //
 // A `PRECONDITION:` failure is a SCRIPT BUG (a pose that missed the island-free
 // center disc, a target outside an arc), not a smoke failure.
@@ -80,15 +102,20 @@ import {
   aimPointOf,
   angleDiff,
   arcFor,
+  abilityCode,
   bearing,
   damageMultiplierFor,
   desiredTurretAngle,
   effectiveStats,
+  equipmentMaxAmmo,
+  familySlotFor,
   generateMap,
   initialSecondaries,
   islandBlocksSegment,
   islandDistance,
+  regenGain,
   settleBlow,
+  slotsWithCards,
   stepSecondaries,
   turretBears,
   turretMounts,
@@ -178,6 +205,7 @@ async function joinClient(name, cls, opts) {
     name,
     cls,
     fit: opts.fit,
+    expectCards: opts.expectCards, // the cards the server must show when a dev fit line is REFUSED
     pose: opts.pose,
     room,
     welcome: null,
@@ -193,6 +221,12 @@ async function joinClient(name, cls, opts) {
     hook: null, // a phase's per-frame judge (Story 10.4), run after the frame is filed
     seq: 0,
     fireSeq: 0,
+    actSeq: 0, // the ability press counter (Story 10.5) — sticky like fireSeq
+    act: 0, // the ability the latest press named (wire code), sticky with actSeq
+    lastT: 0, // the server time `t` of the latest frame
+    hpTrace: [], // [{ t, hp }] of every own frame
+    denied: [], // every FrameMsg.denied entry this client is shown, with `ft`
+    clouds: [], // the latest FrameMsg.clouds
     script: idle,
     maxConcurrentEnemy: 0,
     maxConcurrentOwn: 0, // most of THIS ship's OWN mines live at once (Story 8.4)
@@ -212,10 +246,14 @@ async function joinClient(name, cls, opts) {
 
 function onFrame(ctx, f) {
   ctx.frames += 1;
+  ctx.lastT = f.t;
   if (f.you) {
     ctx.you = f.you;
+    ctx.hpTrace.push({ t: f.t, hp: f.you.hp });
     checkBatterySummary(ctx, f.you);
   }
+  for (const d of f.denied ?? []) ctx.denied.push({ ...d, ft: f.t });
+  ctx.clouds = f.clouds ?? [];
   ctx.mines = f.mines;
   for (const e of f.events) {
     ctx.events.push({ ...e, ft: f.t });
@@ -273,14 +311,21 @@ function trackEnemyMines(ctx) {
 // --- scripted inputs --------------------------------------------------------
 
 function neutralInput(ctx) {
-  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: ctx.actSeq, act: ctx.act, hornSeq: 0, held: false, sec: false };
 }
 /** A stationary hull. */
 function idle() {}
-/** Click the fitted weapon (slot 2) at a CONSTANT bearing every tick — the
- *  reload paces launches; an empty-pool click is a harmless denial. */
+/** The family slot (Story 10.5: 2 Q torpedo, 3 E mine, 4 R shell) of the
+ *  hull's first fitted slot weapon — the shared `familySlotFor`, never a literal. */
+function weaponSlotOf(ctx) {
+  const slot = ctx.fit.map((id) => familySlotFor(id)).find((s) => s !== null && s !== undefined);
+  precondition(slot !== undefined, `${ctx.name}: no slot weapon in the fit ${JSON.stringify(ctx.fit)}`);
+  return slot;
+}
+/** Click the fitted weapon (its family slot) at a CONSTANT bearing every
+ *  tick — the reload paces launches; an empty-pool click is a harmless denial. */
 const clickAt = (aim, aimDist = 0) => (ctx, inp) => {
-  inp.slot = 2;
+  inp.slot = weaponSlotOf(ctx);
   inp.aim = aim;
   inp.aimDist = aimDist;
   inp.fireSeq = ++ctx.fireSeq;
@@ -342,7 +387,8 @@ async function awaitPosed(clients, label) {
     const off = dist(c.you, c.pose);
     assert(off < 2 && Math.abs(angleDiff(c.you.heading, c.pose.heading)) < 0.01,
       `${label}: ${c.name} spawned at (${c.you.x.toFixed(0)},${c.you.y.toFixed(0)},${c.you.heading.toFixed(2)}), not its pose — spawnOverride stripped?`);
-    assert(JSON.stringify(c.you.cards) === JSON.stringify(c.fit), `${label}: ${c.name} fitted ${JSON.stringify(c.you.cards)}, expected ${JSON.stringify(c.fit)}`);
+    const want = c.expectCards ?? c.fit;
+    assert(JSON.stringify(c.you.cards) === JSON.stringify(want), `${label}: ${c.name} fitted ${JSON.stringify(c.you.cards)}, expected ${JSON.stringify(want)}`);
   }
 }
 
@@ -357,9 +403,11 @@ async function leaveAll(clients) {
  * a shooter clicking every tick from a FULL pool of `maxAmmo` (one launch per
  * tick at most; the pool refills ONE round per `reloadMs` — equipment/ammo.ts),
  * each fish landing `flightMs` after launch for `damage`, against a target of
- * `hp`. 2026-11-04 (Story 10.3): the regen term is GONE with the out-of-combat
- * regen itself — the target heals nothing between hits. Returns the fish
- * needed and the kill time.
+ * `hp`. 2026-11-05 (Story 10.5, R8): the PASSIVE REGEN is back — a target
+ * left unhurt for `CONFIG.regen.outOfCombatMs` heals the shared `regenGain`
+ * every tick (the heavy torpedo's reload outlasts the wait), so the plan
+ * replays it between hits as the server does. Returns the fish needed and the
+ * kill time, or null when the regen outheals the stack inside an hour.
  */
 function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs }) {
   let t = 0;
@@ -367,6 +415,7 @@ function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs }) {
   let left = 0;
   let cur = hp;
   let hits = 0;
+  let lastHit = 0;
   const pending = [];
   while (t < 3_600_000) {
     if (n > 0) {
@@ -382,14 +431,18 @@ function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs }) {
         left = n < maxAmmo ? left + reloadMs : 0;
       }
     } else left = 0;
+    if (t - lastHit >= CONFIG.regen.outOfCombatMs) cur += regenGain(cur, hp, DT / 1000);
     while (pending.length > 0 && pending[0] <= t) {
       pending.shift();
       cur -= damage;
       hits += 1;
+      lastHit = t;
       if (cur <= 0) return { fish: hits, killAtMs: t };
     }
   }
-  throw new Error(`PRECONDITION: no kill inside an hour (damage ${damage} vs hp ${hp})`);
+  // No kill inside an hour: with the regen back, a lone slow tube can stall
+  // short of a kill (the trace prints it; the chosen fit must kill).
+  return null;
 }
 
 /**
@@ -414,14 +467,15 @@ function torpedoFit(line, shooterCls, target, rangeU) {
   for (let k = 1; k <= MAX_SMOKE_CARDS && two === null; k++) {
     const p = planFor(k);
     if (p.row.maxAmmo >= 2) two = p;
+    precondition(two === null || two.plan !== null, `${line}: the two-tube tier never kills inside an hour against the regen`);
   }
   precondition(two !== null, `${line}: no two-tube tier within ${MAX_SMOKE_CARDS} cards`);
   const pick = two;
-  const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}`;
+  const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan === null ? 'NO KILL inside an hour (the regen outheals it)' : `${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}`}`;
   return {
     pick,
     hp: tgt.maxHp,
-    text: `plan vs ${tgt.maxHp} hp, no regen: ` +
+    text: `plan vs ${tgt.maxHp} hp, with regen: ` +
       `[${fmt(one)}]` + (two ? ` [${fmt(two)}]` : ' [no two-tube tier <= III]') + ` => fitting ${pick.cards} card(s)`,
   };
 }
@@ -451,8 +505,8 @@ async function torpedoPhase(log) {
   const brg = bearing(a.you, b.you);
   precondition(Math.abs(angleDiff(a.you.heading, brg)) < CONFIG.torpedo.halfArc, 'torpedo: target outside the bow arc');
   assert(b.you.hp === fit.hp, `torpedo: target hp ${b.you.hp} != planned ${fit.hp} (shared fold vs server maxHp)`);
-  const tubes = a.you.ammo[2];
-  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `torpedo: shooter slot 2 holds ${tubes?.n} fish, planned ${row.maxAmmo} tubes`);
+  const tubes = a.you.ammo[familySlotFor('heavyTorpedo')];
+  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `torpedo: shooter slot ${familySlotFor('heavyTorpedo')} holds ${tubes?.n} fish, planned ${row.maxAmmo} tubes`);
   a.script = clickAt(brg);
   // Budget: the simulated kill time + ONE reload of slack.
   const budget = fit.pick.plan.killAtMs + row.reloadMs;
@@ -588,8 +642,8 @@ async function lightTorpedoPhase(log) {
   const a = await joinClient('LT-A', TORP_SHOOTER, { fit: Array(fit.pick.cards).fill('lightTorpedo'), pose: aPose });
   const b = await joinClient('LT-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'light');
-  const tubes = a.you.ammo[2];
-  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `light: shooter slot 2 holds ${tubes?.n} fish, planned ${row.maxAmmo} tubes`);
+  const tubes = a.you.ammo[familySlotFor('lightTorpedo')];
+  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `light: shooter slot ${familySlotFor('lightTorpedo')} holds ${tubes?.n} fish, planned ${row.maxAmmo} tubes`);
   const brg = bearing(a.you, b.you);
   const off = Math.abs(angleDiff(a.you.heading, brg));
   precondition(Math.abs(off - Math.PI / 2) < CONFIG.lightTorpedo.halfArc, 'light: target outside the beam sector');
@@ -960,6 +1014,181 @@ async function mainBatteryMinePhase(log) {
   await leaveAll([a, s]);
 }
 
+// --- the cooldown abilities, passive regen, the family slots (Story 10.5) ----
+
+/** Press a cooldown ability (`C` repair / `V` smoke) ONCE: the next input
+ *  advances `actSeq` and names the ability by its shared wire code; both stay
+ *  sticky on every later input, so a re-sent input never reads as a new press. */
+function press(ctx, ability) {
+  ctx.act = abilityCode(ability);
+  ctx.actSeq += 1;
+  return ctx.actSeq;
+}
+/** The ability denial (if any) the server sent for the press `seq`. */
+const denialOf = (ctx, seq) => ctx.denied.find((d) => d.seq === seq && d.act !== undefined);
+/** Every `heal` cue this client was shown. */
+const heals = (ctx) => ctx.events.filter((e) => e.k === 'heal');
+
+/** Wait for the server's answer to the press `seq`: a denial for it, or `ok()`. */
+async function awaitAnswer(clients, ctx, seq, ok, label) {
+  // Budget: a press is consumed on the next tick; a second of socket slack.
+  await pilotUntil(clients, () => denialOf(ctx, seq) !== undefined || ok(), 1000 + 4 * DT, label);
+  return denialOf(ctx, seq);
+}
+
+/** Hurt `v` with ONE heavy torpedo from a posed shooter `s` (phase 1's
+ *  geometry). Returns the server time of the frame that carried the blow. */
+async function torpedoOnce(s, v, label) {
+  const brg = bearing(s.you, v.you);
+  precondition(Math.abs(angleDiff(s.you.heading, brg)) < CONFIG.torpedo.halfArc, `${label}: target outside the bow arc`);
+  s.script = clickAt(brg);
+  const row = statsOf(s.cls, s.fit).equipment.heavyTorpedo;
+  const flightMs = (dist(s.you, v.you) / row.speed) * 1000;
+  await pilotUntil([s, v], () => v.dmg.length > 0, flightMs + 2000, `${label}: the torpedo lands`);
+  s.script = idle;
+  return v.lastT;
+}
+
+/** PHASES 10 + 11 — HULL REPAIR (R1) and the passive regen (R8) on one hull. */
+async function repairAndRegenPhase(log) {
+  const D = 300;
+  const aPose = { x: 0, y: 0, heading: Math.PI / 2 }; // the patient, broadside to the shooter
+  const sPose = { x: -D, y: 0, heading: 0 };
+  checkPoseWater('repair A', aPose);
+  checkPoseWater('repair S', sPose);
+  checkLane('repair', sPose, aPose);
+  const a = await joinClient('REP-A', VICTIM, { fit: [], pose: aPose });
+  const s = await joinClient('REP-S', TORP_SHOOTER, { fit: ['heavyTorpedo'], pose: sPose, roomId: a.room.roomId });
+  await awaitPosed([a, s], 'repair');
+  const hr = CONFIG.hullRepair;
+  const maxHp = statsOf(VICTIM).maxHp;
+  // (a) FULL HULL: denied 'blocked', no heal, no cooldown.
+  assert(a.you.hp === maxHp && a.you.repairReadyAt === undefined, `repair: a fresh hull shows hp ${a.you.hp}/${maxHp}, repairReadyAt ${a.you.repairReadyAt}`);
+  const fullSeq = press(a, 'repair');
+  const full = await awaitAnswer([a, s], a, fullSeq, () => heals(a).length > 0, 'repair: the full-hull press is answered');
+  await holdFor([a, s], 4 * DT);
+  assert(full?.reason === 'blocked' && full.act === abilityCode('repair'), `repair: the full-hull press answered ${JSON.stringify(full)}, expected 'blocked' with act ${abilityCode('repair')}`);
+  assert(heals(a).length === 0 && a.you.repairReadyAt === undefined, `repair: a full-hull press healed (${heals(a).length}) or started the cooldown (${a.you.repairReadyAt})`);
+  // (b) HURT, then press: the instant heal and the cooldown stamp.
+  const hitT = await torpedoOnce(s, a, 'repair');
+  await holdFor([a, s], 4 * DT);
+  const hurt = a.you.hp;
+  precondition(maxHp - hurt > hr.instantHp + hr.regenHp, `repair: the torpedo took ${maxHp - hurt} hp — too little to see the heal unclamped`);
+  const seq = press(a, 'repair');
+  await awaitAnswer([a, s], a, seq, () => heals(a).length > 0, 'repair: the heal cue');
+  await holdFor([a, s], 2 * DT);
+  // Judged on the FRAME that carried the `heal` cue (its server time `ft`).
+  const healT = heals(a)[0].ft;
+  const healFrame = a.hpTrace.find((p) => p.t === healT);
+  assert(healFrame !== undefined, `repair: no own frame at the heal cue's time ${healT}`);
+  const healed = healFrame.hp - hurt;
+  const readyIn = a.you.repairReadyAt - healT;
+  // The pool's first tick may ride the same frame as the instant half.
+  const poolPerTick = (hr.regenHp * DT) / hr.regenMs;
+  assert(healed >= hr.instantHp - 1e-6 && healed <= hr.instantHp + 2 * poolPerTick + 1e-6, `repair: hp ${hurt}->${healFrame.hp} (+${healed}), expected the instant ${hr.instantHp} (+ at most two pool ticks of ${poolPerTick})`);
+  assert(Number.isFinite(readyIn) && Math.abs(readyIn - hr.cooldownMs) <= 3 * DT, `repair: repairReadyAt is ${readyIn} ms past the frame, expected ~${hr.cooldownMs} (CONFIG.hullRepair.cooldownMs)`);
+  // (c) A SECOND press inside the cooldown: 'cooling', no new heal cue, the stamp unmoved.
+  const readyAt = a.you.repairReadyAt;
+  const heals0 = heals(a).length;
+  const seq2 = press(a, 'repair');
+  const cooling = await awaitAnswer([a, s], a, seq2, () => heals(a).length > heals0, 'repair: the cooling press is answered');
+  assert(cooling?.reason === 'cooling' && cooling.act === abilityCode('repair'), `repair: the second press answered ${JSON.stringify(cooling)}, expected 'cooling' with act ${abilityCode('repair')}`);
+  assert(heals(a).length === heals0 && a.you.repairReadyAt === readyAt, `repair: the cooling press healed or moved the stamp (${a.you.repairReadyAt} vs ${readyAt})`);
+  log.push(`repair: full hull -> denied '${full.reason}' (act ${full.act}), no cooldown; torpedo ${maxHp}->${hurt}; press -> +${healed.toFixed(2)} hp (instant ${hr.instantHp}), repairReadyAt = t + ${readyIn} ms (cooldown ${hr.cooldownMs}); second press -> denied '${cooling.reason}' (act ${cooling.act}, seq ${cooling.seq})`);
+  // (d) PASSIVE REGEN: once the pool is spent the hull holds, then rises when
+  // outOfCombatMs have passed since the blow.
+  const wait = CONFIG.regen.outOfCombatMs;
+  // Budget: the pool's payout + 2 s of socket slack.
+  await pilotUntil([a, s], () => a.lastT >= healT + hr.regenMs + 4 * DT, hr.regenMs + 2000, 'regen: the repair pool drains');
+  const plateau = a.you.hp;
+  const rising = (p) => p.t > healT && p.hp > plateau + 1e-9;
+  // Budget: what is left of the wait since the blow + 2 s of socket slack.
+  await pilotUntil([a, s], () => a.hpTrace.some(rising), Math.max(0, hitT + wait - a.lastT) + 2000, 'regen: hp starts rising');
+  const first = a.hpTrace.find(rising);
+  // ...and keeps rising at the shared law: replay regenGain tick by tick from the plateau.
+  await holdFor([a, s], 1000);
+  const last = a.hpTrace[a.hpTrace.length - 1];
+  const flat = a.hpTrace.filter((p) => p.hp <= plateau + 1e-9).pop();
+  let want = flat.hp;
+  for (let t = flat.t + DT; t <= last.t + 1e-9; t += DT) want += regenGain(want, maxHp, DT / 1000);
+  log.push(`regen: plateau ${plateau.toFixed(2)} after the pool; first rise ${first.t - hitT} ms after the blow (wait ${wait}); ${flat.hp.toFixed(2)}->${last.hp.toFixed(2)} over ${last.t - flat.t} ms (shared regenGain replay ${want.toFixed(2)})`);
+  assert(first.t - hitT >= wait - DT, `regen: hp rose ${first.t - hitT} ms after the blow, before the ${wait} ms wait`);
+  assert(first.t - hitT <= wait + 4 * DT, `regen: hp rose only ${first.t - hitT} ms after the blow (wait ${wait})`);
+  assert(Math.abs(last.hp - want) <= 0.01 * (maxHp - flat.hp) + 1e-6, `regen: hp ${last.hp} after ${last.t - flat.t} ms, the shared law says ${want}`);
+  await leaveAll([a, s]);
+}
+
+/** PHASE 12 — SMOKE (R2): the cloud at the presser, the stamp, the cooling press. */
+async function smokePhase(log) {
+  const pose = { x: 0, y: 0, heading: 0 };
+  checkPoseWater('smoke', pose);
+  const a = await joinClient('SMK-A', VICTIM, { fit: [], pose });
+  await awaitPosed([a], 'smoke');
+  assert(a.you.smokeReadyAt === undefined && a.clouds.length === 0, `smoke: a fresh hull shows smokeReadyAt ${a.you.smokeReadyAt}, ${a.clouds.length} clouds`);
+  const seq = press(a, 'smoke');
+  const denied = await awaitAnswer([a], a, seq, () => a.clouds.length > 0, 'smoke: the cloud appears');
+  assert(denied === undefined, `smoke: the first press was denied ${JSON.stringify(denied)}`);
+  const cloud = a.clouds[0];
+  const readyIn = a.you.smokeReadyAt - a.lastT;
+  assert(dist(cloud, a.you) <= 1, `smoke: the cloud sits ${dist(cloud, a.you).toFixed(1)} u from the presser`);
+  assert(Number.isFinite(readyIn) && Math.abs(readyIn - CONFIG.countermeasure.cooldownMs) <= 3 * DT, `smoke: smokeReadyAt is ${readyIn} ms past the frame, expected ~${CONFIG.countermeasure.cooldownMs} (CONFIG.countermeasure.cooldownMs)`);
+  const clouds0 = a.clouds.length;
+  const seq2 = press(a, 'smoke');
+  const cooling = await awaitAnswer([a], a, seq2, () => a.clouds.length > clouds0, 'smoke: the second press is answered');
+  await holdFor([a], 4 * DT);
+  assert(cooling?.reason === 'cooling' && cooling.act === abilityCode('smoke'), `smoke: the second press answered ${JSON.stringify(cooling)}, expected 'cooling' with act ${abilityCode('smoke')}`);
+  assert(a.clouds.length === clouds0, `smoke: the cooling press made a cloud (${a.clouds.length} vs ${clouds0})`);
+  log.push(`smoke: press -> cloud ${cloud.id} at (${cloud.x.toFixed(0)},${cloud.y.toFixed(0)}) on the presser, smokeReadyAt = t + ${readyIn} ms (cooldown ${CONFIG.countermeasure.cooldownMs}); second press -> denied '${cooling.reason}' (act ${cooling.act})`);
+  await leaveAll([a]);
+}
+
+/** PHASES 13 + 14 — one kind per family slot, and FLASH SHELLS fired from their slot. */
+async function familySlotsPhase(log) {
+  const pose = { x: 0, y: 0, heading: 0 };
+  checkPoseWater('family', pose);
+  const ask = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'dazzleShells'];
+  const kept = ask.filter((id) => id !== 'heavyTorpedo');
+  const a = await joinClient('FAM-A', VICTIM, { fit: ask, expectCards: kept, pose });
+  await awaitPosed([a], 'family'); // asserts `you.cards` === kept: the heavy was refused
+  const st = statsOf(VICTIM, a.you.cards);
+  const slots = slotsWithCards(st, a.you.cards).map((sl) => sl.equipmentId);
+  const want = { lightTorpedo: familySlotFor('lightTorpedo'), navalMines: familySlotFor('navalMines'), dazzleShells: familySlotFor('dazzleShells') };
+  for (const [id, slot] of Object.entries(want)) {
+    assert(slots[slot] === id, `family: slot ${slot} holds ${slots[slot]}, expected ${id}`);
+    assert(a.you.ammo[slot]?.n === equipmentMaxAmmo(st, id), `family: ammo[${slot}] ${JSON.stringify(a.you.ammo[slot])}, expected ${equipmentMaxAmmo(st, id)} ready (${id})`);
+  }
+  assert(!slots.includes('heavyTorpedo') && familySlotFor('heavyTorpedo') === want.lightTorpedo, `family: the heavy torpedo found a slot (${JSON.stringify(slots)})`);
+  log.push(`family: fit ${JSON.stringify(ask)} -> cards ${JSON.stringify(a.you.cards)}; slots ${JSON.stringify(slots)}; ammo n ${JSON.stringify(a.you.ammo.map((x) => x?.n ?? null))}`);
+  // FLASH SHELLS from their slot, at open water inside sight and beyond the disc.
+  const row = st.equipment.dazzleShells;
+  const shellSlot = want.dazzleShells;
+  const aimDist = Math.round((CONFIG.vision.sight + row.radius) / 2);
+  precondition(aimDist > row.radius + 60 && aimDist < CONFIG.vision.sight && aimDist <= row.rangeU, `flash: aim ${aimDist} u outside (radius + 60, sight) or the reach ${row.rangeU}`);
+  const aim = Math.PI / 2;
+  const aimPt = aimPointOf(pose, aim, aimDist);
+  checkLane('flash', pose, aimPt);
+  let fired = false;
+  a.script = (ctx, inp) => {
+    inp.slot = shellSlot;
+    inp.aim = aim;
+    inp.aimDist = aimDist;
+    if (!fired) inp.fireSeq = ++ctx.fireSeq;
+    fired = true;
+  };
+  const burst = () => a.events.find((e) => e.k === 'burst' && e.f === true);
+  const flightMs = (aimDist / CONFIG.flashShells.shellSpeed) * 1000;
+  // Budget: the shell's flight + 2 s of socket slack.
+  await pilotUntil([a], () => burst() !== undefined, flightMs + 2000, 'flash: the tagged burst');
+  a.script = idle;
+  const b = burst();
+  const pool = a.you.ammo[shellSlot];
+  log.push(`flash: slot ${shellSlot} fired at ${aimDist} u -> burst f=${b.f} r=${b.r} at (${b.x.toFixed(0)},${b.y.toFixed(0)}) (aim (${aimPt.x.toFixed(0)},${aimPt.y.toFixed(0)}), folded radius ${row.radius}); ammo[${shellSlot}] ${JSON.stringify(pool)} (reload ${row.reloadMs})`);
+  assert(b.r === row.radius, `flash: the burst carried r=${b.r}, the folded radius is ${row.radius}`);
+  assert(dist(b, aimPt) <= 5, `flash: the burst landed ${dist(b, aimPt).toFixed(1)} u from the aim point`);
+  assert(pool !== null && pool !== undefined && pool.n === 0 && pool.reloadMsLeft > 0 && pool.reloadMsLeft <= row.reloadMs, `flash: slot ${shellSlot} is not reloading after the shot: ${JSON.stringify(pool)}`);
+  await leaveAll([a]);
+}
+
 async function main() {
   const t0 = Date.now();
   const log = TRACE;
@@ -972,6 +1201,9 @@ async function main() {
   await secondariesPhase(log);
   await secondariesMinePhase(log);
   await mainBatteryMinePhase(log);
+  await repairAndRegenPhase(log);
+  await smokePhase(log);
+  await familySlotsPhase(log);
   assert(TRACE.length > 0, 'empty trace');
   console.log('WEAPONS SMOKE OK:', { seed: MAP_SEED, wall: secs(Date.now() - t0), trace: log });
   process.exit(0);

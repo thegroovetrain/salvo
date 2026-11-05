@@ -15,7 +15,9 @@ import { CATALOG, CONFIG, type GameEvent } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import type { PerceptionView } from '../../src/game/perception.js';
 
-export const FEATURE_VERSION = 3; // Story 8.16: the radar-buoy channel became the DECOY channel (same dims, new meaning) — saved models break
+// 3 → 4 (2026-11-05, Story 10.5): the DECOY channel (K_DECOYS × 4 dims) is
+// GONE with the decoy buoys — FEATURE_DIM shrinks by 8; saved models break.
+export const FEATURE_VERSION = 4;
 
 /** Stable card index: catalog literal insertion order (deterministic). */
 export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(CATALOG));
@@ -23,14 +25,12 @@ export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(CATALOG));
 export const K_CONTACTS = 8;
 export const K_BLIPS = 6;
 export const K_MINES = 4;
-export const K_DECOYS = 2;
 
 const OWN_DIMS = 15;
 const ZONE_DIMS = 8;
 const CONTACT_DIMS = 8;
 const BLIP_DIMS = 4;
 const MINE_DIMS = 4;
-const DECOY_DIMS = 4;
 
 export const FEATURE_DIM =
   OWN_DIMS +
@@ -38,7 +38,6 @@ export const FEATURE_DIM =
   K_CONTACTS * CONTACT_DIMS +
   K_BLIPS * BLIP_DIMS +
   K_MINES * MINE_DIMS +
-  K_DECOYS * DECOY_DIMS +
   CARD_IDS.length * 4 + // offer one-hot per hand slot
   CARD_IDS.length; // build (copies held / 5)
 
@@ -193,14 +192,6 @@ export function featurize(world: World, me: ShipRecord, ctx: FeatureContext): Fl
     out[base + 1] = (m.x - me.state.x) / R;
     out[base + 2] = (m.y - me.state.y) / R;
     out[base + 3] = m.own ? 1 : 0;
-  });
-  // Story 8.16: the nearest decoys this hull can see (the deleted radar
-  // buoy's slots). `hp` is owner-only on the wire, so it is NOT a feature —
-  // an enemy decoy would always read 0 and teach the net a tell.
-  at = writeNearest(out, at, ctx.view.decoys, K_DECOYS, DECOY_DIMS, me, (d, base) => {
-    out[base + 1] = (d.x - me.state.x) / R;
-    out[base + 2] = (d.y - me.state.y) / R;
-    out[base + 3] = d.own ? 1 : 0;
   });
   at = writeOffer(out, at, me);
   writeBuild(out, at, me);

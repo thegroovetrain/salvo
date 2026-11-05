@@ -4,9 +4,7 @@
 // torpedo launches in a bow sector (heading + CONFIG.torpedo.offset ±
 // halfArc); the mine — a click-aimed weapon as of Story 2.8 (amendment 45) —
 // places within a REAR sector (heading + CONFIG.mine.offset ±
-// placeHalfArcDeg) — Story 8.16's DECOY BUOY consumable shared that rear
-// sector until Story 10.9 replaced it with FOUR BUOYS placed at ANY bearing
-// (a 360° `'full'` arc, Eric 2026-10-28 ruling 9); the BROADSIDE BARRAGE fires into one of two
+// placeHalfArcDeg); the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
 // restored verbatim); the class Shifts (boost, instant reload, hunker) aim
 // nothing.
@@ -16,11 +14,14 @@
 // cannon, the machine gun and the flak gun all declare `arc: 'full'` in CONFIG,
 // so no gun click or stream can ever be denied out-of-arc.
 //
-// STORY 8.13 WIDENED IT PAST EQUIPMENT. `arcFor` now takes a `SlotItemId`,
-// because the SUPERCAV TORPEDO is a click-aimed CONSUMABLE (epic-8 amendment
-// 74) and must be arc-checked like any other aimed weapon. With it: the LIGHT
-// TORPEDO declares a TWIN SECTOR (both beams, ±45°, catalog-v3 R18) and
-// FOULING MINES joins the rear placement sector.
+// STORY 8.13: the LIGHT TORPEDO declares a TWIN SECTOR (both beams, ±45°,
+// catalog-v3 R18) and FOULING MINES joins the rear placement sector.
+//
+// STORY 10.5 (2026-11-05, epic-10 amendment 11): the consumable arcs are gone
+// with the kit. The three moved weapons keep the arcs they had as consumables,
+// declared as equipment now — the SUPERCAV TORPEDO's bow ±15° sector, the
+// FOULING SHELL and FLASH SHELLS at 360° — and `arcFor` takes an `EquipmentId`
+// again.
 //
 // Both sides consume THIS function — the server's launch checks and the
 // client's arc classification (render/weaponArc.ts) — so the enforced arc and
@@ -29,18 +30,14 @@
 
 import { CONFIG } from '../constants.js';
 import { inArc, wrapAngle } from '../math/angle.js';
-import { isBuoyLine } from './buoy.js';
-import { isConsumableId } from './loadout.js';
-import type { EquipmentId, SlotItemId } from './loadout.js';
-import type { ConsumableId } from './effects.js';
+import type { EquipmentId } from './loadout.js';
 import type { MineKind } from '../types.js';
 
 /**
  * One equipment id's firing-arc shape:
  * - `full`        — 360°, aimed to the clicked point, never out of arc
  *                   (every gun — cannon, machine gun, flak — star shells,
- *                   phosphor shells, the FOULING SHELL and FLASH SHELLS
- *                   consumables, and the four BUOYS' placement — Story 10.9).
+ *                   phosphor shells, the FOULING SHELL and FLASH SHELLS).
  * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
  *                   (the torpedo's bow arc; the mines' rear placement arc —
  *                   aim outside it is DENIED).
@@ -52,11 +49,9 @@ import type { MineKind } from '../types.js';
  *                   zones — is denied out-of-arc, exactly like a `sector` miss.
  * - `none`        — nothing spatial is aimed or placed (the three Shifts).
  *
- * THE `stern-drop` SHAPE IS DELETED (Story 7-5 wave 2): the decoy buoy was its
- * only user, and the buoys that followed it (the radar buoy, then the 8.16
- * DECOY BUOY consumable) are click-placed in the mine's rear SECTOR. An un-aimed placement grammar with no equipment behind it is a dead
- * branch in every consumer's switch, so it goes with its user rather than
- * waiting for a hypothetical next one.
+ * THE `stern-drop` SHAPE IS DELETED (Story 7-5 wave 2) with its only user: an
+ * un-aimed placement grammar with no equipment behind it is a dead branch in
+ * every consumer's switch.
  */
 export type ArcShape =
   | { kind: 'full' }
@@ -69,43 +64,15 @@ export type ArcShape =
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
- * The ratified arc shape for ANYTHING A SLOT MAY HOLD — equipment or a
- * CONSUMABLE (Story 8.13: the SUPERCAV TORPEDO is a click-aimed belt fish,
- * epic-8 amendment 74, so the arc grammar had to widen past `EquipmentId`).
- * Derived from CONFIG only, and compile-forced to cover every id: a new one
- * cannot ship without declaring its arc here.
+ * The ratified arc shape of a piece of equipment. Derived from CONFIG only,
+ * and compile-forced to cover every id: a new one cannot ship without
+ * declaring its arc here.
  */
-export function arcFor(id: SlotItemId): ArcShape {
-  return isConsumableId(id) ? consumableArc(id) : equipmentArc(id);
+export function arcFor(id: EquipmentId): ArcShape {
+  return equipmentArc(id);
 }
 
-/**
- * A CONSUMABLE's arc. SEVEN lines aim since Story 10.9: the SUPERCAV
- * TORPEDO's bow ±15° sector (`CONFIG.supercavTorpedo`, amendment 74); the
- * FOULING SHELL (`foulingShell`, Story 9.4, Eric 2026-10-11, epic-9 amendments
- * 61–68), a 360° gun-pattern shell (`CONFIG.foulingShell.arc`) whose reach is
- * its own dial, `CONFIG.foulingShell.rangeU` (Story 9.8, ruling 125: 8/12 of
- * the ruler, fixed — a consumable has no tiers); FLASH SHELLS
- * (`dazzleShells`, Story 8.17 amendment 132, RESTORED by Story 10.9 beside the
- * fouling shell), 360° (`CONFIG.flashShells.arc`) at the fouling shell's reach
- * (ruling 2); and the FOUR BUOYS (sim/buoy.ts), click-PLACED at ANY bearing —
- * a 360° `'full'` arc (Eric 2026-10-28, ruling 9: "all buoys ... 360 degree
- * firing arc so they can be placed anywhere around the ship. Placement range
- * should not change") out to the unchanged `CONFIG.mine.placeRange`, which the
- * server's placement clamp reads. The deleted DECOY BUOY was the one consumable
- * in the mine's rear sector; the mines keep it alone now. Every other
- * consumable is an instant key activation that aims nothing.
- */
-function consumableArc(id: ConsumableId): ArcShape {
-  if (id === 'foulingShell') return { kind: CONFIG.foulingShell.arc };
-  if (id === 'dazzleShells') return { kind: CONFIG.flashShells.arc };
-  if (isBuoyLine(id)) return { kind: 'full' };
-  if (id !== 'supercavTorpedo') return { kind: 'none' };
-  return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
-}
-
-/** The MINE's rear placement sector — shared by the three mine lines (and,
- *  until Story 10.9 deleted it, the DECOY BUOY consumable). */
+/** The MINE's rear placement sector — shared by the three mine lines. */
 function mineSector(): ArcShape {
   return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
 }
@@ -122,19 +89,18 @@ function mineSector(): ArcShape {
  * as the guard against a fourth kind.
  *
  * It sits in `arcs.ts` because the rear placement sector is what makes these
- * ids one family in the first place. (The legacy radar buoy shared it until
- * Story 8.16 deleted the buoy; the DECOY BUOY consumable shares it now, via
- * `consumableArc`, but it is not a mine line.)
+ * ids one family in the first place — the same three ids `EQUIPMENT_FAMILY`
+ * (sim/loadout.ts) files under the `mine` slot family.
  */
 export const MINE_EQUIPMENT_IDS = ['navalMines', 'captiveMines', 'foulingMines'] as const satisfies
   readonly EquipmentId[];
 
-/** One of the three mine LINES (never the decoy buoy). */
+/** One of the three mine LINES. */
 export type MineEquipmentId = (typeof MINE_EQUIPMENT_IDS)[number];
 
 /** Pure: is this slot content one of the three MINE lines? Accepts a null so
  *  every "what is in this slot" caller can ask it directly. */
-export function isMineEquipment(id: SlotItemId | null): id is MineEquipmentId {
+export function isMineEquipment(id: EquipmentId | null): id is MineEquipmentId {
   return id !== null && (MINE_EQUIPMENT_IDS as readonly string[]).includes(id);
 }
 
@@ -187,8 +153,15 @@ export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
  * weapon's arc is 360° — which turrets bear on a bearing is sim/turrets.ts
  * `gunsBearing`, never this grammar.
  */
-const CONFIG_ARC_ROWS = ['gun', 'machineGun', 'flak', 'starShells', 'phosphorShells', 'mainBattery'] as const satisfies
-  readonly EquipmentId[];
+const CONFIG_ARC_ROWS = [
+  'gun',
+  'machineGun',
+  'flak',
+  'starShells',
+  'phosphorShells',
+  'mainBattery',
+  'foulingShell', // 360° gun-pattern shell (Story 9.4; equipment since 10.5)
+] as const satisfies readonly EquipmentId[];
 
 function isConfigArcRow(id: EquipmentId): id is (typeof CONFIG_ARC_ROWS)[number] {
   return (CONFIG_ARC_ROWS as readonly EquipmentId[]).includes(id);
@@ -202,6 +175,10 @@ function equipmentArc(id: EquipmentId): ArcShape {
       return { kind: 'twin-sector', offset: CONFIG.lightTorpedo.offset, halfArc: CONFIG.lightTorpedo.halfArc };
     case 'heavyTorpedo':
       return { kind: 'sector', offset: CONFIG.torpedo.offset, halfArc: CONFIG.torpedo.halfArc };
+    case 'supercavTorpedo': // the bow ±15° sector (amendment 74's arc, kept by Story 10.5)
+      return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
+    case 'dazzleShells': // FLASH SHELLS: 360°, its arc lives on `CONFIG.flashShells` (the id and the block differ)
+      return { kind: CONFIG.flashShells.arc };
     case 'broadside':
       return {
         kind: 'twin-sector',
@@ -234,12 +211,11 @@ function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): ArcShape {
 
 /**
  * The narrowed `sector` descriptor for an id DECLARED a sector (the heavy
- * torpedo's bow arc; the supercav's; the three mines' and the decoy buoy's
- * rear placement arc). Throws on any other shape — a CONFIG/arcs authoring
+ * torpedo's bow arc; the supercav's; the three mines' rear placement arc). Throws on any other shape — a CONFIG/arcs authoring
  * error, failed loudly at module load rather than mid-tick. Pure (a throw,
  * never I/O).
  */
-export function sectorArcFor(id: SlotItemId): Extract<ArcShape, { kind: 'sector' }> {
+export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector' }> {
   const arc = arcFor(id);
   if (arc.kind !== 'sector') throw new Error(`'${id}' arc must be a sector (sim/arcs.ts)`);
   return arc;
@@ -250,7 +226,7 @@ export function sectorArcFor(id: SlotItemId): Extract<ArcShape, { kind: 'sector'
  * BROADSIDE BARRAGE's two beams; the LIGHT TORPEDO's two beam tubes). Throws
  * on any other shape — same authoring-error law as sectorArcFor.
  */
-export function twinSectorArcFor(id: SlotItemId): Extract<ArcShape, { kind: 'twin-sector' }> {
+export function twinSectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'twin-sector' }> {
   const arc = arcFor(id);
   if (arc.kind !== 'twin-sector') throw new Error(`'${id}' arc must be a twin-sector (sim/arcs.ts)`);
   return arc;

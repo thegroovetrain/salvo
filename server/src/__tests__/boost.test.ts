@@ -7,7 +7,7 @@
 // a fixed seed or scripted input.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, SHIFT_IDS, SHIP_CLASS_IDS, SLOT_BOOST, SLOT_COUNT, consumableSlotFor, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, SHIFT_IDS, SHIP_CLASS_IDS, SLOT_BOOST, abilityCode, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -45,12 +45,14 @@ function place(w: World, id: string, hull: ShipClassId = 'bismarck', heading = 0
 
 /** A full, valid input; fireSeq 0 / actSeq 0 mean no click / no activation. */
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Submit an activation press (actSeq advance) for `id`. */
-function pressActivate(w: World, id: string, seq: number, actSeq: number, actSlot: number, throttle = 0): void {
-  w.submitInput(id, makeInput({ seq, throttle, actSeq, actSlot, hornSeq: 0, held: false, sec: false }));
+/** Story 10.5: the press names its ABILITY (`act`), not a slot — the Shift
+ *  is `abilityCode('shift')` and always activates slot 1. `act` defaults to it. */
+function pressActivate(w: World, id: string, seq: number, actSeq: number, act: number = abilityCode('shift'), throttle = 0): void {
+  w.submitInput(id, makeInput({ seq, throttle, actSeq, act, hornSeq: 0, held: false, sec: false }));
 }
 
 // ---------- structural invariant ---------------------------------------------
@@ -72,7 +74,7 @@ describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step(); // applyInputs -> ... -> activationControl fires the boost
     expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.boost.reloadMs }); // the RELOAD-folded reload
@@ -83,7 +85,7 @@ describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.state.speed = TB_MAX; // already at the un-boosted cap
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + activate
+    pressActivate(w, 'a', 1, 1, abilityCode('shift'), 1); // full ahead + activate
     for (let i = 0; i < 40; i++) w.step(); // 2s: well inside the 10s window
     expect(a.boostUntil).toBeGreaterThan(w.now); // still active
     expect(a.state.speed).toBeGreaterThan(TB_MAX + 1); // provably above the base cap
@@ -119,7 +121,7 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now);
     // THE BOTS' RATED READ IS UNTOUCHED (amendment 55): the bonus is layered
@@ -132,7 +134,7 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.state.speed = TB_MAX;
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + tap
+    pressActivate(w, 'a', 1, 1, abilityCode('shift'), 1); // full ahead + tap
     run(w, 100); // 5 s — inside the window, long past the accel ramp
     expect(a.boostUntil).toBeGreaterThan(w.now);
     expect(a.stats.kinematics.maxSpeed).toBe(TB_MAX); // rated, un-carded
@@ -149,7 +151,7 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     expect(rated).toBeGreaterThan(TB_MAX); // the ladder did raise it...
     expect(rated).toBe(effectiveStats(b.cls, b.cards).kinematics.maxSpeed); // ...and the read STILL rated
     b.state.speed = rated;
-    pressActivate(w2, 'b', 1, 1, SLOT_BOOST, 1);
+    pressActivate(w2, 'b', 1, 1, abilityCode('shift'), 1);
     run(w2, 100);
     expect(b.boostUntil).toBeGreaterThan(w2.now);
     expect(b.state.speed).toBeCloseTo(rated * (1 + BOOST.factor), 6);
@@ -158,27 +160,27 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
   it('a second tap INSIDE the window is no-ammo — the charge is in the 25 s pool', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     const opened = a.boostUntil;
     run(w, 20); // 1 s into the 10 s window
     expect(a.boostUntil).toBeGreaterThan(w.now); // still active
-    pressActivate(w, 'a', 2, 2, SLOT_BOOST); // TAP AGAIN through the real path
+    pressActivate(w, 'a', 2, 2); // TAP AGAIN through the real path
     w.step();
     expect(a.boostUntil).toBe(opened); // window NOT extended, NOT restarted
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
-  it('RELOAD cards shorten the pool by the global cooldownScale and leave the window alone', () => {
-    // R40: the reload rides the ONE cooldownScale multiply in clampStats like
-    // every equipment row. The DURATION is not a reload and no card addresses it.
+  it('RELOAD cards leave the boost cooldown AND the window alone (Story 10.5, R10)', () => {
+    // R40 superseded: RELOAD is the main battery's stat; a Shift reloads on its
+    // own number. The DURATION is not a reload and no card addresses it.
     const w = bareWorld();
     const a = place(w, 'a');
     stack(w, a, 'reload', CATALOG.reload.cap);
     expect(a.stats.cooldownScale).toBeLessThan(1);
-    expect(a.stats.equipment.boost.reloadMs).toBe(BOOST.reloadMs * a.stats.cooldownScale);
+    expect(a.stats.equipment.boost.reloadMs).toBe(BOOST.reloadMs);
     expect(a.stats.equipment.boost.durationMs).toBe(BOOST.durationMs);
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.boost.reloadMs });
     expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
@@ -191,7 +193,7 @@ describe('activate while cooling (== while active, reload >= duration)', () => {
   it('the second activation is denied no-ammo and changes no state', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     const openWindow = a.boostUntil;
     expect(openWindow).toBeGreaterThan(w.now); // active -> pool is cooling
@@ -223,51 +225,29 @@ describe('a dead ship cannot activate', () => {
     w.respawnEnabled = false;
     w.sinkShip('a');
     w.step(CONFIG.ship.sinkingWindowMs); // Story 5.2: cross the window first
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     expect(a.boostUntil).toBe(0); // no activation
   });
 });
 
-// ---------- actSeq targets abilities ONLY (weapon / empty slots inert) --------
+// ---------- actSeq names an ABILITY, never a slot (Story 10.5) -------------
 
-describe('actSeq is inert on a weapon or empty slot', () => {
-  it('a weapon slot (TB slot 2 = torpedo): actSeq advance launches NO fish and opens NO window', () => {
+describe('actSeq is inert on anything but a known ability code', () => {
+  it('a Shift press (act = shift) never fires the fitted torpedo: no fish, the boost opens', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     expect(a.loadout[SLOT_TORPEDO].equipmentId).toBe('heavyTorpedo');
-    pressActivate(w, 'a', 1, 1, SLOT_TORPEDO); // actSeq on a WEAPON slot
+    pressActivate(w, 'a', 1, 1);
     w.step();
-    expect(a.boostUntil).toBe(0);
     expect(w.shells.size).toBe(0); // a click (fireSeq) fires weapons — actSeq never does
-    expect(a.lastActSeq).toBe(1); // counter still advanced (consumed, then inert)
+    expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
   });
 
-  it('the gun slot (0, a weapon on every hull): actSeq advance is inert', () => {
+  it('a directly assigned input with an UNKNOWN act code is consumed and inert (the World backstop)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    pressActivate(w, 'a', 1, 1, 0);
-    w.step();
-    expect(a.boostUntil).toBe(0);
-    expect(w.shells.size).toBe(0); // no shell — actSeq never fires a weapon
-  });
-
-  it('an empty WEAPON slot (3): actSeq advance is inert (no dereference, no state change)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    expect(a.loadout[3]).toEqual({ equipmentId: null, state: null });
-    pressActivate(w, 'a', 1, 1, 3);
-    w.step();
-    expect(a.boostUntil).toBe(0);
-  });
-
-  it('an empty BELT slot (the last kit line\'s, the last index): actSeq advance is inert', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    const last = consumableSlotFor(a.kit, a.kit[a.kit.length - 1])!;
-    expect(last).toBe(SLOT_COUNT - 1);
-    expect(a.loadout[last]).toEqual({ equipmentId: null, state: null });
-    pressActivate(w, 'a', 1, 1, last);
+    a.input = makeInput({ seq: 1, actSeq: 1, act: 99 });
     w.step();
     expect(a.boostUntil).toBe(0);
     expect(a.lastActSeq).toBe(1); // consumed, then inert
@@ -288,7 +268,7 @@ describe('the boost is the SEAT\'s Shift pick (Story 10.4 — no longer a class 
       expect(a.shift).toBe(DEFAULT_SHIFT);
       expect(a.loadout[SLOT_BOOST].equipmentId).toBe(DEFAULT_SHIFT);
       expect(a.loadout[SLOT_BOOST].state).toEqual({ n: BOOST.maxAmmo, reloadMsLeft: 0 });
-      pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+      pressActivate(w, 'a', 1, 1);
       w.step();
       expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
       expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.boost.reloadMs });
@@ -305,7 +285,7 @@ describe('the boost is the SEAT\'s Shift pick (Story 10.4 — no longer a class 
       expect(a.loadout.some((s) => s.equipmentId === 'boost')).toBe(false);
       const cap = a.stats.kinematics.maxSpeed;
       a.state.speed = cap;
-      pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + the Shift edge
+      pressActivate(w, 'a', 1, 1, abilityCode('shift'), 1); // full ahead + the Shift edge
       for (let i = 0; i < 40; i++) w.step();
       expect(a.boostUntil).toBe(0); // the row in slot 1 is not the boost
       expect(a.state.speed).toBeLessThanOrEqual(cap + 1e-6); // never past the rated cap
@@ -320,7 +300,7 @@ describe('boost expiry', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.state.speed = TB_MAX;
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + activate
+    pressActivate(w, 'a', 1, 1, abilityCode('shift'), 1); // full ahead + activate
     for (let i = 0; i < 60; i++) w.step(); // 3s in — mid-window, near the boosted cap
     const boostedSpeed = a.state.speed;
     expect(boostedSpeed).toBeGreaterThan(TB_MAX + 1); // it really was boosted
@@ -339,7 +319,7 @@ describe('death/respawn state reset (Story 1.6)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     // Activate, then keep the SAME stored input (actSeq 1) live across the death.
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     expect(a.boostUntil).toBeGreaterThan(0);
     const lastActSeq = a.lastActSeq;
@@ -378,15 +358,15 @@ describe('the actSeq gate is monotonic', () => {
   it('a repeated or regressing actSeq never re-activates the boost', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    pressActivate(w, 'a', 1, 5, SLOT_BOOST); // first activation at actSeq 5
+    pressActivate(w, 'a', 1, 5); // first activation at actSeq 5
     w.step();
     const openWindow = a.boostUntil;
     expect(openWindow).toBeGreaterThan(0);
     expect(a.lastActSeq).toBe(5);
     // Repeat the SAME counter (5) then a LOWER one (3): neither out-runs lastActSeq.
-    w.submitInput('a', makeInput({ seq: 2, actSeq: 5, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
+    w.submitInput('a', makeInput({ seq: 2, actSeq: 5, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step();
-    w.submitInput('a', makeInput({ seq: 3, actSeq: 3, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
+    w.submitInput('a', makeInput({ seq: 3, actSeq: 3, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step();
     expect(a.lastActSeq).toBe(5); // never regressed
     // Even if the pool had a charge, no NEW activation happened (window unchanged
@@ -419,7 +399,7 @@ describe('death during boost — Story 5.2 supersedes the 1.6 instant close', ()
   it('a live boost rides through the sinking window (amendment 10) and founder zeroes it', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // mid-window
     w.respawnEnabled = false;
@@ -448,7 +428,7 @@ describe('boostUntil is owner-only (anti-cheat)', () => {
     const a = place(w, 'a');
     const b = place(w, 'b');
     b.state = { x: 100, y: 0, heading: 0, speed: 0 }; // inside a's sight (220u)
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    pressActivate(w, 'a', 1, 1);
     w.step();
     expect(a.boostUntil).toBeGreaterThan(0);
 

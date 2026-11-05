@@ -51,7 +51,7 @@ function hull(w: World, id: string, x: number, y: number, heading = Math.PI / 2)
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Click at `dist` along `aim`, then run until the shell resolves. */
@@ -109,7 +109,7 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
       maxAmmo: FLAK.maxAmmo, reloadMs: FLAK.reloadMs, damage: FLAK.damage, burstRadius: FLAK.burstRadius, contactDamage: FLAK.contactDamage,
     });
     expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
-    expect(FLAK.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
+    expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance']); // the decoy kind left with Story 10.5
   });
 
   it('a click at 300 u: the shell bursts AT the click, the falloff hit to a hull 30 u off the point, one `hc`, `w: flak`', () => {
@@ -246,15 +246,15 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
     expect(w.torpWakes.has('near')).toBe(false); // its ribbon detached into the orphan store
   });
 
-  it('a fish never reaches the burst DAMAGE loop: no damageDecoy call for it, and a fish-only blast is `sp`, not `hc`', () => {
+  it('a fish never reaches the burst DAMAGE loop: no burstDamage call for it, and a fish-only blast is `sp`, not `hc`', () => {
     const w = bareWorld();
     flakker(w, 'a');
     hull(w, 'b', 2000, 2000);
     fish(w, 'enemy-fish', 'b', 300, 20);
-    const spy = vi.spyOn(w as unknown as { damageDecoy: (id: string, n: number, by: string) => boolean }, 'damageDecoy');
+    const spy = vi.spyOn(w as unknown as { burstDamage: (shell: unknown, t: { id: string }, at: unknown) => number }, 'burstDamage');
     const log = click(w, 'a', 300);
     expect(w.shells.has('enemy-fish')).toBe(false); // still removed, by the ordnance loop
-    expect(spy.mock.calls.some(([id]) => id === 'enemy-fish')).toBe(false);
+    expect(spy.mock.calls.some(([, t]) => t.id === 'enemy-fish')).toBe(false);
     expect(count(log, 'sp')).toBe(1);
     expect(count(log, 'hc')).toBe(0);
   });

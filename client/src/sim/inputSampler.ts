@@ -20,7 +20,7 @@ export interface Aiming {
   slot: number; // primed loadout slot (0 = gun) — the click's wire slot
   fireT: number; // ms — server-clock estimate at the last click (mouse.lastClickT); 0 = no claim
   actSeq: number; // cumulative ability-activation counter (keyboard.actSeq); 0 = never
-  actSlot: number; // loadout slot of the latest ability activation (0 sentinel)
+  act: number; // ability wire code of the latest activation (shared `abilityCode`; 0 = the Shift, also the sentinel) — Story 10.5
   /** THE HELD-FIRE LEVEL (Story 8.15): the live canvas hold OR a press latched
    *  since the last sample (`MouseInput.consumeHeld`). Drives the machine gun's
    *  stream server-side; every other weapon ignores it. */
@@ -123,7 +123,7 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming, hornSeq = 0)
     slot: aiming.slot,
     fireT: aiming.fireT,
     actSeq: aiming.actSeq,
-    actSlot: aiming.actSlot,
+    act: aiming.act,
     hornSeq,
     held: aiming.held,
     sec: aiming.sec,
@@ -140,7 +140,7 @@ export class InputSampler {
     slot: SLOT_GUN,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0,
+    act: 0,
     held: false,
     sec: false,
   };
@@ -209,10 +209,10 @@ export class InputSampler {
    * with `currentFireSeq` so a gap-click carries its honest fire instant (D1);
    * falls back to the last-sampled aiming's fireT when omitted. The ability
    * counters mirror fireSeq's treatment exactly (Story 1.6): `currentActSeq` /
-   * `currentActSlot` are the keyboard's live values at hide time, so an
+   * `currentAct` are the keyboard's live values at hide time, so an
    * ability press landing in the ≤1-tick gap since the last sample activates
    * NOW instead of on refocus; the max() guard keeps the wire counter
-   * monotonic, and `actSlot` only adopts the live slot when the live counter
+   * monotonic, and `act` only adopts the live ability code when the live counter
    * is genuinely newer. Keeps the last aim bearing / aim distance / primed
    * slot and a monotonic seq shared with sample(), so it slots into local
    * prediction exactly like a regular tick. `held` and `sec` are always false
@@ -224,17 +224,17 @@ export class InputSampler {
     currentFireSeq?: number,
     currentFireT?: number,
     currentActSeq?: number,
-    currentActSlot?: number,
+    currentAct?: number,
   ): InputMsg {
     this.seq += 1;
     const fireSeq = Math.max(this.lastAiming.fireSeq, currentFireSeq ?? 0);
     const fireT = currentFireT ?? this.lastAiming.fireT;
     const live = (currentActSeq ?? 0) > this.lastAiming.actSeq; // a gap-press since the last sample
     const actSeq = live ? (currentActSeq ?? 0) : this.lastAiming.actSeq;
-    const actSlot = live ? (currentActSlot ?? this.lastAiming.actSlot) : this.lastAiming.actSlot;
+    const act = live ? (currentAct ?? this.lastAiming.act) : this.lastAiming.act;
     // `held` IS FORCED FALSE (Story 8.15): a hidden or blurred tab must never
     // leave the machine gun streaming on the server's latest-input model.
-    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot, held: false, sec: false };
+    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, act, held: false, sec: false };
     // The honk counter needs no gap-handling parameter: it lives on the sampler
     // itself, so a press landing in the <=1-tick gap before the tab hid is
     // already reflected here and sounds NOW rather than on refocus (the fireSeq

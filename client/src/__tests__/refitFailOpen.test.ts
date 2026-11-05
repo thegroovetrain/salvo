@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, DEFAULT_CLASS_ID, effectiveStats, type OwnShip } from '@salvo/shared';
 import { cardHoverRows, cardStatRows } from '../ui/boonCopy.js';
-import { beltPressDenied } from '../input/keyboard.js';
+import { cooldownAbilityDenied } from '../input/keyboard.js';
 
 const KNOWN = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
 const UNKNOWN = { cls: 'notAHull', cards: [] as string[] };
@@ -27,65 +27,57 @@ describe('the refit card rows — an unresolvable hull renders nothing, never th
     expect(cardStatRows(CATALOG.reload, 0, KNOWN as never).length).toBeGreaterThan(0);
     for (const def of Object.values(CATALOG)) {
       expect(() => cardStatRows(def, 0, UNKNOWN as never), def.id).not.toThrow();
-      if (def.kind !== 'consumable') expect(cardStatRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
+      expect(cardStatRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
     }
   });
 
   // CYCLE 158 (amendment 187): the hover panel is the card's AFTER-fold stat
   // table now, so it goes through the same class lookup — and must fail open
-  // the same way: no rows (no panel) on an unresolvable hull, never a throw,
-  // while a consumable's CONFIG rows need no hull at all.
+  // the same way: no rows (no panel) on an unresolvable hull, never a throw.
   it('the hover rows go silent on an unresolvable hull, and never throw', () => {
     for (const def of Object.values(CATALOG)) {
       expect(() => cardHoverRows(def, 0, UNKNOWN as never), def.id).not.toThrow();
-      if (def.kind !== 'consumable') expect(cardHoverRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
+      expect(cardHoverRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
     }
     expect(cardHoverRows(CATALOG.armor, 0, KNOWN as never).length).toBeGreaterThan(0);
-    expect(cardHoverRows(CATALOG.hullRepair, 0, UNKNOWN as never).length).toBeGreaterThan(0);
   });
 });
 
-describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
-  // STORY 8.8 moved the "is my hull already full?" guard off the deleted DAMAGE
-  // CONTROL rail and onto the BELT: a stocked HULL REPAIR square pre-denies its
-  // own press at full hull, so the same fail-open rule has to hold here — an
-  // unknown hull must NOT be told it is full.
+describe('cooldownAbilityDenied — an unresolvable hull never claims FULL', () => {
+  // STORY 8.8's belt guard, RE-HOMED on the `C` key by Story 10.5 (2026-11-05,
+  // epic-10 amendment 11): a HULL REPAIR press pre-denies at full hull, so the
+  // same fail-open rule has to hold — an unknown hull must NOT be told it is
+  // full. The stamp is absent (ready) throughout, so only the hull decides.
+  const facts = (hp: number, maxHp: number, sinking = false) => ({ hp, maxHp, sinking, now: 0 });
 
-  // The boundary, not a trivially-large number (review gate): `hp >= maxHp` is
-  // the comparison under test, so exercise it AT the cap and one below it. A
-  // `hp: 10_000` control would survive an inverted comparison.
+  // The boundary, not a trivially-large number (review gate): exercise it AT
+  // the cap and one below it.
   it('denies at exactly full health and allows one point below (the control)', () => {
     const maxHp = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).maxHp;
-    expect(beltPressDenied('hullRepair', maxHp, maxHp, false)).toBe(true);
-    expect(beltPressDenied('hullRepair', maxHp - 1, maxHp, false)).toBe(false);
+    expect(cooldownAbilityDenied('repair', facts(maxHp, maxHp))).toBe(true);
+    expect(cooldownAbilityDenied('repair', facts(maxHp - 1, maxHp))).toBe(false);
   });
 
   it('mirrors amendment 53: under 1 hp missing IS full, a whole point missing is not', () => {
-    // The client's pre-denial and the server row must agree on the WORD "full",
-    // or a press the client lets through comes back `blocked` (a wasted round
-    // trip and a denied pulse a beat late). Both now read the shared
-    // `hullIsFull` — under 1 hp missing is full, which is exactly where a
-    // fractional storm bite or the geometric regen parks a hull.
-    expect(beltPressDenied('hullRepair', 349.5, 350, false)).toBe(true);
-    expect(beltPressDenied('hullRepair', 349, 350, false)).toBe(false);
+    // The client's pre-denial and the server's refusal must agree on the WORD
+    // "full" — both read the shared `hullIsFull` through `repairRefusal`.
+    const maxHp = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).maxHp;
+    expect(cooldownAbilityDenied('repair', facts(maxHp - 0.5, maxHp))).toBe(true);
+    expect(cooldownAbilityDenied('repair', facts(maxHp - 1, maxHp))).toBe(false);
   });
 
   it('lets the press THROUGH for an unresolvable hull rather than claiming full', () => {
-    // The conservative direction is deliberate: falsely reporting FULL would
-    // deny a player a heal they need, which is worse than sending a press the
-    // server refuses. A hull whose maxHp cannot be derived is never denied here.
     for (const maxHp of [Number.NaN, Number.POSITIVE_INFINITY, 0, -1]) {
-      expect(beltPressDenied('hullRepair', 10_000, maxHp, false)).toBe(false);
+      expect(cooldownAbilityDenied('repair', facts(10_000, maxHp))).toBe(false);
     }
   });
 
-  it('never denies a square that does not hold HULL REPAIR', () => {
+  it('never denies SMOKE for a full hull — only HULL REPAIR has that refusal', () => {
     const maxHp = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).maxHp;
-    expect(beltPressDenied('countermeasure', maxHp, maxHp, true)).toBe(false);
-    expect(beltPressDenied(null, maxHp, maxHp, true)).toBe(false);
+    expect(cooldownAbilityDenied('smoke', facts(maxHp, maxHp))).toBe(false);
   });
 
   it('denies a sinking hull whatever its hp reads', () => {
-    expect(beltPressDenied('hullRepair', 1, 350, true)).toBe(true);
+    expect(cooldownAbilityDenied('repair', facts(1, 350, true))).toBe(true);
   });
 });

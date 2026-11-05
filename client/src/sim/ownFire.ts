@@ -26,7 +26,7 @@
 // back across our bow would eat a standing latch — the exact misattribution the
 // one-shot rule above exists to prevent, arriving by a different door.
 
-import type { SlotItemId } from '@salvo/shared';
+import type { EquipmentId } from '@salvo/shared';
 import type { OwnFire } from '../render/projectiles.js';
 
 /**
@@ -48,9 +48,9 @@ export const OWN_FIRE_WINDOW_MS = 400;
  *
  *  STORY 8.13 ADDED TWO FISH: the LIGHT TORPEDO (its own line) and the SUPERCAV
  *  TORPEDO, which is a BELT consumable (epic-8 amendment 74) and is exactly why
- *  the list is typed over `SlotItemId` rather than `EquipmentId` — a stack can
+ *  the list is typed over `EquipmentId` rather than `EquipmentId` — a stack can
  *  fire a torpedo now. */
-const BALLISTIC: readonly SlotItemId[] = [
+const BALLISTIC: readonly EquipmentId[] = [
   'gun', 'broadside', 'starShells', 'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
   // STORY 8.15: the FLAK GUN fires one shell per click, exactly like the
   // cannon. The MACHINE GUN is deliberately ABSENT: a click never fires it (the
@@ -73,7 +73,7 @@ const BALLISTIC: readonly SlotItemId[] = [
 ];
 
 /** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */
-export function isBallisticFire(id: SlotItemId): boolean {
+export function isBallisticFire(id: EquipmentId): boolean {
   return BALLISTIC.includes(id);
 }
 
@@ -83,7 +83,7 @@ export function isBallisticFire(id: SlotItemId): boolean {
  * on the Game record); every rule about it is on the three methods below.
  */
 export class OwnFireLatch {
-  private held: { id: SlotItemId; t: number } | null = null;
+  private held: { id: EquipmentId; t: number } | null = null;
   /** Server-clock instant the local captain was last sampled HOLDING the
    *  machine gun's stream (Story 8.15); -Infinity = never / cleared. */
   private streamT = -Infinity;
@@ -94,7 +94,7 @@ export class OwnFireLatch {
    * would leave a stale claim for the next reveal to pick up) — that gate lives
    * at the callsite, which is the only place the prediction exists.
    */
-  latch(id: SlotItemId, t: number): void {
+  latch(id: EquipmentId, t: number): void {
     this.held = { id, t };
   }
 

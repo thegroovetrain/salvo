@@ -297,7 +297,7 @@ class PacifistControl implements CaptainControl {
     // drain at most one banked level per tick through the REAL spend flow.
     if (ship.offer !== null) {
       // null = every card in the hand is refused (review F4): hold the level.
-      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId), ship.kit);
+      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId));
       if (choice !== null) world.spendPoint(this.id, choice);
     }
     if (!isAfloat(ship.lifecycle)) {
@@ -387,7 +387,7 @@ class PacifistControl implements CaptainControl {
       slot: SLOT_GUN,
       fireT: 0,
       actSeq: 0,
-      actSlot: SLOT_GUN, hornSeq: 0, held: false, sec: false, // slot 0 on the ability channel: inert (the battery is a weapon)
+      act: 0, hornSeq: 0, held: false, sec: false, // act read only on an actSeq advance; actSeq never moves
     };
   }
 
@@ -405,7 +405,7 @@ class PacifistControl implements CaptainControl {
       slot: SLOT_GUN,
       fireT: 0, // in-process: no latency, no claim (zero compensation)
       actSeq: 0,
-      actSlot: SLOT_GUN, hornSeq: 0, held: false, sec: false, // slot 0 on the ability channel: inert (the battery is a weapon)
+      act: 0, hornSeq: 0, held: false, sec: false, // act read only on an actSeq advance; actSeq never moves
     };
   }
 

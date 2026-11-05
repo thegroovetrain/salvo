@@ -3,45 +3,41 @@
 //
 // The design of record is DESIGN.md `{components.loadout-block}` + mockup
 // `countdown-results-1.html` frame 2: a section head `LOADOUT`, then the HUD
-// bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R · the framed
-// belt — the ship's four-line kit, keys 1–4 since Story 10.1 — in key order,
-// zero-stock included, each with its key chip), then the line of the ship
-// ladders. Story 9.11 (epic-9 amendment 151) put the twin back
-// on one row with the live bar; Story 9.2's two-row stack is retired.
+// bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R, each with
+// its key chip), then the line of the ship ladders. STORY 10.5 (2026-11-05,
+// epic-10 amendment 11): the framed consumable belt left with the kit. The two
+// cooldown abilities (`C` HULL REPAIR / `V` SMOKE) close the row after `R`, in
+// the bar's own square order (Eric 2026-11-05: the strip draws C and V too) —
+// the square index space is render/hotbarSquares.ts.
 //
 // A DOM TWIN, NOT A SECOND DERIVATION. The modal is DOM chrome, so the boxes are
 // drawn twice — but every fact inside them comes from the bar's own sources:
 //   • the glyph      `equipmentGlyphSvg` (the refit card's DOM glyph path)
 //   • the tier       `slotTier` (the gun's rung off the fold, amendment 70)
-//   • the stock      `stockBadgeText` (the bar's `×n`; zero/absent ⇒ no badge)
 //   • the ramp       `tierRamp.ts` (the refit card's five tokens)
 //   • the ladders    `cardTierSteps` over `boonStackCount`
 //   • every size     `CLIENT_CONFIG.hudBar` × LOADOUT_SCALE
 // No name renders on the row: the glyph is the name. An empty weapon square is
-// the bar's own dashed box and `—`; a consumable kind whose stock ended at zero
-// (it has left `cards`, Eric R4) is the bar's ZERO-STOCK square — dashed, its
-// own glyph faint — never `×0` and never a word.
+// the bar's own dashed box and `—`.
 //
 // THE 9 PX FLOOR (amendment 43) binds the RENDERED size: the SQUARES scale to
-// .72, the TEXT does not — numerals, badges, chips and ladder labels all render
+// .72, the TEXT does not — numerals, chips and ladder labels all render
 // at ≥ 9 px (9 × .72 would be 6.5 px). `results.test.ts` walks every element in
 // the block and pins it.
 
 import {
   CATALOG,
-  CONSUMABLE_SLOTS,
   SLOT_BOOST,
-  SLOT_COUNT,
   boonStackCount,
-  consumableKindAt,
-  isConsumableId,
+  type CooldownAbilityId,
+  type EquipmentId,
   type LineId,
-  type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { SLOT_KEY_GLYPHS, stockBadgeText, slotTier } from '../render/equipmentInfo.js';
+import { SLOT_KEY_GLYPHS, slotTier } from '../render/equipmentInfo.js';
+import { HOTBAR_SQUARE_COUNT, abilityAtSquare } from '../render/hotbarSquares.js';
 import { boonName, cardTierSteps } from './boonCopy.js';
 import { romanTier, tierTint } from './tierRamp.js';
 import { SECTION_HEAD_CSS, type ResultsOwn } from './results.js';
@@ -64,32 +60,20 @@ export const LOADOUT_TEXT_FLOOR_PX = 9;
  *  gap is the bar's one horizontal gap (mock `.lo-row { gap: 16px }`). */
 export const LOADOUT_PX = {
   slot: scaled(B.slot),
-  beltSlot: scaled(B.beltSlot),
   icon: scaled(B.icon),
-  beltIcon: scaled(B.beltIcon),
   slotGap: scaled(B.slotGap),
-  beltGap: scaled(B.beltGap),
-  groupGap: scaled(B.globeGap),
-  beltPadTop: scaled(B.beltPad.top),
-  beltPadSide: scaled(B.beltPad.side),
-  beltPadBottom: scaled(B.beltPad.bottom),
   chipH: scaled(B.chipH),
   chipMinW: scaled(B.chipMinW),
   chipPadX: scaled(B.chipPadX),
   chipGap: scaled(B.chipGap),
-  badge: scaled(B.badge),
-  badgeOverhang: scaled(B.badgeOverhang),
-  beltBadgeOverhang: scaled(B.beltBadgeOverhang),
   tierRight: scaled(B.tierInset.right),
   tierBottom: scaled(B.tierInset.bottom),
 } as const;
 
-/** Text sizes: the bar's own registers, floored — never scaled. The badge takes
- *  the floor itself so its `×n` fits the .72 badge box. */
+/** Text sizes: the bar's own registers, floored — never scaled. */
 const TEXT = {
   chip: Math.max(LOADOUT_TEXT_FLOOR_PX, B.type.chip),
   tier: Math.max(LOADOUT_TEXT_FLOOR_PX, B.type.tier),
-  badge: LOADOUT_TEXT_FLOOR_PX,
 } as const;
 
 const P = LOADOUT_PX;
@@ -145,8 +129,6 @@ const SHIFT_SKIN: SquareSkin = {
   iconAlpha: 0.85,
 };
 const EMPTY_BORDER = `1px dashed ${cssRgba(C.textMuted, 0.45)}`;
-/** The ZERO-STOCK glyph's alpha (hotbar.ts `SKINS.zeroStock`, mock `.slot.zero`). */
-const ZERO_STOCK_ICON_ALPHA = 0.45;
 
 // --- pure core -------------------------------------------------------------------
 
@@ -167,16 +149,26 @@ export function ladderEntries(cards: readonly string[]): LadderEntry[] {
   });
 }
 
-/** Pure: the tier numeral a square prints — 0 for the Shift slot, an empty
- *  slot and every consumable slot (they carry stock, not a rung). */
-export function loadoutSlotTier(own: ResultsOwn, slot: number): number {
-  const id = own.slots[slot] ?? null;
-  if (slot === SLOT_BOOST || id === null || isConsumableId(id)) return 0;
-  return slotTier(own.stats, own.cards, id);
+/** One square of the row: a loadout slot, or one of the two cooldown
+ *  abilities (which hold no slot). */
+export type LoadoutSquare = { kind: 'slot'; slot: number } | { kind: 'ability'; id: CooldownAbilityId };
+
+/** Pure: the row's squares, in the HUD bar's own order — gun · Shift · Q · E
+ *  · R, then `C` · `V` (render/hotbarSquares.ts's index space; `square` is
+ *  that index, which is also what keys its chip). */
+export function loadoutRowSquares(): readonly (LoadoutSquare & { square: number })[] {
+  return Array.from({ length: HOTBAR_SQUARE_COUNT }, (_, square) => {
+    const id = abilityAtSquare(square);
+    return id === null ? { kind: 'slot', slot: square, square } : { kind: 'ability', id, square };
+  });
 }
 
-function isBelt(slot: number): boolean {
-  return CONSUMABLE_SLOTS.includes(slot);
+/** Pure: the tier numeral a square prints — 0 for the Shift slot and an
+ *  empty slot. */
+export function loadoutSlotTier(own: ResultsOwn, slot: number): number {
+  const id = own.slots[slot] ?? null;
+  if (slot === SLOT_BOOST || id === null) return 0;
+  return slotTier(own.stats, own.cards, id);
 }
 
 // --- DOM ---------------------------------------------------------------------------
@@ -232,34 +224,10 @@ function makeTier(tier: number): HTMLSpanElement {
   return el;
 }
 
-/** The belt's `×n` stock badge overhanging the square's top-right (mock `.belt .badge`). */
-function makeBadge(text: string): HTMLSpanElement {
-  const el = span(
-    [
-      'position:absolute',
-      `top:${-P.beltBadgeOverhang}px`,
-      `right:${-P.beltBadgeOverhang}px`,
-      'box-sizing:border-box',
-      `min-width:${P.badge}px`,
-      `height:${P.badge}px`,
-      `padding:0 ${P.chipPadX}px`,
-      `background-color:${cssRgba(C.cardScrim, 0.95)}`,
-      `border:1px solid ${cssRgba(C.phosphor, 0.5)}`,
-      'color:var(--hc-phosphor)',
-      `font:400 ${TEXT.badge}px/${P.badge - 2}px ${MONO}`,
-      'text-align:center',
-      'letter-spacing:0',
-    ].join(';'),
-    text,
-  );
-  el.dataset.loadoutBadge = '';
-  return el;
-}
-
 /** The square's box — sharp corners, transparent bed, the bar's skin (dashed
- *  when nothing is held: an empty weapon slot or a zero-stock kind). */
+ *  when nothing is held). */
 function squareBox(slot: number, filled: boolean): HTMLDivElement {
-  const size = isBelt(slot) ? P.beltSlot : P.slot;
+  const size = P.slot;
   const skin = slot === SLOT_BOOST ? SHIFT_SKIN : WEAPON_SKIN;
   const box = document.createElement('div');
   box.style.cssText = [
@@ -280,98 +248,67 @@ function squareBox(slot: number, filled: boolean): HTMLDivElement {
 }
 
 /** The empty square's centred `—` (UX-DR41): muted, no word beside it. */
-function makeEmptyDash(slot: number): HTMLSpanElement {
-  const size = isBelt(slot) ? P.beltIcon : P.icon;
+function makeEmptyDash(): HTMLSpanElement {
+  const size = P.icon;
   const el = span(`font:400 ${Math.max(LOADOUT_TEXT_FLOOR_PX, size)}px/1 ${MONO};color:${cssRgba(C.textMuted, 0.5)}`, '—');
   el.dataset.loadoutEmpty = '';
   return el;
 }
 
 /** The fitted square's glyph, in phosphor through `currentColor`. */
-function makeGlyph(id: SlotItemId, slot: number): SVGSVGElement | null {
-  const svg = equipmentGlyphSvg(id, isBelt(slot) ? P.beltIcon : P.icon);
+function makeGlyph(id: EquipmentId, slot: number): SVGSVGElement | null {
+  const svg = equipmentGlyphSvg(id, P.icon);
   if (svg === null) return null;
   const skin = slot === SLOT_BOOST ? SHIFT_SKIN : WEAPON_SKIN;
   svg.style.cssText = `display:block;color:var(--hc-phosphor);opacity:${skin.iconAlpha}`;
   return svg;
 }
 
-/** A ZERO-STOCK square's glyph: the kind's own, in the muted slate at .45. */
-function makeZeroStockGlyph(kind: SlotItemId): SVGSVGElement | null {
-  const svg = equipmentGlyphSvg(kind, P.beltIcon);
-  if (svg === null) return null;
-  svg.style.cssText = `display:block;color:var(--hc-text-muted);opacity:${ZERO_STOCK_ICON_ALPHA}`;
-  svg.dataset.loadoutZeroStock = '';
-  return svg;
-}
-
-/** The mark an UNHELD square shows: a zero-stock kind's faint glyph on the
- *  belt (its kind is fixed by the slot under the ship's kit), the empty dash on
- *  the main group. */
-function makeUnheldMark(own: ResultsOwn, slot: number): Element {
-  const kind = consumableKindAt(own.kit, slot);
-  return (kind === null ? null : makeZeroStockGlyph(kind)) ?? makeEmptyDash(slot);
-}
-
-/** The corner mark: a tier numeral on the main group, a stock badge on the belt. */
-function cornerMark(own: ResultsOwn, slot: number): HTMLSpanElement | null {
-  if (isBelt(slot)) {
-    const text = stockBadgeText(own.ammo[slot] ?? null);
-    return text === null ? null : makeBadge(text);
-  }
-  const tier = loadoutSlotTier(own, slot);
-  return tier > 0 ? makeTier(tier) : null;
-}
-
-/** One square: the glyph + its corner mark, or the unheld mark. */
+/** One square: the glyph + its tier numeral, or the empty dash. */
 function makeSquare(own: ResultsOwn, slot: number): HTMLDivElement {
   const id = own.slots[slot] ?? null;
   const box = squareBox(slot, id !== null);
   if (id === null) {
-    box.appendChild(makeUnheldMark(own, slot));
+    box.appendChild(makeEmptyDash());
     return box;
   }
   const glyph = makeGlyph(id, slot);
   if (glyph !== null) box.appendChild(glyph);
-  const mark = cornerMark(own, slot);
-  if (mark !== null) box.appendChild(mark);
+  const tier = loadoutSlotTier(own, slot);
+  if (tier > 0) box.appendChild(makeTier(tier));
+  return box;
+}
+
+/** A cooldown ability's square (`C` / `V`): always held, so always the
+ *  bar's READY-ABILITY skin (the Shift's) with its glyph — no tier, no badge. */
+function makeAbilitySquare(id: CooldownAbilityId): HTMLDivElement {
+  const box = squareBox(SLOT_BOOST, true);
+  delete box.dataset.loadoutSlot;
+  box.dataset.loadoutAbility = id;
+  const svg = equipmentGlyphSvg(id, P.icon);
+  if (svg !== null) {
+    svg.style.cssText = `display:block;color:var(--hc-phosphor);opacity:${SHIFT_SKIN.iconAlpha}`;
+    box.appendChild(svg);
+  }
   return box;
 }
 
 /** One column (mock `.sw`): the square over its key chip. */
-function makeColumn(own: ResultsOwn, slot: number): HTMLDivElement {
+function makeColumn(own: ResultsOwn, sq: LoadoutSquare & { square: number }): HTMLDivElement {
   const col = document.createElement('div');
   col.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${P.chipGap}px`;
-  col.append(makeSquare(own, slot), makeChip(slot));
+  const square = sq.kind === 'slot' ? makeSquare(own, sq.slot) : makeAbilitySquare(sq.id);
+  col.append(square, makeChip(sq.square));
   return col;
 }
 
-/** The main group (gun · Shift · Q E R) and the framed belt (the kit, key order). */
-function makeGroups(own: ResultsOwn): [HTMLDivElement, HTMLDivElement] {
-  const main = document.createElement('div');
-  main.style.cssText = `display:flex;align-items:flex-start;gap:${P.slotGap}px`;
-  const belt = document.createElement('div');
-  belt.style.cssText = [
-    'display:flex',
-    'align-items:flex-start',
-    `gap:${P.beltGap}px`,
-    `padding:${P.beltPadTop}px ${P.beltPadSide}px ${P.beltPadBottom}px`,
-    `border:1px solid ${cssRgba(C.silver, 0.2)}`,
-  ].join(';');
-  belt.dataset.loadoutBelt = '';
-  for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
-    (isBelt(slot) ? belt : main).appendChild(makeColumn(own, slot));
-  }
-  return [main, belt];
-}
-
-/** The ONE row: the main group then the framed belt, `groupGap` apart (about
- *  457 px at .72 — inside the results panel's 530 px content column). */
+/** The ONE row: gun · Shift · Q E R · C V, `slotGap` apart — every loadout
+ *  slot, then the two cooldown abilities. */
 function makeRow(own: ResultsOwn): HTMLDivElement {
   const row = document.createElement('div');
-  row.style.cssText = `display:flex;justify-content:center;align-items:flex-start;gap:${P.groupGap}px`;
+  row.style.cssText = `display:flex;justify-content:center;align-items:flex-start;gap:${P.slotGap}px`;
   row.dataset.loadoutRow = '';
-  row.append(...makeGroups(own));
+  for (const sq of loadoutRowSquares()) row.appendChild(makeColumn(own, sq));
   return row;
 }
 

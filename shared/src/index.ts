@@ -3,6 +3,26 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  97 — Story 10.5 THE KIT RETIRE AND THE THREE EQUIPMENT SLOTS (Eric
+ *  2026-11-05, epic-10 amendment 11): the consumable kit is GONE — join option
+ *  `kit`, `OwnShip.kit`, `ConsumableKit` / `ConsumableId`, the `stock` effect
+ *  and the `consumable` line and draw kinds; SLOT_COUNT 9 → 5 (`InputMsg.slot`
+ *  0..4, `OwnShip.ammo` length 5) with slots 2 / 3 / 4 the torpedo / mine /
+ *  special-shell FAMILY slots (one kind per slot); `InputMsg.actSlot` is
+ *  REPLACED by `InputMsg.act` (the ability's wire code: 0 Shift, 1 HULL
+ *  REPAIR, 2 SMOKE); OwnShip gains `repairReadyAt` / `smokeReadyAt` (the two
+ *  fixed cooldowns — self-private, omitted while ready) and loses `shield`,
+ *  `buoyShield`, `speedBuoyAt`; `DecoyView`, `FrameMsg.decoys`,
+ *  `BlipEvent.src` and `DropEvent` (`dp`) are deleted with the buoys and the
+ *  drone drops; `BurstEvent.r` (a flash burst's tiered radius, present iff
+ *  `f`, appended LAST, under the burst's unchanged gate); `DeniedView.act`
+ *  (the denied ability's code, appended LAST); catalog CONTENT changed (28 →
+ *  21 lines: −hullRepair −shieldBlock −countermeasure −radarBuoy −healingBuoy
+ *  −shieldBuoy −speedBuoy; `supercavTorpedo` / `dazzleShells` /
+ *  `foulingShell` are EQUIPMENT ids and lines with five tiers); CONFIG the
+ *  client reads moved (`shieldBlock` / `buoy` / `droneDrops` deleted, `regen`
+ *  back, the R1 / R2 cooldowns, the R4 reloads, the R7 radius steps);
+ *  `TargetKind` loses `decoy`. Perception exception count stays SIX.
  *  96 — Story 10.4 THE FOUR BATTLESHIPS (Eric 2026-11-04, epic-10 amendments
  *  7 and 9): the class id space is `yamato` / `bismarck` / `warspite` / `iowa`
  *  (`torpedoBoat` / `battleship` / `mineLayer` are gone — `OwnShip.cls`,
@@ -953,7 +973,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 96;
+export const PROTOCOL_VERSION = 97;
 
 // Tunables
 export * from './constants.js';
@@ -984,7 +1004,8 @@ export * from './sim/hooks.js';
 export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
-export * from './sim/buoy.js';
+export * from './sim/abilities.js';
+export * from './sim/regen.js';
 export * from './sim/slow.js';
 export * from './sim/draft.js';
 export * from './sim/sight.js';

@@ -14,7 +14,7 @@
 // rimFactor`), range-attenuated — the World's `burstHitAmount` composes the
 // shared `flakRimFactor` × `rangeAttenuation` → `settleBlow`.
 //
-// THE MASK is AR44's `hull | mine | decoy | ordnance` (CONFIG.flak.hits): a
+// THE MASK is AR44's `hull | mine | ordnance` (CONFIG.flak.hits): a
 // shell LANDING deals its range-attenuated damage to every mine whose 10 u
 // marker the blast touches, like every deck gun (Story 9.12, epic-9 amendment
 // 184(i) — so a flak shell clears a few), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that

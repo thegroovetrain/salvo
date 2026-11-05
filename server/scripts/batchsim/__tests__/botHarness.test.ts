@@ -118,7 +118,6 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     levelsUnspent: 0,
     boonsFitted: 10,
     shots: 20,
-    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 200,
     contactDamageTaken: 0,
@@ -559,11 +558,11 @@ function stageEvents(world: World, events: GameEvent[]): void {
 
 const NUMERIC_FIELDS = [
   'groundedTicks', 'stuckEpisodes', 'outsideRingTicks', 'stormDeathStuck', 'stormDeathAground',
-  'gunShells', 'shotsAtDecoy', 'shotsAtOwnDecoy', 'litShots', 'starShellsFired', 'fogTicks', 'actPresses',
+  'gunShells', 'litShots', 'starShellsFired', 'fogTicks', 'actPresses',
 ] as const;
 const RECORD_FIELDS = [
   'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
-  'fogTicksByPosture', 'pressesByItem', 'activations',
+  'fogTicksByPosture', 'pressesByAbility', 'activations',
 ] as const;
 const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS', 'droneGroundedTicks', 'droneStormDeaths'] as const;
 
@@ -616,27 +615,6 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
 });
 
 describe('Story 9.13 — the readout counters on a staged world', () => {
-  it('shotsAtOwnDecoy counts a shell aimed at the bot\'s own buoy and not one aimed at a hull', () => {
-    const world = new World(41, 20);
-    const bot = world.addBot(undefined, undefined);
-    const other = world.addBot(undefined, undefined);
-    const col = new BotCollector([bot.id, other.id]);
-    world.decoys.set('d1', { id: 'd1', ownerId: bot.id, x: 900, y: 900, hp: 10, poly: [], kind: 'healing', expiresAt: Number.POSITIVE_INFINITY, sweep: null } as never);
-    world.decoys.set('d2', { id: 'd2', ownerId: other.id, x: -900, y: -900, hp: 10, poly: [], kind: 'healing', expiresAt: Number.POSITIVE_INFINITY, sweep: null } as never);
-    world.shells.set('s1', stagedShell('s1', bot.id, { targetX: 903, targetY: 898 }));
-    world.shells.set('s2', stagedShell('s2', bot.id, { targetX: other.state.x, targetY: other.state.y }));
-    col.observe(world, 1);
-    col.observe(world, 1); // a live shell is credited ONCE, on first sighting
-    let row = col.samples(world).find((r) => r.id === bot.id)!;
-    expect(row.shotsAtOwnDecoy).toBe(1);
-    expect(row.shotsAtDecoy).toBe(0);
-    world.shells.set('s3', stagedShell('s3', bot.id, { targetX: -900, targetY: -905 }));
-    col.observe(world, 1);
-    row = col.samples(world).find((r) => r.id === bot.id)!;
-    expect(row.shotsAtDecoy).toBe(1);
-    expect(row.shotsAtOwnDecoy).toBe(1);
-  });
-
   it('classifies deck-gun shells: own-light (no attenRangeU), beyond range per family, star shells; broadside and tagged shells stay out', () => {
     // The classifier keys the cannon row on its own `hits` — the broadside's must differ.
     expect(CONFIG.gun.hits).not.toBe(CONFIG.broadside.hits);
@@ -751,7 +729,7 @@ describe('Story 9.13 — the --tune bots.* family', () => {
       '--tune', 'bots.gunBand.cannon.0=0.4',
       '--tune', 'bots.nav.avoidRays=7',
       '--tune', 'bots.nav.clearancePenalty=0',
-      '--tune', 'bots.cardPoints.carried=-2',
+      '--tune', 'bots.cardPoints.base=-2', // a card score takes any finite number, negatives included
     ]);
     expect(opts.tune['bots.gunBand.cannon.0']).toBe(0.4);
     const before = CONFIG.bots.gunBand.cannon[0];
@@ -767,7 +745,7 @@ describe('Story 9.13 — the --tune bots.* family', () => {
   it('refuses unknown keys, out-of-range values, an inverted band and the load-time snapshots', () => {
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nonsense=1'])).toThrow(/does not exist|not a numeric/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.profiles.0=1'])).toThrow(/not a numeric/);
-    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.decoyDemote=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.disengageHysteresis=1.5'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.secReleaseHeat=1.5'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.secRepressHeat=-0.1'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.gunBand.flak.1=-0.1'])).toThrow(/\[0, 1\]/);

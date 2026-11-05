@@ -27,7 +27,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SLOT_GUN, WEAPON_SLOTS } from '@salvo/shared';
+import { SLOT_GUN, WEAPON_SLOTS, abilityCode } from '@salvo/shared';
 import { MouseInput } from '../input/mouse.js';
 import { KeyboardInput } from '../input/keyboard.js';
 
@@ -539,7 +539,7 @@ describe('the tick, in main.ts\'s order: release edge → wire slot → press ed
       expect(kb.pendingActivationCount).toBe(1); // the queue is NOT cleared
       kb.consumeActivation();
       expect(kb.actSeq).toBe(1); // …and it still rides an input
-      expect(kb.actSlot).toBe(1);
+      expect(kb.act).toBe(abilityCode('shift'));
       kb.detach();
     });
   });

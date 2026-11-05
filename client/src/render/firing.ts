@@ -35,7 +35,7 @@ import {
   turretMuzzles,
   wrapAngle,
   type HullId,
-  type SlotItemId,
+  type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit, type FireArcKind } from './weaponArc.js';
@@ -69,7 +69,7 @@ const IDENTITY_POSE = { x: 0, y: 0, heading: 0 };
  * SUPERCAV bow sector are torpedoes too, and a fish that drew amber would read
  * as gunnery.
  */
-function weaponTint(id: SlotItemId | null): number {
+function weaponTint(id: EquipmentId | null): number {
   return isTorpedoItem(id) ? TORP_TINT : AMBER;
 }
 
@@ -89,7 +89,7 @@ function weaponTint(id: SlotItemId | null): number {
  * file's convention for everything the arcs Graphics draws.
  */
 export type TwinBeamStyle = 'outline-turrets' | 'filled-sector';
-export function twinBeamStyle(id: SlotItemId | null): TwinBeamStyle {
+export function twinBeamStyle(id: EquipmentId | null): TwinBeamStyle {
   return isTorpedoItem(id) ? 'filled-sector' : 'outline-turrets';
 }
 
@@ -233,7 +233,7 @@ export class FiringUX {
   update(
     pose: FiringPose,
     aim: number,
-    id: SlotItemId | null,
+    id: EquipmentId | null,
     ammo: FiringAmmo,
     cursor: { x: number; y: number },
     denied = false,
@@ -256,7 +256,7 @@ export class FiringUX {
   /** The arc shape a fitted slot's kind draws (none for the gun family). */
   private drawArcShape(
     kind: FireArcKind,
-    id: SlotItemId,
+    id: EquipmentId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -265,10 +265,9 @@ export class FiringUX {
   ): void {
     if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
     if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
-    // THE FOUR BUOYS (Story 10.9, ruling 9) place on a 360° arc at the
-    // unchanged `CONFIG.mine.placeRange`: their reachable water is the whole
-    // DISC, drawn in the placement grammar the mine's wedge uses.
-    if (kind === 'gunLike' && isPlacedItem(id)) this.drawPlacementDisc(ammo, denied);
+    // (The four buoys' 360° placement DISC left with the buoys — 2026-11-05,
+    // Story 10.5, epic-10 amendment 11: the mines' wedge is the only
+    // placement shape.)
   }
 
   /**
@@ -280,7 +279,7 @@ export class FiringUX {
    * ARC_R (its fish runs to the map edge, so a radius would be a lie).
    */
   private drawSectorArc(
-    id: SlotItemId,
+    id: EquipmentId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -336,7 +335,7 @@ export class FiringUX {
    * range-clamp marker and by the aim preview's per-shell burst circles.
    */
   private drawTwinArcs(
-    id: SlotItemId,
+    id: EquipmentId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -459,24 +458,6 @@ export class FiringUX {
     this.strokeSectorOutline(offset, halfArc, radius, color, lit, EDGE);
   }
 
-  /**
-   * A 360° PLACEMENT weapon's reachable water (the four buoys, Story 10.9 —
-   * ruling 9): the placement wedge's grammar over the whole circle — one soft
-   * fill (dimmed while reloading, never a second shape) under one crisp edge at
-   * the true reach (`this.rangeU` = `CONFIG.mine.placeRange`). Lit while the
-   * slot has a round; the denial red is the denial register's alone. No side
-   * rays: a full circle has no sector edges.
-   */
-  private drawPlacementDisc(ammo: FiringAmmo, denied: boolean): void {
-    const g = this.arcs;
-    const lit = denied || ammo.hasAmmo;
-    const color = denied ? DENIED_RED : AMBER;
-    const reloading = ammo.reloadFrac > 0 && ammo.reloadFrac < 1;
-    const style = arcFillStyle(color, lit);
-    g.circle(0, 0, this.rangeU).fill({ ...style, alpha: reloading ? style.alpha * 0.45 : style.alpha });
-    g.circle(0, 0, this.rangeU).stroke({ width: EDGE.width, color, alpha: lit ? EDGE.alpha : EDGE.dimAlpha });
-  }
-
   /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
   private sector(
     offset: number,
@@ -513,7 +494,7 @@ export class FiringUX {
   private drawReticle(
     pose: FiringPose,
     aim: number,
-    id: SlotItemId | null,
+    id: EquipmentId | null,
     hasAmmo: boolean,
     cursor: { x: number; y: number },
   ): void {
@@ -536,8 +517,8 @@ export class FiringUX {
     // (epic-8 amendment 84f): `weaponRangeU` hands it the cannon's range as a
     // fallback purely so nothing crashes, and drawing a clamp ring at it would
     // promise the fish stops there.
-    // NOR FOR A BUOY (Story 10.9): a placement past the leash is DENIED, never
-    // clamped — the placement disc is its whole truth, so no clamp marker.
+    // NOR FOR A PLACED id (a mine): a placement past the leash is DENIED,
+    // never clamped, so no clamp marker.
     if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id) && !isPlacedItem(id)) {
       this.drawRangeClampMarker(pose, aim, cursor, color);
     }
@@ -570,7 +551,7 @@ export class FiringUX {
   /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo.
    *  The torpedo keeps its cool-green identity; everything else (gun family, the
    *  broadside's beams, the mine's rear placement) is amber. */
-  private reticleColor(heading: number, aim: number, id: SlotItemId | null, hasAmmo: boolean): number {
+  private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
     if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
     return weaponTint(id);
   }

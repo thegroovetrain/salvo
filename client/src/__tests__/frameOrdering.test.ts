@@ -15,7 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { bindRoom } from '../net/roomBindings.js';
 import type { Connection } from '../net/connection.js';
 import type { RoomBindingDeps } from '../net/roomBindings.js';
-import { DEFAULT_CLASS_ID, DEFAULT_KIT } from '@salvo/shared';
+import { DEFAULT_CLASS_ID } from '@salvo/shared';
 
 /** The room surface bindRoom touches — signals are callable, not objects. */
 function fakeRoom(): unknown {
@@ -39,7 +39,7 @@ function frameWith(tick: number, cards: readonly string[]): unknown {
     events: [],
     you: {
       x: 0, y: 0, heading: 0, speed: 0, alive: true, hp: 100,
-      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], cards, sweep: 0, pts: 0, offer: [], ammo: [],
+      cls: DEFAULT_CLASS_ID, cards, sweep: 0, pts: 0, offer: [], ammo: [],
     },
   };
 }
@@ -70,7 +70,6 @@ function setup(onOwnStats: () => void): {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play: vi.fn() },
@@ -78,7 +77,7 @@ function setup(onOwnStats: () => void): {
     colors: () => null,
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState },
-    radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
+    radar: { onSweepSample: vi.fn() },
     onOwnStats,
     onOwnSpawn: vi.fn(),
     resetThrottle: vi.fn(),

@@ -10,7 +10,6 @@ import {
   hullBumper,
   hullEnvelope,
   mulberry32,
-  type DecoyView,
   type EffectiveStats,
   type GameEvent,
   type HullId,
@@ -19,7 +18,6 @@ import {
 import type { PerceptionView } from '../game/perception.js';
 import type { BotMind, BotProfileId } from '../game/ai/types.js';
 import { profileOf } from '../game/ai/profiles.js';
-import { probableDecoy } from '../game/ai/plot.js';
 import { noteContact, oddsFor, outnumbered, targetReachU } from '../game/ai/posture.js';
 import {
   choosePosture,
@@ -56,7 +54,7 @@ function mind(profile: BotProfileId = 'bulwark'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], ...over };
 }
 
 function stats(cls: 'bismarck' | 'yamato' | 'warspite' = 'bismarck'): EffectiveStats {
@@ -132,18 +130,18 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
   it('odds = own hp × (1 + own damage estimate) / peer factor − the crowd term; an unclassed plot is a peer', () => {
     const sit = situation({ hp: situation().maxHp / 2 });
     const anon = plot({ x: reachOf(sit.stats) + 200, hits: 1 });
-    expect(oddsFor(sit, anon, [anon], [])).toBeCloseTo(0.5 * (1 + damageEstimate(anon)), 9);
+    expect(oddsFor(sit, anon, [anon])).toBeCloseTo(0.5 * (1 + damageEstimate(anon)), 9);
     // A sighted battleship: its base toughness over the torpedo boat's — the
     // ARMOR index since Story 10.3 (toughness = ARMOR, never HP).
     const bs = track({ x: reachOf(sit.stats) + 200, cls: 'yamato' });
     const peer = hullEnvelope('yamato').index.armor / hullEnvelope('bismarck').index.armor;
-    expect(oddsFor(sit, bs, [bs], [])).toBeCloseTo(0.5 / peer, 9);
+    expect(oddsFor(sit, bs, [bs])).toBeCloseTo(0.5 / peer, 9);
   });
 
   it('PASS -> pursue: a full hull against a peer beyond own reach clears the bulwark bar', () => {
     const sit = situation();
     const t = track({ x: reachOf(sit.stats) + 200 });
-    expect(oddsFor(sit, t, [t], [])).toBeGreaterThanOrEqual(profileOf('bulwark').oddsThreshold);
+    expect(oddsFor(sit, t, [t])).toBeGreaterThanOrEqual(profileOf('bulwark').oddsThreshold);
     expect(choosePosture(sit, t)).toBe('pursue');
   });
 
@@ -163,7 +161,7 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     const sit = situation({ stats: longer, ...worn });
     const at = reachOf(longer) + 100;
     const closing = track({ x: at, cls: 'yamato', heading: Math.PI, speed: 20 });
-    expect(oddsFor(sit, closing, [closing], [])).toBeLessThan(profileOf('bulwark').oddsThreshold);
+    expect(oddsFor(sit, closing, [closing])).toBeLessThan(profileOf('bulwark').oddsThreshold);
     expect(choosePosture(sit, closing)).toBe('kite');
     // Running away (not closing): shadowed too.
     expect(choosePosture(sit, track({ x: at, cls: 'yamato', heading: 0, speed: 20 }))).toBe('kite');
@@ -198,7 +196,7 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     const st = stats('bismarck');
     const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * profileOf('raider').oddsThreshold * 0.9 });
     const t = track({ x: reachOf(sit.stats) + 200, cls: 'yamato' });
-    const odds = oddsFor(sit, t, [t], []);
+    const odds = oddsFor(sit, t, [t]);
     const bar = profileOf('raider').oddsThreshold;
     expect(odds).toBeLessThan(bar);
     expect(choosePosture(sit, t)).toBe(odds >= bar * CONFIG.bots.leanInFactor ? 'pursue' : 'kite');
@@ -216,7 +214,7 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     m.contacts.set('e1', t);
     others.forEach((o) => m.contacts.set(o.id!, o));
     const all = [t, ...others];
-    expect(outnumbered(sit, t, all, [])).toBe(true);
+    expect(outnumbered(sit, t, all)).toBe(true);
     expect(['hide', 'disengage']).toContain(choosePosture(sit, t, 'pursue', { mind: m, targetKey: 'e1' }));
     // PvE fleet hulls, wrecks and beyond-radar plots do not count.
     const harmless = [
@@ -224,7 +222,7 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
       track({ id: 'w', x: 0, y: 200, sunk: true }),
       track({ id: 'far', x: 0, y: sit.stats.radarRange + 100 }),
     ];
-    expect(outnumbered(sit, t, [t, ...harmless], [])).toBe(false);
+    expect(outnumbered(sit, t, [t, ...harmless])).toBe(false);
   });
 });
 
@@ -267,7 +265,7 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
     expect(choosePosture(situation({ hp: healed }), null, 'disengage', { mind: m })).not.toBe('disengage');
   });
 
-  it('the contact clock reads live sightings and paint times, never wrecks or decoys', () => {
+  it('the contact clock reads live sightings and paint times, never wrecks', () => {
     const m = mind();
     m.contacts.set('w', track({ id: 'w', sunk: true, live: false }));
     noteContact(m, NOW);
@@ -362,62 +360,6 @@ describe('ai/posture — HOLD in cover with no target (epic-9 amendments 199/202
     const b = mind('bulwark');
     b.coverPoint = { x: 0, y: 0 };
     expect(choosePosture(situation({ profile: profileOf('bulwark') }), null, 'reposition', { mind: b })).toBe('reposition');
-  });
-});
-
-describe('ai/utility — DECOYS (epic-9 amendment 197)', () => {
-  const ownBuoy = (x: number, y: number): DecoyView => ({ id: 'd1', x, y, own: true, by: 'me', kind: 'healing', hp: 50 });
-
-  it('an OWN decoy\'s paint is never selected, even as the only thing on the water', () => {
-    const m = mind();
-    m.view = view({ decoys: [ownBuoy(-600, 0)] });
-    m.contacts.set('a', plot({ x: -600, y: 0 }));
-    expect(selectTargetKey(m, situation())).toBeNull();
-  });
-
-  it('a SIGHTED enemy decoy\'s plot is excluded; the live hull in reach is selected', () => {
-    const m = mind();
-    m.view = view({ decoys: [{ id: 'd2', x: 300, y: 0, own: false, by: 'enemy', kind: 'radar' }] });
-    m.contacts.set('buoy', plot({ x: 300, y: 5 }));
-    m.contacts.set('hull', track({ id: 'hull', x: 0, y: 450 }));
-    expect(selectTargetKey(m, situation())).toBe('hull');
-  });
-
-  it('a probable buoy (tiny, wake-less, stationary for decoyStillSweeps) is demoted ONLY while a live hull is in reach', () => {
-    const sit = situation();
-    const cues = { paintCells: 4, stillSweeps: CONFIG.bots.decoyStillSweeps };
-    const buoy = plot({ x: -600, y: 0, ...cues });
-    const notBuoy = plot({ x: -600, y: 0, ...cues, paintCells: 40 });
-    expect(probableDecoy(buoy)).toBe(true);
-    expect(probableDecoy(notBuoy)).toBe(false);
-    expect(probableDecoy({ ...buoy, hasWake: true })).toBe(false);
-    expect(probableDecoy({ ...buoy, stillSweeps: CONFIG.bots.decoyStillSweeps - 1 })).toBe(false);
-    const near = track({ id: 'h', x: 0, y: reachOf(sit.stats) - 50 });
-    const far = track({ id: 'h', x: 0, y: reachOf(sit.stats) + 50 });
-    const ratio = (h: BotTrack) => scoreTrack(buoy, sit, [buoy, h]) / scoreTrack(notBuoy, sit, [notBuoy, h]);
-    expect(ratio(near)).toBeCloseTo(CONFIG.bots.decoyDemote, 9);
-    expect(ratio(far)).toBeCloseTo(1, 9);
-  });
-
-  it('the fold carries the cues: a 2x2 paint painted stationary across sweeps reads as a probable buoy', () => {
-    const m = mind();
-    const blip = (t: number): GameEvent => ({ k: 'blip', t, gx: 40, gy: 0, w: 2, h: 2, bits: [0b1111] });
-    const sweep = 60000 / CONFIG.vision.sweepRpm;
-    for (let i = 0; i <= CONFIG.bots.decoyStillSweeps; i += 1) foldView(m, view({ events: [blip(i)] }), 1000 + i * sweep);
-    const [t] = [...m.contacts.values()];
-    expect(m.contacts.size).toBe(1);
-    expect(t.paintCells).toBe(4);
-    expect(t.stillSweeps).toBe(CONFIG.bots.decoyStillSweeps);
-    expect(probableDecoy(t)).toBe(true);
-  });
-
-  it('a decoy never counts as a hostile in the odds count', () => {
-    const sit = situation();
-    const t = track({ x: reachOf(sit.stats) + 200 });
-    const buoys = Array.from({ length: CONFIG.bots.outnumberedCount }, (_, i) =>
-      plot({ x: 0, y: (i + 1) * 100, paintCells: 4, stillSweeps: CONFIG.bots.decoyStillSweeps }),
-    );
-    expect(outnumbered(sit, t, [t, ...buoys], [])).toBe(false);
   });
 });
 

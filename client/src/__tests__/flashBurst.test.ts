@@ -7,7 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import { Container } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { FlashBursts, flashBurstLifeMs, flashBurstModel, flashBurstTint } from '../render/flashBurst.js';
+import { CONFIG } from '@salvo/shared';
+import { FlashBursts, flashBurstLifeMs, flashBurstModel, flashBurstTint, flashDiscRadius } from '../render/flashBurst.js';
 
 const { blackMs, wipeMs, fadeMs } = CLIENT_CONFIG.flashBurst;
 
@@ -63,5 +64,32 @@ describe('FlashBursts — spawned on the layer, aged off the frame clock, remove
     fb.render(now);
     expect(fb.liveCount).toBe(0);
     expect(layer.children.length).toBe(0);
+  });
+});
+
+// STORY 10.5 (R7, 2026-11-05): the disc draws the burst's STAMPED radius off the
+// wire (`BurstEvent.r` — +25 u a tier), and only falls back to the base radius
+// when `r` is absent or unusable.
+describe('flashDiscRadius — the wire\'s stamped radius, else the base', () => {
+  it('uses `r` when it is a finite positive radius', () => {
+    const tiered = CONFIG.flashShells.radius + 2 * CONFIG.flashShells.radiusStepPerTier;
+    expect(flashDiscRadius(tiered)).toBe(tiered);
+  });
+
+  it('falls back to the base radius when `r` is absent or unusable', () => {
+    for (const r of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(flashDiscRadius(r), String(r)).toBe(CONFIG.flashShells.radius);
+    }
+  });
+
+  it('a spawned disc is drawn at that radius', () => {
+    const layer = new Container();
+    const fb = new FlashBursts(layer, () => 0);
+    const tiered = CONFIG.flashShells.radius + CONFIG.flashShells.radiusStepPerTier;
+    fb.spawn(0, 0, tiered);
+    fb.spawn(0, 0);
+    const [wide, base] = layer.children;
+    expect(wide.getLocalBounds().width).toBeCloseTo(2 * tiered, 6);
+    expect(base.getLocalBounds().width).toBeCloseTo(2 * CONFIG.flashShells.radius, 6);
   });
 });

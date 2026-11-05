@@ -14,7 +14,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   homeYieldStyle,
   livenessLines,
-  KIT_KEY,
   SHIFT_KEY,
   loadSavedMode,
   saveMode,
@@ -23,11 +22,9 @@ import {
 } from '../ui/home.js';
 import {
   DEFAULT_CLASS_ID,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
-  dealableConsumables,
   type LivenessPayload,
   type ShiftId,
   type ShipClassId,
@@ -161,7 +158,7 @@ function statusText(): string {
   return statusEl().textContent ?? '';
 }
 
-/** The class bay's footer primary: the one bay button that is neither a kit
+/** The class bay's footer primary: the one bay button that is neither a
  *  square nor a Shift chip (found by role, never by label). */
 function bayConfirm(): HTMLButtonElement {
   return [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button')].find(
@@ -221,7 +218,7 @@ describe('showHome — first-run vs returning routing', () => {
     showHome('0.0.0-test', onDeploy);
     expect(chip().children).toHaveLength(3); // sil, meta, [change] — no loadout slot
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, DEFAULT_SHIFT, DEFAULT_KIT); // empty callsign → server assigns
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, DEFAULT_SHIFT); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
   });
 
@@ -399,7 +396,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
     nameInput().value = 'skipper';
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('skipper', RETURNING, DEFAULT_SHIFT, DEFAULT_KIT);
+    expect(onSolo).toHaveBeenCalledWith('skipper', RETURNING, DEFAULT_SHIFT);
     expect(onDeploy).not.toHaveBeenCalled(); // the two doors never cross
     expect(localStorage.getItem('hullcracker.name')).toBe('skipper'); // callsign persisted
   });
@@ -1395,9 +1392,9 @@ describe('the Shift pick — persistence and the deploy doors (Story 10.4)', () 
     const onSolo = vi.fn();
     showHome('0.0.0-test', onDeploy, () => undefined, onSolo);
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT);
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onSolo).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT);
   });
 
   it('picking a chip and CONFIRMING stores it beside the class; the chip stays slim', () => {
@@ -1414,7 +1411,7 @@ describe('the Shift pick — persistence and the deploy doors (Story 10.4)', () 
     expect(chip().textContent).toBe(slim); // the Shift pick never reaches the chip
     expect(home().querySelector('.hc-shiftchip')).toBeNull();
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT);
   });
 
   it('re-opening the bay lights the STORED Shift, and ESC discards a changed pick', () => {
@@ -1428,35 +1425,15 @@ describe('the Shift pick — persistence and the deploy doors (Story 10.4)', () 
     expect(localStorage.getItem(SHIFT_KEY)).toBe(OTHER_SHIFT);
   });
 
-  // Story 10.1: the kit saves on CONFIRM beside the Shift and rides every door.
-  it('a stored kit opens the CONSUMABLES row and rides PLAY as the fourth argument', () => {
-    const kit = [...DEFAULT_KIT].reverse();
+  // Story 10.5 (2026-11-05, epic-10 amendment 11): a saved `hullcracker.kit`
+  // from before the kit retired is simply never read — the deploy carries the
+  // callsign, the hull and the Shift, and nothing else.
+  it('ignores a legacy stored kit: PLAY deploys the identity without it', () => {
     localStorage.setItem('hullcracker.class', RETURNING);
-    localStorage.setItem(KIT_KEY, JSON.stringify(kit));
+    localStorage.setItem('hullcracker.kit', JSON.stringify(['hullRepair', 'shieldBlock', 'radarBuoy', 'countermeasure']));
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, DEFAULT_SHIFT, kit);
-    chip().click();
-    const squares = [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button[data-slot]')];
-    expect(squares.map((b) => b.dataset.kind)).toEqual(kit);
-  });
-
-  it('a kit picked in the bay is saved on CONFIRM, and ESC discards it', () => {
-    localStorage.setItem('hullcracker.class', RETURNING);
-    showHome('0.0.0-test', vi.fn());
-    const lit = dealableConsumables().find((l) => !DEFAULT_KIT.includes(l))!;
-    const pickInto = (slot: number): void => {
-      document.querySelectorAll<HTMLButtonElement>('#hc-class-select button[data-slot]')[slot].click();
-      document.querySelector<HTMLButtonElement>(`#hc-class-select [data-line="${lit}"]`)!.click();
-    };
-    chip().click();
-    pickInto(0);
-    press('Escape'); // closes the layer — the picker is already shut
-    expect(localStorage.getItem(KIT_KEY)).toBeNull();
-    chip().click();
-    pickInto(0);
-    confirm();
-    expect(JSON.parse(localStorage.getItem(KIT_KEY)!)).toEqual(DEFAULT_KIT.map((l, i) => (i === 0 ? lit : l)));
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, DEFAULT_SHIFT);
   });
 });

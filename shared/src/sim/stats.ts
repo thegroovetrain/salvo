@@ -30,7 +30,8 @@
 // (HULL POINTS is deleted), ARMOR is also the ramming MASS (sim/contact.ts
 // callers pass `stats.armor`), and `damageMultiplier` is published against an
 // AVERAGE attacker (POWER = base) so a base hull reads ×1. The `regen` pair is
-// GONE with PASSIVE HEALING and the out-of-combat regen.
+// GONE with PASSIVE HEALING: the out-of-combat regen that came back in Story
+// 10.5 (R8) is a fixed law over CONFIG.regen (sim/regen.ts), not a stat.
 //
 // Bases: the ship class for hull-ish stats (hp, the seven indices, the four
 // pass-through kinematics); CONFIG.vision for
@@ -85,8 +86,10 @@
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12, re-cut
 // as the RELOAD haste law by Story 10.3 ruling 14) is the ONE global cooldown
 // lever: a base-1.0 scalar DERIVED from the RELOAD index (1 / (1 + (RELOAD −
-// 100) / 100): 120 = ×0.833, 200 = ×0.5), applied post-fold to EVERY
-// equipment reloadMs in clampStats. One scalar, one multiply site.
+// 100) / 100): 120 = ×0.833, 200 = ×0.5), applied post-fold in clampStats.
+// One scalar, one multiply site. SINCE 2026-11-05 (Story 10.5, R10 / R11,
+// epic-10 amendment 11) it reaches every row EXCEPT `RELOAD_UNSCALED_ROWS` —
+// the three Shifts reload on their own number and tier step.
 
 import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
@@ -108,7 +111,7 @@ import { secondaryReachU } from './secondaries.js';
  */
 export interface EquipmentRowCommon {
   tier: number; // 1-based ladder rung (1 = the bare weapon / the base fit)
-  reloadMs: number; // ms per shot/charge — post-tier-step, post-cooldownScale
+  reloadMs: number; // ms per shot/charge — post-tier-step; post-cooldownScale on every row but RELOAD_UNSCALED_ROWS (the Shifts)
   maxAmmo: number; // pool size (charges/rounds ready)
 }
 
@@ -147,9 +150,10 @@ export interface EffectiveBroadside extends EquipmentRowCommon {
 // the star shell's `phosphor`/`dazzle` were the last, and both are deleted.
 
 /**
- * A TORPEDO LINE's effective numbers — the LIGHT and HEAVY fish (the
- * supercavitating one left for the consumable id space, epic-8 amendment 74,
- * and carries no row at all).
+ * A TORPEDO LINE's effective numbers — the LIGHT, HEAVY and (again, since
+ * Story 10.5, epic-10 amendment 11) SUPERCAVITATING torpedoes. The supercav's
+ * `homingTurnRate` is 0 at every tier: it never homes (amendment 74) and the
+ * field is not stat-addressable on its row (sim/effects.ts).
  *
  * `homingTurnRate` REPLACED the `homing` boolean on 2026-09-19 (Eric ruling,
  * amendment 80): ACOUSTIC HOMING is deleted and homing is a TIER STAT — 0
@@ -260,7 +264,7 @@ export interface EffectiveHunker extends EquipmentRowCommon {
  * STAR SHELLS' effective numbers. Story 8.17 (Eric ruling 2026-09-29, epic-8
  * amendments 130/134): the flare deals `damage` to every non-owner hull inside
  * the WHOLE lit circle at burst, and the `phosphor`/`dazzle` verbs are DELETED
- * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS consumable).
+ * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS line).
  */
 export interface EffectiveStarShells extends EquipmentRowCommon {
   rangeU: number; // u — max flare travel — Tier I in CONFIG.starShells.rangeU, +step per upgrade card (ruling 125)
@@ -291,11 +295,28 @@ export interface EffectivePhosphorShells extends EquipmentRowCommon {
  * `CONFIG.boost.factor × kinematics.maxSpeed`, layered per tick by
  * sim/boost.ts `boostedKinematics` and NEVER folded into `kinematics` — the
  * bots' `max(rated, actual)` deadband reads `kinematics.maxSpeed` as the RATED
- * cap (epic-8 amendment 55). `reloadMs` sits in the row so the ONE
- * `cooldownScale` multiply in clampStats reaches it (catalog-v3 R40).
+ * cap (epic-8 amendment 55). `reloadMs` takes the tier step only — RELOAD
+ * no longer scales a Shift (2026-11-05, Story 10.5, R10; catalog-v3 R40
+ * superseded).
  */
 export interface EffectiveBoost extends EquipmentRowCommon {
   durationMs: number; // ms — active window per activation
+}
+
+/**
+ * A BURST SHELL's effective numbers — FLASH SHELLS (`dazzleShells`) and the
+ * FOULING SHELL, slot weapons since Story 10.5 (Eric 2026-11-05, epic-10
+ * amendment 11). `radius` is the one tiered number (R7: +25 u a tier,
+ * 150 → 250 at V) — the flash's one-time burst disc, the fouling shell's foul
+ * zone — and the server STAMPS it on the shell at launch (`ShellState.flash` /
+ * `.foul`), so a later card never changes a round in flight or a live zone.
+ * `rangeU` is the shared fixed reach (`CONFIG.foulingShell.rangeU` for both —
+ * no card steps it). Everything else about either shell (the whiteout phases,
+ * the zone's life, slow and linger) is a CONFIG constant no tier touches.
+ */
+export interface EffectiveBurstShell extends EquipmentRowCommon {
+  rangeU: number; // u — max shell travel / aimDist clamp (fixed at every tier)
+  radius: number; // u — burst / zone radius (CONFIG.<block>.radius + radiusStepPerTier per tier)
 }
 
 /** Any one equipment row. */
@@ -311,7 +332,8 @@ export type EquipmentStatRow =
   | EffectivePhosphorShells
   | EffectiveInstantReload
   | EffectiveHunker
-  | EffectiveMainBattery;
+  | EffectiveMainBattery
+  | EffectiveBurstShell;
 
 /**
  * THE TOTAL equipment record (Story 8.1) — one row per `EquipmentId`, present
@@ -336,6 +358,9 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   instantReload: EffectiveInstantReload;
   hunker: EffectiveHunker;
   mainBattery: EffectiveMainBattery;
+  supercavTorpedo: EffectiveTorpedo;
+  dazzleShells: EffectiveBurstShell;
+  foulingShell: EffectiveBurstShell;
 }
 
 /**
@@ -408,7 +433,7 @@ export interface EffectiveStats {
 // three of its seven, and 8.15 drained the rest — `missile` and `monitor` are
 // CUT (amendment 89e), and `machineGun`/`flak` are built from their own CONFIG
 // blocks with Eric's 2026-09-28 numbers (amendments 103–105), which supersede
-// the sheet's drafts. Consumable stubs (DEPTH CHARGE…) never had a row.
+// the sheet's drafts. The DEPTH CHARGE stub has no row.
 
 /** deg -> rad (CONFIG.broadside's two ladders are authored in degrees).
  *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
@@ -562,7 +587,8 @@ function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
 }
 
 /** The two new CLASS SHIFT rows at CONFIG base (Story 8.15). Their `reloadMs`
- *  takes `cooldownScale` in clampStats like every row (amendments 97/99). */
+ *  is NOT scaled by RELOAD (2026-11-05, Story 10.5, R10; amendments 97/99
+ *  superseded). */
 function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'hunker'> {
   return {
     instantReload: {
@@ -655,7 +681,37 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
   };
 }
 
-/** THE total equipment record at base. Every id present, every tier 1. */
+/**
+ * THE THREE MOVED WEAPONS' rows at CONFIG base (Story 10.5, Eric 2026-11-05,
+ * epic-10 amendment 11): the SUPERCAVITATING TORPEDO (a torpedo row —
+ * `CONFIG.supercavTorpedo`, R4's 45 s), FLASH SHELLS (`dazzleShells` —
+ * `CONFIG.flashShells`, 30 s) and the FOULING SHELL (`CONFIG.foulingShell`,
+ * 30 s). Each row starts at tier 1; its line's copies raise the tier in the
+ * fold, the −5 %/tier reload and RELOAD's scale are applied in clampStats like
+ * every row, and the catalog steps the supercav's `damage` and the two
+ * shells' `radius`. The flash reads the FOULING SHELL's reach — one dial for
+ * both (epic-10 amendment 4, ruling 2).
+ */
+function movedWeaponRows(): Pick<EquipmentRows, 'supercavTorpedo' | 'dazzleShells' | 'foulingShell'> {
+  return {
+    supercavTorpedo: torpedoRow(CONFIG.supercavTorpedo),
+    dazzleShells: {
+      tier: 1,
+      reloadMs: CONFIG.flashShells.reloadMs,
+      maxAmmo: CONFIG.flashShells.maxAmmo,
+      rangeU: CONFIG.foulingShell.rangeU,
+      radius: CONFIG.flashShells.radius,
+    },
+    foulingShell: {
+      tier: 1,
+      reloadMs: CONFIG.foulingShell.reloadMs,
+      maxAmmo: CONFIG.foulingShell.maxAmmo,
+      rangeU: CONFIG.foulingShell.rangeU,
+      radius: CONFIG.foulingShell.radius,
+    },
+  };
+}
+
 /**
  * THE MAIN BATTERY at zero cards (Story 10.4): the shared half from
  * `CONFIG.mainBattery`, the per-hull half (turret count, shell damage) from
@@ -674,13 +730,13 @@ function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
   };
 }
 
+/** THE total equipment record at base. Every id present, every tier 1. */
 function baseEquipment(cls: ShipClass): EquipmentRows {
   return {
     gun: gunRow(cls),
     mainBattery: mainBatteryRow(cls),
     // THE SPEED BOOST (Story 8.9; the Torpedo Boat's Shift since 8.15):
-    // `CONFIG.boost` verbatim — the reload then takes `cooldownScale` in
-    // clampStats like every row.
+    // `CONFIG.boost` verbatim — RELOAD no longer scales it (Story 10.5, R10).
     boost: boostRow(CONFIG.boost),
     // LIGHT TORPEDO (catalog-v3 R18) — its own CONFIG block since Story 8.13.
     lightTorpedo: torpedoRow(CONFIG.lightTorpedo),
@@ -719,6 +775,7 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     ...pickableGunRows(),
     ...shippedSkillshotRows(),
     ...shiftRows(),
+    ...movedWeaponRows(),
   };
 }
 
@@ -958,13 +1015,29 @@ function clampStats(stats: EffectiveStats): void {
   // reach — derived here, after the one-shot RANGE multiply, and nowhere
   // else. Not a stat path: no card addresses it.
   stats.secondaryRangeU = secondaryReachU(eq.mainBattery.rangeU);
-  // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
-  // row — one site, no per-weapon special case (see reloadTierScale).
+  // THE EQUIPMENT RELOAD STEP for EVERY row (see reloadTierScale), then the
+  // RELOAD scale on every row but RELOAD_UNSCALED_ROWS (2026-11-05, Story
+  // 10.5, R10 / R11, epic-10 amendment 11): the Shifts reload on their own
+  // number and tier step alone.
   for (const id of EQUIPMENT_IDS) {
     const row = eq[id];
-    row.reloadMs = row.reloadMs * reloadTierScale(row.tier) * cd;
+    const scale = RELOAD_UNSCALED.has(id) ? 1 : cd;
+    row.reloadMs = row.reloadMs * reloadTierScale(row.tier) * scale;
   }
 }
+
+/**
+ * THE ROWS THE RELOAD STAT DOES NOT REACH (2026-11-05, Story 10.5, epic-10
+ * amendment 11). RELOAD scales the main battery, every Q / E / R weapon
+ * (torpedo, mine and special-shell families), BROADSIDE and the legacy
+ * deck-gun rows; it skips the three Shifts (R10: "Shift abilities also should
+ * not be affected by RELOAD"). The secondaries carry no reload row and the
+ * `C` / `V` cooldowns live outside the stat record, so RELOAD reaches neither.
+ * R9 (RELOAD skips the Q / E / R weapons) was built and reversed the same day
+ * by R11.
+ */
+export const RELOAD_UNSCALED_ROWS: readonly EquipmentId[] = ['boost', 'instantReload', 'hunker'];
+const RELOAD_UNSCALED: ReadonlySet<EquipmentId> = new Set(RELOAD_UNSCALED_ROWS);
 
 /**
  * Resolve the effective stats for a ship class + fitted CARD IDS. Zero cards ≙

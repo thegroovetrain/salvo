@@ -32,9 +32,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
-  DEFAULT_KIT,
-  dealableConsumables,
-  isConsumableKit,
   mulberry32,
   PROTOCOL_VERSION,
   SHIFT_IDS,
@@ -257,30 +254,12 @@ describe('the solo room — construction', () => {
     expect([...seen].sort()).toEqual([...SHIFT_IDS].sort());
   });
 
-  // Story 10.1 (Eric ruling 6): every bot CARRIES A RANDOM FOUR consumable
-  // lines, rolled after its gun off the room's separate seeded kit stream.
-  it('seats every bot with a valid kit off the SEEDED stream: a pinned seed yields the same kits twice, kits vary, and every dealable line appears across a few seeds', () => {
-    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
-    const kitsOf = (r: SoloRoom): string[][] => bots(r).map((b) => [...r.world.ships.get(b.id)!.kit]);
-    const first = kitsOf(soloRoom({ mapSeed: 7 }));
-    expect(first).toHaveLength(BOTS);
-    for (const k of first) expect(isConsumableKit(k), k.join(',')).toBe(true);
-    expect(kitsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same kits
-    // A random four PER BOT, not one fixed four for the fleet.
-    expect(new Set(first.map((k) => k.join(','))).size).toBeGreaterThan(1);
-    const seen = new Set<string>();
-    for (let seed = 1; seed <= 6; seed += 1) {
-      for (const k of kitsOf(soloRoom({ mapSeed: seed }))) for (const id of k) seen.add(id);
-    }
-    expect([...seen].sort()).toEqual([...dealableConsumables()].sort());
-  });
-
-  // Story 10.1 review gate (F3): the kit roll rides its OWN stream (map seed
-  // ^ 0x6b17), so the room's bot-fleet stream (born as the hue stream; the
-  // hues are gone since Story 10.4) — and with it every class and Shift of a
-  // pinned seed — is untouched by kits. The relation: replaying the fleet
-  // stream ALONE (class shuffle, then one Shift per bot) reproduces the fleet.
-  it('the kit roll never touches the bot-fleet stream: a replay of the class shuffle and the Shift draws reproduces every class and Shift', () => {
+  // The room's bot-fleet stream (born as the hue stream; the hues are gone
+  // since Story 10.4) alone decides every class and Shift of a pinned seed
+  // (the kit stream that sat beside it left with the kit, Story 10.5). The
+  // relation: replaying the fleet stream ALONE (class shuffle, then one Shift
+  // per bot) reproduces the fleet.
+  it('the bot-fleet stream alone seats the fleet: a replay of the class shuffle and the Shift draws reproduces every class and Shift', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
     for (const mapSeed of [7, 12345]) {
       const r = soloRoom({ mapSeed });
@@ -320,15 +299,6 @@ describe('the solo room — the human joins', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.HC_DEV_OPTIONS;
-  });
-
-  it('seats the human with the kit from the join option, and DEFAULT_KIT for junk (Story 10.1, fail-open)', () => {
-    const r = soloRoom();
-    const kit = ['foulingShell', 'healingBuoy', 'hullRepair', 'countermeasure'];
-    join(r, 'alice', { kit });
-    expect(r.world.ships.get('alice')!.kit).toEqual(kit);
-    join(r, 'bob', { kit: ['hullRepair', 'hullRepair', 'shieldBlock', 'depthCharge'] });
-    expect(r.world.ships.get('bob')!.kit).toEqual([...DEFAULT_KIT]);
   });
 
   it('arms the countdown with ONE human aboard (expectedCaptains 1, minHumans 1)', () => {

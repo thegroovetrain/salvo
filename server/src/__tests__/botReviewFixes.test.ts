@@ -262,7 +262,7 @@ describe('P6 (Codex + Blind Hunter): the hit ledger is released with the life', 
 
 describe('P7 (Codex + Blind Hunter): hits are credited per VOLLEY window, not keyed on the current fireSeq', () => {
   const pv = (events: PerceptionView['events'] = [], contacts: PerceptionView['contacts'] = []): PerceptionView => ({
-    contacts, events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [],
+    contacts, events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [],
   });
   const seed = (): BotMind => {
     const m = mkMind();
@@ -469,7 +469,7 @@ describe('P16 (Blind Hunter): the departure rule is evaluated once per bot per t
     const m = mkMind('bulwark');
     for (let t = 0; t < 3; t += 1) {
       port.now = NOW + t * 50;
-      m.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
+      m.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [] };
       m.viewAt = port.now;
       fieldReads = 0;
       COMBAT_BRAIN.decide(rec, m, port, t === 0);
@@ -611,7 +611,7 @@ function driveWedge(f: WedgeFixture, secs = 30): { disp: number; endContact: boo
     const d = COMBAT_BRAIN.decide(rec, m, port, t % cadence === 0);
     w.submitInput(rec.id, {
       seq: t + 1, throttle: d.throttle, rudder: d.rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-      fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+      fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
     });
     w.step();
   }

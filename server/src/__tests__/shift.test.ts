@@ -5,8 +5,10 @@
 // file pins:
 //   * slot 1 = the seat's Shift on every hull, on every life boundary;
 //   * INSTANT RELOAD: finishes exactly ONE reload per running weapon slot
-//     (torpedo / mines) and EVERY main-battery turret (Story 10.4), the belt
-//     and the Shift itself untouched, its cooldown, `cooling` on a second press;
+//     (torpedo / mines) and EVERY main-battery turret (Story 10.4), vents the
+//     secondaries (heat 0, unlocked — Story 10.5, R10), leaves the HULL
+//     REPAIR / SMOKE cooldowns and the Shift itself untouched, its cooldown,
+//     `cooling` on a second press;
 //   * HUNKER: its window on its cooldown, `hunkerUntil` on the own frame only —
 //     never a contact or spectator field;
 //   * every hull × every Shift mounts the MAIN BATTERY in slot 0 and the
@@ -24,6 +26,7 @@ import {
   type InputMsg,
   type ShiftId,
   type ShipClassId,
+  abilityCode,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -46,12 +49,12 @@ function place(w: World, id: string, hull: ShipClassId, shift: ShiftId = DEFAULT
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Press the Shift (actSeq edge on slot 1) and step once. */
 function pressShift(w: World, id: string, seq: number): void {
-  w.submitInput(id, makeInput({ seq, actSeq: seq, actSlot: SLOT_BOOST }));
+  w.submitInput(id, makeInput({ seq, actSeq: seq, act: 0 }));
   w.step();
 }
 
@@ -82,7 +85,7 @@ describe('slot 1 is the SEAT\'s Shift (Story 10.4)', () => {
     expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
   });
 
-  it('the two new Shifts take the RELOAD ladder\'s cooldownScale like every row; HUNKER\'s window is not a reload', () => {
+  it('RELOAD leaves the Shift cooldowns alone (Story 10.5, R10); HUNKER\'s window is not a reload either', () => {
     const w = bareWorld();
     const ml = place(w, 'ml', 'warspite', 'instantReload');
     const bs = place(w, 'bs', 'yamato', 'hunker');
@@ -91,8 +94,8 @@ describe('slot 1 is the SEAT\'s Shift (Story 10.4)', () => {
       w.applyCard(bs, 'reload');
     }
     expect(ml.stats.cooldownScale).toBeLessThan(1);
-    expect(ml.stats.equipment.instantReload.reloadMs).toBe(CONFIG.instantReload.reloadMs * ml.stats.cooldownScale);
-    expect(bs.stats.equipment.hunker.reloadMs).toBe(CONFIG.hunker.reloadMs * bs.stats.cooldownScale);
+    expect(ml.stats.equipment.instantReload.reloadMs).toBe(CONFIG.instantReload.reloadMs);
+    expect(bs.stats.equipment.hunker.reloadMs).toBe(CONFIG.hunker.reloadMs);
     expect(bs.stats.equipment.hunker.durationMs).toBe(CONFIG.hunker.durationMs); // the window is not a reload (epic-9 amendments 86–88 / 110–117, Story 9.7)
   });
 });
@@ -101,14 +104,16 @@ describe('slot 1 is the SEAT\'s Shift (Story 10.4)', () => {
 
 describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', () => {
   /** An INSTANT RELOAD seat with every turret reloading, torpedo reloading
-   *  (0), mines 1/2 reloading, and two HULL REPAIR copies in the belt. */
+   *  (0), mines 1/2 reloading, the secondaries OVERHEATED and locked, and
+   *  both cooldown abilities (C / V) cooling. */
   function loaded(w: World): ShipRecord {
     const a = place(w, 'a', 'warspite', 'instantReload');
     w.applyCard(a, 'heavyTorpedo');
     w.applyCard(a, 'navalMines');
     w.applyCard(a, 'navalMines'); // tier II: a 2-round rack
-    w.applyCard(a, 'hullRepair');
-    w.applyCard(a, 'hullRepair');
+    a.sec = { heat: 1, locked: true, untilRoundMs: 0 };
+    a.repairReadyAt = w.now + 40000;
+    a.smokeReadyAt = w.now + 30000;
     a.turrets.forEach((t, i) => (t.reloadMsLeft = 2100 + i * 1000));
     a.loadout[WEAPON_SLOTS[0]].state = { n: 0, reloadMsLeft: 12000 };
     const rackMax = a.stats.equipment.navalMines.maxAmmo;
@@ -118,19 +123,35 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     return a;
   }
 
-  it('finishes EVERY turret (angles untouched) and exactly ONE reload per running Q/E/R slot; the belt untouched; the Shift spent for its full cooldown', () => {
+  it('finishes EVERY turret (angles untouched) and exactly ONE reload per running Q/E/R slot, VENTS the secondaries, leaves C / V alone; the Shift spent for its full cooldown', () => {
     const w = bareWorld();
     const a = loaded(w);
-    const belt = a.loadout.slice(5).map((s) => ({ ...s, state: s.state === null ? null : { ...s.state } }));
-    const heat = { ...a.sec };
+    const repairReadyAt = a.repairReadyAt;
+    const smokeReadyAt = a.smokeReadyAt;
     pressShift(w, 'a', 1);
     expect(a.turrets.every((t) => t.reloadMsLeft === 0)).toBe(true);
-    expect(a.sec).toEqual(heat); // the secondaries' heat is untouched
+    // R10: heat zero and the overheat lock cleared, even from a locked gun.
+    expect(a.sec.heat).toBe(0);
+    expect(a.sec.locked).toBe(false);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.stats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout[WEAPON_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
     expect(a.loadout[WEAPON_SLOTS[1]].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
-    expect(a.loadout.slice(5)).toEqual(belt); // HULL REPAIR ×2, byte-identical
+    // R10: HULL REPAIR and SMOKE are not reloads — both stamps untouched.
+    expect(a.repairReadyAt).toBe(repairReadyAt);
+    expect(a.smokeReadyAt).toBe(smokeReadyAt);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: CONFIG.instantReload.reloadMs });
+    // ...and the own frame carries the vented heat through (the client corrects from it).
+    expect(buildFrame(w, 'a').you!.sec).toEqual({ heat: 0, locked: false });
+  });
+
+  it('a vented gun that is still held fires on the very next step', () => {
+    const w = bareWorld();
+    const a = loaded(w);
+    pressShift(w, 'a', 1);
+    expect(a.sec.locked).toBe(false);
+    w.submitInput('a', makeInput({ seq: 2, actSeq: 1, sec: true }));
+    w.step();
+    expect(a.sec.heat).toBeGreaterThan(0); // a round fired: its heat landed
   });
 
   it('a weapon that is NOT reloading is untouched, and a deep deficit tops up by ONE round only (never a refill)', () => {
@@ -159,7 +180,7 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     pressShift(w, 'a', 1);
     a.turrets.forEach((t) => (t.reloadMsLeft = 2000)); // the battery fires again meanwhile
     pressShift(w, 'a', 2);
-    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2, act: abilityCode('shift') }]);
     expect(a.turrets.every((t) => t.reloadMsLeft > 0)).toBe(true); // nothing finished
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
@@ -197,7 +218,7 @@ describe('HUNKER (amendments 99–102)', () => {
     expect(a.hp).toBe(a.stats.maxHp - cut);
     // A second press inside the cooldown: no-ammo, the window not extended.
     pressShift(w, 'a', 2);
-    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2, act: abilityCode('shift') }]);
     expect(a.hunkerUntil).toBe(w.now - DT + hk.durationMs);
     // After the window: full damage.
     for (let i = 0; i < hk.durationMs / DT; i++) w.step();

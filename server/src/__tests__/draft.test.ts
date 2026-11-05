@@ -55,7 +55,7 @@ interface Helm { throttle: number; rudder?: number }
 function tick(w: World, helms: Record<string, Helm>): void {
   for (const [id, h] of Object.entries(helms)) {
     const seq = (w.ships.get(id)!.lastAckSeq ?? 0) + 1;
-    w.submitInput(id, { seq, throttle: h.throttle, rudder: h.rudder ?? 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput(id, { seq, throttle: h.throttle, rudder: h.rudder ?? 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   }
   w.step();
 }

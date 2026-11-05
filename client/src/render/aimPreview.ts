@@ -30,7 +30,6 @@ import {
   type TurretState,
   CONFIG,
   blockedWater,
-  buoyKindOf,
   burstPointAlong,
   clampInsideMap,
   hullEnvelope,
@@ -45,14 +44,11 @@ import {
   type HullId,
   type Island,
   type MineKind,
-  type BuoyKind,
-  type SlotItemId,
+  type EquipmentId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
-import { BUOY_MARKER_BOX_U, buoyLineOf } from './decoys.js';
-import { drawEquipmentIcon } from './equipmentIcons.js';
 import type { OwnFire } from './projectiles.js';
 import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
@@ -71,11 +67,8 @@ export interface PreviewShip {
  *  keeps the existing denied treatment, because drawing a shot the server would
  *  refuse is worse than drawing none. */
 export interface AimPreviewInput {
-  /** The PRIMED slot's content — a `SlotItemId` since Story 8.13, because the
-   *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74)
-   *  and previews its run exactly like the two torpedo lines. Every consumable
-   *  that aims nothing still previews nothing. */
-  id: SlotItemId | null;
+  /** The PRIMED slot's content (null = nothing primed / an empty slot). */
+  id: EquipmentId | null;
   ship: PreviewShip;
   aim: number; // world bearing to the cursor
   aimDist: number; // u — clicked distance from the ship CENTRE
@@ -168,16 +161,6 @@ export interface PreviewPlacement {
   blocked: boolean; // inside a rock / off the water — the server refuses it
 }
 
-/** A BUOY's drop point (the DECOY BUOY's since Story 8.16; the four buoys'
- *  since 10.9): the marker alone with its KIND mark, no radii — the drop
- *  preview draws no effect circle (the card row carries the 750 u reach). */
-export interface PreviewDrop {
-  x: number;
-  y: number;
-  blocked: boolean; // inside a rock / off the water — the server refuses it
-  kind: BuoyKind; // which buoy — its mark hangs under the waterline, as on the chart
-}
-
 /** A HOMING fish's acquisition corridor along the initial track (a tier stat
  *  since epic-8 amendment 80 — drawn iff the fitted line's turn rate is
  *  above zero). */
@@ -194,9 +177,6 @@ export interface AimPreviewModel {
   bursts: PreviewBurst[];
   place: PreviewPlacement | null;
   band: PreviewBand | null;
-  /** A BUOY's ring-free drop marker (Story 8.16 / 10.9) — absent for every
-   *  other id. */
-  drop?: PreviewDrop;
 }
 
 const EMPTY: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
@@ -391,7 +371,7 @@ function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
  * gun's OWN row via weaponArc.weaponReachU): every deck gun fires into the
  * shooter's own lit-up area (R2.15, amendment 114).
  */
-function isPickableGun(id: SlotItemId): id is 'machineGun' | 'flak' {
+function isPickableGun(id: EquipmentId): id is 'machineGun' | 'flak' {
   return id === 'machineGun' || id === 'flak';
 }
 
@@ -527,19 +507,18 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
- * THE FOULING SHELL (Story 9.4, epic-9 amendments 61–68 — FLASH SHELLS'
- * successor, fired exactly as the flash was): the star-shell preview pattern
- * for the click-fired consumable — one 360° shell to the click at its OWN
- * reach dial, `CONFIG.foulingShell.rangeU` (fixed 8/12 of the ruler, Story 9.8
- * ruling 125 — never `radarRange`), with the foul zone's circle at
- * `CONFIG.foulingShell.radius` (a consumable reads its numbers straight off
- * CONFIG; no card moves either). Drawn in the quieter EFFECT register like the flare: the shell
- * deals no damage.
+ * THE FOULING SHELL (Story 9.4, epic-9 amendments 61–68): the star-shell
+ * preview pattern — one 360° shell to the click at its OWN reach (the row's
+ * `rangeU`), with the foul zone's circle at the row's TIERED `radius` (Story
+ * 10.5, 2026-11-05, epic-10 amendment 11 — R7: +25 u a tier; a slot weapon
+ * reads its fold, never CONFIG). Drawn in the quieter EFFECT register like the
+ * flare: the shell deals no damage.
  */
 function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  const row = inp.stats.equipment.foulingShell;
   return parallelVolley(inp, {
-    rangeU: CONFIG.foulingShell.rangeU,
-    burstRadius: CONFIG.foulingShell.radius,
+    rangeU: row.rangeU,
+    burstRadius: row.radius,
     shellRadius: CONFIG.foulingShell.shellRadius,
     barrels: 1,
     spacingU: 0,
@@ -548,18 +527,16 @@ function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
- * FLASH SHELLS (internal id `dazzleShells` — Story 8.17, restored beside the
- * fouling shell by Story 10.9): the FOULING SHELL's preview with the flash's
- * own burst — one 360° shell to the click at the ONE shared click-shell reach,
- * `CONFIG.foulingShell.rangeU` (ruling 2: "reaches 1000 u, like the FOULING
- * SHELL" — one dial, never a second literal), with the one-time blinding
- * burst at `CONFIG.flashShells.radius`. Drawn in the quieter EFFECT register:
- * the flash deals no damage.
+ * FLASH SHELLS (internal id `dazzleShells`): the FOULING SHELL's preview with
+ * the flash's own burst — one 360° shell to the click at the row's `rangeU`,
+ * with the one-time blinding burst at the row's TIERED `radius` (Story 10.5,
+ * R7). Drawn in the quieter EFFECT register: the flash deals no damage.
  */
 function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  const row = inp.stats.equipment.dazzleShells;
   return parallelVolley(inp, {
-    rangeU: CONFIG.foulingShell.rangeU,
-    burstRadius: CONFIG.flashShells.radius,
+    rangeU: row.rangeU,
+    burstRadius: row.radius,
     shellRadius: CONFIG.flashShells.shellRadius,
     barrels: 1,
     spacingU: 0,
@@ -571,12 +548,11 @@ function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
  * u — the FITTED turn rate of the torpedo line being previewed (rad/s), which
  * is what decides whether this fish steers at all. Homing is a TIER STAT since
  * epic-8 amendment 80: zero at tier I on both lines, +0.125/tier to 0.5 at V.
- *
- * THE SUPERCAV TORPEDO IS ALWAYS ZERO and has no row to read: it is a belt
- * CONSUMABLE (amendment 74) with no tiers, and it never homes at any build.
+ * The SUPERCAV TORPEDO's row (a slot weapon again since Story 10.5) never
+ * homes, so its row reads zero at every tier.
  */
 function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): number {
-  return id === 'supercavTorpedo' ? 0 : stats.equipment[id].homingTurnRate;
+  return stats.equipment[id].homingTurnRate;
 }
 
 /**
@@ -647,28 +623,6 @@ function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel
 }
 
 /**
- * BUOY placement (the DECOY BUOY's preview since Story 8.16, carried to the
- * four buoys by Story 10.9): the drop point ALONE — the tinted-beacon marker
- * (render/decoys.ts, the buoy line's own glyph) in its kind, drawn at the click
- * and dimmed when the water refuses it. NO RINGS: the drop preview draws no
- * blast, trigger or effect circle. Same placement rule as the mine, shared
- * verbatim by the server — the leash `CONFIG.mine.placeRange`, now over the
- * FULL circle (ruling 9: any bearing; the click gate's `weaponRangeHit` is the
- * range half) — so `blockedWater` is the same refusal test on both sides.
- */
-function buoyPreview(inp: AimPreviewInput, kind: BuoyKind): AimPreviewModel {
-  const dist = Math.max(0, inp.aimDist);
-  const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
-  return {
-    lines: [],
-    bursts: [],
-    band: null,
-    place: null,
-    drop: { x: p.x, y: p.y, blocked: blockedWater(p, inp.islands, inp.mapRadius), kind },
-  };
-}
-
-/**
  * THE preview model for the currently primed equipment. Pure. An illegal aim,
  * an ability, or an empty slot previews nothing.
  *
@@ -685,13 +639,13 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   // and three mine lines share one placement, each reading its OWN row.
   if (isTorpedoItem(inp.id)) return torpedoPreview(inp, inp.id);
   if (isMineEquipment(inp.id)) return minePreview(inp, inp.id);
-  return EMPTY; // the boost and every non-aimed consumable aim nothing
+  return EMPTY; // the Shifts aim nothing
 }
 
 /** The ids with a preview of their OWN (not a family's) — a table rather than
  *  an if-chain so each new aimed line (Story 8.17's PHOSPHOR SHELLS, Story 9.4's FOULING SHELL)
  *  is one row. Every id absent here falls through to the family checks. */
-const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => AimPreviewModel>> = {
+const SINGLE_ID_PREVIEWS: Partial<Record<EquipmentId, (inp: AimPreviewInput) => AimPreviewModel>> = {
   gun: cannonPreview,
   mainBattery: mainBatteryPreview, // Story 10.4
   broadside: broadsidePreview,
@@ -699,11 +653,6 @@ const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => A
   phosphorShells: phosphorShellPreview,
   foulingShell: foulingShellPreview,
   dazzleShells: flashShellPreview, // FLASH SHELLS — Story 10.9
-  // THE FOUR BUOYS (Story 10.9): one placement preview, the kind's mark on it.
-  radarBuoy: (inp) => buoyPreview(inp, buoyKindOf('radarBuoy')),
-  healingBuoy: (inp) => buoyPreview(inp, buoyKindOf('healingBuoy')),
-  shieldBuoy: (inp) => buoyPreview(inp, buoyKindOf('shieldBuoy')),
-  speedBuoy: (inp) => buoyPreview(inp, buoyKindOf('speedBuoy')),
 };
 
 /**
@@ -729,18 +678,17 @@ const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveSt
   broadside: (s) => s.equipment.broadside.burstRadius,
   flak: (s) => s.equipment.flak.burstRadius, // Story 8.15 — the fixed 50 u blast
   // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; the FOULING
-  // SHELL (Story 9.4) over the fixed CONFIG radius (a consumable reads CONFIG,
-  // never a row).
+  // SHELL and FLASH SHELLS over their TIERED rows' radius (Story 10.5, R7).
   phosphorShells: (s) => s.equipment.phosphorShells.zoneRadius,
-  foulingShell: () => CONFIG.foulingShell.radius,
-  dazzleShells: () => CONFIG.flashShells.radius, // FLASH SHELLS' one-time burst (Story 10.9)
+  foulingShell: (s) => s.equipment.foulingShell.radius,
+  dazzleShells: (s) => s.equipment.dazzleShells.radius,
 };
 
 /** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
  *  cool-green identity (as its arc and reticle already do) — all three fish
  *  since Story 8.13, the belt's supercav included — and everything else is aim
  *  amber. Color is decoration here — the INFORMATION is the geometry. */
-export function previewTint(id: SlotItemId | null): number {
+export function previewTint(id: EquipmentId | null): number {
   return isTorpedoItem(id) ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
 }
 
@@ -771,7 +719,6 @@ export class AimPreview {
     if (model.band) this.drawBand(model.band, tint);
     for (const b of model.bursts) this.drawBurst(b, tint);
     if (model.place) this.drawPlacement(model.place, tint);
-    if (model.drop) this.drawDrop(model.drop, tint);
   }
 
   /** One alpha's worth of travel lines: every line whose `clamped` flag matches. */
@@ -837,15 +784,6 @@ export class AimPreview {
    * say for the naval mine. Nothing on the placement preview announces the slow;
    * that is the card's row, not a circle.
    */
-  /** A buoy's drop marker: the same tinted-beacon glyph the chart marker draws
-   *  (render/decoys.ts — hull in the preview tint, head in the kind's colour),
-   *  in the same box, at the click; no circles (Story 8.16 / 10.9). Blocked
-   *  water dims it like a refused mine drop. */
-  private drawDrop(d: PreviewDrop, tint: number): void {
-    const alpha = d.blocked ? P.blockedAlpha : P.burstAlpha;
-    drawEquipmentIcon(this.g, buoyLineOf(d.kind), d.x, d.y, BUOY_MARKER_BOX_U, { width: P.lineWidth, color: tint, alpha });
-  }
-
   private drawPlacement(p: PreviewPlacement, tint: number): void {
     const alpha = p.blocked ? P.blockedAlpha : P.burstAlpha;
     const g = this.g;

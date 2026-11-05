@@ -250,27 +250,15 @@ const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral 
 interface PendingEcho {
   cov: HullCoverage;
   t: number;
-  /** The wire's `src` (Story 10.9 review gate): the id of the observer's own
-   *  RADAR BUOY whose beam made this paint, validated at the adapter;
-   *  undefined for the own sweep's paints. Resolved to an ORIGIN at march
-   *  time (`echoOrigin`), never at arrival — the buoy may be gone by then. */
-  src?: string;
 }
 
 /** Where an echo is marched FROM, and the antenna range that bounds the
- *  march: the own hull at `radarRange`, or an own RADAR BUOY at its radius. */
+ *  march: the own hull at `radarRange` (the radar buoy's second origin went
+ *  with the buoys — 2026-11-05, Story 10.5, epic-10 amendment 11). */
 interface EchoOrigin {
   x: number;
   y: number;
   rangeU: number;
-}
-
-/** An own RADAR BUOY as the radar needs it — its id (the `src` key) and
- *  where it floats. Fed from the frame by the net layer (`setOwnRadarBuoys`). */
-export interface OwnRadarBuoy {
-  readonly id: string;
-  readonly x: number;
-  readonly y: number;
 }
 
 /** A `wk` wake segment waiting on an own pose, exactly as `PendingEcho` is —
@@ -453,9 +441,6 @@ export class Radar {
   private cloudSource: CloudReturnSource | null = null;
   /** See `setStaleClock`. */
   private staleClock: (() => number) | null = null;
-  /** The observer's own RADAR BUOYS by id, as of the latest frame — the
-   *  origins a `src` paint is marched from. See `setOwnRadarBuoys`. */
-  private ownBuoys = new Map<string, OwnRadarBuoy>();
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.blipLayer = blipLayer;
@@ -541,12 +526,6 @@ export class Radar {
   /** Is the flash mark currently held? Test/observation seam (mirrors `Fog`). */
   get isDazzled(): boolean {
     return this.dazzle.until > this.dazzle.now;
-  }
-
-  /** The baked sweep wedge texture — shared with the RADAR BUOY's second
-   *  sweep (render/buoySweep.ts, Story 10.9) so there is one bake. */
-  get sweepTexture(): Texture {
-    return this.sweep.texture;
   }
 
   private applyRanges(): void {
@@ -706,16 +685,6 @@ export class Radar {
   }
 
   /**
-   * The observer's own RADAR BUOYS this frame (Story 10.9 review gate) — fed
-   * by the net layer from `FrameMsg.decoys` (own views of kind `radar`), the
-   * way `onSweepSample` is. A paint tagged `src` is marched from the buoy it
-   * names; a `src` naming no buoy in this set is dropped at resolve.
-   */
-  setOwnRadarBuoys(buoys: readonly OwnRadarBuoy[]): void {
-    this.ownBuoys = new Map(buoys.map((b) => [b.id, b]));
-  }
-
-  /**
    * A radar paint arrived — an identity-free coverage footprint (the one wire
    * shape; the retired `silhouette` grammar went with cycle 105's ONE-RADAR
    * ruling).
@@ -742,7 +711,7 @@ export class Radar {
    *  `radarRange = Infinity` lesson). A malformed footprint is dropped whole. */
   private addReturnPaint(e: BlipEvent): void {
     if (!validCoverage(e, this.maxPaintT)) return;
-    this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t, src: validSrc(e.src) });
+    this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t });
     // CAP THE PARK (cycle-63 review gate): paints arrive on network cadence
     // while own pose can stay null indefinitely (the join gap, or a server
     // withholding own frames), and each parked entry holds a whole mask — so
@@ -778,27 +747,10 @@ export class Radar {
     if (own === null || this.pending.length === 0) return;
     const ownAground = this.aground(own);
     for (const e of this.pending) {
-      const origin = this.echoOrigin(own, ownAground, e);
-      const slice = origin === null ? null : this.marchEcho(origin, e);
+      const slice = ownAground ? null : this.marchEcho({ x: own.x, y: own.y, rangeU: this.radarRange }, e);
       if (slice !== null) this.enrollSlice(slice);
     }
     this.pending.length = 0;
-  }
-
-  /**
-   * WHERE AN ECHO IS MARCHED FROM (Story 10.9 review gate). The own sweep's
-   * paint: the own hull at `radarRange` — and an aground own set makes no
-   * paints. A `src` paint: the own RADAR BUOY it names, at the buoy's radius,
-   * because the server gated it FROM THE BUOY (range, beam, terrain shadow),
-   * so its range falloff and its shadow ray are the buoy's; the owner being
-   * aground does not touch the buoy's antenna. A `src` naming no buoy this
-   * radar knows (expired or sunk between frames) is DROPPED, never marched
-   * from the own hull: a wrong origin is worse than a missing speck.
-   */
-  private echoOrigin(own: OwnPoint, ownAground: boolean, e: PendingEcho): EchoOrigin | null {
-    if (e.src === undefined) return ownAground ? null : { x: own.x, y: own.y, rangeU: this.radarRange };
-    const b = this.ownBuoys.get(e.src);
-    return b === undefined ? null : { x: b.x, y: b.y, rangeU: CONFIG.buoy.radiusU };
   }
 
   /**
@@ -1467,17 +1419,6 @@ function validCoverage(e: BlipEvent, tMax: number): boolean {
   if (![e.gx, e.gy, e.w, e.h].every(Number.isInteger)) return false;
   if (Math.abs(e.gx) > MAX_CELL_INDEX || Math.abs(e.gy) > MAX_CELL_INDEX) return false;
   return validRect(e);
-}
-
-/** Longest `src` the adapter accepts — a buoy id is a short server counter
- *  (`d<n>`); anything near this is not one. */
-const MAX_SRC_LEN = 64;
-
-/** The wire's `src` (Story 10.9 review gate), structurally gated: a
- *  non-empty string of sane length, else ABSENT (the paint is then the own
- *  sweep's, exactly as a server that never tagged it would mean). */
-function validSrc(src: unknown): string | undefined {
-  return typeof src === 'string' && src.length > 0 && src.length <= MAX_SRC_LEN ? src : undefined;
 }
 
 /** The rect half of `validCoverage`: sane spans, bits sized exactly to them. */

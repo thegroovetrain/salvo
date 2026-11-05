@@ -2443,7 +2443,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 ## 2026-09-17 — Story 8.8 Heal Is a Card (cycle 143): threads for later stories
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
-  status: open — harness maintenance — 2026-10-23 (Story 9.16, cycle 206): still true: the RL env's action space is `slot` 0..3 plus a `boost` that fires the first non-weapon slot (Shift), so a HULL REPAIR or any consumable is never pressed (server/scripts/rl/env.ts:51-55, 196-199, 283-290); `autoSpend` still picks uniformly (:209-217). Was: OPEN — Story 8.20 (bots sail decks) or the next RL harness pass
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the HULL REPAIR card is gone from the catalog (HULL REPAIR is the `C` ability now), so an RL agent can no longer draw a card it cannot fire. Was: open — harness maintenance — 2026-10-23 (Story 9.16, cycle 206): still true: the RL env's action space is `slot` 0..3 plus a `boost` that fires the first non-weapon slot (Shift), so a HULL REPAIR or any consumable is never pressed (server/scripts/rl/env.ts:51-55, 196-199, 283-290); `autoSpend` still picks uniformly (:209-217). Was: OPEN — Story 8.20 (bots sail decks) or the next RL harness pass
   summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
   evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
@@ -2779,7 +2779,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 ## 2026-09-29 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (cycle 151)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): sign off or redraw the remaining 8.16 drafts: the SHIELD BLOCK and DECOY BUOY glyphs and the owner-only decoy hp masthead arc (CHAFF's glyph is moot — CHAFF retired by epic-9 amendment 31; the hover prose half was already resolved by amendment 185). Was: OPEN — Eric's eye on staging (amendment 124(f)); the three HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 158, amendment 185: tooltips print stats, no prose) — the glyphs and the hp readout stay open
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the SHIELD BLOCK, CHAFF and DECOY BUOY glyphs, their hover descriptions and the owner-only decoy hp masthead arc are deleted with the kit, the shield and the decoys. Was: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): sign off or redraw the remaining 8.16 drafts: the SHIELD BLOCK and DECOY BUOY glyphs and the owner-only decoy hp masthead arc (CHAFF's glyph is moot — CHAFF retired by epic-9 amendment 31; the hover prose half was already resolved by amendment 185). Was: OPEN — Eric's eye on staging (amendment 124(f)); the three HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 158, amendment 185: tooltips print stats, no prose) — the glyphs and the hp readout stay open
   summary: FIVE IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The three belt glyphs (SHIELD BLOCK, CHAFF, DECOY BUOY) drawn in the existing Pixi line-glyph style, the three hover descriptions, and the owner-only decoy hp readout (the old buoy marker's masthead arc re-used as `hp / CONFIG.decoyBuoy.hp`) were authored by the implementer, not Eric (the amendment 110 precedent).
   evidence: amendment 124(f); `client/src/render/equipmentIcons.ts` (`shieldBlock`/`chaff`/`decoyBuoy` glyphs), `client/src/ui/boonCopy.ts` (hover copy), `client/src/render/decoys.ts` (own hp arc).
 
@@ -2794,13 +2794,13 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `server/src/__tests__/perception.test.ts` (`for (let world = 0; world < 20; world++)`, `CHAFF_EXPECTED` / `DECOY_PAINT_EXPECTED`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — awareness for Story 8.20
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): `BotSelf` carries no shield or chaff read any more; both consumables are deleted. Was: OPEN — awareness for Story 8.20
   status: RESOLVED by Story 8.20, 2026-09-30 — kept as self-only reads; the registries read them and no wire field exists (amendment 173(d))
   summary: `BotSelf.shield?` / `BotSelf.chaff?` ARE BOT SELF-READS, NOT WIRE FIELDS. The interim tactics read the bot's own shield and chaff off its `BotSelf` view so a live copy is not re-fired; neither is on any client frame (`OwnShip.shield` is the wire field; chaff has none). 8.20's table should keep them self-only.
   evidence: `server/src/game/ai/types.ts:131`, `:138`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — Story 8.20
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the DECOY BUOY card and its bot weighting are deleted with the decoys. Was: OPEN — Story 8.20
   status: RESOLVED by Story 8.20, 2026-09-30 — DECOY BUOY is now a favorite consumable of forager and trapper (amendment 165)
   summary: DECOY BUOY SCORES AT THE PLAIN CONSUMABLE BASE IN THE BOT CARD POLICY. The radar buoy's profile weights died with it and no decoy weight replaced them, so a bot values a DECOY BUOY card exactly like any other belt line; the three consumable tactics are interim (SHIELD BLOCK on the DAMAGE CUT cues, CHAFF on disengage, DECOY BUOY astern when a torpedo is inbound — amendment 124(g)).
   evidence: `server/src/game/ai/spending.ts` (consumable kind base); `server/src/game/ai/equipment.ts` `CONSUMABLE_TACTICS`; amendment 124(g).
@@ -2821,7 +2821,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `server/src/game/world.ts` `resolveShell` → `targetKindOf(hulls, outcome.victimId)`; `spawnDecoy` `d${this.decoySeq}`; the pre-existing namespace comment beside `targetKindOf`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: open — client/src/render/decoys.ts — 2026-10-23 (Story 9.16, cycle 206): the own-decoy spawn hook still fires for every own decoy in a fresh renderer's first frame (decoys.ts:210), as onOwnMineSpawn does for mines (mines.ts:355); no first-sync suppression was added. Was: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): `client/src/render/decoys.ts` and the `placeDecoy` tone are deleted with the decoys. Was: open — client/src/render/decoys.ts — 2026-10-23 (Story 9.16, cycle 206): the own-decoy spawn hook still fires for every own decoy in a fresh renderer's first frame (decoys.ts:210), as onOwnMineSpawn does for mines (mines.ts:355); no first-sync suppression was added. Was: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
   summary: THE `placeDecoy` TONE REPLAYS ONCE PER LIVE OWN DECOY ON A REFRESH-REJOIN — `Decoys`' own-spawn hook fires for every own decoy a fresh renderer receives in its first frame, exactly as `onOwnMineSpawn` does for mines; decoys have no lifetime so the set can be up to five. Suppress the hook on the first sync after construction if it grates.
   evidence: `client/src/render/decoys.ts` `onOwnDecoySpawn`; the mines precedent in `client/src/render/mines.ts`.
 
@@ -3122,7 +3122,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: ledger §7 (death timelines), §9.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-2-every-consumable-has-a-key.md`
-  status: open — shared/src/sim/boons.ts — 2026-10-23 (Story 9.16, cycle 206): still true: pickRefusal (:319-335) checks only key existence and cap for a consumable, while applyStock (:349-358) no-ops on a foreign id or short slot array; unreachable in production; one fail-closed line restores agreement by construction Was: open — latent, unreachable in production (2026-10-11, Story 9.2 review, Blind Hunter)
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): `stockSlotFor`, `applyStock` and the consumable branch of `pickRefusal` are deleted with the stock model. Was: open — shared/src/sim/boons.ts — 2026-10-23 (Story 9.16, cycle 206): still true: pickRefusal (:319-335) checks only key existence and cap for a consumable, while applyStock (:349-358) no-ops on a foreign id or short slot array; unreachable in production; one fail-closed line restores agreement by construction Was: open — latent, unreachable in production (2026-10-11, Story 9.2 review, Blind Hunter)
   summary: `pickRefusal` AND `stockSlotFor`/`applyStock` NOW AGREE BY ARGUMENT, NOT BY CONSTRUCTION: for a consumable the predicate checks only key-existence and cap, while the fold also no-ops when the kind's fixed slot holds a foreign id or the slot array is short — so a malformed array could pass the predicate and land a copy in `cards` with no slot (the 8.7 P4 class the old `beltFull` refusal closed). Every production caller passes an 11-long loadout and nothing but `stock` writes slots 5–10, so it cannot happen today; a one-line fail-closed check in the predicate (foreign id or short array → refuse) would restore agreement by construction.
   evidence: `shared/src/sim/boons.ts` `pickRefusal` vs `stockSlotFor`/`applyStock`; the weapon-row half still fails closed.
 
@@ -3294,7 +3294,7 @@ Closure stamps for three older entries (the originals are left as written), then
   summary: `foulZones.ts` `advanceWeedPhase` has no finite guard: one NaN `nowSec` makes the integrated weed phase NaN for the rest of the session and parks the weed layer at a NaN position (invisible), while the alert clock in the same frame ignores a NaN reading. Fix: mirror `alertBlend.ts`'s `Number.isFinite` guard.
   evidence: Edge Case Hunter finding 5 at the 9.11 gate (context lines, not in the diff).
 - source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
-  status: open — client/src/render/hotbar.ts — 2026-10-23 (Story 9.16, cycle 206): still true: heldId (:531-535) treats ammo {n: 0} as held; fix = (view.ammo[slot]?.n ?? 0) <= 0 Was: OPEN — pre-existing (8.7 / 9.2), low
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the consumable belt and its `heldId` read are deleted; the hotbar no longer has stock squares. Was: open — client/src/render/hotbar.ts — 2026-10-23 (Story 9.16, cycle 206): still true: heldId (:531-535) treats ammo {n: 0} as held; fix = (view.ammo[slot]?.n ?? 0) <= 0 Was: OPEN — pre-existing (8.7 / 9.2), low
   summary: `hotbar.ts` `heldId` treats a consumable with a live ammo entry at `{n: 0}` as held (a solid square, bright glyph, no count, nothing to fire; the LOADOUT twin does the same), unlike `loadout[slot] = null` or `ammo[slot] = null`, which both draw the zero-stock square. Reachable only if the server ever sends an id with n 0 (world.ts clears the slot the same tick). Fix: `(view.ammo[slot]?.n ?? 0) <= 0` in `heldId`.
   evidence: Edge Case Hunter finding 6 at the 9.11 gate.
 
@@ -3375,7 +3375,7 @@ Closure stamps for three older entries (the originals are left as written), then
   evidence: amendment 210 (b).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
-  status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): an own-zone decoy arrives twice (on decoys and as an anonymous blip) under 'the entire sweep' — accept or change? Was: OPEN — Eric's call (own-zone decoy half only)
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the decoys are deleted, so no own-zone decoy can arrive twice. Was: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): an own-zone decoy arrives twice (on decoys and as an anonymous blip) under 'the entire sweep' — accept or change? Was: OPEN — Eric's call (own-zone decoy half only)
   summary: The bot-fold half is RESOLVED 2026-10-21 (review-gate patch P2): the `ANON_ASSOC_U` disc around a sighted hull was replaced by the paint-rect criterion — a paint is skipped only when its coverage rect (± one cell) covers the sighted hull's cell, so a second hull or decoy nearby now folds. STILL OPEN: an own-zone decoy arrives twice (on `decoys` and as an anonymous blip), a direct consequence of "the entire sweep" covering own-zone hulls.
   evidence: server/src/game/ai/utility.ts `foldBlip` / `paintCoversSighted`; amendment 210 (a).
 
@@ -3644,3 +3644,42 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - note - 2026-11-05 (cycle 213)
   summary: `desiredTurretAngle` AND `desiredTurretAngleFrom` HAVE NO PRODUCTION CALLER after the hold-outside-arc law (tests and `weaponsSmoke.mjs` only). Kept exported; delete if still unused when 10.12 retools the bots.
   evidence: `shared/src/sim/turrets.ts`; grep of `server/src` and `client/src`.
+
+## 2026-11-05 - Story 10.5 The Kit Retire and the Three Equipment Slots (cycle 214, 0.19.8, PV 97) - owed work and leftovers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.7 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (k))
+  summary: AN EXHAUSTED HULL DRAWS AN EMPTY OFFER - a hull holding every ladder and three capped slot weapons gets no cards; the built behavior is that an empty offer never opens the refit window and never throws, a short offer shows fewer cards. Eric: "Empty offer is fine, I think what should happen is you get some random stats. But I don't think ships reaching that level will be overly common. We'll address in 10.7". Story 10.7 owes random stats for an exhausted hull.
+  evidence: Story 10.5 wave 1 finding; epic-10 amendment 11 (k).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.12 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 R10)
+  summary: BOT LEFTOVERS AFTER THE KIT RETIRE - bot favorites for fouling shell and supercav were dropped; bots have no wait-to-heal behavior (passive regen runs, but a bot does not hold back to let it work); and the decoy-cue bookkeeping on bot tracks (`stillSweeps`, `paintCells`, `hasWake`) has no consumer now that decoys are deleted.
+  evidence: Story 10.5 server and bot waves; `server/src/game/ai/types.ts` (the decoy-cues block); epic-10 amendment 11 R10.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.14 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (n), (o))
+  summary: HOW-TO-PLAY IS MORE STALE SINCE 10.5 - its consumable tables render no table, it has a "1-4: use a consumable" row, shield / buoy / decoy entries, and RELOAD wording that is wrong under R10 / R11 (RELOAD scales the main battery and the Q / E / R weapons, never the Shift, the secondaries or C / V). The copy was left FROZEN on purpose; 10.14 owns the rewrite, along with the GDD Consumables v3 sentences, catalog-v3, the DESIGN.md rows stamped by this story and `game-architecture.md` wherever it names the kit or decoys.
+  evidence: Story 10.5 client waves; epic-10 amendment 11 (o).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - cleanup - 2026-11-05 (Story 10.5, cycle 214)
+  summary: CLIENT LEFTOVERS - the `interaction` model field in `client/src/ui/refitTooltip.ts` is unused, and the tint primitives in `equipmentIcons` are unused.
+  evidence: Story 10.5 client follow-ups.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.7 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: AN EXHAUSTED HULL KEEPS BANKING LEVELS - with every eligible line at cap (45 cards) a hull still banks levels: `you.pts` stays above 0 with an empty offer, and the XP strip's banked-level chip and its pulse keep advertising levels that cannot be spent. Rides with Eric's 2026-11-05 ruling "Empty offer is fine … We'll address in 10.7" (random stats for an exhausted hull).
+  evidence: both Fable hunters (probe: 80 levels → 45 picks, 35 banked, offer null); `server/src/game/world.ts` `grantPoint` / `materializeOffer`, `server/src/game/frames.ts` `pts`, `client/src/render/xpStrip.ts` `chipLabel` / `nextChipState`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by the full HUD / UX pass or a later client story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: INSTANT RELOAD IS NOT PREDICTED ON THE CLIENT - after the press the turrets and the secondaries heat show the old state until the next own frame. Turret reloads behaved this way before this story; the heat vent is new with R10. Recorded reading: the own frame corrects.
+  evidence: Codex, confirmed; `client/src/main.ts` `handleShiftPress` predicts only Speed Boost.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.6 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: ADD-ON ELIGIBILITY STILL ASKS "ANY WEAPON SLOT OPEN", NOT "THE HOST'S FAMILY SLOT" - under one kind per slot an add-on whose hosts all sit in a family held by another kind could be dealt though its host can never be fitted. Latent: the only add-on line is the undealable `depthCharge` stub.
+  evidence: Edge Case Hunter; `shared/src/sim/draw.ts` `addonKind` / `weaponRowOpen`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - low, no owner story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: AN `actSeq` JUMP OF MORE THAN ONE EVALUATES ONLY THE NEWEST `act` - a skipped press (rate cap, queue cap, a dropped message) is lost with no denial; since this story the lost press can be a different ability than the one that fires. Needs a throttled or modified client; the grammar predates the story.
+  evidence: Edge Case Hunter; `server/src/game/world.ts` `consumePress`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.14 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (s))
+  summary: HOW-TO-PLAY MUST TEACH RIGHT MOUSE AS THE SECONDARIES ONLY - right mouse fires the secondaries whether or not a weapon is readied and never cancels anything; a readied Q / E / R weapon is un-readied by pressing its key again (or by firing it). Eric: "actually, lets just make RMB secondaries no matter what, and get rid of the "right click to cancel" mechanic. Its complex for no reason. Pressing the key a second time already unreadies."
+  evidence: epic-10 amendment 11 (s); `client/src/input/mouse.ts`; the settings `RIGHT CLICK` row in `client/src/ui/settings.ts`.

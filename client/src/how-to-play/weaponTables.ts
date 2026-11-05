@@ -23,7 +23,6 @@ import {
 } from '@salvo/shared';
 import {
   cardTierSteps,
-  consumableStatRows,
   equipmentStatRows,
   shipStatRows,
   statValueText,
@@ -115,12 +114,12 @@ export function tierTable(lineId: string, cls: ShipClassId = TABLE_HULL): StatTa
   return pivot(columns, perColumn);
 }
 
-/** Pure: a consumable's table — attribute, value — or null for a line with no
- *  live rows (the entry then renders without a table). */
-export function consumableTable(id: string): StatTable | null {
-  const rows = consumableStatRows(id);
-  if (rows.length === 0) return null;
-  return { columns: ['', ''], rows: rows.map((r) => ({ label: r.label, values: [statValueText(r)] })) };
+/** Pure: a consumable's table — always null since the kit retired (Story
+ *  10.5, 2026-11-05, epic-10 amendment 11: no consumable line exists, so every
+ *  entry still tagged `consumable` renders without a table until the page's
+ *  copy pass, Story 10.14). */
+export function consumableTable(_id: string): StatTable | null {
+  return null;
 }
 
 /** The SHIP-panel row index a ship ladder moves (the first row whose value

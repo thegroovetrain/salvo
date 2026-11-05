@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  familySlotFor,
   type BoomEvent,
   type BurstEvent,
   type GameEvent,
@@ -71,7 +72,7 @@ function lay(w: World, id: string, ownerId: string, x: number, y: number, kind: 
 function input(patch: Partial<InputMsg>): InputMsg {
   return {
     seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch,
+    fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch,
   };
 }
 
@@ -103,7 +104,7 @@ describe('a laid mine (amendments 200/201)', () => {
     const w = bareWorld();
     const ml = captain(w, 'ml', 0, 0, { hull: 'warspite' });
     fitClassWeapons(w, ml);
-    w.submitInput('ml', input({ seq: 2, fireSeq: 2, aim: Math.PI, aimDist: 100, slot: 2 }));
+    w.submitInput('ml', input({ seq: 2, fireSeq: 2, aim: Math.PI, aimDist: 100, slot: familySlotFor('navalMines')! }));
     w.step();
     const [m] = [...w.mines.values()];
     expect(m).toBeDefined();

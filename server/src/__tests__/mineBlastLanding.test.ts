@@ -36,7 +36,7 @@ function lay(w: World, id: string, x: number, y: number, hp: number = CONFIG.min
 }
 
 function input(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Fire along +x at `dist` (one machine-gun shell, or one click) and step

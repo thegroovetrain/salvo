@@ -26,27 +26,25 @@
 //
 // STORY 8.13 TOOK THE ID EQUALITIES OUT. Three mine LINES now share the rear
 // placement grammar (naval/captive/fouling), the LIGHT TORPEDO declares a
-// TWIN sector on both beams, and the SUPERCAV TORPEDO — a belt CONSUMABLE —
-// declares the bow ±15° sector, so every predicate below is keyed on the
-// shared `arcFor` descriptor or on an explicit, pinned id SET, never on
-// `id === 'navalMines'` / `id === 'heavyTorpedo'`. The signatures widened from
-// `EquipmentId` to `SlotItemId` for the same reason `arcFor` did.
+// TWIN sector on both beams, and the SUPERCAV TORPEDO declares the bow ±15°
+// sector, so every predicate below is keyed on the shared `arcFor` descriptor
+// or on an explicit, pinned id SET, never on `id === 'navalMines'` /
+// `id === 'heavyTorpedo'`. Since Story 10.5 (2026-11-05, epic-10 amendment 11)
+// every id is an `EquipmentId` again: the supercav, FLASH SHELLS and the
+// FOULING SHELL are slot weapons, and the buoys are gone.
 
 import {
   CONFIG,
   arcFor,
   gunReachU,
   inArc,
-  isBuoyLine,
-  isConsumableId,
   isMineEquipment,
-  isWeaponItem,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
   type LitCircle,
-  type SlotItemId,
+  type EquipmentId,
   type Vec2,
 } from '@salvo/shared';
 
@@ -74,29 +72,27 @@ export {
 } from '@salvo/shared';
 
 /** Pure: is this id CLICK-PLACED on the mine's leash (`CONFIG.mine.placeRange`)
- *  — the three mine lines plus the four BUOYS (Story 10.9; the retired DECOY
- *  BUOY before them)? The one predicate the placement leash (range denial),
- *  the true-radius placement shape and the amber placement tint read. The
- *  SHAPE is the arc descriptor's: a mine's rear sector draws a wedge, a buoy's
- *  360° arc (ruling 9) the whole disc. */
-export function isPlacedItem(id: SlotItemId | null): boolean {
-  return isMineEquipment(id) || (id !== null && isBuoyLine(id));
+ *  — the three mine lines (the buoys left with Story 10.5)? The one predicate
+ *  the placement leash (range denial), the true-radius placement shape and the
+ *  amber placement tint read. */
+export function isPlacedItem(id: EquipmentId | null): boolean {
+  return isMineEquipment(id);
 }
 
 /**
- * THE TORPEDO FAMILY — the two equipment LINES plus the belt's SUPERCAV
- * TORPEDO (a click-aimed consumable since epic-8 amendment 74). Every fish
+ * THE TORPEDO FAMILY — the three torpedo lines (the `Q` slot's family since
+ * Story 10.5). Every fish
  * shares the family's identity on screen: the cool-green arc, reticle and
  * preview tint, and the torpedo glyph.
  */
 export const TORPEDO_ITEM_IDS = ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const satisfies
-  readonly SlotItemId[];
+  readonly EquipmentId[];
 
-/** One of the three torpedo ids (two lines + the belt consumable). */
+/** One of the three torpedo ids. */
 export type TorpedoItemId = (typeof TORPEDO_ITEM_IDS)[number];
 
 /** Pure: is this slot content a TORPEDO of any line? */
-export function isTorpedoItem(id: SlotItemId | null): id is TorpedoItemId {
+export function isTorpedoItem(id: EquipmentId | null): id is TorpedoItemId {
   return id !== null && (TORPEDO_ITEM_IDS as readonly string[]).includes(id);
 }
 
@@ -118,17 +114,12 @@ export function isTorpedoItem(id: SlotItemId | null): id is TorpedoItemId {
 export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 
 /** Pure: classify a fitted slot's content (or null empty slot) by firing-arc
- *  kind — a straight projection of the shared arcFor descriptor.
- *
- *  IT TAKES A `SlotItemId` SINCE STORY 8.13, because `arcFor` does: the
- *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74) and
- *  declares the bow ±15° sector, so it must classify as a `sector` weapon and
- *  draw its wedge like any other aimed launch. Every consumable that aims
- *  nothing still answers `none`, exactly as before. */
-export function fireArcKind(id: SlotItemId | null): FireArcKind {
+ *  kind — a straight projection of the shared arcFor descriptor (the SUPERCAV
+ *  TORPEDO's bow ±15° `sector`, FLASH SHELLS' and the FOULING SHELL's `full`). */
+export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
-  if (arc.kind === 'full') return 'gunLike'; // the guns / star, phosphor, fouling, flash shells / the four buoys
+  if (arc.kind === 'full') return 'gunLike'; // the guns / star, phosphor, fouling, flash shells
   if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / the mines' rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
   return 'none'; // none (boost)
@@ -148,7 +139,7 @@ export function fireArcKind(id: SlotItemId | null): FireArcKind {
  * is denied by the server exactly like an out-of-arc one (see weaponRangeU,
  * which supplies that ring to the firing UX).
  */
-export function weaponArcHit(heading: number, aim: number, id: SlotItemId | null): boolean {
+export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null): boolean {
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
@@ -178,9 +169,8 @@ export { twinSectorSide };
  * twelfths ruler — `CONFIG.<weapon>.rangeU` is the Tier I value and each of the
  * line's four cards adds its step through `effectiveStats()` — so each gun row
  * reads its OWN folded `stats.equipment.<w>.rangeU`, never radar and never the
- * cannon's by assumption. The FOULING SHELL consumable has no stats row and no
- * card: it reads its fixed dial `CONFIG.foulingShell.rangeU`. The MINE lines
- * and — since Story 10.9 — the four BUOYS read the ratified
+ * cannon's by assumption. FLASH SHELLS and the FOULING SHELL read their own
+ * rows too (slot weapons since Story 10.5). The MINE lines read the ratified
  * CONFIG.mine.placeRange: their placement reach is a fixed short leash and no
  * boon moves it.
  *
@@ -191,14 +181,13 @@ export { twinSectorSide };
  * NOT consult this for those ids; gate on the id first, as firing.ts's markers
  * do.
  */
-export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
+export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
-  // STORY 8.17: PHOSPHOR SHELLS reads its own row; the FOULING SHELL consumable
-  // (Story 9.4, FLASH SHELLS' successor) has no row — its fixed dial (ruling 125).
+  // STORY 8.17: PHOSPHOR SHELLS reads its own row; since Story 10.5 so do
+  // FLASH SHELLS and the FOULING SHELL (both rows carry the shared reach).
   if (id === 'phosphorShells') return stats.equipment.phosphorShells.rangeU;
-  // FLASH SHELLS (Story 10.9, ruling 2) shares the fouling shell's ONE reach dial.
-  if (id === 'foulingShell' || id === 'dazzleShells') return CONFIG.foulingShell.rangeU;
+  if (id === 'foulingShell' || id === 'dazzleShells') return stats.equipment[id].rangeU;
   // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row (ruling 125).
   if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
   if (id === 'flak') return stats.equipment.flak.rangeU;
@@ -238,7 +227,7 @@ export { pointInLitZone };
  * client read measures from the hull centre). An explicit, pinned id SET (never an id equality), mirroring the server,
  * where exactly these three rows call `gunReachU`.
  */
-const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineGun', 'flak', 'mainBattery']);
+const DECK_GUNS: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak', 'mainBattery']);
 
 /**
  * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114): the reach
@@ -273,7 +262,7 @@ const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineG
  */
 export function weaponReachU(
   stats: EffectiveStats,
-  id: SlotItemId | null,
+  id: EquipmentId | null,
   ship: Vec2,
   aim: number,
   aimDist: number,
@@ -301,7 +290,7 @@ export function weaponReachU(
  * out-of-range click would silently consume the prime (reverting to the gun)
  * for a placement the server refused.
  */
-export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean {
+export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean {
   // ONE leash for every click-placed id: the four BUOY rows reuse
   // CONFIG.mine.placeRange verbatim (Story 10.9, ruling 9 — the range is
   // unchanged, only the arc opened) and the captive/fouling rows read the naval chassis's
@@ -314,23 +303,11 @@ export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean 
 
 /**
  * THE CLICK GATE over a slot's CONTENT — the one predicate main.ts's click
- * prediction asks (review patch P8).
- *
- * Every click-aimed CONSUMABLE now DECLARES geometry and is gated exactly like
- * a fitted weapon: the SUPERCAV TORPEDO's bow ±15° sector (Story 8.13, epic-8
- * amendment 74) and — Story 10.9 — the four BUOYS, click-placed on a 360° arc
- * out to `CONFIG.mine.placeRange` (`isPlacedItem` gives them the
- * leash). The decoy was blind-trusted to the server while it had no arc; that
- * trust is gone with the arc's arrival. The test is the DESCRIPTOR, not the
- * id: anything that declares an arc is gated by it.
- *
- * What survives of the `none` branch is the KEY-FIRES consumables, which answer
- * false: a click on an ability square fires nothing on either side. (Should a
- * future click-aimed consumable ever land without an arc, `isWeaponItem` makes
- * it trust the server's verdict rather than paint a false denial.)
+ * prediction asks (review patch P8): the bearing gate and the range gate of
+ * the fitted weapon's own descriptor. (The consumable carve-outs left with the
+ * kit — Story 10.5.)
  */
-export function clickInArc(heading: number, aim: number, aimDist: number, id: SlotItemId | null): boolean {
-  if (id !== null && isConsumableId(id) && arcFor(id).kind === 'none') return isWeaponItem(id);
+export function clickInArc(heading: number, aim: number, aimDist: number, id: EquipmentId | null): boolean {
   return weaponArcHit(heading, aim, id) && weaponRangeHit(aimDist, id);
 }
 

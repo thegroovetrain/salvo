@@ -471,7 +471,7 @@ export class FleetController {
       held: false, // Story 8.15: a fleet hull mounts the cannon and never streams
       sec: false, // Story 10.4: a fleet hull has no secondaries
       actSeq: 0, // structurally inert — fleet hulls fit no ability
-      actSlot: 0,
+      act: 0, // the Shift's code — inert with actSeq 0
       hornSeq: 0, // fleet hulls never honk
     };
   }

@@ -13,7 +13,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_KIT,
   LINE_IDS,
   SHIP_CLASS_IDS,
   SLOT_BOOST,
@@ -24,7 +23,7 @@ import {
   initialTurrets,
   type EffectiveStats,
   type ShipClassId,
-  type SlotItemId,
+  type EquipmentId,
   type WeaponAmmo,
 } from '@salvo/shared';
 import { glyphPaths } from '../render/equipmentIcons.js';
@@ -41,13 +40,13 @@ function stats(cls: ShipClassId = SHIP_CLASS_IDS[0], cards: readonly string[] = 
 }
 
 /** A bare nine-slot view: the main battery in slot 0 and `shift` in slot 1, full pools. */
-function view(shift: SlotItemId, over: Partial<HotbarView> = {}, cls: ShipClassId = SHIP_CLASS_IDS[0]): HotbarView {
+function view(shift: EquipmentId, over: Partial<HotbarView> = {}, cls: ShipClassId = SHIP_CLASS_IDS[0]): HotbarView {
   const s = stats(cls);
-  const loadout: (SlotItemId | null)[] = ['mainBattery', shift, ...nine<SlotItemId | null>(null).slice(2)];
+  const loadout: (EquipmentId | null)[] = ['mainBattery', shift, ...nine<EquipmentId | null>(null).slice(2)];
   const ammo: (WeaponAmmo | null)[] = loadout.map((id) =>
     id === null ? null : { n: equipmentMaxAmmo(s, id as never), reloadMsLeft: 0 },
   );
-  return { loadout, kit: DEFAULT_KIT, ammo, stats: s, primedSlot: SLOT_GUN, denied: nine(false), activated: nine(false), dim: false, ...over };
+  return { loadout, ammo, stats: s, primedSlot: SLOT_GUN, denied: nine(false), activated: nine(false), dim: false, ...over };
 }
 
 describe('the Shift glyphs (amendment 110 — implementer drafts)', () => {

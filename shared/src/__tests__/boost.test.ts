@@ -7,7 +7,7 @@
 //     every other field, reverseSpeed above all, carried through untouched.
 //  2. THE NUMBERS: `CONFIG.boost` itself, the per-class boosted caps at base
 //     and at the SPEED cap (the ladder is INSIDE the bonus), the reload's trip
-//     through the one `cooldownScale` multiply, and the fit — slot 1 on every
+//     untouched by RELOAD (Story 10.5, R10), and the fit — slot 1 on every
 //     captain hull, nothing on a fleet drone.
 //
 // Pure CONFIG/sim pins, zero I/O.
@@ -121,7 +121,7 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
   });
 });
 
-describe('the boost ROW — pool, window, and the one cooldownScale multiply (R40)', () => {
+describe('the boost ROW — pool and window; RELOAD no longer reaches it (R40 superseded by Story 10.5, R10)', () => {
   it('base: CONFIG.boost verbatim, with no speed field to fold', () => {
     const row = effectiveStats(NEUTRAL_HULL, []).equipment.boost;
     expect(row).toEqual({
@@ -132,13 +132,15 @@ describe('the boost ROW — pool, window, and the one cooldownScale multiply (R4
     });
   });
 
-  it('capped RELOAD copies scale the boost reload by cooldownScale and leave the window unscaled', () => {
+  it('capped RELOAD copies leave the boost reload AND the window alone (Story 10.5, R10 — RELOAD is the main battery\'s stat)', () => {
+    const plain = effectiveStats(CONFIG.shipClasses.iowa);
     const stats = effectiveStats(
       CONFIG.shipClasses.iowa,
       new Array<LineId>(CATALOG.reload.cap).fill('reload'),
     );
     expect(stats.cooldownScale).toBeLessThan(1);
-    expect(stats.equipment.boost.reloadMs).toBeCloseTo(CONFIG.boost.reloadMs * stats.cooldownScale, 9);
+    expect(stats.equipment.boost.reloadMs).toBe(plain.equipment.boost.reloadMs);
+    expect(stats.equipment.mainBattery.reloadMs).toBeLessThan(plain.equipment.mainBattery.reloadMs);
     expect(stats.equipment.boost.durationMs).toBe(CONFIG.boost.durationMs); // the window is NOT scaled
     expect(stats.equipment.boost.maxAmmo).toBe(CONFIG.boost.maxAmmo);
   });

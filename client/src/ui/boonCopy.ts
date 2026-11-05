@@ -62,15 +62,13 @@ import {
   EQUIPMENT_STAT_FIELDS,
   INDEX_IDS,
   LINE_IDS,
-  arcFor,
-  buoyKindOf,
+  abilityCooldownMs,
   effectiveStats,
   isStubLine,
   tierTargetOf,
   type BoonStatPath,
-  type BuoyKind,
-  type BuoyLineId,
   type CatalogLine,
+  type CooldownAbilityId,
   type EffectiveStats,
   type EquipmentId,
   type IndexId,
@@ -119,7 +117,8 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // --- the eleven equipment lines -------------------------------------------
   // FOULING MINES joined them in Story 8.13 (epic-8 amendment 81 — the add-on
   // card was deleted and the line took its place) and keeps its sheet name
-  // verbatim; SUPERCAV TORPEDO left for the consumables below (amendment 74).
+  // verbatim. SUPERCAV TORPEDO, FLASH SHELLS and FOULING SHELL are equipment
+  // lines again since Story 10.5 (2026-11-05, epic-10 amendment 11).
   lightTorpedo: 'LIGHT TORPEDO',
   heavyTorpedo: 'HEAVY TORPEDO',
   navalMines: 'NAVAL MINES',
@@ -131,26 +130,9 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   flak: 'FLAK',
   broadside: 'BROADSIDE GUN',
   starShells: 'STAR SHELLS',
-  // --- the six consumables (+ the depth-charge stub) ------------------------------------------------
-  hullRepair: 'HULL REPAIR',
-  shieldBlock: 'SHIELD BLOCK',
-  // `MULTI-SPECTRAL CM`, NOT `MULTI-SPECTRAL COUNTERMEASURE` (Eric ruling
-  // 2026-10-11, epic-9 amendment 48 — the SUPERCAV precedent below): the full
-  // name measured 330 px against the refit card's 296 px name box and the
-  // one-line tooltip heading, even at the long type step, and Eric shortened
-  // the NAME rather than add an exemption or a type step. The full name is
-  // How-to-Play's (Story 9.11) and the record's.
-  // 2026-10-27, Story 10.1, Eric: renamed back to SMOKE SCREEN; the id
-  // `countermeasure` and the 9.3 cloud are untouched.
-  countermeasure: 'SMOKE SCREEN',
-  // Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4): FLASH SHELLS
-  // returns beside the FOULING SHELL (the id amendment 132 locked), and the
-  // retired DECOY BUOY splits into four buoys.
+  // FLASH SHELLS (the id amendment 132 locked) — Story 10.9, a slot weapon
+  // since Story 10.5.
   dazzleShells: 'FLASH SHELLS',
-  radarBuoy: 'RADAR BUOY',
-  healingBuoy: 'HEALING BUOY',
-  shieldBuoy: 'SHIELD BUOY',
-  speedBuoy: 'SPEED BUOY',
   // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
   // epic-8 amendment 75). The sheet's full word never fitted the refit card's
   // name box — it was the ONE name carrying a Story 8.1 fit exemption — and
@@ -184,8 +166,22 @@ const KIND_LABELS: Readonly<Record<LineKind, string>> = {
   equipment: 'WEAPON',
   ladder: 'UPGRADE',
   addon: 'ADD-ON',
-  consumable: 'CONSUMABLE',
 };
+
+/**
+ * THE TWO COOLDOWN ABILITIES' NAMES (Story 10.5, 2026-11-05, epic-10 amendment
+ * 11) — HULL REPAIR (`C`) and SMOKE (`V`) were consumable LINES until the kit
+ * retired; their shipped card names carry over to the bar's tooltip verbatim.
+ */
+const ABILITY_NAMES: Readonly<Record<CooldownAbilityId, string>> = {
+  repair: 'HULL REPAIR',
+  smoke: 'SMOKE SCREEN',
+};
+
+/** Pure: a cooldown ability's name (the bar's `C` / `V` tooltip heading). */
+export function abilityName(id: CooldownAbilityId): string {
+  return ABILITY_NAMES[id];
+}
 
 /** "reinforcedBulkheads" -> "Reinforced Bulkheads" — the no-copy fallback. */
 function humanize(id: string): string {
@@ -214,7 +210,7 @@ export function boonKindLabel(kind: string): string {
  * The refit card colors its KIND word and resting edge by this (dual-coded:
  * the word carries the kind with the color stripped).
  */
-export type CardKind = 'weapon' | 'weaponUpgrade' | 'shipUpgrade' | 'consumable' | 'addon';
+export type CardKind = 'weapon' | 'weaponUpgrade' | 'shipUpgrade' | 'addon';
 
 /** THE GUN LADDERS and the gun each one climbs — the deck-gun family climbs the
  *  CANNON (`gun`); the two pickable guns' ladders climb their own gun. A card on
@@ -230,14 +226,13 @@ const GUN_LADDER_TARGET: Readonly<Partial<Record<LineId, EquipmentId>>> = {
 export function cardKind(line: CatalogLine, copiesHeld: number): CardKind {
   if (line.kind === 'equipment') return Number.isFinite(copiesHeld) && copiesHeld >= 1 ? 'weaponUpgrade' : 'weapon';
   if (line.kind === 'ladder') return Object.hasOwn(GUN_LADDER_TARGET, line.id) ? 'weaponUpgrade' : 'shipUpgrade';
-  return line.kind === 'consumable' ? 'consumable' : 'addon';
+  return 'addon';
 }
 
 const CARD_KIND_LABELS: Readonly<Record<CardKind, string>> = {
   weapon: 'WEAPON',
   weaponUpgrade: 'WEAPON UPGRADE',
   shipUpgrade: 'SHIP UPGRADE',
-  consumable: 'CONSUMABLE',
   addon: 'ADD-ON',
 };
 
@@ -511,7 +506,7 @@ export interface CardTierStep {
  * ladder row for those, so every card in the offer keeps one baseline.
  */
 export function cardTierSteps(line: CatalogLine, copiesHeld: number): CardTierStep | null {
-  if (line.kind === 'consumable' || line.kind === 'addon') return null;
+  if (line.kind === 'addon') return null;
   // REVIEW GATE, CYCLE 147: `Math.trunc(NaN)` is `NaN`, and `Math.max(0, NaN)`
   // is `NaN` too — so a non-finite `copiesHeld` (a caller's arithmetic slip)
   // used to sail through untouched and poison `cur`/`next` downstream. Fenced
@@ -566,18 +561,11 @@ function roman(n: number): string {
 /**
  * Pure: the "card fitted" toast line (UX-DR23 self-events-only surface, the
  * pointToastLine sibling). Diamond glyph = the accrued-card marker the hotbar
- * tooltip uses, so the toast and the build readout share one mark.
- *
- * A CONSUMABLE IS STOCKED, NOT FITTED (Story 8.7, ruling 14 — UX-DR48's
- * "consumable stocked"). Nothing about the hull changed: a copy went onto the
- * belt, and the verb has to say so or the toast claims a fit that never
- * happened. `kind` is the line's catalog kind, passed by the caller that
- * already has the resolved line (net/roomBindings.ts); an absent or unknown
- * kind reads as the FITTED default, which is what every pre-8.7 caller gets.
+ * tooltip uses, so the toast and the build readout share one mark. (The
+ * consumable `STOCKED` verb left with the kit — Story 10.5.)
  */
-export function boonFitToastLine(id: string, stack = 1, kind?: string): string {
-  const verb = kind === 'consumable' ? 'STOCKED' : 'FITTED';
-  return `◆ ${boonName(id, Math.max(0, stack - 1))} ${verb}`;
+export function boonFitToastLine(id: string, stack = 1): string {
+  return `◆ ${boonName(id, Math.max(0, stack - 1))} FITTED`;
 }
 
 /** Every authored line id (test seam — the name/kind pins walk this). */
@@ -982,27 +970,18 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
 }
 
 /**
- * A CONSUMABLE'S ROWS (Story 8.8). A consumable moves no stat on the hull — it
- * is a stack you fire — so there is no preview diff to read and no `cur` to
- * print: every row below is ABSOLUTE (`cur` null, no arrow), exactly as a
- * weapon's first copy prints its own table.
- *
- * The numbers come out of `CONFIG` and are NEVER hardcoded, so a retune of the
- * ruling moves the card's own copy with it — the rule the retired DAMAGE
- * CONTROL rail's readout followed, kept.
- *
- * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
- * Story 8.8); the SUPERCAV TORPEDO (8.13), SHIELD BLOCK and DECOY BUOY (8.16;
- * CHAFF retired in 9.2), the MULTI-SPECTRAL COUNTERMEASURE (9.3) and the FOULING SHELL (9.4) follow
- * below. The one remaining stub is never dealt and gets no rows.
+ * THE TWO COOLDOWN ABILITIES' ROWS (Story 10.5, 2026-11-05, epic-10 amendment
+ * 11) — the rows HULL REPAIR and SMOKE SCREEN printed as consumable cards
+ * (Stories 8.8 / 9.3), kept verbatim for the bar's `C` / `V` tooltip. Every row
+ * is ABSOLUTE (`cur` null) and every number is read off `CONFIG`, never a
+ * literal.
  */
 /**
  * A hull figure as a PERCENT of the hull (Story 10.3, ruling 13's register —
  * nobody ever sees a raw figure out of 1000): the one law of
- * util/hullPercent.ts against `HULL_BASIS`. A consumable's rows are absolute
- * and hull-agnostic (the belt slot prints them with no fold in hand), so the
- * basis is the hull ceiling every ship shares (`hp` is 1000 on all four
- * hulls since Story 10.4) — read off the default hull. [Story 10.3 reading]
+ * util/hullPercent.ts against `HULL_BASIS`, the hull ceiling every ship shares
+ * (`hp` is 1000 on all four hulls since Story 10.4) — read off the default
+ * hull. [Story 10.3 reading]
  */
 const HULL_BASIS = CONFIG.shipClasses[DEFAULT_CLASS_ID].hp;
 function hullPct(hp: number): string {
@@ -1012,121 +991,15 @@ function hullPct(hp: number): string {
 function hullRepairRows(): CardStatRow[] {
   const h = CONFIG.hullRepair;
   return [
-    // The instant half: `instantHp` the moment the copy fires, clamped to maxHp
-    // — a PERCENT of the hull since Story 10.3.
+    // The instant half, then the pooled half paid over `regenMs` — printed as
+    // the AMOUNT over its TIME (epic-8 amendment 51).
     { label: 'INSTANT', cur: null, next: `+${hullPct(h.instantHp)}` },
-    // The pooled half: `regenHp` paid over `regenMs` (epic-8 amendment 51; the
-    // "5 hp/s" in R13/FR47 is a stale figure). Printed as the AMOUNT over its
-    // TIME rather than as a rate, because the amount is what stacks: pools
-    // ADD, the rate never changes.
     { label: 'OVER TIME', cur: null, next: `+${hullPct(h.regenHp)} / ${num(h.regenMs / 1000)} S` },
   ];
 }
 
-/**
- * THE SUPERCAV TORPEDO'S ROWS (Story 8.13, epic-8 amendment 74). The second
- * live consumable, and the first that is a WEAPON: the digit primes, a click
- * inside the bow ±15° sector fires one fish per copy.
- *
- * TWO NUMBERS, BOTH STRAIGHT OFF `CONFIG` and neither hardcoded — the
- * hullRepair rule. They are the two facts that make this fish different from
- * every other: it is three times the speed of the heavy torpedo and it hits for
- * 50. There is no RELOAD row because a consumable never reloads (catalog-v3
- * R40) and no tier rows because it has no tiers, so the labels are the FIELD
- * WORDS the equipment faces already use — no new vocabulary.
- */
-function supercavTorpedoRows(): CardStatRow[] {
-  const t = CONFIG.supercavTorpedo;
-  return [
-    { label: fieldWord('speed'), cur: null, next: num(t.speed) },
-    { label: fieldWord('damage'), cur: null, next: num(t.damage) },
-  ];
-}
-
-/**
- * THE 8.16 CONSUMABLES' ROWS (Story 8.16, catalog-v3 R36/R37). Every
- * number is read off `CONFIG` — never a literal — in the hullRepair shape
- * (`cur` null, absolute): what the line does, and for how long.
- *   - SHIELD BLOCK: how much it absorbs, and for how long.
- * (The DECOY BUOY that sat here was retired by Story 10.9 — the four buoys'
- * rows are below.)
- */
-function shieldBlockRows(): CardStatRow[] {
-  const s = CONFIG.shieldBlock;
-  return [
-    { label: 'ABSORBS', cur: null, next: hullPct(s.hp) }, // a percent of the hull since Story 10.3
-    { label: 'LASTS', cur: null, next: `${num(s.durationMs / 1000)} S` },
-  ];
-}
-
-/**
- * THE FOUR BUOYS' ROWS (Story 10.9, epic-10 amendments 2 and 4). Every buoy
- * shares the body's four rows — its hull, its effect reach, its life and its
- * drop arc — then ONE row says what its kind does. Every number off
- * `CONFIG.buoy` (and the arc off the shared `arcFor`), never a literal.
- */
-function buoyBodyRows(id: BuoyLineId): CardStatRow[] {
-  const b = CONFIG.buoy;
-  return [
-    { label: 'HULL', cur: null, next: `${num(b.hp)} HP` },
-    { label: 'RANGE', cur: null, next: `${num(b.radiusU)} U` },
-    { label: 'LASTS', cur: null, next: `${num(b.lifetimeMs / 1000)} S` },
-    { label: 'DROP', cur: null, next: arcFor(id).kind === 'full' ? '360°' : 'ARC' },
-  ];
-}
-
-/** Each kind's one effect row — what the buoy does inside its range. */
-const BUOY_KIND_ROW: Readonly<Record<BuoyKind, () => CardStatRow>> = {
-  radar: () => ({ label: 'RADAR', cur: null, next: `${num(CONFIG.buoy.radiusU)} U SWEEP` }),
-  healing: () => ({ label: 'HEAL', cur: null, next: `${pct(CONFIG.buoy.heal.missingPctPerS)} MISSING/S` }),
-  shield: () => ({ label: 'SHIELD', cur: null, next: `${pct(CONFIG.buoy.shield.maxHpPctPerS)} MAX/S` }),
-  speed: () => ({ label: 'SPEED', cur: null, next: `+${pct(CONFIG.buoy.speed.factor)}` }),
-};
-
-/** Pure: one buoy line's rows — the body's four plus its kind's one. */
-function buoyRows(id: BuoyLineId): CardStatRow[] {
-  return [...buoyBodyRows(id), BUOY_KIND_ROW[buoyKindOf(id)]()];
-}
-
-/**
- * FLASH SHELLS' ROWS (re-cut as the WHITEOUT, Eric 2026-10-29, epic-10
- * amendment 5(f)): the burst's radius, how long a hit hull is fully WHITE (the
- * ramp + the hold — truesight 0), and how long the clear circle takes to grow
- * back to full sight — `RADIUS 150 U` / `WHITE 1.5 S` / `CLEARS 8.5 S`, every
- * number off `CONFIG.flashShells`.
- */
-function flashShellRows(): CardStatRow[] {
-  const f = CONFIG.flashShells;
-  return [
-    { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
-    { label: 'WHITE', cur: null, next: `${num((f.rampMs + f.holdMs) / 1000)} S` },
-    { label: 'CLEARS', cur: null, next: `${num(f.clearMs / 1000)} S` },
-  ];
-}
-
-/**
- * THE FOULING SHELL'S ROWS (Story 9.4, Eric ruling 2026-10-12, epic-9
- * amendment 66): `RADIUS 150 U` / `LASTS 15 S` / `SPEED ×0.75`, each number
- * off `CONFIG.foulingShell`, in the 8.16 belt register's uppercase units. The
- * speed row is a MULTIPLIER (`×`), deliberately not the fouling mine card's
- * `75%` grammar (Eric: the mine's `SLOW 75%` reads ambiguously).
- */
-function foulingShellRows(): CardStatRow[] {
-  const f = CONFIG.foulingShell;
-  return [
-    { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
-    { label: 'LASTS', cur: null, next: `${num(f.durationMs / 1000)} S` },
-    // two decimals: `num` rounds to one, which would print 0.75 as `×0.8`
-    { label: 'SPEED', cur: null, next: `×${Math.round(f.slowFactor * 100) / 100}` },
-  ];
-}
-
-/**
- * MULTI-SPECTRAL COUNTERMEASURE'S ROWS (Story 9.3, Eric ruling 2026-10-11,
- * epic-9 amendment 45): how long the cloud lives and how it spreads —
- * `LASTS 15 S` / `CLOUD 150 → 300 U`, every number off
- * `CONFIG.countermeasure`, in the 8.16 belt register's uppercase units.
- */
+/** SMOKE SCREEN's rows (Story 9.3, epic-9 amendment 45): how long the cloud
+ *  lives and how it spreads, off `CONFIG.countermeasure`. */
 function countermeasureRows(): CardStatRow[] {
   const k = CONFIG.countermeasure;
   return [
@@ -1135,21 +1008,26 @@ function countermeasureRows(): CardStatRow[] {
   ];
 }
 
-/** The rows each LIVE consumable line prints. A line with no entry (the one
- *  remaining stub, DEPTH CHARGE) prints none, which is the honest answer for a
- *  mechanism that does not exist yet. */
-const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = {
-  hullRepair: hullRepairRows,
-  supercavTorpedo: supercavTorpedoRows,
-  shieldBlock: shieldBlockRows,
-  foulingShell: foulingShellRows, // Story 9.4
-  dazzleShells: flashShellRows, // Story 10.9 — FLASH SHELLS restored
-  radarBuoy: () => buoyRows('radarBuoy'), // Story 10.9 — the four buoys
-  healingBuoy: () => buoyRows('healingBuoy'),
-  shieldBuoy: () => buoyRows('shieldBuoy'),
-  speedBuoy: () => buoyRows('speedBuoy'),
-  countermeasure: countermeasureRows, // Story 9.3
+const ABILITY_ROWS: Readonly<Record<CooldownAbilityId, () => CardStatRow[]>> = {
+  repair: hullRepairRows,
+  smoke: countermeasureRows,
 };
+
+/**
+ * Pure: a cooldown ability's tooltip rows — its own rows, then its COOLDOWN
+ * row LAST (Eric 2026-11-05: the `C` / `V` tooltip gains the row the Shift
+ * square's tooltip ends on). Same word and printer as the Shift's `reloadMs`
+ * row (`fieldWord` / `fieldFmt` / `fieldUnit`), the value shared
+ * `abilityCooldownMs` — the one law the server stamps against.
+ */
+export function abilityStatRows(id: CooldownAbilityId): CardStatRow[] {
+  return [...ABILITY_ROWS[id](), abilityCooldownRow(id)];
+}
+
+/** Pure: a cooldown ability's cooldown row, in the Shift reload row's grammar. */
+export function abilityCooldownRow(id: CooldownAbilityId): CardStatRow {
+  return { label: fieldWord('reloadMs'), cur: null, next: fieldFmt('reloadMs')(abilityCooldownMs(id)) + fieldUnit('reloadMs') };
+}
 
 /**
  * Pure: the rows the card face prints for one offered line, against the
@@ -1157,9 +1035,7 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
  * line that moves no number:
  *
  *   - an ADD-ON bolts on a verb and moves no number;
- *   - a STUB line has no built module whose numbers could be read;
- *   - a CONSUMABLE that is still a stub (DEPTH CHARGE) has no
- *     mechanism to describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
+ *   - a STUB line (DEPTH CHARGE) has no built module whose numbers could be read.
  *
  * FAIL-OPEN on the class table (cycle 91): this runs every frame the band is
  * open, and an unresolvable hull must print nothing rather than throw from
@@ -1170,9 +1046,6 @@ export function cardStatRows(
   copiesHeld: number,
   you: BoonPreviewShip,
 ): readonly CardStatRow[] {
-  // A CONSUMABLE IS ANSWERED FIRST and never reaches the preview fold below: it
-  // fits nothing, so `effectiveStats` with its id appended moves no number.
-  if (line.kind === 'consumable') return CONSUMABLE_ROWS[line.id as LineId]?.() ?? [];
   if (isStubLine(line.id) || line.kind === 'addon') return [];
   if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
   const spec = CONFIG.shipClasses[you.cls];
@@ -1259,12 +1132,6 @@ export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): C
   return rows;
 }
 
-/** Pure: a consumable's rows — the card face's own `CONSUMABLE_ROWS`, or none
- *  for an id with no live mechanism. */
-export function consumableStatRows(id: string): CardStatRow[] {
-  return Object.hasOwn(CONSUMABLE_ROWS, id) ? (CONSUMABLE_ROWS[id as LineId]?.() ?? []) : [];
-}
-
 /** THE SHIP PANEL'S ROWS (Story 10.3, Eric 2026-11-04, epic-10 amendment
  *  6(c)): the SEVEN indices in `INDEX_IDS` order — ARMOR, POWER, RELOAD,
  *  ENGINES, RUDDER, INTEL, RANGE. Keyed by INDEX, not by line: RANGE is a
@@ -1286,11 +1153,10 @@ export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
  * Pure: the refit card's HOVER rows (amendment 187) — the full table of what
  * the card touches, valued on the AFTER fold (the face's tense): a weapon line
  * its weapon's table, a gun ladder its gun's, a ship ladder the seven ship
- * indices, a consumable its `CONSUMABLE_ROWS`; a stub or an add-on none (no
+ * indices; a stub or an add-on none (no
  * panel). Fail-open on the class table, exactly as `cardStatRows`.
  */
 export function cardHoverRows(line: CatalogLine, _copiesHeld: number, you: BoonPreviewShip): readonly CardStatRow[] {
-  if (line.kind === 'consumable') return consumableStatRows(line.id);
   if (isStubLine(line.id) || line.kind === 'addon') return [];
   if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
   const after = effectiveStats(CONFIG.shipClasses[you.cls], [...you.cards, line.id]);

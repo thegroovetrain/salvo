@@ -6,13 +6,12 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DecoyView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
-  decoyRadarBlips,
   shipSees,
   signalFor,
   type BurstSubject,
@@ -20,7 +19,6 @@ import {
   type SpectatorSignalContext,
 } from '../game/signals.js';
 import { observe } from '../game/perception.js';
-import type { DecoyState } from '../game/decoys.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
@@ -53,7 +51,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
     dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
@@ -65,7 +63,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
     dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
@@ -111,7 +109,7 @@ const REGISTRY_KEYS = [
   'litzone',
   'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
   'foulzone', // Story 9.4: the FOULING SHELL foul zone's contact-like channel, on the burn zone's gate (epic-9 amendment 63)
-  'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
+  // ('decoy' — the DECOY BUOY's channel — and 'dp' — the drone-drop receipt — left with Story 10.5.)
   'cloud', // Story 9.3: the MULTI-SPECTRAL COUNTERMEASURE cloud's contact-like frame channel (owner / spectator / its spray disc sighted or radar-detected — Story 9.3 session 2) — 8.18's `smoke` seat
   // Story 9.10: FOG HAS NO ROW — the field is public weather (welcome seed + schema cut); its hiding is the toll inside withinSight. The declared exceptions stay at SIX.
   'blip',
@@ -127,8 +125,6 @@ const REGISTRY_KEYS = [
   'torpU',
   'pt',
   'bn',
-  // Drone drops (Eric ruling 2026-10-01) — the killer-private STOCKED receipt.
-  'dp',
   // Story 4.3 — the gunnery conversation's three declared fog exceptions.
   'sp',
   'hc',
@@ -153,7 +149,7 @@ const REGISTRY_KEYS = [
 describe('SIGNAL_REGISTRY — row shape', () => {
   it('holds exactly the declared channel set — a channel cannot exist without a row here (fog is a toll, never a row)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(26);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(REGISTRY_KEYS.length);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {
@@ -351,44 +347,12 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     }
   });
 
-  // RETIRED (Story 7-5 wave 2): the `decoy` row's key-order pin and the two
-  // blip-counterIntel pins (wire-shape identity with a real paint, and the
-  // FR10 contact-coexistence suppression). All three assert about a channel
-  // and a seam that are DELETED — the decoy buoy no longer exists and nothing
-  // fabricates a ship contact. (The Story 8.16 DECOY BUOY's `decoy` row is
-  // pinned below with its own key order.)
-
-  it('decoy row (Story 8.16 / 10.9): [id,x,y,own,by,kind] for others; the owner alone appends hp, the radar sweep and until; the sight rule', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 2000, 0); // far away: neither sight nor detect
-    const decoy: DecoyState = {
-      id: 'd1', ownerId: 'a', x: 30, y: 0, hp: 50, poly: [], kind: 'radar', expiresAt: 31_000,
-      sweep: { sweepAngle: 1.25, prevSweepAngle: 1.2, sweepRev: 0, periodMs: 4000 },
-    };
-    const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
-    // OWNER: always visible; `kind` rides, then the self-private hp, sweep, until.
-    expect(row.visible(foggedCtx(w, a), decoy)).toBe(true);
-    const own = row.materialize(foggedCtx(w, a), decoy);
-    expect(Object.keys(own as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind', 'hp', 'sweep', 'until']);
-    expect(own).toEqual({ id: 'd1', x: 30, y: 0, own: true, by: 'a', kind: 'radar', hp: 50, sweep: 1.25, until: 31_000 });
-    // A NON-radar own buoy carries no `sweep` key at all.
-    const healing: DecoyState = { ...decoy, kind: 'healing', sweep: null };
-    expect(Object.keys(row.materialize(foggedCtx(w, a), healing) as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind', 'hp', 'until']);
-    // A FAR non-owner: invisible (beyond detect, no lit zone).
-    expect(row.visible(foggedCtx(w, b), decoy)).toBe(false);
-    // Move b inside DETECT range: visible, `by` rides, `hp` key ABSENT.
-    b.state.x = 60;
-    expect(row.visible(foggedCtx(w, b), decoy)).toBe(true);
-    const other = row.materialize(foggedCtx(w, b), decoy);
-    expect(Object.keys(other as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind']);
-    expect((other as DecoyView).kind).toBe('radar'); // a sighted enemy buoy shows its kind ...
-    for (const k of ['hp', 'sweep', 'until']) expect(k in (other as object)).toBe(false); // ... never its hp, sweep or timer
-    // The spectator sees every decoy, never as own.
-    expect(row.visible(specCtx(w), decoy)).toBe(true);
-    for (const k of ['hp', 'sweep', 'until']) expect(k in (row.materialize(specCtx(w), decoy) as object)).toBe(false);
-    // A fabricated k:'decoy' world event never dispatches (pseudo-row).
+  // RETIRED (Story 7-5 wave 2 / Story 10.5): every `decoy` row pin — the row
+  // and the DECOY BUOY are deleted (2026-11-05, epic-10 amendment 11).
+  it('no decoy row exists, and a fabricated k:\'decoy\' or k:\'dp\' world event never dispatches', () => {
+    expect('decoy' in SIGNAL_REGISTRY).toBe(false);
     expect(signalFor('decoy')).toBeUndefined();
+    expect(signalFor('dp')).toBeUndefined();
   });
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
@@ -503,6 +467,38 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const wire = row.materialize(ctx, e) as BurstEvent;
     expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y']);
     expect('own' in wire).toBe(false); // never on the wire
+  });
+
+  it('burst row (Story 10.5): a FLASH burst materializes `f` then its stamped radius `r` LAST — present iff `f`, on both paths', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const row = signalFor('burst')!;
+    const r = CONFIG.flashShells.radius + CONFIG.flashShells.radiusStepPerTier; // a tier-II disc
+    const flash: BurstSubject = { k: 'burst', id: 's1', x: 500, y: 0, own: 'a', f: true, r };
+    for (const ctx of [foggedCtx(w, a), specCtx(w)]) {
+      const wire = row.materialize(ctx, flash) as BurstEvent;
+      expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y', 'f', 'r']);
+      expect(wire.r).toBe(r);
+      const plain = row.materialize(ctx, { k: 'burst', id: 's2', x: 500, y: 0, own: 'a' } as BurstSubject) as BurstEvent;
+      expect('r' in plain).toBe(false);
+      expect('f' in plain).toBe(false);
+    }
+  });
+
+  it('burst row (Story 10.5): the flashed-victim arm reads the burst\'s OWN radius `r`, not the tier-I CONFIG radius', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const step = CONFIG.flashShells.radiusStepPerTier;
+    const r = CONFIG.flashShells.radius + step; // a tier-II disc
+    // A blind (sight 0) victim sits between the tier-I rim and the tier-II rim.
+    const v = place(w, 'v', 3000 + CONFIG.flashShells.radius + step / 2, 0);
+    v.dazzledUntil = w.now + FLASH_WINDOW_MS;
+    const row = signalFor('burst')!;
+    const at = { x: 3000, y: 0 };
+    expect(row.visible(foggedCtx(w, v), { k: 'burst', id: 's1', ...at, own: 'a', f: true, r } as BurstSubject)).toBe(true);
+    expect(
+      row.visible(foggedCtx(w, v), { k: 'burst', id: 's1', ...at, own: 'a', f: true, r: CONFIG.flashShells.radius } as BurstSubject),
+    ).toBe(false);
   });
 
   it('burst row: spectator materialize ALSO rebuilds the bare shape (no `own` leak unfogged)', () => {
@@ -852,16 +848,11 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // ...and inside the observer's own light too
   });
 
-  it("a decoy or wake subject at EXACTLY the observer's position is no return (zero distance: nothing to bear on)", () => {
+  it("a wake subject at EXACTLY the observer's position is no return (zero distance: nothing to bear on)", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // the beam crossing bearing 0 — the arbitrary atan2(0, 0)
-    const decoyAt = (x: number): DecoyState => ({ id: 'd1', ownerId: 'b', x, y: 0, hp: 50, poly: [], kind: 'healing', expiresAt: Infinity, sweep: null });
-    w.decoys.set('d1', decoyAt(0));
-    expect(decoyRadarBlips(foggedCtx(w, a))).toHaveLength(0);
-    w.decoys.set('d1', decoyAt(30)); // the same decoy a step down the beam paints
-    expect(decoyRadarBlips(foggedCtx(w, a))).toHaveLength(1);
     const seg = (x: number) => ({ x, y: 0, ax: x - 6, ay: 0, bx: x + 6, by: 0, bucket: 0, widthU: 9, key: 'b' });
     expect(SIGNAL_REGISTRY.wk.visible(foggedCtx(w, a), seg(0))).toBe(false);
     expect(SIGNAL_REGISTRY.wk.visible(foggedCtx(w, a), seg(30))).toBe(true);
@@ -1256,7 +1247,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // kinds. The three contact/mine/litzone pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();

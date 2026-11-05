@@ -133,7 +133,7 @@ const FROZEN_DECISION: BotDecision = Object.freeze({
   aim: 0,
   aimDist: 0,
   fireSlot: null,
-  actSlot: null,
+  act: null,
   held: false,
   spendChoice: null,
 });
@@ -399,7 +399,7 @@ export class BotController {
   /** Fold a decision into one validated InputMsg (and at most one spend). */
   private submit(id: string, mind: BotMind, d: BotDecision): void {
     if (d.fireSlot !== null) mind.fireSeq += 1;
-    if (d.actSlot !== null) mind.actSeq += 1;
+    if (d.act !== null) mind.actSeq += 1;
     mind.seq += 1;
     const msg: InputMsg = {
       seq: mind.seq,
@@ -411,7 +411,8 @@ export class BotController {
       slot: d.fireSlot ?? 0,
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
       actSeq: mind.actSeq,
-      actSlot: d.actSlot ?? 0,
+      // Story 10.5: the press names its ability by wire code (0 = the Shift).
+      act: d.act ?? 0,
       // Story 8.15: the machine gun's LEVEL, straight from the decision. A held
       // tick carries fireSlot null, so `slot` is 0 — the one slot the World's
       // streamControl lets a level fire — and fireSeq does not move.

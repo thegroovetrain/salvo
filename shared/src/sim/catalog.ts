@@ -1,9 +1,20 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 28 card LINES / 137 physical cards: 8 equipment lines (40), 6 universal
+// 21 card LINES / 102 physical cards: 11 equipment lines (55), 6 universal
 // ladders (30), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
-// 0 add-ons, 11 consumables (55).
+// and the one STUB line (DEPTH CHARGE, 5).
+//
+// THE COUNT MOVED 28/137 -> 21/102 IN STORY 10.5 (Eric 2026-11-05, epic-10
+// amendment 11): THE KIT IS RETIRED. Seven consumable lines are DELETED —
+// HULL REPAIR and SMOKE (`countermeasure`) became the `C` / `V` cooldown
+// abilities every ship carries (sim/abilities.ts), SHIELD BLOCK and the four
+// buoys are gone outright — and three CHANGED KIND in their seats, consumable
+// -> equipment: SUPERCAV TORPEDO, FOULING SHELL and FLASH SHELLS
+// (`dazzleShells`) are reloading slot weapons with five tiers. The
+// `consumable` kind and the `stock` effect are deleted; DEPTH CHARGE stays
+// the one stub. BROADSIDE stays authored and LEAVES THE DEAL (R6). Every
+// surviving line keeps its relative order.
 //
 // THE COUNT MOVED 30/147 -> 28/137 IN STORY 10.3 (Eric 2026-11-04, epic-10
 // amendment 7): the HULL POINTS and PASSIVE HEALING ladders (cap 5 each) are
@@ -89,8 +100,7 @@
 // BROADSIDE and PHOSPHOR SHELLS (Eric 2026-09-29, amendments 130–133) — so NO
 // equipment line has an empty tier any more. The
 // −5 %/tier reload step is NEVER one of those effects — it is derived from the
-// tier in sim/stats.ts clampStats, see there. Consumables stock and nothing
-// else.
+// tier in sim/stats.ts clampStats, see there.
 //
 // STUB LINES (`stub: true`) are lines whose MECHANISM does not exist yet. They
 // are authored in full shape so the catalog is complete and the ids are final,
@@ -103,8 +113,9 @@
 //
 // NO DEAD CARD IN A LIVE OFFER is the rule the stub exclusion serves, and the
 // draw's eligibility law (sim/draw.ts) is the rest of it: a line at its `cap`
-// is not offered, copy 1 of a weapon is not offered with the row full, and a
-// gun ladder is not offered unless that gun is mounted.
+// is not offered, copy 1 of a weapon is not offered unless its FAMILY's slot is
+// empty (Story 10.5 — one kind per slot), and a gun ladder is not offered
+// unless that gun is mounted.
 //
 // CATALOG CONTENT IS WIRE CONTRACT: adding, removing or changing any entry
 // REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Line ids ride the
@@ -113,7 +124,7 @@
 
 import { CONFIG } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
-import { EQUIPMENT_IDS, isConsumableId } from './loadout.js';
+import { EQUIPMENT_IDS } from './loadout.js';
 import {
   BOON_STAT_PATH_SET,
   DOCTRINE_MODES,
@@ -122,16 +133,21 @@ import {
   type BoonDoctrineEffect,
   type BoonEffect,
   type BoonStatEffect,
-  type BoonStockEffect,
-  type ConsumableId,
   type DoctrineWeapon,
 } from './effects.js';
 
 /**
- * THE 28 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 21 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 10.5 DELETED SEVEN AND MOVED NOTHING (28 -> 21; Eric 2026-11-05,
+ * epic-10 amendment 11): `hullRepair`, `shieldBlock`, `countermeasure`,
+ * `radarBuoy`, `healingBuoy`, `shieldBuoy` and `speedBuoy` are GONE — no
+ * alias, their seats close. `supercavTorpedo`, `foulingShell` and
+ * `dazzleShells` KEEP their seats and change KIND to `equipment` (the
+ * `foulingMines` precedent); `depthCharge` keeps its seat as the one stub.
  *
  * STORY 10.3 DELETED TWO AND RENAMED FOUR (30 -> 28; Eric 2026-11-04, epic-10
  * amendment 7): `hullPoints` (seat 1) and `passiveHealing` (seat 8) are GONE —
@@ -208,27 +224,21 @@ export const LINE_IDS = [
   // (Eric 2026-11-04, epic-10 amendment 8): PASSIVE HEALING is gone.
   // --- the CANNON ladder (the deck gun: slotless, always fitted) ------------
   'deckGun',
-  // --- the eleven equipment lines (+ one consumable that kept its slot) -----
+  // --- the equipment lines and the two gun ladders that sit among them ------
   'lightTorpedo',
   'heavyTorpedo',
-  'supercavTorpedo', // a CONSUMABLE since amendment 74 — slot locked, kind changed
+  'supercavTorpedo', // an EQUIPMENT line again since Story 10.5 (a consumable from amendment 74 until then) — seat locked
   'navalMines',
   'captiveMines',
   'machineGun', // a LADDER since 8.15 — the machine gun's, slot locked, kind changed
   'flak', // a LADDER since 8.15 — the flak gun's, slot locked, kind changed
   'broadside',
   'starShells',
-  // --- the consumables ------------------------------------------------------
-  // (plus `supercavTorpedo` above, which KEPT ITS SLOT in this list when its
-  // kind changed — see the note on the eleven-equipment block.)
-  'hullRepair',
-  'shieldBlock',
-  'countermeasure', // Story 9.3 (Eric 2026-10-11): replaces smokeScreen in its slot
-  // `decoyBuoy` sat here until Story 10.9 DELETED it (Eric 2026-10-27): the
-  // four buoys that replace it are APPENDED at the foot of the list.
-  // DEPTH CHARGE takes ACOUSTIC HOMING's place in the 29 (Eric ruling
-  // 2026-09-19, epic-8 amendments 80/83): a new STUB consumable, and the Mine
-  // Layer's 40th default card.
+  // --- the one STUB ----------------------------------------------------------
+  // `hullRepair`, `shieldBlock` and `countermeasure` sat here until Story 10.5
+  // DELETED them with the kit (Eric 2026-11-05, epic-10 amendment 11).
+  // DEPTH CHARGE (Eric ruling 2026-09-19, epic-8 amendments 80/83): Eric's
+  // line, mechanism a later story — never dealt.
   'depthCharge',
   // --- the former add-ons (NONE remains since Story 8.17) -------------------
   // Each slot is locked and each KIND changed: `foulingMines` to `equipment`
@@ -236,29 +246,25 @@ export const LINE_IDS = [
   // `phosphorShells` to `equipment` in Story 8.17 (amendments 131/132). Story
   // 9.4 replaced FLASH SHELLS with the FOULING SHELL in the same slot.
   'foulingMines',
-  'foulingShell', // Story 9.4 (Eric 2026-10-11): replaces dazzleShells (FLASH SHELLS) in its slot
+  'foulingShell', // Story 9.4 (Eric 2026-10-11); an EQUIPMENT line since Story 10.5
   'phosphorShells', // an EQUIPMENT line since 8.17
   // --- Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) ----------
-  // FLASH SHELLS is BACK, beside the FOULING SHELL — a new seat, not its old
-  // one (which the fouling shell keeps). Then the FOUR BUOYS that replace the
-  // deleted DECOY BUOY (sim/buoy.ts BUOY_LINE_IDS, same order).
+  // FLASH SHELLS, beside the FOULING SHELL; an EQUIPMENT line since Story
+  // 10.5. The four buoys appended after it were DELETED by Story 10.5.
   'dazzleShells',
-  'radarBuoy',
-  'healingBuoy',
-  'shieldBuoy',
-  'speedBuoy',
 ] as const;
 
-/** One of the 28 authored card lines. */
+/** One of the 21 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
- * The four card KINDS of catalog v3 (the refit card's meta word, Eric ruling
- * 2026-09-15 amendment 8): an `equipment` line whose copy 1 fits a weapon, a
- * universal `ladder` of stat steps, an `addon` that bolts a verb onto equipment
- * it names, a `consumable` whose copies stock a rack.
+ * The three card KINDS (the refit card's meta word, Eric ruling 2026-09-15
+ * amendment 8): an `equipment` line whose copy 1 fits a weapon, a universal
+ * `ladder` of stat steps, an `addon` that bolts a verb onto equipment it
+ * names. The fourth, `consumable` (copies stocked a rack), is DELETED with the
+ * kit (2026-11-05, Story 10.5, epic-10 amendment 11).
  */
-export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
+export type LineKind = 'equipment' | 'ladder' | 'addon';
 
 /**
  * One catalog card LINE.
@@ -538,17 +544,30 @@ function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: numbe
   return tier;
 }
 
-/** A cap-5 consumable: every copy stocks one use. `stub` marks a consumable
- *  whose EFFECT does not exist yet — the slots are built (Story 8.7) and
- *  HULL REPAIR's effect landed with Story 8.8, so the flag is passed
- *  line-by-line. (The `weapon()` and `addon()` helpers that took the same
- *  flag were deleted in Story 8.17 with their last users.) */
-function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
-  const stock: BoonStockEffect = { kind: 'stock', equipmentId: id };
-  // A fresh tier array AND a fresh effect object per copy (see `ladder`).
-  const tiers = Array.from({ length: 5 }, () => [{ ...stock }] as readonly BoonEffect[]);
-  const line: CatalogLine = { id, kind: 'consumable', cap: 5, tiers };
-  return stub === undefined ? line : { ...line, stub };
+/**
+ * One upgrade tier of FLASH SHELLS or the FOULING SHELL (Eric 2026-11-05,
+ * Story 10.5, epic-10 amendment 11, R7): the burst radius +`radiusStepPerTier`
+ * (25 u — 150 → 250 at V). The step is read from CONFIG ONCE, at module load
+ * (the `rangeStep` precedent above): the catalog is frozen at load, so a
+ * harness `--tune` moves the Tier I base only. The −5 %/tier reload is the
+ * derived tier step, never authored.
+ */
+function shellRadiusTier(line: 'dazzleShells' | 'foulingShell', step: number): BoonEffect[] {
+  return [statEffect(`equipment.${line}.radius`, { add: step })];
+}
+
+/**
+ * A STUB line: authored in full shape so the id is final, with EMPTY tiers
+ * (nothing to buy) and no mechanism behind it — never dealt, never fitted,
+ * refused by every pick (sim/draw.ts `isDealable`, sim/boons.ts
+ * `pickRefusal`). It is typed `addon` — the one kind whose shape asks for
+ * nothing (no slotFill, no tier target) — because the `consumable` kind it
+ * used to carry is deleted (2026-11-05, Story 10.5); the story that builds
+ * the mechanism re-types it.
+ */
+function stubLine(id: LineId): CatalogLine {
+  const tiers = Array.from({ length: 5 }, () => [] as readonly BoonEffect[]);
+  return { id, kind: 'addon', cap: 5, tiers, stub: true };
 }
 
 /**
@@ -643,13 +662,18 @@ export const CATALOG: Catalog = deepFreezeRows({
   // +20 RELOAD per tier; cooldownScale = 1 / (1 + (RELOAD − 100) / 100), so
   // 120 = ×0.833 and 200 = ×0.5 at the cap (was −5 % additive per tier,
   // 1.0 → 0.75). MULTIPLICATIVE on the index: each card buys a little less
-  // than the last. Scope (R40): every equipment reload AND the Shift
-  // cooldowns; consumables have no reload.
+  // than the last. Scope (Story 10.5, R10 / R11, epic-10 amendment 11 —
+  // supersedes R40's "every equipment reload AND the Shift cooldowns"): the
+  // main battery's turret reloads and every Q / E / R weapon (plus the legacy
+  // deck-gun rows). NOT the Shifts (`RELOAD_UNSCALED_ROWS` in sim/stats.ts),
+  // NOT the secondaries, NOT `C` / `V` (R3).
   reload: ladder('reload', 5, [statEffect('reload', { add: 20 })]),
   // PASSIVE HEALING (+0.6 %/s missing hull, −1 s wait ×5) sat here until
   // Story 10.3 DELETED it (Eric 2026-11-04, epic-10 amendment 8) together
-  // with the out-of-combat regen itself (`CONFIG.regen`): HULL REPAIR is the
-  // one heal (ruling 7).
+  // with the out-of-combat regen itself. THE REGEN IS BACK, the ladder is not
+  // (Eric 2026-11-05, Story 10.5, R8): a fixed 2 % of missing hp per second
+  // after 15 s unhurt (first 30 s, then "Make it 15, 30 was too long.") —
+  // `CONFIG.regen`, sim/regen.ts — with no card.
   // --- the CANNON ladder ----------------------------------------------------
   // DECK GUN (R14 as retuned by Eric 2026-10-16, Story 9.12, then ×3 as a
   // PLACEHOLDER by Story 10.3 ruling 10): base 24, damage steps +6 (to II) and
@@ -707,10 +731,15 @@ export const CATALOG: Catalog = deepFreezeRows({
     torpedoTier('heavyTorpedo', 75, false),
     torpedoTier('heavyTorpedo', 75, false),
   ]),
-  // SUPERCAV TORPEDO (R19 as superseded by amendment 74): a CONSUMABLE, not an
-  // equipment line — a prime-and-click belt fish with no reload and no tiers.
-  // It keeps its LINE_IDS slot (see there) and its five copies are five uses.
-  supercavTorpedo: consumable('supercavTorpedo'),
+  // SUPERCAVITATING TORPEDO (Eric 2026-11-05, Story 10.5, epic-10 amendment
+  // 11, R4): a TORPEDO-SLOT equipment line again (a consumable from amendment
+  // 74 until then) — one tube, 45 s reload. Tiers II–V each +100 damage
+  // (400/500/600/700/800 — epic-10 amendment 8(e): "SUPERCAVITATING 400 → 800
+  // over their tiers") and nothing else: it never homes, the speed and the
+  // single tube are fixed. −5 %/tier reload derived (45 s → 36 s at V).
+  supercavTorpedo: tieredWeapon('supercavTorpedo', 'supercavTorpedo', [
+    statEffect('equipment.supercavTorpedo.damage', { add: 100 }),
+  ]),
   // NAVAL MINES (R23/R24; damage re-ruled by Story 10.3, Eric 2026-11-04,
   // ruling 6 — "NAVAL 200 → 300 (+25 a rung)"): the shipped mine, renamed —
   // damage +25 every rung (200/225/250/275/300; was +11 / +11 / +11 / +12,
@@ -774,6 +803,13 @@ export const CATALOG: Catalog = deepFreezeRows({
   // (the ×3 placeholder of Story 10.3 ruling 10 on the ruled 15);
   // there is no separate damage / turret / spread card. −5 %/tier reload is
   // derived (18 s → 14.4 s at V).
+  //
+  // BROADSIDE LEAVES THE DEAL (2026-11-05, Story 10.5, Eric, R6: "Leaves the
+  // deal"; a special-shell option was rejected). The line stays authored for
+  // reference, like the deck-gun ladders, and is never eligible for anyone:
+  // its equipment has NO family slot (sim/loadout.ts `EQUIPMENT_FAMILY`), so
+  // the draw never deals it, `pickRefusal` refuses it and the slot fold fits
+  // it nowhere.
   broadside: tieredWeapon('broadside', 'broadside', [
     statEffect('equipment.broadside.spreadRung', { add: 1 }),
     statEffect('equipment.broadside.turrets', { add: 0.5 }),
@@ -791,27 +827,14 @@ export const CATALOG: Catalog = deepFreezeRows({
     starShellTier(12),
     starShellTier(13),
   ]),
-  // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
-  // The consumable slots are built (Story 8.7). HULL REPAIR (R13) was
-  // the first LIVE line — its effect is Story 8.8's — and SUPERCAV TORPEDO
-  // (above) is the second. Story 8.16 flipped SHIELD BLOCK and DECOY BUOY
-  // live (catalog-v3 R37/R36, epic-8 amendments 116–124), and Story 8.18
-  // flipped SMOKE SCREEN (R38, amendments 138–145), leaving ONE stub — DEPTH
-  // CHARGE — until its effect lands (6 live consumables). Story 9.3 (Eric
-  // 2026-10-11) replaced SMOKE SCREEN with the COUNTERMEASURE line. The
-  // FOULING SHELL (Story 9.4, replacing Story 8.17's FLASH SHELLS) is a live
-  // consumable that sits at the foot of the list with the former add-ons. CHAFF (R39) is RETIRED since Story 9.2 (epic-9 amendment
-  // 31). Since 9.2 every live consumable owns a fixed key — the belt is gone;
-  // since Story 10.1 the keys `1`–`4` are back, bound per ship by its KIT of
-  // four (sim/loadout.ts `ConsumableKit`; the global key row is deleted).
-  hullRepair: consumable('hullRepair'), // R13 — 100 instant + 100 pooled since Story 10.3 ruling 7 (CONFIG.hullRepair); THE one heal
-  shieldBlock: consumable('shieldBlock'), // R37 — absorbs 300 hp for 10 s (CONFIG.shieldBlock; ×3 placeholder, Story 10.3)
-  countermeasure: consumable('countermeasure'), // Story 9.3 (Eric 2026-10-11) — one cloud per press, 15 s life (CONFIG.countermeasure)
-  // `decoyBuoy` (R36) sat here until Story 10.9 deleted it; see the five lines
-  // appended at the foot of this object.
+  // --- the one STUB ----------------------------------------------------------
+  // HULL REPAIR, SHIELD BLOCK and the COUNTERMEASURE line sat here until Story
+  // 10.5 deleted them with the kit (Eric 2026-11-05, epic-10 amendment 11):
+  // HULL REPAIR and SMOKE are the `C` / `V` abilities (sim/abilities.ts,
+  // CONFIG.hullRepair / CONFIG.countermeasure), the shield is gone.
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
-  // in full shape so the id is final, and the Mine Layer's 40th default card.
-  depthCharge: consumable('depthCharge', true),
+  // so the id is final.
+  depthCharge: stubLine('depthCharge'),
   // --- the former add-ons (NONE remains since Story 8.17) -------------------
   // FOULING MINES (R28 as superseded by amendment 81): its OWN tiered
   // EQUIPMENT line now, not an add-on — tiers II–V each ×1.1 blast (the trip
@@ -826,11 +849,17 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
   ]),
   // HEAT SEEKING (R32) is CUT with the missile (Story 8.15, amendment 89e).
-  // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68;
-  // replaces FLASH SHELLS in its slot): a CONSUMABLE — one 360° shell whose
-  // burst leaves a stationary zone that slows every hull whose outline
-  // touches it, the firer's included. CONFIG.foulingShell.
-  foulingShell: consumable('foulingShell'),
+  // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68): one
+  // 360° shell whose burst leaves a stationary zone that slows every hull
+  // whose outline touches it, the firer's included. A SPECIAL-SHELL-SLOT
+  // equipment line since Story 10.5 (Eric 2026-11-05, epic-10 amendment 11,
+  // R4 / R7): 30 s reload; tiers II–V each +25 u of zone radius (150 → 250).
+  // CONFIG.foulingShell.
+  foulingShell: tieredWeapon(
+    'foulingShell',
+    'foulingShell',
+    shellRadiusTier('foulingShell', CONFIG.foulingShell.radiusStepPerTier),
+  ),
   // PHOSPHOR SHELLS (R33/R34 as ruled by Eric 2026-09-29, amendment 131): its
   // OWN tiered 360° weapon, no longer a star-shell add-on. Tiers II–V: damage
   // +12/+13/+12/+13 (50 → 100) and burn +5 ×4 hp/s (20 → 40) since Story 10.3
@@ -845,18 +874,17 @@ export const CATALOG: Catalog = deepFreezeRows({
     phosphorTier(13, 5, 1000),
   ]),
   // --- Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) ----------
-  // FLASH SHELLS (epic-8 amendment 132, restored): a CONSUMABLE — one 360°
-  // shell on the FOULING SHELL's click path (same reach) whose burst dazzles
-  // every non-owner hull inside r150 for 10 s to 1/4 of its sight.
-  // CONFIG.flashShells.
-  dazzleShells: consumable('dazzleShells'),
-  // THE FOUR BUOYS (CONFIG.buoy; sim/buoy.ts): the decoy's 50 hp body with a
-  // 30 s life and an owner-only 750 u effect — a second radar sweep, an
-  // uninterruptible heal, a ramping shield pool, a +25 % speed term.
-  radarBuoy: consumable('radarBuoy'),
-  healingBuoy: consumable('healingBuoy'),
-  shieldBuoy: consumable('shieldBuoy'),
-  speedBuoy: consumable('speedBuoy'),
+  // FLASH SHELLS (epic-8 amendment 132, restored by 10.9): one 360° shell on
+  // the FOULING SHELL's click path (same reach) whose burst whites out every
+  // non-owner hull inside it. A SPECIAL-SHELL-SLOT equipment line since Story
+  // 10.5 (Eric 2026-11-05, epic-10 amendment 11, R4 / R7): 30 s reload; tiers
+  // II–V each +25 u of burst radius (150 → 250). CONFIG.flashShells.
+  // (The four buoys that followed it here are DELETED by Story 10.5.)
+  dazzleShells: tieredWeapon(
+    'dazzleShells',
+    'dazzleShells',
+    shellRadiusTier('dazzleShells', CONFIG.flashShells.radiusStepPerTier),
+  ),
 });
 
 /** The immutable zero-cards list — the shared allocation-free identity for
@@ -940,8 +968,7 @@ export function tierTargetOf(line: CatalogLine): EquipmentId | undefined {
  * The EQUIPMENT LINE that fits a piece of equipment — the inverse of
  * `tierTargetOf` over the `equipment` lines, and the ONE place the
  * (EquipmentId -> LineId) mapping is derived. Undefined for a piece of
- * equipment no card fits (the three mounted guns and the three Shifts; the
- * legacy `radarBuoy` was deleted in Story 8.16).
+ * equipment no card fits (the mounted guns and the three Shifts).
  *
  * It is what lets the spawn seed know which cards a hull is ALREADY holding,
  * and what lets the shared slot fold refuse to fit a STUB weapon, without
@@ -963,10 +990,7 @@ export function lineForEquipment(eq: EquipmentId, catalog: Catalog = CATALOG): C
 // ---------------------------------------------------------------------------
 
 const EQUIPMENT_ID_SET: ReadonlySet<string> = new Set(EQUIPMENT_IDS);
-// The consumable membership test is `isConsumableId` (sim/loadout.ts, Story
-// 8.7) — the ONE guard every reader of a slot's content already narrows
-// through, over the same CONSUMABLE_IDS list. No second set here.
-const LINE_KINDS: readonly string[] = ['equipment', 'ladder', 'addon', 'consumable'];
+const LINE_KINDS: readonly string[] = ['equipment', 'ladder', 'addon'];
 
 /** Problems with one STAT effect. */
 function validateStatEffect(e: BoonStatEffect, tag: string): string[] {
@@ -999,9 +1023,6 @@ function validateEffect(e: BoonEffect, tag: string): string[] {
     return EQUIPMENT_ID_SET.has(e.equipmentId) ? [] : [`${tag}: slotFill of unknown equipment '${e.equipmentId}'`];
   }
   if (e.kind === 'doctrine') return validateDoctrineEffect(e, tag);
-  if (e.kind === 'stock') {
-    return isConsumableId(e.equipmentId) ? [] : [`${tag}: stock of unknown consumable '${e.equipmentId}'`];
-  }
   if (e.kind === 'behavior') return validateBehaviorEffect(e, tag);
   return [`${tag}: unknown effect kind`];
 }
@@ -1162,7 +1183,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   return errs;
 }
 
-/** Total physical cards in a catalog (Σ cap) — 137 since Story 10.3 (147 after 10.9, 122 after 9.7). */
+/** Total physical cards in a catalog (Σ cap) — 102 since Story 10.5 (137 after 10.3, 147 after 10.9). */
 export function catalogCardCount(catalog: Catalog = CATALOG): number {
   let n = 0;
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;

@@ -38,7 +38,7 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, type EffectiveMine, type MineKind, type MineView, type SlotItemId } from '@salvo/shared';
+import { CONFIG, type EffectiveMine, type MineKind, type MineView, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
 import { settings } from '../settings/store.js';
@@ -66,7 +66,7 @@ const MARKER_W = 1.5;
 
 /** The slot-item id whose glyph a mine of each kind draws on the water — the
  *  same linework as that line's hotbar square. */
-const MARKER_GLYPH: Readonly<Record<MineKind, SlotItemId>> = {
+const MARKER_GLYPH: Readonly<Record<MineKind, EquipmentId>> = {
   naval: 'navalMines',
   captive: 'captiveMines',
   fouling: 'foulingMines',

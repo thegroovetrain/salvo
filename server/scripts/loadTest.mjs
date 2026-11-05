@@ -456,7 +456,7 @@ function makeInputDriver(clients) {
           slot: 0,
           fireT: 0,
           actSeq: 0,
-          actSlot: 0,
+          act: 0,
           hornSeq: 0, held: false, sec: false,
         });
         ctx.inputs += 1;

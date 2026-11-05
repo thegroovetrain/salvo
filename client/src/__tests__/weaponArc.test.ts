@@ -26,22 +26,19 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BUOY_LINE_IDS,
   CATALOG,
   CONFIG,
   DEFAULT_CLASS_ID,
-  DEFAULT_KIT,
   EQUIPMENT_IDS,
   INDEX_IDS,
   arcFor,
   effectiveStats,
-  isConsumableId,
   gunReachU as sharedGunReachU,
   WEAPON_SLOTS,
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
 } from '@salvo/shared';
-import type { Catalog, CatalogLine, EquipmentId, HullIndex, ShipClass, SlotItemId } from '@salvo/shared';
+import type { Catalog, CatalogLine, EquipmentId, HullIndex, ShipClass } from '@salvo/shared';
 import {
   MINE_EQUIPMENT_IDS,
   fireArcKind,
@@ -77,25 +74,23 @@ const NEUTRAL_HULL: ShipClass = {
  */
 const FITTED = {
   torpedoFit: ['heavyTorpedo'],
-  shellFit: ['broadside', 'starShells'],
+  shellFit: ['starShells'],
   mineFit: ['navalMines'],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
  * The fitted equipment id at a slot for a hull — the client's slotIdsFor path,
  * verbatim. STORY 8.5 re-cut the base fit: it no longer takes a hull, so what a
- * hull carries comes from its CARDS, which land in the first empty WEAPON slot,
- * i.e. from slot 2 (Q) upward.
+ * hull carries comes from its CARDS — since Story 10.5 each in its FAMILY's
+ * slot (Q torpedo, E mine, R special shell).
  */
 function idAt(fit: keyof typeof FITTED, slot: number): EquipmentId | null {
   const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
-  const id = slotsWithCards(stats, FITTED[fit], DEFAULT_KIT)[slot].equipmentId;
-  // A slot's content is a `SlotItemId` since Story 8.7 — narrowed, never cast.
-  return id === null || isConsumableId(id) ? null : id;
+  return slotsWithCards(stats, FITTED[fit])[slot].equipmentId;
 }
 
 /** The three WEAPON slots, by name — Q, E, R (shared WEAPON_SLOTS). */
-const [Q, E] = WEAPON_SLOTS;
+const [Q, E, R] = WEAPON_SLOTS;
 
 describe('fireArcKind — equipment-id → firing-arc class', () => {
   it('classes the gun FAMILY (gun/starShells) as 360° gunLike', () => {
@@ -113,8 +108,7 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     expect(fireArcKind('navalMines')).toBe('sector');
   });
 
-  it('classes the four BUOYS and FLASH SHELLS `gunLike` — a 360° arc (Story 10.9, ruling 9)', () => {
-    for (const id of BUOY_LINE_IDS) expect(fireArcKind(id), id).toBe('gunLike');
+  it('classes FLASH SHELLS `gunLike` — a 360° arc (Story 10.9, ruling 9)', () => {
     expect(fireArcKind('dazzleShells')).toBe('gunLike');
   });
 
@@ -189,13 +183,8 @@ describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
     expect(strays).toEqual([]);
   });
 
-  it('every BUOY is click-PLACED on a 360° arc, the mines keep their rear sector (Story 10.9, ruling 9)', () => {
-    for (const id of BUOY_LINE_IDS) {
-      expect(arcFor(id).kind, id).toBe('full');
-      expect(isPlacedItem(id), id).toBe(true);
-      // ...and a buoy is NOT a mine line: no mine-kind reader may treat it as one.
-      expect(isMineEquipment(id), id).toBe(false);
-    }
+  it('only the mines are click-PLACED; the mines keep their rear sector (Story 10.5: the buoys are gone)', () => {
+    for (const id of EQUIPMENT_IDS) expect(isPlacedItem(id), id).toBe(isMineEquipment(id));
     expect(arcFor('navalMines').kind).toBe('sector');
     expect(isPlacedItem('dazzleShells')).toBe(false); // a shell clamps, it is not placed
   });
@@ -225,30 +214,8 @@ describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
 // mine — a predicted denial over a click the server would refuse, and nothing
 // else. The key-fires consumables still answer false.
 describe('clickInArc — the click-aimed consumables are GATED by their arcs', () => {
-  it('a BUOY is legal on EVERY bearing inside the leash (Story 10.9, ruling 9)', () => {
-    for (const id of BUOY_LINE_IDS) {
-      for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 2, 2.5]) {
-        expect(clickInArc(0, aim, 10, id), `${id} @ ${aim}`).toBe(true);
-      }
-    }
-  });
-
-  it('a BUOY shares the mine\'s placement leash — past it is denied, the range unchanged', () => {
-    for (const id of BUOY_LINE_IDS) {
-      expect(clickInArc(0, 0, CONFIG.mine.placeRange, id), id).toBe(true);
-      expect(clickInArc(0, 0, CONFIG.mine.placeRange + 1, id), id).toBe(false);
-      expect(clickInArc(0, Math.PI, 99_999, id), id).toBe(false);
-    }
-  });
-
   it('FLASH SHELLS is 360° and CLAMPS rather than denying — any bearing, any distance', () => {
     expect(clickInArc(0, Math.PI, 99_999, 'dazzleShells')).toBe(true);
-  });
-
-  it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
-    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure'] as const) {
-      expect(clickInArc(0, 0, 10, id), id).toBe(false);
-    }
   });
 
   it('the FOULING SHELL is a 360° click — never out of arc, never a placement leash (Story 9.4)', () => {
@@ -294,11 +261,9 @@ describe('weaponArcHit — gun family (360°)', () => {
     expect(weaponArcHit(0, 0, 'starShells')).toBe(true);
     expect(weaponArcHit(0, Math.PI, 'starShells')).toBe(true); // dead astern
     expect(weaponArcHit(1.2, -2.9, 'starShells')).toBe(true);
-    // And the BB's real fitted slots (the whole point) — its seed fills Q with
-    // the BROADSIDE, which is NOT 360° and gets its own suite below, and E with
-    // the star shells.
-    expect(idAt('shellFit', Q)).toBe('broadside');
-    expect(idAt('shellFit', E)).toBe('starShells');
+    // And the real fitted slot (the whole point): star shells are the special
+    // shell family, so they land in R (Story 10.5).
+    expect(idAt('shellFit', R)).toBe('starShells');
   });
 });
 
@@ -402,11 +367,10 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
   // Story 8.16.
   const halfArc = CONFIG.torpedo.halfArc;
 
-  it('the TB seed fills Q with the torpedo; the ML seed fills Q with the mine', () => {
+  it('a torpedo fills Q and a mine fills E — each in its family slot (Story 10.5)', () => {
     expect(idAt('torpedoFit', Q)).toBe('heavyTorpedo');
-    expect(idAt('mineFit', Q)).toBe('navalMines');
-    // AMENDMENT 22: nothing fits E on the ML (the radar buoy is deleted).
-    expect(idAt('mineFit', E)).toBeNull();
+    expect(idAt('mineFit', E)).toBe('navalMines');
+    expect(idAt('mineFit', Q)).toBeNull();
   });
 
   it('the TB torpedo gates on the bow arc exactly as before', () => {
@@ -417,16 +381,12 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
     expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern
   });
 
-  it('the mine is an AIMED rear-sector id; a BUOY is in arc on every bearing (Story 10.9)', () => {
+  it('the mine is an AIMED rear-sector id', () => {
     const rear = arcFor('navalMines');
     if (rear.kind !== 'sector') throw new Error('mine must declare a sector');
     expect(fireArcKind('navalMines')).toBe('sector');
     expect(weaponArcHit(0, rear.offset, 'navalMines')).toBe(true);
     expect(weaponArcHit(0, 0, 'navalMines')).toBe(false); // dead ahead
-    for (const id of BUOY_LINE_IDS) {
-      expect(weaponArcHit(0, rear.offset, id), id).toBe(true);
-      expect(weaponArcHit(0, 0, id), id).toBe(true); // dead ahead too — 360°
-    }
   });
 });
 
@@ -445,13 +405,15 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'starShells')).toBe(CONFIG.starShells.rangeU);
   });
 
-  // STORY 8.17 (amendments 131/132): PHOSPHOR SHELLS reads its own row; the
-  // FOULING SHELL consumable (Story 9.4; no row, no card) reads its fixed dial.
-  it('phosphor reads its OWN row, the fouling shell its fixed CONFIG dial — never radar', () => {
+  // STORY 8.17 (amendments 131/132): PHOSPHOR SHELLS reads its own row; since
+  // Story 10.5 the FOULING SHELL and FLASH SHELLS read their own rows too.
+  it('phosphor and the two special shells read their OWN rows — never radar', () => {
     expect(weaponRangeU(stats, 'phosphorShells')).toBe(stats.equipment.phosphorShells.rangeU);
     expect(weaponRangeU(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.rangeU);
-    expect(weaponRangeU(stats, 'foulingShell')).toBe(CONFIG.foulingShell.rangeU);
-    expect(weaponRangeU(stats, 'foulingShell')).not.toBe(stats.radarRange);
+    for (const id of ['foulingShell', 'dazzleShells'] as const) {
+      expect(weaponRangeU(stats, id), id).toBe(stats.equipment[id].rangeU);
+      expect(weaponRangeU(stats, id), id).not.toBe(stats.radarRange);
+    }
   });
 
   it('the BROADSIDE reaches short of the cannon at base (R2.4, ruling 125)', () => {
@@ -470,8 +432,6 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
   it('the MINE reads its ratified placement reach — NOT radar range (Story 2.8)', () => {
     expect(weaponRangeU(stats, 'navalMines')).toBe(CONFIG.mine.placeRange);
     expect(weaponRangeU(stats, 'navalMines')).toBeLessThan(stats.equipment.gun.rangeU);
-    // Every BUOY shares the mine's placement leash verbatim (Story 10.9).
-    for (const id of BUOY_LINE_IDS) expect(weaponRangeU(stats, id), id).toBe(CONFIG.mine.placeRange);
   });
 
   // A WIDER `radarRange` moves NO weapon range (Story 9.8, ruling 125): the
@@ -640,7 +600,7 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
   // that held the seat is deleted). The decoy row reuses `CONFIG.mine.placeRange`
   // verbatim, so a client that answered `true` at any distance would eat the
   // prime for a drop the server refuses.
-  for (const id of ['navalMines', ...BUOY_LINE_IDS] as const) {
+  for (const id of MINE_EQUIPMENT_IDS) {
     it(`${id}: accepts a click inside the reach, boundary included, and refuses one past it`, () => {
       expect(weaponRangeHit(0, id)).toBe(true);
       expect(weaponRangeHit(CONFIG.mine.placeRange - 1, id)).toBe(true);
@@ -660,7 +620,7 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
 // --- Story 1.10: classification derives from the shared arcFor descriptor ----
 
 describe('weaponArc — arcFor single-source (Story 1.10)', () => {
-  const ALL_IDS: SlotItemId[] = ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells', 'dazzleShells', ...BUOY_LINE_IDS];
+  const ALL_IDS: EquipmentId[] = [...EQUIPMENT_IDS];
 
   it('fireArcKind is a straight projection of the shared descriptor for every id', () => {
     const PROJECTION: Record<string, string> = {
@@ -717,77 +677,19 @@ describe('sectorOutline — the placement wedge boundary', () => {
   });
 });
 
-// ---- THE PLACEMENT WEDGE (Eric playtest 2026-08-20) --------------------------
-//
-// *"with this rear facing, place-in-short-range arc style weapon, its important
-// that I as a captain can clearly see where I can place my stuff."* The radar
-// buoy that prompted it is deleted (Story 8.16); the invariant stands for the
-// click-placed ids that remain — the mine lines and (Story 10.9) the four
-// BUOYS share ONE leash; the mine keeps its rear sector, a buoy places on the
-// whole circle (ruling 9: "Placement range should not change").
-describe('the click-placed ids share ONE placement leash (Eric 2026-08-20, Story 8.16 / 10.9)', () => {
-  it('the mine and every buoy report the SAME reach, and it is the placement range', () => {
-    const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []);
-    expect(weaponRangeU(stats, 'navalMines')).toBe(CONFIG.mine.placeRange);
-    for (const id of BUOY_LINE_IDS) expect(weaponRangeU(stats, id), id).toBe(CONFIG.mine.placeRange);
-  });
-
-  it('the mine draws its rear wedge; a buoy declares the full circle (no rear sector)', () => {
-    expect(fireArcKind('navalMines')).toBe('sector');
-    for (const id of BUOY_LINE_IDS) {
-      expect(arcFor(id).kind, id).toBe('full');
-      expect(fireArcKind(id), id).not.toBe('sector');
-    }
-  });
-});
-
 describe('FLASH SHELLS shares the FOULING SHELL\'s ONE reach dial (Story 10.9, ruling 2)', () => {
-  it('reads CONFIG.foulingShell.rangeU, never radar', () => {
+  it('the two rows carry the one shared reach, never radar', () => {
     const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
     expect(weaponRangeU(stats, 'dazzleShells')).toBe(weaponRangeU(stats, 'foulingShell'));
-    expect(weaponRangeU(stats, 'dazzleShells')).toBe(CONFIG.foulingShell.rangeU);
+    expect(weaponRangeU(stats, 'dazzleShells')).not.toBe(stats.radarRange);
   });
 });
 
-// THE NARROWING SEAM for the firing path (Story 8.7, ruling 1). Since the belt
-// landed, a slot holds a `SlotItemId` — equipment OR a consumable line — while
-// every weapon-geometry helper in this module is keyed by `EquipmentId`. A
-// primed slot holding a consumable therefore has NO weapon geometry on the
-// client: no arc, no range, no reload readout, no aim preview. The click itself
-// is untouched and still travels to the server on `input.slot`. (The arc and
-// the aim preview read the slot's RAW content instead, which is how the
-// supercav and — Story 8.16 — the decoy buoy draw their sectors.)
-//
-// Behaviourally inert today — every consumable is a stub and the belt ships
-// empty — so what is pinned is the TYPE-LEVEL discipline: narrow, never cast.
-describe('a primed BELT slot narrows out of the weapon tables (Story 8.7, ruling 1)', () => {
-  /** main.ts's `ownWeaponAt` body, verbatim — the guard, not a cast. */
-  const weaponIdOf = (id: SlotItemId | null): EquipmentId | null =>
-    id === null || isConsumableId(id) ? null : id;
-
-  it('a consumable id narrows to null; an equipment id passes through unchanged', () => {
-    expect(weaponIdOf('hullRepair')).toBeNull();
-    // ...INCLUDING the click-placed ones: a buoy is a weapon on the
-    // ability/click split (CONSUMABLE_IS_WEAPON) and still has no equipment row,
-    // so it narrows here exactly like the four instant lines do.
-    expect(weaponIdOf('radarBuoy')).toBeNull();
-    expect(weaponIdOf('heavyTorpedo')).toBe('heavyTorpedo');
-    expect(weaponIdOf('gun')).toBe('gun');
-    expect(weaponIdOf(null)).toBeNull();
-  });
-
-  it('...so the geometry surfaces answer the empty-slot way for it', () => {
-    expect(fireArcKind(weaponIdOf('radarBuoy'))).toBe('none');
-    expect(weaponArcHit(0, 0, weaponIdOf('radarBuoy'))).toBe(false);
-    // ...while the equipment that shares the slot row is untouched.
-    expect(fireArcKind(weaponIdOf('heavyTorpedo'))).toBe('sector');
-    expect(weaponArcHit(0, 0, weaponIdOf('heavyTorpedo'))).toBe(true);
-  });
-
+// THE NARROWING SEAM is a plain read since Story 10.5 (every slot holds an
+// `EquipmentId`); what stays pinned is that main.ts routes the primed slot
+// through its one helper and casts nowhere.
+describe('main.ts reads the primed slot through ONE helper (Story 8.7, ruling 1)', () => {
   it('main.ts ROUTES the primed slot through that helper, and casts nowhere', () => {
-    // A grep pin, because the tempting fix here is one `as EquipmentId` in the
-    // firing path — which compiles, and hands an EquipmentId-keyed record a key
-    // it has no row for.
     const src = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'),
       'utf8',

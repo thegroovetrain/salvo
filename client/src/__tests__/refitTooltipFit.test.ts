@@ -31,14 +31,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_KIT, type CatalogLine, type ShipClassId } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
   boonName,
   cardHoverRows,
   cardKind,
   cardKindLabel,
   cardTierLabel,
-  consumableStatRows,
   statValueText,
   type CardKind,
 } from '../ui/boonCopy.js';
@@ -84,7 +83,7 @@ const CONTAINER_H = refitTooltipMaxPanelH(FLOOR_BAND.band.y);
 /** The hover model the band builds for a line at `stack` copies on `cls`. */
 function panelFor(def: CatalogLine, stack: number, cls: ShipClassId): RefitTooltipModel {
   const rows = cardHoverRows(def, stack, { cls, cards: Array<string>(stack).fill(def.id) });
-  return refitTooltipModel(def, boonName(def.id, stack), rows, stack);
+  return refitTooltipModel(boonName(def.id, stack), rows);
 }
 
 /** Every panel the catalog can ever open: every line × class × copies held
@@ -255,7 +254,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: OFFER, boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: OFFER, boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const view = offerView(you as never, false, false, false) as OfferView;
@@ -433,7 +432,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   // NUMERALS are the text channel, and they move on every rung.
   it('states the ladder position in TEXT too — the numerals move on every rung', () => {
     for (const def of LINES) {
-      if (def.kind === 'consumable' || def.kind === 'addon') continue;
+      if (def.kind === 'addon') continue;
       const labels = Array.from({ length: def.cap }, (_, k) => cardTierLabel(def, k));
       expect(new Set(labels).size, def.id).toBe(def.cap);
       for (const l of labels) expect(l, def.id).toMatch(/^[IVX]+( → [IVX]+)?$/);
@@ -445,15 +444,15 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   // UPGRADE storm-readout · CONSUMABLE silver, on the word and the resting
   // edge. DUAL-CODED: strip the colour and the WORD still names the kind — every
   // kind has its own distinct word, so the text alone partitions the cards.
-  it('states the kind in TEXT as well as colour — five distinct words, five distinct colours', () => {
-    const KINDS: readonly CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'consumable', 'addon'];
+  it('states the kind in TEXT as well as colour — four distinct words, four distinct colours', () => {
+    // (CONSUMABLE left with the kit — Story 10.5, 2026-11-05.)
+    const KINDS: readonly CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'addon'];
     expect(new Set(KINDS.map(cardKindLabel)).size).toBe(KINDS.length);
     expect(new Set(KINDS.map((k) => KIND_COLORS[k])).size).toBe(KINDS.length);
     expect(KIND_COLORS).toEqual({
       weapon: 'var(--hc-phosphor)',
       weaponUpgrade: 'var(--hc-info)',
       shipUpgrade: 'var(--hc-storm-readout)',
-      consumable: 'var(--hc-silver)',
       addon: 'var(--hc-text-secondary)',
     });
     // Eric's picks keep clear of the two state colours this surface already uses.
@@ -466,7 +465,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('renders the KIND word on the card (the copy count left with the interim face)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -486,13 +485,13 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor'],
       boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    const expected: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'consumable'];
+    const expected: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade'];
     expected.forEach((kind, i) => {
       const line = CATALOG[you.offer[i]];
       expect(cardKind(line, 0), line.id).toBe(kind);
@@ -520,7 +519,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('tints each tier NUMERAL by the rung it names, on the absolute loot ramp', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['intel'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['intel'], boostUntil: 0,
       cards: ['intel', 'intel'], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -564,71 +563,19 @@ describe('the panel is anchored on the band\'s own geometry', () => {
 // DORMANT IN 8.7: every consumable is still a stub (amendment 41), so no
 // consumable card is ever offered. These pins are what make Story 8.8 a flag
 // flip rather than a plumbing job.
-describe('the hover panel\'s consumable shape line', () => {
-  it('adds no shape line for any kind, a consumable included (amendment 203)', () => {
-    const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], 0);
-    expect(instant.interaction).toBeUndefined();
-    const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', [], 0);
-    expect(clicked.interaction).toBeUndefined();
-    for (const line of [
-      { id: 'intel', kind: 'ladder' },
-      { id: 'heavyTorpedo', kind: 'equipment' },
-      { id: 'acousticHoming', kind: 'addon' },
-    ]) {
-      expect(refitTooltipModel(line, 'N', [], 0).interaction, line.id).toBeUndefined();
-    }
-  });
-
-  // THE COUNT IS THE REAL ONE (review patch P7). The panel used to print a
-  // hard-coded `×1` whatever the captain was carrying, so a hover over a second
-  // copy said `×1` while the belt square beside it said `×2`. The hover is on a
-  // card ABOUT TO BE STOCKED, so the number it shows is what the belt WILL read
-  // once the card is taken — copies held + this one — which is the same reading
-  // the face's ladder and its stat rows already use (they preview the copy
-  // being offered, never the one already held).
-  it('prints no stock line at any copy count held (amendment 203)', () => {
-    const at = (held: number): string | undefined =>
-      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], held).interaction;
-    // Amendment 203: no shape line, no stock — the belt badge shows stock.
-    expect(at(0)).toBeUndefined();
-    expect(at(1)).toBeUndefined();
-    expect(at(2)).toBeUndefined();
-  });
-
-  it('is fed the card\'s OWN stack by the band, never a literal', () => {
-    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../ui/upgradeMenu.ts'), 'utf8');
-    const fn = src.slice(src.indexOf('function tipModelFor('));
-    expect(fn.slice(0, 400)).toContain('copy.stack');
-  });
-
-  it('costs the panel its own row, and nothing when there is no line', () => {
-    const CONTAINER = 400;
-    const rows = consumableStatRows('hullRepair');
-    const bare = refitTooltipMetrics({ name: 'HULL REPAIR', stats: rows }, CONTAINER);
-    const withLine = refitTooltipMetrics(
-      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', rows, 0),
-      CONTAINER,
-    );
-    expect(bare.interactionLines).toBe(0);
-    // Amendment 203: a consumable card prints no interaction line either.
-    expect(withLine.interactionLines).toBe(0);
-    expect(withLine.height).toBe(bare.height);
-  });
-
-  it('fits every consumable panel inside the panel width and its placement height', () => {
-    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy']) {
-      const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), consumableStatRows(id), 4);
-      expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
-      // VERTICALLY the panel is measured against the placement it would take.
-      const p = refitTooltipPlacement(model, FLOOR_BAND.band);
-      expect(p.height, id).toBeLessThanOrEqual(p.maxH);
-    }
+describe('the hover panel carries no shape line (amendment 203)', () => {
+  it('is the name over the stat rows, and nothing else, for every kind', () => {
+    const rows = cardHoverRows(CATALOG.heavyTorpedo, 0, { cls: DEFAULT_CLASS_ID, cards: [] });
+    const model = refitTooltipModel(boonName('heavyTorpedo'), rows);
+    expect(model).toEqual({ name: boonName('heavyTorpedo'), stats: rows });
+    expect(model.interaction).toBeUndefined();
+    expect(refitTooltipMetrics(model, 400).interactionLines).toBe(0);
   });
 
   it('keeps the shape row hidden and empty on every card\'s hover panel (amendment 203)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['hullRepair', 'intel'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['heavyTorpedo', 'intel'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -636,12 +583,12 @@ describe('the hover panel\'s consumable shape line', () => {
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
     const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
     const row = (): HTMLElement => tip.children[1] as HTMLElement;
-    // HULL REPAIR's panel opens with its rows and no shape line...
+    // A WEAPON's panel opens with its rows and no shape line...
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('flex');
     expect(row().style.display).toBe('none');
     expect(row().textContent).toBe('');
-    expect(tip.children[2].children).toHaveLength(consumableStatRows('hullRepair').length);
+    expect(tip.children[2].children).toHaveLength(cardHoverRows(CATALOG.heavyTorpedo, 0, { cls: DEFAULT_CLASS_ID, cards: [] }).length);
     // ...and the LADDER beside it opens with no shape line.
     cards[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('flex');

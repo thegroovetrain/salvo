@@ -46,9 +46,8 @@ import {
   pickRefusal,
   resolveCards,
   type CatalogLine,
-  type ConsumableKit,
   type OwnShip,
-  type SlotItemId,
+  type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
@@ -134,7 +133,6 @@ export const KIND_COLORS: Readonly<Record<CardKind, string>> = {
   weapon: 'var(--hc-phosphor)',
   weaponUpgrade: 'var(--hc-info)',
   shipUpgrade: 'var(--hc-storm-readout)',
-  consumable: 'var(--hc-silver)',
   addon: 'var(--hc-text-secondary)',
 };
 
@@ -148,7 +146,6 @@ export const KIND_EDGES: Readonly<Record<CardKind, string>> = {
   weapon: cssRgba(KC.phosphor, KIND_EDGE_ALPHA),
   weaponUpgrade: cssRgba(KC.info, KIND_EDGE_ALPHA),
   shipUpgrade: cssRgba(KC.stormReadout, KIND_EDGE_ALPHA),
-  consumable: cssRgba(KC.silver, KIND_EDGE_ALPHA),
   addon: cssRgba(KC.textSecondary, KIND_EDGE_ALPHA),
 };
 /** The slot tooltip's ratified surface, reused verbatim for the refit card's
@@ -505,7 +502,7 @@ export function offerView(
   spectating: boolean,
   locked: boolean,
   sinking: boolean,
-  ownSlots: readonly (SlotItemId | null)[] = [],
+  ownSlots: readonly (EquipmentId | null)[] = [],
 ): OfferView | null {
   // ONCE SINKING, YOU'RE DONE (Story 5.2, amendment 10). A sinking hull keeps
   // every weapon, every ability and the foghorn — what it loses is the ECONOMY:
@@ -533,6 +530,19 @@ export function offerView(
 }
 
 /**
+ * Pure: does a refit pick of `choice` address a live, takeable card (main.ts's
+ * handleRefitPick gate)? No view (an EMPTY offer never opens a window — Story
+ * 10.5: an exhausted hull's point has nothing to buy), a locked row, an index
+ * past the offer (a SHORT offer shows fewer cards, so a digit beyond its count
+ * does nothing), or a GREYED card all answer false.
+ */
+export function pickableChoice(view: OfferView | null, choice: number): boolean {
+  if (view === null || view.locked) return false;
+  if (!Number.isInteger(choice) || choice < 0 || choice >= view.options.length) return false;
+  return !view.options[choice].greyed;
+}
+
+/**
  * Pure: may the refit window OPEN ITSELF this frame (Story 8.10, amendment 59)?
  *
  * The window opens once per match epoch, on the first frame that carries a
@@ -549,40 +559,33 @@ export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: bo
 /**
  * Pure: is this offered line REFUSED (ruling 10, widened by the Story 8.14
  * review F1)? The answer comes from the SHARED `pickRefusal` over the replayed
- * slot ids, the held cards AND the ship's kit, which is byte-for-byte what `world.spendCard`
+ * slot ids and the held cards, which is byte-for-byte what `world.spendCard`
  * evaluates before it mutates anything. Two evaluations of one function, so the
- * greyed face and the server's refusal can never disagree.
- *
- * TWO REFUSALS CAN REACH A DEALT CARD since Story 9.2 retired the belt: a
- * line already at its `cap` (the draw deals a capped consumable on purpose —
- * amendment 94 — greyed, never rerolled), and copy 1 of a weapon with Q/E/R
- * full (the draw closes that kind, so it is the fail-closed twin of the
- * server's own guard). The foot word is `cardFoot`'s, not this predicate's.
+ * greyed face and the server's refusal can never disagree. (The kit argument
+ * and the consumable-at-cap grey left with the kit — Story 10.5, 2026-11-05,
+ * epic-10 amendment 11; the draw never offers a refused card, so a grey is
+ * only ever the fail-closed twin of the server's guard.)
  */
 export function cardGreyed(
   line: CatalogLine,
-  ownSlots: readonly (SlotItemId | null)[],
+  ownSlots: readonly (EquipmentId | null)[],
   ownCards: readonly string[],
-  kit: ConsumableKit,
 ): boolean {
-  return pickRefusal(ownCards, ownSlots, line.id, kit) !== null;
+  return pickRefusal(ownCards, ownSlots, line.id) !== null;
 }
 
 /**
  * Pure: the refused card's foot word — `SLOTS FULL` ONLY for `noWeaponSlot`
- * (an equipment card with Q/E/R full), '' for every other card. A consumable
- * dealt at its cap of 5 is greyed with NO foot word (epic-9 amendment 32,
- * Eric: "There's no need for 'cap copy,' if it is simply known that items have
- * a cap of 5"). Same shared `pickRefusal`, so it can never name a refusal the
+ * (copy 1 of a weapon whose family slot holds another kind), '' for every
+ * other card. Same shared `pickRefusal`, so it can never name a refusal the
  * server would not make.
  */
 export function cardFoot(
   line: CatalogLine,
-  ownSlots: readonly (SlotItemId | null)[],
+  ownSlots: readonly (EquipmentId | null)[],
   ownCards: readonly string[],
-  kit: ConsumableKit,
 ): string {
-  return pickRefusal(ownCards, ownSlots, line.id, kit) === 'noWeaponSlot' ? SLOTS_FULL : '';
+  return pickRefusal(ownCards, ownSlots, line.id) === 'noWeaponSlot' ? SLOTS_FULL : '';
 }
 
 /**
@@ -593,7 +596,7 @@ export function cardFoot(
  * effectiveStats preview diff). Everything here is pure — `you` is read, never
  * touched.
  */
-function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId | null)[]): OfferCard {
+function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (EquipmentId | null)[]): OfferCard {
   const stack = boonStackCount(you.cards, line.id);
   return {
     id: line.id,
@@ -604,10 +607,8 @@ function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId 
     tierStep: cardTierSteps(line, stack),
     rows: cardStatRows(line, stack, you),
     hover: cardHoverRows(line, stack, you),
-    // The KIT (Story 10.1) rides `you` itself (`OwnShip.kit`, self-private):
-    // the same seat value the server's `spendCard` hands `pickRefusal`.
-    greyed: cardGreyed(line, ownSlots, you.cards, you.kit),
-    foot: cardFoot(line, ownSlots, you.cards, you.kit),
+    greyed: cardGreyed(line, ownSlots, you.cards),
+    foot: cardFoot(line, ownSlots, you.cards),
     stack,
     cap: line.cap,
   };
@@ -1473,15 +1474,9 @@ interface RefitTipEls {
   rows: HTMLDivElement;
 }
 
-/** Pure: the hover panel's model for one card — the name over its stat rows,
- *  plus the CONSUMABLE shape line (ruling 13) where the catalog resolves. The
- *  card's OWN stack feeds the shape line's `×n` (review patch P7), so the hover
- *  and the belt square can never print different counts. */
+/** Pure: the hover panel's model for one card — the name over its stat rows. */
 function tipModelFor(copy: OfferCard): RefitTooltipModel {
-  const line = Object.hasOwn(CATALOG, copy.id) ? CATALOG[copy.id] : undefined;
-  return line === undefined
-    ? { name: copy.name, stats: copy.hover }
-    : refitTooltipModel(line, copy.name, copy.hover, copy.stack);
+  return refitTooltipModel(copy.name, copy.hover);
 }
 
 /** Pure: the panel model a hovered card OPENS, or null for no panel — a stub

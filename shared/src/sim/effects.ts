@@ -1,21 +1,20 @@
-// THE CARD EFFECT VOCABULARY (Story 8.1) — the five things a catalog card may
+// THE CARD EFFECT VOCABULARY (Story 8.1) — the four things a catalog card may
 // do, and the generated whitelist of stat paths it may address. Split out of
 // sim/boons.ts so that sim/catalog.ts can author and validate lines without
 // importing the fold (which imports sim/stats.ts): this module sits BELOW
 // everything and imports nothing but types.
 //
-// The five effects (`BoonEffect`), unchanged in spirit from the 2.5 engine:
+// The four effects (`BoonEffect`), unchanged in spirit from the 2.5 engine:
 //   1. `stat`     — mutate ONE whitelisted EffectiveStats scalar (folded only
 //                   inside effectiveStats(); the desync firewall holds);
 //   2. `slotFill` — fit one piece of equipment into the loadout (copy 1 of an
 //                   equipment line IS the weapon — catalog-v3 §4 standing rule);
 //   3. `doctrine` — set one per-equipment VERB boolean (verbs stack);
 //   4. `behavior` — run a registered shared hook per tick (HOOK_REGISTRY is
-//                   empty and stays empty);
-//   5. `stock`    — put one copy of a CONSUMABLE in its rack: the belt slot
-//                   that already holds the line, else the first empty one
-//                   (Story 8.7, sim/boons.ts applySlotEffect). The STAT fold
-//                   still ignores it entirely — a stack moves no number.
+//                   empty and stays empty).
+// The fifth, `stock` (one copy of a CONSUMABLE into its rack, Story 8.7), is
+// DELETED with the consumable id space (2026-11-05, Story 10.5, epic-10
+// amendment 11): the kit is retired and nothing stocks.
 // `slotReplace` is DELETED (Story 8.1): nothing in catalog v3 swaps one piece
 // of equipment for another — equipment lines fit, they never replace.
 
@@ -28,67 +27,6 @@ import type { HookParams } from './hooks.js';
 export type BoonId = string;
 
 /**
- * The SEVEN CONSUMABLES (catalog-v3 §4, as amended). They are NOT slot
- * EQUIPMENT — they fire off their fixed number keys as stacks of copies, with
- * no module, no stats row and no reload — so they keep their OWN id space and
- * never appear in `EquipmentId`.
- *
- * Since Story 8.7 a copy does hold a SLOT — since Story 9.2 its kind's OWN
- * fixed slot (`CONSUMABLE_SLOTS` / `consumableSlotFor`, sim/loadout.ts; since
- * Story 10.1 bound by the SHIP'S KIT of four, so a kind outside the kit — and
- * the DEPTH CHARGE stub always — has none), which is why a slot's content is typed
- * `SlotItemId = EquipmentId | ConsumableId`. That union is the ONLY place the
- * two spaces meet: no EquipmentId-keyed record ever gains a consumable key, and
- * every read of one narrows through `isConsumableId` first.
- *
- * STORY 8.13 ADDED TWO (Eric rulings 2026-09-19, epic-8 amendments 74 and 83):
- *   - `supercavTorpedo` MOVED here out of `EquipmentId` — it is a
- *     prime-and-click belt fish with no reload and no tiers, so its stat row,
- *     its arc case and its appetite moved with it (amendment 74);
- *   - `depthCharge` is NEW and STUB — Eric's line, mechanism a later story
- *     (amendment 83) — and it is the Mine Layer's 40th default card.
- * Both keep their locked `LINE_IDS` ids; `acousticHoming` left the catalog
- * entirely (amendment 80).
- *
- * STORY 8.17 ADDED ONE MORE (Eric ruling 2026-09-29, epic-8 amendment 132):
- * `dazzleShells` MOVED here out of the add-on space — FLASH SHELLS (its display
- * name) is a prime-and-click belt shell with no reload and no tiers. It keeps
- * its locked `LINE_IDS` id and slot.
- *
- * STORY 9.2 RETIRED ONE (Eric 2026-10-11, epic-9 amendment 31): CHAFF left the
- * pool so the key row is six keys; its role passes to 9.3's countermeasure.
- *
- * STORY 9.3 (Eric 2026-10-11): `smokeScreen` is REPLACED by `countermeasure`
- * (MULTI-SPECTRAL COUNTERMEASURE) in the same place; still seven.
- *
- * STORY 9.4 (Eric 2026-10-11, epic-9 amendments 61–68): `dazzleShells` (FLASH
- * SHELLS) is REPLACED by `foulingShell` (FOULING SHELL) in the same place;
- * still seven.
- *
- * STORY 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4): `decoyBuoy` is
- * DELETED and FIVE join — `dazzleShells` (FLASH SHELLS, back beside the fouling
- * shell) and the four buoys `radarBuoy`, `healingBuoy`, `shieldBuoy`,
- * `speedBuoy` (sim/buoy.ts) — ELEVEN, ten of them dealable (DEPTH CHARGE stays
- * the one stub).
- */
-export const CONSUMABLE_IDS = [
-  'hullRepair',
-  'shieldBlock',
-  'countermeasure',
-  'depthCharge',
-  'supercavTorpedo',
-  'foulingShell',
-  'dazzleShells',
-  'radarBuoy',
-  'healingBuoy',
-  'shieldBuoy',
-  'speedBuoy',
-] as const;
-
-/** One of the eleven consumables. */
-export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
-
-/**
  * THE per-equipment stat fields a `stat` effect may address, keyed by
  * EquipmentId. BOON_STAT_PATHS is GENERATED from this table (Story 8.1) rather
  * than hand-listed, so widening `EffectiveStats.equipment` can never leave the
@@ -98,8 +36,7 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *   (every weapon `rangeU` LEFT this list with Story 9.8 — ruling 125, Eric
  *   2026-10-13: reach is a per-weapon TIERED dial, seeded from
  *   `CONFIG.<weapon>.rangeU` and stepped by each upgrade card, never the
- *   post-fold radar rung. The FOULING SHELL's reach stays a CONFIG read: a
- *   consumable has no stats row.)
+ *   post-fold radar rung.)
  *
  *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
  *     105 — the blast never grows; the bodyblock is a CONFIG constant);
@@ -129,8 +66,8 @@ export const EQUIPMENT_STAT_FIELDS = {
   // The two torpedo LINES (Story 8.13). `homingTurnRate` is addressable
   // because homing stopped being a card and became a TIER STAT (epic-8
   // amendment 80): both lines step it +0.125/tier off a 0 base.
-  // `supercavTorpedo` LEFT this table with `EquipmentId` — it is a consumable
-  // now (amendment 74) and consumables carry no stat row.
+  // (`supercavTorpedo` left this table with amendment 74 and is back at its
+  // foot since Story 10.5.)
   lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate'],
   heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate'],
   navalMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius'],
@@ -162,8 +99,8 @@ export const EQUIPMENT_STAT_FIELDS = {
   // number its ladder steps is addressable, `rangeU` included (Story 9.8).
   phosphorShells: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
   // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
-  // rows: no card addresses them today, but `reloadMs` must be a row field so
-  // RELOAD's `cooldownScale` reaches it through the one multiply.
+  // rows: no card addresses them today; `reloadMs` is a row field so the
+  // tier step reads it (RELOAD no longer scales a Shift — Story 10.5, R10).
   instantReload: ['reloadMs', 'maxAmmo'],
   hunker: ['reloadMs', 'maxAmmo', 'durationMs'],
   // THE MAIN BATTERY (Story 10.4) — the cannon row's shape less `barrels`
@@ -172,6 +109,15 @@ export const EQUIPMENT_STAT_FIELDS = {
   // it today; `reloadMs` and `rangeU` are row fields so RELOAD and RANGE reach
   // them through the one multiply each.
   mainBattery: ['reloadMs', 'rangeU', 'damage', 'contactDamage', 'burstRadius'],
+  // THE THREE MOVED WEAPONS (2026-11-05, Story 10.5, epic-10 amendment 11).
+  // SUPERCAV steps `damage` (+100 a rung, amendment 8(e)); `homingTurnRate` is
+  // deliberately ABSENT — it never homes (amendment 74), so no card may ever
+  // give it a turn rate. FLASH SHELLS and the FOULING SHELL step `radius`
+  // (R7: +25 u a tier); `rangeU` is a row field no card writes (the reach is
+  // fixed — the `maxHp` shape).
+  supercavTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
+  dazzleShells: ['reloadMs', 'maxAmmo', 'rangeU', 'radius'],
+  foulingShell: ['reloadMs', 'maxAmmo', 'rangeU', 'radius'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
 
 /**
@@ -276,7 +222,7 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * the missile — Eric ruling 2026-09-21, epic-8 amendment 89e), and STORY 8.17
  * EMPTIED IT (Eric ruling 2026-09-29, epic-8 amendments 131–134): PHOSPHOR
  * SHELLS became its own tiered weapon line and DAZZLE the FLASH SHELLS
- * consumable (itself replaced by the FOULING SHELL in Story 9.4), so the star shell's `phosphor`/`dazzle` verbs are DELETED and no
+ * line, so the star shell's `phosphor`/`dazzle` verbs are DELETED and no
  * add-on line remains in the catalog. THE MACHINERY STAYS IN PLACE, UNUSED
  * (amendment 134 — ledgered for Eric): the `addon` kind, the `doctrine`
  * effect and this table, empty, so a future add-on needs no engine work.
@@ -311,8 +257,9 @@ export interface BoonStatEffect {
   add?: number;
 }
 
-/** Fit `equipmentId` into the loadout's extra slot — fresh full pool at current
- *  stats. No-op (silent) when the slot is occupied or the id already fitted. */
+/** Fit `equipmentId` into its FAMILY's slot (sim/loadout.ts `familySlotFor`) —
+ *  fresh full pool at current stats. No-op (silent) when that slot is occupied
+ *  or the id has no family slot. */
 export interface BoonSlotFillEffect {
   kind: 'slotFill';
   equipmentId: EquipmentId;
@@ -338,25 +285,8 @@ export interface BoonDoctrineEffect {
   mode: string;
 }
 
-/**
- * Put ONE copy of a consumable in its rack (catalog-v3 §4 — consumables are
- * cap-5 lines and every copy stocks one use). Story 8.7 built the rack in
- * sim/boons.ts `applySlotEffect`; THE STAT FOLD IGNORES `stock` ENTIRELY, which
- * is why a consumable line can ship without touching a single derived number.
- */
-export interface BoonStockEffect {
-  kind: 'stock';
-  /** The CONSUMABLE line stocked — not an EquipmentId (consumables hold no slot). */
-  equipmentId: ConsumableId;
-}
-
-/** The five-effect vocabulary — the ONLY ways a card may touch the sim. */
-export type BoonEffect =
-  | BoonStatEffect
-  | BoonSlotFillEffect
-  | BoonBehaviorEffect
-  | BoonDoctrineEffect
-  | BoonStockEffect;
+/** The four-effect vocabulary — the ONLY ways a card may touch the sim. */
+export type BoonEffect = BoonStatEffect | BoonSlotFillEffect | BoonBehaviorEffect | BoonDoctrineEffect;
 
 /** Authoring sugar for sim/catalog.ts (and for tests building test catalogs). */
 export const statEffect = (path: BoonStatPath, over: { mult?: number; add?: number }): BoonStatEffect => ({

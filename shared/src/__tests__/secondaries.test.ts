@@ -12,7 +12,8 @@
 //       holds, at `overheatMs` to the tick; no round fires while locked even
 //       if still held; the lock releases only at ZERO heat;
 //   (5) releasing and re-pressing never beats the rate;
-//   (6) reach is `rangeFrac` of the folded main reach.
+//   (6) reach is `rangeFrac` of the folded main reach;
+//   (7) INSTANT RELOAD VENTS them (Story 10.5, R10): heat zero, lock cleared.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -24,6 +25,7 @@ import {
   secondariesHeatPerRound,
   secondaryReachU,
   stepSecondaries,
+  ventSecondaries,
   type SecondariesState,
 } from '../index.js';
 
@@ -406,6 +408,30 @@ describe('overheat', () => {
       return { state, rounds };
     };
     expect(play()).toEqual(play());
+  });
+});
+
+describe('ventSecondaries — INSTANT RELOAD vents the secondaries (Story 10.5, R10)', () => {
+  it('a LOCKED gun comes back cold and unlocked; the round window carries over and the input is not mutated', () => {
+    const state = initialSecondaries();
+    holdToLock(state);
+    const before = { ...state };
+    const vented = ventSecondaries(state);
+    expect(vented).not.toBe(state);
+    expect(state).toEqual(before);
+    expect(vented).toEqual({ ...before, heat: 0, locked: false });
+  });
+
+  it('a vented gun that is still held fires on its own rate window, then needs a full heat to lock again', () => {
+    const state = initialSecondaries();
+    holdToLock(state);
+    const vented = ventSecondaries(state);
+    expect(holdToLock(vented).rounds).toBe(ROUNDS_TO_LOCK);
+  });
+
+  it('works on the wire slice (heat + lock only) and is the identity on a cold gun', () => {
+    expect(ventSecondaries({ heat: 0.6, locked: false })).toEqual({ heat: 0, locked: false });
+    expect(ventSecondaries(initialSecondaries())).toEqual(initialSecondaries());
   });
 });
 

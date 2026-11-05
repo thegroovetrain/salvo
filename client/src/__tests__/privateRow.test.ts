@@ -81,8 +81,8 @@ describe('showHome — the CREATE / JOIN doors', () => {
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo, { onCreate, onJoin });
     door('CREATE').click();
     door('JOIN').click();
-    expect(onCreate).toHaveBeenCalledWith('NEMO', STORED, DEFAULT_SHIFT, expect.any(Array));
-    expect(onJoin).toHaveBeenCalledWith('NEMO', STORED, DEFAULT_SHIFT, expect.any(Array));
+    expect(onCreate).toHaveBeenCalledWith('NEMO', STORED, DEFAULT_SHIFT);
+    expect(onJoin).toHaveBeenCalledWith('NEMO', STORED, DEFAULT_SHIFT);
     expect(onDeploy).not.toHaveBeenCalled();
     expect(onSolo).not.toHaveBeenCalled();
   });

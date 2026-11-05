@@ -62,6 +62,17 @@ interface Disc {
   bornMs: number;
 }
 
+/**
+ * Pure: the disc's radius (world units) for one burst — the server's STAMPED
+ * radius off the wire (`BurstEvent.r`, Story 10.5, 2026-11-05, epic-10
+ * amendment 11: R7's +25 u a tier, stamped at launch), falling back to the base
+ * `CONFIG.flashShells.radius` only when `r` is absent or unusable (a finite
+ * positive number is the only thing a disc can be drawn at).
+ */
+export function flashDiscRadius(r: number | undefined): number {
+  return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : CONFIG.flashShells.radius;
+}
+
 /** The live FLASH SHELLS burst discs. */
 export class FlashBursts {
   private readonly discs: Disc[] = [];
@@ -71,9 +82,10 @@ export class FlashBursts {
     private readonly clock: () => number = () => performance.now(),
   ) {}
 
-  /** A FLASH SHELLS round burst at (x, y): start a disc now. */
-  spawn(x: number, y: number): void {
-    const gfx = new Graphics().circle(0, 0, CONFIG.flashShells.radius).fill({ color: CLIENT_CONFIG.colors.white, alpha: 1 });
+  /** A FLASH SHELLS round burst at (x, y) with the wire's stamped radius `r`
+   *  (`flashDiscRadius`): start a disc now. */
+  spawn(x: number, y: number, r?: number): void {
+    const gfx = new Graphics().circle(0, 0, flashDiscRadius(r)).fill({ color: CLIENT_CONFIG.colors.white, alpha: 1 });
     gfx.position.set(x, y);
     gfx.tint = flashBurstTint(0);
     this.layer.addChild(gfx);

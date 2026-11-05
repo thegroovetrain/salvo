@@ -60,9 +60,11 @@ export const U_PER_M = 0.4585;
  * ordnanceMasksAreServerOnly test), so adding or changing these rows never by
  * itself bumps PROTOCOL_VERSION.
  */
-const HITS_HULL_MINE_DECOY_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'decoy', 'ordnance'];
-const HITS_HULL_MINE_DECOY: readonly TargetKind[] = ['hull', 'mine', 'decoy'];
-const HITS_HULL_DECOY: readonly TargetKind[] = ['hull', 'decoy'];
+// THE `decoy` KIND IS GONE (2026-11-05, Story 10.5, epic-10 amendment 11): the
+// four buoys and their sponge body are deleted, so every mask that named it
+// reads hulls (plus its own mine / ordnance bits) alone.
+const HITS_HULL_MINE_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'ordnance'];
+const HITS_HULL_MINE: readonly TargetKind[] = ['hull', 'mine'];
 const HITS_HULL: readonly TargetKind[] = ['hull'];
 
 export const CONFIG = {
@@ -630,10 +632,10 @@ export const CONFIG = {
      */
     disengageHpFrac: 0.35,
     /**
-     * Fraction of max hp below which a bot PRESSES a stocked HULL REPAIR
-     * slot (epic-8 amendment 49). The same threshold that used to buy the
-     * always-available -1 heal spend (D2) — the heal is a card now,
-     * so it gates firing one, never the spend. Above it, bots never heal.
+     * Fraction of max hp below which a bot PRESSES HULL REPAIR (epic-8
+     * amendment 49) — the `C` cooldown ability since Story 10.5 (2026-11-05,
+     * epic-10 amendment 11; a stocked consumable copy before it). Above it,
+     * bots never heal.
      */
     healHpFrac: 0.5,
     /**
@@ -826,19 +828,6 @@ export const CONFIG = {
      */
     ramExitMs: 2000,
     /**
-     * Score multiplier on a radar-only plot that reads as a probable decoy
-     * buoy (tiny paint footprint, no wake, stationary) whenever a live hull
-     * is in weapon reach (epic-9 amendment 197, [accepted 2026-10-17]). A
-     * harness dial.
-     */
-    decoyDemote: 0.1,
-    /**
-     * Consecutive radar sweeps a plot must paint stationary before it counts
-     * as a probable buoy (epic-9 amendment 197, [accepted 2026-10-17]). A
-     * harness dial.
-     */
-    decoyStillSweeps: 2,
-    /**
      * u — range inside which a supercavitating torpedo is a credible threat
      * to dodge (epic-9 amendment 199, [accepted 2026-10-17]; replaces the
      * ai-local TORPEDO_CREDIBLE_U for the supercav). A harness dial.
@@ -953,21 +942,17 @@ export const CONFIG = {
     /**
      * THE CARD POINTS TABLE (Eric ruling 2026-09-30, R3) — how a bot scores
      * each card on offer; highest wins, ties by a seeded coin flip. Any upgrade
-     * or consumable starts at `base`; `favorite` if it is one of the
-     * personality's favorites; `style` if an upgrade matches its style
-     * (rounded = its lowest line, specialist = its highest); a consumable it
-     * carries none of adds `beltHunger[hunger]`, one it already carries adds
-     * `carried`; HULL REPAIR while hurt and carrying none adds `hurtRepair`
-     * (belt hunger NOT applied then). A weapon for an empty Q/E/R slot scores
-     * `weapon` flat, a favorite weapon `favoriteWeapon`.
+     * starts at `base`; `favorite` if it is one of the personality's
+     * favorites; `style` if it matches its style (rounded = its lowest line,
+     * specialist = its highest). A weapon for its empty family slot scores
+     * `weapon` flat, a favorite weapon `favoriteWeapon`. The consumable rows
+     * (`beltHunger`, `carried`, `hurtRepair`) left with the kit (2026-11-05,
+     * Story 10.5, epic-10 amendment 11).
      */
     cardPoints: {
       base: 2,
       favorite: 1,
       style: 1,
-      beltHunger: { low: -1, medium: 0, high: 1 },
-      carried: -1,
-      hurtRepair: 2,
       weapon: 3.5,
       favoriteWeapon: 3.75,
     },
@@ -1133,8 +1118,8 @@ export const CONFIG = {
     // INDEPENDENT derivation — don't conflate the two.
     // q — THE RADAR MAST HEIGHT `H` (Story 4.11, Eric ruling 2026-08-08,
     // amendments 177/184), in the height raster's OWN 0-255 quantized units
-    // (0 = sea level, 255 = that map's peak). Every antenna — ship, drone and
-    // decoy alike — stands at this one height, so the shadow model is
+    // (0 = sea level, 255 = that map's peak). Every antenna — ship and
+    // drone alike — stands at this one height, so the shadow model is
     // symmetric (A paints B exactly when B paints A) and the whole law is the
     // ratio h/H: the same number that decides which terrain is an absolute
     // radar wall (h ≥ H ⇒ dark to the rim) also sets how long every softer
@@ -1174,7 +1159,7 @@ export const CONFIG = {
      * `dropoutRoll`). NO SIZE WEIGHTING (ruling 122: every return sees the
      * same curve — a radar cross-section is a possible later hidden stat,
      * not assumed). EVERYTHING RADAR DELIVERS ROLLS (ruling 123): ship blips,
-     * decoy paints, the wake's radar half, the countermeasure cloud's radar
+     * the wake's radar half, the countermeasure cloud's radar
      * delivery; drawn hazard zones and sighted contacts never roll. The roll is
      * decided server-side inside `perception.observe()`, so a missed paint
      * never leaves the server. Harness dials (`--tune vision.dropout.*`).
@@ -1424,14 +1409,14 @@ export const CONFIG = {
     // u — Tier V reach, ruling 125, the ruler's rung × 10 (10/12); each of the
     // four CANNON cards adds (rangeUAtV − rangeU) / 4.
     rangeUAtV: RUNG * 10,
-    // AR44: the cannon hits hulls, decoys and — ONLY where its shell LANDS
+    // AR44: the cannon hits hulls and — ONLY where its shell LANDS
     // (amendment 200) — any MINE whose 10 u marker the blast touches (centre
     // within `burstRadius + mine.hitRadiusU` of the burst point), yours
     // included, for the shell's range-attenuated damage (Eric 2026-10-16,
     // Story 9.12, epic-9 amendment 184(i): the cursor clause and amendment
     // 200's "a burst that merely covers a mine does nothing" are RETIRED). A
     // shell in flight never touches a mine.
-    hits: HITS_HULL_MINE_DECOY,
+    hits: HITS_HULL_MINE,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
     // CANNON ladder's tier-III rung (catalog `deckGun`, Eric 2026-09-30) raises
@@ -1532,7 +1517,7 @@ export const CONFIG = {
    */
   machineGun: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_MINE_DECOY, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
+    hits: HITS_HULL_MINE, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
     rangeU: RUNG * 6, // u — Tier I reach, ruling 125, the ruler's rung × 6 (6/12)
     rangeUAtV: RUNG * 7, // u — Tier V reach, ruling 125, the ruler's rung × 7 (7/12)
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
@@ -1555,7 +1540,7 @@ export const CONFIG = {
    * Range is its own tiered dial since Story 9.8 (ruling 125: 5/12 → 6/12).
    * 360° (amendment 106).
    *
-   * THE MASK is AR44's `hull | mine | decoy | ordnance` (amendment 96(f): a
+   * THE MASK is AR44's `hull | mine | ordnance` (amendment 96(f): a
    * weapon for killing other players first). The `ordnance` half (enemy fish
    * in flight inside the blast) is a SIDE EFFECT that might go away
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
@@ -1572,7 +1557,7 @@ export const CONFIG = {
    */
   flak: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_MINE_DECOY_ORDNANCE, // AR44 / amendment 96(f)
+    hits: HITS_HULL_MINE_ORDNANCE, // AR44 / amendment 96(f)
     rangeU: RUNG * 5, // u — Tier I reach, ruling 125, the ruler's rung × 5 (5/12)
     rangeUAtV: RUNG * 6, // u — Tier V reach, ruling 125, the ruler's rung × 6 (6/12)
     shellSpeed: 500, // u/s (amendment 105)
@@ -1673,7 +1658,7 @@ export const CONFIG = {
    */
   mainBattery: {
     arc: 'full', // every bearing is inside SOME turret's arc on every hull (which turrets may fire: sim/turrets.ts pickTurret)
-    hits: HITS_HULL_DECOY, // hulls + decoys; NO mine bit (R3)
+    hits: HITS_HULL, // hulls only; NO mine bit (R3)
     rangeU: RUNG * 8, // u — the cannon's Tier I reach at RANGE 100 (R2)
     reloadMs: 10000, // ms per turret, before RELOAD (R2)
     traverseDegPerS: 90, // °/s — one rate for all four hulls (amendment 7(j))
@@ -1706,7 +1691,7 @@ export const CONFIG = {
    */
   secondaries: {
     arc: 'full', // 360°
-    hits: HITS_HULL_MINE_DECOY, // today's machine-gun mask: hulls + mines + decoys
+    hits: HITS_HULL_MINE, // the machine gun's mask: hulls + mines
     damage: 3, // hp per round (R3: Eric's "3 per round" after the DPS math)
     rateMs: 120, // ms — one round per 0.12 s while held (R3)
     overheatMs: 4000, // ms of continuous fire from cold to full heat (R3)
@@ -1732,9 +1717,9 @@ export const CONFIG = {
    */
   torpedo: {
     offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
-    // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield and
+    // AR44: a torpedo hits hulls — it runs UNDER a minefield and
     // never sets one off.
-    hits: HITS_HULL_DECOY,
+    hits: HITS_HULL,
     halfArc: deg(30), // +/-30deg launch arc
     // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
     // amendment 55): nothing requires a torpedo to outrun every hull any more.
@@ -1772,8 +1757,8 @@ export const CONFIG = {
     maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
-    // longer commitment cycle. A max shipCooldown build (5 copies,
-    // cooldownScale 0.5) lands it at 15s.
+    // longer commitment cycle. A max RELOAD build (cooldownScale 0.5) lands
+    // it at 15 s (Story 10.5, R11: RELOAD scales the Q / E / R weapons).
     reloadMs: 30000,
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     // --- HOMING — the family's shared fields (epic-8 amendment 84e). A homing
@@ -1838,36 +1823,35 @@ export const CONFIG = {
     damage: 200, // hp per contact hit — tier I; +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
     maxAmmo: 1, // tubes — tier I (R18); +0.5 on the rungs to II and III only, FLOORED → 1,1,2,2,2 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 1,1,2,2,3)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
-    // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield.
-    hits: HITS_HULL_DECOY,
+    // AR44: a torpedo hits hulls — it runs UNDER a minefield.
+    hits: HITS_HULL,
   },
 
   /**
-   * SUPERCAV TORPEDO — a prime-and-click CONSUMABLE, not an equipment
-   * line (Eric ruling 2026-09-19, epic-8 amendment 74, verbatim: *"I have
-   * decided that Supercavitating Torpedos should be a consumable item, rather
-   * than a weapon line."*). The digit primes, a click inside the bow ±15°
-   * sector fires ONE fish per copy, and the copy leaves its slot.
+   * SUPERCAVITATING TORPEDO — a TORPEDO-SLOT weapon (`Q`) since Story 10.5
+   * (Eric 2026-11-05, epic-10 amendment 11, R4: "SUPERCAV 45"): one torpedo
+   * in the tube on a 45 s reload, scaled by RELOAD and the −5 %/tier step like
+   * every slot weapon; ready it, click inside the bow ±15° sector, one torpedo.
+   * From Story 8.13 to 10.5 it was a prime-and-click CONSUMABLE with no reload
+   * and no tiers (Eric 2026-09-19, epic-8 amendment 74); the kit is retired.
    *
-   * SO IT HAS NO RELOAD AND NO TIERS. Consumables never reload (catalog-v3
-   * R40, Story 8.7) and a consumable line's copies STOCK rather than step, so
-   * catalog-v3 R19's tiers II–V and its 45 s reload are VOID — there is no
-   * `reloadMs` and no `maxAmmo` here, and `supercavTorpedo` carries no
-   * `EffectiveStats` row at all. The numbers below are read straight from
-   * CONFIG by the launch path, exactly as a consumable's numbers always are.
+   * TIERS (epic-10 amendment 8(e), "SUPERCAVITATING 400 → 800 over their
+   * tiers"): +100 damage a rung, authored in sim/catalog.ts. Nothing else
+   * steps — speed and the single tube are fixed.
    *
-   * IT NEVER HOMES (amendment 74): a straight-runner at every build, whatever
-   * the captain's torpedo tiers say — homing is a TIER stat on the light and
-   * heavy lines (amendment 80) and this line has no tiers. It shares the
+   * IT NEVER HOMES (amendment 74, kept): a straight-runner at every tier —
+   * its row's `homingTurnRate` is 0 and is not stat-addressable. It shares the
    * family's `hitRadius` / `spawnClearance` from `CONFIG.torpedo`.
    */
   supercavTorpedo: {
     offset: deg(0), // bow-centered
     halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 400, // hp per contact hit — 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5 ("SUPERCAVITATING 400 → 800 over their tiers" — the 800 is 10.6's SUPERCAV track, ruling 8; this is its base); 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
-    // AR44: hulls and decoys, never a mine — it runs UNDER a minefield.
-    hits: HITS_HULL_DECOY,
+    damage: 400, // hp per contact hit — tier I; +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
+    maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
+    reloadMs: 45000, // ms — Eric 2026-11-05, Story 10.5, R4 ("SUPERCAV 45")
+    // AR44: hulls only, never a mine — it runs UNDER a minefield.
+    hits: HITS_HULL,
   },
 
   /**
@@ -1887,8 +1871,7 @@ export const CONFIG = {
    */
   mine: {
     // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
-    // Story 2.8: now the CENTER of the mine's aimed rear placement arc. The
-    // The radar buoy shares THIS whole rear sector: it is click-placed too.
+    // Story 2.8: now the CENTER of the mine's aimed rear placement arc.
     offset: deg(180),
     // deg — half-arc of the aimed rear placement sector about `offset`
     // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
@@ -1939,8 +1922,8 @@ export const CONFIG = {
     // the drop pool is the ONLY mine bound: no live-board cap exists (below).
     maxAmmo: 2,
     // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
-    // weapon balance pass): the rack got deeper, so each round costs more. A
-    // max shipCooldown build (5 copies, cooldownScale 0.5) lands it at 7.5s.
+    // weapon balance pass): the rack got deeper, so each round costs more.
+    // A max RELOAD build (cooldownScale 0.5) lands it at 7.5 s (Story 10.5, R11).
     reloadMs: 15000,
     // MINES HAVE NO CAP (Story 8.4, FR57/AR48). `maxLive` (the per-player live
     // board cap, with its silent oldest-eviction) and `globalCap` (the room
@@ -1950,7 +1933,7 @@ export const CONFIG = {
     // to a crowded ocean is the perf pin (500 live mines inside the 50 ms
     // tick), not a cap that silently deletes a captain's laid trap.
     //
-    // AR44: a mine TRIPS on hulls only — a decoy, a buoy or another mine
+    // AR44: a mine TRIPS on hulls only — another mine
     // sailing into its ring is not a hull and must not set it off (remote
     // minefield clearing is a mechanic nobody ruled on; LANDING a deck-gun
     // shell on it is the sanctioned way — amendment 200, as widened by 184(i)).
@@ -2104,10 +2087,9 @@ export const CONFIG = {
    * construction — and it is now ENFORCED by the batch-sim override validator
    * on the finished CONFIG (`--tune boost.*`; `--set` never reaches `boost.*`
    * — it is refused at the family gate), through the real fold at a maxed
-   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` takes
-   * `cooldownScale` through the ONE multiply in clampStats like every
-   * equipment row (catalog-v3 R40), so a maxed RELOAD ladder (0.75) gives
-   * 18.75 s. Every number is a DESIGN TARGET the harness tunes (`--tune
+   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` is NOT scaled by
+   * RELOAD since Story 10.5 (R10 — catalog-v3 R40 superseded): 25 s on
+   * every hull. Every number is a DESIGN TARGET the harness tunes (`--tune
    * boost.*`).
    */
   boost: {
@@ -2123,11 +2105,13 @@ export const CONFIG = {
    * nothing: for the mounted gun and every fitted Q/E/R weapon whose reload is
    * RUNNING, that ONE reload completes at once (one round tops up, timer to
    * zero; the machine gun's magazine fills); rounds spent beyond that stay
-   * spent, and the consumable slots and the Shift slot itself are never touched. One
+   * spent, and the Shift slot itself and the two fixed ability cooldowns
+   * (`C` HULL REPAIR, `V` SMOKE — Story 10.5, R3) are never touched. One
    * charge on a 60 s cooldown (Eric 2026-10-02, amendment 232; was 45 s,
    * amendment 97) — longer than the longest weapon reload, so it never acts
-   * as a permanent second tube. `reloadMs` takes `cooldownScale` through the
-   * one multiply in clampStats like every row (45 s at a maxed RELOAD ladder).
+   * as a permanent second tube. Since Story 10.5 (R10) it also VENTS the
+   * secondaries (heat 0, lock cleared — shared `ventSecondaries`), and its
+   * `reloadMs` is NOT scaled by RELOAD.
    */
   instantReload: {
     maxAmmo: 1, // single charge (amendment 97)
@@ -2140,7 +2124,7 @@ export const CONFIG = {
    * from HULL POINTS. Every incoming blow but the storm is multiplied by the
    * ONE curve on EFFECTIVE armor E = victim Armor (+ the HUNKER's bonus while
    * open) − the attacker's ARMOR PIERCING: `K / (K + E)` for E ≥ 0,
-   * `2 − K / (K − E)` for E < 0 (amendment 146), before the shield absorbs it
+   * `2 − K / (K − E)` for E < 0 (amendment 146)
    * (blows floored, burn/grind ticks exact — amendment 87). Armor is 0 at
    * base; the ARMOR ladder (sim/catalog.ts, cap 5) adds +20 per card, authored
    * LITERALLY in the catalog like every ladder step (a catalog step read from
@@ -2164,8 +2148,8 @@ export const CONFIG = {
    * attacker is E = 100 = ×0.5, an ARMOR-capped one E = 200 = ×1/3 —
    * amendment 144's rescale of 9.7's 5 / 10, unchanged in effect). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
    * 89(c) and 99's 8 s window). Storm bites land in full (amendment 87). One
-   * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
-   * (22.5 s at a maxed RELOAD ladder).
+   * charge on a 30 s cooldown; `reloadMs` is NOT scaled by RELOAD since Story
+   * 10.5 (R10).
    */
   hunker: {
     armorBonus: 100, // temporary Armor while the window is open (epic-9 amendment 88; 5 → 100 by amendment 144)
@@ -2205,9 +2189,9 @@ export const CONFIG = {
     rangeUAtV: RUNG * 6, // u — Tier V reach, ruling 125, the ruler's rung × 6 (6/12)
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
     arcOffsetDeg: 90,
-    // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01):
+    // AR44: hulls. NEVER a mine (amendment 200, Eric 2026-10-01):
     // only a deck gun's shell landing on a mine damages one.
-    hits: HITS_HULL_DECOY,
+    hits: HITS_HULL,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -2351,7 +2335,7 @@ export const CONFIG = {
     // can never double as remote minefield clearing. (Before Story 8.4 a flare
     // burst DID set off the firer's own armed mines, through the owner-only
     // self-detonation path that amendment 16 replaced.)
-    hits: HITS_HULL_DECOY,
+    hits: HITS_HULL,
     rangeU: RUNG * 11, // u — Tier I reach, ruling 125, the ruler's rung × 11 (11/12)
     rangeUAtV: RUNG * 12, // u — Tier V reach, ruling 125, the ruler's rung × 12 (12/12)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
@@ -2400,10 +2384,10 @@ export const CONFIG = {
    */
   phosphorShells: {
     arc: 'full', // 360° — the gun family's grammar (sim/arcs.ts)
-    // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01,
+    // AR44: hulls. NEVER a mine (amendment 200, Eric 2026-10-01,
     // superseding amendment 135(c)): only a deck gun's shell landing on a mine
     // damages one.
-    hits: HITS_HULL_DECOY,
+    hits: HITS_HULL,
     rangeU: RUNG * 8, // u — Tier I reach, ruling 125, the ruler's rung × 8 (8/12)
     rangeUAtV: RUNG * 10, // u — Tier V reach, ruling 125, the ruler's rung × 10 (10/12)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -2423,13 +2407,18 @@ export const CONFIG = {
 
   /**
    * FOULING SHELL (Story 9.4, Eric ruling 2026-10-11, epic-9 amendments
-   * 61–68) — the engage/disengage consumable that replaced FLASH SHELLS on
-   * key `4`. It fires exactly as the flash did: the key primes, a click fires
-   * ONE 360° gun-pattern shell to `rangeU` (its own fixed dial since Story
-   * 9.8, ruling 125 — no tiers) that deals zero damage,
-   * bursts once and hits nothing. Where it bursts (or where a hull or decoy
-   * stops it en route) it leaves a stationary FOUL ZONE of `radius` that
-   * lasts `durationMs`. Every afloat hull whose OUTLINE touches the zone —
+   * 61–68) — a SPECIAL-SHELL-SLOT weapon (`R`) since Story 10.5 (Eric
+   * 2026-11-05, epic-10 amendment 11, R4: "FOULING SHELL 30"): one round on a
+   * 30 s reload, scaled by RELOAD and the −5 %/tier step like every slot
+   * weapon (it was a no-reload consumable until then). Ready it and a click
+   * fires ONE 360° gun-pattern shell to `rangeU` (ruling 125 — a fixed dial,
+   * no range step) that deals zero damage, bursts once and hits nothing.
+   * Where it bursts (or where a hull stops it en route) it leaves a
+   * stationary FOUL ZONE that lasts `durationMs`. THE ZONE'S RADIUS IS TIERED
+   * (R7): `radius` at Tier I, +`radiusStepPerTier` per tier — 150 → 250 u at
+   * Tier V — folded on the row's `radius` (sim/stats.ts) and STAMPED on the
+   * shell at launch, so a later card never changes a live zone.
+   * Every afloat hull whose OUTLINE touches the zone —
    * the owner included (a slow is not damage, so there is no friendly-fire
    * exemption), PvE drones included — is stamped
    * `fouledUntil = now + lingerMs` every tick it is inside, and runs at
@@ -2441,21 +2430,22 @@ export const CONFIG = {
    * `slowedKinematics` fold (sim/slow.ts). Nobody is stamped while damage is
    * off (the pre-start phases). The zone is observed like a burn zone (owner
    * always, spectator always, otherwise iff its centre is within radar
-   * range). No tiers and no `EffectiveStats` row: a consumable reads its
-   * numbers straight from CONFIG (the consumable law). Every number is a
-   * harness dial.
+   * range). Every number is a harness dial.
    */
   foulingShell: {
-    arc: 'full', // 360° (sim/arcs.ts consumableArc)
-    // The star shell's mask: interception by a hull or a decoy bursts the
-    // shell at the stop point; it never detonates a mine.
-    hits: HITS_HULL_DECOY,
-    // u — the burst reach, ruling 125, the ruler's rung × 8 (8/12). FIXED: a
-    // consumable has no tiers, so there is no `rangeUAtV`.
+    arc: 'full', // 360° (sim/arcs.ts)
+    // The star shell's mask: interception by a hull bursts the shell at the
+    // stop point; it never detonates a mine.
+    hits: HITS_HULL,
+    // u — the burst reach, ruling 125, the ruler's rung × 8 (8/12). FIXED at
+    // every tier: R7 steps the radius, never the reach.
     rangeU: RUNG * 8,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
-    radius: 150, // u — the foul zone's radius
+    maxAmmo: 1, // one round in the pool (2026-11-05, Story 10.5)
+    reloadMs: 30000, // ms — Eric 2026-11-05, Story 10.5, R4 ("FOULING SHELL 30")
+    radius: 150, // u — the foul zone's radius at Tier I
+    radiusStepPerTier: 25, // u — Eric 2026-11-05, Story 10.5, R7: +25 u per tier, 150 → 250 at V
     durationMs: 15000, // ms — how long the foul zone lasts
     slowFactor: 0.75, // × both speed caps while a hull's fouledUntil is in the future
     lingerMs: 5000, // ms — the stamp each tick inside is now + lingerMs
@@ -2527,68 +2517,19 @@ export const CONFIG = {
   },
 
   /**
-   * SHIELD BLOCK (catalog-v3 R37; Story 8.16, epic-8 amendments 100, 116–118)
-   * — a key-fired consumable. Firing one copy writes the ship's shield seat
-   * `{ hpLeft: hp, until: now + durationMs }`; a second copy REPLACES it (a
-   * fresh `hp` for a fresh `durationMs`), never stacks. The damage gate's
-   * `absorbShield` runs AFTER the HUNKER (amendment 100) on EVERY damage
-   * source — storm bites and phosphor burn included (amendment 118) — so a
-   * fully absorbed hit lands `dealt` 0. No `EffectiveStats` row: a
-   * consumable's numbers are read straight from CONFIG (the consumable law).
-   */
-  shieldBlock: {
-    hp: 300, // hp the shield absorbs before it breaks (R37; ×3 PLACEHOLDER 100 → 300, Story 10.3, Eric 2026-11-04, ruling 10 — 30 % of a 1000 hp hull)
-    durationMs: 10000, // ms the shield lasts once fired (R37)
-  },
-
-  /**
-   * THE FOUR BUOYS (Story 10.9, Eric 2026-10-27/28, epic-10 amendments 2 and
-   * 4) — RADAR, HEALING, SHIELD and SPEED (`radarBuoy` / `healingBuoy` /
-   * `shieldBuoy` / `speedBuoy`, sim/buoy.ts `BUOY_LINE_IDS`). They REPLACE the
-   * plain DECOY BUOY of Story 8.16 (its `CONFIG.decoyBuoy` block is gone with
-   * the line) and share its BODY: a click-placed consumable dropped at ANY
-   * bearing (a 360° `'full'` arc — ruling 9; the rear sector was the decoy's)
-   * out to the unchanged `CONFIG.mine.placeRange`; `hp` hull, destructible by
-   * enemy ordnance only (never the owner's — amendment 119); an anonymous
-   * `sizeU` radar paint square; the `decoy` target kind, which every homing
-   * fish PREFERS over a hull inside its acquire range (ruling 3); it persists
-   * past its owner's sinking. NEW with 10.9: every buoy EXPIRES `lifetimeMs`
-   * after the drop (ruling 0: "30s (rather than 1 min)") and carries an
-   * OWNER-ONLY effect of `radiusU` around itself (ruling 0: 750 u, every kind):
-   * - RADAR: a second sweep for the owner at the owner's sweep period.
-   * - HEALING: `heal.missingPctPerS` of MISSING hp per second, uninterruptible,
-   *   on top of passive healing.
-   * - SHIELD: a second shield pool growing `shield.maxHpPctPerS` of MAX hp
-   *   per second, NO CAP (the 30 s life bounds it — ruling 4), eaten after
-   *   armor and BEFORE the SHIELD BLOCK.
-   * - SPEED: `speed.factor` of the RATED top speed, ADDING on the base with
-   *   the Speedboat's Shift (ruling 6: +50 % together).
-   * A KIND COUNTS ONCE (ruling 5): any number of healing buoys heal at one
-   * rate; radar buoys each sweep their own spot. The shield and speed effects
-   * TAIL after the hull leaves (or the buoy expires): full for `tailHoldMs`,
-   * then linear to zero over `tailRampMs` (sim/buoy.ts `buoyTail`). No
-   * `EffectiveStats` row: a consumable's numbers are read straight from CONFIG.
-   */
-  buoy: {
-    hp: 50, // hp — destructible by enemy ordnance (R36, kept)
-    sizeU: 12, // u — side of its radar paint square (R36, kept)
-    lifetimeMs: 30_000, // ms — Eric 2026-10-28: 30 s after the drop, not 1:00
-    radiusU: 750, // u — the effect radius, EVERY kind (Eric 2026-10-28)
-    tailHoldMs: 15_000, // ms — shield/speed: held in full after leaving or expiry
-    tailRampMs: 15_000, // ms — then linear to zero
-    heal: { missingPctPerS: 0.02 }, // HEALING: 2 % of missing hp per second (amendment 2(e))
-    shield: { maxHpPctPerS: 0.01 }, // SHIELD: pool grows 1 % of max hp per second (amendment 2(f), ruling 4)
-    speed: { factor: 0.25 }, // SPEED: +25 % of the rated top speed (amendment 2(g), ruling 6)
-  },
-
-  /**
    * FLASH SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
    * 131/132; RESTORED by Story 10.9, Eric 2026-10-27/28, epic-10 amendments 2
    * and 4, BESIDE the FOULING SHELL that replaced it in Story 9.4) — the
-   * DAZZLE SHELLS line as a CONSUMABLE (display name FLASH SHELLS; the internal
-   * id stays `dazzleShells`). The key primes, a click fires ONE 360°
-   * gun-pattern shell on the FOULING SHELL's click path that bursts ONCE in
-   * `radius`: every non-owner afloat hull whose centre is inside is FLASHED
+   * DAZZLE SHELLS line (display name FLASH SHELLS; the internal id stays
+   * `dazzleShells`). A SPECIAL-SHELL-SLOT weapon (`R`) since Story 10.5 (Eric
+   * 2026-11-05, epic-10 amendment 11, R4: "FLASH SHELL 30"): one round on a
+   * 30 s reload, scaled by RELOAD and the −5 %/tier step like every slot
+   * weapon (a no-reload consumable until then). Ready it and a click fires
+   * ONE 360° gun-pattern shell on the FOULING SHELL's click path that bursts
+   * ONCE. THE BURST RADIUS IS TIERED (R7): `radius` at Tier I,
+   * +`radiusStepPerTier` per tier — 150 → 250 u at Tier V — folded on the
+   * row's `radius` (sim/stats.ts) and stamped on the shell at launch. Every
+   * non-owner afloat hull whose centre is inside the burst is FLASHED
    * for `rampMs + holdMs + clearMs` (10 s; a second flash sets the LATER
    * expiry — never stacks, never shortens). THE WHITEOUT LAW (Eric
    * 2026-10-29, re-cut of amendment 4(a)'s "1/4 of sight"): the victim's view
@@ -2601,19 +2542,21 @@ export const CONFIG = {
    * not deafen. NO lingering zone, no light, no reveal, no damage.
    *
    * REACH (ruling 2): the flash reaches EXACTLY as far as the fouling shell —
-   * the server reads `CONFIG.foulingShell.rangeU` for both click-aimed shells.
-   * There is deliberately NO `rangeU` here: one dial, never a second literal.
-   * No `EffectiveStats` row: a consumable's numbers are read straight from
-   * CONFIG (the consumable law).
+   * the `dazzleShells` row's `rangeU` is seeded from
+   * `CONFIG.foulingShell.rangeU` (sim/stats.ts). There is deliberately NO
+   * `rangeU` here: one dial, never a second literal.
    */
   flashShells: {
-    arc: 'full', // 360° (sim/arcs.ts consumableArc)
-    // The star shell's mask: interception by a hull or a decoy flashes at the
-    // stop point; a flash never detonates a mine (amendment 135(d)).
-    hits: HITS_HULL_DECOY,
+    arc: 'full', // 360° (sim/arcs.ts)
+    // The star shell's mask: interception by a hull flashes at the stop
+    // point; a flash never detonates a mine (amendment 135(d)).
+    hits: HITS_HULL,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
-    radius: 150, // u — the one-time burst radius (amendment 136: centre test)
+    maxAmmo: 1, // one round in the pool (2026-11-05, Story 10.5)
+    reloadMs: 30000, // ms — Eric 2026-11-05, Story 10.5, R4 ("FLASH SHELL 30")
+    radius: 150, // u — the one-time burst radius at Tier I (amendment 136: centre test)
+    radiusStepPerTier: 25, // u — Eric 2026-11-05, Story 10.5, R7: +25 u per tier, 150 → 250 at V
     // THE WHITEOUT LAW (Eric 2026-10-29) — three phases, the total window is
     // their SUM (sim/sight.ts FLASH_WINDOW_MS; never a fourth literal).
     rampMs: 500, // ms — the view ramps to full white; truesight 0
@@ -2623,9 +2566,12 @@ export const CONFIG = {
 
   /**
    * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric rulings 2026-10-11, epic-9
-   * amendments 40–47; re-cut by Story 9.3 session 2, Eric 2026-10-12) — a
-   * key-fired consumable that replaces SMOKE SCREEN (and absorbs CHAFF's
-   * role). In plain words:
+   * amendments 40–47; re-cut by Story 9.3 session 2, Eric 2026-10-12) — the
+   * SMOKE ability on `V` since Story 10.5 (Eric 2026-11-05, epic-10 amendment
+   * 11, R2/R3): every ship carries it, ready at spawn, on a FIXED
+   * `cooldownMs` counted from the press that no RELOAD index or card shortens
+   * (sim/abilities.ts). It was a key-fired consumable until then. In plain
+   * words:
    * - ONE press makes ONE stationary cloud centered on the hull; every press
    *   makes a new cloud (nothing restarts, nothing refuses while one lives).
    * - The cloud lives `lifeMs`. Its spray disc grows from `r0` at birth to
@@ -2639,8 +2585,8 @@ export const CONFIG = {
    *   not gameplay.
    * - A client is sent the cloud if it is the owner, or its sight or its
    *   radar reaches the disc; it keeps a cloud it was sent until it dies.
-   * Every number here is a dial. No `EffectiveStats` row: a consumable's
-   * numbers are read straight from CONFIG (the consumable law).
+   * Every number here is a dial, read straight from CONFIG (an ability has no
+   * `EffectiveStats` row).
    *
    * NOT `CONFIG.smoke` above: that block is WOUNDED smoke (the damage-band
    * plume, 250 ms emission cadence, no occlusion) — never conflate the two.
@@ -2653,6 +2599,7 @@ export const CONFIG = {
     // amendment 141). At 500 the full-grown cloud equalled the whole sight bubble.
     r0: 150, // u — the spray disc's radius at birth
     r1: 300, // u — the spray disc's radius at the end of life
+    cooldownMs: 60000, // ms — Eric 2026-11-05, Story 10.5, R2: 60 s from the press; R3: fixed, RELOAD never shortens it
   },
 
   /**
@@ -2852,30 +2799,6 @@ export const CONFIG = {
   },
 
   /**
-   * DRONE DROPS (Eric ruling 2026-10-01) — sinking a PvE drone also rolls
-   * consumables for the credited killer (the same `by` the drone-kill XP pays),
-   * but ONLY an afloat participant (human or bot) rolls; a fleet hull, a
-   * sinking killer, a storm/self/unattributed sink and a captain victim never do.
-   *
-   * `rolls` is keyed by DRONE HULL ID (the victim's `hullId`): one roll for a
-   * small drone, two for a medium, three for a large. Each roll passes with
-   * `chance`; a passing roll stocks ONE copy of a consumable picked uniformly
-   * from the lines the ship could legally take right now by the refit card's
-   * own predicate (`pickRefusal === null` — a stub or a line at its cap is
-   * skipped). Since Story 9.2 (epic-9 amendments 21/31) every kind owns a fixed
-   * slot, so there is no belt to fill; since Story 10.1 (ruling 8) the same
-   * predicate confines a drop to the killer's KIT — the eligible set is the
-   * carried non-stub consumables under their cap of 5, and a drop never lands
-   * in no slot. An empty eligible set wastes the roll.
-   * Server-only; the killer sees the STOCKED toast via the self-private `dp`
-   * event.
-   */
-  droneDrops: {
-    chance: 0.5,
-    rolls: { droneSmall: 1, droneMedium: 2, droneLarge: 3 } satisfies Record<DroneHullId, number>,
-  },
-
-  /**
    * OFFERS (Story 2.7, re-cut for THE COMMON POOL in Story 8.14) — the shape of
    * the pre-rolled offer a banked level carries, and the one dial pair behind
    * the draw. It is gameplay-authoritative (it bounds the server's accepted
@@ -2889,11 +2812,12 @@ export const CONFIG = {
    * 2026-09-21, epic-8 amendment 89a).
    *
    * THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92): for each
-   * card, stage 1 picks the KIND — a weapon (copy 1 of an equipment line), an
-   * upgrade (a tier card, a ladder rung, the mounted gun's ladder, an add-on)
-   * or a consumable — with each kind's odds equal to its SHARE of the lines
-   * currently eligible for that ship; stage 2 picks WHICH line within that
-   * kind. So `weighting` below changes WHICH weapon is drawn and never the odds
+   * card, stage 1 picks the KIND — a weapon (copy 1 of an equipment line) or
+   * an upgrade (a tier card, a ladder rung, the mounted gun's ladder, an
+   * add-on) — with each kind's odds equal to its SHARE of the lines currently
+   * eligible for that ship; stage 2 picks WHICH line within that kind (the
+   * `consumable` kind left with the kit, 2026-11-05, Story 10.5; the two
+   * survivors keep their relative shares). So `weighting` below changes WHICH weapon is drawn and never the odds
    * of drawing A weapon at all.
    *
    * THE WEIGHTING (amendment 90; named by amendment 91 — it is called
@@ -2904,11 +2828,12 @@ export const CONFIG = {
    * PERMANENT for the match (the taker sinking restores nothing). Both numbers
    * are `[DRAFT]` harness dials, reachable by `--tune`.
    *
-   * THE OFFER IS NEVER EMPTY (amendment 94): consumable lines are always dealt
-   * — at their cap they are dealt anyway, greyed (with no foot word since Story
-   * 9.2, epic-9 amendment 32), and the pick is a silent no-op until a copy is
-   * used. An offer is SHORTER than `size` only when fewer than `size` dealable
-   * lines exist at all; there is no exhaustion and no banked-empty branch.
+   * AN OFFER MAY BE SHORT OR EMPTY (2026-11-05, Story 10.5, epic-10
+   * amendment 11): amendment 94's "never empty" rested on the consumable
+   * lines, which were dealt even at their cap, and they are gone. An offer is
+   * SHORTER than `size` when fewer than `size` lines are still eligible for
+   * the ship, and empty once it holds every ladder and every slotted weapon at
+   * its cap (45 cards: six ladders and three slot weapons, five each).
    */
   offer: {
     size: 4, // card lines per offer — drawn from the common pool, all different
@@ -2961,6 +2886,13 @@ export const CONFIG = {
    * 7 also RECORDS a tier track — HULL REPAIR grows 100+100 → 200+200 at
    * +20+20 per rung, five rungs — which Story 10.6 builds (ruling 8); nothing
    * of it is authored here. 150 + 150 and a 200 + 200 base were rejected.
+   *
+   * STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11, R1/R3): HULL REPAIR is
+   * the `C` ABILITY — no card, no stock: every ship carries it, ready at
+   * spawn, on a FIXED `cooldownMs` that no RELOAD index or card shortens
+   * (sim/abilities.ts). A press on a full hull is refused and starts no
+   * cooldown. The heal itself is unchanged. It is no longer the one heal: the
+   * passive regen is back (R8, `CONFIG.regen` below).
    */
   hullRepair: {
     // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
@@ -2982,6 +2914,27 @@ export const CONFIG = {
     // (Eric 2026-09-29, amendment 141): a re-press REPLACES the pool
     // (`repairHp = regenHp`, remainder discarded) — see hullRepair.test.ts.
     regenMs: 5000,
+    cooldownMs: 90000, // ms — Eric 2026-11-05, Story 10.5, R1: 90 s (60 / 120 / 180 rejected); R3: fixed, RELOAD never shortens it
+  },
+
+  /**
+   * PASSIVE HEALING (Eric 2026-11-05, Story 10.5, epic-10 amendment 11, R8,
+   * verbatim: *"Also we need to add back in the 2% missing HP passive healing
+   * after 30 seconds of not taking damage. It wont make combat any less
+   * deadly, but it will allow ships who survive to recover."*). A hull that
+   * has lost no hull hp for `outOfCombatMs` heals `missingPctPerS` of its
+   * MISSING hp per second, every tick, until the next blow that removes hull
+   * hp — from ANY source, storm included — restarts the wait. FIXED for every
+   * hull: not a stat, no card, no index scales it (the PASSIVE HEALING ladder
+   * Story 10.3 deleted stays deleted). The law is sim/regen.ts; the server's
+   * heal step reads it off the hull's last-damaged stamp. Supersedes epic-10
+   * amendments 6(b)(6) and 8's regen removal.
+   */
+  regen: {
+    missingPctPerS: 0.02, // fraction of MISSING hp healed per second (R8: "2% missing HP")
+    // ms without losing hull hp before the heal starts. Eric first said 30 s
+    // (R8, above), then the same day: "Make it 15, 30 was too long."
+    outOfCombatMs: 15000,
   },
 
   /**

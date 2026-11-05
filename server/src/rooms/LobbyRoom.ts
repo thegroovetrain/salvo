@@ -21,7 +21,7 @@ import {
   resolveSeedText,
   type LobbyPhase,
 } from '@salvo/shared';
-import { protocolVersionError, sanitizeKit, sanitizeShift, type JoinOptions } from './roomOptions.js';
+import { protocolVersionError, sanitizeShift, type JoinOptions } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { assertSoloCreateAllowed } from './createThrottle.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
@@ -166,7 +166,6 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     // identity options ride the seat's options, the Shift (Story 10.4) rides its `auth`.
     const arenaOptions = sanitizeArenaOptions(options);
     const shift = sanitizeShift(options.shift, this.log);
-    const kit = sanitizeKit(options.kit, this.log); // Story 10.1: rides `auth` beside the Shift
     this.joinCounter += 1;
     // The blank-callsign fallback is resolved HERE and carried on the seat:
     // the arena's own CAPTAIN-n counts ITS joins, so letting it re-draw would
@@ -174,7 +173,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     // sanitizeName unchanged, so the roster name IS the arena name.
     const name = arenaOptions.name ?? `CAPTAIN-${this.joinCounter}`;
     arenaOptions.name = name;
-    this.seats.set(client.sessionId, { client, options: arenaOptions, shift, kit });
+    this.seats.set(client.sessionId, { client, options: arenaOptions, shift });
     const captain = this.policy.onJoin(client.sessionId, name);
     const row = new LobbyPlayer();
     row.id = client.sessionId;

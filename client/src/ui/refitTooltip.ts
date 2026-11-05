@@ -41,9 +41,7 @@
 // and `__tests__/refitTooltipFit.test.ts` governs this panel against ITS own
 // container. Two boxes, two pins, one law.
 
-import { CONSUMABLE_SLOTS, isConsumableId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { interactionLine } from '../render/equipmentInfo.js';
 import { statValueText, type CardStatRow } from './boonCopy.js';
 import { monoTextWidth, monoWrapLines, widestToken } from './refitCardFit.js';
 
@@ -180,32 +178,13 @@ export function refitTooltipWidestToken(model: RefitTooltipModel): number {
 }
 
 /**
- * Pure: the hover panel's model for one offered line (Story 8.7, ruling 13).
- * A CONSUMABLE card gains the interaction line the belt's slot tooltip prints;
- * every other kind is the name over its stat rows.
- *
- * The KEY is the FIRST belt key rather than a resolved slot, because a card has
- * not been picked yet and therefore has no slot — what the panel teaches is the
- * SHAPE (formerly printed; removed, amendment 203), not which square it will
- * land in.
- *
- * THE STOCK IS THE REAL ONE (review patch P7). It was a hard-coded `×1`, so a
- * hover over a line already carried twice disagreed with the belt square beside
- * it. `copiesHeld` is the card's own stack, and the number printed is
- * `copiesHeld + 1`: the hover is on a card ABOUT TO BE STOCKED, so it reads
- * what the belt WILL say once it is taken — the same tense the face's ladder
- * and stat rows are already in (they preview the copy being offered).
+ * Pure: the hover panel's model for one offered line (Story 8.7, ruling 13):
+ * the name over its stat rows. (The consumable card's interaction line left
+ * with the kit — Story 10.5, 2026-11-05, epic-10 amendment 11; the model keeps
+ * its optional `interaction` field for the panel's fit arithmetic.)
  */
-export function refitTooltipModel(
-  line: { id: string; kind: string },
-  name: string,
-  stats: readonly CardStatRow[],
-  copiesHeld: number,
-): RefitTooltipModel {
-  if (line.kind !== 'consumable' || !isConsumableId(line.id)) return { name, stats };
-  const stock = Math.max(0, Math.trunc(copiesHeld)) + 1;
-  const interaction = interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock);
-  return interaction === '' ? { name, stats } : { name, stats, interaction };
+export function refitTooltipModel(name: string, stats: readonly CardStatRow[]): RefitTooltipModel {
+  return { name, stats };
 }
 
 /**

@@ -2,13 +2,15 @@
 // 2026-09-28, epic-8 amendments 97–98). An ACTIVATED ABILITY on the boost's
 // grammar exactly: a 1-charge pool on a 60 s cooldown (Eric 2026-10-02, epic-8
 // amendment 232; was 45 s) through the shared
-// consume/tickReload machine (the reload takes `cooldownScale` like every row),
-// activated off the Shift edge (actSeq), aimed at nothing, emitting nothing
-// spatial. Its whole effect is the World's `finishReloads` capability: for the
-// mounted gun and every fitted Q/E/R weapon whose reload is RUNNING, that ONE
-// reload completes now (one round tops up, timer to zero; the machine gun's
-// magazine fills). It does not refill a pool, never touches the belt, and never
-// touches itself (amendment 98).
+// consume/tickReload machine (RELOAD no longer scales it — 2026-11-05, Story
+// 10.5, R10), activated off the Shift edge (actSeq), aimed at nothing,
+// emitting nothing spatial. Its whole effect is the World's `finishReloads`
+// capability: every main-battery turret and every fitted Q/E/R weapon whose
+// reload is RUNNING completes that ONE reload now (one round tops up, timer
+// to zero; the machine gun's magazine fills), and the secondaries vent — heat
+// zero, lock cleared (Story 10.5, R10, shared `ventSecondaries`). It does not
+// refill a pool, never touches the HULL REPAIR / SMOKE cooldowns (Story 10.5,
+// R3 / R10), and never touches itself (amendment 98).
 
 import { EQUIPMENT_IS_WEAPON, type LoadoutSlot } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';

@@ -15,7 +15,7 @@
 // each value is the fold's number in the face's printer.
 
 import { describe, expect, it } from 'vitest';
-import { BUOY_LINE_IDS, CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
 import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 import { hullPercent } from '../util/hullPercent.js';
 
@@ -327,54 +327,56 @@ describe('cardStatRows — the CANNON rungs that carry a turret or a barrel', ()
   });
 });
 
-// --- THE FIRST LIVE CONSUMABLE (Story 8.8) -------------------------------------
+// --- THE THREE STORY 10.5 SLOT WEAPONS -----------------------------------------
 //
-// HULL REPAIR is the one consumable with a mechanism behind it, and a consumable
-// fits nothing: there is no preview diff to read, so both its rows are ABSOLUTE
-// (`cur` null, no arrow) exactly like a weapon's first copy. The numbers come
-// out of CONFIG and are NEVER hardcoded on the face — this suite writes the real
-// catalog numbers out so a retune of the ruling becomes visible HERE.
+// SUPERCAV TORPEDO, FLASH SHELLS and the FOULING SHELL left the consumable kit
+// (2026-11-05, epic-10 amendment 11) for the slot families: their card face is
+// the ordinary WEAPON grammar now — copy 1 prints the weapon's whole table,
+// every later copy its RELOAD step and its authored tier step (R7: the shells'
+// burst radius; 8(e): the supercav's damage). Every number off the fold.
 
-describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
-  it('prints the two rows the card face carries, in order, with no arrow', () => {
-    const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
-    expect(rows).toHaveLength(2);
-    // Epic-8 amendment 51: the shipped pool pays its hp over a time. It is
-    // printed as the AMOUNT over its TIME, never as a rate — the "5 hp/s" in
-    // R13/FR47 is a stale figure, and pools ADD rather than accelerate.
-    expect(rows[1].next).not.toContain('/S');
-    for (const r of rows) expect(r.cur, r.label).toBeNull();
+describe('cardStatRows — the three slot weapons Story 10.5 moved off the kit', () => {
+  const spec = CONFIG.shipClasses[TB.cls];
+  const fold = (id: string, n: number) => effectiveStats(spec, Array<string>(n).fill(id));
+
+  it('copy 1 prints the weapon\'s whole table, every row absolute', () => {
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+      const rows = cardStatRows(CATALOG[id], 0, TB);
+      expect(rows.length, id).toBeGreaterThan(0);
+      expect(rows.length, id).toBeLessThanOrEqual(CARD_STAT_ROWS);
+      for (const r of rows) expect(r.cur, `${id} ${r.label}`).toBeNull();
+    }
+    const radius = (id: 'dazzleShells' | 'foulingShell') =>
+      cardStatRows(CATALOG[id], 0, TB).map((r) => r.next).includes(String(fold(id, 1).equipment[id].radius));
+    expect(radius('dazzleShells')).toBe(true);
+    expect(radius('foulingShell')).toBe(true);
+    const supercav = cardStatRows(CATALOG.supercavTorpedo, 0, TB).map((r) => r.next);
+    expect(supercav).toContain(String(fold('supercavTorpedo', 1).equipment.supercavTorpedo.damage));
   });
 
-
-  it('reads every number off CONFIG.hullRepair, never a literal', () => {
-    const h = CONFIG.hullRepair;
-    const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
-    // Story 10.3 (ruling 13's register): the heal is a PERCENT of the hull,
-    // never a raw hp figure.
-    const hull = CONFIG.shipClasses[TB.cls].hp;
-    expect(rows[0].next).toContain(String(hullPercent(h.instantHp, hull)));
-    expect(rows[0].next).not.toContain(String(h.instantHp));
-    expect(rows[1].next).toContain(String(hullPercent(h.regenHp, hull)));
-    expect(rows[1].next).not.toContain(String(h.regenHp));
-    expect(rows[1].next).toContain(String(h.regenMs / 1000));
-  });
-
-  it('prints the SAME two rows on every hull and at every copy held', () => {
-    const base = cardStatRows(CATALOG.hullRepair, 0, TB);
-    for (const cls of Object.keys(CONFIG.shipClasses)) {
-      for (let k = 0; k < CATALOG.hullRepair.cap; k += 1) {
-        const rows = cardStatRows(CATALOG.hullRepair, k, {
-          cls: cls as never,
-          cards: Array<string>(k).fill('hullRepair'),
-        });
-        expect(rows, `${cls}@${k}`).toEqual(base);
-      }
+  it('a tier card steps the shell\'s burst radius by the ruled step (R7)', () => {
+    for (const [id, step] of [
+      ['dazzleShells', CONFIG.flashShells.radiusStepPerTier],
+      ['foulingShell', CONFIG.foulingShell.radiusStepPerTier],
+    ] as const) {
+      const before = fold(id, 1).equipment[id].radius;
+      const after = fold(id, 2).equipment[id].radius;
+      expect(after - before, id).toBe(step);
+      const rows = cardStatRows(CATALOG[id], 1, { ...TB, cards: [id] });
+      expect(rows.some((r) => r.cur === String(before) && r.next === String(after)), id).toBe(true);
     }
   });
 
-  it('fits the five-row grid with room to spare', () => {
-    expect(cardStatRows(CATALOG.hullRepair, 0, TB).length).toBeLessThanOrEqual(CARD_STAT_ROWS);
+  it('a SUPERCAV tier card steps its damage, and every moved weapon\'s tier card prints its reload step', () => {
+    const before = fold('supercavTorpedo', 1).equipment.supercavTorpedo.damage;
+    const after = fold('supercavTorpedo', 2).equipment.supercavTorpedo.damage;
+    const rows = cardStatRows(CATALOG.supercavTorpedo, 1, { ...TB, cards: ['supercavTorpedo'] });
+    expect(rows.some((r) => r.cur === String(before) && r.next === String(after))).toBe(true);
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+      const tier = cardStatRows(CATALOG[id], 1, { ...TB, cards: [id] });
+      expect(tier[0].cur, id).not.toBeNull(); // the reload step leads, as on every weapon line
+      expect(tier[0].cur, id).not.toBe(tier[0].next);
+    }
   });
 });
 
@@ -394,111 +396,9 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(cardStatRows(addon, 0, TB)).toEqual([]);
   });
 
-  // THE FOULING SHELL (Story 9.4, epic-9 amendment 66): absolute rows whose
-  // numbers are read off CONFIG.foulingShell (the contract: a re-tuned dial
-  // reaches the card), in the 8.16 belt register's uppercase units.
-  it('prints the FOULING SHELL rows from CONFIG.foulingShell (radius, life, speed factor)', () => {
-    const f = CONFIG.foulingShell;
-    expect(pairs(cardStatRows(CATALOG.foulingShell, 0, TB))).toEqual([
-      [null, `${f.radius} U`],
-      [null, `${f.durationMs / 1000} S`],
-      [null, `×${f.slowFactor}`],
-    ]);
-  });
-
-
-  it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE)', () => {
-    // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY; ONE since
-    // Story 8.18 flipped SMOKE SCREEN (CHAFF left the catalog in Story 9.2).
+  it('gives the STUB line no rows (DEPTH CHARGE)', () => {
     expect(cardStatRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
-
-  // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric ruling 2026-10-11, epic-9
-  // amendment 45): LASTS / CLOUD, every number off CONFIG.countermeasure, in the
-  // 8.16 belt register's uppercase units.
-  it('gives the COUNTERMEASURE its life and spread, off CONFIG', () => {
-    const k = CONFIG.countermeasure;
-    expect(pairs(cardStatRows(CATALOG.countermeasure, 0, TB))).toEqual([
-      [null, `${k.lifeMs / 1000} S`],
-      [null, `${k.r0} → ${k.r1} U`],
-    ]);
-  });
-
-  // THE 8.16 CONSUMABLES (catalog-v3 R36/R37; CHAFF retired in 9.2): absolute rows in the
-  // hullRepair shape, every number read off CONFIG — never a literal.
-  it('gives SHIELD BLOCK what it absorbs (a percent of the hull since 10.3) and how long it lasts, off CONFIG', () => {
-    const rows = pairs(cardStatRows(CATALOG.shieldBlock, 0, TB));
-    expect(rows).toHaveLength(2);
-    expect(rows[0][0]).toBeNull();
-    expect(rows[0][1]).toContain(String(hullPercent(CONFIG.shieldBlock.hp, CONFIG.shipClasses[TB.cls].hp)));
-    expect(rows[0][1]).not.toContain(String(CONFIG.shieldBlock.hp));
-    expect(rows[1]).toEqual([null, `${CONFIG.shieldBlock.durationMs / 1000} S`]);
-  });
-
-  // THE FOUR BUOYS (Story 10.9): the body's four rows (hull, effect reach,
-  // life, drop arc) plus ONE kind row; every number derived from CONFIG.buoy.
-  it('gives every BUOY the shared body rows off CONFIG.buoy, then exactly one kind row', () => {
-    const b = CONFIG.buoy;
-    const kindRows = new Set<string>();
-    for (const id of BUOY_LINE_IDS) {
-      const rows = cardStatRows(CATALOG[id], 0, TB);
-      expect(rows.length, id).toBe(5);
-      expect(rows.length, id).toBeLessThanOrEqual(CARD_STAT_ROWS);
-      expect(pairs(rows.slice(0, 3)), id).toEqual([
-        [null, `${b.hp} HP`],
-        [null, `${b.radiusU} U`],
-        [null, `${b.lifetimeMs / 1000} S`],
-      ]);
-      expect(rows.every((r) => r.cur === null), id).toBe(true);
-      kindRows.add(rows[4].next);
-    }
-    expect(kindRows.size).toBe(BUOY_LINE_IDS.length); // each kind says something different
-  });
-
-  it('the buoys\' kind rows carry their CONFIG numbers', () => {
-    const b = CONFIG.buoy;
-    const kindRow = (id: (typeof BUOY_LINE_IDS)[number]) => cardStatRows(CATALOG[id], 0, TB)[4].next;
-    expect(kindRow('radarBuoy')).toContain(`${b.radiusU}`);
-    expect(kindRow('healingBuoy')).toContain(`${b.heal.missingPctPerS * 100}%`);
-    expect(kindRow('shieldBuoy')).toContain(`${b.shield.maxHpPctPerS * 100}%`);
-    expect(kindRow('speedBuoy')).toContain(`${b.speed.factor * 100}%`);
-  });
-
-  it('every buoy prints the SAME drop row (one arc for the four)', () => {
-    const drops = new Set(BUOY_LINE_IDS.map((id) => cardStatRows(CATALOG[id], 0, TB)[3].next));
-    expect(drops.size).toBe(1);
-  });
-
-  // FLASH SHELLS (the WHITEOUT re-cut, epic-10 amendment 5(f)): radius, the
-  // full-white time (ramp + hold) and the clear time, every number off
-  // CONFIG.flashShells.
-  it('prints the FLASH SHELLS rows from CONFIG.flashShells (radius, white time, clear time)', () => {
-    const f = CONFIG.flashShells;
-    expect(pairs(cardStatRows(CATALOG.dazzleShells, 0, TB))).toEqual([
-      [null, `${f.radius} U`],
-      [null, `${(f.rampMs + f.holdMs) / 1000} S`],
-      [null, `${f.clearMs / 1000} S`],
-    ]);
-  });
-
-  it('the 8.16 rows are the same on every hull and at every copy count', () => {
-    for (const id of ['shieldBlock', ...BUOY_LINE_IDS, 'dazzleShells'] as const) {
-      const base = cardStatRows(CATALOG[id], 0, TB);
-      expect(base.length, id).toBeGreaterThan(0);
-      for (const cls of SHIP_CLASS_IDS) expect(cardStatRows(CATALOG[id], 3, { cls, cards: ['armor'] }), `${id} on ${cls}`).toEqual(base);
-    }
-  });
-
-  // THE SECOND LIVE CONSUMABLE (Story 8.13, epic-8 amendment 74) — and the
-  // first that is a weapon. Two absolute rows, both straight off CONFIG, and no
-  // reload row because a consumable never reloads.
-  it('gives SUPERCAV TORPEDO its two CONFIG rows and no reload', () => {
-    expect(pairs(cardStatRows(CATALOG.supercavTorpedo, 0, TB))).toEqual([
-      [null, String(CONFIG.supercavTorpedo.speed)],
-      [null, String(CONFIG.supercavTorpedo.damage)],
-    ]);
-  });
-
 
   it('gives a STUB line no rows — there is no built module to read', () => {
     for (const id of LINE_IDS) {
@@ -528,7 +428,7 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
   it('gives every LADDER and every WEAPON at least one row, at every rung', () => {
     const silent: string[] = [];
     for (const line of NON_STUB) {
-      if (line.kind === 'addon' || line.kind === 'consumable') continue;
+      if (line.kind === 'addon') continue;
       for (let k = 0; k < line.cap; k += 1) {
         const rows = cardStatRows(line, k, held(line.id, k));
         if (rows.length === 0) silent.push(`${line.id}@${k}`);

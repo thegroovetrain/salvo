@@ -38,44 +38,45 @@
 //     slot does (amendment 26's grammar, extended to the belt row);
 //   • ability-vs-prime on a belt slot comes from `isWeaponItem` — a consumable
 //     that is not `isWeapon` activates, and the decoy shape primes like Q/E/R.
+//
+// STORY 10.5 (2026-11-05, epic-10 amendment 11) RETIRED THE KIT: the digits
+// keep ONLY the refit pick (with the window closed they do nothing, and the
+// close grace went with the second meaning); `C` / `V` press the two cooldown
+// abilities through the ability FIFO, carrying the ability's wire code
+// (`act`), with the client's known refusal (`cooldownAbilityDenied`) ahead of
+// it. The belt / grace pins above are deleted with the feature.
 
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CONSUMABLE_SLOTS,
+  CONFIG,
   DEFAULT_CLASS_ID,
-  DEFAULT_KIT,
-  DEFAULT_SHIFT,
-  initialTurrets,
-  KIT_SIZE,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
-  consumableKindAt,
   WEAPON_SLOTS,
-  type ConsumableKit,
-  type OwnShip,
-  type SlotItemId,
+  abilityCode,
+  abilityCooldownMs,
+  type AbilityId,
+  type CooldownAbilityId,
+  type EquipmentId,
 } from '@salvo/shared';
 import {
   rudderFrom,
   panAxesFrom,
   nextPrimedSlot,
-  refitCloseStamp,
-  refitGraceActive,
   slotHoldsAbility,
   textEntryFocused,
-  CONSUMABLE_KEY_CODES,
+  cooldownAbilityDenied,
+  ABILITY_KEY_CODES,
   BOOST_KEY_CODES,
   SLOT_KEY_CODES,
   REFIT_DIGIT_CODES,
   KeyboardInput,
   type KeyboardHooks,
 } from '../input/keyboard.js';
-import { UpgradeMenu, offerView, type OfferView } from '../ui/upgradeMenu.js';
-import { CLIENT_CONFIG } from '../config.js';
 
 /** The three weapon slots by their keys — Q, E, R (slots 2, 3, 4). */
 const [Q_SLOT, E_SLOT, R_SLOT] = WEAPON_SLOTS;
@@ -83,15 +84,10 @@ const [Q_SLOT, E_SLOT, R_SLOT] = WEAPON_SLOTS;
 const TORP = Q_SLOT;
 /** The boost's slot — slot 1 on every captain hull (amendment 23). */
 const BOOST = SLOT_BOOST;
-/** The kit's slots, in key order: `1` addresses the first, `KIT_SIZE` the last. */
-const [BELT_1, BELT_2, , BELT_4] = CONSUMABLE_SLOTS;
-const BELT_LAST = CONSUMABLE_SLOTS[CONSUMABLE_SLOTS.length - 1];
-/** The kit's LAST key, top row and numpad. */
-const LAST_DIGIT = `Digit${KIT_SIZE}`;
-const LAST_NUMPAD = `Numpad${KIT_SIZE}`;
-/** The first two digits past the kit (top row + numpad) — unbound since Story
- *  10.1: no kit square, no refit card, never prevented. */
-const UNBOUND_DIGITS: readonly string[] = [KIT_SIZE + 1, KIT_SIZE + 2].flatMap((n) => [`Digit${n}`, `Numpad${n}`]);
+/** The first two digits past the refit picks (top row + numpad) — unbound:
+ *  no refit card, never prevented. Derived from the pick table's own size. */
+const PICKS = Object.keys(REFIT_DIGIT_CODES).length / 2;
+const UNBOUND_DIGITS: readonly string[] = [PICKS + 1, PICKS + 2].flatMap((n) => [`Digit${n}`, `Numpad${n}`]);
 
 /** A fully-fitted loadout: the boost plus all three weapon slots. The fitted
  *  hook FAILS CLOSED, so every suite that exercises priming/activation must wire
@@ -153,33 +149,18 @@ describe('the ratified binding tables', () => {
     expect(REFIT_DIGIT_CODES.Numpad4).toBe(3);
   });
 
-  // THE SECOND MEANING (Story 9.2, epic-9 amendments 21/31; Story 10.1, epic-10
-  // amendment 3): read against a CLOSED window, key `n` (top row AND numpad) is
-  // the n-th KIT slot — the bound set IS `CONSUMABLE_SLOTS` mapped to Digit/
-  // Numpad codes, never re-typed as literals. WHICH kind a key fires is the
-  // kit's business: under any kit, key `n` reaches `kit[n - 1]`.
-  it('the bound consumable digit set equals CONSUMABLE_SLOTS mapped to Digit/Numpad codes', () => {
-    expect(CONSUMABLE_SLOTS).toHaveLength(KIT_SIZE);
-    expect(Object.keys(CONSUMABLE_KEY_CODES)).toHaveLength(2 * CONSUMABLE_SLOTS.length);
-    const kit: ConsumableKit = ['foulingShell', 'supercavTorpedo', 'hullRepair', 'shieldBlock']; // NOT the default
-    expect(kit).not.toEqual(DEFAULT_KIT);
-    CONSUMABLE_SLOTS.forEach((slot, i) => {
-      expect(CONSUMABLE_KEY_CODES[`Digit${i + 1}`], `Digit${i + 1}`).toBe(slot);
-      expect(CONSUMABLE_KEY_CODES[`Numpad${i + 1}`], `Numpad${i + 1}`).toBe(slot);
-      expect(consumableKindAt(kit, slot), `key ${i + 1}`).toBe(kit[i]);
-    });
-  });
-
-  it('a digit beyond KIT_SIZE has NO meaning — no kit square, no refit card', () => {
-    for (const code of UNBOUND_DIGITS) {
-      expect(CONSUMABLE_KEY_CODES[code], code).toBeUndefined();
+  // STORY 10.5: C and V are the two cooldown abilities, one key each, and no
+  // key of theirs addresses a loadout slot (they hold none).
+  it('C presses HULL REPAIR and V presses SMOKE — two keys, the two cooldown abilities', () => {
+    expect(ABILITY_KEY_CODES).toEqual({ KeyC: 'repair', KeyV: 'smoke' });
+    for (const code of Object.keys(ABILITY_KEY_CODES)) {
+      expect(SLOT_KEY_CODES[code], code).toBeUndefined();
       expect(REFIT_DIGIT_CODES[code], code).toBeUndefined();
     }
-    // …and every REFIT code is a consumable code too: the two tables address the
-    // SAME physical keys, which is the whole point of the grace between them.
-    for (const code of Object.keys(REFIT_DIGIT_CODES)) {
-      expect(CONSUMABLE_KEY_CODES[code], code).toBeGreaterThanOrEqual(0);
-    }
+  });
+
+  it('a digit beyond the refit picks has NO meaning', () => {
+    for (const code of UNBOUND_DIGITS) expect(REFIT_DIGIT_CODES[code], code).toBeUndefined();
   });
 
   // STORY 8.8 deleted the DAMAGE CONTROL rail and its reserved NEGATIVE wire
@@ -211,13 +192,9 @@ describe('nextPrimedSlot — switch-to / same-key revert', () => {
 });
 
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
-  /** An eleven-slot array: gun, boost, three weapon slots, six consumables. */
-  const nine = (...weapons: (string | null)[]): readonly (SlotItemId | null)[] =>
-    ['gun', 'boost', ...weapons, ...Array<null>(SLOT_COUNT)].slice(0, SLOT_COUNT) as (SlotItemId | null)[];
-  /** The same spine with consumables stocked: slot content is a `SlotItemId`,
-   *  so a consumable square holds a CONSUMABLE id and the split must answer. */
-  const withBelt = (...belt: (SlotItemId | null)[]): readonly (SlotItemId | null)[] =>
-    ['gun', 'boost', null, null, null, ...belt, ...Array<null>(SLOT_COUNT)].slice(0, SLOT_COUNT) as (SlotItemId | null)[];
+  /** A SLOT_COUNT-slot array: gun, boost, then the three weapon slots. */
+  const nine = (...weapons: (string | null)[]): readonly (EquipmentId | null)[] =>
+    ['gun', 'boost', ...weapons, ...Array<null>(SLOT_COUNT)].slice(0, SLOT_COUNT) as (EquipmentId | null)[];
 
   // Story 8.5: every captain has the SAME shape. What differs is what their
   // seed/cards put in the weapon row — the Torpedo Boat's heavy torpedo, the
@@ -255,23 +232,13 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
 
   it('is false for empty and out-of-range slots', () => {
     expect(slotHoldsAbility(TB_SLOTS, E_SLOT)).toBe(false); // an empty weapon slot
-    expect(slotHoldsAbility(TB_SLOTS, 8)).toBe(false); // an empty belt slot
-    expect(slotHoldsAbility(TB_SLOTS, 12)).toBe(false); // out of range
+    expect(slotHoldsAbility(TB_SLOTS, SLOT_COUNT + 1)).toBe(false); // out of range
   });
 
-  // STORY 8.7 (ruling 7): the split now reads the SHARED `isWeaponItem`, the one
-  // predicate both dispatch channels call, so it answers over CONSUMABLE ids as
-  // well as equipment ones. A consumable that is not `isWeapon` ACTIVATES off
-  // the `1`-`4` rail; the decoy shape (the one click-placed consumable) PRIMES,
-  // exactly as the mine does on the weapon row.
-  it('answers over CONSUMABLE ids too: an instant stack ACTIVATES, the decoy shape PRIMES', () => {
-    expect(slotHoldsAbility(withBelt('hullRepair'), BELT_1)).toBe(true);
-    expect(slotHoldsAbility(withBelt('countermeasure'), BELT_1)).toBe(true);
-    expect(slotHoldsAbility(withBelt('shieldBlock'), BELT_1)).toBe(true);
-    expect(slotHoldsAbility(withBelt('radarBuoy'), BELT_1)).toBe(false); // aimed → primes
-    expect(slotHoldsAbility(withBelt('dazzleShells'), BELT_1)).toBe(false); // FLASH SHELLS — click-fired
-    expect(slotHoldsAbility(withBelt(null, 'hullRepair'), BELT_2)).toBe(true);
-    expect(slotHoldsAbility(withBelt('hullRepair'), BELT_2)).toBe(false); // that square is empty
+  it('the three Story 10.5 slot weapons PRIME like every slot weapon', () => {
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell']) {
+      expect(slotHoldsAbility(nine(id), Q_SLOT), id).toBe(false);
+    }
   });
 });
 
@@ -512,52 +479,52 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
   const boostAbilitySlot = (slot: number): boolean => slot === BOOST;
 
   it('an ability press QUEUES; the wire counter advances only on consumeActivation', () => {
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.attach();
     expect(kb.actSeq).toBe(0); // the 0 sentinel before any press
     press('ShiftLeft');
-    expect(presses).toEqual([BOOST]);
+    expect(presses).toEqual(['shift']);
     expect(kb.pendingActivationCount).toBe(1);
     expect(kb.actSeq).toBe(0);
     kb.consumeActivation(); // one input built → drain one press
     expect(kb.actSeq).toBe(1);
-    expect(kb.actSlot).toBe(BOOST);
+    expect(kb.act).toBe(abilityCode('shift'));
     expect(kb.pendingActivationCount).toBe(0);
     expect(kb.primedSlot).toBe(SLOT_GUN); // NEVER primes
   });
 
   it('EITHER shift key boosts — left and right are the same slot 1 action', () => {
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.attach();
     expect(press('ShiftLeft')).toBe(true); // bound → prevented
     expect(press('ShiftRight')).toBe(true);
-    expect(presses).toEqual([BOOST, BOOST]);
+    expect(presses).toEqual(['shift', 'shift']);
   });
 
   it('a HELD shift is ONE press — OS auto-repeat never machine-guns the boost', () => {
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.attach();
     press('ShiftLeft');
     press('ShiftLeft', { repeat: true });
     press('ShiftLeft', { repeat: true });
-    expect(presses).toEqual([BOOST]); // the whole hold is one tap
+    expect(presses).toEqual(['shift']); // the whole hold is one tap
     press('ShiftLeft'); // a fresh press edge boosts again
-    expect(presses).toEqual([BOOST, BOOST]);
+    expect(presses).toEqual(['shift', 'shift']);
   });
 
   it('onAbility carries the actSeq the press WILL ride (consumedCount + queue depth)', () => {
@@ -565,7 +532,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (_slot, actSeq) => rides.push(actSeq),
+      onAbility: (_id, actSeq) => rides.push(actSeq),
     });
     kb.attach();
     press('ShiftLeft'); // first queued → will ride actSeq 1
@@ -579,13 +546,12 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     // DECOY BUOY's belt prime is pinned in the belt suite below.) Both mine
     // lines prime, and the FIFO stays empty for a hull carrying them. (The
     // speed boost still activates — on Shift, in the sibling tests above.)
-    const presses: number[] = [];
-    const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'boost', 'navalMines', 'captiveMines', null, null, null, null, null, null, null];
+    const presses: AbilityId[] = [];
+    const weaponRow: readonly (EquipmentId | null)[] = ['gun', 'boost', 'navalMines', 'captiveMines', null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.attach();
     press('KeyQ'); // mine — a WEAPON prime
@@ -608,16 +574,16 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
   });
 
   it('a cooling/dead press still queues + fires the callback (the server decides)', () => {
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.attach();
     press('ShiftLeft');
     press('ShiftLeft');
-    expect(presses).toEqual([BOOST, BOOST]);
+    expect(presses).toEqual(['shift', 'shift']);
     kb.consumeActivation();
     kb.consumeActivation();
     expect(kb.actSeq).toBe(2);
@@ -631,26 +597,26 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     expect(kb.actSeq).toBe(1);
     kb.consumeActivation(); // nothing queued
     expect(kb.actSeq).toBe(1); // unchanged
-    expect(kb.actSlot).toBe(BOOST);
+    expect(kb.act).toBe(abilityCode('shift'));
   });
 
   it('the FIFO caps at SLOT_COUNT — every over-cap same-window press gets DENIED FEEDBACK', () => {
     // The cap simply follows the slot count (Story 8.5 moved it 4 → 9, Story 9.2
     // 9 → 11). It is still only reachable by MASHING: eleven presses inside ONE
     // 50ms sample window. Over-cap presses are dropped WITH feedback.
-    const presses: number[] = [];
-    const capped: number[] = [];
+    const presses: AbilityId[] = [];
+    const capped: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (slot) => presses.push(slot),
-      onAbilityCapped: (slot) => capped.push(slot),
+      onAbility: (id) => presses.push(id),
+      onAbilityCapped: (id) => capped.push(id),
     });
     kb.attach();
     for (let i = 0; i < SLOT_COUNT + 3; i++) press('ShiftLeft'); // three past the cap, in one window
     expect(kb.pendingActivationCount).toBe(SLOT_COUNT); // capped
     expect(presses).toHaveLength(SLOT_COUNT); // over-cap presses never reach onAbility
-    expect(capped).toEqual([BOOST, BOOST, BOOST]); // …but EACH fires the denied hook
+    expect(capped).toEqual(['shift', 'shift', 'shift']); // …but EACH fires the denied hook
   });
 
   it('clearActivations drops the pending queue but LEAVES the consumed counters monotonic', () => {
@@ -670,8 +636,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
   });
 
   it('on an all-weapon row the weapon keys PRIME and actSeq stays 0', () => {
-    const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null, null, null];
+    const weaponRow: readonly (EquipmentId | null)[] = ['gun', 'boost', 'broadside', 'starShells', null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
@@ -680,7 +645,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     press('KeyE');
     expect(kb.primedSlot).toBe(E_SLOT); // star shells — primes like a weapon
     expect(kb.actSeq).toBe(0); // the sentinel never advances
-    expect(kb.actSlot).toBe(0);
+    expect(kb.act).toBe(0);
   });
 
   it('FAILS CLOSED without the fitted hook: a bare construction primes NOTHING', () => {
@@ -722,12 +687,12 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     // preceding ShiftLeft keydown is a separate event and boosts on its own —
     // that is the ruling, not a regression.)
     let toggles = 0;
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       onRefitToggle: () => (toggles += 1),
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: (slot) => slot === BOOST,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.attach();
     expect(press('Tab', { shiftKey: true })).toBe(true); // prevented: focus stays on the canvas
@@ -754,46 +719,42 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(escapes).toBe(1);
   });
 
-  // THE TWO MEANINGS, ON ONE KEY (Story 8.7, ruling 7 — this pin replaces the
-  // amendment-27 "digits are refit-only" one, which is retired with the belt).
-  // The meaning is decided AT THE KEYDOWN against the window's state: open, a
-  // digit is a card pick and can never reach the belt; closed, it is that belt
-  // square's press and can never reach the offer.
-  it('digits mean a PICK while the window is open and a BELT press while it is closed', () => {
+  // ONE MEANING (Story 10.5): open, a digit is a card pick; closed, it does
+  // NOTHING — no slot, no ability, no pick (still prevented: a bound key).
+  it('digits PICK while the window is open and do nothing while it is closed', () => {
     const picks: number[] = [];
-    const fired: number[] = [];
+    const fired: AbilityId[] = [];
     let open = false;
     kb = new KeyboardInput({
       isModalOpen: () => open,
       onRefitPick: (c) => picks.push(c),
-      isSlotFitted: (slot) => (CONSUMABLE_SLOTS as readonly number[]).includes(slot),
+      isSlotFitted: () => true,
       isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
+      onAbility: (id) => fired.push(id),
     });
     kb.attach();
     open = true;
     press('Digit1');
     press('Digit3');
     press('Numpad4');
-    expect(picks).toEqual([0, 2, 3]); // open → picks…
-    expect(fired).toEqual([]); // …and no consumable is EVER reached while it is open
+    expect(picks).toEqual([0, 2, 3]);
     open = false;
-    press('Digit1');
-    press('Numpad4');
-    press(LAST_DIGIT);
-    expect(fired).toEqual([BELT_1, BELT_4, BELT_LAST]); // closed → the kit's squares, in key order
-    expect(picks).toEqual([0, 2, 3]); // …and nothing new was picked
+    for (const code of Object.keys(REFIT_DIGIT_CODES)) expect(press(code), code).toBe(true);
+    expect(picks).toEqual([0, 2, 3]); // nothing new was picked…
+    expect(fired).toEqual([]); // …and nothing was pressed
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    expect(kb.pendingActivationCount).toBe(0);
   });
 
-  it('a digit beyond the kit is NOT bound and NOT prevented while the window is open', () => {
+  it('a digit beyond the refit picks is NOT bound and NOT prevented while the window is open', () => {
     const picks: number[] = [];
-    const fired: number[] = [];
+    const fired: AbilityId[] = [];
     kb = new KeyboardInput({
       isModalOpen: () => true,
       onRefitPick: (c) => picks.push(c),
       isSlotFitted: () => true,
       isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
+      onAbility: (id) => fired.push(id),
     });
     kb.attach();
     for (const code of UNBOUND_DIGITS) {
@@ -807,13 +768,13 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
   it('slot keys (Q/E/R AND Shift) are SUSPENDED while the modal is open', () => {
     // UX-DR42, verbatim: "Q/E/R/Shift are suspended while the refit window is
     // open" — full combat lockout, feedback-free.
-    const pressed: number[] = [];
+    const pressed: AbilityId[] = [];
     let open = true;
     kb = new KeyboardInput({
       isModalOpen: () => open,
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: (slot) => slot === BOOST,
-      onAbility: (slot) => pressed.push(slot),
+      onAbility: (id) => pressed.push(id),
     });
     kb.attach();
     expect(press('KeyQ')).toBe(true); // still prevented (bound key)…
@@ -827,7 +788,7 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     press('KeyQ');
     expect(kb.primedSlot).toBe(Q_SLOT);
     press('ShiftLeft');
-    expect(pressed).toEqual([BOOST]);
+    expect(pressed).toEqual(['shift']);
   });
 
   it('helm keys stay LIVE while the modal is open (the sim never pauses)', () => {
@@ -839,13 +800,13 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
   });
 
   it('slot keys AND Shift are SUSPENDED by the non-modal combat lockout (Story 6.1 start line)', () => {
-    const pressed: number[] = [];
+    const pressed: AbilityId[] = [];
     let held = true;
     kb = new KeyboardInput({
       isCombatLocked: () => held,
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: (slot) => slot === BOOST,
-      onAbility: (slot) => pressed.push(slot),
+      onAbility: (id) => pressed.push(id),
     });
     kb.attach();
     expect(press('KeyQ')).toBe(true); // still prevented (bound key)…
@@ -858,7 +819,7 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     press('KeyQ');
     expect(kb.primedSlot).toBe(Q_SLOT);
     press('ShiftRight');
-    expect(pressed).toEqual([BOOST]);
+    expect(pressed).toEqual(['shift']);
   });
 
   it('F SURVIVES the combat lockout — the horn is neither movement, weapons nor radar', () => {
@@ -880,541 +841,6 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     press('KeyW');
     press('KeyD');
     expect(kb.axes()).toEqual({ throttle: 0.25, rudder: 1 });
-  });
-});
-
-// --- Story 8.7, rulings 7-8: THE BELT ROW AND THE CLOSE GRACE ----------------
-//
-// The belt (slots 5-8) became reachable in Story 8.7: `1`-`4` fire it with the
-// refit window closed, and a hotbar click on a belt square is the same press
-// (both route through `slotAction`, so key and click cannot drift). Amendment
-// 30's "a belt press is silent" is retired — an empty belt square now DENIES on
-// the client exactly as an empty weapon slot does (amendment 26's grammar,
-// completed), with nothing on the wire either way.
-//
-// Between the two meanings sits the GRACE: for CLIENT_CONFIG.refit.closeGraceMs
-// after the window closes by ANY path, a digit is swallowed. main.ts owns the
-// stamp (it watches the window's visibility); the chokepoint only asks.
-
-describe('KeyboardInput — the BELT row (digits 1-4 with the window closed)', () => {
-  let kb: KeyboardInput | undefined;
-  afterEach(() => kb?.detach());
-
-  /** The belt fitted, the weapon row empty — the shape this suite is about. */
-  const BELT_FITTED = (slot: number): boolean => (CONSUMABLE_SLOTS as readonly number[]).includes(slot);
-
-  it('an INSTANT stack ACTIVATES through the same FIFO the boost uses', () => {
-    const fired: [number, number][] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isAbilitySlot: () => true, // a consumable with isWeaponItem false
-      onAbility: (slot, seq) => fired.push([slot, seq]),
-    });
-    kb.attach();
-    press('Digit1');
-    press('Digit2');
-    expect(fired).toEqual([[BELT_1, 1], [BELT_2, 2]]);
-    expect(kb.pendingActivationCount).toBe(2);
-    expect(kb.primedSlot).toBe(SLOT_GUN); // an activation never primes
-  });
-
-  it('a DECOY-SHAPED stack PRIMES, toggling exactly like Q/E/R', () => {
-    // The one click-placed consumable (CONSUMABLE_IS_WEAPON.decoyBuoy) takes the
-    // weapon path: the digit primes its square, the same digit again reverts to
-    // the gun, and nothing queues on the ability channel.
-    const fired: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isAbilitySlot: () => false,
-      onAbility: (slot) => fired.push(slot),
-    });
-    kb.attach();
-    press('Digit4');
-    expect(kb.primedSlot).toBe(BELT_4);
-    press('Digit4');
-    expect(kb.primedSlot).toBe(SLOT_GUN);
-    expect(fired).toEqual([]);
-    expect(kb.actSeq).toBe(0);
-  });
-
-  it('a belt press CLEARS an owed release-revert — the key wins there too', () => {
-    kb = new KeyboardInput({ isSlotFitted: (slot) => slot <= R_SLOT || BELT_FITTED(slot) });
-    kb.attach();
-    press('KeyQ');
-    kb.armReleaseRevert(1);
-    press('Digit4'); // a belt prime mid-hold
-    expect(kb.releaseRevertPending).toBe(false);
-    expect(kb.primedSlot).toBe(BELT_4);
-  });
-
-  it('an EMPTY belt square DENIES on the client — amendment 30 is retired', () => {
-    // PIN FLIPPED. The belt used to be silent because nothing could enter it;
-    // now that a card can stock it, an empty square is exactly the "that key did
-    // nothing just now" case amendment 26 gave the weapon row — same pulse, same
-    // tone, still NOTHING on the wire.
-    const denied: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: () => false,
-      onEmptySlotDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    expect(press('Digit1')).toBe(true); // bound → prevented
-    press('Numpad4');
-    expect(denied).toEqual([BELT_1, BELT_4]);
-    expect(kb.primedSlot).toBe(SLOT_GUN);
-    expect(kb.pendingActivationCount).toBe(0);
-    expect(kb.actSeq).toBe(0);
-  });
-
-  // --- STORY 8.8: THE BLOCKED PRESS ON A *STOCKED* SQUARE ---------------------
-  //
-  // amendment 26's precedent, one square along. A HULL REPAIR stack on a hull
-  // that is already full (or already sinking) is a press the server will refuse
-  // with `blocked`, and the client knows both facts — so it refuses first, in
-  // the same grammar, and sends nothing. The PREDICATE lives in
-  // `beltPressDenied` (see refitFailOpen.test.ts); this is the chokepoint half.
-  it('a STOCKED square the client knows is BLOCKED denies without sending', () => {
-    const denied: number[] = [];
-    const fired: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isAbilitySlot: () => true,
-      isPressDenied: (slot) => slot === BELT_1,
-      onPressDenied: (slot) => denied.push(slot),
-      onAbility: (slot) => fired.push(slot),
-    });
-    kb.attach();
-    press('Digit1'); // the blocked square
-    press('Digit2'); // its neighbour, which is not
-    expect(denied).toEqual([BELT_1]);
-    expect(fired).toEqual([BELT_2]);
-    expect(kb.pendingActivationCount).toBe(1); // only the neighbour queued
-    expect(kb.actSeq).toBe(0); // nothing consumed onto the wire by the refusal
-  });
-
-  it('a hotbar CLICK on a blocked square is the SAME refusal as its digit', () => {
-    const denied: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isAbilitySlot: () => true,
-      isPressDenied: () => true,
-      onPressDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    kb.slotAction(BELT_4); // amendment 11's law: a click is this very entry
-    expect(denied).toEqual([BELT_4]);
-  });
-
-  it('an EMPTY square reads as EMPTY, never as blocked — the order is fixed', () => {
-    const empty: number[] = [];
-    const blocked: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: () => false,
-      isPressDenied: () => true, // would refuse too, but never gets the chance
-      onEmptySlotDenied: (slot) => empty.push(slot),
-      onPressDenied: (slot) => blocked.push(slot),
-    });
-    kb.attach();
-    press('Digit1');
-    expect(empty).toEqual([BELT_1]);
-    expect(blocked).toEqual([]);
-  });
-
-  it('the LOCK still wins SILENTLY over the blocked press too', () => {
-    const denied: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isCombatLocked: () => true,
-      isPressDenied: () => true,
-      onPressDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    press('Digit1');
-    expect(denied).toEqual([]); // locked must read as LOCKED, never as denied
-  });
-
-  it('FAILS OPEN with no isPressDenied hook — every press goes through', () => {
-    const fired: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
-    });
-    kb.attach();
-    press('Digit1');
-    expect(fired).toEqual([BELT_1]);
-  });
-
-  it('the LOCK and the OPEN WINDOW still win silently over the belt denial', () => {
-    const denied: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: () => false,
-      isCombatLocked: () => true,
-      onEmptySlotDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    press('Digit1');
-    expect(denied).toEqual([]);
-    kb.detach();
-    // …and with the window OPEN the digit is a PICK, so the belt is not even
-    // consulted: no denial for an empty square the player never addressed.
-    const picks: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: () => false,
-      isModalOpen: () => true,
-      onRefitPick: (c) => picks.push(c),
-      onEmptySlotDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    press('Digit1');
-    expect(denied).toEqual([]);
-    expect(picks).toEqual([0]);
-  });
-
-  it('a HELD digit is ONE press — OS auto-repeat never machine-guns the belt', () => {
-    const fired: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: BELT_FITTED,
-      isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
-    });
-    kb.attach();
-    press('Digit1');
-    press('Digit1', { repeat: true });
-    press('Digit1', { repeat: true });
-    expect(fired).toEqual([BELT_1]);
-  });
-
-  it('a digit beyond the kit stays UNBOUND with the window closed', () => {
-    const denied: number[] = [];
-    const picks: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: () => true,
-      isAbilitySlot: () => true,
-      onRefitPick: (c) => picks.push(c),
-      onEmptySlotDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    for (const code of UNBOUND_DIGITS) expect(press(code), code).toBe(false); // no handler at all…
-    expect(picks).toEqual([]); // …and inert: no pick…
-    expect(denied).toEqual([]); // …no denial…
-    expect(kb.pendingActivationCount).toBe(0); // …and no consumable press
-    expect(kb.primedSlot).toBe(SLOT_GUN);
-  });
-
-  it('a key whose kind is at ZERO STOCK DENIES on the client and sends nothing (amendment 35)', () => {
-    // The fixed kind's slot is null at zero copies, so the press is exactly the
-    // empty-slot denial: the square flashes red, the tone plays, and NOTHING
-    // queues for the wire.
-    const denied: number[] = [];
-    const fired: number[] = [];
-    kb = new KeyboardInput({
-      isSlotFitted: (slot) => slot !== BELT_LAST, // every kind stocked but the last key's
-      isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
-      onEmptySlotDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    expect(press(LAST_DIGIT)).toBe(true);
-    press(LAST_NUMPAD);
-    expect(denied).toEqual([BELT_LAST, BELT_LAST]);
-    expect(fired).toEqual([]);
-    expect(kb.pendingActivationCount).toBe(0);
-    expect(kb.actSeq).toBe(0);
-  });
-
-  it('a hotbar CLICK on a belt square is the SAME press as its digit', () => {
-    // amendment 11's law, now true of the belt row as well: `handleHotbarPress`
-    // routes a belt click through `slotAction`, which is the very entry the
-    // digit uses — so the two cannot drift.
-    const byKey: number[] = [];
-    const byClick: number[] = [];
-    kb = new KeyboardInput({ isSlotFitted: BELT_FITTED, isAbilitySlot: () => true, onAbility: (s) => byKey.push(s) });
-    kb.attach();
-    press('Digit2');
-    kb.detach();
-    kb = new KeyboardInput({ isSlotFitted: BELT_FITTED, isAbilitySlot: () => true, onAbility: (s) => byClick.push(s) });
-    kb.slotAction(BELT_2);
-    expect(byClick).toEqual(byKey);
-  });
-});
-
-describe('the refit CLOSE GRACE (ruling 8) — the digits\' dead zone', () => {
-  let kb: KeyboardInput | undefined;
-  afterEach(() => kb?.detach());
-
-  const GRACE = CLIENT_CONFIG.refit.closeGraceMs;
-
-  // THE EDGE IS `<`, exactly like resultsKeysArmed's `>=`: the grace is the
-  // HALF-OPEN interval [closedAt, closedAt + grace). At the grace on the nose the
-  // digit fires — a grace that included its own end would be unpinnable by a
-  // frame clock that lands on it.
-  it('is live inside [closedAt, closedAt + grace) and dead at the edge itself', () => {
-    expect(refitGraceActive(1000, 1000, GRACE)).toBe(true); // the close instant
-    expect(refitGraceActive(1000 + GRACE / 2, 1000, GRACE)).toBe(true); // mid-grace
-    expect(refitGraceActive(1000 + GRACE - 0.1, 1000, GRACE)).toBe(true);
-    expect(refitGraceActive(1000 + GRACE, 1000, GRACE)).toBe(false); // the edge FIRES
-    expect(refitGraceActive(1000 + GRACE + 1, 1000, GRACE)).toBe(false);
-  });
-
-  it('is dead before the window has EVER closed (the -Infinity seed)', () => {
-    expect(refitGraceActive(0, -Infinity, GRACE)).toBe(false);
-    expect(refitGraceActive(1e9, -Infinity, GRACE)).toBe(false);
-  });
-
-  it('swallows a belt digit inside it: nothing fired, nothing primed, still prevented', () => {
-    const fired: number[] = [];
-    const denied: number[] = [];
-    let grace = true;
-    kb = new KeyboardInput({
-      isRefitGrace: () => grace,
-      isSlotFitted: () => true,
-      isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
-      onEmptySlotDenied: (slot) => denied.push(slot),
-    });
-    kb.attach();
-    expect(press('Digit1')).toBe(true); // prevented — focus can never escape
-    expect(fired).toEqual([]);
-    expect(denied).toEqual([]); // not even a denial: the key did not act at all
-    expect(kb.pendingActivationCount).toBe(0);
-    grace = false;
-    press('Digit1');
-    expect(fired).toEqual([BELT_1]); // …and the very same key acts once it lapses
-  });
-
-  it('never swallows a PICK — the grace only exists on the closed side', () => {
-    const picks: number[] = [];
-    kb = new KeyboardInput({
-      isRefitGrace: () => true,
-      isModalOpen: () => true,
-      onRefitPick: (c) => picks.push(c),
-    });
-    kb.attach();
-    press('Digit1');
-    press('Digit4');
-    expect(picks).toEqual([0, 3]);
-  });
-
-  it('covers EVERY kit digit, the last included, and they act once it lapses', () => {
-    const fired: number[] = [];
-    const denied: number[] = [];
-    let grace = true;
-    kb = new KeyboardInput({
-      isRefitGrace: () => grace,
-      isSlotFitted: () => true,
-      isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
-      onEmptySlotDenied: (s) => denied.push(s),
-    });
-    kb.attach();
-    for (const code of Object.keys(CONSUMABLE_KEY_CODES)) expect(press(code), code).toBe(true);
-    expect(fired).toEqual([]);
-    expect(denied).toEqual([]);
-    grace = false;
-    press(LAST_DIGIT);
-    press(LAST_NUMPAD);
-    expect(fired).toEqual([BELT_LAST, BELT_LAST]);
-  });
-
-  it('FAILS OPEN with no hook wired — a construction gap must not kill the belt', () => {
-    // The opposite of the fitted hook's fail-closed rule, and deliberately: a
-    // missing grace hook means "no window has ever closed here", which is the
-    // truth in every test harness that drives the belt directly.
-    const fired: number[] = [];
-    kb = new KeyboardInput({ isSlotFitted: () => true, isAbilitySlot: () => true, onAbility: (s) => fired.push(s) });
-    kb.attach();
-    press('Digit1');
-    expect(fired).toEqual([BELT_1]);
-  });
-});
-
-// The stamp's other half: WHEN the grace starts. main.ts holds the two numbers
-// (the previous frame's visibility and `refitClosedAt`); the RULE is this pure
-// function, driven here through the REAL refit band on every close path there
-// is — TAB (toggle), ESC (hide) and the last spend (update(null)).
-describe('refitCloseStamp — the close edge, over the real refit band', () => {
-  beforeEach(() => document.body.replaceChildren());
-
-  const you = (): OwnShip => ({
-    id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
-    sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1,
-    offer: ['intel', 'armor', 'deckGun', 'navalMines'],
-    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
-  });
-  const view = (): OfferView => offerView(you(), false, false, false) as OfferView;
-
-  /** One render frame of main.ts's watcher, in its exact shape. */
-  function frameRunner(menu: UpgradeMenu) {
-    let prevOpen = false;
-    let closedAt = -Infinity;
-    let opens = 0;
-    return {
-      frame(nowMs: number): void {
-        const open = menu.visible;
-        if (open && !prevOpen) opens += 1; // the false→true edge ends held streams
-        closedAt = refitCloseStamp(prevOpen, open, nowMs, closedAt);
-        prevOpen = open;
-      },
-      get closedAt(): number { return closedAt; },
-      get opens(): number { return opens; },
-    };
-  }
-
-  it('stamps on a TAB close, and not on the open', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = frameRunner(menu);
-    w.frame(100);
-    expect(w.closedAt).toBe(-Infinity);
-    menu.toggle(view()); // TAB — open
-    w.frame(200);
-    expect(w.closedAt).toBe(-Infinity); // an OPEN never stamps
-    expect(w.opens).toBe(1);
-    menu.toggle(view()); // TAB again — close
-    w.frame(300);
-    expect(w.closedAt).toBe(300);
-    w.frame(400); // a steady closed frame must not re-stamp
-    expect(w.closedAt).toBe(300);
-  });
-
-  it('stamps on an ESC close (the band\'s hide())', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = frameRunner(menu);
-    menu.toggle(view());
-    w.frame(10);
-    menu.hide(); // ESC — main.ts's handleEscape path
-    w.frame(20);
-    expect(w.closedAt).toBe(20);
-  });
-
-  it('stamps on the LAST SPEND close (the per-frame update(null) force-hide)', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = frameRunner(menu);
-    menu.toggle(view());
-    w.frame(10);
-    expect(menu.visible).toBe(true);
-    menu.update(null); // the bank emptied (or spectate) — currentOfferView null
-    expect(menu.visible).toBe(false);
-    w.frame(30);
-    expect(w.closedAt).toBe(30);
-  });
-
-  it('re-stamps on every subsequent close (the grace is per-close, not once)', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = frameRunner(menu);
-    menu.toggle(view());
-    w.frame(10);
-    menu.hide();
-    w.frame(20);
-    menu.toggle(view());
-    w.frame(30);
-    expect(w.opens).toBe(2);
-    menu.hide();
-    w.frame(44);
-    expect(w.closedAt).toBe(44);
-  });
-});
-
-// THE EDGE IS OBSERVED AT THE EVENT, NOT AT THE NEXT FRAME (review patch P3).
-//
-// TAB and ESC hide the window SYNCHRONOUSLY inside a keydown handler, but the
-// stamp that arms the grace was written only by the next render frame's band
-// sync. Between the two — same task turn, no rAF — a digit read a window that
-// was already closed and a grace that had not started yet, and fell straight
-// through onto the belt. The fix is that `watchRefitWindow` is idempotent and
-// is ALSO run at the top of the grace hook (so the close edge is seen at the
-// digit's OWN keydown) and at the top of the per-tick input build (so a held
-// mouse stream cannot contribute one more sample after an open).
-describe('the close edge is seen at the DIGIT\'s keydown, with no frame between (P3)', () => {
-  let kb: KeyboardInput | undefined;
-  afterEach(() => kb?.detach());
-  beforeEach(() => document.body.replaceChildren());
-
-  const GRACE = CLIENT_CONFIG.refit.closeGraceMs;
-
-  const you = (): OwnShip => ({
-    id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
-    sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1,
-    offer: ['intel', 'armor', 'deckGun', 'navalMines'],
-    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
-  });
-  const view = (): OfferView => offerView(you(), false, false, false) as OfferView;
-
-  /** main.ts's wiring, in its exact shape: ONE idempotent watcher, run by the
-   *  per-frame band sync AND by the grace hook itself. `now` is the shared
-   *  clock both of them read. */
-  function wired(menu: UpgradeMenu) {
-    const clock = { now: 1000 };
-    let prevOpen = false;
-    let closedAt = -Infinity;
-    const watch = (): void => {
-      const open = menu.visible;
-      closedAt = refitCloseStamp(prevOpen, open, clock.now, closedAt);
-      prevOpen = open;
-    };
-    const fired: number[] = [];
-    const picks: number[] = [];
-    kb?.detach();
-    kb = new KeyboardInput({
-      isModalOpen: () => menu.visible,
-      isRefitGrace: () => { watch(); return refitGraceActive(clock.now, closedAt, GRACE); },
-      isSlotFitted: () => true,
-      isAbilitySlot: () => true,
-      onAbility: (slot) => fired.push(slot),
-      onRefitPick: (c) => picks.push(c),
-    });
-    kb.attach();
-    return { clock, watch, fired, picks };
-  }
-
-  it('TAB closes and the very next digit, same task turn, is SWALLOWED', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = wired(menu);
-    menu.toggle(view()); // TAB — open
-    w.watch(); // one frame with the window up
-    menu.toggle(view()); // TAB — close, inside the keydown handler
-    // NO FRAME RUNS HERE. The digit arrives in the same task turn.
-    expect(press('Digit1')).toBe(true); // still prevented
-    expect(w.fired).toEqual([]);
-    expect(w.picks).toEqual([]);
-    expect(kb!.pendingActivationCount).toBe(0);
-  });
-
-  it('ESC closes and the very next digit, same task turn, is SWALLOWED', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = wired(menu);
-    menu.toggle(view());
-    w.watch();
-    menu.hide(); // ESC — main.ts's handleEscape path, synchronous
-    press('Digit1');
-    expect(w.fired).toEqual([]);
-  });
-
-  it('...and the same key fires once the grace lapses', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = wired(menu);
-    menu.toggle(view());
-    w.watch();
-    menu.toggle(view()); // close at t = 1000
-    press('Digit1');
-    expect(w.fired).toEqual([]);
-    w.clock.now = 1000 + GRACE - 1;
-    press('Digit1');
-    expect(w.fired).toEqual([]);
-    w.clock.now = 1000 + GRACE; // the edge itself FIRES
-    press('Digit1');
-    expect(w.fired).toEqual([BELT_1]);
-  });
-
-  it('a digit while the window is still OPEN picks, and never reaches the belt', () => {
-    const menu = new UpgradeMenu(() => {});
-    const w = wired(menu);
-    menu.toggle(view());
-    press('Digit1');
-    expect(w.picks).toEqual([0]);
-    expect(w.fired).toEqual([]);
   });
 });
 
@@ -1539,26 +965,20 @@ describe('KeyboardInput — chokepoint hygiene', () => {
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
       'KeyQ', 'KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight', 'KeyF', 'Space', 'Digit1', 'Digit4', 'Numpad2',
       'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyZ', 'KeyX', 'KeyM', 'KeyP',
-      // Story 8.7: every BELT code is a bound key in BOTH of its meanings, so
-      // the hygiene sweep covers the whole table rather than a sample of it.
-      ...Object.keys(CONSUMABLE_KEY_CODES), ...Object.keys(REFIT_DIGIT_CODES),
+      ...Object.keys(ABILITY_KEY_CODES), ...Object.keys(REFIT_DIGIT_CODES),
     ]) {
       expect(press(code), code).toBe(true);
     }
   });
 
-  it('preventDefaults the belt digits in EVERY state — open, closed, and inside the grace', () => {
-    // The window's state decides what a digit MEANS, never whether the browser
-    // gets it: focus must not escape the canvas on any of the three paths.
-    for (const hooks of [
-      { isModalOpen: () => true },
-      { isModalOpen: () => false },
-      { isRefitGrace: () => true, isSlotFitted: () => true },
-    ] as KeyboardHooks[]) {
+  it('preventDefaults the refit digits whether the window is open or closed', () => {
+    // The window's state decides what a digit DOES, never whether the browser
+    // gets it: focus must not escape the canvas either way.
+    for (const hooks of [{ isModalOpen: () => true }, { isModalOpen: () => false }] as KeyboardHooks[]) {
       kb?.detach();
       kb = new KeyboardInput(hooks);
       kb.attach();
-      for (const code of Object.keys(CONSUMABLE_KEY_CODES)) expect(press(code), code).toBe(true);
+      for (const code of Object.keys(REFIT_DIGIT_CODES)) expect(press(code), code).toBe(true);
     }
   });
 
@@ -1621,7 +1041,7 @@ describe('KeyboardInput — chokepoint hygiene', () => {
   it('unbound keys are left native (no preventDefault)', () => {
     kb = new KeyboardInput();
     kb.attach();
-    expect(press('KeyC')).toBe(false);
+    expect(press('KeyG')).toBe(false);
     expect(press('Backquote')).toBe(false);
     expect(press('ControlLeft')).toBe(false); // CTRL is unbound in the v1 scheme
   });
@@ -1792,37 +1212,37 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
   });
 
   it('an ability slot activates through the SAME FIFO (never primes)', () => {
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.slotAction(BOOST);
-    expect(presses).toEqual([BOOST]);
+    expect(presses).toEqual(['shift']);
     expect(kb.pendingActivationCount).toBe(1);
     expect(kb.primedSlot).toBe(SLOT_GUN);
   });
 
   it('a press against the FULL queue is dropped WITH the capped feedback (never silence)', () => {
-    const capped: number[] = [];
+    const capped: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
-      onAbilityCapped: (slot) => capped.push(slot),
+      onAbilityCapped: (id) => capped.push(id),
     });
     for (let i = 0; i <= SLOT_COUNT; i++) kb.slotAction(BOOST); // SLOT_COUNT (11) fit, the 12th is capped
     expect(kb.pendingActivationCount).toBe(SLOT_COUNT);
-    expect(capped).toEqual([BOOST]);
+    expect(capped).toEqual(['shift']);
   });
 
   it('is SUSPENDED while the refit modal is open (clicks are dead, like the keys)', () => {
-    const presses: number[] = [];
+    const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: boostAbilitySlot,
       isModalOpen: () => true,
-      onAbility: (slot) => presses.push(slot),
+      onAbility: (id) => presses.push(id),
     });
     kb.slotAction(TORP);
     kb.slotAction(BOOST);
@@ -1830,21 +1250,16 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
     expect(presses).toEqual([]);
   });
 
-  it('DENIES on an unfitted slot — belt INCLUDED — and FAILS CLOSED with no fitted hook', () => {
+  it('DENIES on an unfitted weapon slot and FAILS CLOSED with no fitted hook', () => {
     // A click on a slot IS its key (amendment 11), so Story 8.5's client-side
-    // empty denial reaches it the same way on the WEAPON row. PIN FLIPPED for
-    // the BELT (Story 8.7 retires amendment 30's silence): now that a card can
-    // stock those squares, an empty one is the same "that key did nothing"
-    // sentence — key and click on one row still behave identically, and neither
-    // sends anything.
+    // empty denial reaches it the same way — and sends nothing.
     const denied: number[] = [];
     const fitted = (slot: number): boolean => ALL_FITTED(slot) && slot !== R_SLOT;
     kb = new KeyboardInput({ isSlotFitted: fitted, onEmptySlotDenied: (s) => denied.push(s) });
     kb.slotAction(R_SLOT); // an empty weapon slot
-    kb.slotAction(BELT_4); // an empty BELT slot — DENIES since Story 8.7
     expect(kb.primedSlot).toBe(SLOT_GUN);
     expect(kb.pendingActivationCount).toBe(0);
-    expect(denied).toEqual([R_SLOT, BELT_4]);
+    expect(denied).toEqual([R_SLOT]);
     const bare = new KeyboardInput();
     bare.slotAction(TORP);
     expect(bare.primedSlot).toBe(SLOT_GUN);
@@ -1995,8 +1410,8 @@ describe('main.ts routes the empty-slot denial to the SHIPPED denied grammar', (
     // square and the blocked HULL REPAIR square. That is the law getting
     // STRONGER, not weaker: they cannot drift apart now.
     expect(MAIN_TS).toContain('onEmptySlotDenied: denySlot');
-    expect(MAIN_TS).toContain('onAbilityCapped: denySlot');
-    expect(MAIN_TS).toContain('onPressDenied: denySlot');
+    expect(MAIN_TS).toContain('onAbilityCapped: (id) => denySlot(');
+    expect(MAIN_TS).toContain('onAbilityDenied: (id) => denySlot(');
     const deny = MAIN_TS.slice(MAIN_TS.indexOf('const denySlot ='));
     expect(deny.slice(0, 200)).toContain('flashSlotDenied(g, slot)');
     const helper = MAIN_TS.slice(MAIN_TS.indexOf('function flashSlotDenied('));
@@ -2034,46 +1449,151 @@ describe('main.ts wires ONE refit-visibility watcher (rulings 8 + 9)', () => {
     'utf8',
   );
 
-  it('stamps refitClosedAt in EXACTLY ONE place — the watcher', () => {
-    const writes = [...MAIN_TS.matchAll(/refitClosedAt\s*=[^=]/g)];
-    // Exactly one assignment — the watcher's stamp (the Game literal seeds it
-    // with a `:`). A second means a close path learned to stamp for itself,
-    // which is the drift the single watcher exists to prevent: TAB, ESC, the
-    // last spend, spectate and the you-gone force-hide all close the window
-    // through `visible` alone.
-    expect(writes).toHaveLength(1);
-    expect(MAIN_TS).toContain('refitClosedAt: -Infinity'); // never in grace at boot
-  });
-
   it('runs the watcher from the per-frame band sync, and ends held streams on the OPEN edge', () => {
     const sync = MAIN_TS.slice(MAIN_TS.indexOf('function syncRefitBand('));
     const body = sync.slice(0, 600);
     expect(body).toContain('watchRefitWindow(g)');
     const watcher = MAIN_TS.slice(MAIN_TS.indexOf('function watchRefitWindow('), MAIN_TS.length);
     const watcherBody = watcher.slice(0, 900);
-    expect(watcherBody).toContain('refitCloseStamp(');
     expect(watcherBody).toContain('endHolds()'); // ruling 9, on the false→true edge
     // …and the queued presses are NOT dropped with the stream: an already-armed
     // ability press is a press (ruling 9, verbatim).
     expect(watcherBody).not.toContain('clearActivations');
   });
 
-  // P3: the watcher is idempotent, so the two sites that must NOT wait for the
-  // next frame run it themselves — the grace hook (the digit's own keydown) and
-  // the per-tick input build (before the mouse hold is sampled).
-  it('runs the watcher from the grace hook AND from the per-tick input build', () => {
-    const hook = MAIN_TS.slice(MAIN_TS.indexOf('isRefitGrace:'), MAIN_TS.indexOf('isRefitGrace:') + 400);
-    expect(hook).toContain('watchRefitWindow(');
+  // P3: the watcher is idempotent, so the per-tick input build runs it itself
+  // (before the mouse hold is sampled) rather than waiting for the next frame.
+  it('runs the watcher from the per-tick input build', () => {
     const tick = MAIN_TS.slice(MAIN_TS.indexOf('simTick: () => {'));
     const build = tick.slice(0, tick.indexOf('g.sampler.sample('));
     expect(build).toContain('watchRefitWindow(g)');
   });
+});
 
-  it('feeds the chokepoint the grace off CLIENT_CONFIG.refit.closeGraceMs', () => {
-    const hook = MAIN_TS.slice(MAIN_TS.indexOf('isRefitGrace:'));
-    expect(hook.slice(0, 200)).toContain('refitInGrace(');
-    const helper = MAIN_TS.slice(MAIN_TS.indexOf('function refitInGrace('));
-    expect(helper.slice(0, 400)).toContain('refitGraceActive(');
-    expect(helper.slice(0, 400)).toContain('CLIENT_CONFIG.refit.closeGraceMs');
+// --- Story 10.5: C / V — the two cooldown abilities ---------------------------
+//
+// Each key is ONE press through the ability FIFO, carrying the ability's wire
+// code (`act`); the client's known refusal (`cooldownAbilityDenied` — the
+// shared `repairRefusal` / `smokeRefusal`) answers first and sends nothing; the
+// refit modal, a focused overlay and the start line suspend them silently, and
+// a focused text field leaves them native.
+
+/** Any hull ceiling — the refusal is a pure law over (hp, maxHp). */
+const MAX_HP = CONFIG.shipClasses[DEFAULT_CLASS_ID].hp;
+/** A clock a whole cooldown past the epoch, so a stamp in either direction is
+ *  representable. */
+const NOW = abilityCooldownMs('repair') + abilityCooldownMs('smoke');
+
+describe('cooldownAbilityDenied — the client\'s known C / V refusal', () => {
+  const hurt = { hp: MAX_HP / 2, maxHp: MAX_HP, sinking: false, now: NOW };
+
+  it('a ready ability on a hurt, conning hull is NOT denied (absent stamp = ready)', () => {
+    expect(cooldownAbilityDenied('repair', hurt)).toBe(false);
+    expect(cooldownAbilityDenied('smoke', hurt)).toBe(false);
+    expect(cooldownAbilityDenied('repair', { ...hurt, readyAt: NOW })).toBe(false); // ready AT the stamp
+  });
+
+  it('either ability inside its cooldown IS denied', () => {
+    for (const id of ['repair', 'smoke'] as const) {
+      expect(cooldownAbilityDenied(id, { ...hurt, readyAt: NOW + 1 }), id).toBe(true);
+    }
+  });
+
+  it('a REPAIR on a full hull is denied; SMOKE on a full hull is not', () => {
+    const full = { ...hurt, hp: MAX_HP };
+    expect(cooldownAbilityDenied('repair', full)).toBe(true);
+    expect(cooldownAbilityDenied('smoke', full)).toBe(false);
+  });
+
+  it('a sinking hull cannot press either ability', () => {
+    for (const id of ['repair', 'smoke'] as const) {
+      expect(cooldownAbilityDenied(id, { ...hurt, sinking: true }), id).toBe(true);
+    }
+  });
+
+  it('FAILS OPEN on an unknown hull ceiling — the repair is sent, the cooldown still counts', () => {
+    expect(cooldownAbilityDenied('repair', { ...hurt, hp: MAX_HP, maxHp: Number.NaN })).toBe(false);
+    expect(cooldownAbilityDenied('repair', { ...hurt, maxHp: 0, readyAt: NOW + 1 })).toBe(true);
+  });
+});
+
+describe('KeyboardInput — C / V press the cooldown abilities (Story 10.5)', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => {
+    kb?.detach();
+    document.body.replaceChildren();
+  });
+
+  it('C queues HULL REPAIR and V queues SMOKE, each riding its own wire code', () => {
+    const presses: AbilityId[] = [];
+    kb = new KeyboardInput({ onAbility: (id) => presses.push(id) });
+    kb.attach();
+    expect(press('KeyC')).toBe(true);
+    expect(press('KeyV')).toBe(true);
+    expect(presses).toEqual(['repair', 'smoke']);
+    kb.consumeActivation();
+    expect([kb.actSeq, kb.act]).toEqual([1, abilityCode('repair')]);
+    kb.consumeActivation();
+    expect([kb.actSeq, kb.act]).toEqual([2, abilityCode('smoke')]);
+    expect(kb.primedSlot).toBe(SLOT_GUN); // an ability never readies anything
+  });
+
+  it('a HELD key is ONE press — OS auto-repeat is dropped', () => {
+    const presses: AbilityId[] = [];
+    kb = new KeyboardInput({ onAbility: (id) => presses.push(id) });
+    kb.attach();
+    press('KeyC');
+    press('KeyC', { repeat: true });
+    expect(presses).toEqual(['repair']);
+  });
+
+  it('a press the client knows is refused DENIES — feedback, and nothing rides an input', () => {
+    const denied: CooldownAbilityId[] = [];
+    const presses: AbilityId[] = [];
+    kb = new KeyboardInput({
+      isAbilityDenied: (id) => id === 'repair',
+      onAbilityDenied: (id) => denied.push(id),
+      onAbility: (id) => presses.push(id),
+    });
+    kb.attach();
+    press('KeyC');
+    press('KeyV');
+    expect(denied).toEqual(['repair']);
+    expect(presses).toEqual(['smoke']);
+    expect(kb.pendingActivationCount).toBe(1);
+  });
+
+  it('the refit modal and the start line SUSPEND both keys silently (still prevented)', () => {
+    for (const hooks of [{ isModalOpen: () => true }, { isCombatLocked: () => true }] as KeyboardHooks[]) {
+      kb?.detach();
+      const denied: CooldownAbilityId[] = [];
+      kb = new KeyboardInput({ ...hooks, isAbilityDenied: () => true, onAbilityDenied: (id) => denied.push(id) });
+      kb.attach();
+      expect(press('KeyC')).toBe(true);
+      expect(press('KeyV')).toBe(true);
+      expect(kb.pendingActivationCount).toBe(0);
+      expect(denied).toEqual([]); // locked reads as LOCKED, never as denied
+    }
+  });
+
+  it('a focused text field leaves C and V native — typing types, nothing is pressed', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    expect(press('KeyC')).toBe(false);
+    expect(press('KeyV')).toBe(false);
+    expect(kb.pendingActivationCount).toBe(0);
+  });
+
+  it('abilityAction (a click on the C / V square) is the key, exactly', () => {
+    const presses: AbilityId[] = [];
+    kb = new KeyboardInput({ onAbility: (id) => presses.push(id) });
+    kb.abilityAction('smoke');
+    expect(presses).toEqual(['smoke']);
+    kb = new KeyboardInput({ isModalOpen: () => true, onAbility: (id) => presses.push(id) });
+    kb.abilityAction('repair');
+    expect(presses).toEqual(['smoke']); // suspended exactly as the key is
   });
 });

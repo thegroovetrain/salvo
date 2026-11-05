@@ -99,7 +99,7 @@
 // 163's "dark to both": the server returns the entire sweep, so a hull fog
 // hides inside the bubble is no contact but still blips, and a sighted hull
 // is a contact AND a blip) — `blipPredicate`, the
-// decoy paint, the wake oracle's radar half, the cloud gate's radar arm, the
+// wake oracle's radar half, the cloud gate's radar arm, the
 // zone circles and the foghorn never read the field, and the fuzz asserts
 // (RADAR_THROUGH_FOG) that returns whose ray crosses fog paint exactly as the
 // fog-blind oracle says. The fuzz PINS the cut per world through the World's
@@ -108,8 +108,9 @@
 // RADAR_THROUGH_FOG ledgers prove each arm ran. FLASH SHELLS (epic-10
 // amendment 5; gate fixes F2/F4, Eric 2026-10-29) add ONE row-rule widening,
 // not a seventh exception: a `burst` carrying the flash tag `f` may also
-// reach an observer whose hull CENTRE is within `CONFIG.flashShells.radius`
-// of the burst point (the flashed victim, whose sight is 0 that tick — see
+// reach an observer whose hull CENTRE is within the burst's own stamped
+// radius `r` (the launched shell's tiered radius — Story 10.5, R7) of the
+// burst point (the flashed victim, whose sight is 0 that tick — see
 // verifyBurst); and zero sight admits NOTHING, not even a point at the
 // observer's own centre. The exceptions stay SIX. The checks below
 // are a deliberate test-local reimplementation of the
@@ -122,8 +123,7 @@ import {
   isSinking,
   CATALOG,
   CONFIG,
-  consumableSlotFor,
-  DEFAULT_KIT,
+  abilityCode,
   DEFAULT_CLASS_ID,
   DEFAULT_SHIFT,
   SHIFT_IDS,
@@ -143,7 +143,6 @@ import {
   effectiveStats,
   hullSilhouette,
   mulberry32,
-  rollKit,
   FOG_NO_CUT,
   FOG_SOLID_DENSITY,
   fogCutForTarget,
@@ -159,7 +158,6 @@ import {
   type ReturnBlipEvent,
   type BoomEvent,
   type BoonFitEvent,
-  type DropEvent,
   type BurstEvent,
   type Contact,
   type Island,
@@ -174,7 +172,6 @@ import {
   type MineKind,
   type MineView,
   type OwnShip,
-  type DecoyView,
   type PointEvent,
   type SpawnEvent,
   type SplashEvent,
@@ -184,11 +181,6 @@ import {
   type WakeRibbon,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
-// addDecoy is WORLD-STATE MINTING (the injectMine/createShipWake class), never
-// a visibility rule: the fuzz uses it to lay live decoys exactly as production
-// does, while every rule about them — visibility, paint masks — is
-// reimplemented below (the header's oracle rule).
-import { addDecoy } from '../game/decoys.js';
 import { buildFrame } from '../game/frames.js';
 // Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
 // block below — never as a behavior oracle. Every visibility predicate in this
@@ -1165,7 +1157,7 @@ describe('perception — shell events (per-observer, exactly once)', () => {
     // b holds the secondaries toward a; the level alone fires (no click).
     w.submitInput('b', {
       seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: bx, slot: 0, fireT: 0,
-      actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: true,
+      actSeq: 0, act: 0, hornSeq: 0, held: false, sec: true,
     });
     let ev: BallisticEvent | undefined;
     for (let i = 0; i < 60 && ev === undefined; i++) {
@@ -1422,9 +1414,10 @@ describe('perception — ZERO SIGHT ADMITS NOTHING (gate fix F4: withinSight fai
 describe('perception — burst visibility (owner always, else burst point sighted)', () => {
   /** Route an internal burst subject through the real pending-events choke,
    *  the way World.resolveBurst emits it (wire BurstEvent + internal `own`). */
-  function emitBurst(w: World, id: string, own: string, x: number, y: number, flash = false): void {
+  function emitBurst(w: World, id: string, own: string, x: number, y: number, flash = false, r: number = CONFIG.flashShells.radius): void {
     interface Pendable { pending: GameEvent[] }
-    const subject = flash ? { k: 'burst', id, x, y, own, f: true } : { k: 'burst', id, x, y, own };
+    // Story 10.5: a FLASH subject carries its stamped radius `r` beside `f`.
+    const subject = flash ? { k: 'burst', id, x, y, own, f: true, r } : { k: 'burst', id, x, y, own };
     (w as unknown as Pendable).pending.push(subject as GameEvent);
     w.step();
   }
@@ -1479,10 +1472,12 @@ describe('perception — burst visibility (owner always, else burst point sighte
       };
       const bx = Math.floor(rng() * 1200) - 600;
       const by = Math.floor(rng() * 600) - 300;
+      // Story 10.5 (R7): a random TIER's disc — the arm reads the burst's own `r`.
+      const r = CONFIG.flashShells.radius + Math.floor(rng() * 5) * CONFIG.flashShells.radiusStepPerTier;
       const plain = build();
       const flagged = build();
       emitBurst(plain, 'b1', 'o0', bx, by, false);
-      emitBurst(flagged, 'b1', 'o0', bx, by, true);
+      emitBurst(flagged, 'b1', 'o0', bx, by, true, r);
       const got = (w: World, flash: boolean): string[] => {
         const ids: string[] = [];
         for (let i = 0; i < 6; i++) {
@@ -1490,7 +1485,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
           expect(b.length).toBeLessThanOrEqual(1);
           if (b.length === 0) continue;
           ids.push(`o${i}`);
-          if (flash) expect(Object.keys(b[0])).toEqual(['k', 'id', 'x', 'y', 'f']);
+          if (flash) expect(Object.keys(b[0])).toEqual(['k', 'id', 'x', 'y', 'f', 'r']);
           else expect('f' in b[0]).toBe(false);
         }
         return ids;
@@ -1499,7 +1494,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
       const inRadius: string[] = [];
       for (let i = 0; i < 6; i++) {
         const o = flagged.ships.get(`o${i}`)!;
-        if (dist(o.state, { x: bx, y: by }) <= CONFIG.flashShells.radius) inRadius.push(`o${i}`);
+        if (dist(o.state, { x: bx, y: by }) <= r) inRadius.push(`o${i}`);
       }
       const expected = [...new Set([...plainIds, ...inRadius])].sort();
       expect([...got(flagged, true)].sort()).toEqual(expected);
@@ -1515,7 +1510,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     let burst: GameEvent | undefined;
     for (let i = 0; i < 120 && !burst; i++) {
       w.step();
@@ -2880,17 +2875,9 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('hunkerUntil' in f.you).toBe(me.hunkerUntil > 0);
     if (me.hunkerUntil > 0) expect(f.you.hunkerUntil).toBe(me.hunkerUntil);
   }
-  // THE SHIELD BLOCK SEAT (Story 8.16, amendments 116–118) is SELF-PRIVATE on
-  // the same terms: it may exist NOWHERE but `you`, and on `you` it is present
-  // IFF the observer's own shield is UP (hp left, not yet expired), carrying
-  // the record's hp ROUNDED UP and its exact deadline.
-  expect(JSON.stringify(withoutYou)).not.toContain('"shield"');
-  if (f.you !== undefined) {
-    const sh = me.shield;
-    const up = sh !== null && sh.hpLeft > 0 && w.now < sh.until;
-    expect('shield' in f.you).toBe(up);
-    if (up) expect(f.you.shield).toEqual({ hp: Math.ceil(sh!.hpLeft), until: sh!.until }); // whole-number readout (P5)
-  }
+  // (The SHIELD BLOCK seat's pin left with the shield — Story 10.5: no frame
+  // carries a `shield` key at all.)
+  expect(JSON.stringify(f)).not.toContain('"shield"');
   // THE SEAT'S SHIFT AND THE HELD LEVELS never ride anything but `you` (the
   // Shift, Story 10.4 — the seat gun's successor) — and `held` / `sec` are
   // INPUT, which no frame carries at all: a secondaries stream is disclosed
@@ -2901,10 +2888,8 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   expect(JSON.stringify(f)).not.toContain('"held"');
   if (f.you !== undefined) expect(f.you.shift).toBe(me.shift);
   verifyBatteryPrivacy(w, me, f, withoutYou);
-  // THE SEAT'S KIT (Story 10.1) rides `you` on the Shift's exact terms: the
-  // observer's OWN four, and nowhere else in the frame.
-  expect(JSON.stringify(withoutYou)).not.toContain('"kit"');
-  if (f.you !== undefined) expect(f.you.kit).toEqual([...me.kit]);
+  // (The seat's KIT left with Story 10.5: no frame carries a `kit` key.)
+  expect(JSON.stringify(f)).not.toContain('"kit"');
   // And when it IS on `you`, it is this observer's own record's factor and
   // present only while the observer's own window runs.
   if (f.you !== undefined) {
@@ -3065,12 +3050,9 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('fouledUntil' in f.you).toBe(me.fouledUntil > w.now);
     if (f.you.fouledUntil !== undefined) expect(f.you.fouledUntil).toBe(me.fouledUntil);
   }
-  verifyBuoyOwnFields(w, me, f, withoutYou);
-  for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
-  // The OWNER always sees its own decoys (own field awareness, even under fog).
-  for (const d of w.decoys.values()) {
-    if (d.ownerId === me.id) expect((f.decoys ?? []).some((v) => v.id === d.id), `own decoy ${d.id} delivered`).toBe(true);
-  }
+  verifyOwnWindows(w, me, f, withoutYou);
+  // (The DECOY BUOYS' `decoys` channel left with Story 10.5.)
+  expect('decoys' in f).toBe(false);
   // THE COUNTERMEASURE CLOUD (Story 9.3): every live cloud is delivered
   // EXACTLY when its gate passes (owner always; else the disc sighted or
   // radar-detected), and the store-private fields (`ownerId`, `bornAt`,
@@ -3099,29 +3081,32 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
 }
 
 /**
- * THE STORY 10.9 SELF-PRIVATE OWN FIELDS — `dazzledUntil` (the FLASH SHELLS
- * mark), `buoyShield` (the SHIELD BUOY pool) and `speedBuoyAt` (the SPEED
- * BUOY clock) — and the own buoy view's `sweep` / `until`. NONE is a
- * perception exception (the count stays SIX): each is the viewer's own seat
- * (the `fouledUntil` / `shield` idiom) and may exist NOWHERE but `you` (or,
- * for the buoy pair, the OWN DecoyView — verifyDecoy pins its key set); on
- * `you` each is present IFF the observer's own record holds it live.
- * Re-derived: the dazzle is live while now < mark; the pool while it holds
- * hp; the speed clock while its tail (hold + ramp, read from CONFIG) has not
- * run out — written here as the plain window test, never via buoyTail.
+ * THE SELF-PRIVATE OWN WINDOWS — `dazzledUntil` (the FLASH SHELLS mark, Story
+ * 10.9) and, since Story 10.5 (epic-10 amendment 11), the two COOLDOWN
+ * ABILITIES' `repairReadyAt` / `smokeReadyAt`. NONE is a perception exception
+ * (the count stays SIX): each is the viewer's own seat (the `fouledUntil`
+ * idiom) and may exist NOWHERE but `you` — so another captain's cooldown
+ * stamps never reach any other observer's frame, fogged or spectator (a
+ * spectator frame has no `you` at all, so the whole text must lack them); on
+ * `you` each is present IFF the observer's own record holds it in the future,
+ * carrying the record's exact value. (The SHIELD BUOY pool and the SPEED BUOY
+ * clock left with the buoys.)
  */
-function verifyBuoyOwnFields(w: World, me: ShipRecord, f: FrameMsg, withoutYou: object): void {
+const OWN_WINDOWS = ['dazzledUntil', 'repairReadyAt', 'smokeReadyAt'] as const;
+/** Non-vacuity: a cooling ability actually rode an own frame in the fuzz. */
+const COOLDOWN_SEEN = { n: 0 };
+
+function verifyOwnWindows(w: World, me: ShipRecord, f: FrameMsg, withoutYou: object): void {
   const text = JSON.stringify(withoutYou);
-  for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(text).not.toContain(k);
+  for (const k of OWN_WINDOWS) expect(text).not.toContain(k);
+  for (const k of ['buoyShield', 'speedBuoyAt']) expect(JSON.stringify(f)).not.toContain(k);
   if (f.you === undefined) return;
-  expect('dazzledUntil' in f.you).toBe(me.dazzledUntil > w.now);
-  if (f.you.dazzledUntil !== undefined) expect(f.you.dazzledUntil).toBe(me.dazzledUntil);
-  const pool = me.buoyShield;
-  expect('buoyShield' in f.you).toBe(pool !== null && pool.hpLeft > 0);
-  if (f.you.buoyShield !== undefined) expect(f.you.buoyShield).toEqual({ hp: Math.ceil(pool!.hpLeft) });
-  const tailLive = me.speedBuoyAt > 0 && w.now - me.speedBuoyAt < CONFIG.buoy.tailHoldMs + CONFIG.buoy.tailRampMs;
-  expect('speedBuoyAt' in f.you).toBe(tailLive);
-  if (f.you.speedBuoyAt !== undefined) expect(f.you.speedBuoyAt).toBe(me.speedBuoyAt);
+  for (const k of OWN_WINDOWS) {
+    const live = me[k] > w.now;
+    expect(k in f.you, `${k} on ${me.id}'s own frame`).toBe(live);
+    if (live) expect(f.you[k]).toBe(me[k]);
+  }
+  if (f.you.repairReadyAt !== undefined || f.you.smokeReadyAt !== undefined) COOLDOWN_SEEN.n += 1;
 }
 
 /**
@@ -3155,10 +3140,6 @@ function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): 
 interface ExpectedBlip {
   mask: MaskOracle;
   label: string;
-  /** Story 10.9: the own RADAR buoy whose beam this paint comes from
-   *  (absent for the observer's own sweep) — verifyBlipSrc's filter; the
-   *  completeness pairing stays geometry-only. */
-  src?: string;
 }
 
 /** Gated SHIP paints through the observer's OWN radar. */
@@ -3173,64 +3154,6 @@ function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   }
   return out;
 }
-
-/** DECOY paints (Story 8.16): one per live decoy passing the observer's own
- *  point-blip predicate — the OWNER INCLUDED (the orchestrator ruling: the
- *  owner's radar paints their own decoy through the same gate, no special
- *  case). */
-function expectedDecoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
-  const out: ExpectedBlip[] = [];
-  for (const d of w.decoys.values()) {
-    if (!blipPredicate(w, me, d, d.id)) continue;
-    if (fogTollOracle(w, me.state, d).touched > 0) RADAR_THROUGH_FOG.n += 1; // Story 9.10: a decoy paint is fog-blind too
-    out.push({ mask: decoyMaskOracle(d, w.now), label: `gated decoy ${d.id} paint` });
-  }
-  return out;
-}
-
-/** Non-vacuity counter for the fuzz (amendment 40's rule): the decoy-paint
- *  arm must actually be EXERCISED. */
-const DECOY_PAINT_EXPECTED = { n: 0 };
-
-/**
- * THE RADAR BUOY's paints (Story 10.9, AC 5) — independently re-derived: for
- * every RADAR buoy the OBSERVER owns, the buoy's own beam paints every hull
- * on the water but the observer's (afloat, the ship oracle's subjects) and
- * every buoy the observer does NOT own, iff the subject's centre lies within
- * the buoy's effect radius (inclusive, nonzero distance), the BUOY's window
- * crossed the bearing FROM THE BUOY this tick, the shadow march FROM THE BUOY
- * discloses it, and the dropout roll keyed by the BUOY's id and its own
- * revolution counter paints it. Wakes are never painted by a buoy. Nobody
- * but the owner gets them.
- */
-function expectedBuoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
-  const out: ExpectedBlip[] = [];
-  for (const b of w.decoys.values()) {
-    if (b.ownerId !== me.id || b.sweep === null) continue;
-    const paints = (p: { x: number; y: number }, key: string): boolean => {
-      const d = dist(b, p);
-      return (
-        d > 0 &&
-        d <= CONFIG.buoy.radiusU &&
-        inPaintWindow(b.sweep!, bearing(b, p)) &&
-        shadowVisibleFrom(w, b, p) &&
-        dropoutPaints(d, w.dropoutSeed, b.id, key, b.sweep!.sweepRev)
-      );
-    };
-    for (const t of w.ships.values()) {
-      if (t.id === me.id || !(isAfloat(t.lifecycle) || isSinking(t.lifecycle)) || !paints(t.state, t.id)) continue;
-      out.push({ mask: maskOracle(t.hullId, t.state.x, t.state.y, t.state.heading, w.now), label: `radar buoy ${b.id} → ship ${t.id}`, src: b.id });
-    }
-    for (const o of w.decoys.values()) {
-      if (o.ownerId === me.id || !paints(o, o.id)) continue;
-      out.push({ mask: decoyMaskOracle(o, w.now), label: `radar buoy ${b.id} → buoy ${o.id}`, src: b.id });
-    }
-  }
-  return out;
-}
-
-/** Non-vacuity counter for the fuzz: the RADAR BUOY arm must run. */
-const BUOY_PAINT_EXPECTED = { n: 0 };
 
 /**
  * THE RETURN-MODE COMPLETENESS ORACLE (cycle-63 review gate; hardened at the
@@ -3253,11 +3176,8 @@ const BUOY_PAINT_EXPECTED = { n: 0 };
 function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
   if (!isAfloat(me.lifecycle)) return;
   const unmatched = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
-  const decoys = expectedDecoyBlips(w, me);
-  DECOY_PAINT_EXPECTED.n += decoys.length;
-  const buoys = expectedBuoyBlips(w, me);
-  BUOY_PAINT_EXPECTED.n += buoys.length;
-  const expected = [...expectedShipBlips(w, me), ...decoys, ...buoys];
+  // (The decoy paints and the RADAR BUOY paints left with the buoys — Story 10.5.)
+  const expected = expectedShipBlips(w, me);
   for (const exp of expected) {
     const i = unmatched.findIndex((b) => maskEquals(exp.mask, b));
     expect(i, `${exp.label} accounted for by its own blip`).toBeGreaterThanOrEqual(0);
@@ -3267,23 +3187,23 @@ function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
 }
 
 /** The Story 1.10 denial oracle: a denial in a frame must be the OBSERVER'S
- *  OWN press this tick — its (slot, seq) identity matches the observer's
- *  stored input on exactly one channel grammar (weapon click ↔ fireSeq on
- *  input.slot; ability press ↔ actSeq on input.actSlot) with a legal wire
- *  reason. Anything else — another ship's denial, a fabricated slot/seq, a
+ *  OWN press this tick — its identity matches the observer's stored input on
+ *  exactly one channel grammar (weapon click ↔ (slot, fireSeq), no `act`;
+ *  ability press ↔ (act, actSeq) since Story 10.5) with a legal wire reason.
+ *  Anything else — another ship's denial, a fabricated slot/seq, a
  *  server-internal reason ('dead'/'empty-slot') — fails the invariant:
  *  denials are owner-only by construction. */
-function verifyDenied(me: ShipRecord, d: { slot: number; reason: string; seq: number }): void {
+function verifyDenied(me: ShipRecord, d: { slot: number; reason: string; seq: number; act?: number }): void {
   expect(['out-of-arc', 'no-ammo', 'cooling', 'blocked']).toContain(d.reason);
-  const weaponPress = d.slot === me.input.slot && d.seq === me.input.fireSeq;
-  const abilityPress = d.slot === me.input.actSlot && d.seq === me.input.actSeq;
+  const weaponPress = d.act === undefined && d.slot === me.input.slot && d.seq === me.input.fireSeq;
+  const abilityPress = d.act !== undefined && d.act === me.input.act && d.seq === me.input.actSeq;
   expect(weaponPress || abilityPress).toBe(true);
 }
 
 /** FR10 anti-tell (Story 1.8): the frame's blip SUBSEQUENCE must be ordered by
- *  PUBLIC payload only — never by source (genuine ship scan vs a decoy
- *  paint), or array position would de-anonymize the deception whenever a
- *  hull and a decoy paint the same tick. Reimplemented test-locally,
+ *  PUBLIC payload only — never by source (the historical guard against a
+ *  decoy paint's array position de-anonymizing it; kept because a
+ *  payload-only order can never leak). Reimplemented test-locally,
  *  applied to EVERY verified frame: the cycle-63 footprint orders by (gx, gy,
  *  t, w, h, then the mask words — length first, then each signed-int32 word).
  *  The mask words ARE part of the production comparator's key (cycle-63
@@ -3322,28 +3242,6 @@ function verifyMine(w: World, me: ShipRecord, m: MineView): void {
   // own, so the exception count stays SIX.
   expect(Object.keys(m)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
   expect(m.c).toBe(mine.kind);
-}
-
-/** A DECOY may reach a frame only if the viewer OWNS it (own field awareness,
- *  even under fog), it is SIGHTED (sight range + island LOS, like a ship —
- *  amendment 126, superseding 124(h)'s mine-detect rung), or it sits inside a lit zone the viewer
- *  OWNS (Story 1.7 parity). Wire shape is exactly {id,x,y,own,by} in that key
- *  order, `by` naming the owner for EVERY observer (amendment 124(a)), with
- *  `hp` appended LAST on the owner's view ONLY (the MineView.c idiom — a KEY
- *  test, not a value test). The decoy must be live (in the world store). */
-function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
-  const decoy = w.decoys.get(d.id)!;
-  expect(decoy).toBeDefined();
-  const own = decoy.ownerId === me.id;
-  // Story 10.9: `kind` rides EVERY view (a field on a delivered row — the
-  // MineView.c precedent); the OWNER alone gets hp, the RADAR buoy's beam
-  // `sweep` and the expiry `until` (self-private, never on a non-own view).
-  const radar = decoy.sweep !== null;
-  const ownKeys = ['hp', ...(radar ? ['sweep'] : []), 'until'];
-  expect(Object.keys(d)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind', ...(own ? ownKeys : [])]);
-  const tail = own ? { hp: decoy.hp, ...(radar ? { sweep: decoy.sweep!.sweepAngle } : {}), until: decoy.expiresAt } : {};
-  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, own, by: decoy.ownerId, kind: decoy.kind, ...tail });
-  if (!own) expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
 }
 
 /** A delivered COUNTERMEASURE cloud's wire shape: exactly {id,x,y,t0} in that
@@ -3514,10 +3412,7 @@ type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
  *  island LOS: a low island no longer deletes a blip, hard cover ≥ mast
  *  height does), this-tick paint window, and the dropout roll — no zone term
  *  (amendment 210 ruling (a): a hull in the viewer's own light paints too).
- *  One function because a decoy's paint is DEFINED as this exact
- *  predicate at its position (Story 8.16 — its treatment
- *  under the shadow is identical to a hull's: no height parameter exists to
- *  differ on, amendment 101). */
+ *  (Observer and target are both at mast height — amendment 101.) */
 /** THE POINT-BLIP PREDICATE, independently re-derived: d ≤ intel (no inner
  *  edge), the paint window, the shadow march, the dropout. No cloud term (Story 9.3 session 2: a cloud hides nothing —
  *  8.18's in-bubble smoke paint and cycle 174's radar rule are retired). */
@@ -3534,24 +3429,6 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }, ke
     inPaintWindow(me, bearing(me.state, p)) &&
     dropoutOracle(w, me, d, key)
   );
-}
-
-// ---------- Story 8.16: the DECOY BUOY oracle (independently re-derived) ----------
-//
-// The sources that may legitimately put a blip in a frame (see verifyBlip's
-// arms), ALL UNTAGGED: the observer's own radar over ships (unchanged) and a
-// DECOY's small anonymous paint (CHAFF's fakes retired with the line in Story
-// 9.2). Every rule below is re-derived from the ruling text — sizes as
-// literals.
-
-/** The decoy's paint square as a literal (CONFIG.buoy.sizeU, R36). */
-const DECOY_PAINT_W_U = 12;
-
-/** The decoy's OWN paint mask: the degenerate-segment square at its fixed
- *  position through the test-local segment pipeline (wakeMaskOracle handles
- *  the zero-length axis — it degenerates to +x, the documented rule). */
-function decoyMaskOracle(d: { x: number; y: number }, t: number): MaskOracle {
-  return wakeMaskOracle(d.x, d.y, d.x, d.y, DECOY_PAINT_W_U, t);
 }
 
 // --- the cycle-63 `return`-grammar COVERAGE oracle (amendments 155-157) ------
@@ -3752,50 +3629,28 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
-/** True iff `ev` is a legitimate DECOY paint (Story 8.16): some live decoy —
- *  the observer's own included — passes the observer's own point-blip
- *  predicate at the decoy's position and its small degenerate-square
- *  footprint matches exactly. The size IS the profile: never any hull's
- *  silhouette. */
-function blipMatchesDecoyPaint(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  for (const d of w.decoys.values()) {
-    if (!blipPredicate(w, me, d, d.id)) continue;
-    if (maskEquals(decoyMaskOracle(d, w.now), ev as ReturnBlipEvent)) return true;
-  }
-  return false;
-}
-
 /** The exact blip key set (cycle 63, amendment 152): the coverage footprint
  *  and NOTHING else — pinned as an exact key set, so the deletion of `id`,
  *  the position, `ext` and every pose channel is structural on every blip the
- *  fuzz sees. The ONE optional key is Story 10.9's `src` (the paint's ORIGIN:
- *  the observer's OWN radar buoy) — legal only on a paint of that buoy's
- *  beam, delivered to its owner (verifyBlipSrc). */
+ *  fuzz sees. (Story 10.9's optional `src` origin tag left with the RADAR
+ *  BUOY in Story 10.5 — `src` is forbidden again.) */
 const RETURN_BLIP_KEYS = ['bits', 'gx', 'gy', 'h', 'k', 't', 'w'];
-const RETURN_BLIP_KEYS_SRC = [...RETURN_BLIP_KEYS, 'src'].sort();
 /** Fields the `return` payload must NEVER grow back — asserted by name as well
  *  as by the exact key set, because each is its own disclosure channel: `id`
  *  the cross-sweep correlation handle, x/y the exact float position, `ext`
- *  the derived aspect scalar, cls/heading/speed the 4.2 pose. (`src` came
- *  back in Story 10.9 as the OWN-buoy origin tag — verifyBlipSrc gates it.) */
-const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
+ *  the derived aspect scalar, cls/heading/speed the 4.2 pose, `src` the
+ *  retired sensor / origin tag. */
+const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed', 'src'];
 
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
-  // Shape gate: the exact key set, both directions — `src` only where
-  // verifyBlipSrc proves it is the observer's own radar buoy's paint.
-  const tagged = Object.hasOwn(ev, 'src');
-  expect(Object.keys(ev).sort()).toEqual(tagged ? RETURN_BLIP_KEYS_SRC : RETURN_BLIP_KEYS);
+  // Shape gate: the exact key set, both directions.
+  expect(Object.keys(ev).sort()).toEqual(RETURN_BLIP_KEYS);
   for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
-  if (tagged) {
-    verifyBlipSrc(w, me, ev);
-    return;
-  }
-  // THE JUSTIFICATION. Every blip must byte-match one of THREE independently
-  // re-derived sources:
-  //   1. a GENUINE SHIP PAINT through the observer's own gate (unchanged);
-  //   2. a DECOY's small anonymous paint through the observer's gate.
+  // THE JUSTIFICATION. Every blip must byte-match an independently re-derived
+  // GENUINE SHIP PAINT through the observer's own gate. (The DECOY paint arm
+  // and the RADAR BUOY's tagged arm left with the buoys, Story 10.5.)
   // CHAFF's third arm — the server-generated fakes' carve-out (Story 8.16) —
   // is DELETED with the line (Story 9.2, epic-9 amendment 31): no false
   // signal leaves observe() any more, so the invariant is strictly tighter.
@@ -3803,31 +3658,8 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // recomputation, so a real ship's footprint emitted outside every gate —
   // at its true pose, with its true hull — matches no arm and fails (pinned
   // by the directed leak-catch case below the invariant suite).
-  //   3. (Story 10.9) a paint of the observer's OWN RADAR BUOY's beam — a
-  //      ship or a non-own buoy through the buoy's gate (expectedBuoyBlips) —
-  //      which is TAGGED `src` and so verified above (verifyBlipSrc). An
-  //      UNTAGGED blip must come from the observer's own sweep.
-  expect(blipMatchesShip(w, me, ev) || blipMatchesDecoyPaint(w, me, ev)).toBe(true);
+  expect(blipMatchesShip(w, me, ev)).toBe(true);
 }
-
-/** THE ORIGIN TAG (Story 10.9 review gate): a blip carrying `src` must name
- *  a live RADAR buoy the OBSERVER owns, and byte-match a paint of THAT
- *  buoy's beam this tick (the independent buoy oracle, filtered to `src`).
- *  So no own-sweep paint is ever tagged, no non-owner ever receives a tag,
- *  and a tag never names a buoy that did not make the paint. */
-function verifyBlipSrc(w: World, me: ShipRecord, ev: BlipEvent): void {
-  const src = ev.src;
-  expect(typeof src).toBe('string');
-  const b = w.decoys.get(src as string);
-  expect(b?.ownerId, `src ${src} is a buoy the observer ${me.id} owns`).toBe(me.id);
-  expect(b?.sweep ?? null, `src ${src} is a RADAR buoy`).not.toBeNull();
-  BUOY_SRC_VERIFIED.n += 1;
-  const fromIt = expectedBuoyBlips(w, me).filter((exp) => exp.src === src);
-  expect(fromIt.some((exp) => maskEquals(exp.mask, ev as ReturnBlipEvent)), `src ${src} made this paint`).toBe(true);
-}
-
-/** Non-vacuity counter for the fuzz: the `src` arm must run. */
-const BUOY_SRC_VERIFIED = { n: 0 };
 
 // shell AND torp share one verifier — with the Story 4.9 fork: a shell
 // reveals at first-SIGHT, a torpedo at first-DETECT (1×sight since 2026-10-08 — the once-tighter
@@ -3881,8 +3713,12 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
   // (exactly `true`, LAST) iff the internal subject carries it — never on any
   // other burst. It never changes WHO receives the burst (the gate below).
   if (src!.f === true) {
-    expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 'f']);
+    // ...followed LAST by its stamped radius `r` (Story 10.5, R7) — the
+    // launched shell's own number, a tier step of the CONFIG base.
+    expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 'f', 'r']);
     expect(ev.f).toBe(true);
+    expect(ev.r).toBe(src!.r);
+    expect(((ev.r! - CONFIG.flashShells.radius) / CONFIG.flashShells.radiusStepPerTier) % 1).toBe(0);
   } else {
     expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
   }
@@ -3892,7 +3728,7 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
   // flashed victim sees the disc; it already learns the flash through its own
   // `dazzledUntil`). Re-derived here off CONFIG, never the row.
   if (src!.own === me.id) return;
-  const inFlash = src!.f === true && dist(me.state, ev) <= CONFIG.flashShells.radius;
+  const inFlash = src!.f === true && dist(me.state, ev) <= src!.r!;
   expect(sighted(w, me, ev) || zoneCovers(w, me, ev) || inFlash).toBe(true);
 }
 
@@ -4367,15 +4203,6 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect((e as BoonFitEvent).id).toBe(me.id);
     expect(Object.hasOwn(CATALOG, (e as BoonFitEvent).boon)).toBe(true);
   },
-  dp: (_w, me, e) => {
-    // Drone drops (Eric ruling 2026-10-01): killer-private on the pt/bn terms,
-    // a LIVE consumable catalog id, and nothing else on the event.
-    const ev = e as DropEvent;
-    expect(ev.id).toBe(me.id);
-    expect(Object.hasOwn(CATALOG, ev.boon)).toBe(true);
-    expect(CATALOG[ev.boon].kind).toBe('consumable');
-    expect(Object.keys(ev).sort()).toEqual(['boon', 'id', 'k']);
-  },
   // Story 4.3 — the gunnery conversation's three DECLARED exceptions, each
   // reimplemented here independently of its registry row (the header rule).
   sp: (_w, me, e) => {
@@ -4629,9 +4456,7 @@ function seatMineBehindFog(w: World, ids: string[]): void {
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
-    DECOY_PAINT_EXPECTED.n = 0;
-    BUOY_PAINT_EXPECTED.n = 0;
-    BUOY_SRC_VERIFIED.n = 0;
+    COOLDOWN_SEEN.n = 0;
     CLOUD_SIGHT_THROUGH.n = 0;
     CLOUD_DELIVERED_BY_SIGHT.n = 0;
     TU_SEEN.n = 0;
@@ -4677,10 +4502,6 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU), SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)], pickHull(side));
         scrambleTurrets(rec, side);
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
-        // Story 10.1: every seat carries a RANDOM FOUR, so the self-private pin
-        // on `kit` sees varied kits. Off a stream of its OWN (keyed by world and
-        // seat), so the shared `rng` — and every scenario it draws — is unmoved.
-        rec.kit = rollKit(mulberry32(((world + 1) * 0x9e3779b1 + i) >>> 0).next);
         // ...and ~a third open a HUNKER window (a raw state write, like the
         // scratches below) so the self-private pin on `hunkerUntil` is
         // exercised on real frames rather than vacuous.
@@ -4880,40 +4701,33 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         for (let k = 0; k < 6; k++) rng.next();
       }
       rng.next();
-      // DECOYS (Story 8.16): 1-3 live decoys on random owners, minted through
-      // production addDecoy; most seated in another ship's beam annulus (the
-      // paint arm), the rest anywhere (the detect / lit-zone / owner views).
+      // (The Story 8.16 DECOYS left with the buoys in Story 10.5. Their draws
+      // are BURNED here, unchanged in count, so the shared stream — and every
+      // scenario drawn below — is unmoved.)
       for (let di = 0; di < rng.int(1, 3); di++) {
-        const owner = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
-        const obs = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
-        const brg = obs.sweepAngle + rng.float(0.02, 0.4);
-        const d = rng.float(0, 1) < 0.7 ? rng.float(SIGHT + 10, RADAR - 10) : rng.float(0, RADAR * 1.5);
-        addDecoy(w.decoys, owner.id, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, `decoy${di}`, 'healing', Number.POSITIVE_INFINITY, 0).hp =
-          rng.float(1, CONFIG.buoy.hp);
+        rng.int(0, ids.length - 1);
+        rng.int(0, ids.length - 1);
+        rng.float(0.02, 0.4);
+        if (rng.float(0, 1) < 0.7) rng.float(SIGHT + 10, RADAR - 10);
+        else rng.float(0, RADAR * 1.5);
+        rng.float(1, 2);
       }
-      // RADAR BUOYS AND DAZZLE MARKS (Story 10.9) — on their OWN stream so
-      // every draw above and below is untouched (the foul-zone idiom). Each
-      // observer lays 0–3 RADAR buoys through production addDecoy, most
-      // seated within the effect radius of ANOTHER hull with the beam parked
-      // just short of that hull's bearing (so the step's advance sweeps it —
-      // the paint arm runs), the rest anywhere; and ~a fifth of the hulls
-      // carry a live FLASH SHELLS dazzle mark (the shared effectiveSight
-      // collapses their sight on top of the shrink seam).
+      // DAZZLE MARKS (Story 10.9) — on their OWN stream so every draw above and
+      // below is untouched (the foul-zone idiom): ~a fifth of the hulls carry
+      // a live FLASH SHELLS dazzle mark (the shared effectiveSight collapses
+      // their sight on top of the shrink seam). (The RADAR BUOYS this stream
+      // also laid left with Story 10.5.)
       const brng = mulberry32(0xb0e1_0000 + world);
       for (const id of ids) {
         const owner = w.ships.get(id)!;
+        // The retired RADAR BUOY draws are BURNED, unchanged in count, so the
+        // dazzle marks land where they always did.
         for (let k = 0; k < brng.int(0, 3); k++) {
-          const target = w.ships.get(ids[brng.int(0, ids.length - 1)])!;
-          const near = brng.float(0, 1) < 0.7;
-          const ang = brng.float(0, TAU);
-          const r = near ? brng.float(20, CONFIG.buoy.radiusU * 0.9) : brng.float(0, w.map.radius * 0.9);
-          const cx = near ? target.state.x : 0;
-          const cy = near ? target.state.y : 0;
-          const bx = cx + Math.cos(ang) * r;
-          const by = cy + Math.sin(ang) * r;
-          const seed = wrapPositive(bearing({ x: bx, y: by }, target.state) - brng.float(0.005, 0.06));
-          const b = addDecoy(w.decoys, owner.id, bx, by, `rb-${id}-${k}`, 'radar', w.now + CONFIG.buoy.lifetimeMs, seed);
-          b.sweep!.periodMs = owner.stats.sweepPeriodMs;
+          brng.int(0, ids.length - 1);
+          brng.float(0, 1);
+          brng.float(0, TAU);
+          brng.float(0, 1);
+          brng.float(0, 1);
         }
         if (brng.float(0, 1) < 0.2) owner.dazzledUntil = w.now + brng.float(DT, FLASH_WINDOW_MS); // anywhere in the whiteout: white, or a clear circle of any size
       }
@@ -4968,12 +4782,18 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const owner = ids[1 + crng.int(0, ids.length - 2)];
         injectCloud(w, `radarCloud${world}`, owner, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, w.now - crng.float(0, 1_500));
       }
-      // SHIELD BLOCK (Story 8.16): ~a third of the hulls carry a shield seat —
-      // some up, some lapsed — so the self-private `shield` pin is exercised
-      // on real frames in both directions.
+      // THE COOLDOWN ABILITIES (Story 10.5 — the seat the SHIELD BLOCK stamp
+      // held, the same two draws): ~a third of the hulls carry a running HULL
+      // REPAIR / SMOKE cooldown — some cooling, some lapsed — so the
+      // self-private pin (verifyOwnWindows: own `you` only, never another
+      // observer's frame, never a spectator's) runs on real frames in both
+      // directions. The fuzz's own presses stamp them for real as well.
       for (const id of ids) {
         if (rng.float(0, 1) >= 0.33) continue;
-        w.ships.get(id)!.shield = { hpLeft: rng.float(1, CONFIG.shieldBlock.hp), until: w.now + rng.float(-400, 8000) };
+        const s = w.ships.get(id)!;
+        rng.next(); // the retired shield-hp draw, burned so the stream is unmoved
+        s.repairReadyAt = w.now + rng.float(-400, 8000);
+        s.smokeReadyAt = s.repairReadyAt;
       }
       // Synthetic TORPEDO ribbons (Story 4.12, amendment 196): half-life
       // (6000ms) one-cell (9u) water keyed into the live torpWakes store — the
@@ -5008,10 +4828,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             // unreachable HERE; its owner-only privacy is pinned by the directed
             // tests in denials.test.ts, not by this fuzz.
             slot: rng.float(0, 1) < 0.5 ? 1 : 0,
-            // ~30% of ticks also press the ability slot (TB boost in slot 2):
-            // repeated presses drain the 1-charge pool into no-ammo denials.
+            // ~30% of ticks also press SMOKE (Story 10.5 — the press names its
+            // ability; HULL REPAIR is pressed by the patient below): repeated
+            // presses run the cooldown into `cooling` denials, every one
+            // verified owner-only, and stamp real `smokeReadyAt`s. (The Shift
+            // is not pressed here: the old slot-2 press was inert, and a boost
+            // would re-lay every world's geometry.)
             actSeq: rng.float(0, 1) < 0.3 ? tick : 0,
-            actSlot: 2,
+            act: abilityCode('smoke'),
             // THE FOGHORN (Story 4.5): every ship honks on tick 1 (the fh
             // oracle is EXERCISED, never vacuous — the honker's own self
             // payload is guaranteed, and cross-ship deliveries land at random
@@ -5030,17 +4854,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             ...bothLevels(rng.float(0, 1) < 0.5),
           });
         }
-        // HULL REPAIR (a CARD since Story 8.8): drive REAL heals through the
-        // fuzz so the self-private `heal` row and the repairHp pin are
-        // exercised rather than vacuous — ~25% of ticks a random hull takes a
-        // scratch, stocks a copy and fires it from the belt. (The row fails
-        // closed on a full or non-afloat hull; either outcome is a legal world
-        // state to verify.)
+        // HULL REPAIR (the `C` ability since Story 10.5): ~25% of ticks a
+        // random hull takes a scratch, so the presses above (a third of them
+        // HULL REPAIR) land REAL heals — the self-private `heal` row and the
+        // repairHp / repairReadyAt pins are exercised rather than vacuous.
         if (rng.float(0, 1) < 0.25) {
           const patient = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
           patient.hp = Math.max(1, patient.hp - rng.float(10, 60));
-          w.applyCard(patient, 'hullRepair');
-          w.sinkingActivationGate(patient, consumableSlotFor(DEFAULT_KIT, 'hullRepair')!);
+          // ...and PRESSES HULL REPAIR through the real input path (a later seq
+          // this tick, unless its own input already pressed an ability). A full or cooling hull is refused; both are legal states.
+          const first = w.inputs.get(patient.id)!;
+          if (first.actSeq !== tick) w.submitInput(patient.id, { ...first, seq: tick + 0.5, actSeq: tick, act: abilityCode('repair') });
         }
         w.step();
         // THE WAKE-DRAFT LIFT (Story 8.19) must be EXERCISED on the wire, not
@@ -5104,15 +4928,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // NON-owner at least once — the radar-range clause ran, not only the
     // owner clause.
     expect(FOUL_ZONE_DELIVERED.n).toBeGreaterThan(0);
-    // ...and so must the Story 8.16 decoy-paint arm: decoy paints actually
-    // reached (and were consumed from) real frames.
-    expect(DECOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
-    // ...and the Story 10.9 RADAR BUOY arm: an owner's buoy beam painted real
-    // subjects that the oracle paired with real blips.
-    expect(BUOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
-    // ...and every one of those reached the owner TAGGED with its buoy's id
-    // (the `src` origin arm of verifyBlip ran on real frames).
-    expect(BUOY_SRC_VERIFIED.n).toBeGreaterThan(0);
+    // ...and the Story 10.5 cooldown pin: a cooling HULL REPAIR / SMOKE rode
+    // a real own frame (and, by verifyOwnWindows, no other).
+    expect(COOLDOWN_SEEN.n).toBeGreaterThan(0);
     // THE FOG ARMS (Story 9.10) must each have been EXERCISED: a hull inside
     // geometric sight hidden by toll (verified absent), a hull seen through
     // thin fog, a detect-rung subject hidden, an `sm` hidden inside the halo,
@@ -5130,7 +4948,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       console.log(
         `perception fuzz ledgers: CLOUD_SIGHT_THROUGH ${CLOUD_SIGHT_THROUGH.n} | ` +
           `CLOUD_DELIVERED_BY_SIGHT ${CLOUD_DELIVERED_BY_SIGHT.n} | CLOUD_DELIVERED_BY_RADAR ${CLOUD_DELIVERED_BY_RADAR.n} | ` +
-          `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | BUOY_PAINT_EXPECTED ${BUOY_PAINT_EXPECTED.n} | ` +
+          `COOLDOWN_SEEN ${COOLDOWN_SEEN.n} | ` +
           `DRAFT_SEEN ${DRAFT_SEEN.n} | FOUL_ZONE_DELIVERED ${FOUL_ZONE_DELIVERED.n} | wk ${wkSeen} | reReveals ${reReveals} | ` +
           `dropout painted ${DROPOUT_LEDGER.painted} missed ${DROPOUT_LEDGER.missed} | ` +
           `FOG_HID_CONTACT ${FOG_HID_CONTACT.n} | FOG_THIN_SEEN ${FOG_THIN_SEEN.n} | FOG_HID_MINE_OR_TORP ${FOG_HID_MINE_OR_TORP.n} | ` +
@@ -5165,11 +4983,9 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
     expect(dropoutPaintP(FAR)).toBeLessThan(0.9);
     const at = (d: number, brg: number): { x: number; y: number } => ({ x: d * Math.cos(brg), y: d * Math.sin(brg) });
     // Subjects on well-separated bearings (none inside another's window span).
-    const BRG = { far: 0.5, near: 1.5, decoy: 2.5, wake: 3.5, cloud: 4.6, foul: 5.7 };
+    const BRG = { far: 0.5, near: 1.5, wake: 3.5, cloud: 4.6, foul: 5.7 };
     const far = place(w, 'far', at(FAR, BRG.far).x, at(FAR, BRG.far).y);
     const near = place(w, 'near', at(NEAR, BRG.near).x, at(NEAR, BRG.near).y);
-    const dp = at(FAR, BRG.decoy);
-    addDecoy(w.decoys, 'z', dp.x, dp.y, 'dk', 'healing', Number.POSITIVE_INFINITY, 0);
     const cp = at(FAR, BRG.cloud);
     injectCloud(w, 'ck', 'z', cp.x, cp.y);
     w.clouds.set('ck', { ...w.clouds.get('ck')!, until: 1e9 }); // keep it on the water for the whole run
@@ -5196,7 +5012,6 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
     const ledger = {
       far: new Map<number, boolean>(),
       near: new Map<number, boolean>(),
-      decoy: new Map<number, boolean>(),
       wake: new Map<number, boolean>(),
       cloud: new Map<number, boolean>(),
     };
@@ -5218,7 +5033,6 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
       const swept = (p: { x: number; y: number }): boolean => inPaintWindow(a, bearing(a.state, p));
       if (swept(far.state)) note(ledger.far, rev, blips.some((e) => covers(e, far.state)));
       if (swept(near.state)) note(ledger.near, rev, blips.some((e) => covers(e, near.state)));
-      if (swept(dp)) note(ledger.decoy, rev, blips.some((e) => covers(e, dp)));
       if (swept(wakeMid)) note(ledger.wake, rev, wks.some((e) => covers(e, wakeMid)));
       if (beamCrossesDiscOracle(a, cp, cloudOutlineOracle(w.clouds.get('ck')!.bornAt, w.now))) {
         note(ledger.cloud, rev, (f.clouds ?? []).some((c) => c.id === 'ck'));
@@ -5233,7 +5047,6 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
     const res = {
       far: tally(ledger.far),
       near: tally(ledger.near),
-      decoy: tally(ledger.decoy),
       wake: tally(ledger.wake),
       cloud: tally(ledger.cloud),
     };
@@ -5250,9 +5063,7 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
     // (ii) inside the flat band: painted on EVERY revolution.
     expect(res.near.revs).toBeGreaterThanOrEqual(200);
     expect(res.near.missed).toBe(0);
-    // (iii) the decoy rolls like a hull (ruling 122: no size weighting).
-    expect(res.decoy.painted).toBeGreaterThan(0);
-    expect(res.decoy.missed).toBeGreaterThan(0);
+    // ((iii), the decoy rolling like a hull, left with the decoy — Story 10.5.)
     // (iv) the wake's radar half and the cloud's radar clause roll too (123).
     expect(res.wake.painted).toBeGreaterThan(0);
     expect(res.wake.missed).toBeGreaterThan(0);
@@ -5361,7 +5172,7 @@ describe('perception — the invariant still catches a genuine leak (Story 8.16)
     verifyFrame(w, 'a', legit); // the honest frame passes (sanity)
     // Forge the exact payload a leaking blip path would emit for `h` — its
     // true pose rasterized+fuzzed for this tick — and assert the oracle
-    // REFUSES it: it matches no gated ship and no decoy paint.
+    // REFUSES it: it matches no gated ship.
     const forged = maskOracle(h.hullId, h.state.x, h.state.y, h.state.heading, w.now);
     const forgedFrame = buildFrame(w, 'a');
     forgedFrame.events.push({ k: 'blip', t: w.now, gx: forged.gx, gy: forged.gy, w: forged.w, h: forged.h, bits: forged.bits });
@@ -5612,13 +5423,12 @@ describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendme
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The seven contact-like pseudo-rows are verified through the contacts/
-  // mines/litZones/burnZones/foulZones/decoys/clouds frame channels
+  // The six contact-like pseudo-rows are verified through the contacts/
+  // mines/litZones/burnZones/foulZones/clouds frame channels
   // (verifyFrame/verifyMine/verifyLitZone/verifyBurnZone/verifyFoulZone/
-  // verifyDecoy/cloudGateOracle), not through EVENT_VERIFIERS.
-  // The RADAR BUOY's `buoy` row is DELETED (Story 8.16) along with its oracle;
-  // `decoy` is the DECOY BUOY's channel on the mine row's rules, with its own
-  // oracle (verifyDecoy); `burnzone` (Story 8.17) is the PHOSPHOR burning
+  // cloudGateOracle), not through EVENT_VERIFIERS.
+  // The RADAR BUOY's `buoy` row is DELETED (Story 8.16), and the DECOY BUOY's
+  // `decoy` row with it in Story 10.5; `burnzone` (Story 8.17) is the PHOSPHOR burning
   // zone's channel on the lit zone's gate, with its own oracle (verifyBurnZone).
   // `cloud` (Story 9.3 — 8.18's `smoke` seat) is the COUNTERMEASURE cloud's
   // channel, with its own oracle (cloudGateOracle / verifyCloudShape); a
@@ -5627,20 +5437,21 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // own oracle (verifyFoulZone / foulZoneGateOracle). FOG (Story 9.10) HAS
   // NO ROW: the field is public weather and its hiding is the toll inside
   // the sight oracles (fogTollOracle) — the declared exceptions stay at SIX.
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'decoy', 'cloud'];
-  // The 19 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'cloud'];
+  // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
   // CONTROL strip brought 'heal' BACK, on stricter no-severity terms; Story
   // 4.4 added the anonymous wounded-smoke row 'sm'; Story 4.5 added the
   // bearing-only foghorn row 'fh'; Story 4.12 added the identity-free radar
-  // wake row 'wk'; the 2026-10-01 drone drops added self-private 'dp').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
+  // wake row 'wk'; the 2026-10-01 drone drops' self-private 'dp' left with
+  // Story 10.5).
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 26 expected channel keys (19 event kinds + contact + mine + litzone + burnzone + foulzone + decoy + cloud)', () => {
+  it('has exactly the expected channel keys (18 event kinds + contact + mine + litzone + burnzone + foulzone + cloud)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(26);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(EXPECTED_KEYS.length);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -5649,13 +5460,13 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the seven contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/foulZones/decoys/clouds channels); fog has no row', () => {
+  it('the six contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/foulZones/clouds channels); fog has no row', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
     expect(SIGNAL_REGISTRY.burnzone).toBeDefined(); // Story 8.17
     expect(SIGNAL_REGISTRY.foulzone).toBeDefined(); // Story 9.4
-    expect(SIGNAL_REGISTRY.decoy).toBeDefined();
+    expect(Object.hasOwn(SIGNAL_REGISTRY, 'decoy')).toBe(false); // deleted with the buoys (Story 10.5)
     expect(SIGNAL_REGISTRY.cloud).toBeDefined(); // Story 9.3 (8.18's smoke seat)
     expect(Object.hasOwn(SIGNAL_REGISTRY, 'fog')).toBe(false); // Story 9.10 — fog is a toll, never a channel
     expect(Object.hasOwn(SIGNAL_REGISTRY, 'buoy')).toBe(false); // deleted with the radar buoy (Story 8.16)

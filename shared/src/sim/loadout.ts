@@ -1,29 +1,27 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
-// on (Story 1.2, re-cut in Story 8.5). A ship's loadout IS its equipment
-// runtime: NINE FIXED-ROLE SLOTS, identical in SHAPE for every captain hull —
-// [gun, boost, weapon, weapon, weapon, consumable ×4] — each either empty or
-// holding one equipment id + its state. Since Story 9.2 (epic-9 amendments 21
-// and 31) the consumable slots are not a packed belt: EACH KIND OWNS ONE
-// FIXED SLOT and one fixed key. From 9.2 to Story 10.1 that was a GLOBAL
-// six-long key row (`CONSUMABLE_KEY_ORDER`, slots 5..10, keys 1–6).
+// on (Story 1.2, re-cut in Story 8.5 and again in Story 10.5). A ship's
+// loadout IS its equipment runtime: FIVE FIXED-ROLE SLOTS, identical in SHAPE
+// for every captain hull — [battery, Shift, torpedo, mine, special shell] —
+// each either empty or holding one equipment id + its state.
 //
-// STORY 10.1 (Eric 2026-10-25/27, epic-10 amendments 1(c) and 3): the key row
-// is PER SHIP — a `ConsumableKit` of exactly FOUR distinct non-stub consumable
-// lines the captain picks on the port screen (bots roll a random four), keys
-// back to 1–4, slots 5..8. `CONSUMABLE_KEY_ORDER` is DELETED; every kind →
-// slot question takes the ship's kit (`consumableSlotFor(kit, id)`,
-// `consumableKindAt(kit, slot)`), and a consumable outside the kit has NO slot
-// — which is the one gate (sim/boons.ts pickRefusal) that keeps the draw and
-// the drone drops inside the captain's four.
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11): THE KIT IS RETIRED. The
+// four consumable slots, the per-ship `ConsumableKit` and the whole consumable
+// id space are deleted; the three weapon slots become FAMILY SLOTS — `Q`
+// torpedo, `E` mine, `R` special shell — ONE KIND PER SLOT FOR THE MATCH
+// (`EQUIPMENT_FAMILY` / `familySlotFor` below). A first card of a family fills
+// THAT family's slot whatever order the cards arrive in; a second kind of a
+// filled family has nowhere to go (sim/boons.ts `pickRefusal`, sim/draw.ts).
+// HULL REPAIR (`C`) and SMOKE (`V`) are cooldown ABILITIES that occupy no
+// slot (sim/abilities.ts).
 //
 // THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
 // `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
 // and class identity lives in the CARDS a hull is dealt and its envelope, not
 // in the hardware. THE INTERIM SPAWN SEED IS GONE TOO (Story 8.10, amendment 62):
-// every hull now spawns with THE GUN AND THE SHIFT BOOST ONLY, and the weapon
+// every hull now spawns with THE GUN AND THE SHIFT ONLY, and the weapon
 // row starts empty. The captain's first weapon comes from the LEVEL-ZERO OFFER
-// granted at countdown start — the opening — and lands in the row as a card
-// like every card after it.
+// granted at countdown start — the opening — and lands in its family slot as a
+// card like every card after it.
 //
 // Slot 0 holds THE MAIN BATTERY on a captain's hull (Story 10.4, Eric
 // 2026-11-04, epic-10 amendments 7 and 9): the `mainBattery` module, whose
@@ -43,7 +41,6 @@
 //
 // Pure, zero I/O.
 
-import { CONSUMABLE_IDS, type ConsumableId } from './effects.js';
 import type { EffectiveStats } from './stats.js';
 
 /**
@@ -72,9 +69,15 @@ import type { EffectiveStats } from './stats.js';
  * `phosphorShells` ARRIVED from the add-on space — PHOSPHOR SHELLS is its own
  * tiered 360° weapon line now, not a star-shell verb (the locked id is kept).
  *
- * The legacy `radarBuoy` id is GONE (Story 8.16): the RADAR BUOY was deleted
- * end to end in favour of the DECOY BUOY consumable (catalog-v3 R1). The legacy flat-bonus boost id is GONE (Story 8.9): the v3
- * `boost` id IS the speed boost, the Torpedo Boat's Shift since 8.15.
+ * The legacy flat-bonus boost id is GONE (Story 8.9): the v3 `boost` id IS the
+ * speed boost.
+ *
+ * STORY 10.5 BROUGHT THREE BACK (Eric 2026-11-05, epic-10 amendment 11):
+ * `supercavTorpedo`, `dazzleShells` (FLASH SHELLS — the locked id is kept) and
+ * `foulingShell` are RELOADING SLOT WEAPONS again, with a stat row and five
+ * tiers each; the consumable id space they sat in from 8.13 / 8.17 / 9.4 is
+ * deleted with the kit. Appended LAST, after `mainBattery`, so every
+ * pre-existing id keeps its place in `EQUIPMENT_IDS`.
  */
 export type EquipmentId =
   | 'gun'
@@ -91,7 +94,10 @@ export type EquipmentId =
   | 'phosphorShells'
   | 'instantReload'
   | 'hunker'
-  | 'mainBattery';
+  | 'mainBattery'
+  | 'supercavTorpedo'
+  | 'dazzleShells'
+  | 'foulingShell';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -140,6 +146,11 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // turret per click (sim/turrets.ts). Appended LAST so every pre-existing
   // id keeps its place in `EQUIPMENT_IDS`.
   mainBattery: true,
+  // THE THREE MOVED WEAPONS (Story 10.5): ready the slot, click fires — the
+  // supercav into its bow sector, the flash and fouling shells at any bearing.
+  supercavTorpedo: true,
+  dazzleShells: true,
+  foulingShell: true,
 };
 
 /**
@@ -148,8 +159,7 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
  * SEAT'S PICK since Story 10.4 (Eric 2026-11-04, R7, epic-10 amendment 9): any
  * hull, chosen at ship select and frozen on the seat, in the place the retired
  * deck-gun pick held. Each is its own `EquipmentId` rather than one module
- * dispatching on hull, so the stat row (and with it RELOAD's `cooldownScale`),
- * the server registry, the bot tactic rows and the HUD glyph table all key on
+ * dispatching on hull, so the stat row, the server registry, the bot tactic rows and the HUD glyph table all key on
  * the id with no hull special case.
  */
 export type ShiftId = 'boost' | 'instantReload' | 'hunker';
@@ -176,78 +186,6 @@ export function sanitizeShiftId(raw: unknown): ShiftId {
   return isShiftId(raw) ? raw : DEFAULT_SHIFT;
 }
 
-/**
- * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
- * CONSUMABLE line (its kit slot — four per ship since Story 10.1, six fixed
- * since Story 9.2). The two id spaces stay DISJOINT —
- * `EquipmentId` is never widened — because five records are keyed by
- * EquipmentId (`EquipmentRows`, `EQUIPMENT_STAT_FIELDS`, `EQUIPMENT_IS_WEAPON`,
- * the server's equipment registry, the client's glyph table) and every
- * consumable entry in them would be a lie: a stack has no stat row, no reload
- * and no module. The union lives at the ONE place that holds either — the slot
- * — which forces a narrowing guard (`isConsumableId`) at each read instead of
- * a cast.
- */
-export type SlotItemId = EquipmentId | ConsumableId;
-
-/**
- * The consumable half of the weapon/ability split (D21) — the same law
- * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
- * and fired at a clicked point, false iff it is an instant activation off its
- * fixed number key. SEVEN are click-aimed since Story 10.9: the SUPERCAV
- * TORPEDO (epic-8 amendment 74), the FOULING SHELL (Story 9.4), FLASH SHELLS
- * (Story 8.17 amendment 132, restored by 10.9) and the FOUR BUOYS (Story 10.9,
- * click-placed at any bearing — the deleted DECOY BUOY was click-placed too).
- * Compile-forced to cover every ConsumableId.
- */
-export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
-  hullRepair: false,
-  shieldBlock: false,
-  countermeasure: false, // an instant key activation (Story 9.3)
-  // DEPTH CHARGE (amendment 83) — STUB: Eric's line, mechanism a later story.
-  // Declared NON-aimed until he rules; a stub is never dealt, so nothing can
-  // reach either channel with it today.
-  depthCharge: false,
-  // SUPERCAV TORPEDO (amendment 74) — the ONE consumable that is a WEAPON in
-  // the mechanical sense besides the decoy: the digit primes, a click inside
-  // the bow ±15° sector fires one fish (`KEY PRIMES · CLICK FIRES`).
-  supercavTorpedo: true,
-  // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68;
-  // replaces FLASH SHELLS): the digit primes, a click fires one 360° shell to
-  // the radar rung whose burst leaves a stationary slowing zone.
-  foulingShell: true,
-  // FLASH SHELLS (Story 10.9, restoring epic-8 amendment 132): the digit
-  // primes, a click fires one 360° shell on the fouling shell's path (same
-  // reach) whose burst dazzles every non-owner hull inside it.
-  dazzleShells: true,
-  // THE FOUR BUOYS (Story 10.9, Eric 2026-10-28 ruling 9): the digit primes, a
-  // click PLACES the buoy at any bearing out to `CONFIG.mine.placeRange`.
-  radarBuoy: true,
-  healingBuoy: true,
-  shieldBuoy: true,
-  speedBuoy: true,
-};
-
-/** Membership over the ONE consumable id list (sim/effects.ts) — never a second
- *  copy of it. */
-const CONSUMABLE_ITEM_SET: ReadonlySet<string> = new Set(CONSUMABLE_IDS);
-
-/**
- * THE narrowing guard. Every site that reads an EquipmentId-keyed record with a
- * slot's content runs this first; the `false` branch narrows to `EquipmentId`
- * because the two unions are disjoint, so no cast is ever needed.
- */
-export function isConsumableId(id: string): id is ConsumableId {
-  return CONSUMABLE_ITEM_SET.has(id);
-}
-
-/** The weapon/ability split over EITHER kind of slot content — the ONE
- *  predicate both dispatch channels (the aimed fireSeq path and the instant
- *  actSeq path) call, on the server and on the client. */
-export function isWeaponItem(id: SlotItemId): boolean {
-  return isConsumableId(id) ? CONSUMABLE_IS_WEAPON[id] : EQUIPMENT_IS_WEAPON[id];
-}
-
 /** Every EquipmentId, in declaration order — the totality spine the equipment
  *  stat record and the catalog's slotFill validation both key on. */
 export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
@@ -266,12 +204,6 @@ export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
  * single `reloadMsLeft` timer. Structurally identical to the wire `WeaponAmmo`
  * shape today (so wire derivation from slot state is identity), but defined
  * fresh here — loadout state is a shared-sim concept, not the wire contract.
- *
- * A CONSUMABLE STACK (Story 8.7) uses the same shape with `n` = COPIES HELD and
- * `reloadMsLeft` 0 FOREVER: a stack never reloads (catalog-v3 R40 — every copy
- * of the line is one use, and the only way to get another is another card), so
- * the server's reload tick and the client's cooldown wipe both skip the
- * consumable slots.
  */
 export interface EquipmentState {
   n: number; // charges/rounds ready (0 = empty)
@@ -281,67 +213,15 @@ export interface EquipmentState {
 /**
  * One loadout slot. INVARIANT: `state` is null iff `equipmentId` is null — an
  * empty slot carries no state to dereference; a fitted slot always has state.
- *
- * `equipmentId` holds a `SlotItemId`: an EquipmentId in the gun, boost and
- * weapon slots (0–4), and a CONSUMABLE line id in that kind's OWN fixed slot
- * (5–8 by the ship's kit since Story 10.1; 5–10 by the global key row from
- * Story 9.2; a packed belt 5–8 from Story 8.7 until then).
- * The FIELD NAME is unchanged — it rides every mirror, view model and test on
- * both sides — but a reader that indexes an EquipmentId-keyed record with it
- * must narrow through `isConsumableId` first (never a cast).
  */
 export interface LoadoutSlot {
-  equipmentId: SlotItemId | null;
+  equipmentId: EquipmentId | null;
   state: EquipmentState | null;
 }
 
-/**
- * THE KIT (Story 10.1, Eric 2026-10-25/27, epic-10 amendments 1(c) and 3): the
- * FOUR consumable lines a ship carries, in KEY ORDER — key `1` is index 0,
- * slot `FIRST_CONSUMABLE_SLOT + i` holds `kit[i]` and nothing else, for the
- * whole match. A captain picks the four on the port screen (saved like the
- * callsign); a bot rolls four at spawn (`rollKit`, sim/boons.ts). The kit is
- * a SEAT value like the gun: it rides the join, lives on the server's ship
- * record and comes back self-privately on `OwnShip.kit`, which is what both
- * sides derive every kind → slot answer from. Nothing global remains: the 9.2
- * key row (`CONSUMABLE_KEY_ORDER`, six fixed keys) is DELETED, not aliased.
- *
- * INVARIANTS (`isConsumableKit`, sim/boons.ts — the ONE validator both sides
- * call; it needs the catalog, which this leaf module may not import):
- * length exactly `KIT_SIZE`, every entry distinct, every entry a NON-STUB
- * consumable line (the DEPTH CHARGE stub can never be carried). The helpers
- * here are pure index arithmetic over whatever kit they are handed and
- * fail closed on a malformed one (an entry past `KIT_SIZE` has no slot).
- */
-export type ConsumableKit = readonly ConsumableId[];
-
-/** How many consumable lines a ship carries — four (Eric 2026-10-25). The
- *  structural number behind the slot count, the key row and the port picker;
- *  NOT a CONFIG tunable. */
-export const KIT_SIZE = 4;
-
-/**
- * The kit a FRESH BROWSER sails with (Eric 2026-10-27, Story 10.1 ruling 5):
- * `1` HULL REPAIR · `2` SHIELD BLOCK · `3` SMOKE SCREEN (the `countermeasure`
- * line, renamed back player-side by the same ruling; id untouched) · `4`
- * FOULING SHELL — the first four of the retired 9.2 key row. Also what the
- * server falls back to when a join carries no valid kit (fail-open, like the
- * gun).
- */
-export const DEFAULT_KIT: ConsumableKit = Object.freeze([
-  'hullRepair',
-  'shieldBlock',
-  'countermeasure',
-  'foulingShell',
-] as const);
-
-/** Slot index of the first consumable slot (key `1`). */
-const FIRST_CONSUMABLE_SLOT = 5;
-
-/** Total slots in a loadout: gun, boost, three weapons, one per carried
- *  consumable (four since Story 10.1; six from 9.2; a four-wide belt from
- *  8.5). */
-export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + KIT_SIZE;
+/** Total slots in a loadout: battery, Shift, torpedo, mine, special shell
+ *  (five since Story 10.5; nine with the kit from 10.1; eleven from 9.2). */
+export const SLOT_COUNT = 5;
 
 /** Slot index of the gun — the permanently-selected default weapon: THE MAIN
  *  BATTERY on a captain (Story 10.4), the `gun` module on a PvE drone. */
@@ -352,39 +232,81 @@ export const SLOT_GUN = 0;
  *  and is kept. */
 export const SLOT_BOOST = 1;
 
-/** The three WEAPON slots (Q/E/R), in fill order: a `slotFill` card takes the
- *  first of these that is still empty (sim/boons.ts applySlotEffect). */
+/** The three WEAPON slots (Q/E/R), in key order. Since Story 10.5 each is a
+ *  FAMILY slot: index k here is `SLOT_FAMILIES[k]`'s. */
 export const WEAPON_SLOTS = [2, 3, 4] as const;
 
-/** The CONSUMABLE slots, in key order: slot `5 + i` is bound to `kit[i]` of
- *  whichever kit the ship sails with (Story 10.1). Derived from `KIT_SIZE`,
- *  never a second list. */
-export const CONSUMABLE_SLOTS: readonly number[] = Object.freeze(
-  Array.from({ length: KIT_SIZE }, (_, i) => FIRST_CONSUMABLE_SLOT + i),
-);
+/**
+ * THE THREE SLOT FAMILIES (Story 10.5, Eric 2026-11-05, epic-10 amendment 11),
+ * in slot order: `Q` holds a TORPEDO, `E` a MINE, `R` a SPECIAL SHELL. A slot
+ * holds ONE KIND of its family for the whole match — the first card of the
+ * family picks it, later copies of that kind tier it up, and no other kind of
+ * the family can ever be fitted or offered.
+ */
+export type SlotFamily = 'torpedo' | 'mine' | 'shell';
 
-/** THE slot of a consumable kind under `kit`, or `null` for a kind the ship
- *  does not carry (which since Story 10.1 includes every stub — a stub can
- *  never pass `isConsumableKit`). Fail-closed on a malformed kit: an entry
- *  past `KIT_SIZE` has no slot. */
-export function consumableSlotFor(kit: ConsumableKit, id: ConsumableId): number | null {
-  const i = kit.indexOf(id);
-  return i < 0 || i >= KIT_SIZE ? null : FIRST_CONSUMABLE_SLOT + i;
+/** Every family, in slot order: `SLOT_FAMILIES[k]` owns `WEAPON_SLOTS[k]`. */
+export const SLOT_FAMILIES: readonly SlotFamily[] = Object.freeze(['torpedo', 'mine', 'shell'] as const);
+
+/** The fixed slot of each family (2 / 3 / 4 — the Q / E / R keys). */
+export const FAMILY_SLOT: Readonly<Record<SlotFamily, number>> = Object.freeze({
+  torpedo: WEAPON_SLOTS[0],
+  mine: WEAPON_SLOTS[1],
+  shell: WEAPON_SLOTS[2],
+});
+
+/**
+ * THE FAMILY OF EVERY EQUIPMENT ID — `null` for anything that fits no family
+ * slot: the mounted guns and the Shifts (slots 0 and 1, never a card fit) and
+ * BROADSIDE, which LEFT THE DEAL (Eric 2026-11-05, Story 10.5, R6: "Leaves
+ * the deal") and so has no slot to go to. Compile-forced to cover every
+ * EquipmentId: a new weapon cannot ship without declaring its family.
+ */
+export const EQUIPMENT_FAMILY: Readonly<Record<EquipmentId, SlotFamily | null>> = Object.freeze({
+  gun: null,
+  boost: null,
+  lightTorpedo: 'torpedo',
+  heavyTorpedo: 'torpedo',
+  navalMines: 'mine',
+  captiveMines: 'mine',
+  foulingMines: 'mine',
+  machineGun: null,
+  flak: null,
+  broadside: null,
+  starShells: 'shell',
+  phosphorShells: 'shell',
+  instantReload: null,
+  hunker: null,
+  mainBattery: null,
+  supercavTorpedo: 'torpedo',
+  dazzleShells: 'shell',
+  foulingShell: 'shell',
+});
+
+/** The slot `id` is fitted into, or `null` for equipment no family slot holds
+ *  (see `EQUIPMENT_FAMILY`) — and for an id outside that table (own keys
+ *  only, so a prototype key is outside too). THE one kind → slot answer on
+ *  both sides. */
+export function familySlotFor(id: EquipmentId): number | null {
+  const family = Object.hasOwn(EQUIPMENT_FAMILY, id) ? EQUIPMENT_FAMILY[id] : null;
+  return family === null ? null : FAMILY_SLOT[family];
 }
 
-/** THE kind a consumable slot is bound to under `kit`, or `null` for any slot
- *  that is not a consumable slot (gun, Shift, weapon row, out of range,
- *  non-integer) or for a slot a short kit leaves unbound. The client reads a
- *  zero-stock slot's kind through this — a `null` slot content still belongs
- *  to its kind. */
-export function consumableKindAt(kit: ConsumableKit, slot: number): ConsumableId | null {
-  const i = slot - FIRST_CONSUMABLE_SLOT;
-  if (!Number.isInteger(i) || i < 0 || i >= KIT_SIZE) return null;
-  return kit[i] ?? null;
+/** The family a slot index belongs to, or `null` for the battery, the Shift,
+ *  an out-of-range or a non-integer slot. */
+export function slotFamilyAt(slot: number): SlotFamily | null {
+  const k = (WEAPON_SLOTS as readonly number[]).indexOf(slot);
+  return k < 0 ? null : SLOT_FAMILIES[k];
+}
+
+/** Every equipment id of a family, in `EQUIPMENT_IDS` order — the kinds that
+ *  compete for that family's one slot. */
+export function familyMembers(family: SlotFamily): EquipmentId[] {
+  return EQUIPMENT_IDS.filter((id) => EQUIPMENT_FAMILY[id] === family);
 }
 
 /** The role a slot plays in the grammar. */
-export type SlotRole = 'gun' | 'boost' | 'weapon' | 'consumable';
+export type SlotRole = 'gun' | 'boost' | 'weapon';
 
 /** Slot-role grammar, in slot order (index = slot index), length SLOT_COUNT.
  *  Fixed for every hull: the roles are the grammar, the contents are the
@@ -395,36 +317,30 @@ export const SLOT_ROLES: readonly SlotRole[] = Object.freeze([
   'weapon',
   'weapon',
   'weapon',
-  ...CONSUMABLE_SLOTS.map((): SlotRole => 'consumable'),
 ]);
 
 /** The effective pool size for a piece of equipment — a record lookup since
- *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. A SLOT's
- *  content may be a consumable instead, which has no stats row: `slotMaxAmmo`
- *  (sim/boons.ts) routes either kind and is what slot-facing code calls. */
+ *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. */
 export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].maxAmmo;
 }
 
 /** The effective reload (ms) for a piece of equipment. Every row carries
- *  `reloadMs` (Story 8.1), post-tier-step and post-cooldownScale. */
+ *  `reloadMs` (Story 8.1), post-tier-step — and post-cooldownScale on every
+ *  row but the Shifts (Story 10.5, R10 / R11: `RELOAD_UNSCALED_ROWS` in
+ *  sim/stats.ts). */
 export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].reloadMs;
 }
 
 /**
  * The loadout a ship spawns with — THE SAME SLOT SHAPE FOR EVERY CAPTAIN HULL
- * (Story 8.5; nine slots since Story 10.1, eleven from 9.2). A captain fits
- * the main battery in slot 0 and the seat's Shift in slot 1, both with a full pool and an idle
+ * (Story 8.5; five slots since Story 10.5). A captain fits the main battery
+ * in slot 0 and the seat's Shift in slot 1, both with a full pool and an idle
  * reload timer (exactly the server's `freshAmmo(equipmentMaxAmmo(stats, id))`
- * semantics); slots 2–8 start empty and are filled by CARDS — the level-zero
- * offer at the start line first (Story 8.10), then every offer after it.
- *
- * THE KIT IS NOT A PARAMETER HERE (Story 10.1): the consumable slots start
- * EMPTY whatever the ship carries, so the fit is kit-independent by
- * construction. Which kind a slot is BOUND to is a question for
- * `consumableKindAt(kit, slot)`, and the stock path (`stockSlotFor`,
- * `slotsWithCards` — sim/boons.ts) is where the kit enters.
+ * semantics); the three family slots start empty and are filled by CARDS —
+ * the level-zero offer at the start line first (Story 8.10), then every offer
+ * after it.
  *
  * `fleet === true` is the PvE drone fit: the `gun` module in slot 0 and
  * empties, nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone

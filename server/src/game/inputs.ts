@@ -7,7 +7,7 @@
 // NOT enforced here — the World's consumption (lastFireSeq = max(...)) makes
 // a stale or replayed counter value simply read as "no new click".
 
-import { CONFIG, SLOT_COUNT, wrapAngle, type InputMsg } from '@salvo/shared';
+import { CONFIG, SLOT_COUNT, abilityFromCode, wrapAngle, type InputMsg } from '@salvo/shared';
 
 /** Max input messages per client per rolling window. */
 export const INPUT_RATE_CAP = 40;
@@ -46,7 +46,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -108,11 +108,13 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   const m = raw as Record<string, unknown>;
   if (!numericFieldsFinite(m)) return null;
   if (!isSlotIndex(m.slot)) return null;
-  // Story 1.6 ability-activation fields, validated like their precedents
-  // (actSeq the fireSeq-style counter, actSlot the slot-index): malformed
-  // drops the whole message, never partially applying.
+  // Story 1.6 ability-activation fields, validated like their precedents:
+  // actSeq the fireSeq-style counter, and (Story 10.5, epic-10 amendment 11)
+  // `act` the ABILITY CODE — the shared `abilityFromCode` must name one
+  // (0 Shift, 1 HULL REPAIR, 2 SMOKE); an unknown code drops the whole
+  // message, never partially applying.
   if (!isActSeq(m.actSeq)) return null;
-  if (!isSlotIndex(m.actSlot)) return null;
+  if (abilityFromCode(m.act) === null) return null;
   // Story 4.5 foghorn counter: validated EXACTLY as actSeq (isActSeq is the
   // one monotonic-counter guard — finite int >= 0), whole message dropped on
   // anything malformed. The World's lastHornSeq = max(...) consumption makes
@@ -139,7 +141,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     slot: m.slot,
     fireT: m.fireT as number,
     actSeq: m.actSeq,
-    actSlot: m.actSlot,
+    act: m.act as number,
     hornSeq: m.hornSeq,
     held: m.held as boolean,
     sec: m.sec as boolean,

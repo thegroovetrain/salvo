@@ -5,7 +5,7 @@
 // an `addChild` argument list or an object literal, so a test can assert it
 // without a GPU and a future refactor cannot quietly re-stack the scene:
 //
-//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
+//   worldRoot   (camera-transformed): ocean, wake, projectile, mines
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, fog (the field), smoke, SHIP, PLATE, cloud, blip,
 //                                     OWNSHIP, aim, burstFx, sweep
@@ -171,9 +171,6 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
-  /** Other captains' DECOY BUOYS (render/decoys.ts) — fogged; they only
-   *  arrive when the observer legitimately sees them (mineWorld precedent). */
-  decoyWorld: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -202,9 +199,6 @@ export interface StageLayers {
   smoke: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
-  /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
-   *  decoy is always readable; anyone else's goes to decoyWorld. */
-  decoyChart: Container;
   /**
    * CONTACT HULL SILHOUETTES — every other hull (render/contacts.ts). The own
    * hull moved to `ownShip` on 2026-10-12.
@@ -285,7 +279,7 @@ export type LayerName = keyof StageLayers;
 // keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld'] as const;
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5)
 /** chartRoot, bottom → top: everything above the fog. The legibility contract,
  *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
  *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`
@@ -310,7 +304,6 @@ export const CHART_LAYER_ORDER = [
   'fog',
   'smoke',
   'mineChart',
-  'decoyChart',
   'ship',
   'plate',
   'cloud',

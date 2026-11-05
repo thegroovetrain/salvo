@@ -10,8 +10,7 @@
 // The stale-client join error's refresh instruction is pinned here too.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, consumableSlotFor,
-  DEFAULT_KIT, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { CONFIG, FAMILY_SLOT, PROTOCOL_VERSION, SLOT_BOOST, abilityCode, abilityReadyAt, abilitySlot, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -29,12 +28,13 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, boost,
-// <seed weapons>, ...]. A hull's class weapon (the TB's torpedo, the ML's
-// mine rack) is seeded into the FIRST weapon slot, and the boost has its own
-// fixed slot on every hull.
-/** The first WEAPON slot (Q) — the seeded torpedo / mine rack. */
-const SLOT_WEAPON = 2;
+// FIVE FIXED-ROLE SLOTS (Story 10.5): every captain spawns [gun, Shift,
+// torpedo, mine, special shell]. A hull's class weapon lands in its FAMILY's
+// slot — the torpedo in Q (2), the mine rack in E (3).
+/** The torpedo slot (Q). */
+const SLOT_WEAPON = FAMILY_SLOT.torpedo;
+/** The mine slot (E) — the Warspite fixture's rack. */
+const SLOT_MINE = FAMILY_SLOT.mine;
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(
@@ -71,7 +71,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     slot: 0,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0, hornSeq: 0, held: false, sec: false,
+    act: 0, hornSeq: 0, held: false, sec: false,
     ...extra,
   };
 }
@@ -116,87 +116,113 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("no-ammo: a within-RTT ability double press denies {'no-ammo'} keyed on the press's actSeq", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB: slot 1 = boost (1 charge) on every captain
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
+    w.submitInput('a', input(1, { actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step(); // press 1 activates (charge 1 → 0)
     expect(a.boostUntil).toBeGreaterThan(0);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
+    w.submitInput('a', input(2, { actSeq: 2, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step(); // press 2, pool empty — silently swallowed before 1.10
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
+    // Story 10.5: an ability denial names its ability (`act`) beside the slot.
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2, act: abilityCode('shift') }]);
   });
 
-  it("blocked (full hull): a HULL REPAIR belt press at full hp denies {'blocked'} and spends no copy", () => {
-    // Story 8.8, on the ABILITY channel rather than the weapon one: the row's
-    // own refusal (not a gate refusal) has to reach the wire, because the
-    // client pre-denies the same case locally and the two must agree.
+  /** One HULL REPAIR press (`C` — Story 10.5) through the real input path. */
+  const repair = (w: World, seq: number): void => {
+    w.submitInput('a', input(seq, { actSeq: seq, act: abilityCode('repair') }));
+    w.step();
+  };
+  const repairDenial = (seq: number, reason: string) => ({ slot: abilitySlot('repair'), reason, seq, act: abilityCode('repair') });
+
+  it("blocked (full hull): a HULL REPAIR press at full hp denies {'blocked'} and starts NO cooldown", () => {
+    // Story 10.5 (epic-10 amendment 11): HULL REPAIR is the `C` cooldown
+    // ability. Its refusal reaches the wire because the client pre-denies the
+    // same case locally and the two must agree.
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyCard(a, 'hullRepair');
-    const belt = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
     expect(a.hp).toBe(a.stats.maxHp);
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
-    w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: belt, reason: 'blocked', seq: 1 }]);
-    // ONE SPEND LAW: the copy is still on the stack and still in the build.
-    expect(a.loadout[belt].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(a.cards).toContain('hullRepair');
+    repair(w, 1);
+    expect(buildFrame(w, 'a').denied).toEqual([repairDenial(1, 'blocked')]);
+    expect(a.repairReadyAt).toBe(0); // the cooldown is NOT started
+    expect(buildFrame(w, 'a').you!.repairReadyAt).toBeUndefined();
     // ...and hurt, the same press succeeds silently.
-    a.hp = a.stats.maxHp - 100;
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: belt }));
-    w.step();
+    a.hp = a.stats.maxHp - CONFIG.hullRepair.instantHp - CONFIG.hullRepair.regenHp;
+    repair(w, 2);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    expect(a.repairHp).toBe(CONFIG.hullRepair.regenHp);
+    expect(a.repairHp).toBeGreaterThan(0);
   });
 
   it("blocked (a FRACTION off full): 0.4 hp missing is still FULL — amendment 53's one definition", () => {
-    // Storm bites and burn ticks land FRACTIONAL damage (amendment 39 made
-    // WEAPON damage whole, and nothing else), and the out-of-combat regen
-    // closes MISSING geometrically — so a hull parks at 349.6 of 350 and the
-    // globe reads 349. Refusing only at EXACTLY max would spend a whole scarce
-    // copy (100 hp of authored heal) for 0.4 hp. `hullIsFull` is the shared
-    // predicate; this is the row's half of it.
+    // Fractional damage (storm, burn) parks a hull a fraction under max;
+    // `hullIsFull` is the shared predicate the refusal law reads.
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyCard(a, 'hullRepair');
-    const belt = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
     a.hp = a.stats.maxHp - 0.4;
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
-    w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: belt, reason: 'blocked', seq: 1 }]);
-    // NOTHING spent: the copy, the build entry, the pool and the cue.
-    expect(a.loadout[belt].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(a.cards).toContain('hullRepair');
+    a.lastDamagedAt = w.now; // keep the passive regen out of this case
+    repair(w, 1);
+    expect(buildFrame(w, 'a').denied).toEqual([repairDenial(1, 'blocked')]);
     expect(a.repairHp).toBe(0);
+    expect(a.repairReadyAt).toBe(0);
     expect(w.tickEvents.some((e) => e.k === 'heal')).toBe(false);
-    expect(a.hp).toBe(a.stats.maxHp - 0.4);
   });
 
-  it('...and a WHOLE point missing is NOT full — that press goes through', () => {
+  it('a hurt press heals instantHp now, pools regenHp, stamps the cooldown and cues `heal`', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyCard(a, 'hullRepair');
-    const belt = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
-    a.hp = a.stats.maxHp - 1;
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
-    w.step();
+    a.hp = a.stats.maxHp - CONFIG.hullRepair.instantHp - CONFIG.hullRepair.regenHp;
+    a.lastDamagedAt = w.now; // keep the passive regen out of this case
+    const before = a.hp;
+    repair(w, 1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
+    // The press lands after tickRepairs in the step, so this tick's hp is the
+    // instant heal and the pool is whole.
+    expect(a.hp).toBe(before + CONFIG.hullRepair.instantHp);
     expect(a.repairHp).toBe(CONFIG.hullRepair.regenHp);
-    // The last copy left, so the belt is rebuilt and the slot empties.
-    expect(a.cards).not.toContain('hullRepair');
-    expect(a.loadout[belt].state).toBeNull();
+    expect(a.repairReadyAt).toBe(abilityReadyAt(w.now, 'repair'));
+    expect(w.tickEvents.some((e) => e.k === 'heal' && e.id === 'a')).toBe(true);
+    expect(buildFrame(w, 'a').you!.repairReadyAt).toBe(a.repairReadyAt);
+  });
+
+  it("cooling: a HULL REPAIR press inside the cooldown denies {'cooling'} and heals nothing", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.hp = a.stats.maxHp / 2;
+    a.lastDamagedAt = w.now;
+    repair(w, 1);
+    const ready = a.repairReadyAt;
+    a.repairHp = 0;
+    const hp = a.hp;
+    repair(w, 2);
+    expect(buildFrame(w, 'a').denied).toEqual([repairDenial(2, 'cooling')]);
+    expect(a.hp).toBe(hp);
+    expect(a.repairHp).toBe(0);
+    expect(a.repairReadyAt).toBe(ready);
+    expect(w.tickEvents.some((e) => e.k === 'heal')).toBe(false);
+  });
+
+  it('a FROZEN room (weapons locked) refuses a repair press SILENTLY: no denial, no heal, no cooldown', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.hp = a.stats.maxHp / 2;
+    a.lastDamagedAt = w.now;
+    w.weaponsEnabled = false;
+    const hp = a.hp;
+    repair(w, 1);
+    expect('denied' in buildFrame(w, 'a')).toBe(false);
+    expect(a.hp).toBe(hp);
+    expect(a.repairReadyAt).toBe(0);
   });
 
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'warspite'); // heading 0 ⇒ rear sector centers on π
     w.map.islands.push(circleIsland(-60, 0, 20)); // the rock the click lands on
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 60 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: Math.PI, aimDist: 60 }));
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'blocked', seq: 1 }]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'blocked', seq: 1 }]);
     // Charge AND reload untouched — the previously wasted charge is kept. The
     // rack is 2-deep at base since the 2026-08-04 balance pass, so "untouched"
     // means BOTH drops still aboard.
-    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 });
     expect(w.mines.size).toBe(0);
   });
 
@@ -212,22 +238,22 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     // Facing map-inward (heading π → bow along −x), the rear sector centers on
     // +x — a click 60u astern from 30u inside the rim lands past the edge.
     const a = place(w, 'a', w.map.radius - 30, 0, Math.PI, 'warspite');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: 0, aimDist: 60 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 60 }));
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'blocked', seq: 1 }]);
-    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'blocked', seq: 1 }]);
+    expect(a.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
   });
 
   it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'warspite');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
-    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'out-of-arc', seq: 1 }]);
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_MINE, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 2 }]);
-    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'out-of-arc', seq: 2 }]);
+    expect(a.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
     expect(w.mines.size).toBe(0);
   });
 });
@@ -292,7 +318,7 @@ describe('blocked-drop geometry sanity (Story 2.8: clicked mine placement)', () 
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'warspite');
     w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the click
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 60 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(w.mines.size).toBe(1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);

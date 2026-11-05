@@ -16,6 +16,7 @@
 import {
   CONFIG,
   FOG_SOLID_DENSITY,
+  abilityFromCode,
   isAfloat,
   type ShellFamily,
   type ShellState,
@@ -93,13 +94,6 @@ export interface BotReadouts {
    *  broadside, star, phosphor or fouling shell): the denominator for the
    *  two counters below. Per SHELL, so a three-gun turret salvo is three. */
   gunShells: number;
-  /** Shells (any gun-pattern shell with an aim point) whose aim point fell
-   *  within CONFIG.buoy.sizeU + CONFIG.vision.radarCellU of an ENEMY decoy
-   *  buoy — the bait taken. */
-  shotsAtDecoy: number;
-  /** As shotsAtDecoy, but at the bot's OWN decoy (counted first; a shell near
-   *  both is own). Should be ~0: the brain excludes its own buoys. */
-  shotsAtOwnDecoy: number;
   /** Deck-gun shells whose aim distance from the muzzle exceeded the gun's
    *  `attenRangeU` (fired past full range, into the attenuated reach), per family. */
   shotsBeyondRange: Record<ShellFamily, number>;
@@ -123,14 +117,15 @@ export interface BotReadouts {
   /** Ability presses (`ship.lastActSeq` advance — consumed presses, refused
    *  ones included, like `shots`). */
   actPresses: number;
-  /** Those presses by the item fitted in the pressed slot (`input.actSlot`
-   *  read off `ship.loadout`); 'empty' for an empty / out-of-range slot. */
-  pressesByItem: Record<string, number>;
+  /** Those presses by the ability they named (`input.act` through the shared
+   *  `abilityFromCode`, Story 10.5: shift / repair / smoke); 'unknown' for a
+   *  code the shared table does not name. */
+  pressesByAbility: Record<string, number>;
   /** Activations that TOOK EFFECT, read off what they left behind: clouds
-   *  (countermeasure), lit zones (starZone), burn zones (phosphorZone), foul
-   *  zones (foulZone) by ownerId; `boost` / `hunker` window opens and `shield`
-   *  raises off the hull's own stamps; `heal` off the `heal` event (HULL
-   *  REPAIR). Decoys and mines are `decoysDeployed` / `minesLaid`. */
+   *  (countermeasure — the SMOKE ability), lit zones (starZone), burn zones
+   *  (phosphorZone), foul zones (foulZone) by ownerId; `boost` / `hunker`
+   *  window opens off the hull's own stamps; `heal` off the `heal` event
+   *  (HULL REPAIR). Mines are `minesLaid`. */
   activations: Record<string, number>;
 }
 
@@ -143,8 +138,6 @@ export function emptyBotReadouts(): BotReadouts {
     stormDeathAground: 0,
     killsBySource: {},
     gunShells: 0,
-    shotsAtDecoy: 0,
-    shotsAtOwnDecoy: 0,
     shotsBeyondRange: emptyFamilyTally(),
     litShots: 0,
     starShellsFired: 0,
@@ -154,7 +147,7 @@ export function emptyBotReadouts(): BotReadouts {
     fogTicks: 0,
     fogTicksByPosture: emptyPostureTally(),
     actPresses: 0,
-    pressesByItem: {},
+    pressesByAbility: {},
     activations: {},
   };
 }
@@ -184,7 +177,6 @@ interface ReadoutTrack {
   actSeq: number;
   boostUntil: number;
   hunkerUntil: number;
-  shieldUp: boolean;
 }
 
 const bump = (rec: Record<string, number>, key: string, by = 1): void => {
@@ -239,7 +231,6 @@ export class BotReadoutCollector {
         actSeq: 0,
         boostUntil: 0,
         hunkerUntil: 0,
-        shieldUp: false,
       });
     }
   }
@@ -283,7 +274,7 @@ export class BotReadoutCollector {
       postureTransitions: { ...r.postureTransitions },
       tacticCounts: { ...r.tacticCounts },
       fogTicksByPosture: { ...r.fogTicksByPosture },
-      pressesByItem: { ...r.pressesByItem },
+      pressesByAbility: { ...r.pressesByAbility },
       activations: { ...r.activations },
     };
   }
@@ -338,19 +329,15 @@ export class BotReadoutCollector {
     t.actSeq = ship.lastActSeq;
     if (diff <= 0) return;
     t.out.actPresses += diff;
-    const item = ship.loadout[ship.input.actSlot]?.equipmentId ?? 'empty';
-    bump(t.out.pressesByItem, item, diff);
+    bump(t.out.pressesByAbility, abilityFromCode(ship.input.act) ?? 'unknown', diff);
   }
 
-  /** Window OPENS (a stamp that moved forward) and a shield going up. */
+  /** Window OPENS (a stamp that moved forward). */
   private noteHullStamps(t: ReadoutTrack, ship: ShipRecord): void {
     if (ship.boostUntil > t.boostUntil) bump(t.out.activations, 'boost');
     if (ship.hunkerUntil > t.hunkerUntil) bump(t.out.activations, 'hunker');
-    const up = ship.shield !== null;
-    if (up && !t.shieldUp) bump(t.out.activations, 'shield');
     t.boostUntil = ship.boostUntil;
     t.hunkerUntil = ship.hunkerUntil;
-    t.shieldUp = up;
   }
 
   private noteNewShells(world: World): void {
@@ -359,7 +346,7 @@ export class BotReadoutCollector {
       next.add(s.id);
       if (this.seen.shell.has(s.id)) continue;
       const t = this.tracks.get(s.ownerId);
-      if (t !== undefined) creditShell(world, t.out, s);
+      if (t !== undefined) creditShell(t.out, s);
     }
     this.seen.shell = next;
   }
@@ -430,13 +417,9 @@ function survivorsTookFire(world: World, survivors: readonly ShipRecord[]): bool
   return false;
 }
 
-/** The decoy radius a shell's aim point is matched within. */
-const decoyReach = (): number => CONFIG.buoy.sizeU + CONFIG.vision.radarCellU;
-
 /** Fold one newly launched shell into its owner's shot counters. */
-function creditShell(world: World, o: BotReadouts, s: ShellState): void {
+function creditShell(o: BotReadouts, s: ShellState): void {
   if (s.lit !== undefined) o.starShellsFired += 1;
-  noteDecoyAim(world, o, s);
   if (!isDeckGunShell(s) || s.family === null) return;
   o.gunShells += 1;
   if (s.attenRangeU === undefined) {
@@ -445,19 +428,4 @@ function creditShell(world: World, o: BotReadouts, s: ShellState): void {
   }
   if (s.targetX === null || s.targetY === null || s.originX === undefined || s.originY === undefined) return;
   if (Math.hypot(s.targetX - s.originX, s.targetY - s.originY) > s.attenRangeU) o.shotsBeyondRange[s.family] += 1;
-}
-
-function noteDecoyAim(world: World, o: BotReadouts, s: ShellState): void {
-  if (s.targetX === null || s.targetY === null) return;
-  const reach = decoyReach();
-  let enemy = false;
-  for (const d of world.decoys.values()) {
-    if (Math.hypot(d.x - s.targetX, d.y - s.targetY) > reach) continue;
-    if (d.ownerId === s.ownerId) {
-      o.shotsAtOwnDecoy += 1;
-      return;
-    }
-    enemy = true;
-  }
-  if (enemy) o.shotsAtDecoy += 1;
 }

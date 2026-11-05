@@ -80,7 +80,7 @@ function pose(rec: ShipRecord, x: number, y: number, heading: number, speed: num
 }
 
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Full ahead at the hull's rated max — the speed the kinematics hold. */
@@ -366,28 +366,8 @@ describe('the BLEED (amendment 83 — sliding + pressing speed, delivered like t
     expect(reports.length).toBeLessThanOrEqual(2);
     for (const e of reports) expect(e.amount).toBeGreaterThan(0);
   });
-
-  it('(d) a SHIELD BLOCK absorbs the bleed: no hp moves while it holds, and the window still reports as dmg 0', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', -49, 0);
-    const b = place(w, 'b', 49, 0, Math.PI);
-    setInput(a, { throttle: 1 });
-    setInput(b, { throttle: 1 });
-    const max = a.stats.kinematics.maxSpeed;
-    const vn = 2 * max;
-    const hit = contactHitDamage(a.stats.armor, b.stats.armor, vn, RAM);
-    a.shield = { hpLeft: hit.a + 1000, until: Number.MAX_SAFE_INTEGER };
-    const events = stepPressed(w, a, b, max, 1);
-    expect(b.hp).toBeLessThan(b.stats.maxHp);
-    expect(a.hp).toBe(a.stats.maxHp);
-    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([0]); // the absorbed strike still reports
-    const tickA = pressBleedTick(a, b, vn);
-    expect(a.shield!.hpLeft).toBeCloseTo(1000 - tickA, 6); // the strike and this tick's bleed, off the shield
-    const later = stepPressed(w, a, b, max, WINDOW_TICKS);
-    expect(a.hp).toBe(a.stats.maxHp);
-    expect(a.shield!.hpLeft).toBeCloseTo(1000 - tickA * (WINDOW_TICKS + 1), 6);
-    expect(dmgOf(later, 'a').map((e) => e.amount)).toEqual([0]); // one absorbed window, reported once
-  });
+  // ((d), the SHIELD BLOCK absorbing the bleed, was deleted with the shield —
+  // Story 10.5, epic-10 amendment 11.)
 });
 
 describe('LAND (amendment 81: the strike on the edge, the scrape on the sliding speed, a pinned or parked hull pays nothing more)', () => {
@@ -554,7 +534,7 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     expect(w.drones.targetOf('d1')).toBe('a');
   });
 
-  it('HUNKER and SHIELD BLOCK apply to a contact HIT like any damage (amendment 75)', () => {
+  it('HUNKER applies to a contact HIT like any damage (amendment 75; the SHIELD BLOCK half left with Story 10.5)', () => {
     // The cut: the blow takes the victim's Armor + the cut's bonus (Story 9.7, epic-9
     // amendments 86–88 / 110–117) and is floored.
     const cutW = bareWorld();
@@ -566,15 +546,6 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
       Math.floor(nominal.a * damageMultiplierFor(a.stats.armor + a.stats.equipment.hunker.armorBonus - b.stats.power)),
     ]);
     expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([nominal.b]); // b carries no cut
-    // The shield: a block bigger than the blow eats it whole.
-    const shW = bareWorld();
-    const pair = headOnPair(shW);
-    pair.a.shield = { hpLeft: nominal.a + 100, until: Number.MAX_SAFE_INTEGER };
-    const shielded = stepUntil(shW, () => pair.b.hp < pair.b.stats.maxHp);
-    expect(pair.a.hp).toBe(pair.a.stats.maxHp);
-    expect(pair.a.shield!.hpLeft).toBeLessThanOrEqual(100); // the strike, then this tick's bleed
-    expect(pair.a.shield!.hpLeft).toBeGreaterThan(100 - contactGrindRate(pair.a.stats.armor, pair.b.stats.armor, 0, pair.vn, RAM).a * DT - 1e-9);
-    expect(dmgOf(shielded.events, 'a').map((e) => e.amount)).toEqual([0]); // the absorbed blow still reports
   });
 
   it('a RAM between two hulls: each blow carries the OTHER hull\'s ARMOR PIERCING, read live (Story 9.9, epic-9 amendments 146–147 / 156)', () => {

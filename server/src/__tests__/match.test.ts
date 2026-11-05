@@ -6,7 +6,7 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, MULLIGAN_CHOICE, damageMultiplierFor, effectiveStats, type ResultsMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, FAMILY_SLOT, MULLIGAN_CHOICE, damageMultiplierFor, effectiveStats, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
@@ -109,7 +109,7 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
 /** The Mine Layer's mine rack: the FIRST weapon slot (Q). Story 8.10 deleted
  *  the spawn seed that used to put it there, so the mine fixtures fit the
  *  card themselves (fitRack) — the slot is the same one. */
-const SLOT_MINE_ML = 2;
+const SLOT_MINE_ML = FAMILY_SLOT.mine; // the E slot since Story 10.5 (families)
 
 /** Fit a hull's class weapon card, the way a countdown pick would. */
 function fitRack(ctx: Ctx, id: string): void {
@@ -118,13 +118,7 @@ function fitRack(ctx: Ctx, id: string): void {
 
 function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   // seq doubles as the click counter: every call is one fresh click.
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
-}
-
-/** One fresh ability press (actSeq advance) on `actSlot` (boost/decoy). seq
- *  doubles as the press counter. */
-function press(ctx: Ctx, id: string, actSlot: 0 | 1 | 2, seq: number): void {
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot, hornSeq: 0, held: false, sec: false });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
 }
 
 /** One fresh mine CLICK (Story 2.8, amendment 45: the mine is an aimed weapon
@@ -133,7 +127,7 @@ function press(ctx: Ctx, id: string, actSlot: 0 | 1 | 2, seq: number): void {
 function mineClick(ctx: Ctx, id: string, slot: number, seq: number): void {
   const heading = ctx.w.ships.get(id)!.state.heading;
   const aim = heading + Math.PI; // rear-sector center
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist: CONFIG.mine.placeRange / 2, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist: CONFIG.mine.placeRange / 2, slot, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
 }
 
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */

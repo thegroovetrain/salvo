@@ -620,33 +620,41 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
-  it('the ELEVEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
-    expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
+  it('the shipped rows declare exactly the ruled masks; no stub row exists', () => {
+    // THE `decoy` KIND IS GONE (Story 10.5, Eric 2026-11-05, epic-10 amendment
+    // 11): the buoys are deleted, so no mask names it.
+    expect(CONFIG.gun.hits).toEqual(['hull', 'mine']);
     // Amendment 200 (Eric 2026-10-01): only the three DECK GUNS damage a mine
     // (by landing on it) — the broadside barrage and phosphor shells lost `mine`.
-    expect(CONFIG.broadside.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'decoy']);
-    // (CONFIG.radarBuoy — the GUN BUOY's mask — DELETED with the buoy, Story 8.16.)
-    expect('radarBuoy' in CONFIG).toBe(false);
-    expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.starShells.hits).toEqual(['hull', 'decoy']); // illumination detonates nothing
+    expect(CONFIG.broadside.hits).toEqual(['hull']);
+    expect(CONFIG.phosphorShells.hits).toEqual(['hull']);
+    expect(CONFIG.torpedo.hits).toEqual(['hull']);
+    expect(CONFIG.starShells.hits).toEqual(['hull']); // illumination detonates nothing
     expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
     // STORY 8.13's ROWS. Every torpedo runs UNDER a minefield (AR44) and every
     // mine trips on hulls only, so the two new masks are their families'.
-    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull']);
     expect(CONFIG.foulingMines.hits).toEqual(['hull']);
+    // The two burst shells of the special-shell slot hit hulls only.
+    expect(CONFIG.flashShells.hits).toEqual(['hull']);
+    expect(CONFIG.foulingShell.hits).toEqual(['hull']);
+    // The main battery's shell (Story 10.4): hulls, no mine bit.
+    expect(CONFIG.mainBattery.hits).toEqual(['hull']);
     // CAPTIVE MINES declares NO mask of its own and needs none: the mine never
-    // detonates on contact — it LAUNCHES a fish, which flies under the
+    // detonates on contact — it LAUNCHES a torpedo, which flies under the
     // torpedo family's mask (CONFIG.torpedo.hits).
     expect('hits' in CONFIG.captiveMines).toBe(false);
     // STORY 8.15's two PICKABLE GUNS (AR44, amendments 96f/105): the machine
     // gun is DIRECT-HIT with no burst, and since amendment 200 a shell of its
     // that ARRIVES on a mine damages it, so it carries `mine`; the flak gun
-    // carries AR44's full `hull | mine | decoy | ordnance` (the ordnance half
-    // a side effect nothing leans on).
-    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'decoy']);
-    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
+    // adds `ordnance` (a side effect nothing leans on).
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine']);
+    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance']);
+    // No mask anywhere names a kind outside the vocabulary.
+    for (const block of Object.values(CONFIG) as { hits?: readonly string[] }[]) {
+      for (const kind of block.hits ?? []) expect(['hull', 'mine', 'ordnance']).toContain(kind);
+    }
     // The CUT lines never get a row (amendment 89e).
     for (const row of ['missile', 'monitor']) {
       expect(row in CONFIG, row).toBe(false);
@@ -724,162 +732,6 @@ describe('stepShell — a DIRECT shell expires at its aim point, never bursts (S
 // above are byte-identical, and one of them ('the SAME geometry without arcing
 // is intercepted') was the arcing block's own control case, already covered by
 // 'an island far from the target stops the shell dead'.
-
-// --- Story 8.16: the DECOY BUOY and NO FRIENDLY FIRE (amendment 119) ---------
-// `Target.ownerId` rides a decoy. The OWNER's own fish pass through it, the
-// owner's own shells and bursts pass over it, and the owner's own homing never
-// acquires it; an ENEMY's ordnance treats it like any target. The skip is in
-// the pure sweep / acquire / burst math, so both sides agree by construction.
-
-/** A BUOY target (the `decoy` body, Story 10.9): a `CONFIG.buoy.sizeU` square centred on (x, y). */
-function decoyAt(x: number, y: number, ownerId: string | undefined, id = 'd1'): Target {
-  const h = CONFIG.buoy.sizeU / 2;
-  const poly = [
-    { x: x - h, y: y - h },
-    { x: x + h, y: y - h },
-    { x: x + h, y: y + h },
-    { x: x - h, y: y + h },
-  ];
-  return ownerId === undefined ? { id, kind: 'decoy', poly } : { id, kind: 'decoy', poly, ownerId };
-}
-
-describe("stepShell / burstVictims — the OWNER'S own decoy is never touched (Story 8.16, amendment 119)", () => {
-  it("an owner's CONTACT projectile (the torpedo rule) passes THROUGH its own decoy and expires", () => {
-    expect(stepToOutcome(shell(), ctx({ targets: [decoyAt(300, 0, 'owner')] })).kind).toBe('expired');
-  });
-
-  it("an ENEMY's contact projectile hits the same decoy (it is the victim)", () => {
-    const out = stepToOutcome(shell({ ownerId: 'enemy' }), ctx({ targets: [decoyAt(300, 0, 'owner')] }));
-    expect(out.kind).toBe('hitShip');
-    if (out.kind === 'hitShip') expect(out.victimId).toBe('d1');
-  });
-
-  it("an owner's GUN SHELL flies over its own decoy on the path and bursts at its own aim point", () => {
-    const over = stepToOutcome(gunShell(600), ctx({ targets: [decoyAt(300, 0, 'owner')] }));
-    expect(over).toEqual({ kind: 'burst', x: 600, y: 0 });
-    // byte-identical to the same shot over empty water
-    expect(over).toEqual(stepToOutcome(gunShell(600), ctx({ targets: [] })));
-  });
-
-  it("an owner's burst DIRECTLY on its own decoy resolves NO victim; an enemy's burst there resolves the decoy", () => {
-    const own = decoyAt(300, 0, 'owner');
-    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'owner')).toEqual([]);
-    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'enemy')).toEqual([own]);
-  });
-
-  it("the owner's own decoy is skipped, an enemy decoy is a victim, and no mine ever is (amendment 200)", () => {
-    const own = decoyAt(0, 0, 'owner');
-    const enemy = decoyAt(0, 0, 'enemy', 'd2');
-    const ownMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 0, y: 0 }], ownerId: 'owner' };
-    expect(burstVictims({ x: 0, y: 0 }, 10, [own, ownMine, enemy], 'owner').map((t) => t.id)).toEqual(['d2']);
-  });
-
-  it("an owner's homing fish never ACQUIRES its own decoy (no steer, no lock); an enemy's does", () => {
-    const own = homingTorp();
-    stepShell(own, ctx({ targets: [decoyAt(80, 50, 'owner')] }));
-    expect(own.homing!.targetId).toBeUndefined();
-    expect(own.vy).toBe(0);
-    const enemy = homingTorp({ ownerId: 'enemy' });
-    stepShell(enemy, ctx({ targets: [decoyAt(80, 50, 'owner')] }));
-    expect(enemy.homing!.targetId).toBe('d1');
-    expect(enemy.vy).toBeGreaterThan(0);
-  });
-
-  it('a decoy with NO ownerId is never skipped — the skip keys on a real owner match only', () => {
-    const out = stepToOutcome(shell(), ctx({ targets: [decoyAt(300, 0, undefined)] }));
-    expect(out.kind).toBe('hitShip');
-    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [decoyAt(300, 0, undefined)], 'owner'))
-      .toHaveLength(1);
-  });
-
-  it('mines are STILL never a sweep subject, whatever their ownerId (amendment 20 unchanged)', () => {
-    const enemyMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 300, y: 0 }], ownerId: 'enemy' };
-    expect(stepToOutcome(shell(), ctx({ targets: [enemyMine] })).kind).toBe('expired');
-  });
-});
-
-// --- Story 10.9: homing PREFERS an enemy buoy (Eric 2026-10-28, ruling 3) ----
-// Any ENEMY buoy (a `decoy` target not the owner's) inside the fish's acquire
-// range wins: the fish locks the NEAREST BUOY and ignores every hull. With no
-// enemy buoy in range the nearest-hull law is unchanged. Own buoys are never a
-// target (no friendly fire). The acquire range is read from CONFIG, never
-// pinned. The fish's velocity is left pointing +x so the lock alone is read.
-
-describe('acquireNearest via stepShell — an enemy buoy in range beats every hull (Story 10.9, ruling 3)', () => {
-  const R = CONFIG.torpedo.homingAcquireRange;
-  const nearD = Math.floor(R / 12); // "near" — a hull a fish would otherwise lock first
-  const farD = Math.floor(R * 0.9); // "far" — still inside the acquire range
-
-  /** A fish with homing at CONFIG values, launched from the origin along +x. */
-  function fish(ownerId = 'owner'): ShellState {
-    return homingTorp({ ownerId });
-  }
-
-  it('a hull at 1/12 R and an ENEMY buoy at 0.9 R → the BUOY is locked', () => {
-    const t = fish();
-    stepShell(t, ctx({ targets: [hullAt(nearD, 0, 0, 'prey'), decoyAt(farD, 0, 'enemy', 'eb')] }));
-    expect(t.homing!.targetId).toBe('eb');
-  });
-
-  it('the OWN buoy at 1/12 R and a hull at 0.9 R → the HULL (own buoys are never a target)', () => {
-    const t = fish();
-    stepShell(t, ctx({ targets: [decoyAt(nearD, 0, 'owner', 'ob'), hullAt(farD, 0, 0, 'prey')] }));
-    expect(t.homing!.targetId).toBe('prey');
-  });
-
-  it('an enemy buoy OUTSIDE R and a hull inside → the hull (the preference is bounded by the acquire range)', () => {
-    const t = fish();
-    stepShell(t, ctx({ targets: [decoyAt(R + 10, 0, 'enemy', 'eb'), hullAt(farD, 0, 0, 'prey')] }));
-    expect(t.homing!.targetId).toBe('prey');
-  });
-
-  it('two enemy buoys in range → the NEARER buoy, whatever the hulls', () => {
-    const t = fish();
-    stepShell(t, ctx({
-      targets: [hullAt(nearD, 0, 0, 'prey'), decoyAt(farD, 0, 'enemy', 'farB'), decoyAt(farD / 2, 0, 'other', 'nearB')],
-    }));
-    expect(t.homing!.targetId).toBe('nearB');
-  });
-
-  it('no buoy at all → the nearest hull exactly as before (and the owner is still skipped)', () => {
-    const t = fish();
-    stepShell(t, ctx({ targets: [hullAt(nearD, 0, 0, 'owner'), hullAt(farD, 0, 0, 'farther'), hullAt(farD / 2, 0, 0, 'nearer')] }));
-    expect(t.homing!.targetId).toBe('nearer');
-  });
-
-  it('PROPERTY: over seeded layouts, a buoy is locked iff an enemy buoy lies within R', () => {
-    let seed = 0x10_09;
-    const rnd = () => {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 0x1_0000_0000;
-    };
-    for (let i = 0; i < 200; i += 1) {
-      const targets: Target[] = [];
-      const nHulls = 1 + Math.floor(rnd() * 3);
-      const nBuoys = Math.floor(rnd() * 3);
-      for (let h = 0; h < nHulls; h += 1) {
-        const a = rnd() * Math.PI * 2;
-        const d = rnd() * R * 1.5;
-        targets.push(hullAt(Math.cos(a) * d, Math.sin(a) * d, 0, `h${h}`));
-      }
-      let enemyBuoyInRange = false;
-      for (let b = 0; b < nBuoys; b += 1) {
-        const a = rnd() * Math.PI * 2;
-        const d = rnd() * R * 1.5;
-        const own = rnd() < 0.3;
-        // Keep the centre clear of the band edge so the inclusive compare is unambiguous.
-        if (Math.abs(d - R) < 1) continue;
-        if (!own && d < R) enemyBuoyInRange = true;
-        targets.push(decoyAt(Math.cos(a) * d, Math.sin(a) * d, own ? 'owner' : 'enemy', `b${b}`));
-      }
-      const t = fish();
-      stepShell(t, ctx({ targets, mapRadius: 10_000 }));
-      const locked = t.homing!.targetId;
-      const lockedKind = targets.find((x) => x.id === locked)?.kind;
-      expect(lockedKind === 'decoy', `layout ${i}: locked ${locked ?? 'nothing'}`).toBe(enemyBuoyInRange);
-    }
-  });
-});
 
 // --- Story 2.8 doctrines: homing (ACOUSTIC HOMING) --------------------------
 

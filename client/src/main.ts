@@ -11,9 +11,11 @@ import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
+  EQUIPMENT_IS_WEAPON,
   MSG,
+  SLOT_BOOST,
+  abilityCode,
   MULLIGAN_CHOICE,
   NO_CARDS,
   boostedKinematics,
@@ -24,23 +26,20 @@ import {
   equipmentReloadMs,
   hullEnvelope,
   hullSilhouette,
-  consumableSlotFor,
-  isConsumableId,
+  abilityFromCode,
+  equipmentMaxAmmo,
   isOutside,
-  isWeaponItem,
-  slotMaxAmmo,
   slotsWithCards,
-  SLOT_COUNT,
   FOG_NO_CUT,
   type Island,
   type InputMsg,
   type ContactBody,
   type DeniedView,
-  type ConsumableKit,
+  type AbilityId,
+  type CooldownAbilityId,
   type EffectiveStats,
   type EquipmentId,
   type ShiftId,
-  type SlotItemId,
   type GameMap,
   type HullId,
   type OwnShip,
@@ -66,8 +65,6 @@ import { clickInArc, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Decoys } from './render/decoys.js';
-import { BuoySweep, buoySweepModels } from './render/buoySweep.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
@@ -85,7 +82,7 @@ import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
 import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
 import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './render/hud.js';
-import { hpGlobeHoldsLit, railFraction, shieldPoolHp } from './render/hpGlobe.js';
+import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
 import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
 import { HudBar, hudBarTopInset, type HudBarView } from './render/hudBar.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
@@ -94,14 +91,13 @@ import { slotForCard } from './render/equipmentInfo.js';
 import { xpStripView } from './render/xpStrip.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
-import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
+import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
+import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import {
   KeyboardInput,
-  beltPressDenied,
-  refitCloseStamp,
-  refitGraceActive,
+  cooldownAbilityDenied,
   slotHoldsAbility,
   type Axes,
   type KeyboardHooks,
@@ -112,6 +108,7 @@ import {
   frontOfferSignature,
   mulliganLanded,
   offerView,
+  pickableChoice,
   shouldAutoOpen,
   spendOutcome,
   type OfferView,
@@ -124,6 +121,7 @@ import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { OwnBattery } from './sim/ownBattery.js';
+import { OPEN_LATCHES, latchHolds, latchOnOwnFrame, latchPress, latchRelease, type AbilityLatches } from './sim/abilityLatch.js';
 import { batteryClickPrediction, batteryWouldFire, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
@@ -144,7 +142,7 @@ import { clearResumeToken, loadPrivateMatch, loadResumeToken, savePrivateMatch }
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
-import { Predictor, composedBoostFactor, topBoostFactor, type RenderPose } from './sim/prediction.js';
+import { Predictor, type RenderPose } from './sim/prediction.js';
 import { ContactBodies } from './sim/contactBodies.js';
 import { ContactFx } from './render/contactFx.js';
 import { bleedSpeed } from './sim/contactBleed.js';
@@ -153,7 +151,6 @@ import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
   loadSavedShift,
-  loadSavedKit,
   loadSavedMode,
   loadSavedName,
   saveMode,
@@ -279,12 +276,6 @@ interface Game {
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
-  /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced from
-   *  FrameMsg.decoys, the mines precedent (Story 1.8). */
-  decoys: Decoys;
-  /** RADAR BUOY second sweeps (render/buoySweep.ts, Story 10.9) — one wedge
-   *  per own radar buoy, on the own beam's chart layer. */
-  buoySweep: BuoySweep;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -335,10 +326,11 @@ interface Game {
   hud: Hud;
   /**
    * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the nine-slot row (SLOT_COUNT) (the
-   * five weapon squares, then the framed belt of the kit's four consumables (keys 1–4, Story 10.1; six from Story 9.11 until then) — the loadout surface, its full state grammar, hover
-   * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
-   * with its banked-level chip. Shown only while conning a hull in-match.
+   * that replaced the three corners: the HP globe, the run of squares (Gun ·
+   * Sec · Shift · Q · E · R · C · V since Story 10.5 — the loadout surface, its
+   * full state grammar, hover tooltip and key-equivalent slot clicks), the helm
+   * globe and the XP strip with its banked-level chip. Shown only while conning
+   * a hull in-match.
    */
   hudBar: HudBar;
   /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
@@ -460,6 +452,10 @@ interface Game {
    *  Story 1.10: predicted denials mark their key; a matching server denial
    *  is suppressed; an unmatched one fires the feedback late-but-explicit. */
   denialDedup: DenialDedup;
+  /** The C / V press latch (sim/abilityLatch.ts, Story 10.5 review gate): an
+   *  accepted press of a cooldown ability refuses further presses of it until
+   *  the server's word (the stamp on an own frame, or a denial) arrives. */
+  abilityLatch: AbilityLatches;
   /** One-shot latch: an UNMATCHED server denial landed on a WEAPON slot since
    *  the last render frame — consumed by renderFiring into the full denied
    *  pulse (arc/reticle red), the same visual a predicted denied click drives. */
@@ -694,27 +690,10 @@ interface Game {
    * split (slotHoldsAbility), the HUD chip row, and the pre-frame ammo
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
-  ownSlots: readonly (SlotItemId | null)[];
-  /**
-   * Own consumable KIT (Story 10.1, epic-10 amendment 3) — the four lines in
-   * key order, `kit[i]` at slot `5 + i`. Comes from the WIRE (`OwnShip.kit`,
-   * self-private) through the ownStatsChanged seam, never from localStorage;
-   * `DEFAULT_KIT` is only the placeholder until the first own-ship frame (the
-   * way `ownClass` starts as a guess). `ownSlots` is replayed from it, and the
-   * hotbar / results twin / fit flash name a kit square's kind through it.
-   */
-  ownKit: ConsumableKit;
-  /**
-   * performance.now() when the refit window last CLOSED (-Infinity until it
-   * ever has — so a fresh match is never inside the grace). For
-   * CLIENT_CONFIG.refit.closeGraceMs afterwards the digits `1`-`4` are inert:
-   * they mean two different things either side of that close (pick a card /
-   * fire a belt square), and the key that spent the last banked level is still
-   * held when the window goes away (Story 8.7, ruling 8).
-   */
-  refitClosedAt: number;
-  /** The refit window's visibility on the PREVIOUS render frame — the other
-   *  half of the one watcher that owns both of its edges (`watchRefitWindow`). */
+  ownSlots: readonly (EquipmentId | null)[];
+  /** The refit window's visibility on the PREVIOUS render frame — the half of
+   *  the one watcher that owns its open edge (`watchRefitWindow`). (The close
+   *  stamp and the digits' grace left with the kit keys — Story 10.5.) */
   refitWasOpen: boolean;
   /**
    * THE ONE FREE REDRAW, already spent this match (Story 8.10, amendment 60).
@@ -769,8 +748,7 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  * captain's pick, no longer the hull's): the same `shift` the server fits
  * slot 1 from (`OwnShip.shift`).
  *
- * THE KIT SQUARES ARE REPLAYED FROM THE SEAT'S KIT (Story 10.1): `kit[i]` is
- * the only line slot `5 + i` can hold — the server's own `loadoutFor` input.
+ * (The kit squares and their seat kit left with the kit — Story 10.5.)
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
@@ -780,11 +758,10 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 function slotIdsFor(
   stats: EffectiveStats,
   cards: readonly string[],
-  cls: ShipClassId,
-  kit: ConsumableKit,
+  _cls: ShipClassId,
   shift: ShiftId = DEFAULT_SHIFT,
-): (SlotItemId | null)[] {
-  return slotsWithCards(stats, cards, kit, CATALOG, false, shift).map((s) => s.equipmentId);
+): (EquipmentId | null)[] {
+  return slotsWithCards(stats, cards, CATALOG, false, shift).map((s) => s.equipmentId);
 }
 
 /**
@@ -796,14 +773,10 @@ function slotIdsFor(
 function ownAmmo(
   you: OwnShip | null,
   stats: EffectiveStats,
-  slots: readonly (SlotItemId | null)[],
+  slots: readonly (EquipmentId | null)[],
 ): (WeaponAmmo | null)[] {
-  // `slotMaxAmmo` (Story 8.7, ruling 16) routes EITHER kind of slot content: a
-  // consumable's pool is its catalog `cap`, an equipment's is its stats row.
-  // Never `equipmentMaxAmmo` directly any more — that record is keyed by
-  // EquipmentId and a belt slot's id is not in it.
   return (
-    you?.ammo ?? slots.map((id) => (id === null ? null : { n: slotMaxAmmo(stats, id), reloadMsLeft: 0 }))
+    you?.ammo ?? slots.map((id) => (id === null ? null : { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 }))
   );
 }
 
@@ -822,18 +795,6 @@ function boostUntilNow(g: Game): number {
   return g.state.net.you?.boostUntil ?? 0;
 }
 
-/**
- * hp — SHIELD BLOCK's remaining absorb off the server's own-ship (Story 8.16).
- * The `shield` key is ABSENT when no shield is up (the conditional-spread wire
- * rule), so a missing seat — or a missing `you` — reads 0. Server-
- * authoritative, never predicted (the `repairHp` precedent).
- */
-function ownShieldHp(you: OwnShip | null): number {
-  // ...plus the SHIELD BUOY's pool (Story 10.9, AC 7): the globe shows every
-  // shield the hull holds, summed, in the one shielded fill.
-  return shieldPoolHp(you);
-}
-
 /** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
 function ownStatus(g: Game): OwnStatus {
   const you = g.state.net.you;
@@ -848,7 +809,6 @@ function ownStatus(g: Game): OwnStatus {
     // and `hp` already self-syncs every frame, so the HUD's only job is to show
     // what is coming.
     repairHp: you?.repairHp ?? 0,
-    shield: ownShieldHp(you), // SHIELD BLOCK's remaining absorb (Story 8.16)
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
@@ -1029,44 +989,20 @@ function tryAutoOpenRefit(g: Game): void {
 
 /**
  * THE ONE WATCHER over the refit window's visibility, and it is one on purpose:
- * the window closes by FIVE different paths (TAB, ESC, the last spend emptying
- * the bank, entering spectate, the you-gone force-hide) and opens by two, but
- * all of them move the SAME boolean — so watching that boolean once covers
- * every path, present and future, while a stamp written at each close site
- * would be five places to forget.
- *
- * The two edges carry the two rulings:
- *   • CLOSED (true → false): stamp `refitClosedAt`, which arms the digits'
- *     inert grace (ruling 8 — the key that picked the last card must not fall
- *     through onto the belt);
- *   • OPENED (false → true): end every live mouse HOLD (ruling 9). The modal's
- *     lockout already drops new presses, but a stream that was already running
- *     kept its hold — and the prime-revert it owes — open behind the window.
- *     The QUEUED ability presses are deliberately left alone: an already-queued
- *     press is a press, and it still rides its input.
+ * the window opens by two paths, both moving the SAME boolean, so watching it
+ * once covers every path. Its OPEN edge (false → true) ends every live mouse
+ * HOLD (Story 8.7, ruling 9): the modal's lockout already drops new presses,
+ * but a stream that was already running kept its hold — and the prime-revert
+ * it owes — open behind the window. The QUEUED ability presses are
+ * deliberately left alone: an already-queued press is a press, and it still
+ * rides its input. (The CLOSE edge's stamp and the digits' inert grace left
+ * with the kit keys — Story 10.5, 2026-11-05: a digit with the window closed
+ * does nothing, so there is nothing for it to fall through onto.)
  */
 function watchRefitWindow(g: Game): void {
   const open = g.upgradeMenu.visible;
   if (open && !g.refitWasOpen) g.mouse.endHolds();
-  g.refitClosedAt = refitCloseStamp(g.refitWasOpen, open, performance.now(), g.refitClosedAt);
   g.refitWasOpen = open;
-}
-
-/**
- * True while the refit window's close grace still swallows the digits (Story
- * 8.7, ruling 8) — the `resultsKeysArmed` shape, on the other side of its
- * comparison: the grace is `[closedAt, closedAt + closeGraceMs)`, so a digit at
- * the edge itself fires.
- *
- * ITS CALLER OBSERVES THE EDGE FIRST (review patch P3). TAB and ESC hide the
- * window SYNCHRONOUSLY inside their own keydown handlers, so a digit pressed in
- * that same task turn — before any rAF — used to see a window already closed
- * and a grace not yet stamped, and fell straight through onto the belt. The
- * chokepoint's hook therefore runs `watchRefitWindow` before asking this, which
- * is safe because the watcher is idempotent and the render frame still runs it.
- */
-function refitInGrace(g: Game | null): boolean {
-  return g !== null && refitGraceActive(performance.now(), g.refitClosedAt, CLIENT_CONFIG.refit.closeGraceMs);
 }
 
 /**
@@ -1144,20 +1080,13 @@ function handleRefitToggle(g: Game): void {
  */
 function handleRefitPick(g: Game, choice: number): void {
   if (!g.upgradeMenu.visible) return;
-  const view = currentOfferView(g);
-  if (!view || view.locked) return;
-  // EVERY CHOICE IS AN OFFER INDEX (Story 8.8). The DAMAGE CONTROL rail and its
-  // reserved negative sentinel are gone — healing is a card you stock and fire
-  // from the belt — so the bound below is the whole of the addressing rule.
-  if (choice < 0 || choice >= view.options.length) return;
-  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The line is
-  // at its cap, or a weapon has no free Q/E/R slot — the server would refuse it
-  // as a silent no-op — so the client refuses it first, with no MSG.spend, no
-  // spend latch and NO denied pulse. The refusal is already on screen (the card
-  // is dim, its chip dashed; a weapon's foot reads SLOTS FULL); a pulse would be the
-  // game shouting a fact the player is looking at, and a latch would spend 1.5s
-  // waiting for a reply that is never coming.
-  if (view.options[choice]?.greyed) return;
+  // EVERY CHOICE IS AN OFFER INDEX (Story 8.8), bounded by the offer it was
+  // dealt — a SHORT offer (Story 10.5) shows fewer cards, so a digit past its
+  // count does nothing. A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 /
+  // UX-DR52): the server would refuse it as a silent no-op, so the client
+  // refuses it first, with no MSG.spend, no spend latch and NO denied pulse —
+  // the refusal is already on screen. `pickableChoice` is the whole gate.
+  if (!pickableChoice(currentOfferView(g), choice)) return;
   trySpend(g, choice);
 }
 
@@ -1737,11 +1666,7 @@ function ownResultsIdentity(g: Game): ResultsOwn | null {
     // the hotbar paints from: `applyOwnStats` rewrites `g.ownSlots` and
     // `g.ownStats` in the frame handler that advances `net.you`, so they are
     // coherent with it at death and at game end alike — no second fold.
-    // The kit the loadout was replayed from (Story 10.1): names a ZERO-STOCK
-    // belt square's kind on the twin, exactly as on the live bar.
-    kit: g.ownKit,
     slots: g.ownSlots,
-    ammo: you.ammo,
     stats: g.ownStats,
   };
 }
@@ -1916,6 +1841,7 @@ function resetOwnOrders(g: Game): void {
   // a still-marked (slot, seq), suppressing a genuine later server denial as an
   // echo.
   g.denialDedup.clear();
+  g.abilityLatch = OPEN_LATCHES;
 }
 
 /** The elimination modal: personal score + placement, SPECTATE + RETURN TO PORT. */
@@ -2420,21 +2346,28 @@ function flashSlotDenied(g: Game, slot: number): void {
 }
 
 /**
- * Would this belt press be refused by a rule the client already holds (Story
- * 8.8 — today only a HULL REPAIR square at full hull or on a sinking hull)?
- * The hull's OWN numbers: `ownStats.maxHp` is the effectiveStats fold the HP
- * globe reads, and `sinking` is the same third-state predicate every control
- * gate uses. A null Game (the brief construction gap) refuses nothing.
+ * Would this `C` / `V` press be refused by a rule the client already holds
+ * (Story 10.5 — `cooldownAbilityDenied`, the re-home of Story 8.8's belt
+ * guard)? The hull's OWN numbers: `ownStats.maxHp` is the fold the HP globe
+ * reads, the cooldown stamp is the own block's (never predicted), read against
+ * the same server-clock estimate every other `…Until` field uses, and a
+ * sinking — or no longer conning — hull cannot press at all. A null Game (the
+ * brief construction gap) refuses nothing.
  */
-function beltPressRefused(g: Game | null, slot: number): boolean {
+function cooldownPressRefused(g: Game | null, id: CooldownAbilityId): boolean {
   if (g === null) return false;
+  // A press of this ability already accepted and awaiting the server's word
+  // (sim/abilityLatch.ts): refused like a cooling press, never sent again.
+  if (latchHolds(g.abilityLatch, id)) return true;
   const you = g.state.net.you;
-  return beltPressDenied(
-    g.ownSlots[slot] ?? null,
-    you?.hp ?? 0,
-    g.ownStats.maxHp,
-    isSinkingNow(you, g.clock.serverNow(), g.state.spectating),
-  );
+  const now = g.clock.serverNow();
+  return cooldownAbilityDenied(id, {
+    hp: you?.hp ?? 0,
+    maxHp: g.ownStats.maxHp,
+    sinking: isSinkingNow(you, now, g.state.spectating) || conningNow(g) === false,
+    now,
+    readyAt: id === 'repair' ? you?.repairReadyAt : you?.smokeReadyAt,
+  });
 }
 
 /**
@@ -2442,21 +2375,21 @@ function beltPressRefused(g: Game | null, slot: number): boolean {
  * over the late-bound Game (`getG` is the gRef late-binding — null only during
  * the brief construction gap). P and M fold in here (the old ad-hoc window
  * listener is gone); TAB/ESC/digits drive the refit modal; X/Z step the alive
- * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (the boost, slot 1)
- * consult the own loadout — weapon-vs-ability via `isWeaponItem` only (Story
- * 8.7, ruling 1: a belt slot's content may be a CONSUMABLE line id) —
- * and a weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied).
+ * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (slot 1) consult
+ * the own loadout — weapon-vs-ability via `EQUIPMENT_IS_WEAPON` only — and a
+ * weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied); C / V
+ * (Story 10.5) press their cooldown ability through the same FIFO.
  */
 function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   const withG = (fn: (g: Game) => void) => (): void => {
     const g = getG();
     if (g) fn(g);
   };
-  /** The ONE per-slot refusal mark — a denied chip flash + the denial tone. The
-   *  three refusals below all speak it: a press against the full FIFO, an EMPTY
-   *  square, and (Story 8.8) a stocked square the client already knows is
-   *  blocked. A player should learn one mark for "that key did nothing", not
-   *  three. */
+  /** The ONE per-square refusal mark — a denied chip flash + the denial tone.
+   *  The three refusals below all speak it: a press against the full FIFO, an
+   *  EMPTY square, and (Story 10.5) a `C` / `V` press the client already knows
+   *  is refused. A player should learn one mark for "that key did nothing",
+   *  not three. */
   const denySlot = (slot: number): void => {
     const g = getG();
     if (g) flashSlotDenied(g, slot);
@@ -2481,25 +2414,25 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
     },
     isSlotFitted: (slot) => (getG()?.ownSlots[slot] ?? null) !== null,
-    onAbility: (slot, actSeq) => {
+    onAbility: (id, actSeq) => {
       const g = getG();
-      if (g) handleAbilityPress(g, slot, actSeq);
+      if (g) handleAbilityPress(g, id, actSeq);
     },
     // A press against the full FIFO is DROPPED WITH FEEDBACK (Story 2.1 closes
     // the silent-drop debt). No dedup marking: the press never rides an input,
     // so no server echo can ever arrive for it.
-    onAbilityCapped: denySlot,
+    onAbilityCapped: (id) => denySlot(squareOfAbility(id)),
     // A WEAPON key (or a hotbar click) on an EMPTY slot — Story 8.5, epic-8
     // amendment 26. CLIENT-ONLY BY RULING: the pulse and the tone play, and
     // NOTHING is sent. The server's `'empty-slot'` denial stays server-internal
     // (a fair client can no longer reach it), so no wire denial reason was
     // added and there is nothing to dedup against.
     onEmptySlotDenied: denySlot,
-    // A STOCKED square the client already knows the server would refuse — and
-    // it says so in the SAME grammar an empty one uses (see beltPressRefused):
-    // one pulse, one tone, nothing on the wire.
-    isPressDenied: (slot) => beltPressRefused(getG(), slot),
-    onPressDenied: denySlot,
+    // A `C` / `V` press the client already knows the server would refuse
+    // (cooling, a repair on a full hull — Story 10.5): the SAME grammar an
+    // empty square uses, one pulse, one tone, nothing on the wire.
+    isAbilityDenied: (id) => cooldownPressRefused(getG(), id),
+    onAbilityDenied: (id) => denySlot(abilitySquare(id)),
     // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
     // press and applied the refit-modal suspension; everything else is here.
     onFoghorn: withG(handleFoghornPress),
@@ -2507,16 +2440,6 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     // the refit modal as ever, plus (Story 2.3) the settings overlay and the
     // results modal, which are focused overlays.
     isModalOpen: () => modalOpen(getG()),
-    // THE DIGITS' DEAD ZONE (Story 8.7, ruling 8). `1`-`4` pick a card with the
-    // window open and fire a BELT square with it closed, so the frames right
-    // after a close are the one place those two meanings can collide: the
-    // captain who spends their last banked level on `1` is still holding that
-    // key when the window goes away. For the grace it is swallowed — prevented,
-    // but neither picking nor firing. One watcher (watchRefitWindow) stamps the
-    // close; this only asks how long ago it was.
-    // The close edge is observed HERE, at the digit's own keydown (P3) — see
-    // refitInGrace; the watcher is idempotent, so this costs nothing.
-    isRefitGrace: () => { const g = getG(); if (g !== null) watchRefitWindow(g); return refitInGrace(g); },
     // ...and the SLOT KEYS alone also suspend at the held start line (Story
     // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
     // because the FOGHORN must survive the lock: Eric named movement, weapons
@@ -2587,14 +2510,12 @@ function overlayFocused(g: Game | null): boolean {
 }
 
 /**
- * An ability-activation keypress landed. As of Story 7-5 wave 2 the SPEED BOOST
- * is the only equipment left on this path: the MINE left it in Story 2.8
- * (amendment 45) and the DECOY BUOY consumable (Story 8.16) is click-placed in
- * the same rear sector, so both prime instead. The keyboard has QUEUED
- * the press (it rides
- * a later input, drained one-per-tick so the server's one-ability-per-tick gate
- * fires each in turn) — the server decides. Here the client only predicts the
- * verdict, at PRESS time, keyed on the pressed slot:
+ * An ability-activation keypress landed — the Shift (slot 1), or since Story
+ * 10.5 (2026-11-05, epic-10 amendment 11) `C` HULL REPAIR / `V` SMOKE, which
+ * hold no slot. The keyboard has QUEUED the press (it rides a later input,
+ * drained one-per-tick so the server's one-ability-per-tick gate fires each in
+ * turn) — the server decides. Here the client only predicts the verdict, at
+ * PRESS time, for the Shift keyed on its slot:
  *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
@@ -2603,13 +2524,26 @@ function overlayFocused(g: Game | null): boolean {
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it). A click-placed DECOY BUOY
- *    (Story 8.16) needs no press-time cue either: its placement tone rides the
- *    decoy reconcile's own-spawn hook (fired on the confirmed OWN decoy, gated
- *    by DecoyView `own` so it never misfires on someone else's) — the same
- *    hook the mine's placement tone still rides from the Mines reconcile.
+ *    double press within RTT can't extend it).
  */
-function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
+function handleAbilityPress(g: Game, id: AbilityId, actSeq: number): void {
+  // `C` / `V` (Story 10.5): the client's known refusals already ran at the key
+  // (`isAbilityDenied`), so a press that reaches here is predicted READY — the
+  // ACTIVATED pop on its square, nothing else predicted (the cooldown stamp and
+  // the effect both arrive with the server's frame).
+  if (id !== 'shift') {
+    g.abilityActivatedPress[abilitySquare(id)] = true;
+    g.abilityLatch = latchPress(g.abilityLatch, id); // shut until the server answers
+    return;
+  }
+  handleShiftPress(g, actSeq);
+}
+
+/** The Shift's press (slot 1): the pool-based verdict, the activated pop and
+ *  the optimistic boost window — Story 1.6's path, unchanged but for the
+ *  dedup source (the ability, Story 10.5). */
+function handleShiftPress(g: Game, actSeq: number): void {
+  const slot = SLOT_BOOST;
   const you = g.state.net.you;
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
@@ -2631,9 +2565,10 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
     if (deniedFeedbackHasNoTwin(g.state.spectating, conningNow(g))) return;
     g.abilityDeniedPress[slot] = true;
     // Story 1.10 exactly-one-feedback: this predicted denial IS the feedback
-    // (chip flash above + the denial tone) — mark its (slot, actSeq) key so
-    // the server's matching denial echo is suppressed, never doubled.
-    g.denialDedup.markPredicted(slot, actSeq);
+    // (chip flash above + the denial tone) — mark its (ability, actSeq) key
+    // (Story 10.5: the wire names the ability) so the server's matching denial
+    // echo is suppressed, never doubled.
+    g.denialDedup.markPredicted(abilitySource(abilityCode('shift')), actSeq);
     playDenied(g);
     return;
   }
@@ -2650,9 +2585,6 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // ACTIVATED pop above: INSTANT RELOAD's refilled pools and HUNKER's
   // `hunkerUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
-  // A click-placed decoy has no press-time cue: its placement tone rides the
-  // decoy reconcile's own-spawn hook (the mine precedent), so it fires on the
-  // confirmed OWN decoy and never on anyone else's.
 }
 
 /**
@@ -2748,37 +2680,28 @@ function abilityFeedbackState(): Pick<
   | 'fitFramePulse' | 'fitFrameFlash' | 'fitFrameDegraded'
 > {
   return {
-    abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
-    abilityPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
-    abilityFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    // Per hotbar SQUARE (Story 10.5 — the loadout slots, then `C` / `V`).
+    abilityDeniedPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
+    abilityPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
+    abilityFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
     // Story 4.8: the budget verdict that rides each slot's flash (per-slot, so
     // one over-budget slot never flattens another's mark).
-    abilityDegraded: Array.from({ length: SLOT_COUNT }, () => false),
+    abilityDegraded: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
     // Story 2.2: the mirror-image ACTIVATED channel (per-slot latch + pulse +
     // this-frame flag), driven off the optimistic ability-press edge.
-    abilityActivatedPress: Array.from({ length: SLOT_COUNT }, () => false),
-    activatedPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
-    activatedFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    abilityActivatedPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
+    activatedPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
+    activatedFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
     // Story 2.9: the same three-part shape again for the FIT channel, driven off
     // the server's `bn` receipt (never predicted — a fit is the server's word).
-    fitPress: Array.from({ length: SLOT_COUNT }, () => false),
-    fitPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
-    fitFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    fitPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
+    fitPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
+    fitFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
     fitFramePress: false,
     fitFramePulse: new DeniedPulse(),
     fitFrameFlash: false,
     fitFrameDegraded: false,
   };
-}
-
-/**
- * An OWN buoy (Story 10.9; the decoy body) just appeared in the reconcile (render/decoys' own-spawn
- * hook, Story 8.16): play its placement cue. The hook only ever fires for
- * decoys we own, so someone else's decoy can never sound our drop. It latches
- * nothing — a buoy's ACTIVE window rides its wire `until` (activeWindows).
- */
-function onOwnDecoy(audio: Audio): void {
-  audio.play('placeDecoy');
 }
 
 /**
@@ -2788,9 +2711,7 @@ function onOwnDecoy(audio: Audio): void {
  * presentation-silent (FR22).
  */
 function latchFitFlash(g: Game, cardId: string): void {
-  // A consumable's square is FIXED (Story 9.2): flash the kind's own square even
-  // when the stack was at zero a frame ago (`ownSlots` has not replayed yet).
-  const slot = isConsumableId(cardId) ? consumableSlotFor(g.ownKit, cardId) : slotForCard(g.ownSlots, cardId);
+  const slot = slotForCard(g.ownSlots, cardId);
   if (slot === null) g.fitFramePress = true;
   else g.fitPress[slot] = true;
 }
@@ -2802,11 +2723,8 @@ function latchFitFlash(g: Game, cardId: string): void {
  * Shift) reads the server's self-private `you.hunkerUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
- * goes straight to the cooldown wipe. A BUOY square has NO window (Eric
- * 2026-10-29, epic-10 amendment 4n: a buoy is usable again at once while stock
- * remains, and with two live buoys of one kind the slot's countdown was
- * ambiguous — the chart's ring and life arc are the buoy's clock). Everything
- * else has no window.
+ * goes straight to the cooldown wipe. Everything else (the `C` / `V`
+ * cooldown abilities included — Story 10.5) has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
@@ -2927,8 +2845,6 @@ function buildGame(
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => onOwnDecoy(audio)),
-    buoySweep: new BuoySweep(stage.layers.sweep, radar.sweepTexture),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     foulZones: new FoulZones(stage.layers.litZone),
@@ -2966,7 +2882,7 @@ function buildGame(
     shake: new ShakeDriver(),
     flashBudget,
     deniedPulse: new DeniedPulse(), deniedFlash: false, deniedDegraded: false,
-    denialDedup: new DenialDedup(), serverDeniedClick: false,
+    denialDedup: new DenialDedup(), serverDeniedClick: false, abilityLatch: OPEN_LATCHES,
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
@@ -2978,8 +2894,8 @@ function buildGame(
     ownBattery: new OwnBattery(cls),
     // The kit is DEFAULT_KIT only until the first own-ship frame replaces it
     // with the seat's own (Story 10.1 — the wire, never localStorage).
-    ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls, DEFAULT_KIT), ownKit: DEFAULT_KIT,
-    refitClosedAt: -Infinity, refitWasOpen: false,
+    ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
+    refitWasOpen: false,
     // Story 8.10: both are per-MATCH latches, and a fresh Game is built per
     // join — so a join is already a reset, and `updateMatchEpoch` owns every
     // later one.
@@ -3059,7 +2975,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId, kit: ConsumableKit): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -3086,14 +3002,12 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shif
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
-  g.ownKit = kit; // Story 10.1: the seat's kit, off the wire
-  g.ownSlots = slotIdsFor(stats, cards, cls, kit, shift);
-  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). A consumable square
-  // empties itself: the last copy of a stocked kind is spent and the square
-  // goes to ZERO-STOCK (dashed). A prime left standing on it would swallow every click that follows
-  // — the wire carries a slot holding nothing, the server denies it, and the
-  // player has no way to see why. The gun is slot 0 and is never null, so this
-  // is a no-op for every fit that does not take a primed slot away.
+  g.ownSlots = slotIdsFor(stats, cards, cls, shift);
+  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8): a prime left standing on
+  // a slot that holds nothing would swallow every click that follows — the
+  // wire carries a slot holding nothing, the server denies it, and the player
+  // has no way to see why. The gun is slot 0 and is never null, so this is a
+  // no-op for every fit that does not take a primed slot away.
   if ((g.ownSlots[g.keyboard.primedSlot] ?? null) === null) g.keyboard.revertToGun();
   // Boost numbers ride the same stats swap: the DURATION off the stats row (it
   // is a whitelisted stat path), the FACTOR straight off CONFIG — the +25 % is a
@@ -3184,7 +3098,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, cards, shift, kit) => applyOwnStats(g, cls, cards, shift, kit),
+    onOwnStats: (cls, cards, shift) => applyOwnStats(g, cls, cards, shift),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),
@@ -3217,6 +3131,10 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     colors: (id) => feedColor(g, id),
     // Story 10.4: the own turrets + secondaries heat, corrected per own frame.
     ownBattery: g.ownBattery,
+    // Story 10.5 review gate: the C / V press latch reads every own frame.
+    onOwnFrame: (you) => {
+      g.abilityLatch = latchOnOwnFrame(g.abilityLatch, you, g.clock.serverNow());
+    },
     // Every observed sinking feeds the personal-score accumulator; our own
     // sinking in a live match opens the elimination modal (amendments 22/23).
     onSunkObserved: (victimId, killerId, killerCls) => handleSunkObserved(g, victimId, killerId, killerCls),
@@ -3286,6 +3204,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
       g.score = scoreAfterReconnect(g.score);
       g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
       g.denialDedup.clear(); // paired with the queue drop — no reused (slot, seq)
+      g.abilityLatch = OPEN_LATCHES; // a dropped press's answer may never come
     },
   });
 }
@@ -3335,11 +3254,10 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
       // SPEED card lengthens both rings or neither. The full wake-draft lift
       // is folded on top through its own shared hook (Story 8.19), exactly as
       // `wakeTopSpeed` folds it — a drafting, boosted hull is the true ceiling.
-      // Since Story 10.9 the boost ceiling is the Shift PLUS a full SPEED
-      // BUOY tail (`topBoostFactor` — the server's `wakeTopSpeed` reads the
-      // same `combinedBoostFactor(true, 1, …)`).
+      // The boost ceiling is the Shift's own factor (the speed buoy's tail
+      // left with the buoys — Story 10.5).
       maxSpeedU: draftedKinematics(
-        boostedKinematics(own.kinematics, topBoostFactor(), true),
+        boostedKinematics(own.kinematics, CONFIG.boost.factor, true),
         CONFIG.wake.draft.lift,
         true,
       ).maxSpeed,
@@ -3490,7 +3408,6 @@ function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: bo
       hp: status.hp,
       maxHp: status.stats.maxHp,
       repairHp: status.repairHp,
-      shield: status.shield,
       alive: status.alive,
       sinking: status.sinking,
     },
@@ -3516,10 +3433,8 @@ function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: bo
  *  `HELD_AXES` at the start line included), the ACTUAL signed speed off the
  *  predicted pose, and the ladder's denominators off `EffectiveStats` — the
  *  boost's cap is applied inside the globe by the ONE shared speed mutator. */
-function helmBoost(g: Game, status: OwnStatus): Pick<HelmGlobeInput, 'boostFactor' | 'boostActive'> {
-  const now = g.clock.serverNow();
-  const factor = composedBoostFactor(status.boostActive, now, g.state.net.you?.speedBuoyAt ?? 0);
-  return { boostFactor: factor, boostActive: factor > 0 };
+function helmBoost(status: OwnStatus): Pick<HelmGlobeInput, 'boostFactor' | 'boostActive'> {
+  return { boostFactor: CONFIG.boost.factor, boostActive: status.boostActive };
 }
 
 function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeInput {
@@ -3530,10 +3445,9 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
     orderedDetent: detentIndexOf(axes.throttle),
     rudder: axes.rudder,
     kin: status.stats.kinematics,
-    // THE FOLD'S FIRST STAGE, from the ONE client composition the predictor
-    // steps with (Story 10.9, ruling 6): the Shift and the SPEED BUOY's tail
-    // add on the base, so the needle's denominator is the cap the hull has.
-    ...helmBoost(g, status),
+    // THE FOLD'S FIRST STAGE, as the predictor steps it: the Shift's boost on
+    // the base, so the needle's denominator is the cap the hull has.
+    ...helmBoost(status),
   };
 }
 
@@ -3546,10 +3460,7 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
 function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
   return g.abilityFlash.map((flash, slot) => {
     const id = status.loadout[slot] ?? null;
-    // `isWeaponItem` over the SlotItemId (Story 8.7, ruling 1), never an
-    // EquipmentId-keyed index: a belt slot holds a consumable line id, and the
-    // click-placed one (the decoy, 8.16) is a weapon on this very split.
-    const isWeapon = id !== null && isWeaponItem(id);
+    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
     return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
   });
 }
@@ -3565,21 +3476,24 @@ function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
 function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
   return g.abilityDegraded.map((degraded, slot) => {
     const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && isWeaponItem(id); // the SlotItemId split — see hotbarDenied
+    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
     return degraded || (isWeapon && slot === status.primedSlot && g.deniedDegraded);
   });
 }
 
 /**
- * The slot stack's half of the bar's frame (the nine squares, the key chips,
- * the wipe and the tooltip). `dim` is set here for shape's sake and
- * OVERWRITTEN by the HudBar from the bar-wide `dim` — one predicate, applied
- * once, to the exactly-two groups that carry it (ruling 9).
+ * The slot stack's half of the bar's frame (the squares, the key chips, the
+ * wipe and the tooltip). `dim` is set here for shape's sake and OVERWRITTEN by
+ * the HudBar from the bar-wide `dim` — one predicate, applied once (ruling 9).
  */
 function hotbarView(g: Game, status: OwnStatus): HotbarView {
+  const you = g.state.net.you;
   return {
     loadout: status.loadout,
-    kit: g.ownKit, // Story 10.1: a zero-stock kit square's kind
+    // Story 10.5: the `C` / `V` cooldown stamps off the own block — never
+    // predicted — against the same server-clock estimate as every `…Until`.
+    abilityReadyAt: { repair: you?.repairReadyAt, smoke: you?.smokeReadyAt },
+    serverNowMs: g.clock.serverNow(),
     ammo: status.ammo,
     stats: status.stats,
     // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).
@@ -3622,11 +3536,19 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
  * 2026-09-30); the helm globe stays water. A press anywhere else returns false
  * and fires as ever.
  */
+/** A click on hotbar square `square` IS that square's key (Story 10.5): a `C` /
+ *  `V` square presses its cooldown ability, every slot square its slot. */
+function squareAction(keyboard: KeyboardInput, square: number): void {
+  const ability = abilityAtSquare(square);
+  if (ability === null) keyboard.slotAction(square);
+  else keyboard.abilityAction(ability);
+}
+
 function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   if (!g) return false;
   // A press on the HP GLOBE is swallowed with no slot action (Eric 2026-09-30):
   // `hotbarPress` shares the hover's hit-test, so chrome is chrome both ways.
-  return g.hudBar.press(hudPoint(g, p), (slot) => g.keyboard.slotAction(slot));
+  return g.hudBar.press(hudPoint(g, p), (square) => squareAction(g.keyboard, square));
 }
 
 /** Would a press at `p` be swallowed by the hotbar? Acts on nothing (review
@@ -3855,7 +3777,7 @@ function renderAimPreview(
   aim: number,
   aimDist: number,
   status: OwnStatus,
-  primedId: SlotItemId | null,
+  primedId: EquipmentId | null,
   legal: boolean,
   gunReachU: number,
 ): void {
@@ -3982,20 +3904,12 @@ function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: 
 }
 
 /**
- * The EQUIPMENT in a slot, or null — THE narrowing seam for every reader that
- * indexes an `EquipmentId`-keyed record with a slot's content (Story 8.7,
- * ruling 1). A belt slot holds a CONSUMABLE line id, which is not in the arc
- * table, the range table or the own-fire latch, so it narrows to null here
- * rather than being cast into a record that has no row for it.
- *
- * NOT a "can this fire" predicate: a click-placed consumable (the DECOY BUOY,
- * Story 8.16) is a weapon on the ability/click split and still has no equipment
- * row. What this answers is strictly "is this slot's content something the
- * equipment tables know about".
+ * The EQUIPMENT in a slot, or null for an empty one (or an index off the
+ * loadout). Every slot holds an `EquipmentId` since the kit retired (Story
+ * 10.5), so this is a plain read kept as the one named seam its callers use.
  */
 function ownWeaponAt(g: Game, slot: number): EquipmentId | null {
-  const id = g.ownSlots[slot] ?? null;
-  return id === null || isConsumableId(id) ? null : id;
+  return g.ownSlots[slot] ?? null;
 }
 
 /**
@@ -4091,6 +4005,7 @@ function consumePrimeOnRelease(g: Game): void {
  * a weapon slot — the arc/reticle red pulse a predicted denied click drives.
  */
 function handleServerDenial(g: Game, d: DeniedView): void {
+  releaseAbilityLatch(g, d);
   if (g.state.spectating) return; // no live conning UI to feed back into
   // A denial for a pre-death press is moot once sunk: renderFiring discards
   // serverDeniedClick on a dead frame, so play the whole path only while there
@@ -4099,18 +4014,32 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   // where the arc, the reticle and the hotbar are all still rendering — and
   // where a denial (an empty pool, an out-of-arc torpedo) is now routine.
   if (conningNow(g) === false) return;
-  if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
+  // Story 10.5: an ABILITY denial dedupes on (act, seq) and flashes its
+  // ability's square; a click denial on (slot, seq) and its slot.
+  if (!g.denialDedup.serverDenied(denialSource(d), d.seq)) return; // predicted echo — already fed back
   playDenied(g);
+  const ability = d.act === undefined ? null : abilityFromCode(d.act);
+  if (ability !== null) {
+    g.abilityDeniedPress[squareOfAbility(ability)] = true;
+    return;
+  }
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
-  // `isWeaponItem` (ruling 1), not `EQUIPMENT_IS_WEAPON`: a belt slot's content
-  // is a consumable line id, which that record has no row for.
   const id = g.ownSlots[d.slot] ?? null;
   // Only pulse the arc/reticle when the DENIED slot is the one currently primed
   // — renderFiring pulses whatever slot is primed at render time, so a torpedo
   // denial arriving ~RTT late (prime already consumed, reverted to gun) would
   // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
   // already slot-correct; the arc pulse is the only slot-sensitive piece.
-  if (id !== null && isWeaponItem(id) && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+  if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+}
+
+/** A server denial of a `C` / `V` press is that press's answer: open its latch
+ *  (sim/abilityLatch.ts) before any feedback guard, so a denial that plays no
+ *  feedback still frees the key. */
+function releaseAbilityLatch(g: Game, d: DeniedView): void {
+  const ability = d.act === undefined ? null : abilityFromCode(d.act);
+  if (ability === null || ability === 'shift') return;
+  g.abilityLatch = latchRelease(g.abilityLatch, ability);
 }
 
 /**
@@ -4169,18 +4098,6 @@ function renderWhiteout(g: Game, until: number, now: number, pose: Point | null)
   const at = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   const screen: WhiteoutScreen = { x: at.x, y: at.y, pxPerU: g.camera.zoom };
   g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen, g.whiteout.carriedAlpha), screen, motionIntensity(settings.current.motion) > 0);
-}
-
-/**
- * The OWN buoys' per-frame motion (Story 10.9): every own buoy's masthead LIFE
- * arc runs down against the server clock, and every own RADAR buoy turns its
- * second sweep wedge at the own sweep period (the buoy turns at the owner's
- * RPM) from the wire `sweep` sampled at the list's frame time.
- */
-function renderBuoys(g: Game, now: number): void {
-  g.decoys.render(now);
-  const net = g.state.net;
-  g.buoySweep.render(buoySweepModels(net.decoys ?? [], net.decoysAt ?? now, now, g.ownStats.sweepPeriodMs));
 }
 
 /**
@@ -4441,7 +4358,6 @@ function renderAlive(
   // behind the fog and the server. Camera zoom (which the fog rebake reads)
   // was updated in renderOwn.
   updateDazzle(g, now, pose);
-  renderBuoys(g, now); // own buoys' life arcs + the radar buoys' second sweeps
   // Own pose feeds the projectile cull; own active zones keep a shell revealed
   // by our flare from being culled (exactly-once — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -4620,6 +4536,7 @@ function enterSpectateVisuals(g: Game): void {
   // Reset the denial dedup with the queue drop (Story 1.10): a dropped press
   // must not leave a marked (slot, seq) the next life's press can reuse.
   g.denialDedup.clear();
+  g.abilityLatch = OPEN_LATCHES;
 }
 
 /**
@@ -4746,8 +4663,6 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // fire control) — the plane renders, the vignette does not.
   updateZone(g, zv, false, false, now, nowMs);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
-  g.decoys.render(now); // a spectator owns no buoy: no life arc runs
-  g.buoySweep.clear(); // ...and no radar buoy turns for a hull we no longer have
   // A SPECTATOR HAS NO HULL BUT SEES EVERY OTHER ONE, and spec frames are
   // unfogged — so the water keeps working exactly as it does alive (amendment
   // 199 is about visible hulls, and from here they all are).
@@ -4879,7 +4794,7 @@ function tickAiming(g: Game, aim: number, aimDist: number, primedSlot: number): 
     slot: primedSlot,
     fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
     actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
-    actSlot: g.keyboard.actSlot,
+    act: g.keyboard.act,
     held: g.mouse.consumeHeld(), // Story 8.15: the held-fire level (live hold OR a latched tap)
     sec: g.mouse.consumeSec(), // Story 10.4: the secondaries level — right button (live hold OR a latched tap)
   };
@@ -4917,7 +4832,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // Drain exactly ONE queued ability press onto this tick's wire counters
       // (FINDING A): the server fires one ability per tick, so multiple presses
       // in one 50ms window must ride successive inputs — consume before reading
-      // actSeq/actSlot so this input carries the drained press (if any).
+      // actSeq/act so this input carries the drained press (if any).
       g.keyboard.consumeActivation();
       const input = g.sampler.sample(helmAxes(g), tickAiming(g, aim, aimDist, primedSlot));
       // This tick's server-time estimate rides into the pending ring so a later
@@ -5128,7 +5043,7 @@ function sendNeutralInput(g: Game): void {
     g.mouse.clickCount,
     g.mouse.lastClickT,
     g.keyboard.actSeq, // a gap-press activates NOW, not on refocus (mirrors fireSeq)
-    g.keyboard.actSlot,
+    g.keyboard.act,
   );
   if (g.state.mode === 'predict') g.predictor.localTick(msg, g.clock.serverNow());
 }
@@ -5410,7 +5325,7 @@ function startHomeLiveness(home: HomeHandle, countMe = true): void {
  * human leaves the room simply disposes. The field earns its keep for DUO/TRIO,
  * where a collapse is real and re-queueing into Standard would be wrong.
  */
-let lastDeploy: { name: string; cls: ShipClassId; shift: ShiftId; kit: ConsumableKit; mode: DeployMode } | null = null;
+let lastDeploy: { name: string; cls: ShipClassId; shift: ShiftId; mode: DeployMode } | null = null;
 
 /** Did the live session come through a private lobby (cycle 167)? Read only by
  *  the collapse requeue, which sends a private captain home instead of into the
@@ -5492,31 +5407,31 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   const { start: startAmbient, stop: stopAmbient } = makeAmbient(shell.stage);
   const home = showHome(
     shell.version,
-    (name, cls, shift, kit) => {
+    (name, cls, shift) => {
       shell.audio.resume(); // must happen inside the PLAY click's user-gesture handler
       // FUNNEL: mode_pick. This closure runs only AFTER home's `deploy()` has
       // cleared its busy and no-class guards, so "a press that actually
       // deploys" is structural — a press that opens the class bay instead
       // never reaches here, and neither does the machine-driven auto-requeue.
       analytics.modePick('standard');
-      void startGame(shell, home, stopAmbient, name, cls, 'standard', shift, kit);
+      void startGame(shell, home, stopAmbient, name, cls, 'standard', shift);
     },
     () => shell.settingsOverlay.toggle(),
     // SOLO VS AI (Story 6.5): same deploy identity, queue-free door.
-    (name, cls, shift, kit) => {
+    (name, cls, shift) => {
       shell.audio.resume(); // same user-gesture rule as the SOLO primary
       analytics.modePick('soloVsAi'); // FUNNEL: mode_pick, same guard story
-      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', shift, kit);
+      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', shift);
     },
     // PRIVATE LOBBIES (cycle 167): CREATE / JOIN — the flow is app/privateLobby.ts.
     {
-      onCreate: (name, cls, shift, kit) => {
+      onCreate: (name, cls, shift) => {
         shell.audio.resume(); // same user-gesture rule as the other doors
-        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift, kit });
+        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift });
       },
-      onJoin: (name, cls, shift, kit) => {
+      onJoin: (name, cls, shift) => {
         shell.audio.resume();
-        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift, kit });
+        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift });
       },
     },
   );
@@ -5536,18 +5451,17 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     // deploy, which the lifecycle does not allow; it takes the saved hull rather
     // than inventing one — and the queue, which is the only door a collapse can
     // arrive from today.
-    const { name, cls, shift, kit, mode } = lastDeploy ?? {
+    const { name, cls, shift, mode } = lastDeploy ?? {
       name: '',
       cls: loadSavedClass(),
       shift: loadSavedShift(),
-      kit: loadSavedKit(),
       // Story 6.6: the persisted mode, so a reload between the deploy and the
       // collapse still re-enters the door the player actually chose.
       mode: loadSavedMode() ?? 'standard',
     };
     // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
     // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
-    void startGame(shell, home, stopAmbient, name, cls, mode, shift, kit);
+    void startGame(shell, home, stopAmbient, name, cls, mode, shift);
     return;
   }
   // THE CONSENT CARD IS DELETED (Story 7.4, Eric ruling 2026-08-19). Nothing is
@@ -5618,7 +5532,6 @@ async function startGame(
   cls: ShipClassId,
   mode: DeployMode = 'standard',
   shift: ShiftId = DEFAULT_SHIFT,
-  kit: ConsumableKit = DEFAULT_KIT,
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
@@ -5638,7 +5551,7 @@ async function startGame(
     startHomeLiveness(home); // another tab is at sea; this home stays live + informed
     return;
   }
-  lastDeploy = { name, cls, shift, kit, mode }; // what the auto-requeue re-deploys with
+  lastDeploy = { name, cls, shift, mode }; // what the auto-requeue re-deploys with
   markPrivateSession(false);
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // Every deploy opens on CONNECTING… now, the auto-requeue included: the
@@ -5677,8 +5590,7 @@ async function startGame(
             },
           },
       solo,
-      shift, // Story 10.4: the captain's Shift pick, frozen at queue as the seat's `shift`
-      kit); // Story 10.1: the captain's four consumable lines, frozen at queue as the seat's `kit`
+      shift); // Story 10.4: the captain's Shift pick, frozen at queue as the seat's `shift`
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
@@ -5838,7 +5750,7 @@ async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'faile
   }
   // What the auto-requeue would re-deploy with, had we come through the home.
   const mode = loadSavedMode() ?? 'standard';
-  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), shift: loadSavedShift(), kit: loadSavedKit(), mode };
+  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), shift: loadSavedShift(), mode };
   // `loadSavedClass()` is a GUESS and is meant to be: `buildGame` seeds the
   // predictor and the hull view from it, and the very first frame's `you.cls`
   // replaces every derived stat through `applyOwnStats` — the same desync

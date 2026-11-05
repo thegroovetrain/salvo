@@ -13,7 +13,7 @@
 
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, type AuthContext, type Client } from 'colyseus';
 import { CONFIG, MSG, type QueueStatusMsg } from '@salvo/shared';
-import { protocolVersionError, sanitizeKit, sanitizeShift, type JoinOptions } from './roomOptions.js';
+import { protocolVersionError, sanitizeShift, type JoinOptions } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
@@ -118,12 +118,11 @@ export class StandardQueueRoom extends Room {
     // rides the seat's `auth`. Nothing at this door can refuse a join — a
     // malformed Shift simply coerces to DEFAULT_SHIFT; a legacy `gun` is ignored.
     const arenaOptions = sanitizeArenaOptions(options);
-    // ONLY THE SHIFT (and, since Story 10.1, THE KIT) travels: the dev spawn fit (`fitOverride`, amendment 65) is
+    // ONLY THE SHIFT travels: the dev spawn fit (`fitOverride`, amendment 65) is
     // a direct-door smoke arm and is deliberately NOT written into the seat
     // reservation — a queued captain can never reach it.
     const shift = sanitizeShift(options.shift, this.log);
-    const kit = sanitizeKit(options.kit, this.log); // Story 10.1: rides `auth` beside the Shift
-    this.pool.push({ client, options: arenaOptions, shift, kit });
+    this.pool.push({ client, options: arenaOptions, shift });
     this.log.info('queue.join', { sessionId: client.sessionId, pooled: this.pool.length });
     this.armJoiningDeadline(client);
     this.evaluate(true);

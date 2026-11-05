@@ -43,7 +43,6 @@
 import {
   CONFIG,
   DEFAULT_CLASS_ID,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   SHIP_CLASS_IDS,
   initialTurrets,
@@ -587,13 +586,13 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
       { n: 0, reloadMsLeft: 4200 },
       { n: 2, reloadMsLeft: 0 },
       null,
+      null, // SLOT_COUNT 5 since Story 10.5
     ],
     sweep: (tick * 0.06) % (Math.PI * 2),
     cls: OWN_CLASS,
     shift: DEFAULT_SHIFT,
     turrets: initialTurrets(OWN_CLASS),
     sec: { heat: 0, locked: false },
-    kit: [...DEFAULT_KIT],
     pts: bankedPointsAt(tick, world.profile),
     offer: ['intel', 'heavyTorpedo', 'broadside'],
     boostUntil: 0,

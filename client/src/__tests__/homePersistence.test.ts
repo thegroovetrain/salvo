@@ -12,22 +12,15 @@ import {
   loadSavedClassOrNull,
   isFirstRun,
   NAME_MAX,
-  KIT_KEY,
-  loadSavedKit,
-  saveKit,
   SHIFT_KEY,
   loadSavedShift,
   saveShift,
 } from '../ui/home.js';
 import {
   DEFAULT_CLASS_ID,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
-  KIT_SIZE,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
-  dealableConsumables,
-  isConsumableKit,
 } from '@salvo/shared';
 
 /** A real hull that is NOT the default — so a stored pick is observable. */
@@ -141,45 +134,6 @@ describe('loadSavedShift / saveShift (Story 10.4)', () => {
       throw new Error('blocked');
     });
     expect(loadSavedShift()).toBe(DEFAULT_SHIFT);
-    spy.mockRestore();
-  });
-});
-
-// Story 10.1 (epic-10 amendment 3): the kit is stored as JSON beside the Shift;
-// anything `isConsumableKit` refuses is REPLACED by DEFAULT_KIT, never partly kept.
-describe('loadSavedKit / saveKit', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('round-trips a valid kit through KIT_KEY', () => {
-    const kit = dealableConsumables().slice(-KIT_SIZE).reverse();
-    expect(isConsumableKit(kit)).toBe(true);
-    saveKit(kit);
-    expect(JSON.parse(localStorage.getItem(KIT_KEY)!)).toEqual(kit);
-    expect(loadSavedKit()).toEqual(kit);
-  });
-
-  it('unset, junk, short, duplicated or stale kits load as DEFAULT_KIT', () => {
-    expect(loadSavedKit()).toEqual(DEFAULT_KIT);
-    const pool = dealableConsumables();
-    const bad = [
-      'not json {',
-      JSON.stringify('hullRepair'),
-      JSON.stringify(pool.slice(0, KIT_SIZE - 1)), // short
-      JSON.stringify([...pool.slice(0, KIT_SIZE - 1), pool[0]]), // duplicate
-      JSON.stringify([...pool.slice(0, KIT_SIZE - 1), 'multiSpectralCm']), // a line that does not exist
-      JSON.stringify([...pool.slice(0, KIT_SIZE), pool[KIT_SIZE]]), // too long
-    ];
-    for (const raw of bad) {
-      localStorage.setItem(KIT_KEY, raw);
-      expect(loadSavedKit(), raw).toEqual(DEFAULT_KIT);
-    }
-  });
-
-  it('falls open to DEFAULT_KIT when storage throws', () => {
-    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('blocked');
-    });
-    expect(loadSavedKit()).toEqual(DEFAULT_KIT);
     spy.mockRestore();
   });
 });

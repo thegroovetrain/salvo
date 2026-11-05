@@ -28,26 +28,24 @@
 
 import {
   CATALOG,
-  DEFAULT_KIT,
   SLOT_COUNT,
   boonStackCount,
   pickRefusal,
-  type ConsumableKit,
+  type EquipmentId,
   type LineKind,
   type Rng,
-  type SlotItemId,
 } from '@salvo/shared';
 
 /** A hull nobody described: every slot empty (SLOT_COUNT nulls). The full array matters —
  *  `pickRefusal` is fail-closed on a SHORT array (a missing slot is never
- *  "empty"), so `[]` would refuse every weapon and every consumable. */
-const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(Array.from({ length: SLOT_COUNT }, () => null));
+ *  "empty"), so `[]` would refuse every weapon. */
+const EMPTY_SLOTS: readonly (EquipmentId | null)[] = Object.freeze(Array.from({ length: SLOT_COUNT }, () => null));
 
 /** Probability the spend policy takes the top-ranked line (else uniform). */
 export const SPEND_TOP_P = 0.75;
 
 /** The instrument's preference order over catalog-v3 KINDS (see header). */
-const KIND_RANK: Record<LineKind, number> = { consumable: 0, ladder: 1, addon: 2, equipment: 3 };
+const KIND_RANK: Record<LineKind, number> = { ladder: 1, addon: 2, equipment: 3 };
 
 /** Preference rank of one offer line for `fitted` — the at-cap demotion
  *  documented in the header. */
@@ -62,8 +60,8 @@ function preferenceRank(id: string, fitted: readonly string[]): number {
 /**
  * The deterministic spend policy used by the scripted control. `fitted` = the
  * ship's currently-fitted card line ids (ship.cards); `slotIds` = its SLOT_COUNT slot
- * contents (`loadout.map(s => s.equipmentId)`); `kit` = its four consumable
- * lines (Story 10.1, `ship.kit`) — a consumable outside them is refused.
+ * contents (`loadout.map(s => s.equipmentId)`) — a weapon whose family slot
+ * holds another kind is refused (Story 10.5).
  *
  * IT ONLY EVER NAMES A CARD THE SERVER WOULD ACCEPT (Story 8.14 review, F4).
  * `World.spendCard` refuses a card this hull cannot take and the offer does not
@@ -75,12 +73,11 @@ export function pickSpendChoice(
   offer: readonly string[],
   rng: Rng,
   fitted: readonly string[],
-  slotIds: readonly (SlotItemId | null)[] = EMPTY_SLOTS,
-  kit: ConsumableKit = DEFAULT_KIT,
+  slotIds: readonly (EquipmentId | null)[] = EMPTY_SLOTS,
 ): number | null {
   const legal: number[] = [];
   for (let i = 0; i < offer.length; i += 1) {
-    if (pickRefusal(fitted, slotIds, offer[i], kit) === null) legal.push(i);
+    if (pickRefusal(fitted, slotIds, offer[i]) === null) legal.push(i);
   }
   if (legal.length === 0) return null;
   const ranks = legal.map((i) => preferenceRank(offer[i], fitted));

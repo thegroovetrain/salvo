@@ -194,18 +194,13 @@ export interface ShellState {
    * ACOUSTIC HOMING doctrine (Story 2.8, torpedoHoming): per tick the fish
    * acquires the nearest non-owner TARGET whose centroid is within
    * `acquireRange` and steers its velocity direction toward it at up to
-   * `turnRate` rad/s. Since Story 10.9 (Eric 2026-10-28, ruling 3) an ENEMY
-   * BUOY in range is acquired BEFORE any hull: the nearest buoy wins when one
-   * is within `acquireRange`, else the nearest hull as before (`acquireNearest`).
+   * `turnRate` rad/s — the NEAREST HULL (`acquireNearest`). The buoy-first
+   * pass of Story 10.9 is gone with the buoys (2026-11-05, Story 10.5,
+   * epic-10 amendment 11).
    *
-   * "Target" is whatever the caller puts in `ctx.targets`: live hulls plus every
-   * live DECOY BUOY (Story 8.16 — the radar buoy that held the `decoy` kind
-   * before it is deleted). A homing torpedo DOES lock onto an ENEMY's decoy
-   * like a hull (that is the decoy's job), but NEVER onto its OWN owner's
-   * decoy: Eric ruled the question the radar buoy left open (amendment 119),
-   * and `acquireNearest` skips a decoy whose `Target.ownerId` is the fish's
-   * owner. Speed magnitude is never changed; expiry/range semantics
-   * are untouched. `targetId` is the current lock (re-acquired every tick).
+   * "Target" is whatever the caller puts in `ctx.targets` (live hulls). Speed
+   * magnitude is never changed; expiry/range semantics are untouched.
+   * `targetId` is the current lock (re-acquired every tick).
    *
    * `locked` PINS THAT LOCK AT LAUNCH (cycle-148 review gate, P6). A CAPTIVE
    * MINE's fish is fired at the ONE hull that tripped the mine and the hostile
@@ -221,7 +216,7 @@ export interface ShellState {
 }
 
 /**
- * WHAT KIND OF THING an ordnance target is (Story 8.4, AR44). The four kinds
+ * WHAT KIND OF THING an ordnance target is (Story 8.4, AR44). The three kinds
  * are the whole vocabulary of the single collector (`World.hitTargets`), and
  * every ordnance row declares which of them its projectiles may touch through
  * `CONFIG.<ordnance>.hits`:
@@ -232,17 +227,16 @@ export interface ShellState {
  *                 it); the server's landing test reads its one-vertex polygon
  *                 as the mine's centre and asks whether the shell LANDED
  *                 within `CONFIG.mine.hitRadiusU` of it.
- *   - `decoy`   — a dropped DECOY BUOY (Story 8.16; the radar buoy that held
- *                 the kind before it is deleted). It carries `ownerId`, and
- *                 the OWNER's own ordnance never touches it (amendment 119).
  *   - `ordnance`— a projectile in flight (a live torpedo) — only the FLAK GUN's
  *                 mask names it (Story 8.15, AR44; a side effect, amendment
  *                 105), and like `mine` it is BURST-ONLY: the World strips it
  *                 from the sweep mask, so nothing in flight collides with it.
+ * The fourth kind, `decoy` (a dropped buoy's body, Story 8.16 / 10.9), is
+ * DELETED with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
  * Pure geometry: shared knows nothing about owners' doctrine, drones or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */
-export type TargetKind = 'hull' | 'mine' | 'decoy' | 'ordnance';
+export type TargetKind = 'hull' | 'mine' | 'ordnance';
 
 /**
  * Something to test ordnance against: a world-space polygon plus the id the
@@ -259,25 +253,6 @@ export interface Target {
   id: string;
   kind: TargetKind;
   poly: readonly Vec2[]; // world-space verts (length 1 = a point target)
-  /**
-   * The ship id that OWNS this target — read ONLY for a `decoy` (Story 8.16,
-   * epic-8 amendments 119/124(d)): a decoy whose `ownerId` equals the
-   * projectile's `ownerId` is skipped by the sweep (`earliestTarget`), by
-   * homing acquisition (`acquireNearest`) and by burst resolution
-   * (`burstVictims`), so the owner's fish pass through and the owner's shells
-   * and bursts pass over their own decoy on both sides by construction.
-   * Absent on every other kind (a hull's owner IS its `id`; a mine's owner
-   * never matters here — the owner's own shell can still land on the owner's
-   * mine, amendment 200).
-   * A decoy with no `ownerId` is never skipped.
-   */
-  ownerId?: string;
-}
-
-/** True iff `t` is a DECOY owned by `ownerId` — the owner's own ordnance never
- *  touches it (NO FRIENDLY FIRE extended to the decoy, amendment 119). */
-function isOwnDecoy(t: Target, ownerId: string): boolean {
-  return t.kind === 'decoy' && t.ownerId === ownerId;
 }
 
 /** Everything stepShell needs about the world this tick. */
@@ -334,7 +309,7 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
  * Earliest TARGET hit along p0->p1. Two kinds are structurally immune. The
  * firer's own HULL (NO FRIENDLY FIRE, Eric 2026-09-11) — and only its HULL,
  * which is why the test is on the kind rather than on ship and mine ids never
- * colliding — plus the firer's own DECOY (amendment 119, via `Target.ownerId`). And
+ * colliding. And
  * EVERY MINE, whoever laid it (amendment 20, Eric 2026-09-16:
  * if the shooter did not DIRECTLY click on the mine, nothing about it may
  * block the shot, register a hit or a miss, or tell the shooter anything at
@@ -349,7 +324,6 @@ function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext
   for (const t of ctx.targets) {
     if (t.kind === 'mine') continue; // never in flight — landing-only (amendments 20, 200)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
-    if (isOwnDecoy(t, shell.ownerId)) continue; // own ordnance passes the owner's decoy (amendment 119)
     // Target polygon dilated by this projectile's own radius.
     const frac = segPolygonHit(p0, p1, t.poly, shell.hitRadius);
     if (frac === null) continue;
@@ -456,53 +430,32 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   shell.vy = speed * Math.sin(dir);
 }
 
-/** One nearest-centroid pass over `targets` within `acquireRange`, keeping the
- *  `<=` tie law (the later entry wins a tie). `legal` is the pass's own filter;
- *  the owner's hull and the owner's own decoy are never legal (no friendly
- *  fire, amendment 119), and a mine never is (amendment 20). */
-function nearestLegal(
-  shell: ShellState,
-  acquireRange: number,
-  ctx: ShellContext,
-  legal: (t: Target) => boolean,
-): { c: Vec2; id: string } | null {
-  let best: { c: Vec2; id: string } | null = null;
-  let bestD = acquireRange;
-  for (const t of ctx.targets) {
-    if (t.kind === 'mine') continue; // a fish never locks a mine (amendment 20)
-    if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
-    if (isOwnDecoy(t, shell.ownerId)) continue; // never homes on the owner's decoy (amendment 119)
-    if (!legal(t)) continue;
-    const c = polyCentroid(t.poly);
-    const d = Math.hypot(c.x - shell.x, c.y - shell.y);
-    if (d <= bestD) {
-      bestD = d;
-      best = { c, id: t.id };
-    }
-  }
-  return best;
-}
-
-const isDecoyTarget = (t: Target): boolean => t.kind === 'decoy';
-const anyTarget = (): boolean => true;
-
-/** The target's centroid within `acquireRange`, RE-ACQUIRED every tick and
- *  recorded in `homing.targetId`. TWO PASSES since Story 10.9 (Eric
- *  2026-10-28, ruling 3 — "any ENEMY buoy inside the fish's acquire range
- *  wins"): first the nearest ENEMY BUOY (a `decoy` target that is not the
- *  owner's); only when no buoy is in range, the shipped ACOUSTIC HOMING rule —
- *  the nearest hull — unchanged. Null (and the lock cleared) when nothing
- *  qualifies. */
+/** The nearest legal target's centroid within `acquireRange`, RE-ACQUIRED
+ *  every tick and recorded in `homing.targetId` — the shipped ACOUSTIC HOMING
+ *  rule, with the `<=` tie law (the later entry wins a tie). The owner's hull
+ *  is never legal (no friendly fire) and a mine never is (amendment 20). Null
+ *  (and the lock cleared) when nothing qualifies. */
 function acquireNearest(
   shell: ShellState,
   homing: NonNullable<ShellState['homing']>,
   ctx: ShellContext,
 ): Vec2 | null {
-  const hit =
-    nearestLegal(shell, homing.acquireRange, ctx, isDecoyTarget) ??
-    nearestLegal(shell, homing.acquireRange, ctx, anyTarget);
-  homing.targetId = hit?.id;
-  return hit?.c ?? null;
+  let best: Vec2 | null = null;
+  let bestId: string | undefined;
+  let bestD = homing.acquireRange;
+  for (const t of ctx.targets) {
+    if (t.kind === 'mine') continue; // a torpedo never locks a mine (amendment 20)
+    if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
+    const c = polyCentroid(t.poly);
+    const d = Math.hypot(c.x - shell.x, c.y - shell.y);
+    if (d <= bestD) {
+      bestD = d;
+      best = c;
+      bestId = t.id;
+    }
+  }
+  homing.targetId = bestId;
+  return best;
 }
 
 /** The PINNED target's centroid, or null when it is no longer in `ctx.targets`
@@ -597,12 +550,11 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
  * 2026-10-01, superseding amendment 20's burst rule): a burst that merely
  * covers a mine does nothing to it — only a deck gun's shell LANDING on the
  * mine (the server's landing test, `CONFIG.mine.hitRadiusU`) damages one.
- * The owner's own HULL is excluded (permanent owner immunity), and so is the
- * owner's own DECOY (Story 8.16, amendment 119).
+ * The owner's own HULL is excluded (permanent owner immunity).
  *
  * Returns the TARGETS, not ids: the caller dispatches on `kind` (a hull takes
- * damage through the gate, a fish is removed, a decoy takes its own outcome),
- * and a bare id would force it to re-guess which store the id came from.
+ * damage through the gate, a torpedo in flight is removed), and a bare id
+ * would force it to re-guess which store the id came from.
  * Pure; every outcome lives in world.ts.
  */
 export function burstVictims(
@@ -615,7 +567,6 @@ export function burstVictims(
   for (const t of targets) {
     if (t.kind === 'mine') continue; // a burst never touches a mine — landing only (amendment 200)
     if (t.kind === 'hull' && t.id === ownerId) continue; // own weapon never damages the OWNER'S HULL
-    if (isOwnDecoy(t, ownerId)) continue; // nor the OWNER'S DECOY (amendment 119)
     if (polyInBlast(center, radius, t.poly)) victims.push(t);
   }
   return victims;

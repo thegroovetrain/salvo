@@ -24,7 +24,7 @@
 // us to the mock's numbers, which is what makes "just make it 8px" unavailable).
 
 import { describe, expect, it } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_KIT, DEFAULT_SHIFT, initialTurrets, LINE_IDS, type CatalogLine, type ShipClassId } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, initialTurrets, LINE_IDS, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
   CARD_STAT_ROWS,
   KIND_WORDS,
@@ -87,7 +87,9 @@ function faceOf(line: CatalogLine, stack: number, cls: ShipClassId, maxed: boole
     tier: cardTierLabel(line, stack),
     cap: line.cap,
     rows: cardStatRows(line, stack, { cls, cards }),
-    foot: line.kind === 'consumable' ? SLOTS_FULL : '',
+    // Story 10.5: the ONE refusal a face can carry is copy 1 of a weapon whose
+    // family slot holds another kind (`noWeaponSlot` — forced only, never dealt).
+    foot: line.kind === 'equipment' && stack === 0 ? SLOTS_FULL : '',
   };
 }
 
@@ -115,16 +117,16 @@ function everyFace(): FaceCase[] {
 
 const FACES = everyFace();
 
-/** The one face that prints a FOOT: a consumable the belt has no room for. */
+/** The one face that prints a FOOT: a weapon whose family slot is taken. */
 const GREYED_FACE: RefitCardCopy = {
-  kind: 'CONSUMABLE', name: 'HULL REPAIR', tier: null, cap: 1, rows: [], foot: SLOTS_FULL,
+  kind: 'WEAPON', name: boonName('supercavTorpedo'), tier: null, cap: 1, rows: [], foot: SLOTS_FULL,
 };
 
 describe('the ratified face is a FIXED box, and its content is a constant', () => {
   it('covers every offerable line at every rung, on every class, both extremes', () => {
     expect(LIVE.length).toBeGreaterThan(0);
-    // HULL REPAIR is live, so the footed (refusable consumable) branch below is reachable.
-    expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
+    // A copy-1 weapon can be refused (Story 10.5), so the footed branch below is reachable.
+    expect(LIVE.some((l) => l.kind === 'equipment')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
 
@@ -150,8 +152,8 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // `nowrap` + fixed row heights make the face a CONSTANT — one height for
     // every card that prints no foot, and one for every card that can print the
     // boxed SLOTS FULL reason word, which is FOOT_BOX_GROWTH taller (review
-    // patch P6). Only a CONSUMABLE can be refused, and Story 8.8 put the first
-    // live one in the offer, so both branches are now reachable.
+    // patch P6). Only a copy-1 WEAPON can be refused (Story 10.5), so both
+    // branches are reachable.
     const bare = heightsOf(false);
     const footed = heightsOf(true);
     expect(bare.size).toBe(1);
@@ -352,9 +354,9 @@ describe('the LADDER row and the FOOT', () => {
     expect(widest).toBeLessThanOrEqual(inner);
   });
 
-  it('draws NO ladder for a consumable or an add-on — the row is empty, not absent', () => {
+  it('draws NO ladder for an add-on — the row is empty, not absent', () => {
     for (const line of LIVE) {
-      const blank = line.kind === 'consumable' || line.kind === 'addon';
+      const blank = line.kind === 'addon';
       expect(cardTierLabel(line, 0) === null, line.id).toBe(blank);
       const w = ladderRowWidth(line.cap, cardTierLabel(line, 0));
       if (blank) expect(w, line.id).toBe(0);
@@ -421,7 +423,7 @@ describe('the belt-and-braces clip (NOT the fix — the pins above are)', () => 
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID), sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1, offer: ['captiveMines', 'intel'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID), sec: { heat: 0, locked: false }, pts: 1, offer: ['captiveMines', 'intel'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false, [])!);
@@ -529,23 +531,25 @@ describe('the 9px mono floor at every UI tier (amendment 43)', () => {
     expect(over).toEqual([]);
   });
 
-  // STORY 8.8's TWO NEW ROWS, named explicitly. They are inside the FACES walk
-  // above (hullRepair is LIVE now), but the story's own requirement is that the
-  // heal card's rows fit AT EVERY TIER, so the pin says so rather than relying
-  // on a reader spotting them inside a 500-case sweep.
-  it('fits HULL REPAIR\'s INSTANT / OVER TIME rows at every tier', () => {
-    const face = FACES.find(({ id }) => id === 'hullRepair')!.face;
-    expect(face.rows).toHaveLength(2);
+  // STORY 10.5's THREE MOVED WEAPONS, named explicitly. They are inside the
+  // FACES walk above, but their faces are new (the weapon grammar replaced
+  // their consumable rows), so the pin says so rather than relying on a reader
+  // spotting them inside a large sweep.
+  it('fits the SUPERCAV / FLASH / FOULING SHELL faces at every tier', () => {
     const rowBox = refitCardRowBox();
-    for (const tier of TIERS) {
-      for (const row of face.rows) {
-        const w = statRowWidth(row, tier);
-        expect(w, `${row.label}@${tier}: ${w.toFixed(1)}px of ${rowBox}px`).toBeLessThanOrEqual(rowBox);
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell']) {
+      for (const { label, face } of FACES.filter((f) => f.id === id)) {
+        expect(face.rows.length, label).toBeGreaterThan(0);
+        for (const tier of TIERS) {
+          for (const row of face.rows) {
+            const w = statRowWidth(row, tier);
+            expect(w, `${label} ${row.label}@${tier}: ${w.toFixed(1)}px of ${rowBox}px`).toBeLessThanOrEqual(rowBox);
+          }
+          const m = refitCardMetrics(face, tier);
+          expect(m.overflowX, `${label}@${tier}`).toBeLessThanOrEqual(0);
+          expect(m.overflow, `${label}@${tier}`).toBeLessThanOrEqual(0);
+        }
       }
-      const m = refitCardMetrics(face, tier);
-      expect(m.overflowX, `hullRepair@${tier}`).toBeLessThanOrEqual(0);
-      expect(m.overflow, `hullRepair@${tier}`).toBeLessThanOrEqual(0);
-      expect(m.labelBoxOverflow, `hullRepair label@${tier}`).toBeLessThanOrEqual(0);
     }
   });
 

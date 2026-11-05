@@ -18,6 +18,7 @@ import {
   turretBears,
   stepTurrets,
   turretMounts,
+  ventSecondaries,
   type AimPose,
 } from '@salvo/shared';
 import { OwnBattery } from '../sim/ownBattery.js';
@@ -89,6 +90,17 @@ describe('OwnBattery.correct — a frame overwrites the prediction', () => {
     expect(b.heat).toBe(0.75);
     expect(b.locked).toBe(true);
     expect(b.sec.untilRoundMs).toBe(phase);
+  });
+
+  it('INSTANT RELOAD (Story 10.5, R10) is not predicted: the vented own frame unlocks a locked local gun, which fires on the next held step', () => {
+    const b = new OwnBattery(DEFAULT_CLASS_ID);
+    while (!b.locked) b.step(POSE, AIM, AIM_DIST, true, DT);
+    const server = initialTurrets(DEFAULT_CLASS_ID);
+    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: ventSecondaries({ heat: 1, locked: true }) }, 0);
+    expect(b.heat).toBe(0);
+    expect(b.locked).toBe(false);
+    b.sec.untilRoundMs = 0; // the local round phase is kept by a correction; clear it to isolate the lock
+    expect(b.step(POSE, AIM, AIM_DIST, true, DT)).toBeGreaterThan(0);
   });
 
   it('a frame for another hull re-seeds to that hull first', () => {

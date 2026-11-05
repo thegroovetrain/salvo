@@ -11,7 +11,6 @@
 //   * the cannon / flak bodyblock `contactDamage` is NOT attenuated (184(c));
 //   * a positive blow lands at least 1 (the 1 hp drone shell);
 //   * a shell with no reference (an injected shell) is unattenuated;
-//   * a decoy takes exactly what a hull would (reading r6);
 //   * THE LIT EXEMPTION (Eric 2026-10-17, amendment 187): a shot aimed into
 //     the shooter's OWN live lit zone carries no reference and deals the full
 //     blow, even past range; another captain's light exempts nothing;
@@ -33,7 +32,6 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { addDecoy } from '../game/decoys.js';
 import { flatRaster } from './islandFixture.js';
 import { mountDeckGun, neutralize, sternReachU } from './deckGunFixture.js';
 
@@ -67,7 +65,7 @@ function ship(
 }
 
 function input(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 interface Shot {
@@ -234,35 +232,6 @@ describe('the floor of one, and the fail-open reference', () => {
   });
 });
 
-describe('a DECOY takes exactly what a hull would (reading r6)', () => {
-  it('a far cannon click on a decoy: each burst lands settleBlow(D × atten)', () => {
-    const w = bareWorld();
-    const a = ship(w, 'a', 0, 0);
-    ship(w, 'o', 0, -1500);
-    const X = 0.9 * a.stats.equipment.gun.rangeU;
-    const decoy = addDecoy(w.decoys, 'o', X, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    const before = decoy.hp;
-    const { shells } = fire(w, 'a', X);
-    const expected = settleBlow(CONFIG.gun.damage * burstAtten(shells[0]));
-    expect(expected).toBeLessThan(CONFIG.gun.damage);
-    expect(before - w.decoys.get('d1')!.hp).toBe(shells.length * expected); // both bursts cover its centre
-  });
-
-  it('a far machine-gun hit on a decoy lands settleBlow(D × the factor at the stop point)', () => {
-    const w = bareWorld();
-    const a = ship(w, 'a', 0, 0, { gun: 'machineGun' });
-    ship(w, 'o', 0, -1500);
-    const R = a.stats.equipment.machineGun.rangeU;
-    const decoy = addDecoy(w.decoys, 'o', 0.92 * R, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    const before = decoy.hp;
-    const { log, shells } = fire(w, 'a', R);
-    const boom = log.find((e): e is BoomEvent => e.k === 'boom' && e.hit === 'd1')!;
-    const f = attenAt(shells[0], boom);
-    expect(f).toBeLessThan(1);
-    expect(before - w.decoys.get('d1')!.hp).toBe(settleBlow(CONFIG.machineGun.damage * f));
-  });
-});
-
 describe('the launch point and the reference never reach a frame', () => {
   const PRIVATE = ['originX', 'originY', 'attenRangeU'];
   const SHELL_ROW = new Set(['k', 'id', 'x', 'y', 'vx', 'vy', 't', 'w']);
@@ -351,24 +320,6 @@ describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees
       expect(aggro).not.toHaveBeenCalled();
       expect(dmgTo(log, 'b')).toHaveLength(0);
       expect(log.some((e) => e.k === 'boom')).toBe(true); // the interception itself still resolved
-    });
-  });
-
-  it('on a DECOY: its hp is untouched and the decoy damage path is never entered', () => {
-    withMinFactorZero(() => {
-      const w = bareWorld();
-      ship(w, 'o', -3000, 0);
-      ship(w, 'a', 0, -3000);
-      const decoy = addDecoy(w.decoys, 'o', 0, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-      const before = decoy.hp;
-      const inner = w as unknown as Inner;
-      const shell = { ...maxRangeMgShell(w, 0), ownerId: 'a' };
-      // damageDecoy(…, 0) would be an observational no-op on hp, so the
-      // guard is pinned on the call itself.
-      const hurt = vi.spyOn(w as unknown as { damageDecoy(id: string, n: number, by: string): boolean }, 'damageDecoy');
-      inner.resolveShell(shell, { kind: 'hitShip', victimId: 'd1', x: 0, y: 0 }, inner.hitTargets(CONFIG.machineGun.hits));
-      expect(w.decoys.get('d1')!.hp).toBe(before);
-      expect(hurt).not.toHaveBeenCalled();
     });
   });
 });

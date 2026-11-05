@@ -6,7 +6,6 @@
 // port with the lock released.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DEFAULT_KIT } from '@salvo/shared';
 import type { LobbyHooks, LobbyView } from '../net/lobby.js';
 
 let capturedHooks: LobbyHooks | null = null;
@@ -280,8 +279,8 @@ describe('the kit rides the private doors', () => {
     capturedDeploy = null;
   });
 
-  it('CREATE hands net/lobby the deploy verbatim, kit included', async () => {
-    const deploy = { name: 'NEMO', cls: 'battleship', gun: 'flak' as const, kit: [...DEFAULT_KIT].reverse() };
+  it('CREATE hands net/lobby the deploy verbatim', async () => {
+    const deploy = { name: 'NEMO', cls: 'battleship', gun: 'flak' as const };
     void createPrivateLobby(deps(), deploy);
     await flush();
     expect(capturedDeploy).toEqual(deploy);

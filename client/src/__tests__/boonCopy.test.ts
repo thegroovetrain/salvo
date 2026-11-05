@@ -22,7 +22,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, abilityCooldownMs, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
 import {
   boonEffectLine,
   boonFitToastLine,
@@ -35,7 +35,8 @@ import {
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
-  consumableStatRows,
+  abilityName,
+  abilityStatRows,
   equipmentStatRows,
   shipStatRows,
   statValueText,
@@ -215,10 +216,28 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     ]);
   });
 
-  it('consumableStatRows is the face\'s CONSUMABLE_ROWS, and none for a stub or a junk id', () => {
-    expect(consumableStatRows('hullRepair')).toEqual(cardStatRows(CATALOG.hullRepair, 0, TB));
-    expect(consumableStatRows('depthCharge')).toEqual([]);
-    expect(consumableStatRows('constructor')).toEqual([]);
+  // Story 10.5: HULL REPAIR and SMOKE SCREEN are cooldown abilities; their
+  // former card rows print on the `C` / `V` tooltip, every number off CONFIG.
+  it('abilityStatRows reads the two abilities\' rows off CONFIG', () => {
+    const h = CONFIG.hullRepair;
+    expect(abilityStatRows('repair')).toHaveLength(3);
+    expect(text(abilityStatRows('repair'))[1]).toContain(String(h.regenMs / 1000));
+    const k = CONFIG.countermeasure;
+    expect(text(abilityStatRows('smoke')).slice(0, 2)).toEqual([`${k.lifeMs / 1000} S`, `${k.r0} → ${k.r1} U`]);
+    expect(abilityName('repair')).not.toBe(abilityName('smoke'));
+  });
+
+  // Eric 2026-11-05: the `C` / `V` tooltip ends on a cooldown row in the Shift
+  // tooltip's reload-row grammar (same label, same printer), valued off shared
+  // `abilityCooldownMs`.
+  it('abilityStatRows ends on the cooldown row, valued off abilityCooldownMs, in the Shift reload grammar', () => {
+    const shiftReload = equipmentStatRows('instantReload', effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [])).at(-1)!;
+    for (const id of ['repair', 'smoke'] as const) {
+      const row = abilityStatRows(id).at(-1)!;
+      expect(row.label).toBe(shiftReload.label);
+      expect(row.cur).toBeNull();
+      expect(row.next).toContain((abilityCooldownMs(id) / 1000).toFixed(1));
+    }
   });
 
   // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): the SHIP panel is the
@@ -250,8 +269,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     // The two pickable guns' ladders climb their own gun.
     const mg = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['machineGun']);
     expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
-    // A consumable: its CONFIG rows; a stub: none.
-    expect(cardHoverRows(CATALOG.countermeasure, 0, TB)).toEqual(consumableStatRows('countermeasure'));
+    // A stub: none.
     expect(cardHoverRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
 });
@@ -259,7 +277,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
 // --- THE CARD KIND (cycle 158, Eric ruling 2026-09-30, amendment 188) -----------
 describe('cardKind — what the card does for the player', () => {
   it('has one distinct, non-empty kind word per card kind', () => {
-    const kinds: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'consumable', 'addon'];
+    const kinds: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'addon'];
     expect(KIND_WORDS).toHaveLength(kinds.length);
     expect(new Set(kinds.map(cardKindLabel))).toEqual(new Set(KIND_WORDS));
     for (const w of KIND_WORDS) expect(w.trim()).not.toBe('');
@@ -286,9 +304,10 @@ describe('cardKind — what the card does for the player', () => {
     }
   });
 
-  it('a consumable is a CONSUMABLE and an add-on an ADD-ON', () => {
-    for (const id of ['hullRepair', 'countermeasure', 'supercavTorpedo', 'foulingShell']) {
-      expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
+  it('an add-on is an ADD-ON, and the three Story 10.5 slot weapons are WEAPONs', () => {
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell']) {
+      expect(cardKind(CATALOG[id], 0), id).toBe('weapon');
+      expect(cardKind(CATALOG[id], 1), id).toBe('weaponUpgrade');
     }
     expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
   });
@@ -344,18 +363,15 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.intel, 4)).toBe('IV → V');
   });
 
-  it('shows NO ladder at all for a consumable or an add-on', () => {
-    expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.radarBuoy, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.dazzleShells, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.foulingShell, 0)).toBeNull();
+  it('shows NO ladder at all for an add-on', () => {
+    expect(cardTierLabel(CATALOG.depthCharge, 0)).toBeNull();
   });
 
   it('carries the same step as NUMBERS, so the DOM can tint each numeral', () => {
     expect(cardTierSteps(CATALOG.deckGun, 0)).toEqual({ cur: 1, next: 2 });
     expect(cardTierSteps(CATALOG.intel, 0)).toEqual({ cur: 1, next: null });
     expect(cardTierSteps(CATALOG.heavyTorpedo, 2)).toEqual({ cur: 2, next: 3 });
-    expect(cardTierSteps(CATALOG.hullRepair, 0)).toBeNull();
+    expect(cardTierSteps(CATALOG.depthCharge, 0)).toBeNull();
   });
 
   // STORY 8.12 — THE CEILING. The ramp is five rungs (UX-DR51) and the caps are
@@ -440,17 +456,7 @@ describe('the fitted toast', () => {
     expect(boonFitToastLine('someFutureCard', 1)).toContain(boonName('someFutureCard'));
   });
 
-  // STORY 8.7, RULING 14 (UX-DR48's "consumable stocked"). Nothing about the
-  // hull changed when a consumable lands — a copy went onto the belt — so the
-  // verb has to say so or the toast claims a fit that never happened.
-  it('only the consumable kind switches the verb: ladder, equipment, add-on, an unknown kind and no kind all read the fitted default', () => {
-    const fitted = boonFitToastLine('hullRepair', 1);
-    expect(boonFitToastLine('hullRepair', 1, 'consumable')).not.toBe(fitted);
-    expect(boonFitToastLine('hullRepair', 1, 'consumable')).toContain(boonName('hullRepair'));
-    for (const kind of ['ladder', 'equipment', 'addon', 'someFutureKind']) {
-      expect(boonFitToastLine('hullRepair', 1, kind), kind).toBe(fitted);
-    }
-  });
+
 });
 
 describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pitch', () => {

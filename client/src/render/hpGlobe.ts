@@ -88,23 +88,9 @@ export const HULL_UNIT = '%';
  *  globe's own readout function. */
 export { hullPercent };
 
-/**
- * Pure: hp — EVERY shield pool the own hull holds, summed: the SHIELD BLOCK's
- * remaining absorb (`OwnShip.shield.hp`) plus the SHIELD BUOY's pool
- * (`OwnShip.buoyShield.hp`, Story 10.9, AC 7). Both keys are ABSENT when their
- * pool is empty (the conditional-spread wire rule), and a missing `you` reads
- * 0. The globe adds this to the printed number in the existing shielded fill
- * — one register for "shielded", no new colour, no new copy.
- */
-export function shieldPoolHp(you: { shield?: { hp: number }; buoyShield?: { hp: number } } | null | undefined): number {
-  return (you?.shield?.hp ?? 0) + (you?.buoyShield?.hp ?? 0);
-}
-
-/** Pure: the HP numeral's fill — `info` while a SHIELD BLOCK has hp left
- *  (amendment 116), the ordinary `textPrimary` otherwise. */
-export function shieldedFill(shield: number): number {
-  return shield > 0 ? C.info : C.textPrimary;
-}
+// (The SHIELDED readout — hull + shield in `info`, Story 8.16 / 10.9 — left
+// with SHIELD BLOCK and the shield buoy: 2026-11-05, Story 10.5, epic-10
+// amendment 11. The numeral is the hull alone, always `textPrimary`.)
 
 /**
  * Pure: HP fill color by remaining fraction (UX-DR15 + amendment 27's bands).
@@ -330,12 +316,6 @@ export interface HpGlobeInput {
   alive: boolean;
   /** Inside the five-second sinking window (Story 5.2's third state). */
   sinking: boolean;
-  /** hp — every shield pool's remaining absorb (`shieldPoolHp`: the SHIELD
-   *  BLOCK's plus, since Story 10.9, the SHIELD BUOY's; 0 when none is up).
-   *  Story 8.16, epic-8 amendments 116/117: it is added to the
-   *  printed NUMBER only (a percent that may pass 100 since Story 10.3),
-   *  tinted `info` — the globe and its band never see it. */
-  shield: number;
 }
 
 /**
@@ -353,7 +333,6 @@ export class HpGlobe {
   private readonly unit: Text;
   private lastSig = '';
   private lastValue = '';
-  private lastFill: number = C.textPrimary;
   private lastMicro = 1;
   /** INTEGRATED pulse phase (radians) + the clock it was last advanced at. */
   private pulsePhase = 0;
@@ -371,10 +350,6 @@ export class HpGlobe {
     this.unit = new Text({ text: HULL_UNIT, style: UNIT_STYLE });
     this.unit.anchor.set(0, 1);
     this.root.addChild(this.label, this.value, this.unit);
-    // The SHIELDED readout (UX-DR46, Story 8.16, epic-8 amendments 116/117) is
-    // the NUMBER only: `readout()` prints hull + shield in `info` while a SHIELD
-    // BLOCK is up. No globe ring, no hull ring, and the globe geometry and
-    // band never see the shield.
   }
 
   /**
@@ -428,24 +403,17 @@ export class HpGlobe {
     this.fill.alpha = hullFillHeld(frac, this.pulsePhase, amp, this.hold);
   }
 
-  /** `HULL` over `72 %`, centred as one block on the globe. While a SHIELD
-   *  BLOCK is up the value is hull + shield as one percent (it may read past
-   *  100 — `HULL 112 %`) in `info` (amendment 116, in percent since 10.3). */
+  /** `HULL` over `72 %`, centred as one block on the globe. */
   private readout(input: HpGlobeInput, c: Circle, uiScale: number): void {
     const micro = microScale(uiScale);
     if (micro !== this.lastMicro) {
       this.label.scale.set(micro);
       this.lastMicro = micro;
     }
-    const value = `${hullPercent(input.hp + input.shield, input.maxHp)}`;
+    const value = `${hullPercent(input.hp, input.maxHp)}`;
     if (value !== this.lastValue) {
       this.value.text = value;
       this.lastValue = value;
-    }
-    const fill = shieldedFill(input.shield);
-    if (fill !== this.lastFill) {
-      this.value.style.fill = fill;
-      this.lastFill = fill;
     }
     this.label.position.set(c.cx, c.cy + HULL_LABEL_DY);
     // Widths come from the MONO MODEL (ui/refitCardFit.ts), never from
@@ -471,11 +439,6 @@ export class HpGlobe {
    *  composed readout, without reaching into the display list. */
   get fillAlpha(): number {
     return this.fill.alpha;
-  }
-
-  /** The value numeral's current fill (tests/debug — the shielded `info` tint). */
-  get valueFill(): number {
-    return this.lastFill;
   }
 
   readoutText(): string {

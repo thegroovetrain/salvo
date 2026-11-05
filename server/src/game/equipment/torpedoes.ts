@@ -35,13 +35,17 @@ import type { ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
 import { launchTorpedo, type TorpedoLaunchContext } from './torpedoCore.js';
 
-/** The two lines this module fits. */
-export type TorpedoLineId = 'heavyTorpedo' | 'lightTorpedo';
+/** The three lines this module fits. The SUPERCAVITATING torpedo joined the
+ *  slot weapons in Story 10.5 (Eric 2026-11-05, epic-10 amendment 11): a pool
+ *  on the standard reload, its numbers off its own effective row — the row's
+ *  `homingTurnRate` is 0 at every tier, so it stays a straight-runner. */
+export type TorpedoLineId = 'heavyTorpedo' | 'lightTorpedo' | 'supercavTorpedo';
 
 /** One line's AR44 target mask, from ITS OWN CONFIG block — never another
  *  row's answer (the BallisticParams law). */
 function hitsFor(id: TorpedoLineId): readonly TargetKind[] {
-  return id === 'lightTorpedo' ? CONFIG.lightTorpedo.hits : CONFIG.torpedo.hits;
+  if (id === 'lightTorpedo') return CONFIG.lightTorpedo.hits;
+  return id === 'supercavTorpedo' ? CONFIG.supercavTorpedo.hits : CONFIG.torpedo.hits;
 }
 
 /**
@@ -110,3 +114,7 @@ export const torpedoEquipment: Equipment = torpedoLine('heavyTorpedo');
 /** The LIGHT torpedo (Story 8.13, catalog-v3 R18) — the Torpedo Boat's fast,
  *  cheap fish on TWIN beam sectors. */
 export const lightTorpedoEquipment: Equipment = torpedoLine('lightTorpedo');
+
+/** The SUPERCAVITATING torpedo (Story 10.5 — a slot weapon again: bow +/-15 deg
+ *  sector, R4's reload, amendment 8(e)'s damage tiers). */
+export const supercavTorpedoEquipment: Equipment = torpedoLine('supercavTorpedo');

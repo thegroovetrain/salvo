@@ -5,12 +5,12 @@
 // server-side (ShipRecord.offer) so reopening the refit window can NEVER reroll
 // (FR19).
 //
-// AN OFFER NEVER SHOWS AN EQUIPMENT, LADDER OR ADD-ON LINE THE SHIP IS ALREADY
-// AT CAP ON: the draw's eligibility law drops it before either stage, so a dead
-// pick can never reach this shape. A CONSUMABLE line is the one exception and
-// it is deliberate (Eric ruling 2026-09-22, epic-8 amendment 94): it is dealt
-// even at cap or with a full belt, greyed client-side and refused as a silent
-// no-op server-side, which is what makes the offer never empty.
+// AN OFFER NEVER SHOWS A LINE THE SHIP IS ALREADY AT CAP ON, nor a second kind
+// of a filled family slot: the draw's eligibility law drops both before either
+// stage, so a dead pick can never reach this shape. (The consumable exception
+// of epic-8 amendment 94 — dealt even at cap, which made the offer never
+// empty — left with the kit, 2026-11-05, Story 10.5: an offer may now be
+// short, or empty once nothing is eligible.)
 //
 // THE DRAW IS STATELESS: there is no pool object to thin, so a line passed over
 // at one level is back at full weight the next — that IS "reshuffle after every
@@ -19,9 +19,8 @@
 import type { LineId } from './catalog.js';
 
 /** A materialized offer: the drawn card-line ids, in draw order. Length is
- *  `CONFIG.offer.size` in every reachable state; shorter only when fewer than
- *  that many lines are dealable at all, and never empty while any consumable
- *  line is dealable (sim/draw.ts).
+ *  `CONFIG.offer.size` while that many lines are eligible for the ship;
+ *  shorter when fewer are, and empty when none is (sim/draw.ts).
  *
  *  LINE IDS ARE THE ONLY IDS ON THE WIRE (Story 8.1). */
 export type BoonOffer = readonly LineId[];
@@ -40,7 +39,7 @@ export type BoonOffer = readonly LineId[];
  *
  * WHY A NEGATIVE AT ALL. The negative sentinel channel was CLOSED at PV 53,
  * when the -1 DAMAGE CONTROL spend left the wire (epic-8 amendment 46 —
- * healing is the HULL REPAIR card, not a level spend), and -1 STAYS OUT: it is
+ * healing was the HULL REPAIR card then, the `C` ability since Story 10.5 — never a level spend), and -1 STAYS OUT: it is
  * simply malformed. -2 re-opens the channel for exactly this one value, so the
  * redraw needs no new message kind and no new field (PROTOCOL_VERSION 55).
  * Offer slots are 0..N-1, so no legal index can ever collide with it.

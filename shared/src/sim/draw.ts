@@ -6,8 +6,8 @@
 // class-locked, no card is brought to the match, nothing is frozen at a door,
 // and Story 8.11's hidden match pool is retired. EVERY DEALABLE CATALOG LINE IS
 // IN THE POOL FOR EVERY CAPTAIN, with UNLIMITED copies — what a ship may be
-// dealt is bounded only by the line's `cap`, by the three weapon slots, and by
-// the mounted gun. A draw is therefore a pure function of the SHIP'S STATE and
+// dealt is bounded only by the line's `cap`, by the three FAMILY slots (one
+// kind per slot — Story 10.5), and by the mounted gun. A draw is therefore a pure function of the SHIP'S STATE and
 // the catalog, never of a per-player card list.
 //
 // WHAT "ELIGIBLE" MEANS, line by line (`eligibleLines`):
@@ -15,9 +15,14 @@
 //     (amendment 11, carried over verbatim: `isDealable` is still the single
 //     point at which "authored but unbuilt" becomes "unofferable");
 //   - an `equipment` line the ship holds NO copy of is copy 1, i.e. THE BARE
-//     WEAPON, so it is eligible only while a weapon slot is open — and its
-//     kind is `weapon`. Held 1..cap-1 it is a TIER card: kind `upgrade`. At
-//     `cap` it is out (a sixth copy is not a card);
+//     WEAPON, so it is eligible only while ITS FAMILY'S SLOT is empty — and
+//     its kind is `weapon`. ONE KIND PER SLOT FOR THE MATCH (Story 10.5, Eric
+//     2026-11-05, epic-10 amendment 11): once LIGHT TORPEDO holds `Q`, HEAVY
+//     and SUPERCAV are never eligible again, and the same for the mine and
+//     special-shell families. Held 1..cap-1 it is a TIER card: kind
+//     `upgrade`. At `cap` it is out (a sixth copy is not a card). A weapon
+//     with NO family slot — BROADSIDE, which left the deal (R6) — is never
+//     eligible at any count;
 //   - a `ladder` below its cap is an `upgrade`; a ladder with a HOST equipment
 //     row — named in `appliesTo`, or addressed by its tier's `equipment.<row>.`
 //     stat path — is a GUN ladder and is eligible only while that row is the
@@ -26,23 +31,20 @@
 //   - an `addon` (cap 1, so eligible only unheld) is an `upgrade` iff a host
 //     it names is already held OR a weapon slot is still open — holding an
 //     add-on ahead of its host is allowed while the ship can still fit one;
-//   - a `consumable` THE SHIP CARRIES is ALWAYS eligible (amendment 94: at
-//     its cap it is dealt anyway — the card greys client-side, with no foot
-//     word since Story 9.2 (epic-9 amendment 32), and the server refuses the
-//     pick as a silent no-op). THAT is what makes "the offer is never empty"
-//     structural: there is no exhaustion, no latch, no banked-empty branch.
-//     Since Story 10.1 (Eric 2026-10-27, epic-10 amendment 3) a consumable
-//     OUTSIDE the ship's kit is NOT a candidate at all — not eligible, not
-//     usable — because it has no slot to stock into (`pickRefusal` refuses it
-//     as `stub`, the one gate). The kit always holds four dealable lines, so
-//     the never-empty property survives.
+//
+// THE `consumable` KIND IS GONE (2026-11-05, Story 10.5): the kit is retired,
+// so there are two kinds — `weapon` and `upgrade` — whose stage-1 odds are
+// still each kind's share of the eligible lines. With it went amendment 94's
+// "the offer is never empty": that rested on consumables being dealt at their
+// cap. An offer is now SHORT when fewer than `CONFIG.offer.size` lines are
+// eligible and EMPTY when none is (a hull holding every ladder and its three
+// slotted weapons at cap); `drawOffer` returns what there is, never a throw.
 //
 // THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92). For each card:
 // stage 1 picks the KIND, with each kind's odds equal to its SHARE of the
 // lines still eligible for this ship — exactly what an undiscounted uniform
 // draw over lines would give; stage 2 picks a LINE within that kind, weapons
-// by the match-wide WEIGHTING (amendment 90) and upgrades and consumables
-// evenly. Eric's requirement, verbatim: *"the odds of drawing A weapon are the
+// by the match-wide WEIGHTING (amendment 90) and upgrades evenly. Eric's requirement, verbatim: *"the odds of drawing A weapon are the
 // same, but WHICH weapon it is gets weighted."* A dealt line leaves the
 // eligible set and the shares recompute, so the cards are always DIFFERENT
 // lines. Cost: exactly TWO `rng.next()` per dealt card (one per stage).
@@ -73,21 +75,21 @@ import {
   boonStackCount,
   CATALOG,
   lineForEquipment,
+  tierTargetOf,
   type Catalog,
   type CatalogLine,
   type LineId,
 } from './catalog.js';
-import { WEAPON_SLOTS, type ConsumableKit, type EquipmentId, type SlotItemId } from './loadout.js';
+import { WEAPON_SLOTS, familySlotFor, type EquipmentId } from './loadout.js';
 import { pickRefusal } from './boons.js';
 
 /**
- * The three KINDS a dealt card can be (amendment 92's stage 1):
+ * The two KINDS a dealt card can be (amendment 92's stage 1):
  *   - `weapon` — copy 1 of an equipment line, the bare weapon itself;
  *   - `upgrade` — a tier card of a held line, a ladder rung, the mounted gun's
- *     ladder, or an add-on;
- *   - `consumable` — a copy that stocks its kind's fixed slot.
+ *     ladder, or an add-on.
  */
-export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
+export type DrawKind = 'weapon' | 'upgrade';
 
 /**
  * Everything the draw needs to know about a ship — nothing else about it is
@@ -95,14 +97,13 @@ export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
  *
  * `held` is the ship's fitted card ids, ONE ENTRY PER COPY (the shape of
  * `ShipRecord.cards`, passed straight through); `slotIds` is the ship's SLOT
- * CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `stockSlotFor`
- * and `pickRefusal` take); `mountedGun` is the EQUIPMENT row in the ship's
+ * CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `pickRefusal`
+ * takes); `mountedGun` is the EQUIPMENT row in the ship's
  * slot 0, which is what a gun ladder's host is matched against. SINCE STORY
  * 10.4 A CAPTAIN'S IS ALWAYS `'mainBattery'` — no ladder hosts on that row, so
  * the CANNON, MACHINE GUN and FLAK ladders are NEVER eligible for a captain
  * (their catalog lines stay for reference and the PvE fleet, which never
- * draws); `kit` is the ship's four consumable lines (Story 10.1,
- * `ShipRecord.kit`) — the only consumables the draw may deal it.
+ * draws). There is no `kit` since Story 10.5.
  *
  * THE SLOT IDS REPLACED A `weaponSlotOpen` BOOLEAN (Story 8.14 review, F2).
  * The draw needs the weapon row for eligibility and the level-zero guarantee
@@ -112,14 +113,13 @@ export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
  */
 export interface DrawShip {
   readonly held: readonly LineId[];
-  readonly slotIds: readonly (SlotItemId | null)[];
+  readonly slotIds: readonly (EquipmentId | null)[];
   readonly mountedGun: EquipmentId;
-  readonly kit: ConsumableKit;
 }
 
-/** Is ANY of Q/E/R still empty — the one derivation of "a bare weapon has
- *  somewhere to go", fail-closed on a short array exactly like `stockSlotFor`
- *  (a missing slot is never "empty"). */
+/** Is ANY of Q/E/R still empty — an ADD-ON's "a host could still be fitted"
+ *  test, fail-closed on a short array (a missing slot is never "empty"). A
+ *  bare WEAPON asks the narrower question, `familySlotOpen`. */
 function weaponRowOpen(ship: DrawShip): boolean {
   return WEAPON_SLOTS.some((i) => ship.slotIds[i] === null);
 }
@@ -146,7 +146,7 @@ export interface WeightingConfig {
 
 /** The kind walk order — fixed, because stage 1's cumulative walk must be
  *  deterministic for a given rng value. */
-const KIND_ORDER: readonly DrawKind[] = ['weapon', 'upgrade', 'consumable'];
+const KIND_ORDER: readonly DrawKind[] = ['weapon', 'upgrade'];
 
 /** A known, NON-STUB line — the only kind the pool may deal (amendment 11). */
 function isDealable(id: string, catalog: Catalog): boolean {
@@ -161,11 +161,20 @@ function holdsHost(held: readonly LineId[], eq: EquipmentId, catalog: Catalog): 
   return host !== undefined && boonStackCount(held, host.id) > 0;
 }
 
-/** An EQUIPMENT line's kind: copy 1 IS the bare weapon, so it needs somewhere
- *  to go; every later copy is a tier bump on a weapon already aboard. */
-function equipmentKind(copies: number, ship: DrawShip): DrawKind | undefined {
+/**
+ * An EQUIPMENT line's kind (Story 10.5 — one kind per family slot): a weapon
+ * with no family slot (BROADSIDE) is never dealt; copy 1 IS the bare weapon,
+ * dealt only while its family's slot is EMPTY — so a second kind of a filled
+ * family never appears; every later copy is a tier bump on the weapon already
+ * holding that slot. Fail-closed on a short slot array (a missing slot is
+ * never "empty").
+ */
+function equipmentKind(line: CatalogLine, copies: number, ship: DrawShip): DrawKind | undefined {
+  const weapon = tierTargetOf(line);
+  const slot = weapon === undefined ? null : familySlotFor(weapon);
+  if (slot === null) return undefined;
   if (copies > 0) return 'upgrade';
-  return weaponRowOpen(ship) ? 'weapon' : undefined;
+  return ship.slotIds[slot] === null ? 'weapon' : undefined;
 }
 
 /** An `equipment.<row>.<field>` stat path, as a ladder's tier effects write
@@ -225,12 +234,12 @@ function addonKind(line: CatalogLine, ship: DrawShip, catalog: Catalog): DrawKin
 }
 
 /**
- * The kind an ELIGIBLE non-consumable line would be dealt as, or undefined if
- * the ship cannot be dealt it at all. One clause per catalog kind, above.
+ * The kind an ELIGIBLE line would be dealt as, or undefined if the ship cannot
+ * be dealt it at all. One clause per catalog kind, above.
  */
-function upgradeKindOf(line: CatalogLine, copies: number, ship: DrawShip, catalog: Catalog): DrawKind | undefined {
+function kindOf(line: CatalogLine, copies: number, ship: DrawShip, catalog: Catalog): DrawKind | undefined {
   if (copies >= line.cap) return undefined; // at cap: a further copy is not a card
-  if (line.kind === 'equipment') return equipmentKind(copies, ship);
+  if (line.kind === 'equipment') return equipmentKind(line, copies, ship);
   if (line.kind === 'ladder') return ladderKind(line, ship);
   return addonKind(line, ship, catalog);
 }
@@ -251,14 +260,7 @@ export function eligibleLines(ship: DrawShip, catalog: Catalog = CATALOG): Eligi
     const line = catalog[key];
     if (line === undefined) continue;
     const id = key as LineId;
-    // A CARRIED CONSUMABLE IS ALWAYS ELIGIBLE (amendment 94) — at cap,
-    // whatever the ship holds. That is what makes the offer never empty. One
-    // outside the kit is never a candidate (Story 10.1).
-    if (line.kind === 'consumable') {
-      if ((ship.kit as readonly string[]).includes(key)) out.push({ id, kind: 'consumable' });
-      continue;
-    }
-    const kind = upgradeKindOf(line, boonStackCount(ship.held, id), ship, catalog);
+    const kind = kindOf(line, boonStackCount(ship.held, id), ship, catalog);
     if (kind !== undefined) out.push({ id, kind });
   }
   return out;
@@ -280,35 +282,28 @@ export function lineWeight(takesByOthers: number, cfg: WeightingConfig = CONFIG.
 }
 
 /**
- * THE USABLE LINES for the level-zero guarantee, carried over from Story 8.10
- * byte-identical except for its source (the common pool rather than a deck):
- * the dealable lines, in CATALOG order, that would give the ship something it
- * can USE right now —
- *
- *   - every `consumable` line THE KIT CARRIES (a copy stocks a slot the ship
- *     can fire — one outside the kit has no slot, Story 10.1), and
- *   - every `equipment` line the ship holds NO copy of, whose next tier is
- *     therefore tier I: the bare weapon itself.
+ * THE USABLE LINES for the level-zero guarantee: the dealable lines, in
+ * CATALOG order, that would give the ship something it can USE right now —
+ * every `equipment` line the ship holds NO copy of whose FAMILY SLOT IS EMPTY,
+ * i.e. a bare weapon that fills a slot (Story 10.5: card 0 of the opening is
+ * a slot-filling weapon; the consumable half of this list left with the kit).
  *
  * An `equipment` line already held is excluded because its next copy is a tier
  * bump, not a new verb; `ladder` and `addon` lines are excluded because a stat
- * step or a bolt-on verb is not something a bare hull can put to sea with. A
- * line held AT CAP is never usable.
+ * step or a bolt-on verb is not something a bare hull can put to sea with.
  *
  * IT READS THE SLOT IDS (Story 8.14 review, F2). At level zero the whole row is
- * empty and every consumable slot is empty, so this is still byte-identical to the pick 8.10
- * shipped — but `grantOpening` also fires on a REDRAW after a dev spawn fit has
- * filled the row, and there the guarantee could hand a hull copy 1 of a weapon
- * with nowhere to put it. A line is usable only when `pickRefusal` says the
- * ship could actually TAKE it, which is the same gate the pick itself runs. The
- * guarantee stays uniform and unweighted over whatever survives. `kit` is the
- * ship's four, handed to `pickRefusal` — which is the one place the kit is
- * consulted here, so the guarantee and the pick can never disagree.
+ * empty, so every dealable weapon is usable — but `grantOpening` also fires on
+ * a REDRAW after a dev spawn fit has filled slots, and there the guarantee
+ * could hand a hull a weapon with nowhere to put it. A line is usable only
+ * when `pickRefusal` says the ship could actually TAKE it, which is the same
+ * gate the pick itself runs — so the guarantee, the draw and the pick can
+ * never disagree. The guarantee stays uniform and unweighted over whatever
+ * survives, and is vacuous when all three family slots are filled.
  */
 export function usableLines(
   held: readonly LineId[],
-  slotIds: readonly (SlotItemId | null)[],
-  kit: ConsumableKit,
+  slotIds: readonly (EquipmentId | null)[],
   catalog: Catalog = CATALOG,
 ): LineId[] {
   const out: LineId[] = [];
@@ -316,9 +311,8 @@ export function usableLines(
     if (!isDealable(key, catalog)) continue;
     const line = catalog[key];
     if (line === undefined) continue;
-    const copies = boonStackCount(held, key);
-    const usable = line.kind === 'consumable' || (line.kind === 'equipment' && copies === 0);
-    if (usable && pickRefusal(held, slotIds, key, kit, catalog) === null) out.push(key as LineId);
+    const usable = line.kind === 'equipment' && boonStackCount(held, key) === 0;
+    if (usable && pickRefusal(held, slotIds, key, catalog) === null) out.push(key as LineId);
   }
   return out;
 }
@@ -327,7 +321,7 @@ export function usableLines(
  *  exactly ONE rng.next(). Undefined — and NO rng value spent — when nothing is
  *  usable, which is what keeps the guarantee vacuous instead of a reroll. */
 function pickUsable(ship: DrawShip, catalog: Catalog, rng: Rng): LineId | undefined {
-  const usable = usableLines(ship.held, ship.slotIds, ship.kit, catalog);
+  const usable = usableLines(ship.held, ship.slotIds, catalog);
   if (usable.length === 0) return undefined;
   const i = Math.min(Math.floor(rng.next() * usable.length), usable.length - 1); // clamp: float dust
   return usable[i];
@@ -350,8 +344,8 @@ function pickKind(remaining: readonly Eligible[], rng: Rng): DrawKind {
 
 /**
  * STAGE 2 — WHICH line, within the chosen kind. One `rng.next()`. Weapons are
- * weighted (amendment 90); upgrades and consumables are even, which is the
- * same walk with every weight 1. `candidates` is never empty here.
+ * weighted (amendment 90); upgrades are even, which is the same walk with
+ * every weight 1. `candidates` is never empty here.
  */
 function pickLine(candidates: readonly Eligible[], weights: Weights, weighted: boolean, rng: Rng): LineId {
   let total = 0;
@@ -375,8 +369,8 @@ function pickLine(candidates: readonly Eligible[], weights: Weights, weighted: b
  * NON-CONSUMING and stateless: there is no pool object to thin, so a draw is a
  * read of the ship's state and nothing else. Fewer eligible lines than
  * `CONFIG.offer.size` gives a SHORTER offer — never padded, never repeated,
- * never a throw. And it is never EMPTY in practice, because a consumable line
- * is always eligible (amendment 94).
+ * never a throw — and NO eligible line gives an EMPTY one (Story 10.5: the
+ * always-eligible consumables are gone; see the file header).
  *
  * `weights` is the World's per-line weighting for THIS ship (absent = 1.0); it
  * is consulted only inside the `weapon` kind, so the odds of the card being a

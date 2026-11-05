@@ -20,8 +20,6 @@ import {
   CONFIG,
   DEFAULT_CLASS_ID,
   INDEX_IDS,
-  CONSUMABLE_IDS,
-  CONSUMABLE_SLOTS,
   EQUIPMENT_IDS as SHARED_EQUIPMENT_IDS,
   SLOT_BOOST,
   SLOT_GUN,
@@ -29,7 +27,6 @@ import {
   effectiveStats,
   type EquipmentId,
   type ShipClassId,
-  type SlotItemId,
 } from '@salvo/shared';
 import {
   TIP_TYPE,
@@ -44,6 +41,7 @@ import {
   type TooltipModel,
 } from '../render/slotTooltip.js';
 import { hoverAnchor } from '../render/hotbar.js';
+import { ABILITY_SQUARES, abilitySquare } from '../render/hotbarSquares.js';
 import { hudBarLayout, type Rect } from '../render/hudBar.js';
 import { cardEquipmentIds } from '../render/equipmentInfo.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
@@ -88,21 +86,19 @@ const SLOT_CASES: Case[] = EQUIPMENT_IDS.flatMap((id) =>
     ].flatMap(({ b, cards }) =>
       slotsFor(id).map((slot) => ({
         label: `${id}/${cls}/${b}/slot ${slot}`,
-        model: tooltipModel(slot, id as SlotItemId, effectiveStats(CONFIG.shipClasses[cls], cards), cards)!,
+        model: tooltipModel(slot, id, effectiveStats(CONFIG.shipClasses[cls], cards), cards)!,
         anchor: FLOOR.squares[slot],
       })),
     ),
   ),
 );
 
-const BELT_CASES: Case[] = CONSUMABLE_IDS.flatMap((id) =>
-  CONSUMABLE_SLOTS.map((slot) => ({
-    label: `${id}/belt ${slot}`,
-    // The deepest stock the belt can print (the line's cap) — the longest `×n`.
-    model: tooltipModel(slot, id, effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]), [], CATALOG[id].cap)!,
-    anchor: FLOOR.squares[slot],
-  })),
-);
+/** The `C` / `V` cooldown-ability squares' panels (Story 10.5). */
+const ABILITY_CASES: Case[] = ABILITY_SQUARES.map((id) => ({
+  label: `${id}/square ${abilitySquare(id)}`,
+  model: tooltipModel(abilitySquare(id), id, effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]))!,
+  anchor: FLOOR.squares[abilitySquare(id)],
+}));
 
 const SHIP_CASES: Case[] = CLASSES.flatMap((cls) =>
   [
@@ -115,13 +111,13 @@ const SHIP_CASES: Case[] = CLASSES.flatMap((cls) =>
   })),
 );
 
-const CASES = [...SLOT_CASES, ...BELT_CASES, ...SHIP_CASES];
+const CASES = [...SLOT_CASES, ...ABILITY_CASES, ...SHIP_CASES];
 
 describe('slot tooltip container fit (amendment 47)', () => {
-  it('covers every equipment id × class × build, every belt line, and the SHIP panel per class', () => {
+  it('covers every equipment id × class × build, the two ability squares, and the SHIP panel per class', () => {
     const slotCount = EQUIPMENT_IDS.reduce((n, id) => n + slotsFor(id).length, 0);
     expect(SLOT_CASES.length).toBe(slotCount * CLASSES.length * 3);
-    expect(BELT_CASES.length).toBe(CONSUMABLE_IDS.length * CONSUMABLE_SLOTS.length);
+    expect(ABILITY_CASES.length).toBe(ABILITY_SQUARES.length);
     expect(SHIP_CASES.length).toBe(CLASSES.length * 2);
     expect(CASES.every((c) => c.model !== null)).toBe(true);
   });

@@ -20,24 +20,21 @@
 import {
   CATALOG,
   EQUIPMENT_IS_WEAPON,
-  KIT_SIZE,
   LINE_IDS,
   SLOT_GUN,
   boonStackCount,
   equipmentMaxAmmo,
   equipmentReloadMs,
-  isConsumableId,
   tierTargetOf,
   type CatalogLine,
   type EffectiveStats,
   type EquipmentId,
-  type SlotItemId,
-  type WeaponAmmo,
 } from '@salvo/shared';
+import { ABILITY_KEY_GLYPHS, ABILITY_SQUARES } from './hotbarSquares.js';
 
 /**
- * Slot → bound key glyph, in slot order. The nine-slot spine, left to right on
- * the HUD bar: Gun · Shift · Q · E · R · 1 · 2 · 3 · 4.
+ * Hotbar square → bound key glyph, in square order (render/hotbarSquares.ts),
+ * left to right on the HUD bar: Gun · Shift · Q · E · R · C · V.
  *
  * The GUN is KEYLESS (always selected — its chip renders as a ghost that keeps
  * the row's shared baseline). Slot 1 is the BOOST, and its chip spells the WORD
@@ -48,15 +45,25 @@ import {
  * padding each side), and the arrow — which players read as "up" as often as
  * "shift" — no longer has to stand in for a key that has a name.
  *
- * Slots 2-4 are the three generic weapon slots; the rest are the ship's
- * KIT squares (Story 10.1, epic-10 amendment 3: four lines the captain picks,
- * `kit[i]` at key `i + 1`; six fixed kinds keyed `1`…`6` from Story 9.2) — the
- * digits are derived from shared `KIT_SIZE` so the chips follow the kit.
+ * Slots 2-4 are the three FAMILY weapon slots (torpedo / mine / special
+ * shell); the two after them are the cooldown abilities HULL REPAIR (`C`) and
+ * SMOKE (`V`) — 2026-11-05, Story 10.5, epic-10 amendment 11: the kit's digit
+ * squares are gone with the kit.
+ *
+ * THE GUN'S CHIP SPELLS `LMB` (Eric 2026-11-05: *"LMB/RMB"* — the main battery
+ * fires on the left mouse button), a TEXT chip exactly like `Shift`: it was a
+ * keyless ghost until then. The SECONDARIES square's `RMB` is `SEC_KEY_GLYPH`
+ * below — that square is outside this index space (render/hotbarSquares.ts).
  */
 export const SLOT_KEY_GLYPHS: readonly string[] = [
-  '', 'Shift', 'Q', 'E', 'R',
-  ...Array.from({ length: KIT_SIZE }, (_, i) => String(i + 1)),
+  'LMB', 'Shift', 'Q', 'E', 'R',
+  ...ABILITY_SQUARES.map((id) => ABILITY_KEY_GLYPHS[id]),
 ];
+
+/** The SECONDARIES heat square's key chip (Eric 2026-11-05) — the right mouse
+ *  button fires the secondaries. The square is slotless, so its chip lives
+ *  beside the table rather than in it. */
+export const SEC_KEY_GLYPH = 'RMB';
 
 /**
  * Display name per equipment id. The BUILT ids keep their shipped names
@@ -79,14 +86,10 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   navalMines: 'Mines',
   broadside: 'Broadside Barrage',
   starShells: 'Star Shells',
-  // (The RADAR BUOY's name went with the buoy in Story 8.16; the DECOY BUOY is a
-  // consumable and is named in ui/boonCopy.ts `LINE_NAMES`.)
   // --- catalog-v3 §1 names ---------------------------------------------------
-  // THE SUPERCAV TORPEDO LEFT THIS TABLE in Story 8.13: it is a CONSUMABLE now
-  // (epic-8 amendment 74), so its name lives where every consumable's does —
-  // the copy layer's `LINE_NAMES` (ui/boonCopy.ts), which is what a belt slot's
-  // tooltip reads. FOULING MINES arrived from the add-on space the same day
-  // (amendment 81) and takes its sheet name.
+  // FOULING MINES arrived from the add-on space in Story 8.13 (amendment 81)
+  // and takes its sheet name. (The SUPERCAV TORPEDO, a consumable from 8.13 to
+  // 10.5, is back in this table below.)
   lightTorpedo: 'Light Torpedo',
   captiveMines: 'Captive Mines',
   foulingMines: 'Fouling Mines',
@@ -99,6 +102,11 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   // turrets — it reuses the cannon's shipped name (no new copy; the full UI
   // pass names it).
   mainBattery: 'Cannon',
+  // STORY 10.5 (2026-11-05, epic-10 amendment 11): the three moved weapons are
+  // slot equipment again — their card names (ui/boonCopy.ts), title-cased.
+  supercavTorpedo: 'Supercav Torpedo',
+  dazzleShells: 'Flash Shells',
+  foulingShell: 'Fouling Shell',
 };
 
 /**
@@ -117,13 +125,12 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
  */
 export function interactionLine(
   slot: number,
-  id: SlotItemId,
+  id: EquipmentId,
   cards: readonly string[] = [],
-  _stock = 0,
   stats?: EffectiveStats,
 ): string {
-  if (slot === SLOT_GUN) return gunTierSuffix(id, cards, stats);
-  if (isConsumableId(id) || !EQUIPMENT_IS_WEAPON[id]) return '';
+  if (slot === SLOT_GUN) return tierSuffix(id, cards, stats);
+  if (!EQUIPMENT_IS_WEAPON[id]) return '';
   return tierSuffix(id, cards);
 }
 
@@ -154,14 +161,6 @@ function tierSuffix(id: EquipmentId, cards: readonly string[], stats?: Effective
   if (GUN_FAMILY.has(id) && stats === undefined) return '';
   const tier = stats === undefined ? lineTier(cards, lineForEquipment(id) ?? id) : slotTier(stats, cards, id);
   return tier > 0 ? `TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
-}
-
-/** The GUN slot's suffix. A belt id handed to the top slot cannot happen, so
- *  only that guard is needed here — `tierSuffix` itself now refuses the gun
- *  without stats, so this no longer duplicates that check. */
-function gunTierSuffix(id: SlotItemId, cards: readonly string[], stats?: EffectiveStats): string {
-  if (isConsumableId(id)) return '';
-  return tierSuffix(id, cards, stats);
 }
 
 /** The Roman tier words the interaction line prints — the SAME ramp the bar's
@@ -299,17 +298,14 @@ export function slotTier(stats: EffectiveStats, cards: readonly string[], id: Eq
  * THE routing behind the fit flash (amendment 51): the card lands on ITS slot.
  */
 export function slotForCard(
-  loadout: readonly (SlotItemId | null)[],
+  loadout: readonly (EquipmentId | null)[],
   cardId: string,
 ): number | null {
   const targets = cardEquipmentIds(cardId);
   if (targets.length === 0) return null;
   for (let slot = 0; slot < loadout.length; slot += 1) {
     const id = loadout[slot];
-    // A BELT slot's content is a consumable line id, which `cardEquipmentIds`
-    // never yields (it lists EQUIPMENT a card addresses) — narrowed away rather
-    // than compared, so the two id spaces never meet (ruling 1).
-    if (id !== null && !isConsumableId(id) && targets.includes(id)) return slot;
+    if (id !== null && targets.includes(id)) return slot;
   }
   return null;
 }
@@ -347,9 +343,7 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     // LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES are LIVE lines as of Story
     // 8.13 and read the same way they always did. A CAPTIVE mine's number is its
     // FISH's warhead (the mine itself never detonates), which is exactly what
-    // its row's `damage` is. THE SUPERCAV TORPEDO LEFT this table with
-    // `EquipmentId`: a consumable has no stats row at all, and its damage is
-    // read straight off `CONFIG.supercavTorpedo` by the card that prints it.
+    // its row's `damage` is.
     lightTorpedo: e.lightTorpedo.damage,
     captiveMines: e.captiveMines.damage,
     foulingMines: e.foulingMines.damage,
@@ -361,6 +355,11 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     hunker: null,
     // STORY 10.4: per SHELL, like the broadside — a turret's salvo is several.
     mainBattery: e.mainBattery.damage,
+    // STORY 10.5: the SUPERCAV TORPEDO has a stat row again (its tiers step the
+    // damage); the two special shells deal none — they blind or foul.
+    supercavTorpedo: e.supercavTorpedo.damage,
+    dazzleShells: null,
+    foulingShell: null,
   };
   return table[id];
 }
@@ -389,15 +388,4 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
     reloadMs: equipmentReloadMs(stats, id),
     maxAmmo: equipmentMaxAmmo(stats, id),
   };
-}
-
-/**
- * Pure: the belt square's stock badge — `×n` for a live stack, nothing at zero
- * or with no ammo entry (the slot is then EMPTY, never `×0` — Story 8.7 ruling
- * 16, Eric R4 of Story 8.21). Shared by the Pixi bar and the results LOADOUT
- * block, which is why it lives here with the slot predicates and not in the
- * bar's render module (Story 8.21 review gate).
- */
-export function stockBadgeText(ammo: WeaponAmmo | null): string | null {
-  return ammo === null || ammo.n <= 0 ? null : `×${ammo.n}`;
 }

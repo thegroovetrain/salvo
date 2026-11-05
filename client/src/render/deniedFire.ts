@@ -120,7 +120,24 @@ export const DEDUP_KEY_CAP = 64;
  * server echo lands within ~RTT, so eviction can never realistically race a
  * live key); serverDenied() also marks, so a duplicate server denial for the
  * same press could never double-fire either.
+ *
+ * THE PRESS SOURCE (Story 10.5, 2026-11-05, epic-10 amendment 11): an ABILITY
+ * press is keyed by its ability (`DeniedView.act`, `denialSource`), never its
+ * slot — `C` / `V` hold no slot, and the wire names the ability.
  */
+export type DenialSource = number | `a${number}`;
+
+/** Pure: the dedup source of a server denial — the ability's code when the
+ *  denied press was an ability press (`act` present), else the slot. */
+export function denialSource(d: { slot: number; act?: number }): DenialSource {
+  return d.act === undefined ? d.slot : abilitySource(d.act);
+}
+
+/** Pure: the dedup source of an ability press, by wire code. */
+export function abilitySource(act: number): DenialSource {
+  return `a${act}`;
+}
+
 export class DenialDedup {
   private readonly order: string[] = [];
   private readonly seen = new Set<string>();
@@ -133,13 +150,13 @@ export class DenialDedup {
   }
 
   /** A client-side prediction denied this press (feedback already firing). */
-  markPredicted(slot: number, seq: number): void {
+  markPredicted(slot: DenialSource, seq: number): void {
     this.mark(`${slot}:${seq}`);
   }
 
   /** A server denial arrived: true iff feedback should fire NOW (the press
    *  was NOT predicted-denied — the previously-silent case). */
-  serverDenied(slot: number, seq: number): boolean {
+  serverDenied(slot: DenialSource, seq: number): boolean {
     const key = `${slot}:${seq}`;
     if (this.seen.has(key)) return false; // predicted already fed back — suppress the echo
     this.mark(key);

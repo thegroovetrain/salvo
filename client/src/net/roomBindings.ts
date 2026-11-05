@@ -19,13 +19,10 @@ import {
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
-  type DecoyView,
   type DeniedView,
-  type DropEvent,
   type FoghornEvent,
   type FrameMsg,
   type GameEvent,
-  type ConsumableKit,
   type HealEvent,
   type HitCallEvent,
   type HullId,
@@ -59,7 +56,6 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { FoulZones } from '../render/foulZones.js';
-import type { Decoys } from '../render/decoys.js';
 import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
@@ -128,9 +124,6 @@ export interface RoomBindingDeps {
   /** FOULING SHELL foul zones (render/foulZones.ts, Story 9.4) — synced
    *  contact-like from FrameMsg.foulZones every tick, exactly like burnZones. */
   foulZones: FoulZones;
-  /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
-   *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
-  decoys: Decoys;
   /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
    *  9.3) — synced contact-like from FrameMsg.clouds every tick, exactly like
    *  burnZones. NOT `smoke` above (that is WOUNDED smoke, an event-built plume). */
@@ -198,7 +191,7 @@ export interface RoomBindingDeps {
    * SHELLS round spawns this disc INSTEAD of the ordinary ring. Optional: a
    * harness without it draws every burst as the ordinary ring.
    */
-  flashBursts?: { spawn(x: number, y: number): void };
+  flashBursts?: { spawn(x: number, y: number, r?: number): void };
   /**
    * The OWNER's live mine radii for the own-mine rings, stamped with the FRAME
    * time `t` the caller hands in (the arming window is server-side, so it is
@@ -219,11 +212,10 @@ export interface RoomBindingDeps {
    * counts leg died with the wholesale strip in Story 2.8).
    *
    * `shift` is the seat's Shift (Story 10.4): slot 1's module is replayed from it,
-   * so the loadout derivation needs it alongside the cards. `kit` is the
-   * seat's four-line consumable KIT (Story 10.1, `OwnShip.kit`): the kit
-   * squares are replayed from it the same way.
+   * so the loadout derivation needs it alongside the cards. (The consumable
+   * KIT argument left with the kit — Story 10.5.)
    */
-  onOwnStats: (cls: ShipClassId, boons: readonly string[], shift: ShiftId, kit: ConsumableKit) => void;
+  onOwnStats: (cls: ShipClassId, boons: readonly string[], shift: ShiftId) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -285,6 +277,10 @@ export interface RoomBindingDeps {
    * so headless harnesses with no battery behave as before.
    */
   ownBattery?: { correct(you: OwnShip, ackSeq: number): void };
+  /** Every own frame's block, after the mirror advanced (Story 10.5 review
+   *  gate — the C / V press latch, sim/abilityLatch.ts). Optional, like
+   *  ownBattery. */
+  onOwnFrame?: (you: OwnShip) => void;
   /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the
@@ -749,20 +745,15 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // never reads state.net.you.
     const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
-    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift, f.you.kit);
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift);
     // Story 10.4: the own turrets + secondaries heat snap to the server's.
     deps.ownBattery?.correct(f.you, f.ackSeq);
+    deps.onOwnFrame?.(f.you);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
-    // The own RADAR BUOYS (Story 10.9 review gate) — the second antennas'
-    // positions, fed beside the own sweep anchor and BEFORE this frame's
-    // events (handleEvents runs last): a blip tagged `src` is marched from the
-    // buoy it names, and dropped when that buoy is not in this list. Only an
-    // own-ship (fogged) frame can carry a `src` paint.
-    deps.radar.setOwnRadarBuoys(ownRadarBuoys(f));
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -778,14 +769,8 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   handleEvents(f, deps, s);
 }
 
-/** The frame's OWN RADAR buoys (Story 10.9 review gate) — the radar's
- *  `src` paint origins. Own non-radar buoys and anyone else's are not. */
-function ownRadarBuoys(f: FrameMsg): DecoyView[] {
-  return (f.decoys ?? []).filter((d) => d.own && d.kind === 'radar');
-}
-
 /**
- * The CONTACT-LIKE reconciles — mines, lit zones, burning zones, decoys, smoke
+ * The CONTACT-LIKE reconciles — mines, lit zones, burning zones, smoke
  * puffs — and the zone + puff mirrors into state. Split out of handleFrame when Story 8.17's
  * burning-zone channel joined them; the order and every line are unchanged.
  */
@@ -795,8 +780,7 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // the three zone kinds are ALERTS — own white, anybody else's the shared
   // yellow↔orange blend — so they take no hue lookup: a mine's own/enemy is
   // `MineView.own` from the server, a zone's is `by === sessionId` (undefined
-  // for a spectator → nobody's). Decoys wear the owner's RELATION color (Story
-  // 10.4 — `DecoyView.own`).
+  // for a spectator → nobody's).
   // Own mines carry their owner-private radius rings (always-on, our stats,
   // THE FRAME's clock); enemy mines get exactly the marker they always got.
   // f.t — not a local clock reading: the arming dim measures a server-side
@@ -813,10 +797,6 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // FOULING SHELL foul zones (Story 9.4), same reconcile, same omitted-key rule.
   const foulZones = f.foulZones ?? [];
   deps.foulZones.sync(foulZones, ownId);
-  // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
-  // observer sees no decoys, so treat a missing key as an empty list.
-  const decoys = f.decoys ?? [];
-  deps.decoys.sync(decoys);
   // COUNTERMEASURE clouds (Story 9.3): NOT the same reconcile — the frame's
   // clouds MERGE into the held set (amendment 51: a cloud once seen is held
   // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
@@ -834,8 +814,6 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
   net.foulZones = foulZones;
-  net.decoys = decoys; // the hotbar ACTIVE windows + the radar-buoy sweep (Story 10.9)
-  net.decoysAt = f.t; // the server time every own buoy `sweep` in it was sampled at
   net.clouds = clouds; // the HELD list (the match-start edge clears it)
 }
 
@@ -931,13 +909,10 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
  * frame's `!prev` fires on it — it is compared anyway because slot 1 is
  * derived from it, and a watcher that ignores one of its own inputs is how a
  * stale loadout survives a change nobody expected.
- *
- * The KIT (Story 10.1) is a seat value like the Shift — frozen at the join — and
- * is compared for the same reason: the kit squares are derived from it.
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
   if (!prev || next.cls !== prev.cls || next.shift !== prev.shift) return true;
-  return !sameList(next.kit, prev.kit) || !sameList(next.cards, prev.cards);
+  return !sameList(next.cards, prev.cards);
 }
 
 /** Element-wise equality of two flat lists (numbers or strings). */
@@ -1373,12 +1348,12 @@ function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *  spend — Story 2.1, PV 12 — came back at PV 23 as the DAMAGE CONTROL rail's
  *  confirmation, and since Story 8.8 confirms a HULL REPAIR copy fired out of
  *  the belt; the killer-private 'upg' grant left with the legacy upgrade strip
- *  — Story 2.8, PV 16), and (PV 68) the drone-drop stock. */
+ *  — Story 2.8, PV 16). (The drone-drop stock left the wire at PV 97 — Story
+ *  10.5: a drone kill pays XP only.) */
 function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'pt': handlePoint(e, f, deps); return;
     case 'bn': handleBoonFit(e, deps); return;
-    case 'dp': handleDrop(e, f, deps); return;
     case 'heal': handleHeal(e, deps); return;
   }
 }
@@ -1460,15 +1435,10 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // boon (handleFrame applies it before the events fan out), so the occurrence
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
-  //
-  // THE VERB FOLLOWS THE KIND (Story 8.7, ruling 14): a consumable is STOCKED,
-  // not FITTED — nothing about the hull changed, a copy went onto the belt. The
-  // line is resolved once, here, and serves both the toast's verb and the cue's
-  // weight below; an unknown id falls through to the FITTED default.
+  // The line is resolved once, here, for the cue's weight below; an unknown id
+  // falls through to the light default.
   const line = Object.hasOwn(CATALOG, e.boon) ? CATALOG[e.boon] : undefined;
-  pushUpgradeToast(
-    boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), line?.kind),
-  );
+  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon)));
   // STORY 2.9, re-keyed in 8.1 — the fit is no longer one generic two-note for
   // every line: the cue is WEIGHTED BY KIND (fitTone) and the flash lands on the
   // slot holding the equipment the card ADDRESSES. Both read off the shared
@@ -1480,27 +1450,6 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   deps.audio.play(fitTone(line?.kind), { detune: fitDetune(line?.kind ?? '') });
   deps.onBoonFitted(e.boon);
   deps.onSpendAck();
-}
-
-/**
- * A drone kill STOCKED a consumable (Eric ruling 2026-10-01): the existing
- * `◆ <LINE> STOCKED` toast, the consumable fit cue and the belt flash — the
- * `bn` receipt's UX exactly, MINUS the spend ack (nothing was spent, so the
- * spend latch must not release on it). `dp` is self-private (perception
- * forwards it only to the killer), so the id check is defensive. NOT dead-gated
- * (unlike `pt`): the server rolls only for a killer afloat at the drone's sink,
- * but a mine or the storm later in the SAME tick can sink that killer, and the
- * end-of-tick frame then reads `alive: false` while the copy is authoritatively
- * stocked (cycle-163 review gate, Codex) — the receipt still shows. Only a
- * spectating frame (no `you`, no belt to flash) is skipped. The authoritative
- * card list rides OwnShip.cards; this is UX only.
- */
-function handleDrop(e: DropEvent, f: FrameMsg, deps: RoomBindingDeps): void {
-  if (e.id !== deps.state.net.sessionId) return;
-  if (!f.you) return;
-  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), 'consumable'));
-  deps.audio.play(fitTone('consumable'), { detune: fitDetune('consumable') });
-  deps.onBoonFitted(e.boon);
 }
 
 /**
@@ -1803,7 +1752,9 @@ export function isFlashBurst(e: Pick<BurstEvent, 'f'>, own: OwnFire): boolean {
 /** The burst's mark: the FLASH SHELLS disc for a flash round (when the host
  *  wired the disc layer), else the ordinary ring at `radius`. */
 function spawnBurstMark(e: BurstEvent, own: OwnFire, radius: number | undefined, deps: RoomBindingDeps): void {
-  if (isFlashBurst(e, own) && deps.flashBursts) deps.flashBursts.spawn(e.x, e.y);
+  // The disc draws the wire's STAMPED radius `r` (Story 10.5, R7's tiers);
+  // flashDiscRadius falls back to the base radius when it is absent.
+  if (isFlashBurst(e, own) && deps.flashBursts) deps.flashBursts.spawn(e.x, e.y, e.r);
   else deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 
@@ -2281,9 +2232,9 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     if (!readsAsBurn(e.amount, since)) allBurn = false;
   }
   // Gated on the EVENT, never on the amount (Story 8.16, epic-8 amendment 117):
-  // a hit the SHIELD BLOCK fully absorbed arrives as `dmg` with amount 0 and
-  // must still play the ordinary hit cue — the shake floors at the subtle
-  // (gun-weight) magnitude, and the falling blue number is its twin.
+  // any own `dmg` plays the ordinary hit cue — the shake floors at the subtle
+  // (gun-weight) magnitude. (The fully-absorbed SHIELD BLOCK hit that made the
+  // amount-0 case real left with the shield — Story 10.5, 2026-11-05.)
   if (!hit) return; // no own damage this frame (the overwhelmingly common case)
   deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.burnZone.burnShakeScale : total);
   deps.audio.play(allBurn ? 'burn' : 'damage');

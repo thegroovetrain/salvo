@@ -59,11 +59,12 @@ describe('the take ledger — what goes in, and what never does', () => {
     expect([...w.takes.keys()]).toEqual([WEAPON]);
   });
 
-  it('LADDERS, ADD-ONS and CONSUMABLES never record a take', () => {
+  it('LADDERS and ADD-ONS never record a take', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
-    for (const id of ['armor', 'engines', 'reload', 'deckGun', 'hullRepair'] as LineId[]) w.applyCard(a, id);
-    expect(a.cards).toHaveLength(5); // they really were fitted...
+    const lines = ['armor', 'engines', 'reload', 'deckGun'] as LineId[];
+    for (const id of lines) w.applyCard(a, id);
+    expect(a.cards).toHaveLength(lines.length); // they really were fitted...
     expect(w.takes.size).toBe(0); // ...and not one of them is a take
   });
 
@@ -78,7 +79,7 @@ describe('the take ledger — what goes in, and what never does', () => {
 
   it('a DEV SPAWN FIT counts as a take — it goes through the same applyCard', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined, [WEAPON]);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, [WEAPON]);
     expect(a.cards).toEqual([WEAPON]);
     expect([...w.takes.get(WEAPON)!]).toEqual(['a']);
   });

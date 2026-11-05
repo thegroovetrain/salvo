@@ -68,9 +68,9 @@ async function joinClient(name) {
 
 /** Scripted input for seq n: full ahead, rudder square wave. Seq 0 = neutral. */
 function scriptInput(seq) {
-  if (seq === 0) return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  if (seq === 0) return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
   const rudder = seq % 30 < 15 ? 0.7 : -0.7;
-  return { seq, throttle: 1, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  return { seq, throttle: 1, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
 }
 
 function sendScript(ctx) {

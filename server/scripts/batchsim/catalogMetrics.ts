@@ -224,9 +224,8 @@ export interface CatalogSample {
   hp: Record<string, number>;
   /** ordnance label -> projectiles spawned. */
   launched: Record<string, number>;
-  /** mines laid / decoys deployed (not projectiles — counted by id diff). */
+  /** mines laid (not projectiles — counted by id diff). */
   minesLaid: number;
-  decoysDeployed: number;
   /** largest SINGLE DamageEvent, and largest per-victim PER-TICK total. */
   maxEventDamage: number;
   maxTickDamage: number;
@@ -270,7 +269,6 @@ const emptySample = (): CatalogSample => ({
   hp: {},
   launched: {},
   minesLaid: 0,
-  decoysDeployed: 0,
   maxEventDamage: 0,
   maxTickDamage: 0,
   maxTickByHull: {},
@@ -307,7 +305,6 @@ export class CatalogCollector {
   private readonly seenBoons = new Map<string, number>();
   private readonly seenShells = new Set<string>();
   private readonly seenMines = new Set<string>();
-  private readonly seenDecoys = new Set<string>();
 
   observe(world: World, active: boolean): void {
     if (!active) return;
@@ -357,11 +354,6 @@ export class CatalogCollector {
       if (this.seenMines.has(id)) continue;
       this.seenMines.add(id);
       this.sample.minesLaid += 1;
-    }
-    for (const id of world.decoys.keys()) {
-      if (this.seenDecoys.has(id)) continue;
-      this.seenDecoys.add(id);
-      this.sample.decoysDeployed += 1;
     }
   }
 

@@ -204,6 +204,8 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       'equipment.navalMines.damage',
       'equipment.phosphorShells.damage',
       'equipment.starShells.damage',
+      // Story 10.5: the SUPERCAV is a tiered slot weapon again (amendment 8(e)).
+      'equipment.supercavTorpedo.damage',
     ]);
   });
 
@@ -218,6 +220,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       ['navalMines', CONFIG.mine.damage],
       ['captiveMines', CONFIG.captiveMines.damage],
       ['foulingMines', CONFIG.foulingMines.damage],
+      ['supercavTorpedo', CONFIG.supercavTorpedo.damage],
     ] as const;
     for (const [id, base] of tops) {
       const path = `equipment.${id}.damage`;
@@ -465,10 +468,10 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     }
   });
 
-  it('the SUPERCAV consumable is the fastest thing afloat, by a wide margin (amendment 74)', () => {
+  it('the SUPERCAV is the fastest thing afloat, by a wide margin (amendment 74)', () => {
     // 195 u/s against a 45 u/s top hull: a straight-runner that trades homing
-    // and a reload for reach-in-a-hurry. It is a CONSUMABLE, so the number
-    // lives in CONFIG and no stat row carries it.
+    // for reach-in-a-hurry. No tier steps the speed (Story 10.5), so the
+    // CONFIG number is its speed at every build.
     expect(CONFIG.supercavTorpedo.speed).toBeGreaterThan(maxHullSpeed);
     expect(CONFIG.supercavTorpedo.damage).toBeLessThan(minHullHp);
   });

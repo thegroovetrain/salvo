@@ -17,8 +17,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  consumableSlotFor,
-  DEFAULT_KIT,
+  abilityCode,
+  abilitySlot,
   DEFAULT_SHIFT,
   SLOT_BOOST,
   encodeTurretAngles,
@@ -84,7 +84,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     slot: 0,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0,
+    act: 0,
     hornSeq: 0, held: false, sec: false,
     ...extra,
   };
@@ -176,7 +176,7 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
     w.respawnEnabled = false;
     w.sinkShip('a');
     // Activate the boost WHILE SINKING — the fitment criterion admits it.
-    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, actSlot: SLOT_BOOST }));
+    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, act: 0 }));
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // the doomed surge opened
     stepN(w, 19); // t = +1000ms into the window
@@ -224,7 +224,7 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
 describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn', () => {
   it('every FITTED registry row activates while sinking — the gate never answers dead', () => {
     const w = bareWorld();
-    // The NINE-SLOT fit (Story 8.5): gun, the universal boost, then the spawn
+    // The fit (Story 8.5; five slots since Story 10.5): gun, the Shift, then the spawn
     // seed's weapons. The RADAR BUOY has left the Mine Layer with the per-hull
     // fit (amendment 22) and was deleted outright in Story 8.16
     // — so this sweep now covers six of the seven rows, and the Battleship's
@@ -233,18 +233,22 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     // 10.4 — boost / hunker / instantReload, one per seat here — and all of
     // them ride the sinking window exactly as the universal boost did
     // (amendment 10).
-    const fits: [ShipClassId, ShiftId, string[]][] = [
-      ['bismarck', 'boost', ['mainBattery', 'boost', 'heavyTorpedo']],
-      ['yamato', 'hunker', ['mainBattery', 'hunker', 'broadside', 'starShells']],
-      ['warspite', 'instantReload', ['mainBattery', 'instantReload', 'navalMines']],
+    // Story 10.5: the fit is FIVE slots (gun, Shift, torpedo, mine, shell);
+    // every slot the class fixture fills is swept, whatever it holds.
+    const fits: [ShipClassId, ShiftId][] = [
+      ['bismarck', 'boost'],
+      ['yamato', 'hunker'],
+      ['warspite', 'instantReload'],
     ];
-    for (const [cls, shift, expected] of fits) {
+    for (const [cls, shift] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls, shift);
-      ship.input = input(1, { aim: Math.PI / 2, aimDist: 200 }); // abeam: inside the broadside's beam sector
+      ship.input = input(1, { aim: Math.PI / 2, aimDist: 200 });
       w.sinkShip(ship.id);
       expect(isSinking(ship.lifecycle)).toBe(true);
-      for (let slot = 0; slot < expected.length; slot++) {
-        expect(ship.loadout[slot].equipmentId).toBe(expected[slot]);
+      expect(ship.loadout[0].equipmentId).toBe('mainBattery');
+      expect(ship.loadout[1].equipmentId).toBe(shift);
+      for (let slot = 0; slot < ship.loadout.length; slot++) {
+        if (ship.loadout[slot].equipmentId === null) continue;
         const r = w.sinkingActivationGate(ship, slot);
         // ok, or a normal per-row denial — NEVER the dead refusal.
         if (!r.ok) expect(r.reason).not.toBe('dead');
@@ -302,23 +306,25 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
 // ---------- the refit is closed (amendment 10) --------------------------------
 
 describe('refit closed — "once sinking, you\'re done"', () => {
-  it('card picks are refused while sinking, and a stocked HULL REPAIR refuses too; the bank survives', () => {
+  it('card picks are refused while sinking, and a HULL REPAIR press refuses too (blocked, no cooldown); the bank survives', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.grantXp(a, 1); // bank one level
     expect(a.bankedLevels).toBe(1);
-    w.applyCard(a, 'hullRepair'); // a heal to press, stocked before the sink
-    a.hp -= 50; // ...and something for it to restore
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
-    // The BELT is not the refit: the press reaches its row through the
-    // activation gate (amendment 10's fitment rule), and the ROW refuses it
-    // — 'blocked', nothing spent (Story 8.8).
+    // HULL REPAIR is a cooldown ability since Story 10.5 (epic-10 amendment
+    // 11): a sinking press is refused 'blocked' — no hp comes back in the
+    // window (amendment 10) and the cooldown is NOT started.
     a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
-    expect(w.sinkingActivationGate(a, consumableSlotFor(DEFAULT_KIT, 'hullRepair')!)).toEqual({ ok: false, reason: 'blocked' });
+    const hp = a.hp;
+    w.submitInput('a', input(1, { actSeq: 1, act: abilityCode('repair') }));
+    w.step();
+    expect(w.denialsFor('a')).toEqual([{ slot: abilitySlot('repair'), reason: 'blocked', seq: 1, act: abilityCode('repair') }]);
+    expect(a.hp).toBe(hp);
+    expect(a.repairReadyAt).toBe(0);
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
-    expect(a.cards).toEqual(['heavyTorpedo', 'hullRepair']); // the seed + the un-spent heal copy
     expect(a.repairHp).toBe(0);
     // Once FOUNDERED, dead spending resumes (builds persist across respawns).
     w.step(WINDOW);

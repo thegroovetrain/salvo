@@ -1,6 +1,6 @@
 // THE `--tune bots.*` FLOORS (Story 9.13 fix wave P10, Edge Case Hunter): a
 // bot dial whose arm would make the brain divide by zero, forget instantly,
-// read every lone hull as a crowd, flag every plot a decoy, kite on top of its
+// read every lone hull as a crowd, kite on top of its
 // target or never fire a whole gun is refused at the parse leaf — a balance
 // harness may not report a moved sim that is really a broken one. Each dial is
 // pinned both ways: its shipped value is accepted, the hazard is refused.
@@ -18,9 +18,9 @@ const refuse = (key: string, value: number): void => {
 };
 
 describe('P10 (Edge Case Hunter): --tune bots.* floors', () => {
-  it('aimScatterRefU / contactMemoryMs / outnumberedCount / decoyStillSweeps are floored at 1', () => {
-    for (const key of ['bots.aimScatterRefU', 'bots.contactMemoryMs', 'bots.outnumberedCount', 'bots.decoyStillSweeps']) {
-      const leaf = key.slice('bots.'.length) as 'aimScatterRefU' | 'contactMemoryMs' | 'outnumberedCount' | 'decoyStillSweeps';
+  it('aimScatterRefU / contactMemoryMs / outnumberedCount are floored at 1', () => {
+    for (const key of ['bots.aimScatterRefU', 'bots.contactMemoryMs', 'bots.outnumberedCount']) {
+      const leaf = key.slice('bots.'.length) as 'aimScatterRefU' | 'contactMemoryMs' | 'outnumberedCount';
       accept(key, CONFIG.bots[leaf]);
       accept(key, 1);
       refuse(key, 0);

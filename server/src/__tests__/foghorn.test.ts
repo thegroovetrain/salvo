@@ -61,8 +61,6 @@ const subject = (x: number, y: number, id: string): FoghornEvent =>
  *  through rather than hardcoding anything. */
 const radarCtx = (w: World) => ({
   pseudonymOf: (id: string) => w.pseudonymFor(id),
-  // Story 8.16: the decoy channel's subjects; the fh row reads none.
-  decoys: w.decoys,
   // Story 9.3: the live countermeasure clouds (the context field; the fh
   // row's muffle never reads them — a cloud hides nothing, session 2).
   clouds: w.cloudRecords,
