@@ -12,7 +12,7 @@
 // An interception en route burns where the shell stopped, exactly as a flare
 // lights there (World.resolveInterception).
 //
-// A DAMAGE WEAPON with the `hull | decoy` mask — NEVER a mine (amendment 200,
+// A DAMAGE WEAPON with the `hull` mask — NEVER a mine (amendment 200,
 // Eric 2026-10-01, superseding 135(c)): only a deck gun's shell landing on a
 // mine damages one, so a phosphor burst over a minefield leaves it. The zone it leaves is a HAZARD ONLY — it reveals nothing and
 // extends no gun's reach; that is the World's and perception's concern
@@ -59,7 +59,7 @@ function firePhosphorShell(
     targetY: target.y,
     burstRadius: row.zoneRadius, // the burst IS the zone
     contactDamage: row.damage, // an interceptor takes the tier damage (the broadside precedent) — and it still burns there
-    hits: CONFIG.phosphorShells.hits, // AR44 target mask — hull | decoy, never a mine (amendment 200, superseding 135(c))
+    hits: CONFIG.phosphorShells.hits, // AR44 target mask — hull, never a mine (amendment 200, superseding 135(c))
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
     burn: { radius: row.zoneRadius, durationMs: row.zoneDurationMs, dps: row.dps }, // stamped at launch (135(e))
   });

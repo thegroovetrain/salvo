@@ -147,8 +147,9 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
 }
 
 /** How many lattice cells a paint lights — the FOOTPRINT a human reads off
- *  the scope (Story 9.13, epic-9 amendment 197): a decoy buoy's paint square
- *  (`CONFIG.buoy.sizeU`) lights a handful, a hull's silhouette many. */
+ *  the scope (Story 9.13, epic-9 amendment 197): a small return lights a
+ *  handful, a hull's silhouette many (the decoy buoy it was cut to spot left
+ *  with Story 10.5). */
 export function paintCellCount(e: GhostPaint): number {
   let n = 0;
   for (let bit = 0; bit < e.w * e.h; bit += 1) {

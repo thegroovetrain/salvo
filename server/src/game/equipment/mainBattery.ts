@@ -21,7 +21,7 @@
 // THE SHELL IS TODAY'S CANNON SHELL (reading of record): family `'cannon'`,
 // a burst of `burstRadius`, the contact damage, the attenuation reference
 // (the row's `rangeU`, none into own light — `attenRangeFor`), the mask
-// `CONFIG.mainBattery.hits` (hull + decoy, NO mine bit: a main shell never
+// `CONFIG.mainBattery.hits` (hull only, NO mine bit: a main shell never
 // hurts a mine — R3; the World's mask-driven `landOnMines` honours that
 // without a special case). One `mz` per salvo (the cannon's dedupe).
 //
@@ -85,7 +85,7 @@ function fireSalvo(ctx: ActivationContext): ActivationResult {
         targetY: sh.target.y,
         burstRadius: row.burstRadius,
         contactDamage: row.contactDamage,
-        hits: cfg.hits, // AR44 mask — hull + decoy, NO mine bit (R3)
+        hits: cfg.hits, // AR44 mask — hull only, NO mine bit (R3; the decoy bit left with Story 10.5)
         family: 'cannon', // the reveal's `w`: today's cannon shell
         attenRangeU,
       }),

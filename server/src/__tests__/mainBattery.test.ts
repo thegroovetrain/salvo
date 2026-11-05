@@ -6,7 +6,8 @@
 //   * two candidates: the on-target turret wins over a lower-index off-target one;
 //   * early click fires a ready turret along its CURRENT bearing;
 //   * nothing ready → the `cooling` denial;
-//   * INSTANT RELOAD finishes every turret (angles and heat untouched);
+//   * INSTANT RELOAD finishes every turret (angles untouched) and vents the
+//     secondaries (heat 0, unlocked — Story 10.5, R10);
 //   * a sinking hull's turrets HOLD their angles while reloads still run;
 //   * secondaries: burst, overheat lock, release / cool, refused once dead;
 //   * a secondaries round on a mine's marker damages it and pops it when its
@@ -18,7 +19,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_KIT,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
   SLOT_BOOST,
@@ -163,7 +163,7 @@ describe('main battery — the R4 click on the authoritative world', () => {
     expect(a.turrets[0].reloadMsLeft).toBe(0);
   });
 
-  it('INSTANT RELOAD finishes EVERY turret; the angles and the secondaries heat are untouched', () => {
+  it('INSTANT RELOAD finishes EVERY turret and VENTS the secondaries (Story 10.5, R10); the angles are untouched', () => {
     const w = bareWorld();
     const shift: ShiftId = 'instantReload';
     expect(SHIFT_IDS).toContain(shift);
@@ -173,12 +173,14 @@ describe('main battery — the R4 click on the authoritative world', () => {
       t.reloadMsLeft = (i + 1) * DT * 10;
     });
     a.turrets[0].a = 0.25;
-    a.sec.heat = 0.5;
+    a.sec.heat = 1;
+    a.sec.locked = true;
     const angles = a.turrets.map((t) => t.a);
     expect(w.sinkingActivationGate(a, SLOT_BOOST).ok).toBe(true);
     expect(reloading(a)).toEqual([]);
     expect(a.turrets.map((t) => t.a)).toEqual(angles);
-    expect(a.sec.heat).toBe(0.5);
+    expect(a.sec.heat).toBe(0);
+    expect(a.sec.locked).toBe(false);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length, reloadMsLeft: 0 });
   });
 
@@ -352,7 +354,7 @@ describe('bots — every hull fights with main guns and secondaries; no deck gun
     const w = bareWorld(11);
     const ids: string[] = [];
     SHIP_CLASS_IDS.forEach((hull, i) => {
-      const rec = w.addBot(hull, undefined, SHIFT_IDS[i % SHIFT_IDS.length], DEFAULT_KIT);
+      const rec = w.addBot(hull, undefined, SHIFT_IDS[i % SHIFT_IDS.length]);
       // A tight square, every hull inside everyone's sight and secondaries reach.
       const r = rec.stats.secondaryRangeU / 3;
       const ang = (i / SHIP_CLASS_IDS.length) * Math.PI * 2;

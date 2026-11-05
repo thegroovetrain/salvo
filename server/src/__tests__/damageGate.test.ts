@@ -735,9 +735,10 @@ describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () =>
       'ship.hp = Math.min(ship.hp, ship.stats.maxHp);',
       // tickRepairs — the R8 PASSIVE REGEN (Story 10.5, epic-10 amendment
       // 10): the shared `regenGain` law (2 % of missing per second, the last
-      // point snapping on `hullIsFull`) once `regenDue` holds. No clamp at
+      // point snapping on `hullIsFull`) once `regenDue` holds, participants
+      // only (World.regenerates — never a PvE fleet drone). No clamp at
       // the site: `regenGain` never answers more than the missing hp.
-      'if (regenDue(this.now, ship.lastDamagedAt)) ship.hp += regenGain(ship.hp, ship.stats.maxHp, dtMs / 1000);',
+      'if (World.regenerates(ship, this.now)) ship.hp += regenGain(ship.hp, ship.stats.maxHp, dtMs / 1000);',
       // payRepair — the PAID HULL REPAIR pool's drain.
       'ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);',
       // applyRepair — HULL REPAIR's instant half, reached ONLY from the `C`

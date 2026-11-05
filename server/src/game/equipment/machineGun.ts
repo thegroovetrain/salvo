@@ -95,7 +95,7 @@ function fireStreamShell(ctx: ActivationContext): void {
     targetY: target.y,
     burstRadius: 0, // no blast — a direct shell
     contactDamage: mg.damage, // a direct hit deals the full damage
-    hits: CONFIG.machineGun.hits, // AR44 target mask (hull | mine | decoy — a mine only where it lands, amendment 200)
+    hits: CONFIG.machineGun.hits, // AR44 target mask (hull | mine — a mine only where it lands, amendment 200)
     family: 'mg',
     direct: true,
     attenRangeU: attenRangeFor(ctx, mg.rangeU, target), // ruling 184(b) + amendment 187: none into own light

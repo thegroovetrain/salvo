@@ -72,6 +72,18 @@ export function initialSecondaries(): SecondariesState {
   return { heat: 0, locked: false, untilRoundMs: 0 };
 }
 
+/**
+ * INSTANT RELOAD VENTS THE SECONDARIES (2026-11-05, Story 10.5, R10, epic-10
+ * amendment 10 — supersedes amendment 9(h) R7 "heat untouched"): heat to
+ * zero and the overheat lock cleared. Returns a FRESH state (the input is not
+ * mutated); every other field — the running round's rate window included —
+ * carries over unchanged. The one law the server's press and any client
+ * prediction share.
+ */
+export function ventSecondaries<T extends SecondariesHeat>(state: T): T {
+  return { ...state, heat: 0, locked: false };
+}
+
 /** Heat of ONE round fired, as a fraction of full: `rateMs / overheatMs`. */
 export function secondariesHeatPerRound(): number {
   return CONFIG.secondaries.rateMs / CONFIG.secondaries.overheatMs;

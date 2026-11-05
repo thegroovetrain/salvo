@@ -662,8 +662,11 @@ export const CATALOG: Catalog = deepFreezeRows({
   // +20 RELOAD per tier; cooldownScale = 1 / (1 + (RELOAD − 100) / 100), so
   // 120 = ×0.833 and 200 = ×0.5 at the cap (was −5 % additive per tier,
   // 1.0 → 0.75). MULTIPLICATIVE on the index: each card buys a little less
-  // than the last. Scope (R40): every equipment reload AND the Shift
-  // cooldowns. NOT the two fixed ability cooldowns (`C` / `V`, Story 10.5 R3).
+  // than the last. Scope (Story 10.5, R9 / R10, epic-10 amendment 10 —
+  // supersedes R40's "every equipment reload AND the Shift cooldowns"): the
+  // MAIN BATTERY's turret reloads only (plus the legacy deck-gun rows,
+  // `RELOAD_SCALED_ROWS` in sim/stats.ts). NOT the Q / E / R weapons, NOT
+  // the Shifts, NOT the secondaries, NOT `C` / `V` (R3).
   reload: ladder('reload', 5, [statEffect('reload', { add: 20 })]),
   // PASSIVE HEALING (+0.6 %/s missing hull, −1 s wait ×5) sat here until
   // Story 10.3 DELETED it (Eric 2026-11-04, epic-10 amendment 8) together

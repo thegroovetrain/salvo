@@ -99,8 +99,8 @@ export const EQUIPMENT_STAT_FIELDS = {
   // number its ladder steps is addressable, `rangeU` included (Story 9.8).
   phosphorShells: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
   // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
-  // rows: no card addresses them today, but `reloadMs` must be a row field so
-  // RELOAD's `cooldownScale` reaches it through the one multiply.
+  // rows: no card addresses them today; `reloadMs` is a row field so the
+  // tier step reads it (RELOAD no longer scales a Shift — Story 10.5, R10).
   instantReload: ['reloadMs', 'maxAmmo'],
   hunker: ['reloadMs', 'maxAmmo', 'durationMs'],
   // THE MAIN BATTERY (Story 10.4) — the cannon row's shape less `barrels`

@@ -1296,6 +1296,12 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // press lands after tickRepairs, so the first drain is the next tick). No
     // contact, event type, position or hp outside scnHeal moved; the passive
     // regen (R8) pays nothing inside the battery's short windows.
+    // RE-RECORDED AGAIN 2026-11-05 (Story 10.5 wave 2c, R9 / R10 — RELOAD is
+    // the main battery's stat only): ten `you.ammo[].reloadMsLeft` values
+    // moved and nothing else — the Yamato's star-shell reload and the
+    // Bismarck rows' Speed Boost / heavy-torpedo reloads now run on their own
+    // unscaled numbers (20000 / 25000 / 30000 at the press) instead of the
+    // hull's RELOAD index scale. Diffed token by token: no other byte moved.
     expect(runBattery()).toMatchSnapshot();
   });
 });

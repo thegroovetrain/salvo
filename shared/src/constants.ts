@@ -1756,8 +1756,8 @@ export const CONFIG = {
     maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
-    // longer commitment cycle. A max shipCooldown build (5 copies,
-    // cooldownScale 0.5) lands it at 15s.
+    // longer commitment cycle. (RELOAD no longer scales it — Story 10.5,
+    // R9: a slot weapon reloads on its own number and tier step.)
     reloadMs: 30000,
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     // --- HOMING — the family's shared fields (epic-8 amendment 84e). A homing
@@ -1921,8 +1921,8 @@ export const CONFIG = {
     // the drop pool is the ONLY mine bound: no live-board cap exists (below).
     maxAmmo: 2,
     // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
-    // weapon balance pass): the rack got deeper, so each round costs more. A
-    // max shipCooldown build (5 copies, cooldownScale 0.5) lands it at 7.5s.
+    // weapon balance pass): the rack got deeper, so each round costs more.
+    // (RELOAD no longer scales it — Story 10.5, R9.)
     reloadMs: 15000,
     // MINES HAVE NO CAP (Story 8.4, FR57/AR48). `maxLive` (the per-player live
     // board cap, with its silent oldest-eviction) and `globalCap` (the room
@@ -2086,10 +2086,9 @@ export const CONFIG = {
    * construction — and it is now ENFORCED by the batch-sim override validator
    * on the finished CONFIG (`--tune boost.*`; `--set` never reaches `boost.*`
    * — it is refused at the family gate), through the real fold at a maxed
-   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` takes
-   * `cooldownScale` through the ONE multiply in clampStats like every
-   * equipment row (catalog-v3 R40), so a maxed RELOAD ladder (0.75) gives
-   * 18.75 s. Every number is a DESIGN TARGET the harness tunes (`--tune
+   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` is NOT scaled by
+   * RELOAD since Story 10.5 (R10 — catalog-v3 R40 superseded): 25 s on
+   * every hull. Every number is a DESIGN TARGET the harness tunes (`--tune
    * boost.*`).
    */
   boost: {
@@ -2109,8 +2108,9 @@ export const CONFIG = {
    * (`C` HULL REPAIR, `V` SMOKE — Story 10.5, R3) are never touched. One
    * charge on a 60 s cooldown (Eric 2026-10-02, amendment 232; was 45 s,
    * amendment 97) — longer than the longest weapon reload, so it never acts
-   * as a permanent second tube. `reloadMs` takes `cooldownScale` through the
-   * one multiply in clampStats like every row (45 s at a maxed RELOAD ladder).
+   * as a permanent second tube. Since Story 10.5 (R10) it also VENTS the
+   * secondaries (heat 0, lock cleared — shared `ventSecondaries`), and its
+   * `reloadMs` is NOT scaled by RELOAD.
    */
   instantReload: {
     maxAmmo: 1, // single charge (amendment 97)
@@ -2147,8 +2147,8 @@ export const CONFIG = {
    * attacker is E = 100 = ×0.5, an ARMOR-capped one E = 200 = ×1/3 —
    * amendment 144's rescale of 9.7's 5 / 10, unchanged in effect). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
    * 89(c) and 99's 8 s window). Storm bites land in full (amendment 87). One
-   * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
-   * (22.5 s at a maxed RELOAD ladder).
+   * charge on a 30 s cooldown; `reloadMs` is NOT scaled by RELOAD since Story
+   * 10.5 (R10).
    */
   hunker: {
     armorBonus: 100, // temporary Armor while the window is open (epic-9 amendment 88; 5 → 100 by amendment 144)

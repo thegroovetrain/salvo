@@ -259,7 +259,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * spawn/upgrade/drone streams). Born as the Regatta hue stream (Story 1.12);
    * the hue wheel is gone (Story 10.4, R6), and what the stream still deals is
    * the bot fleet: the hull shuffle and each bot's Shift. Seeded, never
-   * Math.random. (The KIT roll keeps its own separate stream — buildBotFleet.)
+   * Math.random. (The KIT roll's separate stream left with the kit, Story 10.5.)
    */
   private fleetRng!: Rng;
   /** Null only in sandbox mode (dev smokes) — see MatchOverride. */

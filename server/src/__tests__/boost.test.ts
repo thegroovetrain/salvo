@@ -171,14 +171,14 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
-  it('RELOAD cards shorten the pool by the global cooldownScale and leave the window alone', () => {
-    // R40: the reload rides the ONE cooldownScale multiply in clampStats like
-    // every equipment row. The DURATION is not a reload and no card addresses it.
+  it('RELOAD cards leave the boost cooldown AND the window alone (Story 10.5, R10)', () => {
+    // R40 superseded: RELOAD is the main battery's stat; a Shift reloads on its
+    // own number. The DURATION is not a reload and no card addresses it.
     const w = bareWorld();
     const a = place(w, 'a');
     stack(w, a, 'reload', CATALOG.reload.cap);
     expect(a.stats.cooldownScale).toBeLessThan(1);
-    expect(a.stats.equipment.boost.reloadMs).toBe(BOOST.reloadMs * a.stats.cooldownScale);
+    expect(a.stats.equipment.boost.reloadMs).toBe(BOOST.reloadMs);
     expect(a.stats.equipment.boost.durationMs).toBe(BOOST.durationMs);
     pressActivate(w, 'a', 1, 1);
     w.step();

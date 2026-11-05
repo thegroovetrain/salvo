@@ -159,8 +159,7 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
  * SEAT'S PICK since Story 10.4 (Eric 2026-11-04, R7, epic-10 amendment 9): any
  * hull, chosen at ship select and frozen on the seat, in the place the retired
  * deck-gun pick held. Each is its own `EquipmentId` rather than one module
- * dispatching on hull, so the stat row (and with it RELOAD's `cooldownScale`),
- * the server registry, the bot tactic rows and the HUD glyph table all key on
+ * dispatching on hull, so the stat row, the server registry, the bot tactic rows and the HUD glyph table all key on
  * the id with no hull special case.
  */
 export type ShiftId = 'boost' | 'instantReload' | 'hunker';
@@ -325,7 +324,9 @@ export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number
 }
 
 /** The effective reload (ms) for a piece of equipment. Every row carries
- *  `reloadMs` (Story 8.1), post-tier-step and post-cooldownScale. */
+ *  `reloadMs` (Story 8.1), post-tier-step — and post-cooldownScale on the
+ *  main battery and the legacy deck-gun rows only (Story 10.5, R9 / R10:
+ *  `RELOAD_SCALED_ROWS` in sim/stats.ts). */
 export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].reloadMs;
 }

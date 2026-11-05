@@ -51,6 +51,7 @@ import {
   WEAPON_SLOTS,
   batteryAimPoint,
   initialSecondaries,
+  ventSecondaries,
   initialTurrets,
   reloadAllTurrets,
   stepSecondaries,
@@ -3504,6 +3505,8 @@ export class World {
    * ratio, preserving the progress fraction — never a free round
    * (rescaleReloadTimers). The per-tier −5 % reload step is DERIVED from the
    * tier in clampStats, so an equipment-ladder copy moves those timers too.
+   * Since Story 10.5 (R9 / R10) a RELOAD card moves only the TURRETS' clocks:
+   * the fold no longer scales a slot weapon or a Shift, so their ratio is 1.
    *
    * Fail-closed: an id the world's catalog cannot resolve is REFUSED outright
    * (8.14 review F1 — `pickRefusal` reads an id the catalog does not OWN as a
@@ -3622,8 +3625,13 @@ export class World {
    * reconcilePools' business) and the scaled timer stays strictly positive, so
    * nothing becomes instantly available. The rule is GENERIC — it compares
    * prev-vs-new `equipmentReloadMs` per fitted slot, so a ratio of 1 (any boon
-   * that does not touch reloads) leaves every timer byte-identical, and a future
-   * per-weapon reload card gets the same treatment for free.
+   * that does not touch reloads) leaves every timer byte-identical, and a
+   * weapon's own tier card gets the same treatment for free. SINCE STORY 10.5
+   * (R9 / R10, epic-10 amendment 10) a RELOAD card reaches the main battery
+   * only (sim/stats.ts `RELOAD_SCALED_ROWS`), so it rescales the TURRETS'
+   * running clocks and nothing else — a Q / E / R weapon or a Shift reads an
+   * unchanged reload (ratio 1) and keeps its countdown; that weapon's OWN tier
+   * card still rescales it by new / old.
    *
    * ORDER — this runs AFTER reconcilePools deliberately. The two touch disjoint
    * fields (counts vs timer) and both read the same untouched `prevStats`, so
@@ -4925,8 +4933,10 @@ export class World {
    *   2. THE PASSIVE REGEN (R8 — back since Story 10.5): once the shared
    *      `regenDue(now, lastDamagedAt)` holds (15 s since the last blow that
    *      removed hull hp, any source), `regenGain` adds 2 % of the MISSING hp
-   *      per second. Fixed for every hull — not a stat, no card. It runs
-   *      BESIDE the pool (neither resets the other); no event, no cue.
+   *      per second. Fixed for every PARTICIPANT hull (captains and combat
+   *      bots; never a PvE fleet drone — epic-9 amendment 48 restored) — not
+   *      a stat, no card. It runs BESIDE the pool (neither resets the
+   *      other); no event, no cue.
    *
    * IT SITS IN THIS METHOD'S EXISTING STEP_ORDER SLOT — dead LAST among the hp
    * movers, after every damage source — so a blow this tick has already reset
@@ -4941,10 +4951,18 @@ export class World {
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
       if (ship.repairHp > 0) World.payRepair(ship, budget);
-      // regenGain caps at the missing hp itself (0 on a full hull) — no clamp
-      // here, so a directed over-full hull is never pulled down.
-      if (regenDue(this.now, ship.lastDamagedAt)) ship.hp += regenGain(ship.hp, ship.stats.maxHp, dtMs / 1000);
+      if (World.regenerates(ship, this.now)) ship.hp += regenGain(ship.hp, ship.stats.maxHp, dtMs / 1000);
     }
+  }
+
+  /** Does this afloat hull take the R8 passive regen this tick? PARTICIPANTS
+   *  only — captains and combat bots; a PvE fleet hull (drone) never
+   *  regenerates (epic-9 amendment 48's exclusion, restored with the law —
+   *  orchestrator ruling 2026-11-05). regenGain caps at the missing hp
+   *  itself (0 on a full hull), so no clamp at the call site: a directed
+   *  over-full hull is never pulled down. */
+  private static regenerates(ship: ShipRecord, now: number): boolean {
+    return !roleIsFleetHull(ship) && regenDue(now, ship.lastDamagedAt);
   }
 
   /** Drain the PAID pool by its wall-clock budget. The pool decrements WHETHER
@@ -6939,15 +6957,19 @@ export class World {
    * swap completing means a full magazine (amendment 103), so it fills. A
    * weapon that is not reloading is untouched; the Shift slot (1) is never
    * visited, and neither are the HULL REPAIR / SMOKE cooldowns (Story 10.5,
-   * R3 — they are not reloads).
+   * R3 / R10 — they are not reloads). THE SECONDARIES are vented — heat to
+   * zero, the overheat lock cleared (2026-11-05, Story 10.5, R10, epic-10
+   * amendment 10; supersedes amendment 9(h) R7 "heat untouched") — through
+   * the shared `ventSecondaries` law.
    */
   private static finishReloads(ship: ShipRecord): void {
+    ship.sec = ventSecondaries(ship.sec);
     for (const i of [SLOT_GUN, ...WEAPON_SLOTS]) {
       const slot = ship.loadout[i];
       if (slot === undefined) continue;
       // THE MAIN BATTERY (Story 10.4 reading of record): INSTANT RELOAD
-      // finishes EVERY turret (angles and the secondaries' heat untouched),
-      // and slot 0's derived pair is re-synced from them.
+      // finishes EVERY turret (angles untouched), and slot 0's derived pair
+      // is re-synced from them.
       if (slot.equipmentId === 'mainBattery') {
         reloadAllTurrets(ship.turrets);
         syncBatterySlot(ship, slot);

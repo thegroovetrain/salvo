@@ -86,8 +86,11 @@
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12, re-cut
 // as the RELOAD haste law by Story 10.3 ruling 14) is the ONE global cooldown
 // lever: a base-1.0 scalar DERIVED from the RELOAD index (1 / (1 + (RELOAD −
-// 100) / 100): 120 = ×0.833, 200 = ×0.5), applied post-fold to EVERY
-// equipment reloadMs in clampStats. One scalar, one multiply site.
+// 100) / 100): 120 = ×0.833, 200 = ×0.5), applied post-fold in clampStats.
+// One scalar, one multiply site. SINCE 2026-11-05 (Story 10.5, R9 / R10,
+// epic-10 amendment 10) it reaches ONLY `RELOAD_SCALED_ROWS` — the main
+// battery and the legacy deck-gun rows; slot weapons, BROADSIDE and the
+// Shifts reload on their own number and tier step.
 
 import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
@@ -109,7 +112,7 @@ import { secondaryReachU } from './secondaries.js';
  */
 export interface EquipmentRowCommon {
   tier: number; // 1-based ladder rung (1 = the bare weapon / the base fit)
-  reloadMs: number; // ms per shot/charge — post-tier-step, post-cooldownScale
+  reloadMs: number; // ms per shot/charge — post-tier-step; post-cooldownScale on RELOAD_SCALED_ROWS only
   maxAmmo: number; // pool size (charges/rounds ready)
 }
 
@@ -293,8 +296,9 @@ export interface EffectivePhosphorShells extends EquipmentRowCommon {
  * `CONFIG.boost.factor × kinematics.maxSpeed`, layered per tick by
  * sim/boost.ts `boostedKinematics` and NEVER folded into `kinematics` — the
  * bots' `max(rated, actual)` deadband reads `kinematics.maxSpeed` as the RATED
- * cap (epic-8 amendment 55). `reloadMs` sits in the row so the ONE
- * `cooldownScale` multiply in clampStats reaches it (catalog-v3 R40).
+ * cap (epic-8 amendment 55). `reloadMs` takes the tier step only — RELOAD
+ * no longer scales a Shift (2026-11-05, Story 10.5, R10; catalog-v3 R40
+ * superseded).
  */
 export interface EffectiveBoost extends EquipmentRowCommon {
   durationMs: number; // ms — active window per activation
@@ -584,7 +588,8 @@ function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
 }
 
 /** The two new CLASS SHIFT rows at CONFIG base (Story 8.15). Their `reloadMs`
- *  takes `cooldownScale` in clampStats like every row (amendments 97/99). */
+ *  is NOT scaled by RELOAD (2026-11-05, Story 10.5, R10; amendments 97/99
+ *  superseded). */
 function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'hunker'> {
   return {
     instantReload: {
@@ -732,8 +737,7 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     gun: gunRow(cls),
     mainBattery: mainBatteryRow(cls),
     // THE SPEED BOOST (Story 8.9; the Torpedo Boat's Shift since 8.15):
-    // `CONFIG.boost` verbatim — the reload then takes `cooldownScale` in
-    // clampStats like every row.
+    // `CONFIG.boost` verbatim — RELOAD no longer scales it (Story 10.5, R10).
     boost: boostRow(CONFIG.boost),
     // LIGHT TORPEDO (catalog-v3 R18) — its own CONFIG block since Story 8.13.
     lightTorpedo: torpedoRow(CONFIG.lightTorpedo),
@@ -1012,13 +1016,31 @@ function clampStats(stats: EffectiveStats): void {
   // reach — derived here, after the one-shot RANGE multiply, and nowhere
   // else. Not a stat path: no card addresses it.
   stats.secondaryRangeU = secondaryReachU(eq.mainBattery.rangeU);
-  // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
-  // row — one site, no per-weapon special case (see reloadTierScale).
+  // THE EQUIPMENT RELOAD STEP for EVERY row (see reloadTierScale), then the
+  // RELOAD scale on the RELOAD_SCALED_ROWS only (2026-11-05, Story 10.5,
+  // R9 / R10, epic-10 amendment 10): the main battery (plus the legacy deck-gun
+  // rows, untouched). Slot weapons, the Shifts and BROADSIDE reload on their
+  // own number and tier step alone.
   for (const id of EQUIPMENT_IDS) {
     const row = eq[id];
-    row.reloadMs = row.reloadMs * reloadTierScale(row.tier) * cd;
+    const scale = RELOAD_SCALED.has(id) ? cd : 1;
+    row.reloadMs = row.reloadMs * reloadTierScale(row.tier) * scale;
   }
 }
+
+/**
+ * THE ROWS THE RELOAD STAT REACHES (2026-11-05, Story 10.5, R9 / R10, epic-10
+ * amendment 10 — Eric: "RELOAD stat should not affect QER weapons" and "Shift
+ * abilities also should not be affected by RELOAD"). RELOAD is the MAIN
+ * BATTERY's stat; the secondaries carry no reload row (RELOAD changes nothing
+ * there, as before). The three legacy deck-gun rows (`gun`, `machineGun`,
+ * `flak`) keep the scale exactly as before — drones read them and hold no
+ * RELOAD card, so nothing a captain feels moves. Every other row — the Q / E /
+ * R families, BROADSIDE (out of the deal, kept for reference) and the three
+ * Shifts — is NOT scaled.
+ */
+export const RELOAD_SCALED_ROWS: readonly EquipmentId[] = ['mainBattery', 'gun', 'machineGun', 'flak'];
+const RELOAD_SCALED: ReadonlySet<EquipmentId> = new Set(RELOAD_SCALED_ROWS);
 
 /**
  * Resolve the effective stats for a ship class + fitted CARD IDS. Zero cards ≙

@@ -99,8 +99,8 @@ export interface MineState {
    * HIT POINTS (Eric 2026-10-01, amendment 200) — `CONFIG.mine.hp` at drop for
    * every kind. SERVER-ONLY: never on `MineView` or any wire shape, never
    * predicted. Only a DECK GUN shell landing on the mine takes them (the
-   * World's landing test via `World.damageMine` — beside `damageDecoy`, the
-   * other non-hull decrement the damage-gate fence admits in world.ts); a
+   * World's landing test via `World.damageMine` — the non-hull decrement the
+   * damage-gate fence admits in world.ts); a
    * trip, a chain or a burst merely
    * covering the mine never reads them.
    */
@@ -228,7 +228,7 @@ export function minePlacePoint(ship: ShipRecord): Vec2 {
 /**
  * Is a placement/drop point ILLEGAL water (Story 1.10 'blocked')? True when
  * the point lands inside any island circle or outside the water disk. The mine
- * AND decoy rows both refuse a blocked point WITHOUT consuming anything (charge
+ * rows refuse a blocked point WITHOUT consuming anything (charge
  * + reload kept), so the previously silent wasted-charge failure becomes an
  * explicit 'blocked' denial. The rule itself now lives in shared sim/aim.ts
  * (blockedWater) because the client's mine-placement preview draws its blocked
@@ -362,7 +362,7 @@ export function captiveTorpedo(
   const shell: ShellState = {
     id,
     ownerId: mine.ownerId,
-    // AR44: the captive's fish is a TORPEDO — hulls and decoys. It runs under
+    // AR44: the captive's torpedo is a TORPEDO — hulls only. It runs under
     // a minefield exactly as a launched torpedo does.
     hits: CONFIG.torpedo.hits,
     x: mine.x,

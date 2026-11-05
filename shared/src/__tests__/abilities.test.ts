@@ -119,7 +119,7 @@ describe('the cooldown law', () => {
     const hasted = new Array<LineId>(CATALOG.reload.cap).fill('reload');
     for (const hull of SHIP_CLASS_IDS) {
       const stats = effectiveStats(CONFIG.shipClasses[hull], hasted);
-      expect(stats.cooldownScale, hull).toBeLessThan(1); // RELOAD does scale equipment...
+      expect(stats.cooldownScale, hull).toBeLessThan(1); // RELOAD does scale the main battery...
       const tree = JSON.stringify(stats);
       // ...but no ability cooldown lives anywhere on the stats tree for it to reach.
       expect(tree.includes('cooldownMs'), hull).toBe(false);

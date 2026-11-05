@@ -66,6 +66,21 @@ describe('passive regen — the wait, then 2 % of missing per second', () => {
     expect(a.hp).toBe(a.stats.maxHp);
   });
 
+  it('PARTICIPANTS only: a due combat bot regenerates, a due PvE fleet drone never does (epic-9 amendment 48)', () => {
+    const w = bareWorld();
+    const bot = w.addBot('bismarck', 'duelist');
+    const drone = w.addShip('d1', 'D1', 'fleet', 'droneLarge', undefined, { x: 2000, y: 0 });
+    for (const rec of [bot, drone]) {
+      rec.hp = rec.stats.maxHp / 2;
+      rec.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2;
+    }
+    const botBefore = bot.hp;
+    const droneBefore = drone.hp;
+    w.step();
+    expect(bot.hp).toBeCloseTo(botBefore + regenGain(botBefore, bot.stats.maxHp, DT / 1000), 9);
+    expect(drone.hp).toBe(droneBefore);
+  });
+
   it('a SINKING hull never regenerates (no hp comes back in the window)', () => {
     const w = bareWorld();
     const a = place(w, 'a');

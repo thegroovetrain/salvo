@@ -111,8 +111,7 @@ export interface BotSelf {
    * a hull in the sinking window (amendment 10), and a tactic whose only test
    * is `hp / maxHp` is at its MOST eager exactly there. The driver already
    * drops non-afloat bots before they decide, so this is the row's own guard —
-   * the twin of the one the server's consumable row keeps — and not a
-   * substitute for it.
+   * the twin of the server's own gate — and not a substitute for it.
    */
   readonly lifecycle: ShipLifecycle;
   /**
@@ -240,7 +239,7 @@ export interface BotZonePhase {
  *
  * Deliberately absent: ANY ship store (a bot's own record arrives in its
  * BotTickEntry; everything else reaches it only through the fogged view),
- * `shells`, `mines`, `decoys`, `litZones`, events, other observers.
+ * `shells`, `mines`, `litZones`, events, other observers.
  */
 export interface BotWorldPort {
   /** ms since world creation — the one server clock. */

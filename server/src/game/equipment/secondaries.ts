@@ -43,7 +43,7 @@ export function fireSecondaryRound(ctx: ActivationContext): void {
     targetY: target.y,
     burstRadius: 0, // no blast — a direct round
     contactDamage: cfg.damage, // a direct hit deals the full damage
-    hits: cfg.hits, // hull | mine | decoy — a mine only where the round lands
+    hits: cfg.hits, // hull | mine — a mine only where the round lands
     family: 'mg',
     direct: true,
     attenRangeU: attenRangeFor(ctx, reachU, target),
