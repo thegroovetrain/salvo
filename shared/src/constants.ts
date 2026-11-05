@@ -198,7 +198,7 @@ export const CONFIG = {
    *     turrets, 27 on the two-gun turrets — guns × shellDamage sums to the
    *     same broadside on every hull, a RELATION the tests assert). Turret
    *     order is bow to stern; that index is the turret's identity on the
-   *     wire and the R4 tie-break order (sim/turrets.ts).
+   *     wire and the pick's tie-break order (sim/turrets.ts).
    *
    * THE CLASS `shift` FIELD IS GONE (and `classShift()` with it): the Shift
    * is the SEAT's pick now, in the retired deck-gun pick's place (R7 default
@@ -1650,10 +1650,11 @@ export const CONFIG = {
    * an angle that traverses toward the one aim point at `traverseDegPerS` with
    * a HARD STOP at the hull's train limit (amendment 7(e)/(j): load-bearing,
    * 90°/s, never through the blind sector), and its own reload. A click fires
-   * ONE turret (R4): a ready turret that is ON the aim point (inside its arc
-   * and within `onTargetDeg` of the bearing it wants) wins, lowest index
-   * first; otherwise the ready turret with the smallest error fires along its
-   * CURRENT bearing; nothing ready fires nothing. The turret's guns fire as
+   * ONE turret, and only a READY turret whose arc holds the aim point (arc-only
+   * fire, Eric 2026-11-05, epic-10 amendment 10): one that is ON the aim point
+   * (within `onTargetDeg` of the bearing it wants) wins, lowest index first;
+   * otherwise the bearing turret with the smallest error fires along its
+   * CURRENT bearing; no ready turret bears → nothing fires. The turret's guns fire as
    * one salvo on PARALLEL tracks `barrelSpacingU` apart (sim/spread.ts — the
    * cannon's barrel law), each shell `shipClasses.<id>.battery.shellDamage`.
    *
@@ -1671,7 +1672,7 @@ export const CONFIG = {
    * (R3 — the secondaries are the only thing that hurts one).
    */
   mainBattery: {
-    arc: 'full', // every bearing is inside SOME turret's arc on every hull, and a click always fires (R4)
+    arc: 'full', // every bearing is inside SOME turret's arc on every hull (which turrets may fire: sim/turrets.ts pickTurret)
     hits: HITS_HULL_DECOY, // hulls + decoys; NO mine bit (R3)
     rangeU: RUNG * 8, // u — the cannon's Tier I reach at RANGE 100 (R2)
     reloadMs: 10000, // ms per turret, before RELOAD (R2)

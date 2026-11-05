@@ -9,9 +9,6 @@
 import { CONFIG, batteryAimPoint, type AimPose, type InputMsg } from '@salvo/shared';
 import type { OwnBattery } from './ownBattery.js';
 
-/** Any pose — only `batteryAimPoint`'s null-ness is read off it. */
-const ORIGIN: AimPose = { x: 0, y: 0, heading: 0 };
-
 /**
  * THE TWO QUESTIONS the own battery's tick asks (review gate C1), kept apart:
  *  - `afloat`: do the turret ANGLES chase the aim? Only while afloat — a
@@ -44,27 +41,47 @@ export function stepOwnBattery(
 }
 
 /**
- * Pure: the predicted verdict for a MAIN BATTERY click (R4): it fires whenever
- * ANY predicted turret is ready (`loaded`) and the input carries an aim
- * (`batteryAimPoint` not null — the server denies a click with no aim), and it
- * is NEVER out of arc: the battery's arc is full.
+ * Pure: would a MAIN BATTERY click on this aim fire against the predicted
+ * turrets? Exactly when the shared pick names a turret (arc-only fire, Eric
+ * 2026-11-05, epic-10 amendment 10): a READY turret whose arc holds the aim
+ * point. No pose, or no aim (`batteryAimPoint` null — the server denies a
+ * click with no aim) → false. The one read both the reticle's "loaded" and
+ * the click prediction make, so the two cannot disagree with the server.
  */
-export function batteryClickPrediction(
-  battery: Pick<OwnBattery, 'anyReady'>,
-  alive: boolean,
+export function batteryWouldFire(
+  battery: Pick<OwnBattery, 'pick'>,
+  pose: AimPose | null,
   aim: number,
   aimDist: number,
-): { alive: boolean; loaded: boolean; inArc: boolean } {
-  const aimed = batteryAimPoint(ORIGIN, aim, aimDist) !== null;
-  return { alive, loaded: aimed && battery.anyReady(), inArc: true };
+): boolean {
+  if (pose === null) return false;
+  const aimPoint = batteryAimPoint(pose, aim, aimDist);
+  return aimPoint !== null && battery.pick(pose, aimPoint) !== null;
 }
 
 /**
- * A main-battery click the client predicts will fire: run the shared R4 pick
+ * Pure: the predicted verdict for a MAIN BATTERY click: `loaded` iff the
+ * shared pick would fire a turret (`batteryWouldFire`). A click whose aim no
+ * ready turret bears reads as not loaded — the server's `cooling` denial, since
+ * every bearing is inside some turret's arc and the bearing ones are
+ * reloading. It is NEVER out of arc as a weapon: the battery's arc is full.
+ */
+export function batteryClickPrediction(
+  battery: Pick<OwnBattery, 'pick'>,
+  alive: boolean,
+  pose: AimPose | null,
+  aim: number,
+  aimDist: number,
+): { alive: boolean; loaded: boolean; inArc: boolean } {
+  return { alive, loaded: batteryWouldFire(battery, pose, aim, aimDist), inArc: true };
+}
+
+/**
+ * A main-battery click the client predicts will fire: run the shared pick
  * against the predicted turrets and start the picked turret's reload locally,
  * tagged with `seq` — the input that carries the click (OwnBattery.correct
  * keeps the reload through frames older than it). Returns the picked turret
- * index, or null when none is ready (the `cooling` denial), there is no aim,
+ * index, or null when no ready turret bears (the `cooling` denial), there is no aim,
  * or there is no pose.
  */
 export function predictBatteryClick(

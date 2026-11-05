@@ -1,5 +1,6 @@
-// THE MAIN BATTERY'S TURRETS — per-turret traverse, reload and the R4 pick
-// (Story 10.4, Eric 2026-11-04, epic-10 amendments 7(c)–(e), 7(j) and 9).
+// THE MAIN BATTERY'S TURRETS — per-turret traverse, reload and the arc-only
+// pick (Story 10.4, Eric 2026-11-04, epic-10 amendments 7(c)–(e), 7(j) and 9;
+// arc-only fire and hold-outside-arc, Eric 2026-11-05, epic-10 amendment 10).
 //
 // One sim, both sides: the server steps every captain's turrets each 50 ms
 // tick and the client steps its OWN turrets with the same calls (corrected
@@ -15,37 +16,35 @@
 //     aft turret:  rest π,   a ∈ [π − train, π + train]
 //
 // so an aft turret trained 30° to one side of dead astern reads π ± 0.5236,
-// never a wrapped negative. Because both the current and the wanted angle
-// always lie in that one interval and the turret moves LINEARLY between them,
-// it can never rotate through its blind sector: a target across the blind
-// sector is reached the long way round by construction, and a target INSIDE
-// the blind sector parks the turret at a stop (amendment 7(e)).
+// never a wrapped negative.
 //
-// WHICH STOP (review-gate patch P3): the stop on the side the turret ALREADY
-// is — the sign of its current offset from rest. Only a turret sitting exactly
-// at rest falls back to the nearer stop (the sign of the wanted offset, the
-// negative stop on an exact tie). Without that hysteresis an aim on the
-// centreline (dead astern of a forward turret, dead ahead of an aft one) sits
-// exactly between the two stops, the "nearer" one flips with float noise, and
-// the turret reverses every tick and reaches neither. The stateless
-// `desiredTurretAngle` (no turret state to read) keeps the plain nearer-stop
-// rule; the stepper and the pick use the state-aware `desiredTurretAngleFrom`.
+// HOLD OUTSIDE THE ARC (Eric 2026-11-05, epic-10 amendment 10: "if my cursor
+// has left the arc of one of the turrets, the turret itself should also stop
+// rotating wherever it is. This way I can skillfully 'leave it in position' in
+// case I am facing a fight on two fronts"). Each tick a turret whose arc holds
+// the aim point traverses toward it at the rate; a turret whose arc does NOT
+// hold it (the aim is in its blind sector) HOLDS ITS ANGLE for the tick — it
+// never travels to a stop. Its reload still counts down. When the aim comes
+// back into its arc it resumes from wherever it was left. Because the current
+// and the wanted angle then both lie in the one train interval and the turret
+// moves LINEARLY between them, it can never rotate through its blind sector: a
+// target on the far side is reached through the rest bearing by construction.
 //
 // AN AIM POINT WITH NO BEARING (review-gate patch P4). A zero aim distance —
 // an idle bot, the neutral input before a player's first real one — is NO AIM:
 // `batteryAimPoint` returns `null` for it and both sides pass that to
 // `stepTurrets`, which holds every angle. And an aim point sitting on a
 // turret's own station (closer than `AIM_STATION_EPS_U`) has no bearing from
-// that turret: the stepper holds THAT turret for the step, and the pick ranks
-// it last and never on target.
+// that turret: it does not bear, so the stepper holds THAT turret and the pick
+// never picks it.
 //
-// Worked example — Bismarck (train 145°), turret 2 (the first aft turret, rest
-// π), ship heading 0 (bow along +x), aim point dead ahead far away: the
-// bearing off rest is ±180°, outside ±145°, so the turret wants a stop; it
-// parks at π − 2.5307 or π + 2.5307 (35° off the bow on one side) and STAYS
-// on that stop while the aim wanders inside the blind sector. Bring the aim
-// back inside its arc on the other side and the turret travels back through
-// astern — never the 70° across the bow.
+// Worked example — Bismarck (train 145°), turret 0 (forward, rest 0), ship
+// heading 0, trained 90° to port on target A. The captain swings the aim dead
+// astern (180° off rest, outside ±145°): turret 0 stays at +90° and does not
+// fire. Swing the aim back onto A: turret 0 is on target that very tick, with
+// no traverse at all. Swing it instead to 90° to starboard: it travels from
+// +90° through the bow to −90° (180° of travel, 2 s at 90°/s) — never the
+// short way through the blind sector astern.
 //
 // EVERY TURRET CHASES THE ONE AIM POINT, each measured from ITS OWN gunhouse
 // (the station, on the centreline), so close in the turrets converge.
@@ -196,16 +195,16 @@ function clampOffset(offset: number, train: number): number {
 }
 
 /**
- * The offset-from-rest a turret WANTS for an unclamped aim offset, knowing
- * where the turret already is (`curOffset`, its own offset from rest). Inside
- * the arc: the aim offset itself. Inside the blind sector: the stop on the
- * side the turret ALREADY is; a turret exactly at rest takes the nearer stop
- * (the sign of the aim offset — the negative stop on the exact ±π tie).
+ * The offset-from-rest the turret goes to for this aim, or `null` when it does
+ * NOT BEAR and so holds (hold-outside-arc / arc-only fire, epic-10 amendment
+ * 10): the aim point has no bearing from its station, or lies in its blind
+ * sector. Inside the arc it is the aim offset itself, UNCLAMPED (a bearing on
+ * a train limit may sit up to `ARC_EPS` outside it — clamp before moving).
  */
-function wantOffset(offset: number, train: number, curOffset: number): number {
-  if (Math.abs(offset) <= train + ARC_EPS) return clampOffset(offset, train);
-  if (curOffset !== 0) return curOffset > 0 ? train : -train;
-  return offset > 0 ? train : -train;
+function bearingOffset(mount: TurretMount, station: Vec2, pose: AimPose, aim: Vec2, train: number): number | null {
+  const off = aimOffsetOrNull(mount, station, pose, aim);
+  if (off === null || Math.abs(off) > train + ARC_EPS) return null;
+  return off;
 }
 
 /** True iff the aim point is inside turret `i`'s arc (rest ± train, from its own station). */
@@ -217,10 +216,12 @@ export function turretBears(hullId: HullId, i: number, pose: AimPose, aim: Vec2)
 }
 
 /**
- * The angle turret `i` WANTS (hull-relative, unwrapped — the header's
+ * The CLAMPED WANT of turret `i` (hull-relative, unwrapped — the header's
  * convention): the bearing from its own world station to the world aim point,
- * minus heading, clamped to the train limits. An aim point inside the blind
- * sector parks it at the NEARER stop.
+ * minus heading, clamped to the train limits. Stateless and used only for
+ * display / tests: for an aim inside the arc it is exactly where the stepper
+ * takes the turret; for an aim in the blind sector it is the nearer stop, a
+ * place the stepper never goes (the turret holds — `desiredTurretAngleFrom`).
  */
 export function desiredTurretAngle(hullId: HullId, i: number, pose: AimPose, aim: Vec2): number {
   const mount = turretMounts(hullId)[i];
@@ -230,13 +231,11 @@ export function desiredTurretAngle(hullId: HullId, i: number, pose: AimPose, aim
 }
 
 /**
- * The angle turret `i` WANTS given where it ALREADY points (`currentA`, the
- * turret's own `TurretState.a`) — what the stepper and the pick use. Same as
- * `desiredTurretAngle` for an aim point inside the arc; an aim point inside
- * the blind sector parks it at the stop on the side it already is (only a
- * turret exactly at rest takes the nearer stop), so an aim on the centreline
- * can never make it flip between stops. An aim point on the turret's own
- * station has no bearing: the turret wants to stay where it is.
+ * The angle turret `i` goes to given where it ALREADY points (`currentA`, the
+ * turret's own `TurretState.a`) — the stepper's target. An aim point inside
+ * the arc: the bearing to it (`desiredTurretAngle`). An aim point the turret
+ * does not bear on — in its blind sector, or on its own station — leaves it
+ * where it is: `currentA` (hold-outside-arc, epic-10 amendment 10).
  */
 export function desiredTurretAngleFrom(
   hullId: HullId,
@@ -247,34 +246,31 @@ export function desiredTurretAngleFrom(
 ): number {
   const mount = turretMounts(hullId)[i];
   if (mount === undefined) return 0;
-  const rest = turretRest(mount);
-  const train = turretTrainRad(hullId);
-  const cur = clampOffset(currentA - rest, train);
-  const off = aimOffsetOrNull(mount, turretStationWorld(hullId, i, pose), pose, aim);
-  return rest + (off === null ? cur : wantOffset(off, train, cur));
+  const want = bearingOffset(mount, turretStationWorld(hullId, i, pose), pose, aim, turretTrainRad(hullId));
+  return want === null ? currentA : turretRest(mount) + clampOffset(want, turretTrainRad(hullId));
 }
 
-/** One turret's traverse for a step toward the aim point (`maxStep` rad); an aim with no bearing from it holds it. */
+/** One turret's traverse for a step toward the aim point (`maxStep` rad); a turret that does not bear holds. */
 function traverseTurret(st: TurretState, hullId: HullId, i: number, pose: AimPose, aim: Vec2, maxStep: number): void {
   const mount = turretMounts(hullId)[i];
   const train = turretTrainRad(hullId);
-  const off = aimOffsetOrNull(mount, turretStationWorld(hullId, i, pose), pose, aim);
-  if (off === null) return;
+  const want = bearingOffset(mount, turretStationWorld(hullId, i, pose), pose, aim, train);
+  if (want === null) return;
   const rest = turretRest(mount);
   // A state outside its interval (never produced here; a corrupt write) is
   // pulled back to the nearer stop before it moves.
-  const cur = clampOffset(st.a - rest, train);
-  const from = rest + cur;
-  const want = rest + wantOffset(off, train, cur);
-  const d = want - from;
-  st.a = Math.abs(d) <= maxStep ? want : from + Math.sign(d) * maxStep;
+  const from = rest + clampOffset(st.a - rest, train);
+  const to = rest + clampOffset(want, train);
+  const d = to - from;
+  st.a = Math.abs(d) <= maxStep ? to : from + Math.sign(d) * maxStep;
 }
 
 /**
- * ONE 50 ms STEP of a hull's turrets, IN PLACE: every turret traverses toward
- * the angle it wants at `CONFIG.mainBattery.traverseDegPerS` (arriving
- * exactly, never overshooting, never leaving its train interval) and every
- * turret's reload counts down toward 0.
+ * ONE 50 ms STEP of a hull's turrets, IN PLACE: every turret whose arc holds
+ * the aim point traverses toward it at `CONFIG.mainBattery.traverseDegPerS`
+ * (arriving exactly, never overshooting, never leaving its train interval);
+ * every other turret HOLDS its angle (hold-outside-arc, epic-10 amendment 10);
+ * every turret's reload counts down toward 0.
  *
  * `aim === null` (no aim this tick — a neutral input; see `batteryAimPoint`)
  * holds every angle and still runs the reloads. An aim point on a turret's
@@ -330,7 +326,7 @@ export function batterySummary(states: readonly TurretState[]): { n: number; rel
 export interface TurretPick {
   /** Which turret (index into the hull's bow-to-stern mounts and the state array). */
   index: number;
-  /** True iff this turret was ON the aim point (R4 priority 1); false = it fires along its current bearing. */
+  /** True iff this turret was ON the aim point (pick priority 1); false = it bears but fires early along its current bearing. */
   onTarget: boolean;
   /** The turret's world station — where its reach is measured from. */
   station: Vec2;
@@ -342,67 +338,59 @@ export interface TurretPick {
   guns: number;
 }
 
-/** One ready turret's read against the aim point. */
+/** One ready turret's read against the aim point — only ever built for a turret that BEARS. */
 interface TurretRead {
   on: boolean;
-  /** rad — the FALLBACK rank: how far this turret is from the bearing to the aim point (∞ = no bearing). */
+  /** rad — the FALLBACK rank: the turret's travel to the bearing of the aim point. */
   err: number;
   station: Vec2;
   exactBearing: number;
-  /** u — station → aim point (0 when the aim point has no bearing from this station). */
+  /** u — station → aim point. */
   aimDistU: number;
 }
 
 /**
- * One ready turret against the aim point.
- *
- *   - AIM INSIDE THE ARC: the error is the turret's travel to the aim bearing
- *     (unwrapped — it can only get there inside its interval), and it is ON
- *     TARGET within `onTargetDeg` of it.
- *   - AIM INSIDE THE BLIND SECTOR (review-gate patch P2): never on target, and
- *     the error is the TRUE angular distance between where the turret points
- *     and the bearing to the aim point — NOT the distance to the stop it is
- *     parked on (which reads zero for a turret pointing tens of degrees wide).
- *     The wrapped distance, because the turret cannot travel there anyway and
- *     the unwrapped one would jump by a full turn with the sign of an aim on
- *     the centreline.
- *   - NO BEARING (the aim point on this turret's own station, P4): never on
- *     target, ranked LAST (error ∞), aim distance 0 — a pick of it fires along
- *     its current bearing, so no NaN can leave here.
+ * One ready turret against the aim point, or `null` when it does NOT BEAR
+ * (arc-only fire, Eric 2026-11-05, epic-10 amendment 10): the aim point is in
+ * its blind sector, or has no bearing from it at all (on its own station,
+ * closer than `AIM_STATION_EPS_U`). A turret that bears has an error = its
+ * travel to the aim bearing (unwrapped — it can only get there inside its
+ * interval), and is ON TARGET within `onTargetDeg` of it.
  */
-function readTurret(st: TurretState, mount: TurretMount, hullId: HullId, i: number, pose: AimPose, aim: Vec2): TurretRead {
+function readTurret(st: TurretState, mount: TurretMount, hullId: HullId, i: number, pose: AimPose, aim: Vec2): TurretRead | null {
   const train = turretTrainRad(hullId);
   const station = turretStationWorld(hullId, i, pose);
+  const off = bearingOffset(mount, station, pose, aim, train);
+  if (off === null) return null;
   const rest = turretRest(mount);
-  const off = aimOffsetOrNull(mount, station, pose, aim);
-  if (off === null) return { on: false, err: Infinity, station, exactBearing: pose.heading + st.a, aimDistU: 0 };
   const aimDistU = Math.hypot(aim.x - station.x, aim.y - station.y);
-  const exactBearing = pose.heading + rest + off;
-  if (Math.abs(off) > train + ARC_EPS) {
-    return { on: false, err: Math.abs(wrapAngle(off - (st.a - rest))), station, exactBearing, aimDistU };
-  }
   const err = Math.abs(rest + clampOffset(off, train) - st.a);
   const on = err <= CONFIG.mainBattery.onTargetDeg * RAD_PER_DEG + ARC_EPS;
-  return { on, err, station, exactBearing, aimDistU };
+  return { on, err, station, exactBearing: pose.heading + rest + off, aimDistU };
 }
 
 /**
- * THE R4 PICK (Eric 2026-11-04: "The turret fires wherever it is currently
- * pointing, even if it is the wrong direction. However if *any* turret is
- * ready and pointed that way, it should fire instead."). Pure — it changes
- * nothing; the caller fires the pick with `fireTurret`.
+ * THE PICK — ARC-ONLY FIRE (Eric 2026-11-05, epic-10 amendment 10: "If my
+ * cursor is not within the arc of one of my turrets, it should *not* fire
+ * when clicked. So a turret that can't even point at the enemy wont have its
+ * shot wasted."; the early click of 2026-11-04 stands for a turret that CAN
+ * bear). Pure — it changes nothing; the caller fires the pick with
+ * `fireTurret`. Only READY turrets (reloadMsLeft ≤ 0) that BEAR — the aim
+ * point inside their arc (rest ± train, from their own station) and not on
+ * their own station — are candidates:
  *
- *   1. Among READY turrets (reloadMsLeft ≤ 0), one that is ON TARGET — the aim
- *      point is inside its arc AND its angle is within
- *      `CONFIG.mainBattery.onTargetDeg` of the angle it wants — wins; the
- *      LOWEST INDEX (bow first) if several are. It fires at the aim point
- *      exactly (`bearing` = station → aim point).
- *   2. Otherwise the ready turret with the SMALLEST angular error (lowest
- *      index on a tie) fires along its CURRENT bearing (`heading + a`). The
- *      error is measured to the TRUE bearing of the aim point, so a turret
- *      parked on a stop because the aim is in its blind sector ranks by how
- *      wide it really points, never as zero.
- *   3. No turret ready → `null` (the caller's `cooling` denial).
+ *   1. A candidate ON TARGET (its angle within `CONFIG.mainBattery.onTargetDeg`
+ *      of the angle it wants) wins; the LOWEST INDEX (bow first) if several
+ *      are. It fires at the aim point exactly (`bearing` = station → aim point).
+ *   2. Otherwise the candidate with the SMALLEST angular error (its travel to
+ *      the aim bearing; lowest index on a tie) fires early along its CURRENT
+ *      bearing (`heading + a`).
+ *   3. No candidate → `null`, nothing fires and no reload starts (the caller's
+ *      `cooling` denial). A ready turret whose blind sector holds the aim point
+ *      is NEVER picked. At any real range every bearing lies in some turret's
+ *      arc on every hull, so `null` means "the turrets that can bear are
+ *      reloading"; only an aim on or right beside the own hull, between the
+ *      forward and aft turrets, is in no turret's arc at all.
  *
  * Step the turrets for the tick BEFORE picking, so a turret that arrives on
  * the aim point (or finishes reloading) this tick counts this tick.
@@ -420,6 +408,7 @@ export function pickTurret(
   for (let i = 0; i < n; i += 1) {
     if (states[i].reloadMsLeft > 0) continue;
     const read = readTurret(states[i], mounts[i], hullId, i, pose, aim);
+    if (read === null) continue;
     if (read.on) {
       best = i;
       bestRead = read;

@@ -31,6 +31,7 @@ import {
   aimPointOf,
   initialTurrets,
   pickTurret,
+  turretMounts,
   turretSalvo,
   islandFromPolygon,
   parallelOffsets,
@@ -1044,7 +1045,7 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
   });
 });
 
-// THE MAIN BATTERY (Story 10.4, R4). The preview is the SHARED pick + salvo the
+// THE MAIN BATTERY (Story 10.4; arc-only fire, epic-10 amendment 10). The preview is the SHARED pick + salvo the
 // server fires with, over the turret state the caller passes in — so every
 // expectation here is read off `pickTurret` / `turretSalvo`, never a literal.
 describe('the MAIN BATTERY preview — the shared turret pick and salvo', () => {
@@ -1099,6 +1100,23 @@ describe('the MAIN BATTERY preview — the shared turret pick and salvo', () => 
     salvo.shells.forEach((sh, k) => {
       expect(m.lines[k].x1).toBeCloseTo(sh.origin.x, 9);
       expect(m.lines[k].y1).toBeCloseTo(sh.origin.y, 9);
+      expect(m.bursts[k].x).toBeCloseTo(sh.target.x, 9);
+      expect(m.bursts[k].y).toBeCloseTo(sh.target.y, 9);
+    });
+  });
+
+  it('ARC-ONLY: aim dead ahead with only the aft (non-bearing) turrets ready — the preview is the bearing turret the player waits on, never an aft salvo', () => {
+    const turrets = initialTurrets(cls);
+    const mounts = turretMounts(cls);
+    mounts.forEach((m, i) => { if (m.facing === 'fwd') turrets[i].reloadMsLeft = row.reloadMs; });
+    const inp = battery({ turrets });
+    const point = aimPointOf(SHIP, inp.aim, inp.aimDist);
+    expect(pickTurret(turrets, cls, SHIP, point)).toBeNull(); // the premise: a click fires nothing
+    const loaded = shared({ ...inp, turrets: initialTurrets(cls) }); // as if every turret were loaded
+    expect(mounts[loaded.pick.index].facing).toBe('fwd');
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(loaded.pick.guns);
+    loaded.salvo.shells.forEach((sh, k) => {
       expect(m.bursts[k].x).toBeCloseTo(sh.target.x, 9);
       expect(m.bursts[k].y).toBeCloseTo(sh.target.y, 9);
     });

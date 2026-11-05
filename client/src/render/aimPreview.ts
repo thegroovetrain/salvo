@@ -346,12 +346,14 @@ function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
 }
 
 /**
- * THE MAIN BATTERY (Story 10.4, R4): the SHARED turret pick + salvo — the two
- * calls the server fires with — over the predicted turret state, so the preview
- * is where the next salvo lands: on the aim point when a ready turret is on
- * target, along that turret's current bearing otherwise. Nothing ready: the
- * pick is made as if every turret were loaded (the turret that will fire first
- * is the one the player is waiting on). One line + one burst per shell.
+ * THE MAIN BATTERY (Story 10.4; arc-only fire, epic-10 amendment 10): the
+ * SHARED turret pick + salvo — the two calls the server fires with — over the
+ * predicted turret state, so the preview is where the next salvo lands: on the
+ * aim point when a ready bearing turret is on target, along that turret's
+ * current bearing otherwise. No ready turret bears: the pick is made as if
+ * every turret were loaded — still only among the turrets whose arc holds the
+ * aim (the turret that will fire first is the one the player is waiting on).
+ * One line + one burst per shell.
  */
 function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.mainBattery;
