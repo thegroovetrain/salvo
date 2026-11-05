@@ -2,7 +2,7 @@
 title: 'Story 10.5: The Kit Retire and the Three Equipment Slots'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'f063f3be'
 review_loop_iteration: 0
 context:
