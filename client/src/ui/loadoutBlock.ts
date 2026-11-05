@@ -5,9 +5,10 @@
 // `countdown-results-1.html` frame 2: a section head `LOADOUT`, then the HUD
 // bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R, each with
 // its key chip), then the line of the ship ladders. STORY 10.5 (2026-11-05,
-// epic-10 amendment 10): the framed consumable belt left with the kit, and the
-// two cooldown abilities (`C` / `V`) are not drawn here — every captain has the
-// same two, so they say nothing about a build [Story 10.5 reading].
+// epic-10 amendment 10): the framed consumable belt left with the kit. The two
+// cooldown abilities (`C` HULL REPAIR / `V` SMOKE) close the row after `R`, in
+// the bar's own square order (Eric 2026-11-05: the strip draws C and V too) —
+// the square index space is render/hotbarSquares.ts.
 //
 // A DOM TWIN, NOT A SECOND DERIVATION. The modal is DOM chrome, so the boxes are
 // drawn twice — but every fact inside them comes from the bar's own sources:
@@ -27,8 +28,8 @@
 import {
   CATALOG,
   SLOT_BOOST,
-  SLOT_COUNT,
   boonStackCount,
+  type CooldownAbilityId,
   type EquipmentId,
   type LineId,
 } from '@salvo/shared';
@@ -36,6 +37,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import { SLOT_KEY_GLYPHS, slotTier } from '../render/equipmentInfo.js';
+import { HOTBAR_SQUARE_COUNT, abilityAtSquare } from '../render/hotbarSquares.js';
 import { boonName, cardTierSteps } from './boonCopy.js';
 import { romanTier, tierTint } from './tierRamp.js';
 import { SECTION_HEAD_CSS, type ResultsOwn } from './results.js';
@@ -144,6 +146,20 @@ export function ladderEntries(cards: readonly string[]): LadderEntry[] {
     const label = boonName(id);
     if (copies === 0 && DASH_AT_ZERO.has(id)) return { label, tier: null };
     return { label, tier: cardTierSteps(CATALOG[id], copies)?.cur ?? null };
+  });
+}
+
+/** One square of the row: a loadout slot, or one of the two cooldown
+ *  abilities (which hold no slot). */
+export type LoadoutSquare = { kind: 'slot'; slot: number } | { kind: 'ability'; id: CooldownAbilityId };
+
+/** Pure: the row's squares, in the HUD bar's own order — gun · Shift · Q · E
+ *  · R, then `C` · `V` (render/hotbarSquares.ts's index space; `square` is
+ *  that index, which is also what keys its chip). */
+export function loadoutRowSquares(): readonly (LoadoutSquare & { square: number })[] {
+  return Array.from({ length: HOTBAR_SQUARE_COUNT }, (_, square) => {
+    const id = abilityAtSquare(square);
+    return id === null ? { kind: 'slot', slot: square, square } : { kind: 'ability', id, square };
   });
 }
 
@@ -263,20 +279,36 @@ function makeSquare(own: ResultsOwn, slot: number): HTMLDivElement {
   return box;
 }
 
+/** A cooldown ability's square (`C` / `V`): always held, so always the
+ *  bar's READY-ABILITY skin (the Shift's) with its glyph — no tier, no badge. */
+function makeAbilitySquare(id: CooldownAbilityId): HTMLDivElement {
+  const box = squareBox(SLOT_BOOST, true);
+  delete box.dataset.loadoutSlot;
+  box.dataset.loadoutAbility = id;
+  const svg = equipmentGlyphSvg(id, P.icon);
+  if (svg !== null) {
+    svg.style.cssText = `display:block;color:var(--hc-phosphor);opacity:${SHIFT_SKIN.iconAlpha}`;
+    box.appendChild(svg);
+  }
+  return box;
+}
+
 /** One column (mock `.sw`): the square over its key chip. */
-function makeColumn(own: ResultsOwn, slot: number): HTMLDivElement {
+function makeColumn(own: ResultsOwn, sq: LoadoutSquare & { square: number }): HTMLDivElement {
   const col = document.createElement('div');
   col.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${P.chipGap}px`;
-  col.append(makeSquare(own, slot), makeChip(slot));
+  const square = sq.kind === 'slot' ? makeSquare(own, sq.slot) : makeAbilitySquare(sq.id);
+  col.append(square, makeChip(sq.square));
   return col;
 }
 
-/** The ONE row: gun · Shift · Q E R, `slotGap` apart — every loadout slot. */
+/** The ONE row: gun · Shift · Q E R · C V, `slotGap` apart — every loadout
+ *  slot, then the two cooldown abilities. */
 function makeRow(own: ResultsOwn): HTMLDivElement {
   const row = document.createElement('div');
   row.style.cssText = `display:flex;justify-content:center;align-items:flex-start;gap:${P.slotGap}px`;
   row.dataset.loadoutRow = '';
-  for (let slot = 0; slot < SLOT_COUNT; slot += 1) row.appendChild(makeColumn(own, slot));
+  for (const sq of loadoutRowSquares()) row.appendChild(makeColumn(own, sq));
   return row;
 }
 

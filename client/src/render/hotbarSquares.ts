@@ -9,7 +9,15 @@
 //
 // Pure, no Pixi.
 
-import { SLOT_BOOST, SLOT_COUNT, type AbilityId, type CooldownAbilityId, type EquipmentId } from '@salvo/shared';
+import {
+  SLOT_BOOST,
+  SLOT_COUNT,
+  slotFamilyAt,
+  type AbilityId,
+  type CooldownAbilityId,
+  type EquipmentId,
+  type SlotFamily,
+} from '@salvo/shared';
 
 /** The cooldown abilities, in bar order (left to right after `R`). */
 export const ABILITY_SQUARES: readonly CooldownAbilityId[] = Object.freeze(['repair', 'smoke'] as const);
@@ -44,4 +52,25 @@ export type SquareItemId = EquipmentId | CooldownAbilityId;
 /** Pure: is a square's content one of the two cooldown abilities? */
 export function isCooldownAbility(id: SquareItemId): id is CooldownAbilityId {
   return (ABILITY_SQUARES as readonly string[]).includes(id);
+}
+
+/**
+ * THE EMPTY FAMILY SLOT'S GLYPH (Eric 2026-11-05: *"I want the empty, grayed
+ * out slots to at least indicate what kind of slot they are"*). One existing
+ * drawing per family, picked so the three read apart at 54 px: the heavy
+ * torpedo's (the original family torpedo drawing), the naval mine's and the
+ * star shell's burst (a generic shell, not FLASH's struck eye). Visual only —
+ * the square still carries no word.
+ */
+export const EMPTY_FAMILY_GLYPHS: Readonly<Record<SlotFamily, EquipmentId>> = Object.freeze({
+  torpedo: 'heavyTorpedo',
+  mine: 'navalMines',
+  shell: 'starShells',
+});
+
+/** Pure: the glyph an EMPTY square draws — its slot family's, or null (the
+ *  bare `—`) for a square with no family. */
+export function emptySlotGlyph(square: number): EquipmentId | null {
+  const family = slotFamilyAt(square);
+  return family === null ? null : EMPTY_FAMILY_GLYPHS[family];
 }

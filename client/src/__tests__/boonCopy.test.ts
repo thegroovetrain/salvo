@@ -22,7 +22,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, abilityCooldownMs, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
 import {
   boonEffectLine,
   boonFitToastLine,
@@ -220,11 +220,24 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   // former card rows print on the `C` / `V` tooltip, every number off CONFIG.
   it('abilityStatRows reads the two abilities\' rows off CONFIG', () => {
     const h = CONFIG.hullRepair;
-    expect(abilityStatRows('repair')).toHaveLength(2);
+    expect(abilityStatRows('repair')).toHaveLength(3);
     expect(text(abilityStatRows('repair'))[1]).toContain(String(h.regenMs / 1000));
     const k = CONFIG.countermeasure;
-    expect(text(abilityStatRows('smoke'))).toEqual([`${k.lifeMs / 1000} S`, `${k.r0} → ${k.r1} U`]);
+    expect(text(abilityStatRows('smoke')).slice(0, 2)).toEqual([`${k.lifeMs / 1000} S`, `${k.r0} → ${k.r1} U`]);
     expect(abilityName('repair')).not.toBe(abilityName('smoke'));
+  });
+
+  // Eric 2026-11-05: the `C` / `V` tooltip ends on a cooldown row in the Shift
+  // tooltip's reload-row grammar (same label, same printer), valued off shared
+  // `abilityCooldownMs`.
+  it('abilityStatRows ends on the cooldown row, valued off abilityCooldownMs, in the Shift reload grammar', () => {
+    const shiftReload = equipmentStatRows('instantReload', effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [])).at(-1)!;
+    for (const id of ['repair', 'smoke'] as const) {
+      const row = abilityStatRows(id).at(-1)!;
+      expect(row.label).toBe(shiftReload.label);
+      expect(row.cur).toBeNull();
+      expect(row.next).toContain((abilityCooldownMs(id) / 1000).toFixed(1));
+    }
   });
 
   // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): the SHIP panel is the

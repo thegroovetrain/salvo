@@ -29,7 +29,8 @@ import {
 } from '@salvo/shared';
 import { SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
+import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries, loadoutRowSquares } from '../ui/loadoutBlock.js';
+import { ABILITY_SQUARES, HOTBAR_SQUARE_COUNT } from '../render/hotbarSquares.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
@@ -429,26 +430,43 @@ describe('showResults — the elimination modal', () => {
     const tierOf = (slot: number): HTMLElement | null => square(slot).querySelector<HTMLElement>('[data-loadout-tier]');
     const open = (o: ResultsOwn): void => showResults(view({ own: o }), { onSpectate: () => undefined, onReturn: () => undefined });
 
-    it('draws one square per LOADOUT slot on ONE row, each over its key chip (no belt — Story 10.5)', () => {
+    it('draws one square per LOADOUT slot then C and V on ONE row, each over its key chip (no belt — Story 10.5)', () => {
       open(mockOwn());
       expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(SLOT_COUNT);
-      // The bar's own chips for the loadout slots, with the gun's ghost. The
-      // `C` / `V` abilities are every captain's, so the twin does not draw them.
+      // Eric 2026-11-05: the strip draws C and V too, after R, in the bar's order.
+      const abilities = [...block().querySelectorAll<HTMLElement>('[data-loadout-ability]')].map((e) => e.dataset.loadoutAbility);
+      expect(abilities).toEqual([...ABILITY_SQUARES]);
+      // The bar's own chips, square for square (the gun's `LMB` included).
       const chips = [...block().querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
-      expect(chips).toEqual(SLOT_KEY_GLYPHS.slice(0, SLOT_COUNT).map((g, slot) => (slot === SLOT_GUN ? '·' : g)));
+      expect(chips).toEqual([...SLOT_KEY_GLYPHS]);
       const slots = [...block().querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
       expect(slots).toEqual(Array.from({ length: SLOT_COUNT }, (_, i) => i));
       expect(block().querySelector('[data-loadout-belt]')).toBeNull();
       // One row: a horizontal flex, not a column.
       const row = block().querySelector<HTMLElement>('[data-loadout-row]');
       expect(row?.style.flexDirection).not.toBe('column');
-      // The gun's chip is a GHOST: laid out for the baseline, never seen.
-      expect((block().querySelector('[data-loadout-chip="0"]') as HTMLElement).style.color).toBe('transparent');
+    });
+
+    it('the row model is the loadout slots in order, then the two abilities', () => {
+      const row = loadoutRowSquares();
+      expect(row).toHaveLength(HOTBAR_SQUARE_COUNT);
+      expect(row.slice(0, SLOT_COUNT)).toEqual(Array.from({ length: SLOT_COUNT }, (_, slot) => ({ kind: 'slot', slot, square: slot })));
+      expect(row.slice(SLOT_COUNT)).toEqual(ABILITY_SQUARES.map((id, k) => ({ kind: 'ability', id, square: SLOT_COUNT + k })));
+    });
+
+    it('the ability squares wear their own glyphs and no tier numeral', () => {
+      open(mockOwn());
+      for (const id of ABILITY_SQUARES) {
+        const sq = block().querySelector<HTMLElement>(`[data-loadout-ability="${id}"]`)!;
+        expect(sq.querySelector('svg')?.innerHTML).toBe(equipmentGlyphSvg(id, LOADOUT_PX.icon)?.innerHTML);
+        expect(sq.querySelector('[data-loadout-tier]')).toBeNull();
+      }
     });
 
     it('the one row fits the panel\'s 530 px content column', () => {
       const P = LOADOUT_PX;
-      expect(SLOT_COUNT * P.slot + (SLOT_COUNT - 1) * P.slotGap).toBeLessThanOrEqual(530);
+      const n = loadoutRowSquares().length;
+      expect(n * P.slot + (n - 1) * P.slotGap).toBeLessThanOrEqual(530);
     });
 
     it('squares are the bar × .72 and every fitted square wears its glyph', () => {

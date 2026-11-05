@@ -49,11 +49,21 @@ import { ABILITY_KEY_GLYPHS, ABILITY_SQUARES } from './hotbarSquares.js';
  * shell); the two after them are the cooldown abilities HULL REPAIR (`C`) and
  * SMOKE (`V`) — 2026-11-05, Story 10.5, epic-10 amendment 10: the kit's digit
  * squares are gone with the kit.
+ *
+ * THE GUN'S CHIP SPELLS `LMB` (Eric 2026-11-05: *"LMB/RMB"* — the main battery
+ * fires on the left mouse button), a TEXT chip exactly like `Shift`: it was a
+ * keyless ghost until then. The SECONDARIES square's `RMB` is `SEC_KEY_GLYPH`
+ * below — that square is outside this index space (render/hotbarSquares.ts).
  */
 export const SLOT_KEY_GLYPHS: readonly string[] = [
-  '', 'Shift', 'Q', 'E', 'R',
+  'LMB', 'Shift', 'Q', 'E', 'R',
   ...ABILITY_SQUARES.map((id) => ABILITY_KEY_GLYPHS[id]),
 ];
+
+/** The SECONDARIES heat square's key chip (Eric 2026-11-05) — the right mouse
+ *  button fires the secondaries. The square is slotless, so its chip lives
+ *  beside the table rather than in it. */
+export const SEC_KEY_GLYPH = 'RMB';
 
 /**
  * Display name per equipment id. The BUILT ids keep their shipped names

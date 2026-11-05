@@ -79,6 +79,7 @@ import {
   abilityCooldownView,
   breathedSkin,
   chipRect,
+  secChipRect,
   chipWidth,
   coolFraction,
   degradedSkin,
@@ -107,7 +108,7 @@ import {
 import { tooltipModel } from '../render/slotTooltip.js';
 import { hudBarLayout, microScale } from '../render/hudBar.js';
 import { equipmentGlyphSvg, glyphPaths } from '../render/equipmentIcons.js';
-import { ABILITY_KEY_GLYPHS, ABILITY_SQUARES, HOTBAR_SQUARE_COUNT, abilitySquare } from '../render/hotbarSquares.js';
+import { ABILITY_KEY_GLYPHS, ABILITY_SQUARES, HOTBAR_SQUARE_COUNT, abilitySquare, emptySlotGlyph } from '../render/hotbarSquares.js';
 import { wipeLabel } from '../render/cooldownWipe.js';
 import {
   EQUIPMENT_NAME,
@@ -117,6 +118,7 @@ import {
   lineTier,
   slotForCard,
   slotTier,
+  SEC_KEY_GLYPH,
   SLOT_KEY_GLYPHS,
 } from '../render/equipmentInfo.js';
 import { FLASH_ELEMENTS, createFlashBudget, hotbarSlotKey } from '../render/flashBudget.js';
@@ -207,6 +209,29 @@ function viewFor(cls: ShipClassId, over: Partial<HotbarView> = {}): HotbarView {
   };
 }
 
+// Eric 2026-11-05: an EMPTY family square shows what KIND of slot it is — its
+// family's glyph in the empty skin's dim ink; a filled square keeps its own.
+describe('an empty family square wears its family glyph', () => {
+  it('an empty Q / E / R carries its family\'s glyph and the EMPTY state — no tier, badge or wipe', () => {
+    const rows = slotViewModels(viewFor(TORPEDO_HULL, { loadout: at(null, { [SLOT_GUN]: 'mainBattery', [SLOT_BOOST]: 'boost' }) }));
+    for (const slot of [2, 3, 4]) {
+      const m = rows[slot];
+      expect(m.id, String(slot)).toBeNull();
+      expect(m.state, String(slot)).toBe('empty');
+      expect(m.emptyGlyph, String(slot)).toBe(emptySlotGlyph(slot));
+      expect(m.emptyGlyph, String(slot)).not.toBeNull();
+      expect([m.tier, m.badge, m.coolFrac], String(slot)).toEqual([0, null, 0]);
+      expect(slotSkin(m.state).dashed).toBe(true);
+    }
+  });
+
+  it('a filled family square draws its own equipment, not the family placeholder', () => {
+    const m = slotViewModels(viewFor(TORPEDO_HULL))[2];
+    expect(m.id).toBe('heavyTorpedo');
+    expect(m.emptyGlyph ?? null).toBeNull();
+  });
+});
+
 describe('square order — Gun (keyless) / Shift / Q / E / R / C / V', () => {
   it('is one square per loadout slot then one per cooldown ability, the gun first and keyless', () => {
     expect(HOTBAR_SQUARE_COUNT).toBe(SLOT_COUNT + ABILITY_SQUARES.length);
@@ -217,10 +242,11 @@ describe('square order — Gun (keyless) / Shift / Q / E / R / C / V', () => {
     expect(rows.map((r) => r.slot)).toEqual(Array.from({ length: HOTBAR_SQUARE_COUNT }, (_, i) => i));
   });
 
-  it('keys the boost square, and the GUN alone stays keyless (amendment 33)', () => {
-    expect(SLOT_KEY_GLYPHS[SLOT_BOOST]).not.toBe('');
-    expect(SLOT_KEY_GLYPHS[SLOT_GUN]).toBe(''); // the ghost chip keeps the baseline
-    expect(SLOT_KEY_GLYPHS.filter((g) => g === '')).toHaveLength(1);
+  it('keys EVERY square — the gun and the Sec square carry text chips too (Eric 2026-11-05), all distinct', () => {
+    expect(SLOT_KEY_GLYPHS.filter((g) => g === '')).toHaveLength(0);
+    expect(SEC_KEY_GLYPH).not.toBe('');
+    const all = [...SLOT_KEY_GLYPHS, SEC_KEY_GLYPH];
+    expect(new Set(all).size).toBe(all.length);
   });
 
   it('EVERY captain hull carries the same shape: main battery, boost, family slots, then C and V', () => {
@@ -1208,18 +1234,37 @@ describe('the cooldown WIPE on the square (ruling 3 / amendment 34)', () => {
 });
 
 describe('the key chips on the bar', () => {
-  it('paints a muted hairline box under every KEYED square, and none under the gun', () => {
-    const { ops, layout } = paint(viewFor(TORPEDO_HULL, { primedSlot: R }));
+  it('paints a muted hairline box under every resting square — the gun\'s and the Sec square\'s included', () => {
+    const { ops, layout, texts } = paint(viewFor(TORPEDO_HULL, { primedSlot: R }));
     const boxOf = (slot: number) => chipRect(layout, slot);
-    for (const slot of [1, 2, 3, ...ABILITY_SQUARES.map(abilitySquare)]) {
+    for (const slot of [SLOT_GUN, 1, 2, 3, ...ABILITY_SQUARES.map(abilitySquare)]) {
       const drawn = ops.filter((o) => o.rects.some((r) => sameRect(r, boxOf(slot))));
       expect(drawn.length, String(slot)).toBe(1);
       expect(drawn[0].color, String(slot)).toBe(C.textMuted);
     }
-    // THE GHOST: the gun's chip box is laid out (so the row keeps one baseline)
-    // and never painted.
-    expect(ops.some((o) => o.rects.some((r) => sameRect(r, boxOf(SLOT_GUN))))).toBe(false);
-    expect(boxOf(SLOT_GUN).w).toBe(B.chipMinW);
+    // The Sec square is never the selected weapon: its chip stays resting.
+    const sec = ops.filter((o) => o.rects.some((r) => sameRect(r, secChipRect(layout))));
+    expect(sec).toHaveLength(1);
+    expect(sec[0].action).toBe('stroke');
+    expect(sec[0].color).toBe(C.textMuted);
+    expect(texts.find((t) => t.visible && t.text === SEC_KEY_GLYPH)?.style.fill).toBe(C.textMuted);
+  });
+
+  it('the gun\'s chip fills amber like any selected square\'s while the gun is the selected weapon', () => {
+    const { ops, layout, texts } = paint(viewFor(TORPEDO_HULL, { primedSlot: SLOT_GUN }));
+    const filled = ops.filter((o) => o.action === 'fill' && o.rects.some((r) => sameRect(r, chipRect(layout, SLOT_GUN))));
+    expect(filled).toHaveLength(1);
+    expect(filled[0].color).toBe(C.amber);
+    expect(texts.find((t) => t.visible && t.text === SLOT_KEY_GLYPHS[SLOT_GUN])?.style.fill).toBe(C.void);
+  });
+
+  it('the gun and Sec chips sit under their own squares and never overlap a neighbor\'s chip', () => {
+    const { layout } = paint(viewFor(TORPEDO_HULL));
+    const boxes = [chipRect(layout, SLOT_GUN), secChipRect(layout), chipRect(layout, SLOT_BOOST)].sort((a, b) => a.x - b.x);
+    for (let i = 1; i < boxes.length; i += 1) expect(boxes[i].x).toBeGreaterThan(boxes[i - 1].x + boxes[i - 1].w);
+    const sec = secChipRect(layout);
+    expect(sec.x).toBeGreaterThanOrEqual(layout.sec.x);
+    expect(sec.x + sec.w).toBeLessThanOrEqual(layout.sec.x + layout.sec.w);
   });
 
   it('FILLS the selected square\'s chip amber and knocks its glyph out in void', () => {
@@ -1247,7 +1292,7 @@ describe('NO WORDS render on a square (UX-DR40/41)', () => {
     const { words } = paint(view);
     // The one numeral is the main battery's ready-turret BADGE (Story 10.4: its
     // pool is the turret count), not a word.
-    const keys = SLOT_KEY_GLYPHS.filter((g) => g !== '');
+    const keys = [...SLOT_KEY_GLYPHS, SEC_KEY_GLYPH];
     const battery = badgeText(equipmentInfo(view.stats, 'mainBattery'), view.ammo[SLOT_GUN]);
     expect(battery).not.toBeNull();
     expect([...words].sort()).toEqual([...keys, battery].sort());
@@ -1262,7 +1307,7 @@ describe('NO WORDS render on a square (UX-DR40/41)', () => {
     // Two numerals ride the battery square here and they never collide: the
     // centred `1.2` is its cooling clock, the badge its ready turrets (none).
     // The `I` beside Q is the torpedo's first copy.
-    const keys = SLOT_KEY_GLYPHS.filter((g) => g !== '');
+    const keys = [...SLOT_KEY_GLYPHS, SEC_KEY_GLYPH];
     const battery = badgeText(equipmentInfo(view.stats, 'mainBattery'), view.ammo[SLOT_GUN]);
     expect([...words].sort()).toEqual([...keys, wipeLabel(1200), battery, tierNumeral(1)].sort());
     for (const name of Object.values(EQUIPMENT_NAME)) expect(words).not.toContain(name);

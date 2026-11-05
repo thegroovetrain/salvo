@@ -3,12 +3,15 @@
 // (`C` HULL REPAIR, `V` SMOKE) take the squares right after them.
 
 import { describe, it, expect } from 'vitest';
-import { SLOT_BOOST, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS } from '@salvo/shared';
+import { EQUIPMENT_FAMILY, SLOT_BOOST, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, slotFamilyAt } from '@salvo/shared';
+import { glyphPaths } from '../render/equipmentIcons.js';
 import {
   ABILITY_SQUARES,
+  EMPTY_FAMILY_GLYPHS,
   HOTBAR_SQUARE_COUNT,
   abilityAtSquare,
   abilitySquare,
+  emptySlotGlyph,
   isCooldownAbility,
   squareOfAbility,
 } from '../render/hotbarSquares.js';
@@ -42,5 +45,27 @@ describe('the hotbar square index space', () => {
     expect(isCooldownAbility('boost')).toBe(false);
     expect(isCooldownAbility('heavyTorpedo')).toBe(false);
     expect([SLOT_GUN, ...WEAPON_SLOTS].every((s) => abilityAtSquare(s) === null)).toBe(true);
+  });
+});
+
+// Eric 2026-11-05: an empty family square shows what kind of slot it is.
+describe('the empty family square\'s glyph', () => {
+  it('each family slot answers a glyph of its OWN family, with art, and the three differ', () => {
+    const glyphs = WEAPON_SLOTS.map((slot) => emptySlotGlyph(slot));
+    WEAPON_SLOTS.forEach((slot, i) => {
+      const id = glyphs[i];
+      expect(id, String(slot)).not.toBeNull();
+      expect(EQUIPMENT_FAMILY[id!], String(slot)).toBe(slotFamilyAt(slot));
+      expect(id, String(slot)).toBe(EMPTY_FAMILY_GLYPHS[slotFamilyAt(slot)!]);
+      expect(glyphPaths(id!), String(slot)).not.toBeNull();
+    });
+    expect(new Set(glyphs).size).toBe(WEAPON_SLOTS.length);
+  });
+
+  it('a square with no family (gun, Shift, the abilities) answers null — the bare dash', () => {
+    for (let sq = 0; sq < HOTBAR_SQUARE_COUNT; sq += 1) {
+      if ((WEAPON_SLOTS as readonly number[]).includes(sq)) continue;
+      expect(emptySlotGlyph(sq), String(sq)).toBeNull();
+    }
   });
 });

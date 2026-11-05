@@ -62,6 +62,7 @@ import {
   EQUIPMENT_STAT_FIELDS,
   INDEX_IDS,
   LINE_IDS,
+  abilityCooldownMs,
   effectiveStats,
   isStubLine,
   tierTargetOf,
@@ -1012,9 +1013,20 @@ const ABILITY_ROWS: Readonly<Record<CooldownAbilityId, () => CardStatRow[]>> = {
   smoke: countermeasureRows,
 };
 
-/** Pure: a cooldown ability's tooltip rows. */
+/**
+ * Pure: a cooldown ability's tooltip rows — its own rows, then its COOLDOWN
+ * row LAST (Eric 2026-11-05: the `C` / `V` tooltip gains the row the Shift
+ * square's tooltip ends on). Same word and printer as the Shift's `reloadMs`
+ * row (`fieldWord` / `fieldFmt` / `fieldUnit`), the value shared
+ * `abilityCooldownMs` — the one law the server stamps against.
+ */
 export function abilityStatRows(id: CooldownAbilityId): CardStatRow[] {
-  return ABILITY_ROWS[id]();
+  return [...ABILITY_ROWS[id](), abilityCooldownRow(id)];
+}
+
+/** Pure: a cooldown ability's cooldown row, in the Shift reload row's grammar. */
+export function abilityCooldownRow(id: CooldownAbilityId): CardStatRow {
+  return { label: fieldWord('reloadMs'), cur: null, next: fieldFmt('reloadMs')(abilityCooldownMs(id)) + fieldUnit('reloadMs') };
 }
 
 /**

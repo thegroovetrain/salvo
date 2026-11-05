@@ -4,9 +4,11 @@
 //
 //   HP globe | Gun  Sec  Shift  Q  E  R  C  V | helm globe
 //
-// `Sec` (Story 10.4) is the SECONDARIES HEAT square — keyless and slotless, so
-// it is not one of the square models; its pure look is render/secHeat.ts and
-// `drawSec` below paints it in the shipped skins.
+// `Sec` (Story 10.4) is the SECONDARIES HEAT square — slotless, so it is not
+// one of the square models; its pure look is render/secHeat.ts and `drawSec`
+// below paints it in the shipped skins. Since 2026-11-05 (Eric: *"LMB/RMB"*)
+// the gun's chip spells `LMB` and the Sec square's spells `RMB`
+// (equipmentInfo.ts `SLOT_KEY_GLYPHS` / `SEC_KEY_GLYPH`).
 //
 // STORY 10.5 (2026-11-05, epic-10 amendment 10): the framed consumable BELT
 // (keys 1–4, the kit) is GONE. `Q` / `E` / `R` are the three FAMILY weapon
@@ -53,7 +55,9 @@
 //   active      (amendment 48, carried by amendment 34) the ability WINDOW is
 //               running: a breathing phosphor outline + the seconds left as the
 //               same centred numeral, NO overlay, icon at full alpha
-//   empty       1px DASHED slate .45 + a centred `—` glyph, and NO WORDS
+//   empty       1px DASHED slate .45 + the slot FAMILY's glyph in the same dim
+//               ink (Eric 2026-11-05 — `emptySlotGlyph`; `—` where a slot has
+//               no family), and NO WORDS
 //   denied      1px→2px denied-red edge pulse + red icon flash — never silence
 //   held fire   (Story 8.15, UX-DR52) the MACHINE GUN's stream is live: an
 //               amber outline + an amber fill (.16, 1px amber top edge) along
@@ -89,8 +93,8 @@ import { drawEquipmentIcon, drawDashGlyph } from './equipmentIcons.js';
 import { drawWipeDark, drawWipeScrim, wipeLabel } from './cooldownWipe.js';
 import { microScale, type HudBarLayout, type Rect } from './hudBar.js';
 import { secHeatLook } from './secHeat.js';
-import { SLOT_KEY_GLYPHS, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
-import { HOTBAR_SQUARE_COUNT, abilityAtSquare, type SquareItemId } from './hotbarSquares.js';
+import { SEC_KEY_GLYPH, SLOT_KEY_GLYPHS, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
+import { HOTBAR_SQUARE_COUNT, abilityAtSquare, emptySlotGlyph, type SquareItemId } from './hotbarSquares.js';
 // THE TOOLTIP CORE MOVED OUT in Story 8.7 (ruling 13): `render/slotTooltip.ts`
 // owns the hover dwell, the stat-line model, the container-fit model and the
 // placement. This file keeps the SQUARES and the Pixi shell that paints both.
@@ -212,6 +216,10 @@ export interface SlotViewModel {
   /** The hotbar SQUARE (render/hotbarSquares.ts) — the loadout slot for 0..4. */
   slot: number;
   id: SquareItemId | null;
+  /** An EMPTY square's family glyph (`emptySlotGlyph` — Eric 2026-11-05: the
+   *  empty Q / E / R show what KIND of slot they are), drawn in the empty
+   *  skin's dim ink; null = the bare `—`. Absent (= null) on a filled square. */
+  emptyGlyph?: EquipmentId | null;
   state: SlotState;
   /** The selection channel (filled amber key chip), tracked independently of
    *  `state` so a SELECTED slot that is also cooling keeps reading as selected
@@ -381,14 +389,15 @@ export function slotNumeral(m: Pick<SlotViewModel, 'state' | 'activeMsLeft' | 'r
 }
 
 /**
- * The unfitted square: a dashed box with a centred `—` and NOTHING else
- * (UX-DR41, Story 8.5). The key chip is NOT emptied with it — an empty Q still
+ * The unfitted square: a dashed box with its FAMILY's glyph in the dim empty
+ * ink (Eric 2026-11-05 — `emptySlotGlyph`; the bare `—` for a slot with no
+ * family) and NOTHING else (UX-DR41, Story 8.5) — no numeral, badge or wipe. The key chip is NOT emptied with it — an empty Q still
  * says Q, which is the whole point of denying its key (amendment 26).
  * `degraded: false` is explicit rather than omitted for totality: an unfitted
  * slot holds nothing to deny, so it can never carry a budget verdict.
  */
 function emptySlotModel(slot: number, keyGlyph: string): SlotViewModel {
-  return { slot, id: null, state: 'empty', selected: false, keyGlyph, badge: null, coolFrac: 0, reloadMsLeft: 0, activeMsLeft: 0, tier: 0, fitFlash: false, degraded: false };
+  return { slot, id: null, emptyGlyph: emptySlotGlyph(slot), state: 'empty', selected: false, keyGlyph, badge: null, coolFrac: 0, reloadMsLeft: 0, activeMsLeft: 0, tier: 0, fitFlash: false, degraded: false };
 }
 
 /**
@@ -624,6 +633,14 @@ export function badgeRect(layout: HudBarLayout, slot: number, text: string | nul
 export function badgeWidth(text: string | null): number {
   if (text === null) return B.badge;
   return Math.max(B.badge, monoTextWidth(text, B.type.badge) + 2 * B.chipPadX);
+}
+
+/** Pure: the SECONDARIES square's `RMB` chip BOX, centred under it — the
+ *  same widening box every key chip takes (`chipWidth`). */
+export function secChipRect(layout: HudBarLayout, micro = 1): Rect {
+  const anchor = layout.secChip;
+  const w = chipWidth(SEC_KEY_GLYPH, micro);
+  return { x: anchor.cx - w / 2, y: anchor.y, w, h: B.chipH };
 }
 
 /**
@@ -928,6 +945,10 @@ export function hoverAnchor(target: number | 'ship', layout: HudBarLayout): Rect
 /** Key chip glyph — mock `.kc { font: 9px var(--mono) }`, muted text on a muted
  *  hairline; the SELECTED chip overrides fill + weight (see drawChip). */
 const CHIP_STYLE = { fontFamily: MONO, fontSize: B.type.chip, fill: C.textMuted, letterSpacing: 0 } as const;
+
+/** `setText`'s cache key for the Sec chip — past every square's four (`slot *
+ *  4 + k`) and below the tooltip's (100+). */
+const SEC_CHIP_TEXT_KEY = HOTBAR_SQUARE_COUNT * 4;
 /** Tier numeral — mock `.tier { font: 600 9px var(--mono); letter-spacing: .04em }`. */
 const TIER_STYLE = { fontFamily: MONO, fontSize: B.type.tier, fontWeight: '600', fill: C.phosphor, letterSpacing: B.type.tier * 0.04 } as const;
 /** Ammo badge digit — mock `.badge { font: 600 10px var(--mono) }`, its own
@@ -1076,6 +1097,8 @@ export class Hotbar {
   private readonly glowGfx = new Graphics();
   private readonly gfx = new Graphics();
   private readonly slotText: SlotText[];
+  /** The Sec square's `RMB` chip glyph. */
+  private readonly secChip: Text;
   private readonly tipRoot = new Container();
   private readonly tipGfx = new Graphics();
   private readonly tipName: Text;
@@ -1101,6 +1124,9 @@ export class Hotbar {
     this.glowGfx.filters = [blur];
     this.root.addChild(this.glowGfx, this.gfx);
     this.slotText = Array.from({ length: HOTBAR_SQUARE_COUNT }, () => this.buildSlotText());
+    this.secChip = new Text({ text: '', style: CHIP_STYLE });
+    this.secChip.anchor.set(0.5);
+    this.root.addChild(this.secChip);
     this.tipName = new Text({ text: '', style: TIP_NAME_STYLE });
     this.tipInteraction = new Text({ text: '', style: TIP_INTERACTION_STYLE });
     this.tipLabels = new Text({ text: '', style: TIP_LABEL_STYLE });
@@ -1215,8 +1241,9 @@ export class Hotbar {
    * THE SECONDARIES HEAT SQUARE (Story 10.4 — render/secHeat.ts): the ready-
    * weapon frame (the denied frame while locked) with its glow, the heat fill
    * rising from the floor under the glyph (the held-fire drain's fill + 1px top
-   * edge, in the skin's accent), and the machine-gun glyph. Its chip is a
-   * ghost, like the gun's: nothing is painted under it.
+   * edge, in the skin's accent), and the machine-gun glyph. Its chip spells
+   * `RMB` (Eric 2026-11-05) in the RESTING chip skin — the secondaries are
+   * never the selected weapon, so the chip never fills amber.
    */
   private drawSec(sec: SecondariesHeat | null, layout: HudBarLayout): void {
     const sq = layout.sec;
@@ -1232,6 +1259,19 @@ export class Hotbar {
     }
     const style = { width: 1.5, color: skin.icon, alpha: skin.iconAlpha };
     drawEquipmentIcon(g, 'machineGun', sq.x + sq.w / 2, sq.y + sq.h / 2, B.icon, style);
+    this.drawSecChip(layout);
+  }
+
+  /** The Sec square's `RMB` chip — the resting key-chip skin (muted hairline,
+   *  muted glyph), at the same seat and size every key chip takes. */
+  private drawSecChip(layout: HudBarLayout): void {
+    const box = secChipRect(layout, this.micro);
+    this.gfx.rect(box.x, box.y, box.w, box.h).stroke({ width: B.lineW, color: C.textMuted, alpha: 0.55 });
+    const t = this.secChip;
+    t.alpha = 1;
+    t.scale.set(this.micro);
+    t.position.set(box.x + box.w / 2, box.y + box.h / 2);
+    this.setText(t, SEC_KEY_GLYPH, SEC_CHIP_TEXT_KEY);
   }
 
   /**
@@ -1317,8 +1357,9 @@ export class Hotbar {
     const size = B.icon;
     const alpha = wipeShown(m) ? W.iconAlpha : skin.iconAlpha;
     const style = { width: 1.5, color: skin.icon, alpha };
-    if (m.id === null) drawDashGlyph(this.gfx, cx, cy, size * 0.5, style);
-    else drawEquipmentIcon(this.gfx, m.id, cx, cy, size, style);
+    const glyph = m.id ?? m.emptyGlyph ?? null;
+    if (glyph === null) drawDashGlyph(this.gfx, cx, cy, size * 0.5, style);
+    else drawEquipmentIcon(this.gfx, glyph, cx, cy, size, style);
   }
 
   /**
@@ -1359,11 +1400,9 @@ export class Hotbar {
    * The key chip, centred BELOW its square: a widening 16px-tall mono box
    * (amendment 33 — which is what lets slot 1 spell `Shift`).
    *
-   * THE GUN'S CHIP IS A GHOST: the gun is keyless and permanently selected, but
-   * its column still owes the row a chip-height, or the five weapon squares
-   * would not share one baseline with each other. So the box is laid out and
-   * measured exactly like the others and simply never painted (the mock's
-   * `.kc.ghost`, which sets border and colour transparent for the same reason).
+   * The gun's chip spells `LMB` since 2026-11-05 (Eric) and takes the same
+   * skins — filled amber while the gun is the selected weapon. It was a ghost
+   * (laid out, never painted) until then; an empty glyph still draws a ghost.
    */
   private drawChip(m: SlotViewModel, layout: HudBarLayout): void {
     const t = this.slotText[m.slot].chip;
