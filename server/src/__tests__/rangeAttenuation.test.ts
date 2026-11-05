@@ -35,11 +35,12 @@ import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { addDecoy } from '../game/decoys.js';
 import { flatRaster } from './islandFixture.js';
+import { mountDeckGun, neutralize, sternReachU } from './deckGunFixture.js';
 
 const HALF_PI = Math.PI / 2;
-/** The battleship's half length — its stern tip sits this far behind centre
- *  (broadside-on, heading +y, the stern tip points at −y). */
-const BS_HALF = 62;
+/** The target hull's stern reach — its nearest outline point toward a point
+ *  dead astern sits this far behind centre (read off the silhouette). */
+const BS_HALF = sternReachU('yamato');
 
 function bareWorld(seed = 912): World {
   const w = new World(seed);
@@ -53,17 +54,20 @@ function ship(
   id: string,
   x: number,
   y: number,
-  opts: { heading?: number; hull?: 'torpedoBoat' | 'battleship'; gun?: 'machineGun' | 'flak'; role?: 'captain' | 'fleet' } = {},
+  opts: { heading?: number; hull?: 'bismarck' | 'yamato'; gun?: 'machineGun' | 'flak'; role?: 'captain' | 'fleet' } = {},
 ): ShipRecord {
   const role = opts.role ?? 'captain';
-  const hullId = role === 'fleet' ? 'droneSmall' : (opts.hull ?? 'torpedoBoat');
-  const rec = w.addShip(id, id.toUpperCase(), role, hullId, undefined, { x, y }, opts.gun);
+  const hullId = role === 'fleet' ? 'droneSmall' : (opts.hull ?? 'bismarck');
+  const rec = w.addShip(id, id.toUpperCase(), role, hullId, undefined, { x, y });
+  // A captain: the NEUTRAL index and the deck-gun row under test (deckGunFixture;
+  // the cannon by default). A drone keeps its own fit.
+  if (role === 'captain') mountDeckGun(neutralize(rec), opts.gun ?? 'gun');
   rec.state = { x, y, heading: opts.heading ?? 0, speed: 0 };
   return rec;
 }
 
 function input(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 interface Shot {
@@ -104,7 +108,7 @@ describe('the CANNON — near is full, far is attenuated, beyond range is clampe
   it('a click well inside half range lands the full damage on every caught hull', () => {
     const w = bareWorld();
     const a = ship(w, 'a', 0, 0);
-    ship(w, 'b', 300, BS_HALF + 10, { hull: 'battleship', heading: HALF_PI }); // stern tip 10 u off the click
+    ship(w, 'b', 300, BS_HALF + 10, { hull: 'yamato', heading: HALF_PI }); // stern tip 10 u off the click
     const { log, shells } = fire(w, 'a', 300);
     expect(shells).toHaveLength(a.stats.equipment.gun.barrels);
     for (const s of shells) {
@@ -120,7 +124,7 @@ describe('the CANNON — near is full, far is attenuated, beyond range is clampe
     const w = bareWorld();
     const a = ship(w, 'a', 0, 0);
     const R = a.stats.equipment.gun.rangeU;
-    ship(w, 'b', 0.9 * R, BS_HALF + 10, { hull: 'battleship', heading: HALF_PI });
+    ship(w, 'b', 0.9 * R, BS_HALF + 10, { hull: 'yamato', heading: HALF_PI });
     const { log, shells } = fire(w, 'a', 0.9 * R);
     const f = burstAtten(shells[0]);
     expect(f).toBeLessThan(1);
@@ -136,7 +140,7 @@ describe('the CANNON — near is full, far is attenuated, beyond range is clampe
     const w = bareWorld();
     const a = ship(w, 'a', 0, 0);
     const R = a.stats.equipment.gun.rangeU;
-    ship(w, 'b', 0.8 * R, 0, { hull: 'battleship', heading: HALF_PI }); // broadside ACROSS both tracks, far short of the click
+    ship(w, 'b', 0.8 * R, 0, { hull: 'yamato', heading: HALF_PI }); // broadside ACROSS both tracks, far short of the click
     const { log, shells } = fire(w, 'a', 0.95 * R);
     // Non-vacuous: where it struck, a direct-style blow WOULD be attenuated.
     const boom = log.find((e): e is BoomEvent => e.k === 'boom' && e.hit === 'b')!;
@@ -151,7 +155,7 @@ describe('the MACHINE GUN — its contact hit IS its damage, attenuated where it
   it('a hit inside half range deals the full damage', () => {
     const w = bareWorld();
     ship(w, 'a', 0, 0, { gun: 'machineGun' });
-    ship(w, 'b', 250, 0, { hull: 'battleship', heading: HALF_PI });
+    ship(w, 'b', 250, 0, { hull: 'yamato', heading: HALF_PI });
     const { log, shells } = fire(w, 'a', 400);
     expect(shells).toHaveLength(1);
     const boom = log.find((e): e is BoomEvent => e.k === 'boom' && e.hit === 'b')!;
@@ -163,7 +167,7 @@ describe('the MACHINE GUN — its contact hit IS its damage, attenuated where it
     const w = bareWorld();
     const a = ship(w, 'a', 0, 0, { gun: 'machineGun' });
     const R = a.stats.equipment.machineGun.rangeU;
-    ship(w, 'b', 0.92 * R, 0, { hull: 'battleship', heading: HALF_PI });
+    ship(w, 'b', 0.92 * R, 0, { hull: 'yamato', heading: HALF_PI });
     const { log, shells } = fire(w, 'a', R);
     const boom = log.find((e): e is BoomEvent => e.k === 'boom' && e.hit === 'b')!;
     const f = attenAt(shells[0], boom);
@@ -180,7 +184,7 @@ describe('the FLAK GUN — the half rim × the attenuation, settled once', () =>
       const w = bareWorld();
       const a = ship(w, 'a', 0, 0, { gun: 'flak' });
       const X = frac * a.stats.equipment.flak.rangeU;
-      ship(w, 'b', X, BS_HALF + 30, { hull: 'battleship', heading: HALF_PI }); // stern tip 30 u off the burst
+      ship(w, 'b', X, BS_HALF + 30, { hull: 'yamato', heading: HALF_PI }); // stern tip 30 u off the burst
       const { log, shells } = fire(w, 'a', X);
       expect(shells).toHaveLength(1);
       const rim = flakRimFactor(30, CONFIG.flak.burstRadius, CONFIG.flak.rimFactor);
@@ -200,7 +204,7 @@ describe('the floor of one, and the fail-open reference', () => {
     const d = ship(w, 'd', 0, 0, { role: 'fleet' });
     const gun = d.stats.equipment.gun;
     expect(gun.damage).toBe(CONFIG.drones.small.gun.damage);
-    ship(w, 'b', gun.rangeU, BS_HALF + 10, { hull: 'battleship', heading: HALF_PI });
+    ship(w, 'b', gun.rangeU, BS_HALF + 10, { hull: 'yamato', heading: HALF_PI });
     const { log, shells } = fire(w, 'd', gun.rangeU);
     expect(burstAtten(shells[0])).toBeLessThan(1); // attenuated...
     const hits = dmgTo(log, 'b');
@@ -212,7 +216,7 @@ describe('the floor of one, and the fail-open reference', () => {
     for (const withRef of [false, true]) {
       const w = bareWorld();
       ship(w, 'o', -2000, 0);
-      const b = ship(w, 'b', 0, BS_HALF + 10, { hull: 'battleship', heading: HALF_PI });
+      const b = ship(w, 'b', 0, BS_HALF + 10, { hull: 'yamato', heading: HALF_PI });
       const inner = w as unknown as {
         resolveShell(shell: unknown, outcome: unknown, hulls: readonly unknown[]): void;
         hitTargets(mask: readonly string[]): readonly unknown[];
@@ -272,7 +276,7 @@ describe('the launch point and the reference never reach a frame', () => {
     for (const gun of [undefined, 'machineGun', 'flak'] as const) {
       const w = bareWorld();
       const a = ship(w, 'a', 0, 0, { gun });
-      ship(w, 'b', 300, 120, { hull: 'battleship' }); // a watcher with the flight in sight
+      ship(w, 'b', 300, 120, { hull: 'yamato' }); // a watcher with the flight in sight
       const stream = gun === 'machineGun';
       w.submitInput('a', input({ fireSeq: 2, aimDist: 500, held: stream }));
       let carried = 0;
@@ -336,7 +340,7 @@ describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees
     withMinFactorZero(() => {
       const w = bareWorld();
       ship(w, 'o', -3000, 0);
-      const b = ship(w, 'b', 0, 0, { hull: 'battleship', heading: HALF_PI });
+      const b = ship(w, 'b', 0, 0, { hull: 'yamato', heading: HALF_PI });
       const inner = w as unknown as Inner;
       const shell = maxRangeMgShell(w, 0);
       expect(settleBlow(shell.contactDamage * attenAt(shell, { x: 0, y: 0 }))).toBe(0); // the premise
@@ -392,10 +396,10 @@ const LIT_UNTIL = 10 * 60 * 1000;
  *  its broadside (the hull centred ON the click). Returns the expected FULL blow. */
 function targetAt(w: World, g: DeckGun, y: number, damage: number): number {
   if (g === 'machineGun') {
-    ship(w, 'b', 0, y, { hull: 'battleship', heading: 0 }); // broadside ACROSS the track, centred on the click
+    ship(w, 'b', 0, y, { hull: 'yamato', heading: 0 }); // broadside ACROSS the track, centred on the click
     return damage;
   }
-  ship(w, 'b', BS_HALF + 10, y, { hull: 'battleship', heading: 0 }); // stern tip 10 u off the click
+  ship(w, 'b', BS_HALF + 10, y, { hull: 'yamato', heading: 0 }); // stern tip 10 u off the click
   return g === 'flak' ? settleBlow(damage * flakRimFactor(10, CONFIG.flak.burstRadius, CONFIG.flak.rimFactor)) : damage;
 }
 

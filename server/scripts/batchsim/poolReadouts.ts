@@ -9,15 +9,15 @@
 // runner and one field + one render call in botReport.ts.
 //
 // READ-ONLY, exactly like BotCollector: every number is read off public World
-// state (`ship.gun`, `ship.loadout`, `ship.level`, `world.mineCount` — the
+// state (`ship.shift`, `ship.loadout`, `ship.level`, `world.mineCount` — the
 // same getter the room's `/metrics` minesLivePeak feed reads — and
 // `world.takes`, the weapon-weighting ledger itself). Nothing here writes to
 // the sim, and nothing in server/src imports it.
 //
-// Determinism: pure over the collected samples, fixed iteration orders (GUN_IDS,
+// Determinism: pure over the collected samples, fixed iteration orders (SHIFT_IDS,
 // ascending level, insertion-ordered bot ids), fixed-decimal formatting.
 
-import { GUN_IDS, WEAPON_SLOTS } from '@salvo/shared';
+import { SHIFT_IDS, WEAPON_SLOTS } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import type { MatchSample } from './runner.js';
 import type { BotSample } from './botMetrics.js';
@@ -31,8 +31,8 @@ export const HULL_REPAIR_ID = 'hullRepair';
 /** One bot's pool-shaped reading for one match. */
 export interface PoolBotSample {
   id: string;
-  /** The gun this bot mounted (`ship.gun`). */
-  gun: string;
+  /** The Shift this bot's seat picked (`ship.shift` — Story 10.4, was the seat gun). */
+  shift: string;
   /** `levelEmpty[n - 1]` = EMPTY Q/E/R slots at the tick the bot reached level
    *  n (sampled when `ship.level` changes, before any pick at that level). A
    *  level RESET (`World.redeployEconomy` zeroes `ship.level` on a redeploy)
@@ -123,12 +123,12 @@ export class PoolCollector {
   result(world: World): PoolMatchSample {
     const bots: PoolBotSample[] = [];
     // An UNSAMPLED track (never read in the active phase) is skipped outright,
-    // so every readout — the gun mix and the pure-gunboat share alike — counts
+    // so every readout — the Shift mix and the pure-gunboat share alike — counts
     // over the same population of bots that were actually read.
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
       if (ship === undefined || track.finalEmpty === null) continue;
-      bots.push({ id, gun: ship.gun, levelEmpty: track.levelEmpty.slice(), finalEmpty: track.finalEmpty });
+      bots.push({ id, shift: ship.shift, levelEmpty: track.levelEmpty.slice(), finalEmpty: track.finalEmpty });
     }
     const fogCoverage = this.fogCoverageSamples === 0 ? 0 : this.fogCoverageSum / this.fogCoverageSamples;
     return { peakMines: this.peakMines, fogCoverage, takes: this.botTakes(world), bots };
@@ -149,17 +149,17 @@ export class PoolCollector {
 
 // --- aggregation -------------------------------------------------------------
 
-export interface GunMixRow {
-  gun: string;
+export interface ShiftMixRow {
+  shift: string;
   bots: number;
-  /** Share of all bots that mounted this gun. */
+  /** Share of all bots whose seat picked this Shift. */
   share: number | null;
-  /** Mean final placement over this gun's bots that HAVE one (null if none). */
+  /** Mean final placement over this Shift's bots that HAVE one (null if none). */
   meanPlacement: number | null;
   wins: number;
-  /** This gun's wins over ALL wins in the run. */
+  /** This Shift's wins over ALL wins in the run. */
   winShare: number | null;
-  /** This gun's wins over this gun's bots. */
+  /** This Shift's wins over this Shift's bots. */
   winRate: number | null;
 }
 
@@ -176,7 +176,7 @@ export interface LevelEmptyRow {
 export interface PoolReadouts {
   matches: number;
   bots: number;
-  gunMix: GunMixRow[];
+  shiftMix: ShiftMixRow[];
   weaponlessAtLevel: LevelEmptyRow[];
   pureGunboat: { bots: number; share: number | null };
   heal: { hands: number; offeredHands: number; taken: number; takeRate: number | null };
@@ -210,19 +210,19 @@ export function joinBots(matches: readonly MatchSample[]): Joined[] {
   return out;
 }
 
-function gunOrder(rows: readonly Joined[]): string[] {
-  const extra = [...new Set(rows.map((r) => r.pool.gun))].filter((g) => !(GUN_IDS as readonly string[]).includes(g)).sort();
-  return [...GUN_IDS, ...extra];
+function shiftOrder(rows: readonly Joined[]): string[] {
+  const extra = [...new Set(rows.map((r) => r.pool.shift))].filter((g) => !(SHIFT_IDS as readonly string[]).includes(g)).sort();
+  return [...SHIFT_IDS, ...extra];
 }
 
-export function gunMix(rows: readonly Joined[]): GunMixRow[] {
+export function shiftMix(rows: readonly Joined[]): ShiftMixRow[] {
   const totalWins = rows.filter((r) => r.bot?.placement === 1).length;
-  return gunOrder(rows).map((gun) => {
-    const mine = rows.filter((r) => r.pool.gun === gun);
+  return shiftOrder(rows).map((shift) => {
+    const mine = rows.filter((r) => r.pool.shift === shift);
     const placed = mine.flatMap((r) => (r.bot?.placement == null ? [] : [r.bot.placement]));
     const wins = placed.filter((p) => p === 1).length;
     return {
-      gun,
+      shift,
       bots: mine.length,
       share: shareOf(mine.length, rows.length),
       meanPlacement: mean(placed),
@@ -293,7 +293,7 @@ export function buildPoolReadouts(matches: readonly MatchSample[]): PoolReadouts
   return {
     matches: pools.length,
     bots: rows.length,
-    gunMix: gunMix(rows),
+    shiftMix: shiftMix(rows),
     weaponlessAtLevel: weaponlessAtLevel(rows),
     pureGunboat: { bots: gunboats, share: shareOf(gunboats, rows.length) },
     heal: healTake(rows),
@@ -313,12 +313,12 @@ const num = (f: number | null, digits: number): string => (f === null ? 'n/a' : 
 export function renderPoolReadouts(p: PoolReadouts): string[] {
   const lines = [
     `POOL READOUTS (measurements, no bars; ${p.bots} bot-matches over ${p.matches} matches):`,
-    '  gun mix:',
+    '  Shift mix:',
   ];
-  const gunW = Math.max(...p.gunMix.map((g) => g.gun.length));
-  for (const g of p.gunMix) {
+  const shiftW = Math.max(...p.shiftMix.map((g) => g.shift.length));
+  for (const g of p.shiftMix) {
     lines.push(
-      `    ${g.gun.padEnd(gunW)}  bots ${String(g.bots).padStart(4)} (${pct(g.share)})  mean placement ${num(g.meanPlacement, 2)}  wins ${g.wins} (${pct(g.winShare)} of wins, ${pct(g.winRate)} win rate)`,
+      `    ${g.shift.padEnd(shiftW)}  bots ${String(g.bots).padStart(4)} (${pct(g.share)})  mean placement ${num(g.meanPlacement, 2)}  wins ${g.wins} (${pct(g.winShare)} of wins, ${pct(g.winRate)} win rate)`,
     );
   }
   lines.push('  weaponless at level (share of bots reaching level n with >=1 | all 3 Q/E/R slots empty):');

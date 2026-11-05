@@ -70,6 +70,7 @@
 import {
   CONFIG,
   bearing,
+  encodeTurretAngles,
   isAfloat,
   isSinking,
   islandBlocksSegment,
@@ -769,8 +770,17 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // It needs NO seventh perception exception: the row only runs because
     // contactSignal.visible already passed, so it widens no spatial
     // disclosure (the `sinkingUntil` shape, applied to a Contact).
-    if (ctx.mode !== 'fogged' || !ctx.aggroAt(ship.id, ctx.observerId)) return base;
-    return { ...base, aggro: true };
+    const marked = ctx.mode !== 'fogged' || !ctx.aggroAt(ship.id, ctx.observerId) ? base : { ...base, aggro: true as const };
+    // THE TURRET ANGLES (Story 10.4, contract §7): `tu` appended LAST (after
+    // `aggro`), one whole degree per turret off its rest bearing
+    // (`encodeTurretAngles`), and ONLY for a hull that has a battery — never
+    // on a drone contact (OMITTED, not `[]`). ANGLES ONLY: never a reload,
+    // heat or readiness. Not a seventh perception exception: it rides this
+    // row, which only runs once contactSignal.visible has passed, so it
+    // widens no disclosure (the `aggro` shape). Spectators get it through the
+    // same row.
+    if (ship.turrets.length === 0) return marked;
+    return { ...marked, tu: encodeTurretAngles(ship.turrets, ship.hullId) };
   },
 };
 

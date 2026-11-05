@@ -110,7 +110,7 @@ function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading: num
 function track(now: number, over: Partial<RememberedContact> = {}): RememberedContact {
   return {
     id: 'tgt', x: 0, y: 0, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
-    cls: 'torpedoBoat' as HullId, fleet: false, firstSeenAt: now - CONFIG.bots.reactionMs * 4,
+    cls: 'bismarck' as HullId, fleet: false, firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0, vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     ...over,
   };
@@ -121,7 +121,7 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
 function inputOf(d: BotDecision, seq: number): InputMsg {
   return {
     seq, throttle: d.throttle, rudder: d.rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
   };
 }
 
@@ -161,7 +161,7 @@ describe('the ring run — down the flow field around the land (amendments 192(a
     const isle = circleIsland(live.r + 400, 0, isleR);
     w.map.islands.push(isle);
     const port = fakePort(w, live);
-    const rec = mkBot(w, 'battleship', live.r + 800, 0, Math.PI); // bow at the centre, i.e. at the island
+    const rec = mkBot(w, 'yamato', live.r + 800, 0, Math.PI); // bow at the centre, i.e. at the island
     const grid = navCacheFor(w.map).grid;
     expect(lineClear(grid, rec.state, { x: live.cx, y: live.cy })).toBe(false);
     const mind = mkMind('bulwark');
@@ -180,7 +180,7 @@ describe('the ring run — down the flow field around the land (amendments 192(a
     const next: ZoneRing = { cx: 0, cy: 0, r: 1000 };
     const port = fakePort(w, live);
     port.next = next;
-    const rec = mkBot(w, 'mineLayer', 2500, 0, Math.PI);
+    const rec = mkBot(w, 'warspite', 2500, 0, Math.PI);
     const nav = navOf(port);
     const sit = { x: rec.state.x, y: rec.state.y, stats: rec.stats, speed: 0 };
     // The water-route time the rule reads: the field's geodesic over rated speed.
@@ -217,7 +217,7 @@ describe('goal steering — routed when the line is blocked (amendment 192(b))',
     const w = openWorld(9133);
     w.map.islands.push(circleIsland(0, 0, 300));
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'torpedoBoat', -700, 0, 0);
+    const rec = mkBot(w, 'bismarck', -700, 0, 0);
     const mind = mkMind('raider');
     mind.contacts.set('tgt', track(port.now, { x: 700, y: 0 }));
     COMBAT_BRAIN.decide(rec, mind, port, true);
@@ -241,7 +241,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     const w = openWorld(9134);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius });
     port.safe = { cx: 1800, cy: 0, r: 500 };
-    const rec = mkBot(w, 'torpedoBoat', -1200, 0, 0);
+    const rec = mkBot(w, 'bismarck', -1200, 0, 0);
     const mind = mkMind('forager');
     const centre = { x: port.safe.cx, y: port.safe.cy };
     const start = dist(rec.state, centre);
@@ -294,7 +294,7 @@ describe('the new postures at the helm (amendments 193, 199)', () => {
   it('HOLD sits dead in the water — throttle 0, rudder 0 (no wake)', () => {
     const w = openWorld(9135);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'battleship', 0, 0, 0.7);
+    const rec = mkBot(w, 'yamato', 0, 0, 0.7);
     const mind = mkMind('siege');
     mind.posture = 'hold';
     const d = COMBAT_BRAIN.decide(rec, mind, port, false);
@@ -307,7 +307,7 @@ describe('hide at cover (orchestrator reading under amendment 199)', () => {
   it('a HIDE that has reached its cover point sits still; short of it, it steers there at full ahead', () => {
     const w = openWorld(9139);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0.3);
+    const rec = mkBot(w, 'bismarck', 0, 0, 0.3);
     const mind = mkMind('raider');
     mind.posture = 'hide';
     mind.coverPoint = { x: 5, y: 0 }; // within one own hull length
@@ -372,7 +372,7 @@ describe('the wave-1 wiring at the helm', () => {
   it('a target inside the bot\'s OWN live lit zone scores × CONFIG.bots.litTargetBonus; someone else\'s light is no bonus (amendment 204)', () => {
     const w = openWorld(9138);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
     const mind = mkMind('siege');
     const t = track(port.now, { x: 1200, y: 0, live: false });
     const zone = { id: 'z', x: 1200, y: 0, r: 200, until: port.now + 5000, by: rec.id };

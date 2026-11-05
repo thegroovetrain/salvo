@@ -56,10 +56,10 @@ function mkMind(profile: BotProfileId = 'bulwark', seed = 7): BotMind {
 }
 
 function situation(over: Partial<BotSituation> = {}): BotSituation {
-  const st = over.stats ?? effectiveStats(hullEnvelope('battleship'));
+  const st = over.stats ?? effectiveStats(hullEnvelope('yamato'));
   return {
     now: NOW, x: 0, y: 0, hp: st.maxHp, maxHp: st.maxHp, stats: st, speed: 0, heading: 0,
-    profile: profileOf('siege'), ring: { cx: 0, cy: 0, r: 3000 }, islands: [], hullId: 'battleship', ...over,
+    profile: profileOf('siege'), ring: { cx: 0, cy: 0, r: 3000 }, islands: [], hullId: 'yamato', ...over,
   };
 }
 
@@ -150,7 +150,7 @@ describe('P2 (Blind Hunter + Edge Case Hunter): a cover point outside the reveal
     const w = openWorld(91301);
     const port = fakePort(w, { cx: 0, cy: 0, r: 3000 });
     port.next = { cx: -500, cy: 0, r: 1500 };
-    const rec = mkBot(w, 'battleship', 0, 0, Math.PI / 2); // inside the next ring, bow north
+    const rec = mkBot(w, 'yamato', 0, 0, Math.PI / 2); // inside the next ring, bow north
     const m = mkMind('siege');
     m.coverPoint = { x: 1500, y: 0 }; // east, outside the next ring
     const d = COMBAT_BRAIN.decide(rec, m, port, false);
@@ -220,7 +220,7 @@ describe('P5 (Codex + Edge Case Hunter): the patrol never picks land, and a zero
     const live: ZoneRing = { cx: 0, cy: 0, r: 1500 };
     const port = fakePort(w, live);
     port.safe = { cx: 0, cy: 0, r: 0 };
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
     const m = mkMind('forager');
     const wps = pick(w, port, rec, m, 40);
     const grid = navOf(port).grid;
@@ -239,7 +239,7 @@ describe('P5 (Codex + Edge Case Hunter): the patrol never picks land, and a zero
     w.map.islands.push(circleIsland(0, 0, 700));
     const port = fakePort(w, { cx: 0, cy: 0, r: 2500 });
     port.next = { cx: 0, cy: 0, r: 450 }; // all of it ashore
-    const rec = mkBot(w, 'battleship', 1200, 0, Math.PI);
+    const rec = mkBot(w, 'yamato', 1200, 0, Math.PI);
     const m = mkMind('forager');
     const grid = navOf(port).grid;
     for (const p of pick(w, port, rec, m, 20)) {
@@ -266,7 +266,7 @@ describe('P7 (Codex + Blind Hunter): hits are credited per VOLLEY window, not ke
   });
   const seed = (): BotMind => {
     const m = mkMind();
-    foldView(m, pv([], [{ id: 'e1', x: 200, y: 0, heading: 0, speed: 0, cls: 'battleship' }]), 1000);
+    foldView(m, pv([], [{ id: 'e1', x: 200, y: 0, heading: 0, speed: 0, cls: 'yamato' }]), 1000);
     return m;
   };
   const hc = (m: BotMind, at: number): void => foldView(m, pv([{ k: 'hc', id: 'me', x: 200, y: 0 }]), at);
@@ -299,7 +299,7 @@ describe('P8 (Codex): the next ring\'s flow field is built in the zone hook at t
     const cfg = { ...CONFIG.zone, beatMs: 400 };
     const w = new World(7, CONFIG.map.playerCap, cfg);
     // An AI hull with no controller mind: nothing on it can build the field lazily.
-    w.addShip('ai-hull', 'B', 'bot', 'battleship', undefined, { x: 0, y: 0 });
+    w.addShip('ai-hull', 'B', 'bot', 'yamato', undefined, { x: 0, y: 0 });
     w.startZone();
     let next: ZoneRing | null = null;
     for (let t = 0; t < 2000 && next === null; t += 1) {
@@ -387,20 +387,20 @@ describe('P12 (Edge Case Hunter): the fleet route is re-based when the lead memb
 });
 
 describe('P11 (Edge Case Hunter): an odds-gate verdict is HELD for CONFIG.bots.gateHoldMs', () => {
-  const tb = effectiveStats(hullEnvelope('torpedoBoat'));
+  const tb = effectiveStats(hullEnvelope('bismarck'));
   // A shorter gun than the battleship's: closing -> declined, opening -> shadowed.
   const shorter = { ...tb, equipment: { ...tb.equipment, gun: { ...tb.equipment.gun, rangeU: tb.equipment.gun.rangeU * 0.7 } } };
   const at = shorter.equipment.gun.rangeU + 200;
   const tgt = (closing: boolean, over: Partial<RememberedContact> = {}): RememberedContact => ({
     id: 'e1', x: at, y: 0, heading: closing ? Math.PI : 0, speed: 20, seenAt: NOW, live: true, sunk: false,
-    cls: 'battleship', fleet: false, firstSeenAt: 0, hits: 0, vx: null, vy: null, vAt: -1, vSrc: null,
+    cls: 'yamato', fleet: false, firstSeenAt: 0, hits: 0, vx: null, vy: null, vAt: -1, vSrc: null,
     paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1, ...over,
   });
   const sitAt = (now: number): BotSituation =>
     // A worn hull (90 %), so the bulwark's bar (1.0) FAILS against a peer:
     // every scaffold hull is ARMOR 100 since Story 10.3, so a full hull no
     // longer fails the gate on the battleship's old hp edge.
-    situation({ now, stats: shorter, hp: shorter.maxHp * 0.9, hullId: 'torpedoBoat', profile: profileOf('bulwark'), ring: { cx: 0, cy: 0, r: 100000 } });
+    situation({ now, stats: shorter, hp: shorter.maxHp * 0.9, hullId: 'bismarck', profile: profileOf('bulwark'), ring: { cx: 0, cy: 0, r: 100000 } });
   const deliberate = (m: BotMind, now: number, t: RememberedContact, key = 'e1', prev: BotPosture = 'pursue'): BotPosture => {
     m.contacts.clear();
     m.contacts.set(key, { ...t, seenAt: now });
@@ -465,7 +465,7 @@ describe('P16 (Blind Hunter): the departure rule is evaluated once per bot per t
       return real.fieldFor(ring, margin);
     };
     (port as { nav?: NavCache }).nav = counting;
-    const rec = mkBot(w, 'battleship', 1500, 0, Math.PI / 2); // outside the next ring
+    const rec = mkBot(w, 'yamato', 1500, 0, Math.PI / 2); // outside the next ring
     const m = mkMind('bulwark');
     for (let t = 0; t < 3; t += 1) {
       port.now = NOW + t * 50;
@@ -495,7 +495,7 @@ describe('P20 (grounding investigation, orchestrator reading under amendment 192
     if (withCoast) w.map.islands.push(circleIsland(360, 0, 300));
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
     port.safe = { cx: -1500, cy: 0, r: 400 }; // the patrol lies astern: a turn of more than 90°
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
     rec.state.speed = rec.stats.kinematics.maxSpeed;
     return COMBAT_BRAIN.decide(rec, mkMind('forager'), port, true).throttle;
   };
@@ -599,7 +599,7 @@ function driveWedge(f: WedgeFixture, secs = 30): { disp: number; endContact: boo
   const w = new World(f.mapSeed, 16);
   w.map.islands.length = 0;
   for (const poly of f.islands) w.map.islands.push(islandFromPolygon(poly));
-  const rec = mkBot(w, 'battleship', f.pose.x, f.pose.y, f.pose.heading);
+  const rec = mkBot(w, 'yamato', f.pose.x, f.pose.y, f.pose.heading);
   rec.state.speed = f.pose.speed;
   rec.prevPose = { ...rec.state };
   const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius });
@@ -611,7 +611,7 @@ function driveWedge(f: WedgeFixture, secs = 30): { disp: number; endContact: boo
     const d = COMBAT_BRAIN.decide(rec, m, port, t % cadence === 0);
     w.submitInput(rec.id, {
       seq: t + 1, throttle: d.throttle, rudder: d.rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-      fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
     });
     w.step();
   }
@@ -627,7 +627,7 @@ describe('P19 (the grounding investigation, rulings 2026-10-17): the un-beach bu
   it('a burst that ends OFF the rock but having moved less than unbeachClearU is a FAILED burst: no hold, the marker kept', () => {
     const w = openWorld(91320);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
     const m = mkMind('bulwark');
     rec.landContact = true;
     for (let i = 0; i <= CONFIG.bots.stuckMs / CONFIG.tick.simDtMs + 1 && m.unbeachUntil === 0; i += 1) {

@@ -15,21 +15,21 @@
 // each value is the fold's number in the face's printer.
 
 import { describe, expect, it } from 'vitest';
-import { BUOY_LINE_IDS, CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
+import { BUOY_LINE_IDS, CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
 import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 import { hullPercent } from '../util/hullPercent.js';
 
 
-/** A torpedo boat with nothing fitted — the hull every value below is read on. */
-const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
+/** The default hull with nothing fitted — the hull every value below is read on. */
+const TB = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
 
 /** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
 const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
 /** A reload in the face's printer: seconds, one decimal, unit on both sides. */
 const secs = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
-/** The fold of `n` copies of `line` on the bare torpedo boat. */
-const foldOf = (line: string, n: number) => effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill(line));
+/** The fold of `n` copies of `line` on the bare default hull (TB's). */
+const foldOf = (line: string, n: number) => effectiveStats(CONFIG.shipClasses[TB.cls], Array<string>(n).fill(line));
 
 /** A row list as `[cur, next]` pairs — label-blind (the labels are copy). */
 const pairs = (rows: readonly { cur: string | null; next: string }[]): (string | null)[][] =>
@@ -61,7 +61,7 @@ function dmgPair(line: string, w: 'gun' | 'flak' | 'lightTorpedo' | 'heavyTorped
 }
 
 function held(id: string, n: number): typeof TB {
-  return { cls: 'torpedoBoat', cards: Array<string>(n).fill(id) };
+  return { cls: TB.cls, cards: Array<string>(n).fill(id) };
 }
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
@@ -275,7 +275,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
    *  number they address — folded straight through `effectiveStats`, never read
    *  off the rows under test, so the law is an independent statement. */
   function changedSteps(line: CatalogLine, k: number): number {
-    const cls = CONFIG.shipClasses.torpedoBoat;
+    const cls = CONFIG.shipClasses[TB.cls];
     const before = effectiveStats(cls, Array<string>(k).fill(line.id));
     const after = effectiveStats(cls, Array<string>(k + 1).fill(line.id));
     let moved = 0;
@@ -352,7 +352,7 @@ describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
     const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
     // Story 10.3 (ruling 13's register): the heal is a PERCENT of the hull,
     // never a raw hp figure.
-    const hull = CONFIG.shipClasses.battleship.hp;
+    const hull = CONFIG.shipClasses[TB.cls].hp;
     expect(rows[0].next).toContain(String(hullPercent(h.instantHp, hull)));
     expect(rows[0].next).not.toContain(String(h.instantHp));
     expect(rows[1].next).toContain(String(hullPercent(h.regenHp, hull)));
@@ -430,7 +430,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     const rows = pairs(cardStatRows(CATALOG.shieldBlock, 0, TB));
     expect(rows).toHaveLength(2);
     expect(rows[0][0]).toBeNull();
-    expect(rows[0][1]).toContain(String(hullPercent(CONFIG.shieldBlock.hp, CONFIG.shipClasses.battleship.hp)));
+    expect(rows[0][1]).toContain(String(hullPercent(CONFIG.shieldBlock.hp, CONFIG.shipClasses[TB.cls].hp)));
     expect(rows[0][1]).not.toContain(String(CONFIG.shieldBlock.hp));
     expect(rows[1]).toEqual([null, `${CONFIG.shieldBlock.durationMs / 1000} S`]);
   });
@@ -485,7 +485,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     for (const id of ['shieldBlock', ...BUOY_LINE_IDS, 'dazzleShells'] as const) {
       const base = cardStatRows(CATALOG[id], 0, TB);
       expect(base.length, id).toBeGreaterThan(0);
-      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['armor'] }), id).toEqual(base);
+      for (const cls of SHIP_CLASS_IDS) expect(cardStatRows(CATALOG[id], 3, { cls, cards: ['armor'] }), `${id} on ${cls}`).toEqual(base);
     }
   });
 
@@ -551,10 +551,13 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
 
   it('reads every value through effectiveStats — a class change moves the numbers', () => {
     // ENGINES (top speed) since Story 10.3 deleted HULL, the old example here.
-    const tb = cardStatRows(CATALOG.engines, 0, { cls: 'torpedoBoat', cards: [] })[0];
-    const bb = cardStatRows(CATALOG.engines, 0, { cls: 'battleship', cards: [] })[0];
+    const engines = (cls: typeof TB.cls): number => CONFIG.shipClasses[cls].index.engines;
+    const other = SHIP_CLASS_IDS.find((cls) => engines(cls) !== engines(TB.cls));
+    if (other === undefined) throw new Error('fixture: every hull shares one ENGINES index');
+    const tb = cardStatRows(CATALOG.engines, 0, TB)[0];
+    const bb = cardStatRows(CATALOG.engines, 0, { cls: other, cards: [] })[0];
     expect(bb.cur).not.toBe(tb.cur);
-    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).engines);
+    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses[other], []).engines);
   });
 });
 
@@ -582,8 +585,9 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
       expect(mgAt(k + 1, 'maxAmmo')).toBeGreaterThan(mgAt(k, 'maxAmmo'));
       expect(mgAt(k + 1, 'rateMs')).toBeLessThan(mgAt(k, 'rateMs'));
     }
-    // the tier-I reload is the CONFIG dial
-    expect(cardStatRows(CATALOG.machineGun, 0, TB)[0].cur).toBe(secs(CONFIG.machineGun.reloadMs));
+    // the tier-I reload is the CONFIG dial, scaled by the hull's RELOAD index
+    // (Story 10.4: no shipped hull sits at the base index)
+    expect(cardStatRows(CATALOG.machineGun, 0, TB)[0].cur).toBe(secs(CONFIG.machineGun.reloadMs * foldOf('machineGun', 0).cooldownScale));
   });
 
   it('FLAK ladder: DAMAGE climbs every rung and the pool step sits on the rung to II ONLY — the blast never moves', () => {

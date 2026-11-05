@@ -40,7 +40,7 @@ function bareWorld(seed = 1): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: HullId = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: HullId = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
@@ -55,7 +55,7 @@ interface Helm { throttle: number; rudder?: number }
 function tick(w: World, helms: Record<string, Helm>): void {
   for (const [id, h] of Object.entries(helms)) {
     const seq = (w.ships.get(id)!.lastAckSeq ?? 0) + 1;
-    w.submitInput(id, { seq, throttle: h.throttle, rudder: h.rudder ?? 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput(id, { seq, throttle: h.throttle, rudder: h.rudder ?? 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
   }
   w.step();
 }
@@ -147,9 +147,12 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     };
   };
 
-  for (const hull of ['torpedoBoat', 'battleship'] as const) {
+  for (const hull of ['bismarck', 'yamato'] as const) {
     it(`(a) STERN CHASE to steady state (${hull}): the rider drafts and closes to NOSE-TO-TAIL and holds there; the leader NEVER drafts its follower; they never stack`, () => {
-      const run = sternChase(hull, 150, 1500);
+      // Start one hull length + 10 u apart (bow 10 u off the leader's stern):
+      // every hull's ribbon (top speed × the water's life) reaches past the
+      // stern-rule cut there.
+      const run = sternChase(hull, CONFIG.shipClasses[hull].hull.length + 10, 1500);
       // Measured at this fix (1500 ticks from a 150 u start gap): torpedo
       // boat first drafts at tick 104, holds a ~94 u centre gap (min ~92.3)
       // at a mean lift ~0.008; battleship first drafts at tick 170, holds
@@ -167,7 +170,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
   }
 
   it('(a) out of the lane the lift dies and the rider decays back to its rated cap', () => {
-    const { w, R, cap } = sternChase('torpedoBoat', 150, 300);
+    const { w, R, cap } = sternChase('bismarck', 150, 300);
     expect(R.draft).toBeGreaterThan(0);
     for (let i = 0; i < 40; i++) tick(w, { L: { throttle: 1 }, R: { throttle: 1, rudder: 1 } });
     for (let i = 0; i < 80; i++) tick(w, { L: { throttle: 1 }, R: { throttle: 1 } });
@@ -186,8 +189,8 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     }
     // ...and the same pair abreast 25 u apart as battleships (lane half-width 32 u).
     const v = bareWorld();
-    const C = place(v, 'C', -1000, 0, 0, 'battleship');
-    const D = place(v, 'D', -1000, 25, 0, 'battleship');
+    const C = place(v, 'C', -1000, 0, 0, 'yamato');
+    const D = place(v, 'D', -1000, 25, 0, 'yamato');
     for (let i = 0; i < 400; i++) {
       tick(v, { C: { throttle: 1 }, D: { throttle: 1 } });
       expect(C.draft).toBe(0);
@@ -235,12 +238,17 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
 
   it('(c) overlapping wakes take the MAX, never the sum', () => {
     const w = bareWorld();
+    // ABREAST, a little more than one beam apart (hulls are solid since Story
+    // 9.5, and the four battleships are 90-124 u long), so the two lanes
+    // overlap on the line between them.
     const A = place(w, 'A', 0, 0);
-    const B = place(w, 'B', -30, 5);
+    const sep = A.cls.hull.beam * 1.3;
+    const B = place(w, 'B', 0, sep);
     const R = place(w, 'R', -900, 0);
-    for (let i = 0; i < 140; i++) tick(w, { A: { throttle: 1 }, B: { throttle: 1 } });
-    const s = behindHead(B.wake, R); // behind B's lane head (and A's, 30 u further on)
-    setPose(R, s.x, 2.5, 0); // inside both 9 u lanes (y = 0 and y = 5)
+    for (let i = 0; i < 300; i++) tick(w, { A: { throttle: 1 }, B: { throttle: 1 } });
+    const s = behindHead(B.wake, R); // behind B's lane head (and A's, abreast of it)
+    expect(sep / 2).toBeLessThan(A.wake.widthU * CONFIG.wake.draft.halfWidthBeams); // the midline is inside both lanes
+    setPose(R, s.x, sep / 2, 0);
     const a = liftNext(w, R, [A.wake]);
     const b = liftNext(w, R, [B.wake]);
     expect(a).toBeGreaterThan(0);
@@ -294,7 +302,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     w.respawnEnabled = false;
     const L = place(w, 'L', 0, 0);
     const R = place(w, 'R', -900, 0);
-    for (let i = 0; i < 60; i++) tick(w, { L: { throttle: 1 } });
+    for (let i = 0; i < 300; i++) tick(w, { L: { throttle: 1 } });
     w.sinkShip('L');
     let n = 0;
     while (!isSunk(L.lifecycle)) {
@@ -303,10 +311,14 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     }
     // The wreck still sits at the head of its still-attached ribbon.
     expect(L.wake.hullAheadU).toBe(L.cls.hull.length / 2);
-    const s = behindHead(L.wake, R);
-    setPose(R, s.x, s.y, s.heading);
-    tick(w, { R: { throttle: 0 } });
-    expect(R.draft).toBeGreaterThan(0);
+    // What survives a 5 s sinking window of a 5.5 s water life behind a
+    // 90-124 u battleship (Story 10.4) is shorter than the stern cut plus any
+    // hull's half length, so — as for the respawn sliver below — the WATER
+    // itself is what is pinned: a zero-length rider just past the wreck's own
+    // cut is lifted by the world's ribbon list (R's own ribbon excluded).
+    void R;
+    const s = laneSpot(L.wake, L.wake.hullAheadU + 1);
+    expect(draftLift(w.wakeRibbons, R.wake, s.x, s.y, s.heading, 0, w.now + DT, CONFIG.wake.draft)).toBeGreaterThan(0);
   });
 
   it('(f) leftover water lifts: an orphan ribbon after removeShip, and after a respawn', () => {
@@ -314,7 +326,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     const L = place(w, 'L', 0, 0);
     const M = place(w, 'M', 0, 300);
     const R = place(w, 'R', -900, 0);
-    for (let i = 0; i < 140; i++) tick(w, { L: { throttle: 1 }, M: { throttle: 1 } });
+    for (let i = 0; i < 300; i++) tick(w, { L: { throttle: 1 }, M: { throttle: 1 } });
     // removeShip: the departed hull's water is in the orphan store.
     const left = L.wake;
     w.removeShip('L');
@@ -330,7 +342,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     expect(R.draft).toBeGreaterThan(0);
     // ...and one well inside its own half length (more than a lane half-width
     // past the head) is not.
-    s = laneSpot(left, riderHalf - 15);
+    s = laneSpot(left, riderHalf - left.widthU * CONFIG.wake.draft.halfWidthBeams - 3);
     setPose(R, s.x, s.y, s.heading);
     tick(w, { M: { throttle: 1 }, R: { throttle: 0 } });
     expect(R.draft).toBe(0);
@@ -357,7 +369,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     const w = bareWorld();
     const L = place(w, 'L', 0, 0);
     const R = place(w, 'R', -900, 0);
-    for (let i = 0; i < 100; i++) tick(w, { L: { throttle: 1 } });
+    for (let i = 0; i < 300; i++) tick(w, { L: { throttle: 1 } });
     const spot = behindHead(L.wake, R);
     setPose(R, spot.x, spot.y, spot.heading);
     tick(w, { L: { throttle: 1 }, R: { throttle: 1 } });
@@ -393,7 +405,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     const w = bareWorld();
     const L = place(w, 'L', 0, 0);
     const R = place(w, 'R', -900, 0);
-    for (let i = 0; i < 100; i++) tick(w, { L: { throttle: 1 } });
+    for (let i = 0; i < 300; i++) tick(w, { L: { throttle: 1 } });
     const s = behindHead(L.wake, R);
     setPose(R, s.x, s.y, s.heading);
     tick(w, { L: { throttle: 1 }, R: { throttle: 0 } });
@@ -411,19 +423,25 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     expect(R.draft).toBe(0);
   });
 
-  it('(i) the lane is the MAKER\'s hull width: a battleship trail lifts 20 u off its line, a torpedo-boat trail does not', () => {
+  it('(i) the lane is the MAKER\'s hull width: the beamier hull\'s trail lifts an offset the narrower hull\'s trail does not', () => {
+    // An offset between the two lanes' half-widths (Story 10.4: Yamato is the
+    // beamiest hull, Iowa narrower).
+    const halfW = (hull: HullId): number => CONFIG.shipClasses[hull as 'yamato' | 'bismarck'].hull.beam * CONFIG.wake.draft.halfWidthBeams;
+    const off = (halfW('yamato') + halfW('bismarck')) / 2;
+    expect(halfW('bismarck')).toBeLessThan(off);
+    expect(off).toBeLessThan(halfW('yamato'));
     const offsetLift = (hull: HullId): number => {
       const w = bareWorld();
       const L = place(w, 'L', 0, 0, 0, hull);
       const R = place(w, 'R', -900, 0);
       for (let i = 0; i < 200; i++) tick(w, { L: { throttle: 1 } });
       const s = behindHead(L.wake, R);
-      setPose(R, s.x, s.y + 20, s.heading);
+      setPose(R, s.x, s.y + off, s.heading);
       tick(w, { L: { throttle: 1 }, R: { throttle: 0 } });
       return R.draft;
     };
-    expect(offsetLift('battleship')).toBeGreaterThan(0); // 20 u < 32 u half-width
-    expect(offsetLift('torpedoBoat')).toBe(0); // 20 u > 9 u half-width
+    expect(offsetLift('yamato')).toBeGreaterThan(0); // inside the beamier lane
+    expect(offsetLift('bismarck')).toBe(0); // outside the narrower one
   });
 
   it('(j) draft is 0 after a match-start redeploy, after a respawn, and for a dead hull', () => {
@@ -431,7 +449,7 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
       const w = bareWorld();
       const L = place(w, 'L', 0, 0);
       const R = place(w, 'R', -900, 0);
-      for (let i = 0; i < 100; i++) tick(w, { L: { throttle: 1 } });
+      for (let i = 0; i < 300; i++) tick(w, { L: { throttle: 1 } });
       const spot = behindHead(L.wake, R);
       setPose(R, spot.x, spot.y, spot.heading);
       tick(w, { L: { throttle: 1 }, R: { throttle: 1 } });

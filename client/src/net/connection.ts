@@ -17,16 +17,15 @@
 
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
-  DEFAULT_GUN,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
   generateMap,
   MSG,
   PROTOCOL_VERSION,
-  REGATTA_HUES,
   sanitizeHornId,
   type ConsumableKit,
   type FrameMsg,
-  type GunId,
+  type ShiftId,
   type HornId,
   type GameMap,
   type PingMsg,
@@ -47,31 +46,6 @@ import { clearResumeToken, loadResumeToken, saveResumeToken } from './resumeToke
  */
 const WELCOME_TIMEOUT_MS = 5000;
 
-/** localStorage key for the persisted Regatta color preference — same
- *  `hullcracker.*` family the home uses for name/class (home.ts). Exported so the
- *  Color Hoist writer (classSelect.ts) and this reader share ONE literal. */
-export const COLOR_PREF_KEY = 'hullcracker.color';
-
-/**
- * The persisted Regatta hue PREFERENCE (0..19) if a valid one is stored, else
- * undefined (the no-preference path). Story 1.12 only PLUMBS this join option —
- * no UI writes the key yet (the Color Hoist picker is Story 1.14). The server
- * re-sanitizes the value (sanitizeColorPref) regardless.
- */
-export function loadColorPref(): number | undefined {
-  try {
-    const raw = localStorage.getItem(COLOR_PREF_KEY);
-    // Reject absent AND empty/whitespace-only BEFORE Number(): Number('') and
-    // Number('   ') both coerce to 0, which would silently forward a bogus
-    // colorPref: 0 for a never-written key rather than the no-preference path.
-    if (raw === null || raw.trim() === '') return undefined;
-    const n = Number(raw);
-    return Number.isInteger(n) && n >= 0 && n < REGATTA_HUES.length ? n : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /** localStorage key for the persisted foghorn variant — the same
  *  `hullcracker.*` family as the name/class/color keys. */
 export const HORN_PREF_KEY = 'hullcracker.horn';
@@ -81,13 +55,13 @@ export const HORN_PREF_KEY = 'hullcracker.horn';
  * for a future purchasable horn, PLUMBED ONLY. Exactly one horn ships this
  * cycle and **NO UI WRITES THIS KEY**: adding horn variants is CONTENT and
  * needs an Eric ruling, so a picker is out of scope by construction, not by
- * omission. `loadColorPref`'s Story 1.12 shape exactly — a plumbed join option
- * ahead of the surface that will one day set it.
+ * omission — a plumbed join option ahead of the surface that will one day set
+ * it.
  *
  * `sanitizeHornId` is fail-open, so a corrupt, stale, or absent key resolves to
  * the default horn rather than to an error; the server re-sanitizes the value
  * in `onJoin` regardless. The try/catch covers blocked/private-mode storage,
- * where `getItem` itself throws (loadColorPref's precedent).
+ * where `getItem` itself throws.
  */
 export function loadHornPref(): HornId {
   try {
@@ -95,59 +69,6 @@ export function loadHornPref(): HornId {
   } catch {
     return sanitizeHornId(undefined);
   }
-}
-
-/**
- * Session-lifetime fallback for `ensureColorPref()` when storage cannot persist
- * the roll (blocked/private-mode/quota-exceeded localStorage). Without this, a
- * remount in that environment would reroll a DIFFERENT hue every call —
- * `ensureColorPref()` promised the whole home/bay chrome (and `connect()`'s join
- * options) the SAME hue for the session, which a bare in-memory-only fallback
- * can't keep once the function is called again. A valid STORED value always
- * takes precedence over this cache (see below) so an explicit pick (which
- * writes storage) or a cross-tab edit still wins at read time.
- */
-let sessionColorPref: number | undefined;
-
-/**
- * The persisted Regatta hue preference (0..19), NEVER null. If `loadColorPref()`
- * finds a valid stored index, it is returned unchanged — a valid preference is
- * never rerolled — and it refreshes `sessionColorPref` so a later storage
- * failure still falls back to this same value. Otherwise (absent key, or the
- * corrupt/out-of-range/empty cases `loadColorPref` already rejects): if this
- * session already rolled one (persisted or not), reuse it — never reroll
- * within a session. Only when neither exists is a uniform random index rolled;
- * persistence is attempted (best-effort) so home/modal/join all agree on the
- * SAME hue from the very first paint (Story 1.14: unset color no longer falls
- * back to amber), and the roll is cached for the rest of the session even if
- * `localStorage.setItem` throws. Single owner of the no-pref case —
- * classSelect.ts's ColorHoist seeds from this, not from loadColorPref() directly.
- */
-export function ensureColorPref(): number {
-  const existing = loadColorPref();
-  if (existing !== undefined) {
-    sessionColorPref = existing;
-    return existing;
-  }
-  if (sessionColorPref !== undefined) return sessionColorPref;
-  const idx = Math.floor(Math.random() * REGATTA_HUES.length);
-  try {
-    localStorage.setItem(COLOR_PREF_KEY, String(idx));
-  } catch {
-    // storage unavailable — the roll still stands for this session, it just
-    // won't persist across reloads (same idiom as classSelect.ts's saveColorPref).
-  }
-  sessionColorPref = idx;
-  return idx;
-}
-
-/** Test-only: clear the in-memory session color-preference cache (mirrors the
- *  server's `resetMetrics`/`__setNowSource` test-only convention). Without this,
- *  one test's `ensureColorPref()`/`connect()` call would seed `sessionColorPref`
- *  and leak it into every later test in the same file, since the cache is
- *  module-level state that outlives any single test. */
-export function __resetSessionColorPrefForTests(): void {
-  sessionColorPref = undefined;
 }
 
 /**
@@ -271,20 +192,21 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
  *  reservation bypasses `onAuth`, so the arena's gate never runs for a queued
  *  player and the queue re-implements both the `pv` gate and the sanitizers.
  *
- *  `gun` is THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): the captain's
- *  pick, frozen at queue and re-sanitized server-side exactly as `cls` is. Story
- *  8.15 (amendment 107) built the pick on the class-select cards: it is stored
- *  under `hullcracker.gun` (ui/home.ts) and threaded here through
- *  `startGame` → `connect(…, gun)`. Always SENT, never omitted.
+ *  `shift` is THE SEAT'S SHIFT (Story 10.4 — the pick that replaced the seat's
+ *  gun): the captain's pick, frozen at queue and re-sanitized server-side
+ *  exactly as `cls` is (`sanitizeShiftId`). Chosen on the class-select SPECIAL
+ *  row, stored under `hullcracker.shift` (ui/home.ts) and threaded here through
+ *  `startGame` → `connect(…, shift)`. Always SENT, never omitted. No `gun` and
+ *  no color preference ride the join any more (R6: the hue wheel is gone).
  *
  *  `kit` is THE SEAT'S FOUR CONSUMABLE LINES (Story 10.1, epic-10 amendment 3),
- *  carried exactly as `gun` is: chosen on the class-select CONSUMABLES row,
+ *  carried exactly as `shift` is: chosen on the class-select CONSUMABLES row,
  *  stored under `hullcracker.kit`, always SENT (a fresh browser sends
  *  DEFAULT_KIT), re-sanitized server-side (fail-open to DEFAULT_KIT). */
 export function joinOptions(
   name?: string,
   cls?: string,
-  gun: GunId = DEFAULT_GUN,
+  shift: ShiftId = DEFAULT_SHIFT,
   kit: ConsumableKit = DEFAULT_KIT,
 ): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
@@ -295,23 +217,16 @@ export function joinOptions(
     pv: number;
     name?: string;
     cls?: string;
-    colorPref?: number;
     horn?: string;
-    gun: GunId;
+    shift: ShiftId;
     kit: string[];
-  } = { pv: PROTOCOL_VERSION, gun, kit: [...kit] };
+  } = { pv: PROTOCOL_VERSION, shift, kit: [...kit] };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
-  // Story 4.5: the equipped foghorn variant, alongside cls/colorPref. Always
+  // Story 4.5: the equipped foghorn variant, alongside cls. Always
   // forwarded (loadHornPref never returns undefined) and re-sanitized server-
   // side in onJoin exactly as `cls` is.
   opts.horn = loadHornPref();
-  // Story 1.12/1.14: always forward the resolved color preference — `ensureColorPref()`
-  // never returns undefined (stored value, session-cached roll, or a fresh roll),
-  // so the hue the home/bay chrome tinted with is the exact hue the server assigns,
-  // even when localStorage.setItem throws (blocked/private/quota storage). The
-  // server assigns FCFS and re-sanitizes regardless.
-  opts.colorPref = ensureColorPref();
   return opts;
 }
 
@@ -599,11 +514,11 @@ export async function connect(
   cls?: string,
   hooks: ConnectHooks = {},
   solo = false,
-  gun: GunId = DEFAULT_GUN,
+  shift: ShiftId = DEFAULT_SHIFT,
   kit: ConsumableKit = DEFAULT_KIT,
 ): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls, gun, kit);
+  const opts = joinOptions(name, cls, shift, kit);
   // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
   // ARENA room, so bindRoom/buildGame see exactly what they always did.
   const room = await acquireArena(client, opts, hooks, solo);

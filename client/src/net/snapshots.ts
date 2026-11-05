@@ -4,7 +4,7 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { lerpAngle, type Contact, type HullId } from '@salvo/shared';
+import { decodeTurretAngle, lerpAngle, type Contact, type HullId } from '@salvo/shared';
 import { lerp } from '../util/math.js';
 
 /** One timestamped kinematic sample. `t` is server time (ms). */
@@ -162,6 +162,13 @@ export class ContactStore {
    * departed captain as `DRONE`, a worse and far more visible wrong.
    */
   private everSeenClasses = new Map<string, HullId>();
+  /**
+   * THE CONTACT'S TURRET ANGLES (Story 10.4): the latest frame's `Contact.tu`,
+   * decoded to hull-relative radians (`decodeTurretAngle`), one array per id
+   * reused across frames. SNAPPED, not interpolated: a turret moves at most
+   * 90°/s, i.e. 4.5° between 20 Hz frames. Absent for a drone (no `tu`).
+   */
+  private turretAngles = new Map<string, number[]>();
 
   /** Ingest one frame's contact list at server time `t`. */
   pushFrame(t: number, contacts: readonly Contact[]): void {
@@ -177,7 +184,28 @@ export class ContactStore {
       this.everSeenClasses.set(c.id, c.cls);
       if (c.aggro === true) this.aggro.add(c.id);
       else this.aggro.delete(c.id);
+      this.pushTurrets(c);
     }
+  }
+
+  private pushTurrets(c: Contact): void {
+    if (c.tu === undefined) {
+      this.turretAngles.delete(c.id);
+      return;
+    }
+    let out = this.turretAngles.get(c.id);
+    if (out === undefined) {
+      out = [];
+      this.turretAngles.set(c.id, out);
+    }
+    out.length = c.tu.length;
+    for (let i = 0; i < c.tu.length; i++) out[i] = decodeTurretAngle(c.cls, i, c.tu[i]);
+  }
+
+  /** The contact's turret angles (hull-relative rad, bow to stern) as of its
+   *  last frame, or undefined when it carried none (a drone) or is pruned. */
+  turretAnglesOf(id: string): readonly number[] | undefined {
+    return this.turretAngles.get(id);
   }
 
   get(id: string): SnapshotBuffer | undefined {
@@ -235,6 +263,7 @@ export class ContactStore {
       this.lastSeen.delete(id);
       this.classes.delete(id);
       this.aggro.delete(id);
+      this.turretAngles.delete(id);
       removed.push(id);
     }
     return removed;

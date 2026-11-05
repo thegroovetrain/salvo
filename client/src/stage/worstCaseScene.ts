@@ -42,9 +42,11 @@
 
 import {
   CONFIG,
-  DEFAULT_GUN,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
   SHIP_CLASS_IDS,
+  initialTurrets,
   mulberry32,
   paintCoverage,
   type Contact,
@@ -222,14 +224,14 @@ export const BOUNTY_INDEX = 7;
 
 /** Hull ids the staged contacts wear, cycled deterministically. */
 const CONTACT_HULLS: readonly HullId[] = [
-  'torpedoBoat',
-  'battleship',
-  'mineLayer',
+  'yamato',
+  'bismarck',
+  'warspite',
   'droneMedium',
-  'battleship',
-  'torpedoBoat',
+  'iowa',
+  'yamato',
   'droneLarge',
-  'mineLayer',
+  'warspite',
 ];
 
 /**
@@ -257,7 +259,7 @@ function slotIsDrone(profile: SceneProfile, i: number): boolean {
 }
 
 /** The local captain's class. */
-export const OWN_CLASS: ShipClassId = 'battleship';
+export const OWN_CLASS: ShipClassId = DEFAULT_CLASS_ID;
 
 /**
  * STORY 4.8's RATIFIED POPULATION — 12 near + 7 far contacts around the local
@@ -588,7 +590,9 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     ],
     sweep: (tick * 0.06) % (Math.PI * 2),
     cls: OWN_CLASS,
-    gun: DEFAULT_GUN,
+    shift: DEFAULT_SHIFT,
+    turrets: initialTurrets(OWN_CLASS),
+    sec: { heat: 0, locked: false },
     kit: [...DEFAULT_KIT],
     pts: bankedPointsAt(tick, world.profile),
     offer: ['intel', 'heavyTorpedo', 'broadside'],

@@ -39,7 +39,7 @@ function fleetShip(w: World, id: string, size: DroneSizeId, x: number, y: number
 }
 
 function captain(w: World, id: string, x: number, y: number): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, { x, y });
+  return w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', DEFAULT_HORN_ID, { x, y });
 }
 
 type DamageChoke = { hitShip(v: ShipRecord, amount: number, byId: string, fromMine: boolean): void };

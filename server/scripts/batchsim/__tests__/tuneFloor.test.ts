@@ -25,7 +25,7 @@ describe('--tune floors — the seven indices', () => {
 
   it('REFUSES zero (and anything under 1) on the five derivation indices', () => {
     for (const id of FLOOR_ONE) {
-      const key = `shipClasses.battleship.index.${id}`;
+      const key = `shipClasses.bismarck.index.${id}`;
       expect(() => validateTuneValue(key, 0)).toThrow(TunableError);
       expect(() => validateTuneValue(key, 0.5)).toThrow(TunableError);
       expect(() => validateTuneValue(key, 1)).not.toThrow();
@@ -34,7 +34,7 @@ describe('--tune floors — the seven indices', () => {
 
   it('ARMOR and POWER may be zero; nothing may be negative or non-finite', () => {
     for (const id of ['armor', 'power']) {
-      const key = `shipClasses.battleship.index.${id}`;
+      const key = `shipClasses.bismarck.index.${id}`;
       expect(() => validateTuneValue(key, 0)).not.toThrow();
       expect(() => validateTuneValue(key, -1)).toThrow(TunableError);
       expect(() => validateTuneValue(key, Number.NaN)).toThrow(TunableError);
@@ -42,13 +42,13 @@ describe('--tune floors — the seven indices', () => {
   });
 
   it('the retired speed leaves are no --tune keys: the speed and turn rate are DERIVED', () => {
-    expect(() => validateTuneKey('shipClasses.battleship.kinematics.maxSpeed')).toThrow(TunableError);
-    expect(() => validateTuneKey('shipClasses.battleship.kinematics.turnRate')).toThrow(TunableError);
+    expect(() => validateTuneKey('shipClasses.bismarck.kinematics.maxSpeed')).toThrow(TunableError);
+    expect(() => validateTuneKey('shipClasses.bismarck.kinematics.turnRate')).toThrow(TunableError);
   });
 
   it('leaves the OTHER min-one leaves at 1', () => {
-    expect(() => validateTuneValue('shipClasses.battleship.hp', 0.5)).toThrow(TunableError);
-    expect(() => validateTuneValue('shipClasses.battleship.kinematics.steerageSpeed', 0.5)).toThrow(TunableError);
+    expect(() => validateTuneValue('shipClasses.bismarck.hp', 0.5)).toThrow(TunableError);
+    expect(() => validateTuneValue('shipClasses.bismarck.kinematics.steerageSpeed', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('torpedo.speed', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('gun.shellSpeed', 0.5)).toThrow(TunableError);
   });

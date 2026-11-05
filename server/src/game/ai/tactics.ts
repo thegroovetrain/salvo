@@ -118,6 +118,7 @@ import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor } from './tacticRegistry.js';
 import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
+import { batteryAim, secondariesHeld } from './battery.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
@@ -185,14 +186,12 @@ interface Helm {
 // ---------------------------------------------------------------------------
 
 /** The mind's resolved profile ROW, with the harness's spend overrides
- *  applied (BotMind.spendRandom / spendGunFirst): a copy whose `spend` alone
- *  is flipped, so temperament is byte-identical and chooseSpend's existing
- *  fork does the rest. Gun-first flips only a WEIGHTED row (a test row stays
- *  random). The shipped path (both false) returns the frozen row itself. */
+ *  applied (BotMind.spendRandom): a copy whose `spend` alone is flipped, so
+ *  temperament is byte-identical and chooseSpend's existing fork does the
+ *  rest. The shipped path (false) returns the frozen row itself. */
 export function profileRowOf(mind: BotMind): BotProfile {
   const row = profileOf(mind.profile);
   if (mind.spendRandom === true && row.spend !== 'random') return { ...row, spend: 'random' };
-  if (mind.spendGunFirst === true && row.spend === 'weighted') return { ...row, spend: 'gunFirst' };
   return row;
 }
 
@@ -573,13 +572,11 @@ function holdStage(self: BotSelf, mind: BotMind, now: number): Manoeuvre {
 }
 
 /** Should a `duelist` take the rear quarter of this target? Only with a
- *  disclosed course to get behind, and NEVER against a Mine Layer: tailing one
- *  sails straight up its astern ±60° mine sector, which is the same geometry
- *  that makes the manoeuvre correct against everything else. */
+ *  disclosed course to get behind. (The Mine Layer exclusion retired with the
+ *  class — Story 10.4: no hull lays mines by class any more; a mine rack is a
+ *  card any of the four may carry, and a sighted hull discloses no build.) */
 function wantsRearQuarter(profile: BotProfile, t: BotTrack): boolean {
-  if (profile.id !== 'duelist') return false;
-  if (t.heading === null) return false;
-  return t.cls !== 'mineLayer';
+  return profile.id === 'duelist' && t.heading !== null;
 }
 
 /** The point a bot steers AT: the target's plot point, or its rear quarter.
@@ -843,16 +840,26 @@ function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
 
 /** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)
  *  becomes `held: true` with NO fireSlot — so no fireSeq edge and `slot` 0 on
- *  the wire; every other shot is the ordinary click on its slot. */
+ *  the wire; every other shot is the ordinary click on its slot. With NO shot
+ *  this tick a battery hull still writes its main battery's HELD AIM on its
+ *  target (Story 10.4, ai/battery.ts) — the aim is what the turrets chase, so
+ *  it is held even while every turret reloads or none bears yet. The
+ *  secondaries level (`sec`) rides along on the same aim. */
 function triggerOf(
   self: BotSelf,
+  mind: BotMind,
   sit: BotSituation,
   target: BotTrack | null,
   shot: Shot | null,
-): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held'> {
-  if (shot === null) return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false };
-  const held = shot.held === true;
-  return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held };
+): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held' | 'sec'> {
+  const sec = secondariesHeld(self, mind, sit, target);
+  if (shot !== null) {
+    const held = shot.held === true;
+    return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held, sec };
+  }
+  const hold = target === null ? null : batteryAim(self, mind, sit, target);
+  if (hold !== null) return { aim: hold.aim, aimDist: hold.aimDist, fireSlot: null, held: false, sec };
+  return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false, sec };
 }
 
 /**
@@ -909,7 +916,7 @@ export const COMBAT_BRAIN: BotBrain = {
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,
-      ...triggerOf(self, sit, target, shot),
+      ...triggerOf(self, mind, sit, target, shot),
       actSlot: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };

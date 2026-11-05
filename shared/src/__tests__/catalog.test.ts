@@ -174,8 +174,8 @@ describe('catalog v3 identity', () => {
       expect(resolveCards([dead])).toEqual([]);
     }
     // A list carrying a dead id folds exactly as if it were absent.
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGunTurret', 'deckGun', 'deckGunBarrel'])).toEqual(
-      effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']),
+    expect(effectiveStats(CONFIG.shipClasses.iowa, ['deckGunTurret', 'deckGun', 'deckGunBarrel'])).toEqual(
+      effectiveStats(CONFIG.shipClasses.iowa, ['deckGun']),
     );
   });
 
@@ -202,7 +202,7 @@ describe('catalog v3 identity', () => {
       expect(tier.some((e) => e.kind === 'stat' && e.path === 'equipment.gun.barrels'), `rung ${k + 2}`).toBe(false);
     });
     // The authored steps land the fold's Tier V damage exactly (no float, no floor dust).
-    const atV = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(CATALOG.deckGun.cap).fill('deckGun'));
+    const atV = effectiveStats(CONFIG.shipClasses.iowa, new Array<string>(CATALOG.deckGun.cap).fill('deckGun'));
     expect(CONFIG.gun.damage + damageSum).toBe(atV.equipment.gun.damage);
   });
 
@@ -259,7 +259,7 @@ describe('catalog v3 identity', () => {
   });
 
   it('the NON-UNIFORM torpedo and mine ladders (Story 9.12): one whole-number damage step per rung, and the authored steps sum to the fold\'s Tier V damage', () => {
-    const TB = CONFIG.shipClasses.torpedoBoat;
+    const TB = CONFIG.shipClasses.iowa;
     const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines'] as const;
     for (const id of lines) {
       const steps = CATALOG[id].tiers.slice(1);
@@ -462,8 +462,8 @@ describe('catalog v3 identity', () => {
       (CATALOG.armor.tiers[0][0] as unknown as { add: number }).add = 999;
     }).toThrow();
     // The refused write left the fold reading the authored step.
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']).armor)
-      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).armor + authored);
+    expect(effectiveStats(CONFIG.shipClasses.iowa, ['armor']).armor)
+      .toBe(effectiveStats(CONFIG.shipClasses.iowa, []).armor + authored);
   });
 
   // The HULL POINTS rung test and the PASSIVE HEALING seat / rung tests lived
@@ -508,8 +508,8 @@ describe('catalog v3 identity', () => {
     // line again since 9.7 — epic-9 amendment 89 — so it left this list.)
     for (const stale of ['nope', 'constructor', 'hullpoints']) {
       expect(resolveCards([stale])).toEqual([]);
-      expect(effectiveStats(CONFIG.shipClasses.battleship, [stale, 'engines'])).toEqual(
-        effectiveStats(CONFIG.shipClasses.battleship, ['engines']),
+      expect(effectiveStats(CONFIG.shipClasses.yamato, [stale, 'engines'])).toEqual(
+        effectiveStats(CONFIG.shipClasses.yamato, ['engines']),
       );
     }
   });
@@ -519,7 +519,7 @@ describe('catalog v3 identity', () => {
 // amendment 8, rulings 4–9). Every step is READ from the catalog and compared
 // to the FOLDED delta; a rung total is Tier I + Σ steps. No literal is pinned.
 describe('STORY 10.3 — the six index ladders and the re-ruled weapon rungs', () => {
-  const TB = CONFIG.shipClasses.torpedoBoat;
+  const TB = CONFIG.shipClasses.iowa;
   const INDEX_LADDERS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
   const addOf = (tier: readonly unknown[], path: string): number | undefined =>
     (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
@@ -754,7 +754,7 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
   });
 
   it('caps a line at its `cap` — a sixth copy of a cap-5 line buys nothing', () => {
-    const cls = CONFIG.shipClasses.battleship;
+    const cls = CONFIG.shipClasses.yamato;
     const five = effectiveStats(cls, new Array<LineId>(5).fill('reload'));
     const nine = effectiveStats(cls, new Array<LineId>(9).fill('reload'));
     expect(nine).toEqual(five);

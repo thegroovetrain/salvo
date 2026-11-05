@@ -66,6 +66,10 @@ const BALLISTIC: readonly SlotItemId[] = [
   // on its click path — one shell per click. The four BUOYS are click-PLACED
   // (like the decoy they replace), never revealed as a track: absent here.
   'dazzleShells',
+  // STORY 10.4: the MAIN BATTERY — one click fires one turret's salvo on the
+  // cannon's `shell` wire kind. The latch is one-shot, so the salvo's FIRST
+  // shell claims it; its sister shells take the generic own-shell read.
+  'mainBattery',
 ];
 
 /** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */

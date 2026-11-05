@@ -23,7 +23,7 @@
 import { CONFIG, zoneClosedAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { BatchResult, MatchSample } from './runner.js';
-import { emptyKillsByTier, lifeSamples, type BotSample } from './botMetrics.js';
+import { lifeSamples, type BotSample } from './botMetrics.js';
 import { buildPoolReadouts, renderPoolReadouts, type PoolReadouts } from './poolReadouts.js';
 import {
   buildReadoutAggregate,
@@ -103,10 +103,11 @@ export interface BotClassGroup extends BotGroup {
   lifeSamples: number[];
 }
 
-/** A per-GUN or per-GUN×TIER slice: a BotGroup plus the outcome columns that
- *  need the MATCH (a win is read against the match's winnerClass). JSON-first;
- *  the text report prints only a compact gun×tier table off it. */
-export interface BotGunGroup extends BotGroup {
+/** A per-LAYOUT or per-SHIFT slice (Story 10.4 — the gun × tier slices'
+ *  successors): a BotGroup plus the outcome columns that need the MATCH (a
+ *  win is read against the match's winnerClass). JSON-first; the text report
+ *  prints a compact table off each. */
+export interface BotPickGroup extends BotGroup {
   /** Bot-matches this group WON: placement 1 in a match whose winnerClass is
    *  not null — a mutual-destruction DRAW still hands someone placement 1
    *  (match.ts computePlacements walks the sink order), so it is not a win. */
@@ -114,8 +115,6 @@ export interface BotGunGroup extends BotGroup {
   winRate: number;
   /** Mean final placement over this group's rows that HAVE one (null if none). */
   meanPlacement: number | null;
-  /** Σ BotSample.killsByTier over the group (length 6, index = killer tier). */
-  killsByTierTotal: number[];
 }
 
 export interface BotAggregate {
@@ -153,10 +152,10 @@ export interface BotAggregate {
   pveKills: number;
   byProfile: BotGroup[];
   byClass: BotClassGroup[];
-  /** Keyed by `gun` (the bot's mounted gun). */
-  byGun: BotGunGroup[];
-  /** Keyed `${gun}/T${tier}` — tier is the gun rung at the last afloat reading. */
-  byGunTier: BotGunGroup[];
+  /** Keyed by the hull's main-battery layout (`3x3` / `4x2` — botMetrics.layoutOf). */
+  byLayout: BotPickGroup[];
+  /** Keyed by the seat's Shift. */
+  byShift: BotPickGroup[];
   bars: BotBar[];
   /** POOL READOUTS (Story 8.20, R10): measurements, never judged. */
   pool: PoolReadouts;
@@ -247,7 +246,7 @@ function groupByClass(rows: readonly BotSample[]): BotClassGroup[] {
   return bucket(rows, (r) => r.cls).map(([k, list]) => ({ ...groupOf(k, list), lifeSamples: lifeSamples(list) }));
 }
 
-/** One bot-match row paired with whether it won (see BotGunGroup.wins). */
+/** One bot-match row paired with whether it won (see BotPickGroup.wins). */
 interface ScoredRow {
   row: BotSample;
   won: boolean;
@@ -262,13 +261,7 @@ function scoredRows(matches: readonly MatchSample[]): ScoredRow[] {
   return matches.flatMap((m) => (m.bots ?? []).map((row) => ({ row, won: isBotWin(row, m) })));
 }
 
-function sumKillsByTier(rows: readonly BotSample[]): number[] {
-  const out = emptyKillsByTier();
-  for (const r of rows) r.killsByTier.forEach((k, i) => { out[i] = (out[i] ?? 0) + k; });
-  return out;
-}
-
-function gunGroupOf(key: string, scored: readonly ScoredRow[]): BotGunGroup {
+function pickGroupOf(key: string, scored: readonly ScoredRow[]): BotPickGroup {
   const rows = scored.map((s) => s.row);
   const placed = rows.flatMap((r) => (r.placement === null ? [] : [r.placement]));
   const wins = scored.filter((s) => s.won).length;
@@ -277,12 +270,11 @@ function gunGroupOf(key: string, scored: readonly ScoredRow[]): BotGunGroup {
     wins,
     winRate: ratio(wins, rows.length),
     meanPlacement: placed.length === 0 ? null : placed.reduce((a, p) => a + p, 0) / placed.length,
-    killsByTierTotal: sumKillsByTier(rows),
   };
 }
 
 /** Slice scored rows by a key, in sorted key order (bucket's rule). */
-function groupGunBy(scored: readonly ScoredRow[], key: (r: BotSample) => string): BotGunGroup[] {
+function groupPickBy(scored: readonly ScoredRow[], key: (r: BotSample) => string): BotPickGroup[] {
   const byKey = new Map<string, ScoredRow[]>();
   for (const s of scored) {
     const k = key(s.row);
@@ -290,10 +282,8 @@ function groupGunBy(scored: readonly ScoredRow[], key: (r: BotSample) => string)
     if (list === undefined) byKey.set(k, [s]);
     else list.push(s);
   }
-  return [...byKey.keys()].sort().map((k) => gunGroupOf(k, byKey.get(k)!));
+  return [...byKey.keys()].sort().map((k) => pickGroupOf(k, byKey.get(k)!));
 }
-
-export const gunTierKey = (r: Pick<BotSample, 'gun' | 'gunTier'>): string => `${r.gun}/T${r.gunTier}`;
 
 export function buildBotAggregate(result: BatchResult, botsPerMatch: number): BotAggregate {
   const matches = result.matches;
@@ -335,8 +325,8 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     pveKills: rows.reduce((a, r) => a + r.pveKills, 0),
     byProfile: groupBy(rows, (r) => r.profile),
     byClass: groupByClass(rows),
-    byGun: groupGunBy(scoredRows(matches), (r) => r.gun),
-    byGunTier: groupGunBy(scoredRows(matches), gunTierKey),
+    byLayout: groupPickBy(scoredRows(matches), (r) => r.layout),
+    byShift: groupPickBy(scoredRows(matches), (r) => r.shift),
     bars: [],
     pool: buildPoolReadouts(matches),
     readouts: buildReadoutAggregate(matches),
@@ -425,8 +415,10 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
   lines.push(...groupTable(a.byProfile));
   lines.push('', 'BY CLASS:');
   lines.push(...groupTable(a.byClass));
-  lines.push('', 'BY GUN x TIER (tier = gun rung at death/finish; win = placement 1 with a named winner):');
-  lines.push(...gunTierTable(a.byGunTier));
+  lines.push('', 'BY LAYOUT (turrets x guns; win = placement 1 with a named winner):');
+  lines.push(...pickTable('layout', a.byLayout));
+  lines.push('', 'BY SHIFT (win = placement 1 with a named winner):');
+  lines.push(...pickTable('shift', a.byShift));
   lines.push('', ...renderPoolReadouts(a.pool));
   return lines;
 }
@@ -465,15 +457,15 @@ function groupTable(groups: readonly BotGroup[]): string[] {
   return [head, ...rows];
 }
 
-/** Compact gun×tier table: n, wins, win%, mean placement, kills, alive%, lifeS,
- *  and participant kills by the killer's tier at the moment of the kill. */
-function gunTierTable(groups: readonly BotGunGroup[]): string[] {
+/** Compact layout / Shift table: n, wins, win%, mean placement, kills,
+ *  alive%, lifeS. */
+function pickTable(label: string, groups: readonly BotPickGroup[]): string[] {
   const keyW = Math.max(14, ...groups.map((g) => g.key.length));
-  const head = `  ${'gun/tier'.padEnd(keyW)} ${'n'.padStart(5)}${'wins'.padStart(6)}${'win%'.padStart(7)}${'place'.padStart(7)}${'kills'.padStart(7)}${'alive%'.padStart(8)}${'lifeS'.padStart(8)}  killsAtT1..T5`;
+  const head = `  ${label.padEnd(keyW)} ${'n'.padStart(5)}${'wins'.padStart(6)}${'win%'.padStart(7)}${'place'.padStart(7)}${'kills'.padStart(7)}${'alive%'.padStart(8)}${'lifeS'.padStart(8)}`;
   const rows = groups.map((g) => [
     `  ${g.key.padEnd(keyW)} ${String(g.n).padStart(5)}${String(g.wins).padStart(6)}${pct(g.winRate).padStart(7)}`,
     `${(g.meanPlacement === null ? '-' : fmt(g.meanPlacement, 1)).padStart(7)}${fmt(g.kills.mean, 2).padStart(7)}`,
-    `${pct(g.aliveRate).padStart(8)}${fmt(g.lifeS.mean, 1).padStart(8)}  ${g.killsByTierTotal.slice(1).join('/')}`,
+    `${pct(g.aliveRate).padStart(8)}${fmt(g.lifeS.mean, 1).padStart(8)}`,
   ].join(''));
   return [head, ...rows];
 }

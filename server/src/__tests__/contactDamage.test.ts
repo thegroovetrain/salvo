@@ -39,6 +39,7 @@ import {
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
+import { neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
 const RAM = CONFIG.ram;
@@ -53,8 +54,9 @@ function bareWorld(seed = 3): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'bismarck'): ShipRecord {
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   fitClassWeapons(w, rec);
   pose(rec, x, y, heading, 0);
   return rec;
@@ -78,7 +80,7 @@ function pose(rec: ShipRecord, x: number, y: number, heading: number, speed: num
 }
 
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Full ahead at the hull's rated max — the speed the kinematics hold. */
@@ -91,6 +93,8 @@ function fullAhead(rec: ShipRecord, heading: number): void {
 const dmgOf = (events: readonly GameEvent[], id: string): DamageEvent[] =>
   events.filter((e): e is DamageEvent => e.k === 'dmg' && e.id === id);
 const sunkOf = (events: readonly GameEvent[]): SunkEvent[] => events.filter((e): e is SunkEvent => e.k === 'sunk');
+/** u — a hull's silhouette length. */
+const hullLen = (id: ShipClassId): number => CONFIG.shipClasses[id].hull.length;
 
 /** Step until `pred` holds or `max` ticks pass; returns the tick's events (the
  *  world's own `tickEvents`) and how many ticks were stepped. */
@@ -463,8 +467,11 @@ describe('LAND (amendment 81: the strike on the edge, the scrape on the sliding 
 describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
   it('(f) a live hull into a sinking wreck: the wreck is pushed and unharmed, the live hull pays its share with no attacker credited — as HULL contact, never land (amendment 82)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', -70, 0);
     const b = place(w, 'b', 40, 0);
+    // Clear water between the two outlines (derived from the hull lengths —
+    // the four battleships are longer than the old classes), so the sink tick
+    // is over before the ram lands.
+    const a = place(w, 'a', b.state.x - (hullLen('bismarck') + hullLen('bismarck')) / 2 - 30, 0);
     w.sinkShip('b');
     expect(isSinking(b.lifecycle)).toBe(true);
     fullAhead(a, 0);
@@ -488,8 +495,11 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
 
   it('(f) a death by wreck contact has no killer and still reads as hull contact (the harness classifies it sunkByContact, not ranAground)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', -70, 0);
     const b = place(w, 'b', 40, 0);
+    // Clear water between the two outlines (derived from the hull lengths —
+    // the four battleships are longer than the old classes), so the sink tick
+    // is over before the ram lands.
+    const a = place(w, 'a', b.state.x - (hullLen('bismarck') + hullLen('bismarck')) / 2 - 30, 0);
     w.sinkShip('b');
     fullAhead(a, 0);
     a.hp = 1;
@@ -659,7 +669,7 @@ describe('SOLIDITY in a world step (the mass split) and the STEP_ORDER seat', ()
   it('two stopped overlapping hulls are pushed apart by the other\'s mass share — the lighter hull moves farther', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 0, 10, 0, 'battleship'); // 10 u into a's beam
+    const b = place(w, 'b', 0, 10, 0, 'yamato'); // 10 u into a's beam
     // MASS = ARMOR (Story 10.3): two ARMOR cards make b the heavier body.
     w.applyCard(b, 'armor');
     w.applyCard(b, 'armor');
@@ -708,7 +718,7 @@ describe('mass = ARMOR (Story 10.3, ruling 2)', () => {
 
   it('the contact body carries stats.armor as its mass, and an open HUNKER window adds none', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     const bodyOf = (rec: ShipRecord): { mass: number } =>
       (w as unknown as { contactBodyOf(r: ShipRecord): { mass: number } }).contactBodyOf(rec);
     expect(bodyOf(a).mass).toBe(a.stats.armor);

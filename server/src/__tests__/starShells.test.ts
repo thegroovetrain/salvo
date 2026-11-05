@@ -10,11 +10,12 @@
 // real weapon flow.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { CONFIG, SLOT_BOOST, encodeTurretAngles, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const LIT_R = CONFIG.starShells.litRadius;
@@ -34,8 +35,9 @@ function bareWorld(seed = 7): World {
 }
 
 /** Add a ship of `hull` and teleport it to an exact pose (speed 0). */
-function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineLayer', x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+function place(w: World, id: string, hull: 'yamato' | 'bismarck' | 'warspite', x: number, y: number, heading = 0): ShipRecord {
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -47,13 +49,13 @@ function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineL
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Click for `firer` via the real input channel and step until the burst (or
  *  a boom) resolves. Returns the world time the terminal event landed. */
 function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTicks = 120): { seen: string[]; at: number } {
-  w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...input });
+  w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...input });
   const seen: string[] = [];
   for (let i = 0; i < maxTicks; i++) {
     w.step();
@@ -66,7 +68,7 @@ function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTi
 describe('star shells — shell construction', () => {
   it('firing spawns a TIERED DAMAGE flare (Story 8.17, amendment 130): the row\'s speed, the row\'s damage on burst AND contact, burst = lit radius, lit tag set', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
@@ -90,7 +92,7 @@ describe('star shells — shell construction', () => {
 
   it('a click beyond range clamps the burst point to its own Tier I reach (Story 9.8, ruling 125)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: 0, aimDist: CONFIG.vision.radar + 200, slot: SLOT_STAR });
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
@@ -103,9 +105,9 @@ describe('star shells — shell construction', () => {
 describe('star shells — burst damage + zone spawn (end-to-end)', () => {
   it('bursts for the TIER DAMAGE across the full lit circle (Story 8.17) — one dmg per hull inside, `hc` — and spawns the zone there', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'battleship', 0, 0);
-    const near = place(w, 'near', 'battleship', 480, 80); // hull within 165 of the click point
-    const far = place(w, 'far', 'battleship', 480, 400); // well outside the circle
+    const a = place(w, 'a', 'yamato', 0, 0);
+    const near = place(w, 'near', 'yamato', 480, 80); // hull within 165 of the click point
+    const far = place(w, 'far', 'yamato', 480, 400); // well outside the circle
     const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
     expect(seen).toContain('burst'); // the flash reuses the EXISTING burst event kind
     // Story 8.17 (amendment 130) FLIPS amendment 39's damageless pin: the hull
@@ -127,7 +129,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
 
   it('a flare over EMPTY water still splashes (`sp`) — the Hit Call keys off resolved hulls, never off the burst alone', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
+    place(w, 'a', 'yamato', 0, 0);
     const { seen } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
     expect(seen).toContain('burst');
     expect(seen).toContain('sp');
@@ -137,8 +139,8 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
 
   it('an early interceptor takes the TIER DAMAGE as contact damage, stops the flare — and the zone spawns AT THE STOP POINT', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
-    const mid = place(w, 'mid', 'battleship', 300, 0); // bodyblocks the 650u click (an arbitrary long-range distance), 350u short
+    place(w, 'a', 'yamato', 0, 0);
+    const mid = place(w, 'mid', 'yamato', 300, 0); // bodyblocks the 650u click (an arbitrary long-range distance), 350u short
     const { seen } = fireAndResolve(w, 'a', { aim: 0, aimDist: 650 });
     expect(seen).toContain('boom');
     expect(seen).not.toContain('burst');
@@ -156,8 +158,8 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     // Story 8.17: the owner lookup at zone spawn is GONE with the verbs; the
     // zone's radius and lifetime are the numbers the shell carried at launch.
     const w = bareWorld();
-    const a = place(w, 'a', 'battleship', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    const a = place(w, 'a', 'yamato', 0, 0);
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     w.step(); // consumes the click; the flare is airborne at tier I
     expect(w.shells.size).toBe(1);
     for (let i = 0; i < 4; i++) w.applyCard(a, 'starShells'); // tier V lands while the flare flies
@@ -172,7 +174,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
 
   it('the zone expires naturally after litDurationMs (the step() sweep)', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
+    place(w, 'a', 'yamato', 0, 0);
     fireAndResolve(w, 'a', { aim: 0, aimDist: 400 });
     expect(w.litZones.size).toBe(1);
     const steps = Math.ceil(CONFIG.starShells.litDurationMs / DT) + 1;
@@ -182,7 +184,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
 
   it("the zone survives its owner's death and still dies only by expiry", () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
+    place(w, 'a', 'yamato', 0, 0);
     fireAndResolve(w, 'a', { aim: 0, aimDist: 400 });
     expect(w.litZones.size).toBe(1);
     w.respawnEnabled = false; // active-phase policy: the dead stay dead
@@ -205,10 +207,10 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
     const R = CONFIG.vision.radar;
     const Z = S + 200;
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0); // the firer
-    const hidden = place(w, 'e', 'torpedoBoat', Z, 40, 1.1); // inside the flare circle, outside everyone's sight
-    const c = place(w, 'c', 'mineLayer', -300, -100); // third party: zone center inside radar, the hidden hull beyond sight
-    const d = place(w, 'd', 'mineLayer', Z - R - 200, 0); // zone center beyond radar
+    place(w, 'a', 'yamato', 0, 0); // the firer
+    const hidden = place(w, 'e', 'bismarck', Z, 40, 1.1); // inside the flare circle, outside everyone's sight
+    const c = place(w, 'c', 'warspite', -300, -100); // third party: zone center inside radar, the hidden hull beyond sight
+    const d = place(w, 'd', 'warspite', Z - R - 200, 0); // zone center beyond radar
     expect(Math.hypot(hidden.state.x - c.state.x, hidden.state.y - c.state.y)).toBeGreaterThan(S);
     expect(Math.hypot(Z - c.state.x, c.state.y)).toBeLessThan(R);
     // Park every sweep away from the relevant bearings so no radar blip muddies the read.
@@ -222,7 +224,8 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
     // ~316u away, is an ordinary sight contact riding along).
     const fa = buildFrame(w, 'a');
     expect(fa.contacts.find((x) => x.id === 'e')).toEqual({
-      id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: 'torpedoBoat',
+      id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: hidden.hullId,
+      tu: encodeTurretAngles(hidden.turrets, hidden.hullId), // Story 10.4: a sighted hull's turret angles ride its row
     });
     expect(fa.litZones).toEqual([
       { id: 'z1', x: Z, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
@@ -241,7 +244,7 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
 describe('star shells — denials', () => {
   it('cooling (empty pool) denies no-ammo and changes nothing', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });
     bb.loadout[SLOT_STAR].state = { n: 0, reloadMsLeft: CONFIG.starShells.reloadMs };
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: false, reason: 'no-ammo' });
@@ -251,7 +254,7 @@ describe('star shells — denials', () => {
 
   it('a dead Battleship is refused first (dead)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });
     w.respawnEnabled = false;
     w.sinkShip('a');
@@ -268,7 +271,7 @@ describe('star shells — denials', () => {
     // always pinned survives verbatim: the slot is NOT the star shell — no
     // flare, no shell, no zone, no mine and no decoy.
     const w = bareWorld();
-    const ml = place(w, 'ml', 'mineLayer', 0, 0);
+    const ml = place(w, 'ml', 'warspite', 0, 0);
     expect(ml.loadout[SLOT_STAR]).toEqual({ equipmentId: null, state: null });
     setInput(ml, { slot: SLOT_STAR });
     expect(w.sinkingActivationGate(ml, SLOT_STAR)).toEqual({ ok: false, reason: 'empty-slot' });
@@ -282,9 +285,9 @@ describe('star shells — denials', () => {
     // WAS "TB slot-2": Story 8.5 moved the boost to its own fixed slot 1 on
     // EVERY captain (amendment 23), so the subject is the boost slot itself.
     const w = bareWorld();
-    const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
+    const tb = place(w, 'tb', 'bismarck', 0, 0);
     expect(tb.loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_BOOST, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_BOOST, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(tb.boostUntil).toBe(0); // the click never reached the ability row
     expect(tb.loadout[SLOT_BOOST].state).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });

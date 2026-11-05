@@ -20,17 +20,18 @@
 // fire: an own torpedo can never damage its own hull, even if its homing
 // later swings it back across the bow).
 
-import { CONFIG, hullSilhouette, polygonMaxRadius, type GameEvent } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, hullSilhouette, polygonMaxRadius, type GameEvent } from '@salvo/shared';
 import type { BotMind, BotSelf, SeenTorpedo } from './types.js';
 
 /** u — Eric's number (amendment 115, 2026-09-29): an inbound enemy torpedo
  *  closer than this, on a collision line, is a HUNKER trigger. */
 export const HUNKER_TORPEDO_U = 150;
 
-/** u — the hull's bounding-circle radius. HUNKER is the Battleship's Shift
- *  alone (class-pinned, amendments 99-102), so the silhouette is that hull's;
- *  the bot's self-read carries no hull id. */
-const BS_HULL_RADIUS_U = polygonMaxRadius(hullSilhouette('battleship'));
+/** u — the hull's bounding-circle radius. HUNKER is any seat's pick since
+ *  Story 10.4, so the line is drawn around the LONGEST of the four hulls'
+ *  bounding circles (a conservative superset for the shorter three — reading
+ *  of record, keeps this module's constants free of the hull id). */
+const BS_HULL_RADIUS_U = Math.max(...SHIP_CLASS_IDS.map((id) => polygonMaxRadius(hullSilhouette(id))));
 
 /** u — a fish's ray passing within this of the hull centre is a collision
  *  line: the silhouette's bounding radius plus the torpedo's own hit radius. */

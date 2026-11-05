@@ -3,12 +3,12 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_GUN, DEFAULT_KIT, GUN_IDS, KIT_SIZE, dealableConsumables, isConsumableKit, mapRadius } from '@salvo/shared';
+import { CONFIG, DEFAULT_KIT, DEFAULT_SHIFT, KIT_SIZE, SHIFT_IDS, dealableConsumables, isConsumableKit, mapRadius } from '@salvo/shared';
 import {
   DEV_LIST_MAX,
   NAME_MAX,
-  sanitizeGun,
   sanitizeKit,
+  sanitizeShift,
   sanitizeName,
   sanitizeRoomOptions,
   type RoomOptions,
@@ -334,13 +334,12 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   });
 });
 
-// sanitizeGun (Story 8.14, epic-8 amendment 95) — THE SEAT'S GUN at both
-// doors, and the whole of what replaced the deck door. It is an IDENTITY option
-// like `cls` and `horn`, not a privileged override: it fails OPEN to `deckGun`
-// and can never refuse a join. All three ids are accepted today;
-// `machineGun`/`flak` mount the shipped deck-gun module until Story 8.15.
+// sanitizeShift (Story 10.4 — the retired sanitizeGun's door, Story 8.14
+// amendment 95) — THE SEAT'S SHIFT at every door. An IDENTITY option like
+// `cls` and `horn`, not a privileged override: it fails OPEN to DEFAULT_SHIFT
+// and can never refuse a join.
 
-// sanitizeKit (Story 10.1, epic-10 amendment 3) — THE SEAT'S KIT, the gun's
+// sanitizeKit (Story 10.1, epic-10 amendment 3) — THE SEAT'S KIT, the Shift's
 // twin: an identity option that fails OPEN to DEFAULT_KIT, logs a
 // present-but-invalid value once (`join.kitCoerced`) and never refuses.
 describe('sanitizeKit — the seat\'s four consumable lines', () => {
@@ -389,27 +388,29 @@ describe('sanitizeKit — the seat\'s four consumable lines', () => {
   });
 });
 
-describe('sanitizeGun — the three ids', () => {
-  it('passes every GunId through verbatim', () => {
-    for (const id of GUN_IDS) expect(sanitizeGun(id)).toBe(id);
-    expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
+describe('sanitizeShift — the seat pick (Story 10.4)', () => {
+  type Log = Parameters<typeof sanitizeShift>[1];
+  it('passes every ShiftId through verbatim', () => {
+    for (const id of SHIFT_IDS) expect(sanitizeShift(id)).toBe(id);
   });
 
-  it('coerces anything else to deckGun — never a throw, never a refusal', () => {
-    for (const bad of ['gun', 'DECKGUN', '', ' deckGun', 'monitor', 42, {}, [], null, true, undefined]) {
-      expect(sanitizeGun(bad), String(bad)).toBe(DEFAULT_GUN);
+  it('coerces anything else — the retired gun ids included — to DEFAULT_SHIFT; never a throw, never a refusal', () => {
+    const shifts: readonly unknown[] = SHIFT_IDS;
+    const bad: unknown[] = ['deckGun', 'machineGun', 'flak', '', 42, {}, [], null, true, undefined];
+    for (const raw of bad) {
+      expect(shifts.includes(raw), String(raw)).toBe(false); // the fixture really is off-list
+      expect(sanitizeShift(raw), String(raw)).toBe(DEFAULT_SHIFT);
     }
-    expect(DEFAULT_GUN).toBe('deckGun');
+    expect(shifts).toContain(DEFAULT_SHIFT);
   });
 
-  it('LOGS a present-but-invalid value once, and says nothing at all about an absent one', () => {
+  it('LOGS a present-but-invalid value once, and says nothing at all about an absent or valid one', () => {
     const lines: { event: string; fields: unknown }[] = [];
-    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) };
-    expect(sanitizeGun('bogus', log as unknown as Parameters<typeof sanitizeGun>[1])).toBe(DEFAULT_GUN);
-    expect(lines).toHaveLength(1);
-    expect(lines[0].event).toBe('join.gunCoerced');
-    sanitizeGun(undefined, log as unknown as Parameters<typeof sanitizeGun>[1]);
-    sanitizeGun('flak', log as unknown as Parameters<typeof sanitizeGun>[1]);
+    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) } as unknown as Log;
+    expect(sanitizeShift('bogus', log)).toBe(DEFAULT_SHIFT);
+    expect(lines.map((l) => l.event)).toEqual(['join.shiftCoerced']);
+    sanitizeShift(undefined, log);
+    for (const id of SHIFT_IDS) sanitizeShift(id, log);
     expect(lines).toHaveLength(1); // absent and valid both stay silent
   });
 });

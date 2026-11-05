@@ -59,7 +59,7 @@
 //    max BARREL click one-shot a 45hp small drone" question is a TICK question,
 //    not an event question, and both readings are reported separately.
 
-import { CONFIG, type ShellState } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, type ShellState } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import { contactBlastRadius } from '../../src/game/equipment/mines.js';
 
@@ -72,6 +72,16 @@ const AMOUNT_EPS = 1e-6;
 function rawSources(): { label: string; amount: number }[] {
   const tickS = CONFIG.tick.simDtMs / 1000;
   return [
+    // THE MAIN BATTERY (Story 10.4): one row per distinct per-hull shell
+    // damage (R2 — every row a `mainBattery` label, so a 24 and a 27 both
+    // classify), its bodyblock, and the secondaries' round. These are the
+    // captain's guns; the `gun` rows below are the drones' cannon now.
+    ...[...new Set(SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].battery.shellDamage))].map((amount) => ({
+      label: 'mainBattery',
+      amount,
+    })),
+    { label: 'mainBatteryBodyblock', amount: CONFIG.mainBattery.contactDamage },
+    { label: 'secondaries', amount: CONFIG.secondaries.damage },
     { label: 'gun', amount: CONFIG.gun.damage },
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
     // Story 8.15: the two pickable guns. The machine gun's direct shell deals
@@ -164,7 +174,9 @@ export type ClassifiedShell = Pick<ShellState, 'kind' | 'damage' | 'family' | 't
  *  never by amount: a machine-gun shell and a flak shell are unambiguous even
  *  where their damage collides with another source. */
 export function classifyShell(shell: ClassifiedShell): string {
-  if (shell.family === 'mg') return 'machineGun';
+  // Story 10.4: the only `mg` rounds left in play are the SECONDARIES (no
+  // captain or drone mounts the machine gun any more).
+  if (shell.family === 'mg') return 'secondaries';
   if (shell.family === 'flak') return 'flak';
   // A CAPTIVE MINE's torpedo is filed by its HIT RULE, never its damage: it
   // is the game's one CONTACT-BLAST projectile (point-less yet carrying a

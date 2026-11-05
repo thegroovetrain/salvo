@@ -12,8 +12,7 @@
 //       232937, the DOM denied 5a6478 muted, and the retired DOM red ff3b30 —
 //       NOT the surviving ratified denied ff3b3b) appear nowhere in the scanned
 //       sources, config.ts, or theme.ts.
-//   (c) structure — the Regatta wheel is exactly 20 unique hues, the fills
-//       derive by rule, no mono register sits below the micro floor, and the
+//   (c) structure — no mono register sits below the micro floor, and the
 //       vitals group reads its bands from shared CONFIG. (The literal-value
 //       identity pins were deleted by Story 9.14: a CONST pin is not a rule.)
 //   (d) util/color hardening — the numeric→CSS projectors mask inputs to 24
@@ -145,37 +144,6 @@ describe('(c) the token table\'s structure — counts, derivations, retirements'
     expect('islandStroke' in C).toBe(false);
   });
 
-  it('the Regatta wheel is 20 hues, all values unique', () => {
-    const values = Object.values(C.players);
-    expect(values).toHaveLength(20);
-    expect(new Set(values).size).toBe(20);
-  });
-
-  it('playerFills are 20 unique values, keyed in wheel order', () => {
-    const values = Object.values(C.playerFills);
-    expect(values).toHaveLength(20);
-    expect(new Set(values).size).toBe(20);
-    // Same key order as the bright wheel (index i → same pilot).
-    expect(Object.keys(C.playerFills)).toEqual(Object.keys(C.players));
-  });
-
-  it('derives EVERY fill by the HSV value ×0.45 rule (round per channel)', () => {
-    // Was 8 of 20: the other 12 were hand-authored DESIGN.md pairs sitting at
-    // ~0.451 and explicitly NOT recomputable. Cycle 125 regenerated the whole
-    // wheel, so no hand-authored pair survives and ONE rule now covers the
-    // table — which makes this a complete check rather than a spot check.
-    // Scaling all gamma-encoded sRGB channels by 0.45 IS an HSV V-scale (H/S
-    // preserved) — Math.round(channel × 0.45) on the stored sRGB bytes, NOT on
-    // linear-light values.
-    const scale045 = (hex: number): number => {
-      const ch = (shift: number): number => Math.round(((hex >> shift) & 0xff) * 0.45);
-      return (ch(16) << 16) | (ch(8) << 8) | ch(0);
-    };
-    for (const name of Object.keys(C.players) as (keyof typeof C.players)[]) {
-      expect(C.playerFills[name], name).toBe(scale045(C.players[name]));
-    }
-  });
-
   it('no MONO register ships below the hudMicro floor (amendment 15)', () => {
     const R = CLIENT_CONFIG.type.registers;
     // (`data` carries no fixed size — context sizes it — so it is skipped by
@@ -238,11 +206,13 @@ describe('(c) the token table\'s structure — counts, derivations, retirements'
   });
 });
 
-describe('(e) textSafe — WCAG 4.5:1 text variants of the Regatta wheel', () => {
+describe('(e) textSafe — WCAG 4.5:1 text variants of the relation colors', () => {
   const VOID = CLIENT_CONFIG.colors.void;
-  const hues = Object.values(CLIENT_CONFIG.colors.players);
+  // Story 10.4 (R6): the 20-hue wheel is gone; the relation strokes are the
+  // hues that ride as TEXT now (the own accent's `accentText`).
+  const hues = [CLIENT_CONFIG.colors.relationOwn, CLIENT_CONFIG.colors.relationEnemy];
 
-  it('lifts every one of the 20 hues to ≥ 4.5:1 against the void as text', () => {
+  it('lifts every relation hue to ≥ 4.5:1 against the void as text', () => {
     for (const hue of hues) {
       expect(contrastRatio(textSafe(hue), VOID), cssHex(hue)).toBeGreaterThanOrEqual(4.5);
     }
@@ -418,79 +388,5 @@ describe('(e) the splash stays separable from a phosphor return (amendment 70)',
     // Exactly three, and they are the tokens — a fourth band, or a band whose
     // color escaped the token table, fails here.
     expect(RAMP_SAMPLES).toEqual([C.echoFaint, C.echoFuzzy, C.echoSolid]);
-  });
-});
-
-// --- (f) the Regatta wheel vs. the SURVIVING reserved bands -------------------
-//
-// DESIGN.md's Regatta Hoist reserves two hue bands from the combatant wheel and
-// only two: AMBER (~25-52°) and the RED FAMILY (~345-25°). They form ONE
-// continuous arc through 0°, so a captain's hull can never be mistaken for the
-// armed/warning register or for the damage/denied family.
-//
-// THE OTHER TWO RESERVATIONS ARE GONE. Storm violet (~266-286°) and the
-// phosphor green band (~±20° around #00FF88) were RETIRED by Eric ruling
-// 2026-08-21 (Story 7-6 question gate B1) — *"i see myself probably expanding
-// the colors and some other shit in the future. Lets maybe just get rid of the
-// 'law' here"* — so `green` (149.8°), `spring` (164.3°) and `jade` (171.6°)
-// legitimately sit where the phosphor band was, and `orchid` (270.9°) where
-// storm violet was. This block pins WHAT SURVIVES, and nothing more.
-//
-// THE ABSENCE OF THIS PIN IS WHY THE DRIFT SHIPPED UNNOTICED. The band
-// predicate has existed since amendment 70 (`inGreenBand` above) but was only
-// ever applied to the combat-effect tokens and the heatmap ramp — never to the
-// wheel itself — so cycle 125's regeneration moved four hues into reserved
-// bands against a green CI. The wheel is now checked against the reserve it
-// still has, whichever way a future palette pass goes.
-//
-// Saturation-gated exactly as `inGreenBand` is (BAND_MIN_SAT), for the same
-// reason: hue carries no perceptual meaning on a near-grey.
-
-/** The reserved arc as DESIGN.md states it — red family ~345-25° running into
- *  amber ~25-52°, i.e. one continuous span through 0°. */
-const RESERVE_FROM = 345;
-const RESERVE_TO = 52;
-
-function inAmberRedReserve(color: number): boolean {
-  const { hue, sat } = hsv(color);
-  if (sat < BAND_MIN_SAT) return false;
-  return hue >= RESERVE_FROM || hue <= RESERVE_TO;
-}
-
-describe('(f) no Regatta hue sits in the surviving amber/red reserve (gate B1)', () => {
-  it('the predicate has TEETH — amber and every red-family token IS inside it', () => {
-    const C = CLIENT_CONFIG.colors;
-    expect(inAmberRedReserve(C.amber)).toBe(true); // #FFB800, 43.3°
-    expect(inAmberRedReserve(C.denied)).toBe(true); // #FF3B3B, 0°
-    expect(inAmberRedReserve(C.danger)).toBe(true); // #8B2020, 0°
-    expect(inAmberRedReserve(C.damageMarker)).toBe(true); // #FF6666, 0°
-    expect(inAmberRedReserve(C.hitBloom)).toBe(true); // #FF9D3D, 29.7°
-    // ...and bare literals at both edges and the wrap, so this stays a real
-    // check even if one of the tokens above is ever retuned out of the band.
-    expect(inAmberRedReserve(0xff0000)).toBe(true); // pure red, 0°
-    expect(inAmberRedReserve(0xffaa00)).toBe(true); // mid-amber, 40°
-    expect(inAmberRedReserve(0xff0033)).toBe(true); // 348° — inside the wrap
-    expect(inAmberRedReserve(0xd6ff00)).toBe(false); // 70° — just past amber
-  });
-
-  it('and it does not swallow the rest of the wheel — phosphor / storm / info are OUTSIDE', () => {
-    const C = CLIENT_CONFIG.colors;
-    expect(inAmberRedReserve(C.phosphor)).toBe(false); // 152°
-    expect(inAmberRedReserve(C.storm)).toBe(false); // 271.9°
-    expect(inAmberRedReserve(C.info)).toBe(false); // 198.4°
-  });
-
-  it('every one of the 20 Regatta outline hues is OUTSIDE the reserve', () => {
-    const players = CLIENT_CONFIG.colors.players;
-    const names = Object.keys(players) as (keyof typeof players)[];
-    expect(names).toHaveLength(20);
-    for (const name of names) expect(inAmberRedReserve(players[name]), name).toBe(false);
-  });
-
-  it('so are the 20 interior fills — the ×0.45 rule preserves hue, and both tables ship', () => {
-    const fills = CLIENT_CONFIG.colors.playerFills;
-    for (const name of Object.keys(fills) as (keyof typeof fills)[]) {
-      expect(inAmberRedReserve(fills[name]), name).toBe(false);
-    }
   });
 });

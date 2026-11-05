@@ -52,7 +52,6 @@
 import {
   type ConsumableKit,
   type EffectiveStats,
-  type GunId,
   type ResultsMsg,
   type ResultsRow,
   type ShipClassId,
@@ -316,14 +315,12 @@ export interface ResultsOwn {
   name: string;
   /** Own ship class — rendered through CLASS_DISPLAY_NAMES. */
   cls: ShipClassId;
-  /** RAW personal hue; lifted through `textSafe()` here exactly as the kill feed
-   *  and the chrome bar lift it (the mockup's own legend: *"darker hues would
-   *  use their text-safe variants"*). */
+  /** RAW own-relation color (Story 10.4 — render/relationColor.ts); lifted
+   *  through `textSafe()` here exactly as the kill feed and the chrome bar lift
+   *  it. */
   hue: number;
   /** Fitted card ids, REPEATS INTACT (`OwnShip.cards`). */
   cards: readonly string[];
-  /** The seat gun (`OwnShip.gun`) — slot 0's mount. */
-  gun: GunId;
   /** The ship's KIT (`OwnShip.kit`, Story 10.1): the four consumable lines in
    *  key order — the LOADOUT twin names a ZERO-STOCK belt square's kind
    *  through `consumableKindAt(kit, slot)`. */

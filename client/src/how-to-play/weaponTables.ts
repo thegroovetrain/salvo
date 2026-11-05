@@ -14,6 +14,8 @@
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   effectiveStats,
   tierTargetOf,
   type CatalogLine,
@@ -36,12 +38,15 @@ export interface StatTable {
   rows: readonly { label: string; values: readonly string[] }[];
 }
 
-/** The hull every equipment table folds against. Equipment stats are
- *  hull-independent (pinned by `weaponTables.test.ts` across all three). */
-const TABLE_HULL: ShipClassId = 'torpedoBoat';
+/** The hull every equipment table folds against. Since Story 10.4 the RELOAD
+ *  and RANGE indices fold into equipment rows, so the numbers are the default
+ *  hull's (the tables' SHAPE is the same on every hull — weaponTables.test.ts).
+ *  How-to-Play's presentation is Story 10.14's. */
+const TABLE_HULL: ShipClassId = DEFAULT_CLASS_ID;
 
-/** The three hulls, in the order the ship-upgrade tables print them. */
-export const TABLE_HULLS: readonly ShipClassId[] = ['torpedoBoat', 'mineLayer', 'battleship'];
+/** The hulls, in the order the ship-upgrade tables print them (Story 10.4:
+ *  the shared menu order; How-to-Play's copy is Story 10.14's). */
+export const TABLE_HULLS: readonly ShipClassId[] = SHIP_CLASS_IDS;
 
 /** Printed where a derived row has no value at some tier (fail-open). */
 const NO_VALUE = '—';

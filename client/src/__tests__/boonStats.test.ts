@@ -9,29 +9,46 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
+  INDEX_IDS,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
   effectiveStats,
+  initialTurrets,
   equipmentMaxAmmo,
   equipmentReloadMs,
+  type HullIndex,
   type OwnShip,
+  type ShipClass,
 } from '@salvo/shared';
 import { pointToastLine } from '../ui/upgradeToast.js';
 import { ownStatsChanged } from '../net/roomBindings.js';
 import { speedLadderFraction } from '../render/helmGlobe.js';
 
-/** Effective stats for a class + an id → stack-count boon build. */
-function statsFor(cls: OwnShip['cls'], boons: Record<string, number> = {}) {
+/** Story 10.4: no shipped hull sits at the base on every index, and RELOAD
+ *  folds into every cooldown — so a pin that reads a CONFIG dial (or a scale
+ *  of exactly 1) at zero cards folds this neutral envelope: the default hull,
+ *  every index at `CONFIG.index.base`. A fixture, never a ship. */
+const NEUTRAL_HULL: ShipClass = {
+  ...CONFIG.shipClasses[DEFAULT_CLASS_ID],
+  index: Object.fromEntries(INDEX_IDS.map((k) => [k, CONFIG.index.base])) as HullIndex,
+};
+
+/** Effective stats for a hull envelope + an id → stack-count boon build. */
+function statsFor(hull: ShipClass, boons: Record<string, number> = {}) {
   const ids: string[] = [];
   for (const [id, n] of Object.entries(boons)) {
     for (let i = 0; i < n; i += 1) ids.push(id);
   }
-  return effectiveStats(CONFIG.shipClasses[cls], ids);
+  return effectiveStats(hull, ids);
 }
 
-function ownShip(cls: OwnShip['cls'], cards: string[] = []): OwnShip {
+function ownShip(cls: OwnShip['cls'], cards: string[] = [], shift: OwnShip['shift'] = DEFAULT_SHIFT): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    ammo: [], sweep: 0, cls, gun: 'deckGun', kit: [...DEFAULT_KIT], pts: 0, offer: [], boostUntil: 0, cards, lvl: 0, xp: 0, repairHp: 0,
+    ammo: [], sweep: 0, cls, shift, turrets: initialTurrets(cls), sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 0, offer: [], boostUntil: 0, cards, lvl: 0, xp: 0, repairHp: 0,
   };
 }
 
@@ -47,24 +64,32 @@ describe('point toast line — pure formatting', () => {
 
 describe('ownStatsChanged — the recompute gate', () => {
   it('fires on the first frame (no previous you)', () => {
-    expect(ownStatsChanged(ownShip('torpedoBoat'), null)).toBe(true);
-    expect(ownStatsChanged(ownShip('torpedoBoat'), undefined)).toBe(true);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID), null)).toBe(true);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID), undefined)).toBe(true);
   });
 
   it('fires on a class change', () => {
-    expect(ownStatsChanged(ownShip('battleship'), ownShip('torpedoBoat'))).toBe(true);
+    const [a, b] = SHIP_CLASS_IDS;
+    expect(ownStatsChanged(ownShip(b), ownShip(a))).toBe(true);
+  });
+
+  // Story 10.4: the Shift is the seat's pick and the loadout's slot 1, so a
+  // Shift swap re-folds the loadout exactly as a class change does.
+  it('fires on a Shift change', () => {
+    const other = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT)!;
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, [], other), ownShip(DEFAULT_CLASS_ID))).toBe(true);
   });
 
   it('stays quiet when cls and the boon list are unchanged (per-frame fast path)', () => {
-    expect(ownStatsChanged(ownShip('torpedoBoat'), ownShip('torpedoBoat'))).toBe(false);
-    const prev = ownShip('torpedoBoat', ['intel', 'intel']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel', 'intel']), prev)).toBe(false);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID), ownShip(DEFAULT_CLASS_ID))).toBe(false);
+    const prev = ownShip(DEFAULT_CLASS_ID, ['intel', 'intel']);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, ['intel', 'intel']), prev)).toBe(false);
   });
 
   it('IGNORES pts/offer-only deltas — banking a level must not fire the stats/fog recompute', () => {
-    const prev = { ...ownShip('torpedoBoat'), pts: 0, offer: [] as string[] };
+    const prev = { ...ownShip(DEFAULT_CLASS_ID), pts: 0, offer: [] as string[] };
     const next = {
-      ...ownShip('torpedoBoat'),
+      ...ownShip(DEFAULT_CLASS_ID),
       pts: 2,
       offer: ['intel', 'armor', 'deckGun', 'navalMines'],
     };
@@ -74,7 +99,7 @@ describe('ownStatsChanged — the recompute gate', () => {
   it('IGNORES the Story 2.6 xp/lvl deltas — the passive tick moves `xp` EVERY frame', () => {
     // The XP fill is a per-frame moving number: if it fed the recompute gate,
     // every single frame would rebuild effective stats and re-bake the fog.
-    const prev = { ...ownShip('torpedoBoat'), lvl: 0, xp: 0.25 };
+    const prev = { ...ownShip(DEFAULT_CLASS_ID), lvl: 0, xp: 0.25 };
     expect(ownStatsChanged({ ...prev, xp: 0.2508333 }, prev)).toBe(false);
     // ...and a LEVEL UP is not a stat change either: the build only moves when
     // the level is SPENT (which lands as a `boons` change, pinned below).
@@ -82,42 +107,42 @@ describe('ownStatsChanged — the recompute gate', () => {
   });
 
   it('fires on ANY boons change: first fit, append, removal, and reorder', () => {
-    const prev = ownShip('torpedoBoat', []);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel']), prev)).toBe(true);
-    const one = ownShip('torpedoBoat', ['intel']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel', 'armor']), one)).toBe(true);
-    expect(ownStatsChanged(ownShip('torpedoBoat', []), one)).toBe(true); // redeploy wipe
-    const two = ownShip('torpedoBoat', ['intel', 'armor']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['armor', 'intel']), two)).toBe(true);
+    const prev = ownShip(DEFAULT_CLASS_ID, []);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, ['intel']), prev)).toBe(true);
+    const one = ownShip(DEFAULT_CLASS_ID, ['intel']);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, ['intel', 'armor']), one)).toBe(true);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, []), one)).toBe(true); // redeploy wipe
+    const two = ownShip(DEFAULT_CLASS_ID, ['intel', 'armor']);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, ['armor', 'intel']), two)).toBe(true);
   });
 
   it('fires on a REPEAT of a line already held — a stack is a real stat change', () => {
     // The deck's copy-count law: occurrences stack, so appending the SAME id is
     // exactly as load-bearing as appending a new one.
-    const one = ownShip('torpedoBoat', ['intel']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel', 'intel']), one)).toBe(true);
+    const one = ownShip(DEFAULT_CLASS_ID, ['intel']);
+    expect(ownStatsChanged(ownShip(DEFAULT_CLASS_ID, ['intel', 'intel']), one)).toBe(true);
   });
 
   it('fires on a DOCTRINE SWAP — the rival id replaces the held one in place', () => {
-    const homing = ownShip('torpedoBoat', ['heavyTorpedo', 'acousticHoming']);
-    const command = ownShip('torpedoBoat', ['heavyTorpedo', 'mineSelfPropelled']);
+    const homing = ownShip(DEFAULT_CLASS_ID, ['heavyTorpedo', 'acousticHoming']);
+    const command = ownShip(DEFAULT_CLASS_ID, ['heavyTorpedo', 'mineSelfPropelled']);
     expect(ownStatsChanged(command, homing)).toBe(true);
   });
 
   it('stays quiet on an IDENTICAL cards list in a fresh array (per-frame reallocation must not refire)', () => {
-    const prev = ownShip('torpedoBoat', ['intel', 'armor']);
-    const next = ownShip('torpedoBoat', ['intel', 'armor']);
+    const prev = ownShip(DEFAULT_CLASS_ID, ['intel', 'armor']);
+    const next = ownShip(DEFAULT_CLASS_ID, ['intel', 'armor']);
     expect(next.cards).not.toBe(prev.cards); // genuinely fresh arrays
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
 });
 
 describe('HUD denominators react to effective stats', () => {
-  const TB = CONFIG.shipClasses.torpedoBoat;
+  const TB = NEUTRAL_HULL;
 
   it('speed ladder: at the same true speed, a SPEED stack reads a LOWER fraction', () => {
     const base = effectiveStats(TB).kinematics;
-    const fast = statsFor('torpedoBoat', { engines: 2 }).kinematics;
+    const fast = statsFor(TB, { engines: 2 }).kinematics;
     expect(speedLadderFraction(20, fast)).toBeLessThan(speedLadderFraction(20, base));
     // Full ahead at the STACKED max still pins the needle at exactly 1.
     expect(speedLadderFraction(fast.maxSpeed, fast)).toBe(1);
@@ -130,8 +155,8 @@ describe('HUD denominators react to effective stats', () => {
     // Since amendment 197 the turret is the CANNON ladder's rung to III (its
     // second card), not a card of its own: one card leaves the pool alone.
     expect(equipmentMaxAmmo(effectiveStats(TB), 'gun')).toBe(CONFIG.gun.maxAmmo);
-    expect(equipmentMaxAmmo(statsFor('torpedoBoat', { deckGun: 1 }), 'gun')).toBe(CONFIG.gun.maxAmmo);
-    const turret = statsFor('torpedoBoat', { deckGun: 2 });
+    expect(equipmentMaxAmmo(statsFor(TB, { deckGun: 1 }), 'gun')).toBe(CONFIG.gun.maxAmmo);
+    const turret = statsFor(TB, { deckGun: 2 });
     expect(equipmentMaxAmmo(turret, 'gun')).toBe(CONFIG.gun.maxAmmo + 1);
   });
 
@@ -141,7 +166,7 @@ describe('HUD denominators react to effective stats', () => {
   // per copy to 50 %.
   it('cooldown chips: ONE RELOAD stack scales every equipment reload at once', () => {
     const base = effectiveStats(TB);
-    const drilled = statsFor('torpedoBoat', { reload: 1 });
+    const drilled = statsFor(TB, { reload: 1 });
     expect(drilled.cooldownScale).toBeLessThan(1);
     expect(drilled.cooldownScale).toBeGreaterThan(0);
     for (const id of ['gun', 'broadside', 'heavyTorpedo', 'navalMines', 'starShells', 'boost'] as const) {
@@ -161,8 +186,8 @@ describe('HUD denominators react to effective stats', () => {
   // compounded per-card multiplier.
   it('a FULL RELOAD stack follows the haste law (never compounding) and lands on the chips', () => {
     const base = CONFIG.index.base;
-    const one = statsFor('battleship', { reload: 1 });
-    const maxed = statsFor('battleship', { reload: 5 });
+    const one = statsFor(TB, { reload: 1 });
+    const maxed = statsFor(TB, { reload: 5 });
     expect(maxed.reload - base).toBe(5 * (one.reload - base));
     expect(maxed.cooldownScale).toBeCloseTo(1 / (1 + (maxed.reload - base) / base), 3);
     expect(maxed.cooldownScale).not.toBeCloseTo(one.cooldownScale ** 5, 3);
@@ -174,12 +199,12 @@ describe('HUD denominators react to effective stats', () => {
   // exact after clampStats' 3-decimal rounding, so no reachable stack can leave
   // float dust that costs a whole 50ms ammo tick.
   it('walks a dust-free, strictly descending scale ladder at every reachable stack (0..5)', () => {
-    const ladder = [0, 1, 2, 3, 4, 5].map((n) => statsFor('battleship', { reload: n }).cooldownScale);
+    const ladder = [0, 1, 2, 3, 4, 5].map((n) => statsFor(TB, { reload: n }).cooldownScale);
     expect(ladder[0]).toBe(1);
     ladder.forEach((scale, n) => {
       expect(scale, `stack ${n} carries no float dust`).toBe(Math.round(scale * 1000) / 1000);
       if (n > 0) expect(scale, `stack ${n}`).toBeLessThan(ladder[n - 1]);
-      const s = statsFor('battleship', { reload: n });
+      const s = statsFor(TB, { reload: n });
       expect(equipmentReloadMs(s, 'gun'), `gun @ ${n}`).toBe(CONFIG.gun.reloadMs * scale);
       expect(equipmentReloadMs(s, 'broadside'), `broadside @ ${n}`).toBe(CONFIG.broadside.reloadMs * scale);
     });

@@ -3,7 +3,7 @@ import { stepShip, approach, type ShipState, type ShipInput } from '../sim/ship.
 import { CONFIG } from '../constants.js';
 import { effectiveStats } from '../sim/stats.js';
 
-const cfg = effectiveStats(CONFIG.shipClasses.mineLayer).kinematics;
+const cfg = effectiveStats(CONFIG.shipClasses.warspite).kinematics;
 const DT = CONFIG.tick.simDtMs / 1000; // 0.05s
 
 function fresh(over: Partial<ShipState> = {}): ShipState {

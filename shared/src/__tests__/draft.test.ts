@@ -21,7 +21,7 @@ import {
 
 /** A representative Torpedo Boat kinematics block. */
 function tbKinematics(): ShipConfig {
-  return { ...effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics };
+  return { ...effectiveStats(CONFIG.shipClasses.iowa).kinematics };
 }
 
 describe('CONFIG.wake.draft — the drafting dials (amendments 151–152)', () => {

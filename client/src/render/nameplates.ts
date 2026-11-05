@@ -11,9 +11,9 @@
 // at its hull's PROJECTED screen position (the same camera transform the hull
 // gets) and bottom-center anchored above the hull's bounding circle.
 //
-// Latch discipline (mirrors render/contacts.ts tryRecolor / render/hueLatch.ts):
-// a plate's text + color are resolved ONCE — the moment the roster name/hue land —
-// then latched. A human contact whose name/color hasn't synced gets NO plate (we
+// Latch discipline: a plate's text + color are resolved ONCE — the moment the
+// roster name lands — then latched. A human contact whose name hasn't synced
+// gets NO plate (we
 // never render a session id); once latched, the plate persists even if the player
 // later leaves the roster. Per-frame work is position + alpha writes only (Pixi
 // re-rasterizes Text on .text assignment, so the driver only calls set() once).
@@ -23,7 +23,6 @@ import { hullSilhouette, polygonMaxRadius, HULL_IDS, type HullId } from '@salvo/
 import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
 import { ellipsizeName, NAME_MAX } from '../util/text.js';
-import { PLAYER_HUES } from './ships.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -52,12 +51,10 @@ export function plateText(name: string): string {
 }
 
 /** Plate text color: a drone is the `droneOutline` grey VERBATIM (never through
- *  textSafe); a human is its personal hue's text-safe (≥4.5:1) variant. The
- *  caller only passes a human `hueIndex` once it has resolved (non-null). */
-export function plateColor(hueIndex: number, isDrone: boolean): number {
-  // `?? amber` guards an out-of-range index so textSafe never gets undefined —
-  // belt-and-braces like the 1.12 siblings (amber is the roster-miss fallback).
-  return isDrone ? C.droneOutline : textSafe(PLAYER_HUES[hueIndex] ?? C.amber);
+ *  textSafe); a captain is its RELATION stroke's text-safe (≥4.5:1) variant
+ *  (Story 10.4 — render/relationColor.ts). */
+export function plateColor(stroke: number, isDrone: boolean): number {
+  return isDrone ? C.droneOutline : textSafe(stroke);
 }
 
 /**
@@ -75,35 +72,36 @@ export const DRONE_PLATE_TEXT = 'DRONE';
 
 /** The plate a hull should show, or null when it cannot yet resolve (the latch
  *  gate): a drone always resolves to the literal "DRONE" (never its roster
- *  "DRONE-NN" name); a human needs BOTH a synced name and a hue index. */
+ *  "DRONE-NN" name); a captain needs a synced name. `stroke` is the captain's
+ *  relation stroke. */
 export function resolvePlate(
   name: string | null,
-  hueIndex: number | null,
+  stroke: number,
   isDrone: boolean,
 ): { text: string; color: number } | null {
-  if (isDrone) return { text: DRONE_PLATE_TEXT, color: plateColor(0, true) };
-  if (name === null || hueIndex === null) return null;
+  if (isDrone) return { text: DRONE_PLATE_TEXT, color: plateColor(stroke, true) };
+  if (name === null) return null;
   // Strip control chars only (a newline must never reach Pixi as a multi-line
   // plate) — KEEP format chars (\p{Cf}) so emoji ZWJ sequences survive intact.
   // A name that is empty or ALL whitespace/format chars can't latch a blank
   // plate: treat as unresolved (null) so the driver keeps retrying.
   const stripped = name.replace(/\p{Cc}/gu, '');
   if ([...stripped].every((ch) => /[\s\p{Cf}]/u.test(ch))) return null;
-  return { text: plateText(stripped), color: plateColor(hueIndex, false) };
+  return { text: plateText(stripped), color: plateColor(stroke, false) };
 }
 
 /** One latch step for a plate driver: given the current latch flag + resolver
  *  inputs, the plate to SET this frame (null = set nothing) and the next latch.
  *  Once latched it never re-resolves — the plate persists even if the roster
- *  entry later vanishes (name/hue back to null). */
+ *  entry later vanishes (name back to null). */
 export function latchPlate(
   latched: boolean,
   name: string | null,
-  hueIndex: number | null,
+  stroke: number,
   isDrone: boolean,
 ): { plate: { text: string; color: number } | null; latched: boolean } {
   if (latched) return { plate: null, latched: true };
-  const plate = resolvePlate(name, hueIndex, isDrone);
+  const plate = resolvePlate(name, stroke, isDrone);
   return { plate, latched: plate !== null };
 }
 

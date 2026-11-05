@@ -23,9 +23,9 @@
 //   THE SEED TRIPWIRE IS RETIRED (Story 8.10): the interim spawn-seed table is
 //   deleted, so a hull's weapon row holds nothing but the cards it is dealt.
 //
-// 2. THE SEAT'S GUN (Story 8.14, amendment 95): `loadoutFor(stats, fleet, gun)`
-//    mounts slot 0 from MOUNTED_GUN — each seat gun on its OWN module since
-//    Story 8.15 (amendments 103–105).
+// 2. THE SEAT'S SHIFT (Story 10.4, R7): `loadoutFor(stats, fleet, shift)`
+//    mounts the MAIN BATTERY in slot 0 on every captain and the seat's Shift
+//    in slot 1; the seat-gun pick (Story 8.14) is gone.
 //
 // 3. THE PER-KIT PLACEMENT PROPERTY (Story 9.2, re-cut in Story 10.1): for any
 //    kit, slot `5 + i` holds `kit[i]` and nothing else over any reachable
@@ -37,11 +37,10 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONSUMABLE_IDS,
-  DEFAULT_GUN,
+  DEFAULT_SHIFT,
   EQUIPMENT_IS_WEAPON,
-  GUN_IDS,
+  SHIFT_IDS,
   LINE_IDS,
-  MOUNTED_GUN,
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
@@ -55,9 +54,7 @@ import {
   SLOT_COUNT,
   SLOT_GUN,
   applySlotEffect,
-  classShift,
   effectiveStats,
-  isGunId,
   hullEnvelope,
   isStubLine,
   loadoutFor,
@@ -127,7 +124,7 @@ function randomReachableHand(rng: Rng): { cards: LineId[]; equipment: LineId[] }
 describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card the weapon row', () => {
   it('over 250 random reachable hands: no fill is refused, and the row holds exactly the non-stub equipment', () => {
     const rng = mulberry32(0x9510_75);
-    const stats = effectiveStats(hullEnvelope('torpedoBoat'));
+    const stats = effectiveStats(hullEnvelope('iowa'));
     for (let trial = 0; trial < 250; trial += 1) {
       const { cards, equipment } = randomReachableHand(rng);
       const label = `trial ${trial}`;
@@ -158,8 +155,8 @@ describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card th
       expect([...fitted].sort(), label).toEqual([...(expected as unknown as EquipmentId[])].sort());
       // ...and the fill never left the weapon row: gun, boost and the consumable slots are
       // exactly as loadoutFor built them.
-      expect(loadout[SLOT_GUN].equipmentId, label).toBe('gun');
-      expect(loadout[SLOT_BOOST].equipmentId, label).toBe('boost');
+      expect(loadout[SLOT_GUN].equipmentId, label).toBe('mainBattery');
+      expect(loadout[SLOT_BOOST].equipmentId, label).toBe(DEFAULT_SHIFT);
       for (const i of CONSUMABLE_SLOTS) {
         expect(loadout[i], `${label}:consumable ${i}`).toEqual({ equipmentId: null, state: null });
       }
@@ -169,60 +166,38 @@ describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card th
 });
 
 // ---------------------------------------------------------------------------
-// THE SEAT'S GUN (Story 8.14, Eric rulings 2026-09-21/22, epic-8 amendments
-// 89d/95). The gun is the captain's PICK, frozen at queue; slot 0 mounts the
-// module MOUNTED_GUN names for it. STORY 8.15 gave the machine gun and the
-// flak gun their own modules (amendments 103–105), ending the 8.14 interim in
-// which all three mounted the deck-gun module.
+// THE SEAT'S SHIFT (Story 10.4, Eric 2026-11-04, R7, epic-10 amendment 9).
+// Slot 0 is the MAIN BATTERY on every captain; the Shift is the captain's
+// pick, frozen at queue, in slot 1. The seat-gun pick (Story 8.14/8.15 — deck
+// gun / machine gun / flak, each on its own module) is gone.
 // ---------------------------------------------------------------------------
 
-describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
-  const stats = effectiveStats(hullEnvelope('torpedoBoat'));
-
-  it('each seat gun mounts ITS OWN module (Story 8.15): deckGun→gun, machineGun→machineGun, flak→flak', () => {
-    expect(MOUNTED_GUN.deckGun).toBe('gun');
-    expect(MOUNTED_GUN.machineGun).toBe('machineGun');
-    expect(MOUNTED_GUN.flak).toBe('flak');
-    expect(new Set(GUN_IDS.map((g) => MOUNTED_GUN[g])).size).toBe(GUN_IDS.length); // no two share one
-  });
-
-  it.each(GUN_IDS)('%s mounts its module in slot 0 with a FULL pool', (gun) => {
-    const eq = MOUNTED_GUN[gun];
-    const loadout = loadoutFor(stats, false, gun);
-    expect(loadout[SLOT_GUN]).toEqual({ equipmentId: eq, state: { n: stats.equipment[eq].maxAmmo, reloadMsLeft: 0 } });
-    expect(loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    expect(loadout).toHaveLength(SLOT_COUNT);
-    expect(EQUIPMENT_IS_WEAPON[eq]).toBe(true);
-  });
-
-  it('the Shift rides beside ANY gun: every (gun × hull) seat fits slot 0 from the gun and slot 1 from the hull', () => {
+describe("loadoutFor(stats, fleet, shift) — slot 0 is the main battery, slot 1 the SEAT'S Shift", () => {
+  it('every (hull × Shift) seat fits the battery with every turret loaded, and the client replay lands on the SAME fit', () => {
     for (const cls of SHIP_CLASS_IDS) {
       const clsStats = effectiveStats(hullEnvelope(cls));
-      for (const gun of GUN_IDS) {
-        const loadout = loadoutFor(clsStats, false, gun, classShift(cls));
-        expect(loadout[SLOT_GUN].equipmentId, `${cls}/${gun}`).toBe(MOUNTED_GUN[gun]);
-        expect(loadout[SLOT_BOOST].equipmentId, `${cls}/${gun}`).toBe(classShift(cls));
-        // The client replay (slotsWithCards) lands on the SAME fit.
-        expect(slotsWithCards(clsStats, [], DEFAULT_KIT, CATALOG, false, gun, classShift(cls)), `${cls}/${gun}`).toEqual(loadout);
+      for (const shift of SHIFT_IDS) {
+        const loadout = loadoutFor(clsStats, false, shift);
+        expect(loadout[SLOT_GUN], `${cls}/${shift}`).toEqual({
+          equipmentId: 'mainBattery',
+          state: { n: clsStats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 },
+        });
+        expect(loadout[SLOT_BOOST].equipmentId, `${cls}/${shift}`).toBe(shift);
+        expect(loadout).toHaveLength(SLOT_COUNT);
+        expect(slotsWithCards(clsStats, [], DEFAULT_KIT, CATALOG, false, shift), `${cls}/${shift}`).toEqual(loadout);
       }
     }
+    expect(EQUIPMENT_IS_WEAPON.mainBattery).toBe(true);
   });
 
-  it('the default gun is the deck gun, and the fleet fit is gun-only whatever the seat says', () => {
-    expect(DEFAULT_GUN).toBe('deckGun');
-    expect(loadoutFor(stats)).toEqual(loadoutFor(stats, false, 'deckGun'));
-    for (const gun of GUN_IDS) {
-      const drone = loadoutFor(stats, true, gun);
-      expect(drone[SLOT_GUN].equipmentId, gun).toBe('gun');
-      expect(drone[SLOT_BOOST].equipmentId, gun).toBeNull();
-      for (const i of WEAPON_SLOTS) expect(drone[i].equipmentId, gun).toBeNull();
-    }
-  });
-
-  it('isGunId is the one narrowing guard, and it fails closed', () => {
-    for (const gun of GUN_IDS) expect(isGunId(gun)).toBe(true);
-    for (const junk of ['gun', 'monitor', '', 'DECKGUN', null, undefined, 3, {}]) {
-      expect(isGunId(junk), String(junk)).toBe(false);
+  it('the default Shift fits when none is named, and the fleet fit is gun-only whatever Shift is passed', () => {
+    const stats = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]));
+    expect(loadoutFor(stats)).toEqual(loadoutFor(stats, false, DEFAULT_SHIFT));
+    for (const shift of SHIFT_IDS) {
+      const drone = loadoutFor(stats, true, shift);
+      expect(drone[SLOT_GUN].equipmentId, shift).toBe('gun');
+      expect(drone[SLOT_BOOST].equipmentId, shift).toBeNull();
+      for (const i of WEAPON_SLOTS) expect(drone[i].equipmentId, shift).toBeNull();
     }
   });
 });
@@ -277,7 +252,7 @@ function expectKitPlacement(
 describe('THE PER-KIT PLACEMENT PROPERTY — the consumable slots over sampled kits, random reachable hands and random pick orders', () => {
   it('over 200 trials: slot 5+i holds kit[i] and nothing else, n = copies held, weapons untouched, order-invariant', () => {
     const rng = mulberry32(0x8_7_be17);
-    const stats = effectiveStats(hullEnvelope('torpedoBoat'));
+    const stats = effectiveStats(hullEnvelope('iowa'));
     for (let trial = 0; trial < 200; trial += 1) {
       const kit = rollKit(rng.next);
       expect(isConsumableKit(kit)).toBe(true);

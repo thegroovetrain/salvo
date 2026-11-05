@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
   INDEX_IDS,
   CONSUMABLE_IDS,
   CONSUMABLE_SLOTS,
@@ -98,7 +99,7 @@ const BELT_CASES: Case[] = CONSUMABLE_IDS.flatMap((id) =>
   CONSUMABLE_SLOTS.map((slot) => ({
     label: `${id}/belt ${slot}`,
     // The deepest stock the belt can print (the line's cap) — the longest `×n`.
-    model: tooltipModel(slot, id, effectiveStats(CONFIG.shipClasses.torpedoBoat), [], CATALOG[id].cap)!,
+    model: tooltipModel(slot, id, effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]), [], CATALOG[id].cap)!,
     anchor: FLOOR.squares[slot],
   })),
 );

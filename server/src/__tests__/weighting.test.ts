@@ -21,7 +21,7 @@
 // pins the wire half over random worlds.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_GUN, lineWeight, type LineId } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, lineWeight, type LineId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -39,7 +39,7 @@ function bareWorld(seed = 9): World {
 }
 
 const captain = (w: World, id: string): ShipRecord =>
-  w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
 
 /** This ship's weight for one line — ABSENT means the base 1.0, which is what
  *  `sim/draw.ts` reads an absent id as. */
@@ -78,7 +78,7 @@ describe('the take ledger — what goes in, and what never does', () => {
 
   it('a DEV SPAWN FIT counts as a take — it goes through the same applyCard', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, [WEAPON]);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined, [WEAPON]);
     expect(a.cards).toEqual([WEAPON]);
     expect([...w.takes.get(WEAPON)!]).toEqual(['a']);
   });

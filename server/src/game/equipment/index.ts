@@ -32,6 +32,7 @@ import {
 import type { ShipRecord } from '../world.js';
 import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
+import { mainBatteryEquipment } from './mainBattery.js';
 import { lightTorpedoEquipment, torpedoEquipment } from './torpedoes.js';
 import { captiveMineEquipment, foulingMineEquipment, mineEquipment } from './mines.js';
 import { boostEquipment } from './boost.js';
@@ -261,6 +262,7 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
   instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
   hunker: hunkerEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
+  mainBattery: mainBatteryEquipment, // Story 10.4: the captain's slot 0 — per-turret traverse + reload (R2/R4)
 });
 
 /**
@@ -323,6 +325,8 @@ export { hunkerEquipment } from './hunker.js';
 export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
+export { mainBatteryEquipment, syncBatterySlot } from './mainBattery.js';
+export { fireSecondaryRound } from './secondaries.js';
 export { torpedoEquipment, lightTorpedoEquipment, fireTorpedo, type TorpedoLineId } from './torpedoes.js';
 export {
   launchTorpedo,

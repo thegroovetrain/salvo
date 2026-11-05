@@ -95,6 +95,7 @@ import { CATALOG, type Catalog } from './catalog.js';
 import { EQUIPMENT_INT_FIELDS } from './effects.js';
 import { EQUIPMENT_IDS, type EquipmentId } from './loadout.js';
 import { deriveIndexStats, round3, scaleDeckGunRange } from './indexStats.js';
+import { secondaryReachU } from './secondaries.js';
 
 /**
  * What EVERY equipment row carries (Story 8.1).
@@ -223,6 +224,24 @@ export interface EffectiveFlak extends EquipmentRowCommon {
  * amendments 97–98): a pool and a cooldown, nothing else — the effect itself
  * (finish each running reload once) has no number to carry.
  */
+/**
+ * THE MAIN BATTERY row (Story 10.4, Eric 2026-11-04, epic-10 amendment 9) — a
+ * captain's slot 0. `reloadMs` is PER TURRET (post-RELOAD, like every row);
+ * `maxAmmo` is the hull's TURRET COUNT (the slot's `n` is "turrets ready");
+ * `damage` is the hull's per-shell `battery.shellDamage`. Guns per turret,
+ * stations and train limits are hull geometry and stay on
+ * `CONFIG.shipClasses.<id>.battery` (sim/turrets.ts reads them by hull id).
+ * A hull with NO battery (a PvE drone envelope) carries an INERT row — zero
+ * turrets, zero damage — because the record is total over `EquipmentId`; a
+ * drone never mounts it.
+ */
+export interface EffectiveMainBattery extends EquipmentRowCommon {
+  rangeU: number; // u — max shell travel from the firing turret's station — CONFIG.mainBattery.rangeU × RANGE / 100
+  damage: number; // hp per shell (per burst victim)
+  contactDamage: number; // hp to an early interceptor outside the blast
+  burstRadius: number; // u — blast radius around each shell's own point
+}
+
 export type EffectiveInstantReload = EquipmentRowCommon;
 
 /**
@@ -291,7 +310,8 @@ export type EquipmentStatRow =
   | EffectiveStarShells
   | EffectivePhosphorShells
   | EffectiveInstantReload
-  | EffectiveHunker;
+  | EffectiveHunker
+  | EffectiveMainBattery;
 
 /**
  * THE TOTAL equipment record (Story 8.1) — one row per `EquipmentId`, present
@@ -315,6 +335,7 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   phosphorShells: EffectivePhosphorShells;
   instantReload: EffectiveInstantReload;
   hunker: EffectiveHunker;
+  mainBattery: EffectiveMainBattery;
 }
 
 /**
@@ -340,6 +361,14 @@ export interface EffectiveStats {
   sweepRpm: number; // rev/min — DERIVED: CONFIG.vision.sweepRpm × intel / 100, capped at sweepRpmMax
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
   sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 3 (the 4/12 rung)
+  /**
+   * u — THE SECONDARIES' reach (Story 10.4, R3): DERIVED post-fold as
+   * `equipment.mainBattery.rangeU × CONFIG.secondaries.rangeFrac`, measured
+   * from the ship centre. The secondaries have no slot and no equipment row
+   * (heat, not ammo — sim/secondaries.ts); their damage, rate and heat times
+   * are `CONFIG.secondaries` constants that no index touches.
+   */
+  secondaryRangeU: number;
   // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
   // (clampStats). DERIVED from the RELOAD index by the haste law (ruling 14):
   // 1 / (1 + (reload − 100) / 100), round3'd — 1 at base, 0.5 at RELOAD 200.
@@ -627,9 +656,28 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
 }
 
 /** THE total equipment record at base. Every id present, every tier 1. */
+/**
+ * THE MAIN BATTERY at zero cards (Story 10.4): the shared half from
+ * `CONFIG.mainBattery`, the per-hull half (turret count, shell damage) from
+ * the envelope's `battery`. An envelope without one (a PvE drone) gets the
+ * inert row — see `EffectiveMainBattery`.
+ */
+function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
+  return {
+    tier: 1,
+    reloadMs: CONFIG.mainBattery.reloadMs,
+    maxAmmo: cls.battery?.turrets.length ?? 0,
+    rangeU: CONFIG.mainBattery.rangeU,
+    damage: cls.battery?.shellDamage ?? 0,
+    contactDamage: CONFIG.mainBattery.contactDamage,
+    burstRadius: CONFIG.mainBattery.burstRadius,
+  };
+}
+
 function baseEquipment(cls: ShipClass): EquipmentRows {
   return {
     gun: gunRow(cls),
+    mainBattery: mainBatteryRow(cls),
     // THE SPEED BOOST (Story 8.9; the Torpedo Boat's Shift since 8.15):
     // `CONFIG.boost` verbatim — the reload then takes `cooldownScale` in
     // clampStats like every row.
@@ -689,6 +737,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
     sweepRpm: 0, // DERIVED below (INTEL)
     sweepPeriodMs: 0, // DERIVED below (INTEL)
     sightRange: CONFIG.vision.sight,
+    secondaryRangeU: 0, // DERIVED in clampStats (the folded main reach × CONFIG.secondaries.rangeFrac)
     cooldownScale: 0, // DERIVED below (RELOAD)
     armor: cls.index.armor,
     damageMultiplier: 0, // DERIVED below (ARMOR)
@@ -905,6 +954,10 @@ function clampStats(stats: EffectiveStats): void {
   // THE RANGE INDEX, applied ONCE, post-fold, to the four deck-gun rows (the
   // one-shot sibling of the reload multiply — never in rePinDerived).
   scaleDeckGunRange(stats);
+  // THE SECONDARIES' REACH (Story 10.4, R3): half the hull's FOLDED main
+  // reach — derived here, after the one-shot RANGE multiply, and nowhere
+  // else. Not a stat path: no card addresses it.
+  stats.secondaryRangeU = secondaryReachU(eq.mainBattery.rangeU);
   // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
   // row — one site, no per-weapon special case (see reloadTierScale).
   for (const id of EQUIPMENT_IDS) {

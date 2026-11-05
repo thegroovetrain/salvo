@@ -182,6 +182,8 @@ export type OwnFire =
   // per shell off the held level (OwnFireLatch.claimStream), never the click.
   | 'flak'
   | 'machineGun'
+  // STORY 10.4: the MAIN BATTERY's salvo (cannon shells, the click latch).
+  | 'mainBattery'
   | null;
 
 /**

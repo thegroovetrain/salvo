@@ -22,6 +22,7 @@ import {
   CATALOG,
   type LineId,
   CONFIG,
+  DEFAULT_CLASS_ID,
   effectiveStats,
   damageMultiplierFor,
   publishedDamageMultiplier,
@@ -104,7 +105,7 @@ function onClickRow(turrets: number, s: number): string {
     const phi = deg(phiDeg);
     const counts = [100, 200, 300, 412.5].map((r) => {
       const click = { x: r * Math.sin(phi), y: r * Math.cos(phi) };
-      return turretAimPoints(PROBE_POSE, 'battleship', turrets, 1, click, tau, ms, 5000).filter((t) => t.onClick).length;
+      return turretAimPoints(PROBE_POSE, DEFAULT_CLASS_ID, turrets, 1, click, tau, ms, 5000).filter((t) => t.onClick).length;
     });
     cells.push(`${String(phiDeg).padStart(2)}°:${counts.join('/')}`);
   }
@@ -118,7 +119,7 @@ function landedRow(hullId: HullId, aspectName: string, head: number, turrets: nu
   for (let s = 0; s < b.traverseDeg.length; s += 1) {
     const click = { x: 0, y: R }; // dead abeam of the firing battleship
     const { tau, ms } = rungArc(s);
-    const aims = turretAimPoints(PROBE_POSE, 'battleship', turrets, 1, click, tau, ms, 5000);
+    const aims = turretAimPoints(PROBE_POSE, DEFAULT_CLASS_ID, turrets, 1, click, tau, ms, 5000);
     const landed = shellsOn(aims.map((t) => t.target), b.burstRadius, hullAt(hullId, click, head));
     cells.push(String(landed).padStart(7));
   }
@@ -206,14 +207,14 @@ function statsBlock(): void {
   console.log(`stack: ${universal.map((id) => `${id}x${CATALOG[id].cap}`).join(' ')}`);
   // THE INDEX READOUT (Story 10.3, Eric 2026-11-04, epic-10 amendment 8): the
   // seven authored indices, then what the fold DERIVES from them (speed u/s,
-  // sweep RPM, the cooldown scale, the deck gun's reach), then the two gate
+  // sweep RPM, the cooldown scale, the main battery's reach — Story 10.4), then the two gate
   // reads — `dmgMult` is the hull's published multiplier against an AVERAGE
   // attacker (publishedDamageMultiplier), `pierceMult` what its POWER does to
   // an AVERAGE victim (E = base ARMOR − POWER). Hull hp is never printed: it is
   // 1000 on every hull and a captain only ever reads it as a percent.
   console.log(
     `${'class'.padEnd(18)} | ${INDEX_IDS.map((id) => id.padStart(7)).join(' ')} | ` +
-      `${'speed'.padStart(6)} ${'rpm'.padStart(5)} ${'cdScale'.padStart(7)} ${'gunRangeU'.padStart(9)} | ` +
+      `${'speed'.padStart(6)} ${'rpm'.padStart(5)} ${'cdScale'.padStart(7)} ${'mainRangeU'.padStart(10)} | ` +
       `${'dmgMult'.padStart(7)} ${'pierceMult'.padStart(10)}`,
   );
   for (const cls of SHIP_CLASS_IDS) {
@@ -222,7 +223,7 @@ function statsBlock(): void {
       console.log(
         `${(cls + ' ' + tag).padEnd(18)} | ${INDEX_IDS.map((id) => fmt(st[id], 0).padStart(7)).join(' ')} | ` +
           `${fmt(st.kinematics.maxSpeed).padStart(6)} ${fmt(st.sweepRpm).padStart(5)} ${fmt(st.cooldownScale, 3).padStart(7)} ` +
-          `${fmt(st.equipment.gun.rangeU).padStart(9)} | ${fmt(publishedDamageMultiplier(st.armor), 3).padStart(7)} ` +
+          `${fmt(st.equipment.mainBattery.rangeU).padStart(10)} | ${fmt(publishedDamageMultiplier(st.armor), 3).padStart(7)} ` +
           `${fmt(damageMultiplierFor(CONFIG.index.base - st.power), 3).padStart(10)}`,
       );
     }

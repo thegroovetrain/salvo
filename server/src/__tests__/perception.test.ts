@@ -31,11 +31,17 @@
 // reveal carries `w`, the gun family from the fixed three-word set — nothing
 // range-derivable, no identity, never on a `torp` — see assertBallisticShape
 // and verifyBallistic; and it pins three more SELF-PRIVATE fields on the
-// boostUntil terms: `hunkerUntil` (the Battleship's Shift window), the
-// seat's `gun` and the held-fire level `held` may exist NOWHERE but the
-// observer's own `you` (see verifyFrame). The fuzz seats every ship with a
-// RANDOM gun and drives a random `held` level, so machine-gun streams, flak
-// bursts and cannon salvos all flow through the oracle. Story 9.3 (the
+// boostUntil terms: `hunkerUntil` (the HUNKER Shift's window), the
+// seat's pick and the held-fire level `held` may exist NOWHERE but the
+// observer's own `you` (see verifyFrame). Story 10.4 re-points that pin: the
+// seat's pick is the SHIFT, the turrets' reloads and the secondaries' heat /
+// lock are self-private on the same terms, the retired `gun` key rides
+// nowhere, and a sighted hull's turret ANGLES (`tu`) ride its contact row and
+// nothing else — an extension of a sighted contact, not a seventh exception
+// (verifyBatteryPrivacy). The fuzz seats every ship with a RANDOM Shift, a
+// random hull and scrambled turret angles / reloads, and drives a random
+// level on both `held` and `sec`, so main-battery salvos and secondaries
+// rounds all flow through the oracle. Story 9.3 (the
 // MULTI-SPECTRAL COUNTERMEASURE — Story 8.18's SMOKE SCREEN seat) adds NO
 // occluder and no seventh exception: since Story 9.3 session 2 (Eric
 // 2026-10-12, "just draw it on top of ships") a cloud is a CLIENT VISUAL
@@ -118,8 +124,14 @@ import {
   CONFIG,
   consumableSlotFor,
   DEFAULT_KIT,
-  DEFAULT_GUN,
-  GUN_IDS,
+  DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  encodeTurretAngles,
+  turretMounts,
+  turretRest,
+  turretTrainRad,
   HORN_IDS,
   SHELL_FAMILIES,
   bearing,
@@ -155,8 +167,8 @@ import {
   type GameEvent,
   type FrameMsg,
   type GhostPaint,
-  type GunId,
   type HealEvent,
+  type ShiftId,
   type HitCallEvent,
   type MatchPhase,
   type MineKind,
@@ -419,6 +431,8 @@ const RADAR_THROUGH_FOG = { n: 0 };
  *  alone explains (cloudGateOracle). */
 const CLOUD_SIGHT_THROUGH = { n: 0 };
 const CLOUD_DELIVERED_BY_SIGHT = { n: 0 };
+/** Story 10.4 non-vacuity: contact rows the fuzz saw carrying turret angles. */
+const TU_SEEN = { n: 0 };
 const CLOUD_DELIVERED_BY_RADAR = { n: 0 };
 /** Story 8.19: how many frames carried a POSITIVE `you.draft` (the drafting
  *  arm of the self-private clause ran against a real lift, not only the
@@ -684,11 +698,11 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
   return w;
 }
 
-/** Add a ship and teleport it to an exact pose (speed 0). `gun` is the seat's
- *  pick (Story 8.15) — the fuzz draws one at random; directed cases default
- *  to the cannon. */
-function place(w: World, id: string, x: number, y: number, heading = 0, gun: GunId = DEFAULT_GUN): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, gun);
+/** Add a ship and teleport it to an exact pose (speed 0). `shift` is the
+ *  seat's pick (Story 10.4 — the seat gun's successor) and `hull` its class —
+ *  the fuzz draws both at random; directed cases default to the defaults. */
+function place(w: World, id: string, x: number, y: number, heading = 0, shift: ShiftId = DEFAULT_SHIFT, hull: HullId = DEFAULT_CLASS_ID): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), undefined, hull, undefined, undefined, shift);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -849,7 +863,7 @@ describe('perception — sight tier boundaries (exact)', () => {
     const b = place(w, 'b', SIGHT, 0, 1.5);
     const f = buildFrame(w, 'a');
     expect(f.contacts).toEqual([
-      { id: 'b', x: b.state.x, y: b.state.y, heading: 1.5, speed: 0, cls: 'torpedoBoat' },
+      { id: 'b', x: b.state.x, y: b.state.y, heading: 1.5, speed: 0, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(b.turrets, b.hullId) },
     ]);
   });
 
@@ -919,7 +933,7 @@ describe('perception — radar paint window (exact)', () => {
     const blips = blipsOf(buildFrame(w, 'a'));
     expect(blips).toHaveLength(1);
     expect(blips[0].t).toBe(w.now);
-    expect(maskEquals(maskOracle('torpedoBoat', b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(DEFAULT_CLASS_ID, b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
   });
 
   it('does not paint outside the beam window', () => {
@@ -1136,19 +1150,22 @@ describe('perception — shell events (per-observer, exactly once)', () => {
     expect(ev.w).toBe('cannon');
   });
 
-  // Story 8.15 (amendment 89(i)): a MACHINE-GUN stream shell entering an
-  // enemy's sight reveals with `w: 'mg'` and NOTHING else new — current pos and
-  // velocity, the reveal time, the family word. No shooter, no range, no
-  // magazine, no `held`. The torpedo stays blind (no `w`).
-  it("a machine-gun shell entering an observer's sight carries w:'mg' and nothing range-derivable; a torpedo carries no w", () => {
+  // Story 8.15 (amendment 89(i)); Story 10.4: the `mg` family now belongs to
+  // the SECONDARIES. A secondaries round entering an enemy's sight reveals
+  // with `w: 'mg'` and NOTHING else new — current pos and velocity, the
+  // reveal time, the family word. No shooter, no range, no heat, no `sec`.
+  // The torpedo stays blind (no `w`).
+  it("a secondaries round entering an observer's sight carries w:'mg' and nothing range-derivable; a torpedo carries no w", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 600, 0, Math.PI, 'machineGun'); // out of a's 330u sight, bow toward a
-    expect(b.loadout[0].equipmentId).toBe('machineGun');
-    // b holds fire toward a; the level alone fires (no click).
+    // b sits outside a's sight but inside its own secondaries' reach + a's
+    // sight, bow toward a.
+    const bx = SIGHT + a.stats.secondaryRangeU / 2; // SIGHT: the default hull is INTEL 100
+    place(w, 'b', bx, 0, Math.PI);
+    // b holds the secondaries toward a; the level alone fires (no click).
     w.submitInput('b', {
-      seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0,
-      actSeq: 0, actSlot: 0, hornSeq: 0, held: true,
+      seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: bx, slot: 0, fireT: 0,
+      actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: true,
     });
     let ev: BallisticEvent | undefined;
     for (let i = 0; i < 60 && ev === undefined; i++) {
@@ -1198,7 +1215,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', ANNULUS_D, 0);
-    b.hp = CONFIG.gun.damage; // next hit sinks (derived — the cannon moved 16 → 12, Story 9.8)
+    b.hp = 1; // any landed blow sinks it (a blow settles to at least 1 — Story 10.3 armor folds the nominal number)
     // a's shell, one tick from striking b — b is far outside a's sight.
     injectShell(w, 's1', 'a', ANNULUS_D - 20, 0, 0, 100);
     w.step();
@@ -1207,7 +1224,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     // b (victim) sees the boom, its dmg, and its own sinking (seen: own hull).
     expect(fb.events.filter((e) => e.k === 'boom')).toHaveLength(1);
     expect(fb.events.filter((e) => e.k === 'dmg')).toEqual([
-      { k: 'dmg', id: 'b', amount: CONFIG.gun.damage, hp: 0 },
+      { k: 'dmg', id: 'b', amount: expect.any(Number), hp: 0 },
     ]);
     expect(fb.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
     // a (owner, out of sight) gets no boom / dmg — no impact-location leak —
@@ -1217,21 +1234,21 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
     // `vcls` (Story 5.6, amendment 43) rides to the CREDITED KILLER, appended
     // LAST — the killer learns WHAT they sank even having never seen it.
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', vcls: 'torpedoBoat' }]);
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', vcls: DEFAULT_CLASS_ID }]);
   });
 
   it('a boom within sight is visible; a witnessed sinking carries seen: true', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', 150, 0);
-    b.hp = CONFIG.gun.damage; // the next hit sinks it
+    b.hp = 1; // any landed blow sinks it (a blow settles to at least 1)
     place(w, 'c', 0, 800); // far-away third party
     injectShell(w, 's1', 'a', 130, 0, 0, 100); // a's shell, point-blank on b
     w.step();
     const fa = buildFrame(w, 'a');
     expect(fa.events.filter((e) => e.k === 'boom')).toHaveLength(1);
     expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'b', by: 'a', seen: true, vcls: 'torpedoBoat' },
+      { k: 'sunk', id: 'b', by: 'a', seen: true, vcls: DEFAULT_CLASS_ID },
     ]);
     // dmg stays victim-private even when the boom is visible.
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
@@ -1298,7 +1315,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.step();
     // Killer (credited, unwitnessed): the channel arrives WITHOUT `seen`, LAST.
     const ka = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v', vcls: 'torpedoBoat' }]);
+    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v', vcls: DEFAULT_CLASS_ID }]);
     expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty', 'vcls']); // vcls LAST
     // Victim (own hull => witnessed): seen AND bty, bty still last.
     const kb = buildFrame(w, 'b').events.filter((e) => e.k === 'sunk');
@@ -1321,7 +1338,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.sinkShip('b', 'a'); // the LEADER sinks a captain in fog
     w.step();
     const ka = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k', vcls: 'torpedoBoat' }]);
+    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k', vcls: DEFAULT_CLASS_ID }]);
     expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty', 'vcls']); // vcls LAST
     const kc = buildFrame(w, 'c').events.filter((e) => e.k === 'sunk');
     expect(kc).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k' }]); // observer-independent
@@ -1337,7 +1354,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.sinkShip('d', 'a');
     w.step();
     const kd = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(kd).toEqual([{ k: 'sunk', id: 'd', by: 'a', seen: true, bty: 'k', vcls: 'torpedoBoat' }]);
+    expect(kd).toEqual([{ k: 'sunk', id: 'd', by: 'a', seen: true, bty: 'k', vcls: DEFAULT_CLASS_ID }]);
     expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([]);
   });
 
@@ -1498,7 +1515,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
     let burst: GameEvent | undefined;
     for (let i = 0; i < 120 && !burst; i++) {
       w.step();
@@ -1824,10 +1841,10 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
   it('the FIRER gains a full contact for a ship inside its zone, far beyond sight and radar', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
+    const b = place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
     injectZone(w, 'z1', 'a', BEYOND_RADAR, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([
-      { id: 'b', x: BEYOND_RADAR, y: 0, heading: 2.1, speed: 0, cls: 'torpedoBoat' },
+      { id: 'b', x: BEYOND_RADAR, y: 0, heading: 2.1, speed: 0, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(b.turrets, b.hullId) },
     ]);
     // Zone expiry/removal drops the contact again (revealed only while lit).
     w.litZones.clear();
@@ -1851,7 +1868,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 0); // far outside a's sight — pre-1.7 the owner got NO boom here
-    b.hp = CONFIG.gun.damage; // the next hit sinks it (derived — the cannon moved 16 → 12, Story 9.8)
+    b.hp = 1; // any landed blow sinks it (a blow settles to at least 1)
     injectZone(w, 'z1', 'a', 900, 0);
     injectShell(w, 's1', 'a', 880, 0, 0, 100); // a's shell, point-blank on b
     w.step();
@@ -1862,7 +1879,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     ]);
     // Wreck inside the owned zone => the sunk arrives WITNESSED (seen: true).
     expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'b', by: 'a', seen: true, vcls: 'torpedoBoat' },
+      { k: 'sunk', id: 'b', by: 'a', seen: true, vcls: DEFAULT_CLASS_ID },
     ]);
     // dmg stays victim-private even under the zone (truesight parity, not omniscience).
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
@@ -1872,7 +1889,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const w = bareWorld();
     place(w, 'c', 0, 0); // non-owner observer
     const b = place(w, 'b', 900, 0);
-    b.hp = CONFIG.gun.damage; // the next hit sinks it
+    b.hp = 1; // any landed blow sinks it (a blow settles to at least 1)
     injectZone(w, 'z1', 'a', 900, 0); // a's zone — c gains nothing from it
     injectShell(w, 's1', 'a', 880, 0, 0, 100);
     w.step();
@@ -2058,7 +2075,7 @@ describe('perception — burnZones channel (Story 8.17: the lit-zone gate, a cir
   it("a hull inside the FIRER'S OWN burn zone but outside its sight is NOT a contact (amendment 135(e)) — a lit zone in the same place WOULD reveal it", () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the firer
-    place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
+    const b = place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
     injectBurnZone(w, 'bz1', 'a', BEYOND_RADAR, 0, R);
     const f = buildFrame(w, 'a');
     expect(f.contacts).toEqual([]); // no reveal through a burning zone
@@ -2127,7 +2144,7 @@ describe('perception — foulZones channel (Story 9.4: the burn-zone gate, a cir
   it("a hull inside the FIRER'S OWN foul zone but outside its sight is NOT a contact — a lit zone in the same place WOULD reveal it", () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the firer
-    place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
+    const b = place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
     injectFoulZone(w, 'fz1', 'a', BEYOND_RADAR, 0, R);
     const f = buildFrame(w, 'a');
     expect(f.contacts).toEqual([]); // no reveal through a foul zone
@@ -2348,7 +2365,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     place(w, 'rival', 3000, 0); // unsighted, exactly like the fleet case
     w.sinkShip('rival', 'killer');
     w.step();
-    expect(sunkRows(w, 'killer')[0].vcls).toBe('torpedoBoat');
+    expect(sunkRows(w, 'killer')[0].vcls).toBe(DEFAULT_CLASS_ID);
   });
 
   it('a STORM death (no killer) carries it to nobody', () => {
@@ -2418,7 +2435,7 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
     // The gate reads the Story 6.3 role seam's FLEET-HULL reading, not "is not
     // a human": a bot is a captain for every disclosure purpose.
     const w = bareWorld();
-    const bot = w.addShip('ai', 'AI', 'bot', 'battleship', undefined, { x: 0, y: 0 });
+    const bot = w.addShip('ai', 'AI', 'bot', 'yamato', undefined, { x: 0, y: 0 });
     expect(bot.role).toBe('bot');
     place(w, 'victim', 3000, 0);
     place(w, 'watcher', 60, 0);
@@ -2485,10 +2502,10 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 900); // its WATER, not its hull, is under test
     // Pin the production-derived ribbon constants against LITERALS (the
-    // oracle-independence rule): a torpedo boat's water lives 5.5s (cut from
-    // 12s by amendment 213) and its turbulent core is its own 9u beam.
+    // oracle-independence rule): a hull's water lives 5.5s (cut from
+    // 12s by amendment 213) and its turbulent core is its own beam (Story 10.4: the default hull's).
     expect(b.wake.lifeMs).toBe(5_500);
-    expect(b.wake.widthU).toBe(9);
+    expect(b.wake.widthU).toBe(CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam);
     // A straight laid track along y=0 from inside sight out to ANNULUS_D
     // (annulus, inside the dropout's flat band): 26 samples on the 12u
     // cadence, ages spread over 5s — the spread is kept INSIDE the life so
@@ -2764,6 +2781,60 @@ describe('hasForbiddenKey — a KEY scan, not a value scan', () => {
   });
 });
 
+/** Story 10.4 fuzz helpers. A uniform hull off a SIDE stream (so the shared
+ *  scenario rng is unmoved). */
+function pickHull(side: { next(): number }): HullId {
+  return SHIP_CLASS_IDS[Math.min(SHIP_CLASS_IDS.length - 1, Math.floor(side.next() * SHIP_CLASS_IDS.length))];
+}
+
+/** Scramble a hull's turret angles anywhere inside each turret's legal train
+ *  interval, and a random remaining reload, off the side stream — so `tu` and
+ *  the self-private turret pin see varied, non-rest state. */
+function scrambleTurrets(rec: ShipRecord, side: { next(): number }): void {
+  const train = turretTrainRad(rec.hullId);
+  turretMounts(rec.hullId).forEach((m, i) => {
+    rec.turrets[i].a = turretRest(m) + (side.next() * 2 - 1) * train;
+    rec.turrets[i].reloadMsLeft = side.next() < 0.5 ? 0 : side.next() * CONFIG.mainBattery.reloadMs;
+  });
+}
+
+/** One random level drives BOTH held inputs (Story 10.4) — no extra draw. */
+function bothLevels(level: boolean): { held: boolean; sec: boolean } {
+  return { held: level, sec: level };
+}
+
+/**
+ * THE MAIN BATTERY AND THE SECONDARIES ARE SELF-PRIVATE except for one sighted
+ * field (Story 10.4, contract §7):
+ *   (1) `tu` — a hull's turret ANGLES — rides ONLY a contact row (the row's
+ *       own visibility gate is what the rest of this verifier proves), equals
+ *       the shared encoding of THAT hull's turrets, and is absent on a hull
+ *       with no battery (a drone);
+ *   (2) reloads, heat, lock and the Shift ride NOTHING but `you`: the keys
+ *       `turrets`, `reloadMsLeft`-bearing turret rows, `heat`, `locked`,
+ *       `untilRoundMs` and `shift` appear nowhere else, and the round phase
+ *       `untilRoundMs` appears nowhere at all;
+ *   (3) on `you` they are exactly the observer's own record's.
+ */
+function verifyBatteryPrivacy(w: World, me: ShipRecord, f: FrameMsg, withoutYou: object): void {
+  for (const c of f.contacts) {
+    const ship = w.ships.get(c.id);
+    if (ship === undefined) continue;
+    if (ship.turrets.length === 0) expect('tu' in c).toBe(false);
+    else {
+      expect(c.tu).toEqual(encodeTurretAngles(ship.turrets, ship.hullId));
+      TU_SEEN.n += 1;
+    }
+  }
+  const withoutContacts = { ...withoutYou, contacts: undefined };
+  expect(hasForbiddenKey(withoutContacts, ['tu'])).toBe(false);
+  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'locked', 'untilRoundMs', 'shift'])).toBe(false);
+  expect(JSON.stringify(f)).not.toContain('untilRoundMs');
+  if (f.you === undefined) return;
+  expect(f.you.turrets).toEqual(me.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })));
+  expect(f.you.sec).toEqual({ heat: me.sec.heat, locked: me.sec.locked });
+}
+
 /** Assert one frame leaks nothing beyond the observer's vision. */
 function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
@@ -2820,14 +2891,17 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('shield' in f.you).toBe(up);
     if (up) expect(f.you.shield).toEqual({ hp: Math.ceil(sh!.hpLeft), until: sh!.until }); // whole-number readout (P5)
   }
-  // THE SEAT'S GUN AND THE HELD LEVEL never ride anything but `you` (the gun,
-  // Story 8.14) — and `held` is INPUT, which no frame carries at all: a
-  // machine-gun stream is disclosed only through its shells' reveals and
-  // their flashes, never as "this hull's button is down".
-  expect(JSON.stringify(withoutYou)).not.toContain('"gun"');
+  // THE SEAT'S SHIFT AND THE HELD LEVELS never ride anything but `you` (the
+  // Shift, Story 10.4 — the seat gun's successor) — and `held` / `sec` are
+  // INPUT, which no frame carries at all: a secondaries stream is disclosed
+  // only through its rounds' reveals and their flashes, never as "this hull's
+  // button is down". The retired seat `gun` key rides nowhere.
+  expect(JSON.stringify(f)).not.toContain('"gun"');
+  expect(JSON.stringify(withoutYou)).not.toContain('"shift"');
   expect(JSON.stringify(f)).not.toContain('"held"');
-  if (f.you !== undefined) expect(f.you.gun).toBe(me.gun);
-  // THE SEAT'S KIT (Story 10.1) rides `you` on the gun's exact terms: the
+  if (f.you !== undefined) expect(f.you.shift).toBe(me.shift);
+  verifyBatteryPrivacy(w, me, f, withoutYou);
+  // THE SEAT'S KIT (Story 10.1) rides `you` on the Shift's exact terms: the
   // observer's OWN four, and nowhere else in the frame.
   expect(JSON.stringify(withoutYou)).not.toContain('"kit"');
   if (f.you !== undefined) expect(f.you.kit).toEqual([...me.kit]);
@@ -2853,13 +2927,6 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // would become solvable; the ballistic reveal is built field by field. (The
   // amendment-202 cursor point these lines used to guard is deleted.)
   expect(hasForbiddenKey(f, ['originX', 'originY', 'attenRangeU', 'cursor'])).toBe(false);
-  // THE SEAT'S GUN IS SELF-PRIVATE (Story 8.14, amendment 95), on exactly the
-  // terms `cls` is: it rides `you` and NOTHING else. Which gun an enemy picked
-  // is build information, so a whole-frame text scan with `you` spliced out is
-  // the structural half — no contact, event, blip or spectator payload may
-  // start carrying it.
-  if (f.you) expect(f.you.gun).toBe(me.gun);
-  expect(JSON.stringify(withoutYou)).not.toContain('"gun"');
   // ...and the hand is never bigger than the dial that sizes it (a pool with
   // fewer dealable lines than the offer size draws SHORT, never long).
   if (f.you) expect(f.you.offer.length).toBeLessThanOrEqual(CONFIG.offer.size);
@@ -4567,6 +4634,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     BUOY_SRC_VERIFIED.n = 0;
     CLOUD_SIGHT_THROUGH.n = 0;
     CLOUD_DELIVERED_BY_SIGHT.n = 0;
+    TU_SEEN.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
     DRAFT_SEEN.n = 0;
     FOUL_ZONE_DELIVERED.n = 0;
@@ -4601,7 +4669,13 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // bursts and machine-gun streams (driven by the random `held` level
         // below) all flow through the oracle — `w` on every shell reveal,
         // one `mz` per stream shell, flak bursts over fish.
-        const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
+        // Story 10.4: the draw that dealt the gun now deals the SHIFT (same
+        // stream position), and a SIDE stream deals the hull and scrambles
+        // the turret angles, so the contact-row `tu` and the self-private
+        // turret / heat pins see varied state.
+        const side = mulberry32(((world + 1) * 0x85ebca6b + i) >>> 0);
+        const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU), SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)], pickHull(side));
+        scrambleTurrets(rec, side);
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
         // Story 10.1: every seat carries a RANDOM FOUR, so the self-private pin
         // on `kit` sees varied kits. Off a stream of its OWN (keyed by world and
@@ -4644,7 +4718,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const anchor = w.ships.get(ids[0])!.state;
         const brg = rng.float(0, TAU);
         const d = rng.float(260, 320);
-        const rec = place(w, 'pn', anchor.x + Math.cos(brg) * d, anchor.y + Math.sin(brg) * d, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
+        const side = mulberry32(((world + 1) * 0x27d4eb2f) >>> 0);
+        const rec = place(w, 'pn', anchor.x + Math.cos(brg) * d, anchor.y + Math.sin(brg) * d, rng.float(0, TAU), SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)], pickHull(side));
+        scrambleTurrets(rec, side);
         rec.sweepAngle = rng.float(0, TAU);
         ids.push('pn');
         // ...and the cloud arrangements the random ring never produces on its
@@ -4668,7 +4744,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         } else {
           const qb = rng.float(0, TAU);
           const qd = rng.float(40, 80);
-          const pq = place(w, 'pq', anchor.x + Math.cos(qb) * qd, anchor.y + Math.sin(qb) * qd, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
+          const pq = place(w, 'pq', anchor.x + Math.cos(qb) * qd, anchor.y + Math.sin(qb) * qd, rng.float(0, TAU), SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)], pickHull(side));
+          scrambleTurrets(pq, side);
           pq.sweepAngle = rng.float(0, TAU);
           ids.push('pq');
           injectCloud(w, 'onAnchor', owner, anchor.x, anchor.y, w.now - rng.float(0, 12_000));
@@ -4946,7 +5023,11 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             // THE HELD LEVEL (Story 8.15): ~half of every ship's ticks hold
             // fire, so a machine-gun seat streams (one direct shell per rateMs
             // at `now`, its own `mz` each) and every other seat ignores it.
-            held: rng.float(0, 1) < 0.5,
+            // ...and since Story 10.4 the SAME level drives the SECONDARIES
+            // (`sec` — no extra draw, so the shared stream is unmoved): every
+            // captain streams secondaries rounds (one `mz` each) through the
+            // oracle on ~half its ticks.
+            ...bothLevels(rng.float(0, 1) < 0.5),
           });
         }
         // HULL REPAIR (a CARD since Story 8.8): drive REAL heals through the
@@ -5004,6 +5085,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // sensor alone.
     expect(CLOUD_SIGHT_THROUGH.n).toBeGreaterThan(0);
     expect(CLOUD_DELIVERED_BY_SIGHT.n).toBeGreaterThan(0);
+    expect(TU_SEEN.n).toBeGreaterThan(0); // Story 10.4: the `tu` pin was exercised
     expect(CLOUD_DELIVERED_BY_RADAR.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
     // (Story 8.19 — the value is PLANTED on ids[0] on odd ticks, above), so
@@ -5321,7 +5403,7 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
     verifyFrame(w, 'a', legit); // the honest frame passes: two twin paints + one
     const blips = legit.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
     expect(blips).toHaveLength(3);
-    const twinMask = maskOracle('torpedoBoat', ANNULUS_D, 0, 0, w.now);
+    const twinMask = maskOracle(DEFAULT_CLASS_ID, ANNULUS_D, 0, 0, w.now);
     const twinBlips = blips.filter((b) => maskEquals(twinMask, b));
     const other = blips.find((b) => !maskEquals(twinMask, b))!;
     expect(twinBlips).toHaveLength(2);

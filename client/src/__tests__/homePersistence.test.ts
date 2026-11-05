@@ -4,7 +4,7 @@
 // into the nullable (first-run) + defaulting (in-game) pair; the DOM chrome
 // itself is exercised in home.test.ts / classSelect.test.ts.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   sanitizeName,
   loadSavedName,
@@ -12,19 +12,28 @@ import {
   loadSavedClassOrNull,
   isFirstRun,
   NAME_MAX,
-  showHome,
   KIT_KEY,
   loadSavedKit,
   saveKit,
+  SHIFT_KEY,
+  loadSavedShift,
+  saveShift,
 } from '../ui/home.js';
-import { DEFAULT_KIT, KIT_SIZE, dealableConsumables, isConsumableKit } from '@salvo/shared';
-import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+import {
+  DEFAULT_CLASS_ID,
+  DEFAULT_KIT,
+  DEFAULT_SHIFT,
+  KIT_SIZE,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  dealableConsumables,
+  isConsumableKit,
+} from '@salvo/shared';
 
-// The connection module caches the session's rolled hue (review-gate fix for
-// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
-// exercise a fresh roll instead of the previous test's cached one.
-beforeEach(() => __resetSessionColorPrefForTests());
-import { PLAYER_HUES } from '../render/ships.js';
+/** A real hull that is NOT the default — so a stored pick is observable. */
+const NON_DEFAULT_CLASS = SHIP_CLASS_IDS.find((c) => c !== DEFAULT_CLASS_ID)!;
+/** Ids a pre-10.4 client could have stored (the retired hulls + older legacy). */
+const LEGACY_CLASS_IDS = ['torpedoBoat', 'battleship', 'mineLayer', 'cruiser', 'carrier'];
 
 describe('sanitizeName', () => {
   it('trims + caps at NAME_MAX', () => {
@@ -60,20 +69,22 @@ describe('loadSavedName', () => {
 describe('loadSavedClass (defaulting variant — in-game consumers)', () => {
   beforeEach(() => localStorage.clear());
 
-  it('defaults to torpedoBoat with nothing saved', () => {
-    expect(loadSavedClass()).toBe('torpedoBoat');
+  it('defaults to DEFAULT_CLASS_ID with nothing saved', () => {
+    expect(loadSavedClass()).toBe(DEFAULT_CLASS_ID);
   });
 
-  it('returns a valid saved class', () => {
-    localStorage.setItem('hullcracker.class', 'mineLayer');
-    expect(loadSavedClass()).toBe('mineLayer');
+  it('returns every valid saved class verbatim', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      localStorage.setItem('hullcracker.class', cls);
+      expect(loadSavedClass()).toBe(cls);
+    }
   });
 
-  it('sanitizes a garbage / legacy stored value to torpedoBoat', () => {
-    localStorage.setItem('hullcracker.class', 'carrier');
-    expect(loadSavedClass()).toBe('torpedoBoat');
-    localStorage.setItem('hullcracker.class', 'cruiser');
-    expect(loadSavedClass()).toBe('torpedoBoat');
+  it('sanitizes a garbage / legacy stored value (incl. the pre-10.4 hulls) to DEFAULT_CLASS_ID', () => {
+    for (const legacy of LEGACY_CLASS_IDS) {
+      localStorage.setItem('hullcracker.class', legacy);
+      expect(loadSavedClass(), legacy).toBe(DEFAULT_CLASS_ID);
+    }
   });
 });
 
@@ -86,52 +97,55 @@ describe('loadSavedClassOrNull (first-run signal — NO default pushed)', () => 
   });
 
   it('is the stored class for a returning player', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
-    expect(loadSavedClassOrNull()).toBe('battleship');
+    localStorage.setItem('hullcracker.class', NON_DEFAULT_CLASS);
+    expect(loadSavedClassOrNull()).toBe(NON_DEFAULT_CLASS);
     expect(isFirstRun()).toBe(false);
   });
 
   it('a stored-but-legacy id is a RETURNING player (sanitized, never null)', () => {
-    localStorage.setItem('hullcracker.class', 'cruiser');
-    expect(loadSavedClassOrNull()).toBe('torpedoBoat');
-    expect(isFirstRun()).toBe(false);
+    for (const legacy of LEGACY_CLASS_IDS) {
+      localStorage.setItem('hullcracker.class', legacy);
+      expect(loadSavedClassOrNull(), legacy).toBe(DEFAULT_CLASS_ID);
+      expect(isFirstRun()).toBe(false);
+    }
   });
 });
 
-// The personal-color preference is the third persisted home value (alongside
-// name + class). Mounting the home ENSURES it: an absent/corrupt key is rerolled
-// and written before first paint, a valid one is kept verbatim (never rerolled).
-describe('hullcracker.color — ensured at home mount', () => {
+// Story 10.4: the Shift is the seat's pick, stored under SHIFT_KEY beside the
+// class. `sanitizeShiftId` fails open, so nothing stored or junk reads as the
+// default and is simply preselected (no first-run signal).
+describe('loadSavedShift / saveShift (Story 10.4)', () => {
   beforeEach(() => localStorage.clear());
-  afterEach(() => document.getElementById('main-menu')?.remove());
 
-  it('first visit: a valid random index is persisted by the time home is up', () => {
-    expect(localStorage.getItem('hullcracker.color')).toBeNull();
-    showHome('0.0.0-test', vi.fn());
-    const raw = localStorage.getItem('hullcracker.color');
-    expect(raw).not.toBeNull();
-    const idx = Number(raw);
-    expect(Number.isInteger(idx)).toBe(true);
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(idx).toBeLessThan(PLAYER_HUES.length);
-    expect(loadColorPref()).toBe(idx);
+  it('a fresh visit loads DEFAULT_SHIFT', () => {
+    expect(loadSavedShift()).toBe(DEFAULT_SHIFT);
   });
 
-  it('a valid stored preference survives a mount untouched (no reroll)', () => {
-    localStorage.setItem('hullcracker.color', '13');
-    showHome('0.0.0-test', vi.fn());
-    expect(localStorage.getItem('hullcracker.color')).toBe('13');
+  it('junk or a retired gun id loads DEFAULT_SHIFT', () => {
+    for (const junk of ['', 'not-a-shift', 'deckGun', '42']) {
+      localStorage.setItem(SHIFT_KEY, junk);
+      expect(loadSavedShift(), junk).toBe(DEFAULT_SHIFT);
+    }
   });
 
-  it('a corrupt stored preference is replaced with a valid index', () => {
-    localStorage.setItem('hullcracker.color', '99');
-    showHome('0.0.0-test', vi.fn());
-    expect(loadColorPref()).not.toBeUndefined();
-    expect(Number(localStorage.getItem('hullcracker.color'))).toBeLessThan(PLAYER_HUES.length);
+  it('every valid Shift round-trips through saveShift and SHIFT_KEY', () => {
+    for (const id of SHIFT_IDS) {
+      saveShift(id);
+      expect(localStorage.getItem(SHIFT_KEY)).toBe(id);
+      expect(loadSavedShift()).toBe(id);
+    }
+  });
+
+  it('falls open to DEFAULT_SHIFT when storage throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(loadSavedShift()).toBe(DEFAULT_SHIFT);
+    spy.mockRestore();
   });
 });
 
-// Story 10.1 (epic-10 amendment 3): the kit is stored as JSON beside the gun;
+// Story 10.1 (epic-10 amendment 3): the kit is stored as JSON beside the Shift;
 // anything `isConsumableKit` refuses is REPLACED by DEFAULT_KIT, never partly kept.
 describe('loadSavedKit / saveKit', () => {
   beforeEach(() => localStorage.clear());

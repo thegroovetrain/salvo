@@ -22,7 +22,7 @@ import {
   type ShipConfig,
 } from '../index.js';
 
-const BASE_KIN: ShipConfig = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics;
+const BASE_KIN: ShipConfig = effectiveStats(CONFIG.shipClasses.iowa).kinematics;
 
 /**
  * COVERAGE TABLE — one row per registered hook, keyed LITERALLY by hookId,

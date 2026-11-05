@@ -30,6 +30,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics, Texture } from 'pixi.js';
 import {
+  DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   CONFIG,
   WAKE_AGE_BUCKETS,
   buildHeightRaster,
@@ -125,11 +127,11 @@ function wireEcho(cls: HullId, x: number, y: number, heading: number, t = 1000):
   return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y };
 }
 
-/** A battleship 500u due +y of the origin, heading +x (broadside to the
+/** A captain hull 500u due +y of the origin, heading +x (broadside to the
  *  observer): the true footprint is much WIDER (its 124u length, in x) than it
  *  is tall (its 48u beam, in y) — a fogged hull finally points the way it is
  *  headed, which is the complaint this cycle exists to fix. */
-const PAINT: TestEcho = wireEcho('battleship', 0, 500, 0);
+const PAINT: TestEcho = wireEcho(DEFAULT_CLASS_ID, 0, 500, 0);
 
 /** Extent of the lit region along one world axis through the paint centre. */
 function litSpan(radar: Radar, axis: 'x' | 'y', cross: number, at: number): number {
@@ -172,8 +174,8 @@ describe('`return` paints are posed from a real observer or not at all', () => {
       expect(span).toBeGreaterThanOrEqual(trueU - CELL);
       expect(span).toBeLessThanOrEqual(trueU + 5 * CELL);
     };
-    grown(across, CONFIG.shipClasses.battleship.hull.length);
-    grown(along, CONFIG.shipClasses.battleship.hull.beam);
+    grown(across, CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.length);
+    grown(along, CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam);
   });
 
   it('marches immediately when a pose is already known — deferral is the '
@@ -202,7 +204,7 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0);
     // A bearing the beam is nowhere near (it sits at −0.6 rad and advances).
-    const behind = wireEcho('battleship', 0, -500, 0, 10);
+    const behind = wireEcho(DEFAULT_CLASS_ID, 0, -500, 0, 10);
     radar.onBlip(behind.e);
     radar.render(OWN, 20); // the very next frame — the beam has moved 0.03 rad
     expect(radar.bandAt(behind.x, behind.y), 'painted on arrival')
@@ -221,7 +223,7 @@ describe('`return` paints are posed from a real observer or not at all', () => {
 describe('malformed wire payloads are dropped whole at the adapter', () => {
   /** A valid echo the malformed variants are derived from. */
   function base(): ReturnBlipEvent {
-    return wireEcho('battleship', 300, 0, 0, 1000).e;
+    return wireEcho(DEFAULT_CLASS_ID, 300, 0, 0, 1000).e;
   }
 
   it('a non-finite or far-future `t` paints nothing — a full-brightness mark that never decays is unrepresentable', () => {
@@ -259,7 +261,7 @@ describe('malformed wire payloads are dropped whole at the adapter', () => {
   it('the pending park is CAPPED while own pose is null — a join gap cannot grow it unboundedly', () => {
     const { radar } = makeRadar();
     // No render ever happens: own pose stays null and every echo parks.
-    for (let i = 0; i < 400; i++) radar.onBlip(wireEcho('torpedoBoat', 300 + i, 0, 0, 100 + i).e);
+    for (let i = 0; i < 400; i++) radar.onBlip(wireEcho(DEFAULT_CLASS_ID, 300 + i, 0, 0, 100 + i).e);
     // The park is bounded at the same ceiling as the live-blip backstop, so
     // resolving it cannot enroll more than that many slices either.
     radar.render(OWN, 1000);
@@ -370,7 +372,7 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
 
 describe('a wire echo fades in terrain shadow, and is floored so it cannot vanish', () => {
   /** The echo used here sits on bearing 0 at 500u, with the cover between. */
-  const ECHO = wireEcho('battleship', 500, 0, 0);
+  const ECHO = wireEcho(DEFAULT_CLASS_ID, 500, 0, 0);
 
   /** What the buffer reads at the echo's centre, over a given terrain. NO BEAM
    *  ADVANCE: the sweep sample and the two frames share one timestamp, so the
@@ -420,8 +422,14 @@ describe('a wire echo fades in terrain shadow, and is floored so it cannot vanis
 // speck: the very thing the buoy was placed to see past. `src` names the
 // owner's own buoy; the echo is marched from it, with the buoy's range.
 describe('a buoy-origin paint (`src`) is marched from its RADAR BUOY', () => {
+  /** The captain hull with the largest plan area: the range premise below reads
+   *  the march's ray density off the footprint, so the biggest one shows it best. */
+  const BIGGEST = [...SHIP_CLASS_IDS].sort((a, b) => {
+    const area = (id: typeof a): number => CONFIG.shipClasses[id].hull.length * CONFIG.shipClasses[id].hull.beam;
+    return area(b) - area(a);
+  })[0];
   /** On bearing 0 at 500 u from the own hull, hard cover between them. */
-  const ECHO = wireEcho('battleship', 500, 0, 0);
+  const ECHO = wireEcho(BIGGEST, 500, 0, 0);
   /** The buoy: due +y of the echo, inside its radius, with open water between. */
   const BUOY = { id: 'rb1', x: 500, y: 300 };
   const HARD = rasterWithPyramid(900, ridge(250, 0, 60, 200, 255));
@@ -864,7 +872,7 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     const farX = MID + shift * CELL;
     expect(farX).toBeGreaterThan(near.sightHoleU);
     expect(farX).toBeLessThan(CONFIG.vision.radar);
-    const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
+    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0);
     for (const r of [near, far]) r.render(OWN, 900);
     near.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     far.onBlip({ k: 'blip', t: 1000, gx: c.gx + shift, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
@@ -894,7 +902,7 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     const { radar } = makeRadar();
     expect(MID).toBeLessThan(radar.sightHoleU);
     radar.render(OWN, 900);
-    const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
+    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0);
     radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     radar.render(OWN, 1000);
     expect(radar.bandAt(MID, 0), 'the in-bubble wire blip is on the scope').toBeGreaterThanOrEqual(0);

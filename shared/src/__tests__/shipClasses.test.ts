@@ -15,8 +15,7 @@ import {
   sanitizeClassId,
 } from '../index.js';
 import {
-  REGATTA_HUES,
-  REGATTA_NO_HUE,
+  DEFAULT_CLASS_ID,
   droneHullOf,
   droneSizeOf,
   hullBumper,
@@ -57,41 +56,35 @@ describe('every hull envelope is finite and positive (a NaN or zero stat would f
   });
 });
 
-describe('class relations under the index scaffold (Story 10.3, Eric rulings 3 and 15)', () => {
-  const tb = CONFIG.shipClasses.torpedoBoat;
-  const bb = CONFIG.shipClasses.battleship;
-  const ml = CONFIG.shipClasses.mineLayer;
-
-  it('every class has the same hull (the 300 / 350 gap is DROPPED; toughness is ARMOR, never hp)', () => {
-    for (const id of SHIP_CLASS_IDS) expect(CONFIG.shipClasses[id].hp, id).toBe(tb.hp);
+describe('the four battleships (Story 10.4)', () => {
+  // The R1 index table and the R5 dims are Eric's numbers; an ordering between
+  // two of them is a coincidence, not a rule, so none is pinned here. What IS
+  // structural: one hp for every hull, and a battery on every captain hull
+  // and on no drone (sim/turrets.ts and the fold key on that).
+  it('every class has the same hull points (toughness is ARMOR, never hp)', () => {
+    const hp = CONFIG.shipClasses[SHIP_CLASS_IDS[0]].hp;
+    for (const id of SHIP_CLASS_IDS) expect(CONFIG.shipClasses[id].hp, id).toBe(hp);
   });
 
-  it('ENGINES and RUDDER both order torpedoBoat > mineLayer > battleship', () => {
-    expect(tb.index.engines).toBeGreaterThan(ml.index.engines);
-    expect(ml.index.engines).toBeGreaterThan(bb.index.engines);
-    expect(tb.index.rudder).toBeGreaterThan(ml.index.rudder);
-    expect(ml.index.rudder).toBeGreaterThan(bb.index.rudder);
-  });
-
-  it('the battleship IS the 100 of the scaffold on every index but ENGINES (ruling 15 re-based its speed on 30 u/s)', () => {
-    for (const k of INDEX_IDS) {
-      if (k === 'engines') continue;
-      expect(bb.index[k], k).toBe(CONFIG.index.base);
+  it('every class carries a battery of at least one turret; no drone carries one', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const { battery } = CONFIG.shipClasses[id];
+      expect(battery.turrets.length, id).toBeGreaterThan(0);
+      expect(battery.shellDamage, id).toBeGreaterThan(0);
+      expect(battery.trainDeg, id).toBeGreaterThan(0);
+      expect(battery.trainDeg, id).toBeLessThan(180);
     }
+    for (const id of DRONE_HULL_IDS) expect(hullEnvelope(id).battery, id).toBeUndefined();
   });
 
-  it('hull geometry still reads the class: the torpedoBoat is the narrowest, the battleship the longest and widest', () => {
-    expect(tb.hull.beam).toBeLessThan(ml.hull.beam);
-    expect(tb.hull.beam).toBeLessThan(bb.hull.beam);
-    expect(bb.hull.length).toBeGreaterThan(tb.hull.length);
-    expect(bb.hull.beam).toBeGreaterThan(ml.hull.beam);
+  it('no class envelope carries a Shift any more (the Shift is the seat\'s pick)', () => {
+    for (const id of SHIP_CLASS_IDS) expect('shift' in CONFIG.shipClasses[id], id).toBe(false);
   });
 });
 
 describe('SHIP_CLASS_IDS / HULL_IDS', () => {
-  it('SHIP_CLASS_IDS is the ordered torpedoBoat/battleship/mineLayer set matching CONFIG', () => {
-    expect([...SHIP_CLASS_IDS]).toEqual(['torpedoBoat', 'battleship', 'mineLayer']);
-    for (const id of SHIP_CLASS_IDS) expect(CONFIG.shipClasses[id]).toBeDefined();
+  it('SHIP_CLASS_IDS is exactly the CONFIG.shipClasses keys, in CONFIG order', () => {
+    expect([...SHIP_CLASS_IDS]).toEqual(Object.keys(CONFIG.shipClasses));
   });
 
   it('drones are NOT ship classes (never pickable)', () => {
@@ -144,7 +137,7 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
       const d = CONFIG.drones[size];
       expect(Object.keys(d).sort()).toEqual(['gun', 'hp', 'hull', 'index', 'kinematics']);
       expect(Object.keys(d.kinematics).sort()).toEqual(
-        Object.keys(CONFIG.shipClasses.torpedoBoat.kinematics).sort(),
+        Object.keys(CONFIG.shipClasses.iowa.kinematics).sort(),
       );
       expect(Object.keys(d.gun!).sort()).toEqual(['damage', 'reloadMs']);
     }
@@ -181,7 +174,7 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
       CONFIG.fleet.composition.medium * CONFIG.drones.medium.gun!.damage +
       CONFIG.fleet.composition.large * CONFIG.drones.large.gun!.damage;
     const dps = volley / (CONFIG.drones.small.gun!.reloadMs / 1000);
-    const lightestClass = CONFIG.shipClasses.torpedoBoat.hp;
+    const lightestClass = CONFIG.shipClasses.iowa.hp;
     const secondsToKill = lightestClass / dps;
     expect(secondsToKill).toBeGreaterThan(60); // attrition: over a minute, not a burst
     // And a single hull must never be the threat on its own — that is what
@@ -189,14 +182,10 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     expect(CONFIG.drones.large.gun!.damage * 20).toBeLessThan(lightestClass);
   });
 
-  it('speed ruling: every drone size now sits AT OR BELOW every player class (discharges epics.md:1090) — read through the fold', () => {
-    const fastestClass = Math.max(
-      ...SHIP_CLASS_IDS.map((id) => effectiveStats(CONFIG.shipClasses[id]).kinematics.maxSpeed),
-    );
-    for (const size of DRONE_SIZE_IDS) {
-      expect(effectiveStats(CONFIG.drones[size]).kinematics.maxSpeed, size).toBeLessThanOrEqual(fastestClass);
-    }
-  });
+  // THE "every drone sits at or below every player class" SPEED RELATION IS
+  // RETIRED (Story 10.4): the drones are unchanged by ruling (10.8 retires
+  // them) while the four battleships are slower than the scaffold classes, so
+  // the small and medium drones now outrun most hulls. Recorded, not pinned.
 });
 
 describe('sanitizeClassId', () => {
@@ -204,26 +193,15 @@ describe('sanitizeClassId', () => {
     for (const id of SHIP_CLASS_IDS) expect(sanitizeClassId(id)).toBe(id);
   });
 
-  it('sanitizes the legacy prototype ids to torpedoBoat', () => {
-    expect(sanitizeClassId('destroyer')).toBe('torpedoBoat');
-    expect(sanitizeClassId('cruiser')).toBe('torpedoBoat');
-  });
-
-  it('drone hull ids are not pickable classes — they sanitize to torpedoBoat', () => {
-    for (const id of DRONE_HULL_IDS) expect(sanitizeClassId(id)).toBe('torpedoBoat');
-  });
-
-  it('falls back to torpedoBoat for garbage strings', () => {
-    expect(sanitizeClassId('carrier')).toBe('torpedoBoat');
-    expect(sanitizeClassId('')).toBe('torpedoBoat');
-    expect(sanitizeClassId('TORPEDOBOAT')).toBe('torpedoBoat'); // case-sensitive
-  });
-
-  it('falls back to torpedoBoat for non-string input', () => {
-    expect(sanitizeClassId(undefined)).toBe('torpedoBoat');
-    expect(sanitizeClassId(null)).toBe('torpedoBoat');
-    expect(sanitizeClassId(3)).toBe('torpedoBoat');
-    expect(sanitizeClassId({ cls: 'battleship' })).toBe('torpedoBoat');
+  it('fails open to the default hull (R7) for every retired, drone, garbage or non-string input', () => {
+    const bad: unknown[] = [
+      'torpedoBoat', 'battleship', 'mineLayer', 'destroyer', 'cruiser', // retired ids
+      ...DRONE_HULL_IDS, // never pickable
+      'carrier', '', DEFAULT_CLASS_ID.toUpperCase(), // case-sensitive
+      undefined, null, 3, { cls: DEFAULT_CLASS_ID },
+    ];
+    for (const raw of bad) expect(sanitizeClassId(raw), String(raw)).toBe(DEFAULT_CLASS_ID);
+    expect(SHIP_CLASS_IDS).toContain(DEFAULT_CLASS_ID);
   });
 });
 
@@ -248,14 +226,5 @@ describe('droneSizeOf / droneHullOf', () => {
     for (const size of DRONE_SIZE_IDS) expect(droneSizeOf(droneHullOf(size))).toBe(size);
     for (const hull of DRONE_HULL_IDS) expect(droneHullOf(droneSizeOf(hull) as DroneSizeId)).toBe(hull);
     for (const cls of SHIP_CLASS_IDS) expect(droneSizeOf(cls)).toBeNull();
-  });
-});
-
-describe('the Regatta hue wheel', () => {
-  it('the hues are distinct and the no-hue sentinel is a uint8 that is never a wheel index', () => {
-    expect(new Set(REGATTA_HUES).size).toBe(REGATTA_HUES.length);
-    expect(REGATTA_NO_HUE).toBeGreaterThanOrEqual(REGATTA_HUES.length);
-    expect(REGATTA_NO_HUE).toBeLessThanOrEqual(255);
-    expect(Number.isInteger(REGATTA_NO_HUE)).toBe(true);
   });
 });

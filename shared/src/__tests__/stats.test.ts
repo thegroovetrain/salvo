@@ -48,8 +48,11 @@ import {
   type LineId,
 } from '../index.js';
 import { captiveTriggerRadius, deriveMineRings, mineTriggerRadius } from '../sim/stats.js';
+import { NEUTRAL_HULL, NEUTRAL_INDEX } from './neutralHull.js';
 
-const BASE = CONFIG.shipClasses.battleship;
+// THE NEUTRAL HULL (every index at the base) — no shipped battleship is 100
+// across the board since Story 10.4, and these tests read CONFIG bases.
+const BASE = NEUTRAL_HULL;
 
 /** THE PER-CARD RANGE STEP of a tiered weapon (Story 9.8, Eric 2026-10-13,
  *  epic-9 ruling 125): Tier I → Tier V split evenly over the four upgrade
@@ -87,9 +90,9 @@ const changed = (before: EffectiveStats, after: EffectiveStats): string[] => {
   return [...b.keys()].filter((k) => b.get(k) !== a.get(k)).sort();
 };
 
-describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment record)', () => {
-  it.each(SHIP_CLASS_IDS.map((id) => [id] as const))('%s at zero cards equals its bases', (id) => {
-    const cls = CONFIG.shipClasses[id];
+describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () => {
+  it('the neutral hull (every index at the base) at zero cards equals the CONFIG bases', () => {
+    const cls = NEUTRAL_HULL;
     // THE INDEX MODEL (Story 10.3): the seven indices are the envelope's, and
     // the derived fields are the index laws over them (sim/indexStats.ts).
     const { index } = cls;
@@ -104,6 +107,8 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
       sweepRpm: Math.min((CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base, CONFIG.vision.sweepRpmMax),
       sweepPeriodMs: 60000 / Math.min((CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base, CONFIG.vision.sweepRpmMax),
       sightRange: CONFIG.vision.sight,
+      // THE SECONDARIES' REACH (Story 10.4, R3): a fraction of the main reach.
+      secondaryRangeU: CONFIG.mainBattery.rangeU * CONFIG.secondaries.rangeFrac,
       cooldownScale: round3(1 / (1 + (index.reload - CONFIG.index.base) / CONFIG.index.base)),
       armor: index.armor,
       damageMultiplier: damageMultiplierFor(index.armor - CONFIG.index.base), // DERIVED — against an average attacker
@@ -260,8 +265,53 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           durationMs: CONFIG.hunker.durationMs,
           armorBonus: CONFIG.hunker.armorBonus,
         },
+        // THE MAIN BATTERY (Story 10.4): the shared half from CONFIG, the
+        // per-hull half (turret count, shell damage) from the envelope.
+        mainBattery: {
+          tier: 1,
+          reloadMs: CONFIG.mainBattery.reloadMs,
+          maxAmmo: cls.battery!.turrets.length,
+          rangeU: CONFIG.mainBattery.rangeU,
+          damage: cls.battery!.shellDamage,
+          contactDamage: CONFIG.mainBattery.contactDamage,
+          burstRadius: CONFIG.mainBattery.burstRadius,
+        },
       },
     });
+  });
+
+  it.each(SHIP_CLASS_IDS.map((id) => [id] as const))(
+    '%s at zero cards is the neutral fold of its own envelope with RELOAD and RANGE applied once',
+    (id) => {
+      const cls = CONFIG.shipClasses[id];
+      const s = effectiveStats(cls);
+      const neutral = effectiveStats({ ...cls, index: NEUTRAL_INDEX });
+      for (const k of INDEX_IDS) expect(s[k], k).toBe(cls.index[k]);
+      const rangeRows: readonly string[] = RANGE_ROWS;
+      for (const eqId of EQUIPMENT_IDS) {
+        const row = s.equipment[eqId] as unknown as Record<string, number>;
+        const ref = neutral.equipment[eqId] as unknown as Record<string, number>;
+        for (const field of Object.keys(ref)) {
+          const want =
+            field === 'reloadMs' ? ref[field] * s.cooldownScale
+            : field === 'rangeU' && rangeRows.includes(eqId) ? (ref[field] * cls.index.range) / CONFIG.index.base
+            : ref[field];
+          expect(row[field], `${eqId}.${field}`).toBeCloseTo(want, 9);
+        }
+      }
+      // The battery row carries the hull's own geometry and shell.
+      expect(s.equipment.mainBattery.maxAmmo).toBe(cls.battery.turrets.length);
+      expect(s.equipment.mainBattery.damage).toBe(cls.battery.shellDamage);
+      expect(s.secondaryRangeU).toBeCloseTo(s.equipment.mainBattery.rangeU * CONFIG.secondaries.rangeFrac, 9);
+    },
+  );
+
+  it('a hull with NO battery (a PvE drone) carries an inert main-battery row', () => {
+    for (const size of DRONE_SIZE_IDS) {
+      const row = effectiveStats(CONFIG.drones[size]).equipment.mainBattery;
+      expect(row.maxAmmo, size).toBe(0);
+      expect(row.damage, size).toBe(0);
+    }
   });
 
   it('SUPERCAV TORPEDO has NO stat row — it is a consumable (amendment 74)', () => {
@@ -358,7 +408,9 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
       for (const id of SHIP_CLASS_IDS) {
         const s = effectiveStats(CONFIG.shipClasses[id], stack('armor', n));
         // Published against an AVERAGE attacker (POWER = base): ×1 on a base hull.
-        expect(s.damageMultiplier, `${id} ${n}`).toBe(K / (K + (s.armor - CONFIG.index.base)));
+        // The K / (K + E) branch holds from the base up; a hull BELOW the base (Iowa)
+        // reads the negative branch, which damageMultiplierFor owns.
+        if (s.armor >= CONFIG.index.base) expect(s.damageMultiplier, `${id} ${n}`).toBe(K / (K + (s.armor - CONFIG.index.base)));
         expect(s.damageMultiplier, `${id} ${n}`).toBe(damageMultiplierFor(s.armor - CONFIG.index.base));
         if (n > 0) expect(s.damageMultiplier, `${id} ${n}`).toBeLessThan(effectiveStats(CONFIG.shipClasses[id], stack('armor', n - 1)).damageMultiplier);
       }
@@ -627,7 +679,8 @@ describe('THE INDEX MODEL — the seven authored indices and what the fold deriv
     }
     expect(s.equipment.starShells.rangeU).toBe(base.equipment.starShells.rangeU);
     expect(s.equipment.phosphorShells.rangeU).toBe(base.equipment.phosphorShells.rangeU);
-    expect(changed(base, s)).toEqual(['range', ...RANGE_ROWS.map((w) => `equipment.${w}.rangeU`)].sort());
+    // …plus the secondaries' reach, which is DERIVED from the folded main reach (Story 10.4).
+    expect(changed(base, s)).toEqual(['range', 'secondaryRangeU', ...RANGE_ROWS.map((w) => `equipment.${w}.rangeU`)].sort());
     // At the base index the multiply is the exact identity — zero cards is bytes.
     expect(effectiveStats(BASE).equipment.gun.rangeU).toBe(CONFIG.gun.rangeU);
   });

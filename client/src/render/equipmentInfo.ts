@@ -95,6 +95,10 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   // STORY 8.17 (amendment 131): PHOSPHOR SHELLS is its own weapon now, no
   // longer a star-shell add-on — named from its card, title-cased.
   phosphorShells: 'Phosphor Shells',
+  // STORY 10.4: the captain's MAIN BATTERY fires today's cannon shell from its
+  // turrets — it reuses the cannon's shipped name (no new copy; the full UI
+  // pass names it).
+  mainBattery: 'Cannon',
 };
 
 /**
@@ -355,6 +359,8 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     flak: e.flak.damage,
     instantReload: null,
     hunker: null,
+    // STORY 10.4: per SHELL, like the broadside — a turret's salvo is several.
+    mainBattery: e.mainBattery.damage,
   };
   return table[id];
 }

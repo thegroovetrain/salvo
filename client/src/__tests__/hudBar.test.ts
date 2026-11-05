@@ -26,7 +26,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, CONSUMABLE_SLOTS, DEFAULT_KIT, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, DEFAULT_CLASS_ID, DEFAULT_KIT, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
 import type { EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { HUD_BAR_WIDTH, HudBar, hudBarLayout, microScale, type HudBarView } from '../render/hudBar.js';
@@ -55,7 +55,8 @@ describe('(a) CLIENT_CONFIG.hudBar — the relations its numbers must keep', () 
 
 describe('(b) hudBarLayout — the bar, derived and anchored', () => {
   it('derives the bar width from the parts, and never from a literal', () => {
-    const slots = 5 * B.slot + 4 * B.slotGap;
+    // Six seats: the five weapon-row slots + Story 10.4's secondaries heat square.
+    const slots = 6 * B.slot + 5 * B.slotGap;
     const belt = B.beltPad.side * 2 + BELT_ROW.length * B.beltSlot + (BELT_ROW.length - 1) * B.beltGap;
     expect(HUD_BAR_WIDTH).toBe(B.globe + B.globeGap + slots + B.globeGap + belt + B.globeGap + B.globe);
     expect(hudBarLayout(REF_W, REF_H).bar.w).toBe(HUD_BAR_WIDTH);
@@ -100,7 +101,7 @@ describe('(b) hudBarLayout — the bar, derived and anchored', () => {
 
   it('carries the belt frame as its one grouping rect', () => {
     const L = hudBarLayout(REF_W, REF_H);
-    expect(Object.keys(L).sort()).toEqual(['bar', 'belt', 'chips', 'dimGroups', 'helmGlobe', 'hpGlobe', 'squares', 'strip']);
+    expect(Object.keys(L).sort()).toEqual(['bar', 'belt', 'chips', 'dimGroups', 'helmGlobe', 'hpGlobe', 'sec', 'secChip', 'squares', 'strip']);
   });
 });
 
@@ -123,8 +124,10 @@ describe('(b) the squares — five weapons, the kit belt', () => {
 
   it('runs the weapons left to right at an 8px gap, starting one gap past the HP globe', () => {
     expect(L.squares[WEAPON_ROW[0]].x).toBe(L.bar.x + B.globe + B.globeGap);
-    for (let k = 1; k < WEAPON_ROW.length; k++) {
-      const [a, b] = [L.squares[WEAPON_ROW[k - 1]], L.squares[WEAPON_ROW[k]]];
+    // Story 10.4: the secondaries heat square takes the seat right after the gun.
+    const run = [L.squares[WEAPON_ROW[0]], L.sec, ...WEAPON_ROW.slice(1).map((i) => L.squares[i])];
+    for (let k = 1; k < run.length; k++) {
+      const [a, b] = [run[k - 1], run[k]];
       expect(b.x - a.x, `gap ${k}`).toBe(B.slot + B.slotGap);
       expect(b.y).toBe(a.y);
     }
@@ -234,7 +237,7 @@ describe('(b) dimGroups — EXACTLY two, and the globes/strip are in neither', (
     expect(L.dimGroups[0]).toEqual({
       x: L.squares[SLOT_GUN].x,
       y: L.squares[SLOT_GUN].y,
-      w: 5 * B.slot + 4 * B.slotGap,
+      w: 6 * B.slot + 5 * B.slotGap,
       h: B.slot + B.chipGap + B.chipH,
     });
     expect(L.dimGroups[1]).toEqual(L.belt);
@@ -298,9 +301,9 @@ describe('microScale — the 9px floor at 90% UI scale', () => {
 // `barTop`, the bar's own top edge). Everything each member DRAWS is its own
 // suite's business.
 
-const CLS = 'torpedoBoat' as const;
+const CLS = DEFAULT_CLASS_ID;
 const STATS = effectiveStats(CONFIG.shipClasses[CLS]);
-// THE FITTED CARD (Story 8.10): the Torpedo Boat's torpedo, stated here rather
+// THE FITTED CARD (Story 8.10): a torpedo, stated here rather
 // than read off the interim spawn seed, which is deleted — a hull spawns with
 // the gun and Shift alone. What this suite pins is the BAR's composition with a
 // weapon in the row, not where the weapon came from.

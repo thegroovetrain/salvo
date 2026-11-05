@@ -144,102 +144,13 @@ const COLORS = {
   // epic-9 amendment 181): hot yellow / deep orange.
   alertYellow: 0xfff04d,
   alertOrange: 0xff5a00,
-  // Regatta Hoist personal combatant colors (20 hues; bright OUTLINE values —
-  // the hull stroke, wake, ordnance-marker tint, and kill-feed name source).
-  // Key order = the ratified wheel order (shared REGATTA_HUES): index i → this
-  // table's i-th entry. VERBATIM from DESIGN.md frontmatter.
-  players: {
-    lemon: 0xa1960d,
-    chartreuse: 0x778b0a,
-    olive: 0x5da20d,
-    lime: 0x11b519,
-    green: 0x12b563,
-    spring: 0x10a981,
-    jade: 0x0d9582,
-    aqua: 0x12adb3,
-    cyan: 0x0e97ab,
-    lagoon: 0x11a5d7,
-    sky: 0x0c8ac4,
-    azure: 0x0c86ea,
-    cobalt: 0x5c8efd,
-    periwinkle: 0x6c6ffd,
-    iris: 0x977afd,
-    orchid: 0xad58fd,
-    fuchsia: 0xd022fd,
-    magenta: 0xe312d9,
-    mulberry: 0xef11b2,
-    rose: 0xf8118d,
-  },
-  // Regatta Hoist interior FILL values (20 hues; the SOLID hull interior). SAME
-  // key order as `players`.
-  //
-  // ALL TWENTY ARE NOW RULE-DERIVED — the outline at HSV value x0.45, per
-  // channel. The old split ("12 DESIGN.md-documented pairs used VERBATIM at
-  // ~0.451, 8 rule-derived") dissolved when the whole wheel was regenerated in
-  // cycle 125 (epic-7 amendment 37): there are no surviving hand-authored pairs
-  // to preserve, so one rule covers the table and `tokens.test.ts` recomputes
-  // every entry rather than only eight. Scaling the gamma-encoded sRGB channels
-  // uniformly IS exactly an HSV V-scale (V = max channel; scaling all channels
-  // by k scales V by k and leaves H/S untouched) — Math.round(channel x 0.45)
-  // on the stored sRGB bytes, NOT on linear-light values.
-  playerFills: {
-    lemon: 0x484406,
-    chartreuse: 0x363f05,
-    olive: 0x2a4906,
-    lime: 0x08510b,
-    green: 0x08512d,
-    spring: 0x074c3a,
-    jade: 0x06433b,
-    aqua: 0x084e51,
-    cyan: 0x06444d,
-    lagoon: 0x084a61,
-    sky: 0x053e58,
-    azure: 0x053c69,
-    cobalt: 0x294072,
-    periwinkle: 0x313272,
-    iris: 0x443772,
-    orchid: 0x4e2872,
-    fuchsia: 0x5e0f72,
-    magenta: 0x660862,
-    mulberry: 0x6c0850,
-    rose: 0x70083f,
-  },
-  // Colorblind-assist families (Story 2.3, amendment 18 — IMPLEMENTER DRAFT,
-  // canon later). Eight OUTLINE hues that the 20-hue Regatta wheel collapses onto
-  // when the accessibility toggle is on (render/ships.ts is the single remap
-  // chokepoint, so nameplates / wake / kill feed follow for free).
-  //
-  // Selection rule (reproducible, and re-checked by cvd.test.ts):
-  //   • every hue avoids the RESERVED bands — denied red (0°), amber (43°),
-  //     phosphor (152°) and storm violet (272°), each ±20° — so the assist
-  //     palette can never impersonate a functional color;
-  //   • every hue clears 4.5:1 against the void, so a hull outline stays legible;
-  //   • under a simulated deuteranopia (LMS projection, util/cvd.ts) every PAIR
-  //     is separated by CIE-Lab ΔE ≥ 30 — the automated acceptance criterion.
-  // Key order IS the family order (family f = wheel index % 8).
-  cvd: {
-    teal: 0x3f838c,
-    citron: 0xe1ff00,
-    cobalt: 0x266fff,
-    forest: 0x008c05,
-    azure: 0x00bbff,
-    mint: 0x8cff73,
-    ice: 0x73ffff,
-    rose: 0xff4d8e,
-  },
-  // Interior FILLS for the assist families — the SAME HSV value ×0.45 rule the
-  // eight rule-derived playerFills use (Math.round(channel × 0.45) per sRGB byte).
-  // Same key order as `cvd`; recomputed from that rule by cvd.test.ts.
-  cvdFills: {
-    teal: 0x1c3b3f,
-    citron: 0x657300,
-    cobalt: 0x113273,
-    forest: 0x003f02,
-    azure: 0x005473,
-    mint: 0x3f7334,
-    ice: 0x347373,
-    rose: 0x732340,
-  },
+  // RELATION COLORS (Story 10.4, Eric's ruling R6 — the 20-hue wheel, its
+  // fills and the colorblind-assist families are gone everywhere). Every
+  // ship's linework reads ONE relation: own = cyan, enemy = red (the 10.4
+  // design-sitting page's candidates). render/relationColor.ts is the single
+  // rule; the dark interior fill is derived there (`CLIENT_CONFIG.ship.relationFillValue`).
+  relationOwn: 0x00e8ff,
+  relationEnemy: 0xff2a2a,
   // legacy carry-overs — byte-identical to pre-1.11 literals, owned by a later
   // story (deleted when that story lands its real color). NOT ratified roles.
   // (ownHull/enemyHull/ownAssetGreen retired by Story 1.12 — hulls, wake, and
@@ -1059,6 +970,60 @@ export const CLIENT_CONFIG = {
      * being contradicted — nothing can hit it to notice.
      */
     sunkScale: 0.85,
+    /** The relation hull's dark interior: the stroke at HSV value ×0.45, per
+     *  sRGB channel — the rule the retired wheel's fills used (render/relationColor.ts). */
+    relationFillValue: 0.45,
+    /** A DRONE hull's one stroke (world u — the pre-10.4 literal; drones keep
+     *  today's look exactly). Captain hulls draw with `art` below. */
+    hullStrokeU: 1.5,
+    /**
+     * THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*, the sitting
+     * page's `drawHull` + `drawFeatures` ported). Epic-10 amendment 7(m)/(o):
+     * EVERY line is the relation color; the HULL OUTLINE is the one bold line;
+     * every inner line (barbettes, gunhouse edges, tiers, tower rings, funnel
+     * rims, secondaries, casemates, deck lines) is the same color at about a
+     * third of its weight; rails and cranes 1.5× the inner weight. Fills are
+     * the skin (`CLIENT_CONFIG.skins`). Candidate values for Eric's look on the
+     * rendered page — none is ruled.
+     *
+     * IN-GAME WEIGHTS ARE WORLD UNITS (the hull layer is camera-scaled and the
+     * art is built once, never per frame or per zoom). The default framing is
+     * `zoom.defaultSpanU` 1320 u across the short axis — 0.58 logical px per u
+     * at 768 px tall — and the close limit 880 u (0.87 px/u). The hulls are
+     * 14.5–17.8 u in the beam (8–10 px at the default framing), so 1.5 u (the
+     * pre-10.4 hull stroke) reads as a ~0.9 px hull line at the default framing
+     * (~1.3 px close) without eating the deck; 2.4 u was tried on the rendered
+     * page and swallowed a fifth of the beam. The inner lines (0.5 u) are
+     * sub-pixel at the default framing — the deck detail reads as its fills
+     * there and as linework close in. The page's 2.5–4 px / 0.8–1.2 px were for
+     * a page drawn at several px per u.
+     */
+    art: {
+      /** The hull outline (u). */
+      hullLineU: 1.5,
+      /** Inner line weight as a fraction of the hull line (7(o): "about a third"). */
+      innerLineFrac: 1 / 3,
+      /** Rails and cranes, × the inner weight (7(o)). */
+      heavyLineMult: 1.5,
+      /** The page's deck `line` feature is drawn at this alpha. */
+      deckLineAlpha: 0.6,
+      /** A funnel's dark mouth, as a fraction of the funnel ellipse (the page
+       *  insets it by a fixed 2.5 px at its own scale — a scale-free reading). */
+      funnelMouthFrac: 0.7,
+      /** Barrel thickness (m) — main guns and secondaries (the page's widths). */
+      mainBarrelM: 1.1,
+      secBarrelM: 0.5,
+      /** Main barrels start this far (m) behind the gunhouse face. */
+      mainBarrelBackM: 2,
+      /** A crane's post disc radius (m). */
+      craneHubM: 1.6,
+      /**
+       * DOM (SVG) art weights in SCREEN px (`vector-effect: non-scaling-stroke`,
+       * so the weight holds whatever size the art is fitted to): the page's
+       * floor values — hull 2.5 px, inner a third of it.
+       */
+      svgHullPx: 2.5,
+    },
     /**
      * How far along the settle the OWN hull is ever allowed to travel.
      *
@@ -1078,6 +1043,29 @@ export const CLIENT_CONFIG = {
      * ~70% of its green and blue and reads as itself, dimmed.
      */
     ownSettleMax: 0.3,
+  },
+
+  /**
+   * THE SKINS (Story 10.4, epic-10 amendments 7(k)–(n)): a skin is the hull's
+   * INTERIOR — every fill — never its linework, which is always the relation
+   * color (render/relationColor.ts). Only the DEFAULT skin ships in 10.4 (R6:
+   * the picker and Gold / Pride / Funny are a later story). Values are the
+   * sitting page's `SKINS.default` (+ its shared `GREY` works) verbatim:
+   * Yamato linoleum-tan deck / grey works, Bismarck wood deck / grey,
+   * Warspite steel-grey deck / RN grey, Iowa Measure-22 deck blue / navy.
+   * `tier` is levels 1..3; `round` the tower rings and tubs; `sec` the
+   * secondary houses and casemates; `turret` the main gunhouses; `barrel`
+   * every barrel (barrels are fills — 7(m)). `funnelMouth` is the page's one
+   * skin-independent fill: the dark inside of every funnel.
+   */
+  skins: {
+    funnelMouth: 0x0b0f13,
+    default: {
+      yamato: { deck: 0xb8a874, tier: [0x8d969c, 0x7d868c, 0x6f787e], round: 0x9aa3a8, funnel: 0x2f3539, sec: 0x8a9399, turret: 0x7a838a, barrel: 0x3f474c },
+      bismarck: { deck: 0xc4a86f, tier: [0x8d969c, 0x7d868c, 0x6f787e], round: 0x9aa3a8, funnel: 0x2f3539, sec: 0x8a9399, turret: 0x7a838a, barrel: 0x3f474c },
+      warspite: { deck: 0x6b7176, tier: [0x9aa5ab, 0x8c979d, 0x7e898f], round: 0xa8b2b8, funnel: 0x2f3539, sec: 0x95a0a6, turret: 0x8b969c, barrel: 0x3b4246 },
+      iowa: { deck: 0x2f4a6b, tier: [0x3f5f80, 0x365373, 0x2e4866], round: 0x4d6d8e, funnel: 0x1b2838, sec: 0x3b5878, turret: 0x3b5878, barrel: 0x1f2f42 },
+    },
   },
 
   /**
@@ -1238,11 +1226,23 @@ export const CLIENT_CONFIG = {
     // 100), +1 pip per +20 (one ship-ladder card's step). [Story 10.3 reading]
     // Under the scaffold every hull reads the same ARMOR — the truth of it.
     // (Until 10.3: SPEED 30 kn +5, HULL 200 hp +50, TURNING 0.2 rad/s +0.2.)
+    // STORY 10.4 wave 2c: ARMOR / POWER / ENGINES (RUDDER is 100 on all four
+    // hulls; seven rows measured too tall for the card at 1366×768 — see
+    // ui/classSelect.ts PIP_ROWS). [Story 10.4 reading]
     pip: {
-      engines: { base: 100, step: 20 },
       armor: { base: 100, step: 20 },
-      rudder: { base: 100, step: 20 },
+      power: { base: 100, step: 20 },
+      engines: { base: 100, step: 20 },
     },
+    /** Ship-card art (Story 10.4 wave 2c): the inset (px) between the 158 px
+     *  silhouette box and the art, and the art's opacity on an UNSELECTED card
+     *  (the retired silver outline's job: the picked card's ship reads first). */
+    cardArtPadPx: 16,
+    cardArtOffAlpha: 0.55,
+    /** The home class chip's art box (px) — bow right, fitted to the width. */
+    chipArtW: 88,
+    chipArtH: 40,
+    chipArtHullPx: 1.5,
 
     /**
      * THE HOME SCENE (render/ambientScene.ts + render/ambient.ts) — the game
@@ -1273,9 +1273,9 @@ export const CLIENT_CONFIG = {
       seed: 82142026,
       /** The hull the camera follows and the scope belongs to. A battleship:
        *  slow and steady is the right helm for a backdrop. */
-      observerClass: 'battleship',
+      observerClass: 'bismarck',
       /** Rival hull classes, cycled over `rivalBands`. */
-      rivalClasses: ['torpedoBoat', 'mineLayer', 'torpedoBoat'],
+      rivalClasses: ['iowa', 'warspite', 'yamato'],
       /**
        * Each rival's roaming ANNULUS about the scene anchor (u), as multiples
        * of base truesight. Band 0 sits inside the bubble (a live silhouette

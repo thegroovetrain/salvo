@@ -18,6 +18,7 @@ import { Container, type Graphics } from 'pixi.js';
 import {
   BUOY_LINE_IDS,
   CONFIG,
+  DEFAULT_CLASS_ID,
   buoyKindOf,
   burstPointAlong,
   effectiveStats,
@@ -27,6 +28,10 @@ import {
   turretAimPoints,
   turretMuzzles,
   hullEnvelope,
+  aimPointOf,
+  initialTurrets,
+  pickTurret,
+  turretSalvo,
   islandFromPolygon,
   parallelOffsets,
   torpedoSpawn,
@@ -44,7 +49,7 @@ import {
   type AimPreviewInput,
 } from '../render/aimPreview.js';
 
-const SHIP = { x: 0, y: 0, heading: 0, cls: 'battleship' as const };
+const SHIP = { x: 0, y: 0, heading: 0, cls: DEFAULT_CLASS_ID };
 const MAP_R = 2400;
 /** The model a preview returns when there is nothing honest to draw. */
 const EMPTY_MODEL = { lines: [], bursts: [], place: null, band: null };
@@ -65,7 +70,7 @@ function squareIsland(cx: number, cy: number, half: number): Island {
 }
 
 function stats(...cards: string[]): EffectiveStats {
-  return effectiveStats(CONFIG.shipClasses.battleship, cards);
+  return effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cards);
 }
 
 /**
@@ -245,7 +250,7 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
 
   it('starts the travel line at the MUZZLE, not the ship centre', () => {
     const [l] = computeAimPreview(input({ stats: ONE })).lines;
-    expect(l.x1).toBeCloseTo(hullEnvelope('battleship').hull.length / 2 + CONFIG.gun.shellRadius, 3);
+    expect(l.x1).toBeCloseTo(hullEnvelope(DEFAULT_CLASS_ID).hull.length / 2 + CONFIG.gun.shellRadius, 3);
     expect(l.y1).toBeCloseTo(0, 6);
   });
 
@@ -608,7 +613,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   it('runs from the real tube exit to the map edge, far past gun range', () => {
     const inp = input({ id: 'heavyTorpedo', aimDist: 100 });
     const [l] = computeAimPreview(inp).lines;
-    const tube = torpedoSpawn(SHIP, hullEnvelope('battleship').hull.length, 0);
+    const tube = torpedoSpawn(SHIP, hullEnvelope(DEFAULT_CLASS_ID).hull.length, 0);
     expect(l.x1).toBeCloseTo(tube.x, 9);
     // weaponArc.weaponRangeU would have answered stats.equipment.gun.rangeU here (a
     // documented meaningless fallback for the torpedo) — the fish runs on.
@@ -1004,7 +1009,7 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
   it('the muzzles sit on the ENGAGED beam: clicking to starboard mirrors them', () => {
     const port = computeAimPreview(broadside()).lines;
     const stbd = computeAimPreview(broadside({ aim: -Math.PI / 2 })).lines;
-    const beam = CONFIG.shipClasses.battleship.hull.beam / 2;
+    const beam = CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam / 2;
     for (const l of port) expect(l.y1).toBeCloseTo(beam, 9);
     for (const l of stbd) expect(l.y1).toBeCloseTo(-beam, 9);
   });
@@ -1025,7 +1030,7 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
       .filter((i) => Math.hypot(m.bursts[i].x - click.x, m.bursts[i].y - click.y) < 1e-9);
     expect(bearing).toHaveLength(2);
     for (const i of bearing) {
-      expect(m.lines[i].y1).toBeCloseTo(CONFIG.shipClasses.battleship.hull.beam / 2, 9); // on the beam
+      expect(m.lines[i].y1).toBeCloseTo(CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam / 2, 9); // on the beam
       expect(m.lines[i].x2).toBeCloseTo(click.x, 9);
       expect(m.lines[i].y2).toBeCloseTo(click.y, 9);
     }
@@ -1036,5 +1041,73 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
   it('a DEAD-ZONE aim previews nothing - no beam contains it, so no turret fires', () => {
     expect(computeAimPreview(broadside({ aim: 0 }))).toEqual(EMPTY_MODEL);
     expect(computeAimPreview(broadside({ aim: Math.PI }))).toEqual(EMPTY_MODEL);
+  });
+});
+
+// THE MAIN BATTERY (Story 10.4, R4). The preview is the SHARED pick + salvo the
+// server fires with, over the turret state the caller passes in — so every
+// expectation here is read off `pickTurret` / `turretSalvo`, never a literal.
+describe('the MAIN BATTERY preview — the shared turret pick and salvo', () => {
+  const cls = SHIP.cls;
+  const row = stats().equipment.mainBattery;
+  const battery = (over: Partial<AimPreviewInput> = {}): AimPreviewInput => ({
+    id: 'mainBattery',
+    ship: SHIP,
+    aim: 0,
+    aimDist: row.rangeU / 2,
+    stats: stats(),
+    mapRadius: MAP_R,
+    islands: [],
+    legal: true,
+    turrets: initialTurrets(cls),
+    ...over,
+  });
+  /** The shared answer for an input: the pick, then its reach-clamped salvo. */
+  const shared = (inp: AimPreviewInput) => {
+    const pick = pickTurret(inp.turrets ?? [], cls, SHIP, aimPointOf(SHIP, inp.aim, inp.aimDist));
+    if (pick === null) throw new Error('fixture: no turret picked');
+    return { pick, salvo: turretSalvo(pick, cls, SHIP, row.rangeU, MAP_R) };
+  };
+
+  it('a ready turret on target lands its shells around the (clamped) aim point', () => {
+    for (const aimDist of [row.rangeU / 2, row.rangeU * 3]) {
+      const inp = battery({ aimDist });
+      const { pick, salvo } = shared(inp);
+      expect(pick.onTarget, `aimDist ${aimDist}`).toBe(true); // the premise: at rest, dead ahead
+      const m = computeAimPreview(inp);
+      expect(m.bursts, `aimDist ${aimDist}`).toHaveLength(pick.guns);
+      // Parallel tracks straddle the aim point: the outermost sits half the
+      // salvo's width (guns − 1 spacings) off it.
+      const spread = ((pick.guns - 1) / 2) * CONFIG.mainBattery.barrelSpacingU;
+      for (const b of m.bursts) {
+        expect(Math.hypot(b.x - salvo.center.x, b.y - salvo.center.y)).toBeLessThanOrEqual(spread + 1e-9);
+        expect(b.clamped).toBe(false);
+      }
+    }
+  });
+
+  it('reads the turret state it is given: the shells are the picked turret\'s salvo, one per gun', () => {
+    // The lead turret is reloading, so the pick moves to another one.
+    const turrets = initialTurrets(cls);
+    turrets[0].reloadMsLeft = row.reloadMs;
+    const inp = battery({ turrets });
+    const { pick, salvo } = shared(inp);
+    expect(pick.index).not.toBe(0); // the premise
+    const m = computeAimPreview(inp);
+    expect(m.lines).toHaveLength(pick.guns);
+    expect(m.bursts).toHaveLength(pick.guns);
+    salvo.shells.forEach((sh, k) => {
+      expect(m.lines[k].x1).toBeCloseTo(sh.origin.x, 9);
+      expect(m.lines[k].y1).toBeCloseTo(sh.origin.y, 9);
+      expect(m.bursts[k].x).toBeCloseTo(sh.target.x, 9);
+      expect(m.bursts[k].y).toBeCloseTo(sh.target.y, 9);
+    });
+  });
+  // REVIEW GATE C5: a zero / non-finite aim distance is NO AIM
+  // (`batteryAimPoint` → null) — the server holds and denies, so the preview
+  // draws no fall of shot for the battery.
+  it('NO AIM (aimDist 0 or not finite) previews nothing', () => {
+    expect(computeAimPreview(battery({ aimDist: 0 }))).toEqual(EMPTY_MODEL);
+    expect(computeAimPreview(battery({ aimDist: Number.NaN }))).toEqual(EMPTY_MODEL);
   });
 });

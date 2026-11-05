@@ -6,7 +6,11 @@
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { GUN_IDS } from '@salvo/shared';
+import { SHIFT_IDS } from '@salvo/shared';
+
+/** Three distinct Shifts, read off the shared list (Story 10.4 — the Shift
+ *  mix replaced the gun mix), so no test names a Shift id. */
+const [S0, S1, S2] = SHIFT_IDS;
 import { applyOverrides } from '../overrides.js';
 import type { BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
@@ -38,7 +42,7 @@ function bot(over: Partial<BotSample> = {}): BotSample {
 }
 
 function poolBot(over: Partial<PoolBotSample> = {}): PoolBotSample {
-  return { id: 'bot-1', gun: 'deckGun', levelEmpty: [], finalEmpty: 0, ...over };
+  return { id: 'bot-1', shift: S0, levelEmpty: [], finalEmpty: 0, ...over };
 }
 
 function match(bots: BotSample[], pool: PoolMatchSample | undefined, index = 0): MatchSample {
@@ -68,8 +72,8 @@ describe('poolReadouts — empty cases', () => {
     const p = buildPoolReadouts([]);
     expect(p.bots).toBe(0);
     expect(allFinite(p)).toBe(true);
-    expect(p.gunMix.map((g) => g.gun)).toEqual([...GUN_IDS]);
-    for (const g of p.gunMix) {
+    expect(p.shiftMix.map((g) => g.shift)).toEqual([...SHIFT_IDS]);
+    for (const g of p.shiftMix) {
       expect(g.bots).toBe(0);
       expect(g.share).toBeNull();
       expect(g.meanPlacement).toBeNull();
@@ -101,7 +105,7 @@ describe('poolReadouts — empty cases', () => {
 });
 
 describe('poolReadouts — arithmetic', () => {
-  it('gun mix: counts, mean placement over placed bots only, wins and shares', () => {
+  it('Shift mix: counts, mean placement over placed bots only, wins and shares', () => {
     const bots = [
       bot({ id: 'a', placement: 1 }),
       bot({ id: 'b', placement: 3 }),
@@ -112,20 +116,20 @@ describe('poolReadouts — arithmetic', () => {
       peakMines: 0, fogCoverage: 0,
       takes: {},
       bots: [
-        poolBot({ id: 'a', gun: 'flak' }),
-        poolBot({ id: 'b', gun: 'flak' }),
-        poolBot({ id: 'c', gun: 'flak' }),
-        poolBot({ id: 'd', gun: 'machineGun' }),
+        poolBot({ id: 'a', shift: S1 }),
+        poolBot({ id: 'b', shift: S1 }),
+        poolBot({ id: 'c', shift: S1 }),
+        poolBot({ id: 'd', shift: S2 }),
       ],
     };
     const p = buildPoolReadouts([match(bots, pool)]);
-    const flak = p.gunMix.find((g) => g.gun === 'flak')!;
-    expect(flak).toEqual({ gun: 'flak', bots: 3, share: 0.75, meanPlacement: 2, wins: 1, winShare: 1, winRate: 1 / 3 });
-    const mg = p.gunMix.find((g) => g.gun === 'machineGun')!;
+    const flak = p.shiftMix.find((g) => g.shift === S1)!;
+    expect(flak).toEqual({ shift: S1, bots: 3, share: 0.75, meanPlacement: 2, wins: 1, winShare: 1, winRate: 1 / 3 });
+    const mg = p.shiftMix.find((g) => g.shift === S2)!;
     expect(mg.meanPlacement).toBe(2);
     expect(mg.wins).toBe(0);
     expect(mg.winShare).toBe(0);
-    expect(p.gunMix.find((g) => g.gun === 'deckGun')!.bots).toBe(0);
+    expect(p.shiftMix.find((g) => g.shift === S0)!.bots).toBe(0);
   });
 
   it('weaponless at level: per-level shares over the bots that reached it', () => {
@@ -181,7 +185,7 @@ describe('poolReadouts — arithmetic', () => {
 
   it('emptyWeaponSlots reads the Q/E/R slots only (never the gun, Shift or belt)', () => {
     const slot = (id: string | null) => ({ equipmentId: id, state: null });
-    const loadout = [slot('gun'), slot('boost'), slot(null), slot('heavyTorpedo'), slot(null), slot(null), slot(null), slot(null), slot(null)];
+    const loadout = [slot('mainBattery'), slot('boost'), slot(null), slot('heavyTorpedo'), slot(null), slot(null), slot(null), slot(null), slot(null)];
     expect(emptyWeaponSlots({ loadout } as never)).toBe(2);
   });
 });
@@ -192,7 +196,7 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
   const slot = (id: string | null) => ({ equipmentId: id, state: null });
   /** Q/E/R filled with `weapons` ids, the rest of the loadout empty. */
   const loadoutWith = (...weapons: string[]) => [
-    slot('deckGun'),
+    slot('mainBattery'),
     slot('boost'),
     slot(weapons[0] ?? null),
     slot(weapons[1] ?? null),
@@ -203,7 +207,7 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
     slot(null),
   ];
   interface FakeShip {
-    gun: string;
+    shift: string;
     level: number;
     lifecycle: string;
     loadout: ReturnType<typeof loadoutWith>;
@@ -214,7 +218,7 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
   const ACTIVE = 1;
 
   it('a weapon fitted and a level reached on the tick the bot SINKS are in the sample', () => {
-    const ship: FakeShip = { gun: 'deckGun', level: 1, lifecycle: 'alive', loadout: loadoutWith() };
+    const ship: FakeShip = { shift: S0, level: 1, lifecycle: 'alive', loadout: loadoutWith() };
     const world = fakeWorld(ship);
     const c = new PoolCollector(['bot-1']);
     c.observe(world, ACTIVE);
@@ -226,11 +230,11 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
     c.observe(world, ACTIVE);
     ship.lifecycle = 'sunk';
     c.observe(world, ACTIVE); // frozen build: re-reading is idempotent
-    expect(c.result(world).bots).toEqual([{ id: 'bot-1', gun: 'deckGun', levelEmpty: [3, 2], finalEmpty: 2 }]);
+    expect(c.result(world).bots).toEqual([{ id: 'bot-1', shift: S0, levelEmpty: [3, 2], finalEmpty: 2 }]);
   });
 
   it('a level RESET (redeployEconomy) starts a fresh series: 0 -> 3 -> 0 -> 2', () => {
-    const ship: FakeShip = { gun: 'deckGun', level: 0, lifecycle: 'alive', loadout: loadoutWith() };
+    const ship: FakeShip = { shift: S0, level: 0, lifecycle: 'alive', loadout: loadoutWith() };
     const world = fakeWorld(ship);
     const c = new PoolCollector(['bot-1']);
     c.observe(world, ACTIVE);
@@ -248,7 +252,7 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
   });
 
   it('zero samples: an unobserved bot is skipped, and every readout stays n/a', () => {
-    const ship: FakeShip = { gun: 'deckGun', level: 0, lifecycle: 'alive', loadout: loadoutWith() };
+    const ship: FakeShip = { shift: S0, level: 0, lifecycle: 'alive', loadout: loadoutWith() };
     const world = fakeWorld(ship);
     const c = new PoolCollector(['bot-1']);
     c.observe(world, 0); // pre-activation: not a sample
@@ -257,7 +261,7 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
     const p = buildPoolReadouts([match([bot()], pool)]);
     expect(p.bots).toBe(0);
     expect(p.pureGunboat).toEqual({ bots: 0, share: null });
-    expect(p.gunMix.every((g) => g.bots === 0 && g.share === null)).toBe(true);
+    expect(p.shiftMix.every((g) => g.bots === 0 && g.share === null)).toBe(true);
     expect(allFinite(p)).toBe(true);
   });
 });
@@ -296,10 +300,10 @@ describe('poolReadouts — end to end on a tiny bot lobby', () => {
     // Consistency.
     expect(p.matches).toBe(2);
     expect(p.bots).toBe(8);
-    expect(p.gunMix.reduce((n, g) => n + g.bots, 0)).toBe(p.bots);
-    for (const g of p.gunMix) expect((GUN_IDS as readonly string[]).includes(g.gun)).toBe(true);
+    expect(p.shiftMix.reduce((n, g) => n + g.bots, 0)).toBe(p.bots);
+    for (const g of p.shiftMix) expect((SHIFT_IDS as readonly string[]).includes(g.shift)).toBe(true);
     const shares = [
-      ...p.gunMix.flatMap((g) => [g.share, g.winShare, g.winRate]),
+      ...p.shiftMix.flatMap((g) => [g.share, g.winShare, g.winRate]),
       ...p.weaponlessAtLevel.flatMap((r) => [r.anyEmptyShare, r.allEmptyShare]),
       p.pureGunboat.share,
       p.heal.takeRate,

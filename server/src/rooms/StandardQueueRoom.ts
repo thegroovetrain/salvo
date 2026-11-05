@@ -13,7 +13,7 @@
 
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, type AuthContext, type Client } from 'colyseus';
 import { CONFIG, MSG, type QueueStatusMsg } from '@salvo/shared';
-import { protocolVersionError, sanitizeGun, sanitizeKit, type JoinOptions } from './roomOptions.js';
+import { protocolVersionError, sanitizeKit, sanitizeShift, type JoinOptions } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
@@ -42,7 +42,7 @@ export interface QueueListingMeta {
 
 /**
  * A pooled captain: the shared SeatedCaptain shape (formArena.ts — sanitized
- * identity options plus the gun frozen at THIS door, Story 8.14 amendment 95).
+ * identity options plus the Shift frozen at THIS door, Story 10.4 / 8.14).
  * The arena-forming routine and its sanitizers moved there in cycle 167 so the
  * private lobby forms arenas exactly the way the queue does.
  */
@@ -114,16 +114,16 @@ export class StandardQueueRoom extends Room {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
-    // THE GUN IS FROZEN HERE (Story 8.14, amendment 95) and rides the seat's
-    // `auth`. Nothing at this door can refuse a join any more — the deck door
-    // and its 4402 are gone — so a malformed gun simply coerces to `deckGun`.
+    // THE SHIFT IS FROZEN HERE (Story 10.4 — the gun's door, Story 8.14) and
+    // rides the seat's `auth`. Nothing at this door can refuse a join — a
+    // malformed Shift simply coerces to DEFAULT_SHIFT; a legacy `gun` is ignored.
     const arenaOptions = sanitizeArenaOptions(options);
-    // ONLY THE GUN (and, since Story 10.1, THE KIT) travels: the dev spawn fit (`fitOverride`, amendment 65) is
+    // ONLY THE SHIFT (and, since Story 10.1, THE KIT) travels: the dev spawn fit (`fitOverride`, amendment 65) is
     // a direct-door smoke arm and is deliberately NOT written into the seat
     // reservation — a queued captain can never reach it.
-    const gun = sanitizeGun(options.gun, this.log);
-    const kit = sanitizeKit(options.kit, this.log); // Story 10.1: rides `auth` beside the gun
-    this.pool.push({ client, options: arenaOptions, gun, kit });
+    const shift = sanitizeShift(options.shift, this.log);
+    const kit = sanitizeKit(options.kit, this.log); // Story 10.1: rides `auth` beside the Shift
+    this.pool.push({ client, options: arenaOptions, shift, kit });
     this.log.info('queue.join', { sessionId: client.sessionId, pooled: this.pool.length });
     this.armJoiningDeadline(client);
     this.evaluate(true);

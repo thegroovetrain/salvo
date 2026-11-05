@@ -24,6 +24,7 @@ const valid = (seq = 1) => ({
   actSlot: 2,
   hornSeq: 7,
   held: true,
+  sec: true,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -104,6 +105,13 @@ describe('sanitizeInput — validation table', () => {
     ['numeric held (0)', { ...valid(), held: 0 }],
     ['string held', { ...valid(), held: 'true' }],
     ['object held', { ...valid(), held: {} }],
+    // Story 10.4: the SECONDARIES level is a required boolean on the same terms.
+    ['missing sec', { ...valid(), sec: undefined }],
+    ['null sec', { ...valid(), sec: null }],
+    ['numeric sec (1)', { ...valid(), sec: 1 }],
+    ['numeric sec (0)', { ...valid(), sec: 0 }],
+    ['string sec', { ...valid(), sec: 'true' }],
+    ['object sec', { ...valid(), sec: {} }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -162,6 +170,12 @@ describe('sanitizeInput — validation table', () => {
     expect(sanitizeInput({ ...valid(), held: true }, 0)?.held).toBe(true);
     expect(sanitizeInput({ ...valid(), held: false }, 0)?.held).toBe(false);
     expect(neutralInput().held).toBe(false);
+  });
+
+  it('accepts BOTH secondaries levels verbatim, and the neutral input is released (Story 10.4)', () => {
+    expect(sanitizeInput({ ...valid(), sec: true }, 0)?.sec).toBe(true);
+    expect(sanitizeInput({ ...valid(), sec: false }, 0)?.sec).toBe(false);
+    expect(neutralInput().sec).toBe(false);
   });
 
   it('accepts the hornSeq sentinel (0) and positive counters verbatim (Story 4.5)', () => {
@@ -310,8 +324,24 @@ describe('InputStore', () => {
   it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
     expect(a).toEqual({
-      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
     });
     expect(neutralInput()).not.toBe(a);
+  });
+
+  it('releaseHeld drops BOTH levels off the stored input, keeping seq, helm and aim (Story 10.4)', () => {
+    const store = new InputStore();
+    store.submit('a', valid(4), 0);
+    store.releaseHeld('a');
+    const after = store.get('a')!;
+    expect(after.held).toBe(false);
+    expect(after.sec).toBe(false);
+    expect(after.seq).toBe(4);
+    expect(after.aim).toBe(valid(4).aim);
+    // A secondaries-only hold is released too.
+    const s2 = new InputStore();
+    s2.submit('b', { ...valid(1), held: false, sec: true }, 0);
+    s2.releaseHeld('b');
+    expect(s2.get('b')!.sec).toBe(false);
   });
 });

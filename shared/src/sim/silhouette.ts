@@ -6,98 +6,136 @@
 // projectile/mine hit-tests and island collision consume them. No independent
 // hull geometry may exist anywhere else.
 //
-// Player polygons come from the ratified board SVG outlines (bow-up, y-down
-// frames), normalized so bow-to-stern span EXACTLY equals the class hull
-// length and max width EXACTLY equals the class beam. Drone polygons are the
-// legacy chevron generated procedurally at CONFIG.drones dims (same
-// proportions as the old client traceHull: shoulders at 0.3·halfLen, stern
-// inset 0.1·halfLen).
+// Player polygons are the four TRACED battleship outlines (Story 10.4, Eric
+// 2026-11-04, epic-10 amendment 7(b) — sim/hullOutlines.ts), normalized so
+// bow-to-stern span EXACTLY equals the class hull length and max width EXACTLY
+// equals the class beam. The three board-SVG scaffold outlines (torpedoBoat /
+// battleship / mineLayer) are gone with their classes (2026-11-04, Story 10.4,
+// epic-10 amendment 9). Drone polygons are the legacy chevron generated
+// procedurally at CONFIG.drones dims (same proportions as the old client
+// traceHull: shoulders at 0.3·halfLen, stern inset 0.1·halfLen).
 //
-// Geometry helpers below are concave-safe (the Torpedo Boat stern notch and
-// Mine Layer transom notch are real, missable cavities) and pure. Local vert
+// Geometry helpers below are concave-safe (a traced hull is not convex — the
+// knuckles and the stern are real, missable cavities) and pure. Local vert
 // arrays are precomputed once at module load; transformPolygon reuses a
 // caller-provided output array so the 20Hz loop can run allocation-light.
 
-import { CONFIG, DRONE_HULL_IDS, DRONE_SIZE_IDS, type Hull, type HullId } from '../constants.js';
+import { CONFIG, DRONE_HULL_IDS, DRONE_SIZE_IDS, SHIP_CLASS_IDS, type Hull, type HullId } from '../constants.js';
 import { segSegClosest } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
+import { HULL_OUTLINES, type TracedPoint } from './hullOutlines.js';
 
 const EPS = 1e-9;
 
-// --- Board SVG outlines (bow-up, y-down; viewBox coords) --------------------
-
-/** Raw board outline verts per class, as [svgX, svgY] pairs. */
-const BOARD_OUTLINES: Record<keyof typeof CONFIG.shipClasses, readonly (readonly [number, number])[]> = {
-  // viewBox 0 0 24 100 — M12 2 L15.5 22 L16.5 58 L15.5 90 L12 84 L8.5 90 L7.5 58 L8.5 22 Z
-  torpedoBoat: [
-    [12, 2],
-    [15.5, 22],
-    [16.5, 58],
-    [15.5, 90],
-    [12, 84], // stern-notch apex
-    [8.5, 90],
-    [7.5, 58],
-    [8.5, 22],
-  ],
-  // viewBox 0 0 48 124
-  battleship: [
-    [24, 2],
-    [32, 20],
-    [34, 30],
-    [34, 38],
-    [40, 44],
-    [40, 84],
-    [34, 90],
-    [34, 106],
-    [30, 118],
-    [18, 118],
-    [14, 106],
-    [14, 90],
-    [8, 84],
-    [8, 44],
-    [14, 38],
-    [14, 30],
-    [16, 20],
-  ],
-  // viewBox 0 0 36 88
-  mineLayer: [
-    [18, 2],
-    [24, 22],
-    [27, 50],
-    [28, 84],
-    [21.5, 84], // transom-notch starboard prong
-    [21.5, 72],
-    [14.5, 72], // transom-notch inner wall
-    [14.5, 84],
-    [8, 84],
-    [9, 50],
-    [12, 22],
-  ],
-};
+// --- Traced outlines -> local frame -----------------------------------------
 
 /**
- * Normalize a board outline into the local frame: bow (min svgY) → +x, span
- * scaled to EXACTLY hull.length, width scaled to EXACTLY hull.beam, centered
- * on the midpoint of the bow/stern and port/starboard extents.
+ * u — HOW FAR A SIMPLIFIED TRACE MAY SIT FROM THE TRACE AS TRACED (Story 10.4
+ * design note: "simplify only below hit-test tolerance"). A traced vertex is
+ * dropped only when it lies within this distance of the chord that replaces
+ * it, so the polygon never leaves the trace by more than 0.3 u — under a sixth
+ * of a shell's own collision radius. It cuts the four hulls' 62 / 42 / 148 /
+ * 38 traced points to a few dozen vertices each; every hull edge is paid for
+ * on every hit test, coast check and radar paint (orchestrator ruling at the
+ * wave-1 gate: 0.1 u left Warspite at 122 vertices).
  */
-function normalizeBoardOutline(raw: readonly (readonly [number, number])[], hull: Hull): Vec2[] {
+const TRACE_TOLERANCE_U = 0.3;
+
+/** Distance from `p` to segment a-b. */
+function chordDistance(p: Vec2, a: Vec2, b: Vec2): number {
+  return segSegClosest(p, p, a, b).dist;
+}
+
+/**
+ * Douglas-Peucker over the open run `pts[from..to]`: mark every vertex that
+ * must stay so the kept chain is within `tol` of the original. The two ends
+ * are the caller's anchors (already marked).
+ */
+function keepWithinTolerance(pts: readonly Vec2[], from: number, to: number, tol: number, keep: boolean[]): void {
+  let worst = -1;
+  let worstDist = tol;
+  for (let i = from + 1; i < to; i += 1) {
+    const d = chordDistance(pts[i], pts[from], pts[to]);
+    if (d > worstDist) {
+      worst = i;
+      worstDist = d;
+    }
+  }
+  if (worst < 0) return;
+  keep[worst] = true;
+  keepWithinTolerance(pts, from, worst, tol, keep);
+  keepWithinTolerance(pts, worst, to, tol, keep);
+}
+
+/**
+ * One SIDE of a hull (bow tip -> stern tip, in u) with the vertices that are
+ * not needed dropped. The bow tip, the stern tip and the side's widest vertex
+ * are anchors and always stay, so the simplified hull keeps its exact length
+ * and beam.
+ */
+function simplifySide(side: readonly Vec2[], tol: number): Vec2[] {
+  const keep = side.map(() => false);
+  let widest = 0;
+  side.forEach((p, i) => {
+    if (Math.abs(p.y) > Math.abs(side[widest].y)) widest = i;
+  });
+  const last = side.length - 1;
+  keep[0] = true;
+  keep[widest] = true;
+  keep[last] = true;
+  keepWithinTolerance(side, 0, widest, tol, keep);
+  keepWithinTolerance(side, widest, last, tol, keep);
+  return side.filter((_, i) => keep[i]);
+}
+
+/**
+ * Normalize a traced outline ([fraction of length from the bow, fraction of
+ * beam off the centreline]) into the local frame: bow -> +x, span scaled to
+ * EXACTLY hull.length, width scaled to EXACTLY hull.beam, centered on the
+ * midpoint of the bow/stern and port/starboard extents. The scale is taken
+ * from the trace's own extents, so the exactness never depends on the trace
+ * spanning 0..1 to the last digit.
+ *
+ * THE TRACE IS KEPT AS TRACED, less the vertices `TRACE_TOLERANCE_U` makes
+ * redundant: no vertex is ever moved or invented. A trace runs bow -> stern
+ * down one side and stern -> bow up the other, half its points each; each
+ * side is simplified on its own, BOTH read bow -> stern, so a mirror-symmetric
+ * trace stays exactly mirror-symmetric.
+ *
+ * The vertex ORDER leaves the bow down the +y side first — counter-clockwise
+ * in the local frame, the winding the retired board outlines had. (Every
+ * consumer is winding-agnostic — the drone chevron runs the other way — so
+ * this is a convention, not a requirement.)
+ */
+function normalizeTracedOutline(raw: readonly TracedPoint[], hull: Hull): Vec2[] {
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  for (const [x, y] of raw) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+  for (const [fx, fy] of raw) {
+    if (fx < minX) minX = fx;
+    if (fx > maxX) maxX = fx;
+    if (fy < minY) minY = fy;
+    if (fy > maxY) maxY = fy;
   }
   const midX = (minX + maxX) / 2;
   const midY = (minY + maxY) / 2;
-  const lengthScale = hull.length / (maxY - minY); // svg y-span → hull length
-  const beamScale = hull.beam / (maxX - minX); // svg x-span → hull beam
-  // Bow-up SVG (−y = forward) → local (+x = forward): rotate so the bow lands
-  // on +x; lateral offset becomes local y.
-  return raw.map(([x, y]) => ({ x: (midY - y) * lengthScale, y: (x - midX) * beamScale }));
+  const lengthScale = hull.length / (maxX - minX);
+  const beamScale = hull.beam / (maxY - minY);
+  // fx grows toward the STERN, local x toward the BOW.
+  const local = raw.map(([fx, fy]) => ({ x: (midX - fx) * lengthScale, y: (fy - midY) * beamScale }));
+  const half = Math.floor(local.length / 2);
+  const down = simplifySide(local.slice(0, half), TRACE_TOLERANCE_U); // bow -> stern, the −y side
+  const up = simplifySide(local.slice(half).reverse(), TRACE_TOLERANCE_U); // bow -> stern, the +y side
+  const verts = [...up, ...down.reverse()]; // bow -> stern down +y, then stern -> bow up −y
+  // A trace whose bow (or stern) comes to a single point on the centreline
+  // states that point TWICE — once as each side's end (Bismarck's bow). The
+  // loop is implicitly closed, so the repeat would be a zero-length edge;
+  // drop a vertex that coincides with the one before it (wrap included).
+  return verts.filter((p, i) => {
+    const prev = verts[(i + verts.length - 1) % verts.length];
+    return p.x !== prev.x || p.y !== prev.y;
+  });
 }
 
 /** The legacy chevron at (length, beam): bow tip, shoulders at 0.3·halfLen, stern inset 0.1·halfLen. */
@@ -118,8 +156,8 @@ function droneChevron(hull: Hull): Vec2[] {
 
 function buildRegistry(): Record<HullId, readonly Vec2[]> {
   const out = {} as Record<HullId, readonly Vec2[]>;
-  for (const id of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
-    out[id] = normalizeBoardOutline(BOARD_OUTLINES[id], CONFIG.shipClasses[id].hull);
+  for (const id of SHIP_CLASS_IDS) {
+    out[id] = normalizeTracedOutline(HULL_OUTLINES[id], CONFIG.shipClasses[id].hull);
   }
   DRONE_HULL_IDS.forEach((id, i) => {
     out[id] = droneChevron(CONFIG.drones[DRONE_SIZE_IDS[i]].hull);

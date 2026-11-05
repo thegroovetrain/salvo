@@ -72,7 +72,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, MSG, PROTOCOL_VERSION } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, MSG, PROTOCOL_VERSION } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // Free ports: matchSmoke/zoneSmoke 2599, reconnect/latency 2601, queue 2603,
@@ -216,7 +216,7 @@ async function queueUp(name) {
   const queue = await client.joinOrCreate('queue', {
     name,
     pv: PROTOCOL_VERSION,
-    cls: 'torpedoBoat',
+    cls: DEFAULT_CLASS_ID,
     horn: 'standard',
   });
   const ctx = { name, client, queue, statuses: [] };

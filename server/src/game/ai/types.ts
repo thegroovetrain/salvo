@@ -37,8 +37,10 @@ import type {
   ConsumableKit,
   EffectiveStats,
   LoadoutSlot,
+  SecondariesHeat,
   ShipLifecycle,
   ShipState,
+  TurretState,
   Vec2,
   ZonePhase,
 } from '@salvo/shared';
@@ -64,7 +66,7 @@ export type BotProfileId = (typeof CONFIG.bots.profiles)[number];
  * opponent can never carry one. They are reachable ONLY through the explicit
  * profile override the batch-sim harness threads through addBot.
  */
-export type TestProfileId = 'randomTorpedoBoat' | 'randomBattleship' | 'randomMineLayer';
+export type TestProfileId = 'randomYamato' | 'randomBismarck' | 'randomWarspite' | 'randomIowa';
 
 /** Any profile a bot mind may carry: an in-game row or a test-only row. */
 export type AnyProfileId = BotProfileId | TestProfileId;
@@ -154,6 +156,21 @@ export interface BotSelf {
    * Read by ai/plot.ts's sweep-miss drop.
    */
   readonly sweepAngle: number;
+  /**
+   * This hull's OWN MAIN-BATTERY TURRETS (Story 10.4) — exactly the
+   * `OwnShip.turrets` a human client is sent (angle + remaining reload per
+   * turret). The main-battery tactic reads it to click only when a ready
+   * turret is on the aim it is holding (ai/battery.ts). Optional so hand-built
+   * fixtures that predate it stay valid; absent / empty = no battery.
+   */
+  readonly turrets?: readonly TurretState[];
+  /**
+   * This hull's OWN SECONDARIES HEAT (Story 10.4) — exactly the `OwnShip.sec`
+   * a human client is sent (`{heat, locked}`). The secondaries trigger reads
+   * it for its burst discipline (ai/battery.ts). Optional, like `turrets`;
+   * absent = no secondaries.
+   */
+  readonly sec?: SecondariesHeat;
   /**
    * ms — this hull's OWN FLASH SHELLS mark (epic-10 amendment 5) — exactly
    * the `OwnShip.dazzledUntil` a human client is sent (0 / absent = never
@@ -470,13 +487,6 @@ export interface BotMind {
    *  in every hand-built test mind — only the controller's enroll ever sets
    *  it, and only when the harness set BotController.spend first. */
   spendRandom?: boolean;
-  /** GUN-FIRST SPEND OVERRIDE (balance campaign, 2026-10-01) — the
-   *  `spendRandom` sibling, stamped at enroll from BotController.spend ===
-   *  'gun' (batch-sim `--bot-spend gun` only). A weighted row keeps its whole
-   *  temperament; its card pick takes the mounted gun's ladder card whenever
-   *  the hand deals it, else the shipped weighted scorer. OPTIONAL, absent =
-   *  false on every production path and hand-built test mind. */
-  spendGunFirst?: boolean;
   /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
    *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;
@@ -592,6 +602,28 @@ export interface BotMind {
   /** The id of the tactic row that fired last (harness readout, Story 9.13;
    *  stamped by the tactics wave); null = none yet. */
   lastTactic?: string | null;
+  /**
+   * THE HELD MAIN-BATTERY SCATTER (Story 10.4, ai/battery.ts): the
+   * competence scatter offset (u, world axes) the bot's main-battery aim
+   * carries, drawn ONCE off `rng` and HELD until the bot clicks — so the aim
+   * it writes every tick is steady enough for the turrets (which chase it at
+   * a finite traverse rate) to arrive on it. Re-drawn after every click.
+   * Optional; absent / null = draw on next use.
+   */
+  batteryScatter?: Vec2 | null;
+  /**
+   * The `targetKey` `batteryScatter` was drawn for (Story 10.4 gate S4): a
+   * different target redraws, so one target's range-scaled offset is never
+   * applied to another. Optional; absent = no held draw.
+   */
+  batteryScatterKey?: string | null;
+  /**
+   * SECONDARIES BURST DISCIPLINE (Story 10.4, ai/battery.ts): true while the
+   * bot has released the secondaries at the high-heat line and is waiting for
+   * them to cool below the low line before pressing again. Optional; absent =
+   * false.
+   */
+  secResting?: boolean;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics
@@ -668,6 +700,10 @@ export interface BotDecision {
    *  while the input's `slot` is 0 (the World's streamControl), so the driver
    *  leaves `fireSlot` null — and therefore `slot` 0 — on a held tick. */
   held: boolean;
+  /** THE SECONDARIES LEVEL (Story 10.4) — `InputMsg.sec`, right mouse held.
+   *  A LEVEL like `held`, never an edge; it fires along the same `aim` /
+   *  `aimDist`. Optional so a decision built without it reads false. */
+  sec?: boolean;
   /** Spend a banked level: an offer index, or null for no spend. Never
    *  negative (Story 8.8 retired the -1 heal sentinel). Only ever non-null on
    *  a deliberation tick (the decision cadence). */

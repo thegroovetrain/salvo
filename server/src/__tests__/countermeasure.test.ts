@@ -53,7 +53,7 @@ function bareWorld(seed = 1): World {
 
 /** A torpedo-boat captain teleported to an exact pose (speed 0, beam parked). */
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -360,7 +360,7 @@ describe('COUNTERMEASURE — the bot (R12 on one cloud per press)', () => {
   it('a hurt bot holding two copies presses ONCE on the way out — one cloud at its centre — and not again until that cloud expires', () => {
     const w = new World(81624, 4);
     w.map.islands.length = 0;
-    const rec = w.addBot('torpedoBoat', 'duelist');
+    const rec = w.addBot('bismarck', 'duelist');
     stock(w, rec, 2);
     const step = (ms: number): void => steps(w, Math.round(ms / DT));
     rec.hp = rec.stats.maxHp * 0.1;

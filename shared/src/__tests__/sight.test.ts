@@ -56,7 +56,7 @@ describe('effectiveSight — THE WHITEOUT LAW (Eric 2026-10-29)', () => {
   });
 
   it('grows linearly across the clear phase: half sight at the clear midpoint, full at the window end, full past it', () => {
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+    const s = effectiveStats(CONFIG.shipClasses.iowa);
     expect(effectiveSight(s, UNTIL, HIT + BLIND + clearMs / 2)).toBeCloseTo(s.sightRange / 2, 9);
     expect(effectiveSight(s, UNTIL, HIT + BLIND + clearMs / 4)).toBeCloseTo(s.sightRange / 4, 9);
     expect(effectiveSight(s, UNTIL, UNTIL)).toBe(s.sightRange);
@@ -65,7 +65,7 @@ describe('effectiveSight — THE WHITEOUT LAW (Eric 2026-10-29)', () => {
   });
 
   it('is monotone non-decreasing in `now` across the whole window', () => {
-    const s = effectiveStats(CONFIG.shipClasses.battleship);
+    const s = effectiveStats(CONFIG.shipClasses.yamato);
     let prev = -1;
     for (let t = HIT; t <= UNTIL + 500; t += 50) {
       const v = effectiveSight(s, UNTIL, t);
@@ -76,7 +76,7 @@ describe('effectiveSight — THE WHITEOUT LAW (Eric 2026-10-29)', () => {
   });
 
   it('a re-flash restarts the window: a later mark gives a smaller sight at the same `now`', () => {
-    const s = effectiveStats(CONFIG.shipClasses.mineLayer);
+    const s = effectiveStats(CONFIG.shipClasses.warspite);
     const now = HIT + BLIND + clearMs / 2; // half clear under the first mark
     const first = effectiveSight(s, UNTIL, now);
     const reflashed = effectiveSight(s, Math.max(UNTIL, now + FLASH_WINDOW_MS), now); // hit again at `now`
@@ -95,7 +95,7 @@ describe('effectiveSight — THE WHITEOUT LAW (Eric 2026-10-29)', () => {
   });
 
   it('never touches the stats it reads — a flash blinds, it does not deafen', () => {
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+    const s = effectiveStats(CONFIG.shipClasses.iowa);
     const before = structuredClone(s);
     effectiveSight(s, UNTIL, HIT + BLIND + 10);
     expect(s).toEqual(before);

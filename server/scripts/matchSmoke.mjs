@@ -37,8 +37,8 @@
 // the same effectiveStats fold the server runs, at run time.
 //
 // THE TORPEDO IS PRE-FITTED by the DEV-ONLY `fitOverride` join option (Story
-// 8.10, EPIC-8 amendment 65): every hull spawns with only the seat's gun and
-// the Shift boost, so A asks for `heavyTorpedo` explicitly; it lands in slot
+// 8.10, EPIC-8 amendment 65): every hull spawns with only its main battery
+// (Story 10.4) and the seat's Shift, so A asks for `heavyTorpedo` explicitly; it lands in slot
 // 2 (Q). The line is stacked to the tier that gives TWO tubes (Eric ruling
 // 2026-10-22, Story 9.15 question 4 — a salvo landed inside the old regen
 // wait; the regen is gone since Story 10.3 and the fit stands).
@@ -63,7 +63,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
 import {
-  CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
+  CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
   effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, zoneRingRadii,
 } from '@salvo/shared';
 
@@ -78,7 +78,11 @@ const TRACE = [];
 /** The pinned map (fogSmoke's documented pin). Islands never travel on the
  *  wire, so the script rebuilds the same field from the welcome's seed. */
 const MAP_SEED = 265;
-const TB = CONFIG.shipClasses.torpedoBoat; // every client is the default class
+/** Every client joins with no `cls` -> the server seats DEFAULT_CLASS_ID (Story
+ *  10.4: Bismarck), so this smoke reads that hull's CONFIG row. */
+const TB = CONFIG.shipClasses[DEFAULT_CLASS_ID];
+/** Its full hull, from the same fold the server runs. */
+const FULL_HP = effectiveStats(TB, []).maxHp;
 const HULL_L = TB.hull.length;
 const TORP = 'heavyTorpedo';
 const TORP_SLOT = 2; // slot 2 (Q) = the FIRST fitted weapon since Story 8.5
@@ -333,7 +337,7 @@ function onFrame(ctx, f) {
   if (f.you) {
     ctx.you = f.you;
     if (ctx.firstYou === null) ctx.firstYou = f.you;
-    if (!ctx.activated && f.you.hp < TB.hp) ctx.readyHpViolations += 1;
+    if (!ctx.activated && f.you.hp < FULL_HP) ctx.readyHpViolations += 1;
   }
   for (const e of f.events) {
     if (e.k === 'boom' && e.hit === ctx.room.sessionId) ctx.boomsOnMe += 1;
@@ -349,7 +353,7 @@ function onFrame(ctx, f) {
 
 /** A full legal InputMsg: dead stop, weapons cold (the fireSeq is not bumped). */
 function input(ctx) {
-  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
 }
 
 /** Send a dead-stop input. */
@@ -417,7 +421,7 @@ function assertPoses(a, b) {
     assert(dist(y, pose) < 1 && Math.abs(angleDiff(y.heading, pose.heading)) < 1e-6,
       `${ctx.name} spawned at (${y.x.toFixed(1)},${y.y.toFixed(1)}) h=${y.heading.toFixed(3)}, not its dev pose`);
   }
-  assert(a.firstYou.hp === TB.hp && b.firstYou.hp === TARGET.maxHp, `spawn hp A ${a.firstYou.hp} / B ${b.firstYou.hp}, expected ${TB.hp} / ${TARGET.maxHp} (shared fold vs server maxHp)`);
+  assert(a.firstYou.hp === SHOOTER.maxHp && b.firstYou.hp === TARGET.maxHp, `spawn hp A ${a.firstYou.hp} / B ${b.firstYou.hp}, expected ${SHOOTER.maxHp} / ${TARGET.maxHp} (shared fold vs server maxHp)`);
   const off = Math.abs(angleDiff(a.firstYou.heading, bearing(a.firstYou, B_POSE)));
   precondition(off < CONFIG.torpedo.halfArc, `bearing to B is ${off.toFixed(3)} rad off A's bow (halfArc ${CONFIG.torpedo.halfArc.toFixed(3)})`);
   assert(JSON.stringify(a.firstYou.cards) === JSON.stringify(FIT), `A fitted ${JSON.stringify(a.firstYou.cards)}, expected ${JSON.stringify(FIT)}`);
@@ -489,7 +493,7 @@ async function stepActivation(a, b) {
   assert(a.spawnsSeen > spawns0.a && b.spawnsSeen > spawns0.b, `redeploy not witnessed: spawn events A ${spawns0.a}->${a.spawnsSeen} / B ${spawns0.b}->${b.spawnsSeen}`);
   await sleep(300); // a few frames of active state
   for (const [ctx, pose] of [[a, A_POSE], [b, B_POSE]]) {
-    assert(ctx.you.hp === TB.hp, `${ctx.name} not at full hp after reset`);
+    assert(ctx.you.hp === FULL_HP, `${ctx.name} not at full hp after reset`);
     assert(dist(ctx.you, pose) < 2, `${ctx.name} not at its dev pose after the redeploy (${ctx.you.x.toFixed(1)},${ctx.you.y.toFixed(1)})`);
   }
   const pool = a.you.ammo[TORP_SLOT];
@@ -566,7 +570,7 @@ async function stepResults(a, b) {
     assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
   }
   assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
-  assert(rowA.damageDealt >= TB.hp, `A damageDealt=${rowA.damageDealt} < ${TB.hp}`);
+  assert(rowA.damageDealt >= TARGET.maxHp, `A damageDealt=${rowA.damageDealt} < ${TARGET.maxHp}`);
   TRACE.push(
     `results: winner=ALPHA (1st row, ${rowA.kills} kill, ${rowA.damageDealt}dmg); ` +
     `B placed ${rowB.placement} of ${res.rows.length} rows — both CAPTAINS, dense 1..2; roster is CAPTAINS ONLY`,

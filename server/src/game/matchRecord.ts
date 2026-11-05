@@ -10,7 +10,7 @@
 // perception invariant's forbidden-key walk). ZERO Colyseus imports: this is
 // game/, and the builder is pure over plain snapshots.
 
-import { PROTOCOL_VERSION, type GunId, type HullId, type LineId } from '@salvo/shared';
+import { PROTOCOL_VERSION, type HullId, type ShiftId, type LineId } from '@salvo/shared';
 import type { Match, MatchEndCause, MatchOutcome, Participant } from './match.js';
 import { isParticipant, type ShipRole } from './participants.js';
 
@@ -40,7 +40,8 @@ export interface ParticipantRecord {
   /** Account link — null for everyone until Epic 9 has accounts. */
   userId: null;
   hullId: HullId;
-  gun: GunId;
+  /** The seat's Shift pick (Story 10.4 — was the seat's gun). */
+  shift: ShiftId;
   placement: number;
   kills: number;
   pveKills: Record<string, number>;
@@ -95,7 +96,7 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>, p
     role: p.role as Exclude<ShipRole, 'fleet'>, // narrowed by the caller's isParticipant filter
     userId: null,
     hullId: p.hullId,
-    gun: p.gun,
+    shift: p.shift,
     placement,
     kills: p.kills,
     pveKills: { ...p.pveKills },

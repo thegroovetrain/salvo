@@ -39,13 +39,17 @@ import {
   burstVictims,
   drawOffer,
   lineWeight,
-  DEFAULT_GUN,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
   DEFAULT_SHIFT,
-  MOUNTED_GUN,
   SLOT_GUN,
   WEAPON_SLOTS,
-  classShift,
+  batteryAimPoint,
+  initialSecondaries,
+  initialTurrets,
+  reloadAllTurrets,
+  stepSecondaries,
+  stepTurrets,
   DEFAULT_HORN_ID,
   damageMultiplierFor,
   effectiveStats,
@@ -107,8 +111,9 @@ import {
   type DrawShip,
   type ConsumableKit,
   type PickRefusal,
-  type GunId,
+  type SecondariesState,
   type ShiftId,
+  type TurretState,
   type Weights,
   type BoonOffer,
   type LineId,
@@ -156,8 +161,10 @@ import {
   checkMineTriggers,
   configTriggerRadius,
   contactBlastRadius,
+  fireSecondaryRound,
   mineBlastVictims,
   slotRow,
+  syncBatterySlot,
   type ActivationContext,
   type ActivationDenial,
   type ActivationResult,
@@ -608,18 +615,37 @@ export interface ShipRecord {
    */
   devPose?: DevPose;
   /**
-   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
-   * captain PICKED — deck gun, machine gun or flak gun — sanitized at the door
-   * and frozen for the match. It is a SEAT value, not a fact about the hull:
-   * slot 0 mounts the MODULE `MOUNTED_GUN[gun]` names (all three resolve to the
-   * shipped `'gun'` module until Story 8.15), and a GUN LADDER is offered only
-   * while its own gun is the mounted one (sim/draw.ts).
+   * THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — it replaced the seat's
+   * GUN, Story 8.14): which Shift ability this captain PICKED, sanitized at
+   * the door (`sanitizeShiftId`, fail-open to `DEFAULT_SHIFT`) and frozen for
+   * the match. Slot 1 mounts it (`loadoutFor(stats, fleet, shift)`); slot 0 is
+   * the hull's MAIN BATTERY on every captain hull. A bot's is dealt off the
+   * room's bot-fleet stream. A fleet hull carries the default and fits no
+   * Shift (loadoutFor ignores it).
    *
-   * SELF-PRIVATE: it rides the own-ship frame (`OwnShip.gun`) and NOTHING else
-   * — which gun an enemy picked is build information. A fleet hull carries the
-   * default and never draws.
+   * SELF-PRIVATE: it rides the own-ship frame (`OwnShip.shift`) and NOTHING
+   * else — which Shift an enemy picked is build information.
    */
-  gun: GunId;
+  shift: ShiftId;
+  /**
+   * THE MAIN BATTERY'S TURRETS (Story 10.4, R2/R4): one `{a, reloadMsLeft}`
+   * per turret, bow to stern — the TRUTH slot 0's `{n, reloadMsLeft}` pair is
+   * derived from (`batterySummary`). Stepped in place by the shared
+   * `stepTurrets` in the `stepTurrets` STEP_ORDER row; a turret's reload is
+   * started by the mainBattery row's `fireTurret`. `initialTurrets(hullId)` at
+   * every spawn / redeploy / respawn; EMPTY for a fleet drone (no battery).
+   * The ANGLES ride a sighted contact's row (`Contact.tu`, through the contact
+   * gate); the reloads ride the own-ship frame only (`OwnShip.turrets`).
+   */
+  turrets: TurretState[];
+  /**
+   * THE SECONDARIES' HEAT (Story 10.4, R3): the shared stepper's state,
+   * stepped in place by the `secondariesControl` STEP_ORDER row off the
+   * latest input's `sec` level. `{heat, locked}` ride the own-ship frame only
+   * (`OwnShip.sec`); the round phase (`untilRoundMs`) never leaves the server.
+   * Reset at every spawn / redeploy / respawn; never stepped for a fleet hull.
+   */
+  sec: SecondariesState;
   /**
    * THE SEAT'S CONSUMABLE KIT (Story 10.1, epic-10 amendment 3): the FOUR
    * consumable lines this ship carries, in key order — slot `5 + i` is bound
@@ -2383,10 +2409,10 @@ export class World {
    *  bogus cross-map segment it exists to prevent is structurally impossible
    *  on this path.
    *
-   *  `gun` (Story 8.14, amendments 89d/95) is THE SEAT'S GUN — the captain's
-   *  pick, sanitized at the door and frozen for the match. It defaults to
-   *  DEFAULT_GUN (`deckGun`), which is every bot, every fleet hull and every
-   *  caller that does not care. THERE IS NO DECK PARAMETER ANY MORE: decks are
+   *  `shift` (Story 10.4, epic-10 amendment 9 — in the seat GUN's place) is
+   *  THE SEAT'S SHIFT — the captain's pick, sanitized at the door and frozen
+   *  for the match. It defaults to DEFAULT_SHIFT, which is every fleet hull and
+   *  every caller that does not care. THERE IS NO DECK PARAMETER ANY MORE: decks are
    *  retired (amendment 89a) and every captain draws from the one common pool.
    *
    *  `kit` (Story 10.1, epic-10 amendment 3) is THE SEAT'S CONSUMABLE KIT —
@@ -2404,7 +2430,7 @@ export class World {
    *  caller; honoured for a CAPTAIN only, it wins over `at` and is kept on the
    *  record (`devPose`) so the redeploy and respawn edges place the hull there
    *  again. */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, kit: ConsumableKit = DEFAULT_KIT, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = DEFAULT_CLASS_ID, horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, shift: ShiftId = DEFAULT_SHIFT, kit: ConsumableKit = DEFAULT_KIT, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
     const seatKit = World.seatKit(id, kit), devPose = role === 'captain' ? pose : undefined;
     const { heading, ...p } = this.placement(id, devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
     const cls = hullEnvelope(hullId);
@@ -2414,10 +2440,11 @@ export class World {
     // holding as cards — is DELETED. Every hull spawns holding NOTHING and the
     // first weapon arrives as a CARD from the level-zero offer the countdown
     // grants (grantOpening), drawn from the common pool like every card after.
-    // The fit is the universal nine-slot loadout and nothing else: THE SEAT'S
-    // GUN + the Shift boost for a captain or a bot, the GUN ALONE for a fleet
-    // hull (amendment 24) — the weapon row and the belt start empty.
-    const loadout = loadoutFor(stats, roleIsFleetHull({ role }), gun, World.shiftFor(role, hullId));
+    // The fit is the universal nine-slot loadout and nothing else: the MAIN
+    // BATTERY + THE SEAT'S SHIFT for a captain or a bot (Story 10.4), the GUN
+    // ALONE for a fleet hull (amendment 24) — the weapon row and the belt start
+    // empty.
+    const loadout = loadoutFor(stats, roleIsFleetHull({ role }), World.shiftFor(role, shift));
     const rec: ShipRecord = {
       id,
       name,
@@ -2440,10 +2467,11 @@ export class World {
       // nothing on the hull's first tick.
       // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
       wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading), sweepRev: 0,
-      // THE SEAT'S GUN and the ship's private DRAW stream (8.14): there is no
-      // deck to deal any more — the pool is the catalog and a draw is a pure
-      // read of this record's own state (materializeOffer).
-      gun, kit: seatKit, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
+      // THE SEAT'S SHIFT (10.4) and the ship's private DRAW stream (8.14):
+      // there is no deck to deal any more — the pool is the catalog and a draw
+      // is a pure read of this record's own state (materializeOffer). The
+      // turrets come up at rest and loaded, the secondaries cold (Story 10.4).
+      shift: World.shiftFor(role, shift), turrets: initialTurrets(hullId), sec: initialSecondaries(), kit: seatKit, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
@@ -2552,17 +2580,18 @@ export class World {
    * not a profile was forced. A forced profile governs the hull (each row is
    * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, gun: GunId = DEFAULT_GUN, kit: ConsumableKit = DEFAULT_KIT): ShipRecord {
+  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, shift: ShiftId = DEFAULT_SHIFT, kit: ConsumableKit = DEFAULT_KIT): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
     const { name, hullId } = this.bots.enroll(id, hull, profile);
-    // A bot sails the DEFAULT GUN unless a caller says otherwise (Story 8.14):
-    // there is no deck resolver any more — every participant draws from the one
-    // common pool, so a bot's economy is a captain's economy exactly.
+    // A bot sails the DEFAULT SHIFT unless a caller says otherwise (Story
+    // 10.4: the room deals it uniformly off its bot-fleet stream): there is no
+    // deck resolver any more — every participant draws from the one common
+    // pool, so a bot's economy is a captain's economy exactly.
     // Its KIT (Story 10.1, ruling 6) is rolled by the CALLER off its own seeded
-    // stream (ArenaRoom off hueRng, the harnesses off theirs) and passed in;
+    // stream (ArenaRoom off its kit stream, the harnesses off theirs) and passed in;
     // DEFAULT_KIT is the fallback for tests that do not care.
-    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, gun, kit);
+    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, shift, kit);
   }
 
   /**
@@ -2847,6 +2876,7 @@ export class World {
     // A fresh life never inherits an open boost window — nor either slow.
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
+    World.resetBattery(ship); // ...nor a previous life's turret angles, reloads or secondaries heat (Story 10.4)
     // ...nor a HULL REPAIR pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
@@ -2938,7 +2968,7 @@ export class World {
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
     // replayed over it through the SHARED fill rule. The fleet flag is
     // load-bearing (without it a drone would grow a boost in slot 1).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), World.shiftOf(ship));
     ship.hp = ship.stats.maxHp;
   }
 
@@ -3552,18 +3582,18 @@ export class World {
    *     needs somewhere to go) and what closes the weapon kind once the row is
    *     full — and the level-zero guarantee runs the full `pickRefusal` over it
    *     so it can never hand out a card this hull could not take (review F2).
-   *   - `mountedGun`: the MODULE slot 0 carries, which is exactly
-   *     `MOUNTED_GUN[gun]` by `loadoutFor`'s construction — read from the seat
-   *     rather than from the slot so it stays a fact about the PICK (no card
-   *     addresses slot 0, and reading the seat keeps the value typed as an
-   *     EquipmentId without a cast). A gun ladder is offered only while its own
-   *     gun is mounted (amendment 89d).
+   *   - `mountedGun`: the MODULE slot 0 carries by `loadoutFor`'s
+   *     construction — `'mainBattery'` on every captain / bot hull since
+   *     Story 10.4 (no ladder is hosted on it, so the three deck-gun ladders
+   *     are never eligible), the drone `'gun'` on a fleet hull (which never
+   *     draws). Read from the role rather than the slot so it stays typed as
+   *     an EquipmentId without a cast.
    */
   private drawShipOf(ship: ShipRecord): DrawShip {
     return {
       held: ship.cards as readonly LineId[],
       slotIds: ship.loadout.map((s) => s.equipmentId),
-      mountedGun: MOUNTED_GUN[ship.gun],
+      mountedGun: roleIsFleetHull(ship) ? 'gun' : 'mainBattery',
       // THE KIT (Story 10.1): a consumable outside the ship's four is never a
       // candidate — the draw is confined at the source.
       kit: ship.kit,
@@ -3818,13 +3848,31 @@ export class World {
       // life, so the `left <= 0` guard below would skip it anyway — the
       // narrowing guard is what makes the equipmentReloadMs reads type-honest.
       if (isConsumableId(id)) continue;
-      const left = slot.state.reloadMsLeft;
-      if (left <= 0) continue; // idle slot: nothing in flight
       const oldMs = equipmentReloadMs(prevStats, id);
       const newMs = equipmentReloadMs(ship.stats, id);
-      if (oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      if (!Number.isFinite(oldMs) || oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      if (id === 'mainBattery') {
+        World.rescaleTurretReloads(ship, slot, newMs / oldMs);
+        continue;
+      }
+      const left = slot.state.reloadMsLeft;
+      if (left <= 0) continue; // idle slot: nothing in flight
       slot.state.reloadMsLeft = left * (newMs / oldMs);
     }
+  }
+
+  /**
+   * THE MAIN BATTERY'S share of `rescaleReloadTimers` (Story 10.4 gate S1):
+   * slot 0's `{n, reloadMsLeft}` is DERIVED (`syncBatterySlot` overwrites it
+   * every tick), so the progress-fraction rule lands on EACH turret's own
+   * running clock; a loaded turret (0) has nothing in flight. The slot pair is
+   * then re-derived from the turrets.
+   */
+  private static rescaleTurretReloads(ship: ShipRecord, slot: LoadoutSlot, ratio: number): void {
+    for (const t of ship.turrets) {
+      if (t.reloadMsLeft > 0) t.reloadMsLeft *= ratio;
+    }
+    syncBatterySlot(ship, slot);
   }
 
   /**
@@ -4101,6 +4149,18 @@ export class World {
     // Foul zones (Story 9.4): the same natural-expiry sweep, beside the burn
     // zones' and AFTER applyFoulZones (the stamp lands through the final tick).
     { name: 'expireFoulZones', run: (w) => w.expireFoulZones() },
+    // THE TURRET STEP (Story 10.4, contract §4) — DELIBERATE seat, directly
+    // BEFORE fireControl: every captain hull's turrets traverse toward the
+    // latest input's aim point (the shared `stepTurrets`, the very call the
+    // client predicts with) and their reloads count down. AFTER the motion
+    // block (stepShips / resolveCollisions) so the turrets read the tick's
+    // RESOLVED pose, and after founderSinking so a hull that left the water
+    // this tick already holds its angles. BEFORE fireControl so a turret that
+    // arrives on the aim point — or finishes its reload — THIS tick may fire
+    // this tick (a turret fired at tick T is ready again at exactly T +
+    // reloadMs / dt), and so the mainBattery row's per-tick hotbar sync reads
+    // the stepped reloads.
+    { name: 'stepTurrets', run: (w, ctx) => w.stepTurrets(ctx.dtMs) },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
     // resolved right after the click channel — the reloads have ticked (a
@@ -4108,6 +4168,13 @@ export class World {
     // stream row was already skipped by consumeClick, so the two channels
     // can never double-fire the first shell.
     { name: 'streamControl', run: (w) => w.streamControl() },
+    // THE SECONDARIES (Story 10.4, R3, contract §4 step 5) — the second LEVEL
+    // channel, DIRECTLY after streamControl: same tick-position rationale (the
+    // post-move pose, after the click channel, before the ability channel),
+    // and it reads the same LATEST input through the same refusal gate. The
+    // shared heat stepper runs every tick for every captain hull — draining
+    // while not firing — and the rounds it returns spawn here.
+    { name: 'secondariesControl', run: (w, ctx) => w.secondariesControl(ctx.dtMs) },
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
     // into activations through the single sinking gate.
@@ -5394,7 +5461,7 @@ export class World {
       this.addShip(id, FLEET_SHIP_NAME, 'fleet', hullId, DEFAULT_HORN_ID, {
         x: anchor.x + offset.x,
         y: anchor.y + offset.y,
-      }, DEFAULT_GUN, DEFAULT_KIT);
+      }, DEFAULT_SHIFT, DEFAULT_KIT);
       this.drones.add(id, fleetSizeOf(hullId), fleetId, offset);
     }
   }
@@ -6946,6 +7013,45 @@ export class World {
   }
 
   /**
+   * THE TURRET STEP (Story 10.4; see the STEP_ORDER row): every hull with a
+   * battery steps its turrets through the shared stepper. An AFLOAT hull's
+   * turrets chase the latest input's aim point (`batteryAimPoint` — the same
+   * aim `InputMsg.aim` / `aimDist` the client predicts with; an input with no
+   * positive aimDist is NO AIM and holds every angle, gate S2); a SINKING or dead
+   * hull's turrets HOLD their angles (aimPoint null — orchestrator ruling,
+   * wave-1 gate) while their reloads still count down, so a dying captain can
+   * still fire whatever is ready (amendment 10). A fleet hull has no turrets
+   * (the stepper degrades to nothing).
+   */
+  private stepTurrets(dtMs: number): void {
+    for (const ship of this.ships.values()) {
+      if (ship.turrets.length === 0) continue;
+      const aim = isAfloat(ship.lifecycle) ? batteryAimPoint(ship.state, ship.input.aim, ship.input.aimDist) : null;
+      stepTurrets(ship.turrets, ship.hullId, ship.state, aim, dtMs);
+    }
+  }
+
+  /**
+   * THE SECONDARIES CHANNEL (Story 10.4, R3; see the STEP_ORDER row). For
+   * every captain / bot hull (a fleet hull has none): the shared heat stepper
+   * runs on the latest input's `sec` level — refused (frozen room / dead hull,
+   * the one `activationRefusal` rule; a SINKING hull stays live exactly as its
+   * weapons do) reads as released, so the guns drain — and every round it
+   * returns is spawned. No denial is ever queued: a locked gun is visible in
+   * `OwnShip.sec`, and a level that fires nothing is not a refused press.
+   */
+  private secondariesControl(dtMs: number): void {
+    for (const ship of this.ships.values()) {
+      if (roleIsFleetHull(ship)) continue;
+      const live = this.activationRefusal(ship) === null && ship.input.sec;
+      const rounds = stepSecondaries(ship.sec, live, dtMs);
+      if (rounds <= 0) continue;
+      const ctx = this.activationContext(ship);
+      for (let i = 0; i < rounds; i += 1) fireSecondaryRound(ctx);
+    }
+  }
+
+  /**
    * Evaluate ONE accepted input's click intent (fireSeq monotonic grammar).
    * Consumption is unconditional — lastFireSeq advances even dead or denied —
    * and each press is evaluated at most once (a later duplicate reads stale).
@@ -7227,7 +7333,7 @@ export class World {
    * LoadoutSlot it activated sees the truth.
    */
   private rebuildConsumableSlots(ship: ShipRecord): void {
-    const replay = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    const replay = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), World.shiftOf(ship));
     for (const i of CONSUMABLE_SLOTS) {
       const live = ship.loadout[i];
       const want = replay[i];
@@ -7299,32 +7405,54 @@ export class World {
   private static finishReloads(ship: ShipRecord): void {
     for (const i of [SLOT_GUN, ...WEAPON_SLOTS]) {
       const slot = ship.loadout[i];
-      const id = slot?.equipmentId;
-      if (id === null || id === undefined || slot.state === null || slot.state.reloadMsLeft <= 0) continue;
-      if (isConsumableId(id)) continue; // never a consumable line, whatever slot it sits in
-      const maxAmmo = equipmentMaxAmmo(ship.stats, id);
-      slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
-      slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
+      if (slot === undefined) continue;
+      // THE MAIN BATTERY (Story 10.4 reading of record): INSTANT RELOAD
+      // finishes EVERY turret (angles and the secondaries' heat untouched),
+      // and slot 0's derived pair is re-synced from them.
+      if (slot.equipmentId === 'mainBattery') {
+        reloadAllTurrets(ship.turrets);
+        syncBatterySlot(ship, slot);
+      } else {
+        World.finishOneReload(ship, slot);
+      }
     }
   }
 
-  /** The class Shift slot 1 fits for a hull (Story 8.15, amendment 89(c)) —
-   *  `classShift` over the class id for a captain or a bot; a FLEET drone has
-   *  no Shift (and no class id), so it takes the default, which `loadoutFor`
-   *  ignores for a fleet hull anyway. */
-  private static shiftFor(role: ShipRole, hullId: HullId): ShiftId {
-    return roleIsFleetHull({ role }) ? DEFAULT_SHIFT : classShift(hullId as ShipClassId);
+  /** `finishReloads` for one ordinary per-round (or magazine) slot. */
+  private static finishOneReload(ship: ShipRecord, slot: LoadoutSlot): void {
+    const id = slot.equipmentId;
+    if (id === null || slot.state === null || slot.state.reloadMsLeft <= 0) return;
+    if (isConsumableId(id)) return; // never a consumable line, whatever slot it sits in
+    const maxAmmo = equipmentMaxAmmo(ship.stats, id);
+    slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
+    slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
+  }
+
+  /** The Shift slot 1 fits for a hull (Story 10.4 — the SEAT's pick, no
+   *  longer the class's): the seat's `shift` for a captain or a bot; a FLEET
+   *  drone has no Shift, so it takes the default, which `loadoutFor` ignores
+   *  for a fleet hull anyway. */
+  private static shiftFor(role: ShipRole, shift: ShiftId): ShiftId {
+    return roleIsFleetHull({ role }) ? DEFAULT_SHIFT : shift;
   }
 
   /** `shiftFor` over a live record. */
   private static shiftOf(ship: ShipRecord): ShiftId {
-    return World.shiftFor(ship.role, ship.hullId);
+    return World.shiftFor(ship.role, ship.shift);
   }
 
   /** Zero the Story 8.15 per-life clocks — the HUNKER window and the
    *  machine gun's stream clock — at every life boundary where
    *  `boostUntil` resets (redeploy / founder / respawn), so a fresh life
    *  never inherits an open cut or a mid-stream cadence. */
+  /** A FRESH LIFE'S GUNS (Story 10.4): turrets at rest and loaded, the
+   *  secondaries cold — at the redeploy and respawn edges (a FOUNDERED wreck
+   *  keeps its angles: the record is not re-armed until it comes back). */
+  private static resetBattery(ship: ShipRecord): void {
+    ship.turrets = initialTurrets(ship.hullId);
+    ship.sec = initialSecondaries();
+  }
+
   private static clearShiftClocks(ship: ShipRecord): void {
     ship.hunkerUntil = 0;
     ship.streamNextAt = 0;
@@ -7940,6 +8068,7 @@ export class World {
     // for directed callers).
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
+    World.resetBattery(ship); // ...nor a previous life's turret angles, reloads or secondaries heat (Story 10.4)
     World.clearRepair(ship);
     // ...nor the dead life's combat clock (amendment 47).
     ship.lastDamagedAt = this.now;
@@ -7978,7 +8107,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), World.shiftOf(ship));
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

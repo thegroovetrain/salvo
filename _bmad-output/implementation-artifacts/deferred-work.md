@@ -361,7 +361,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   summary: Client-side random default makes the server's no-pref branch (seeded-random free hue in regatta.ts assignHue) production-dead for current clients — every join now carries a colorPref, so the server path survives only as defense for legacy/absent clients. Deliberate (Eric ruled persist-at-client so home/modal/match agree); awareness entry only, no change proposed. Also: with the caption gone, a displaced preference (pref taken → nearest free clockwise) has no UI explanation anywhere pre-join; if players report color confusion, the tooltip/copy question reopens.
   evidence: connection.ts ensureColorPref() (this patch) + connect() colorPref forwarding; server/src/game/regatta.ts assignHue no-pref branch unchanged; DESIGN.md:157 FCFS semantics.
 - source_spec: `_bmad-output/implementation-artifacts/spec-home-page-maintenance.md`
-  status: open — client/src/ui/home.ts + client/src/main.ts applyRenderSettings — 2026-10-23 (Story 9.16, cycle 206): still true: the colorblind toggle only calls setColorblindAssist (main.ts:5164-5166); home's repaintAccent/repaintChip run at mount and on hoist change only (home.ts:990,1118-1119), with no settings subscription, so home chrome keeps the pre-toggle hue.
+  status: MOOT 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9(f)): the 20-color wheel and the PLAYER_HUES tables are removed; ships draw cyan or red relation linework, so the assist toggle no longer swaps any hue table (it keeps only the radar alpha floor, R14). Was: open — client/src/ui/home.ts + client/src/main.ts applyRenderSettings — 2026-10-23 (Story 9.16, cycle 206): still true: the colorblind toggle only calls setColorblindAssist (main.ts:5164-5166); home's repaintAccent/repaintChip run at mount and on hoist change only (home.ts:990,1118-1119), with no settings subscription, so home chrome keeps the pre-toggle hue.
   summary: Colorblind-assist toggle leaves already-painted home chrome stale — main.ts swaps the PLAYER_HUES tables live, but home's `repaintAccent` runs only at mount and on hoist picks, so chip/callsign tint keeps the pre-toggle hue while a re-opened bay shows the remapped palette; pre-existing pattern (chip border predates this patch), surface widened by the broader-tinting ruling. Fix shape: settings toggle notifies the home surface (or repaint rides the settings-change event) — needs a small main.ts↔home seam, not a one-liner.
   evidence: Blind Hunter traced main.ts:2293 (live PLAYER_HUES swap) vs home.ts repaintAccent's mount-time-only subscription; divergence reproducible by toggling the assist with the home page up.
 
@@ -498,7 +498,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   evidence: `server/src/game/perception.ts` `blipOrder` + `view()` push order; Blind Hunter finding 2 (PLAUSIBLE, explicitly flagged for the record rather than for action).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-class-legible-blips.md`
-  status: open — client/src/render/hueLatch.ts — 2026-10-23 (Story 9.16, cycle 206): still true — retryHue sets state.rev = rev before `if (hue === null) return`, so a latched marker whose owner left the roster consumes the revision bump and keeps its pre-toggle hue (client/src/render/hueLatch.ts:57-65). Live callers remain: render/decoys.ts, render/nameplates.ts, main.ts. A one-function fix plus a test.
+  status: MOOT 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9(f)): the wheel is removed and `client/src/render/hueLatch.ts` no longer exists. Was: open — client/src/render/hueLatch.ts — 2026-10-23 (Story 9.16, cycle 206): still true — retryHue sets state.rev = rev before `if (hue === null) return`, so a latched marker whose owner left the roster consumes the revision bump and keeps its pre-toggle hue (client/src/render/hueLatch.ts:57-65). Live callers remain: render/decoys.ts, render/nameplates.ts, main.ts. A one-function fix plus a test.
   summary: PRE-EXISTING `hueLatch.ts` gap (Story 1.12, untouched by this cycle) — `retryHue` writes `state.rev = rev` BEFORE its null-hue early return, so a marker whose owner has left the roster consumes a hue-revision bump without being repainted, and keeps its pre-toggle hue for the rest of its life after a colorblind-assist toggle. Nil visible effect today (an unresolved marker wears amber, which clears both luminance floors), but the latch's documented contract — "a revision bump repaints every live marker" — is silently false for that population. Newly exercised, not caused, by 4.2's 12s-lived blips.
   evidence: `client/src/render/hueLatch.ts` `retryHue`; flagged independently by both review hunters (Blind finding 4, Edge finding 2) from different directions.
 
@@ -3582,3 +3582,54 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - owned by Story 10.14 - 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8 R-K)
   summary: THE HOW-TO-PLAY REGEN SENTENCE IS WRONG SINCE 10.3 - `client/src/how-to-play/copy.ts:92` ("You slowly regenerate HP...") describes a regen that no longer exists; the HULL REPAIR and "run out of HP" sentences still say HP, and no ARMOR / POWER / index entries exist. The copy was left FROZEN on purpose (the 9.6 amendment-96 precedent): 10.14 owns the rewrite.
   evidence: Story 10.3 wave 2b (284a4e9a) title-only How-to-Play changes; epic-10 amendment 8 R-K.
+
+## 2026-11-04 - Story 10.4 The Four Battleships (cycle 212, 0.19.6, PV 96) - review-gate and wave defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): the 2026-08-04 progress-fraction ruling holds - `rescaleReloadTimers` now scales each running turret reload by new / old and re-derives the slot pair; regression test in `upgrades.test.ts`. Was: open - Eric's call - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R6)
+  summary: A RELOAD CARD DOES NOT RESCALE A RUNNING TURRET RELOAD - RELOAD / RANGE cards apply at the next fire and a turret mid-reload keeps its countdown, which may conflict with the 2026-08-04 renormalization ruling (a RELOAD card rescales running reloads). The implementer's reading, not a ruling; flagged for Eric, not resolved.
+  evidence: Story 10.4 wave 1 (93af0c02) `sim/turrets.ts`; epic-10 amendment 9 R6.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): the two thresholds are `CONFIG.bots.secReleaseHeat` / `secRepressHeat` with harness bounds; 10.12 tunes the values. Was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R11)
+  summary: THE BOT SECONDARIES HEAT THRESHOLDS (release at 0.8, re-press at 0.2) ARE MODULE CONSTANTS in `server/src/game/ai/battery.ts`; they belong in `CONFIG.bots` when 10.12 tunes the bots under the four hulls.
+  evidence: Story 10.4 wave 2a (0b3b558a).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): `U_PER_M` is exported from shared and the client's copy is deleted. Was: open - harness note - 2026-11-04 (Story 10.4, cycle 212)
+  summary: `U_PER_M` IS NOT EXPORTED FROM SHARED - the client restates it in `client/src/render/hullArt/data.ts`; a test ties it to the CONFIG hull lengths. Export it from shared if a third reader appears.
+  evidence: Story 10.4 wave 2c (7385d992).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by Story 10.5 - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R13)
+  summary: DEAD-FOR-CAPTAINS CLIENT CODE - the deck-gun tier code in `equipmentInfo` (`GUN_FAMILY`) and the machine-gun drain / swap wipe in `hotbar.ts` are never reached for a captain now. Clean up when 10.5 re-cuts the hotbar.
+  evidence: Story 10.4 waves 2b (60f00fbf) and 2c (7385d992).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - harness note - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE BATCH-SIM TELLS A MAIN-BATTERY SHELL FROM A BROADSIDE SHELL BY `attenRangeU !== undefined || contactDamage !== damage` - a distinct tag would be cleaner. `--tune secondaries.rangeFrac`, `mainBattery.traverseDegPerS` and `onTargetDeg` have no bounds.
+  evidence: Story 10.4 wave 2a (0b3b558a) harness changes.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - note - 2026-11-04 (Story 10.4, cycle 212)
+  summary: ESLINT IGNORES `__tests__` IN ALL WORKSPACES, so test code never gets the complexity check. Pre-existing; noticed during this story.
+  evidence: Story 10.4 gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by the full UI / UX pass - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R16, R17)
+  summary: THE SHIP CARD'S PIP SCALE HIDES BELOW-AVERAGE INDICES (on `{ base 100, step 20 }` every index at or below 100 reads one pip); the secondaries heat square has no tooltip or label; the gun square has no tier numeral. None is final (amendment 8(o)).
+  evidence: Story 10.4 waves 2b / 2c.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - tune on staging - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R18)
+  summary: CONTACT TURRET ANGLES ARE SNAPPED FROM THE LATEST FRAME while the hull is drawn an interpolation delay behind. Smooth them if it reads badly on staging.
+  evidence: Story 10.4 wave 2b (60f00fbf).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - flaky test - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE `client/src/__tests__/radarMarch.test.ts` SOFT COVER CASE TAKES ~5-7 s and can time out under machine load. Pre-existing; observed once during this story, green alone and in the final gate.
+  evidence: Story 10.4 wave 2b run (one timeout under load).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  summary: A BOT'S NON-BATTERY SHOT STEALS ITS TURRET AIM - when a torpedo, mine or consumable row returns a shot, `triggerOf` writes that shot's aim and the turrets chase it for the tick, so the main battery reads off-target for the ticks it takes to swing back at 90 deg/s; a bot with a torpedo fit fires its main guns less than intended.
+  evidence: `server/src/game/ai/tactics.ts` `triggerOf` (the aim written is the chosen shot's); `ai/battery.ts` `readyOnTarget`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  summary: A BOT'S ON-TARGET CHECK READS THE PRE-MOVE POSE - `readyOnTarget` steps a copy of the turrets with the pose from the bots tick, but the server's `stepTurrets` row runs after `stepShips` / `resolveCollisions`; in a hard turn or after a shove the aim offset can move by more than the 0.5 deg tolerance and the click resolves through the early-click fallback (fires along the current bearing).
+  evidence: `server/src/game/ai/battery.ts` `readyOnTarget`; `STEP_ORDER` (botsTick first, stepTurrets after the motion block).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - own story: smoke rewrites - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE THREE HEURISTIC-PILOT SMOKES ARE RED UNDER THE FOUR HULLS - `fogSmoke` ("timeout: park in radar band"), `combatSmoke` ("A never sank B", zero shells, range stuck at 6515 u) and `zoneSmoke` (a 37 hp contact blow plus grind bleed on the hull piloting to the ring centre, read by the smoke as storm damage). All three still sail heuristic pilots from random ring spawns; the default hull is now slower (28.5 u/s) and longer. Same family as the standing entry on the heuristic-pilot smokes; migrated to the new wire (they parse and send `sec`), not rewritten. `zoneSmoke` now prints its own dmg events in the failing assert.
+  evidence: Story 10.4 wave 3 runs (7a623e54) on a scratch server; matchSmoke and weaponsSmoke (the scripted scenarios) pass first try.

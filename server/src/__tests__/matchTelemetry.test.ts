@@ -78,9 +78,9 @@ describe('Match.endSummary — pre-activation safety', () => {
 
   it('duration stays 0 mid-match (activated but not finished)', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined);
+    ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
     ctx.m.notifyRosterChanged();
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
@@ -97,9 +97,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     // Two humans of distinct classes (arm the countdown) + one drone (fills a
     // slot; drones never count toward humanCount so this can't start/hold it).
     // The drone takes a DRONE hull id — telemetry buckets it under that id.
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined);
+    ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
     ctx.m.notifyRosterChanged();
     ctx.w.addShip('d1', 'D1', 'fleet', 'droneLarge', undefined, undefined);
     ctx.m.notifyRosterChanged();
@@ -123,9 +123,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
   it('aggregates roster/kills/winner/storm/duration across all combatants incl. drones', () => {
     const s = run().m.endSummary();
     expect(s.rosterSize).toBe(3); // drone included
-    expect(s.rosterByClass).toEqual({ torpedoBoat: 1, mineLayer: 1, droneLarge: 1 });
-    expect(s.winnerClass).toBe('torpedoBoat');
-    expect(s.killsByClass).toEqual({ torpedoBoat: 1, mineLayer: 0, droneLarge: 0 });
+    expect(s.rosterByClass).toEqual({ bismarck: 1, warspite: 1, droneLarge: 1 });
+    expect(s.winnerClass).toBe('bismarck');
+    expect(s.killsByClass).toEqual({ bismarck: 1, warspite: 0, droneLarge: 0 });
     expect(s.stormDeaths).toBe(1);
     // The finish lands on b's founder tick: sink-entry at 150 (activation 100
     // + one drone-sink tick) + the 5000ms window → finishedAt 5150, activated
@@ -145,9 +145,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
 describe('Match.endSummary — the PvE column (amendment 44)', () => {
   it('counts drone sinkings per VICTIM size, and leaves killsByClass untouched', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined);
+    ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
     ctx.m.notifyRosterChanged();
     for (const [id, hull] of [
       ['d1', 'droneSmall'],
@@ -169,7 +169,7 @@ describe('Match.endSummary — the PvE column (amendment 44)', () => {
     expect(s.pveKillsByClass).toEqual({ droneSmall: 2, droneMedium: 1, droneLarge: 1 });
     // The presentation tally saw exactly the captain kill — the four drones
     // are absent from it, keyed by the KILLER's hull as it always was.
-    expect(s.killsByClass.torpedoBoat).toBe(1);
+    expect(s.killsByClass.bismarck).toBe(1);
     expect(s.killsByClass.droneSmall).toBe(0);
   });
 });
@@ -183,9 +183,9 @@ describe('Match.endSummary — endedBy classification', () => {
    *  keeps it live — but they still prove a finish can happen with hulls afloat. */
   function activated(drones: number): Ctx {
     const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined);
+    ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
     ctx.m.notifyRosterChanged();
     for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, 'fleet', 'droneLarge', undefined, undefined);
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);

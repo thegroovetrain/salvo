@@ -59,7 +59,7 @@ function view(over: Partial<PerceptionView> = {}): PerceptionView {
   return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], ...over };
 }
 
-function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'): EffectiveStats {
+function stats(cls: 'bismarck' | 'yamato' | 'warspite' = 'bismarck'): EffectiveStats {
   return effectiveStats(hullEnvelope(cls));
 }
 
@@ -74,7 +74,7 @@ function wornHp(st: EffectiveStats): number {
 
 /** A hull on the torpedo-boat class at full health by default. */
 function situation(over: Partial<BotSituation> = {}): BotSituation {
-  const st = over.stats ?? stats('torpedoBoat');
+  const st = over.stats ?? stats('bismarck');
   return {
     now: NOW,
     x: 0,
@@ -87,7 +87,7 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     profile: profileOf('bulwark'),
     ring: WIDE,
     islands: [],
-    hullId: 'torpedoBoat',
+    hullId: 'bismarck',
     ...over,
   };
 }
@@ -103,7 +103,7 @@ function track(over: Partial<BotTrack> = {}): BotTrack {
     seenAt: NOW,
     live: true,
     sunk: false,
-    cls: 'torpedoBoat' as HullId,
+    cls: 'bismarck' as HullId,
     fleet: false,
     firstSeenAt: 0,
     hits: 0,
@@ -135,8 +135,8 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     expect(oddsFor(sit, anon, [anon], [])).toBeCloseTo(0.5 * (1 + damageEstimate(anon)), 9);
     // A sighted battleship: its base toughness over the torpedo boat's — the
     // ARMOR index since Story 10.3 (toughness = ARMOR, never HP).
-    const bs = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
-    const peer = hullEnvelope('battleship').index.armor / hullEnvelope('torpedoBoat').index.armor;
+    const bs = track({ x: reachOf(sit.stats) + 200, cls: 'yamato' });
+    const peer = hullEnvelope('yamato').index.armor / hullEnvelope('bismarck').index.armor;
     expect(oddsFor(sit, bs, [bs], [])).toBeCloseTo(0.5 / peer, 9);
   });
 
@@ -149,36 +149,36 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
 
   it('IN OWN REACH -> engage, whatever the odds', () => {
     const sit = situation({ hp: 1 + situation().maxHp * profileOf('bulwark').disengageHpFrac });
-    expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10, cls: 'battleship' }))).toBe('engage');
+    expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10, cls: 'yamato' }))).toBe('engage');
   });
 
   // Amendment 194 read literally (orchestrator ruling 2026-10-17): a failed
   // gate that is not outnumbered SHADOWS the contact at the edge of own reach.
   it('FAIL -> KITE (shadow) on a contact that is not closing, or that closes against a gun no longer than own', () => {
-    const base = stats('torpedoBoat');
+    const base = stats('bismarck');
     const longer = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 1.3 } } };
     // A worn hull, so the gate FAILS on the odds whatever the class toughness
     // ratio (every scaffold hull is ARMOR 100 since Story 10.3 — a peer).
     const worn = { hp: wornHp(base) };
     const sit = situation({ stats: longer, ...worn });
     const at = reachOf(longer) + 100;
-    const closing = track({ x: at, cls: 'battleship', heading: Math.PI, speed: 20 });
+    const closing = track({ x: at, cls: 'yamato', heading: Math.PI, speed: 20 });
     expect(oddsFor(sit, closing, [closing], [])).toBeLessThan(profileOf('bulwark').oddsThreshold);
     expect(choosePosture(sit, closing)).toBe('kite');
     // Running away (not closing): shadowed too.
-    expect(choosePosture(sit, track({ x: at, cls: 'battleship', heading: 0, speed: 20 }))).toBe('kite');
+    expect(choosePosture(sit, track({ x: at, cls: 'yamato', heading: 0, speed: 20 }))).toBe('kite');
     // A course-less plot is not closing: shadowed.
-    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 200, cls: 'battleship' }))).toBe('kite');
+    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 200, cls: 'yamato' }))).toBe('kite');
     // A closing sighted peer whose base reach equals own: ≥, so shadowed.
-    expect(targetReachU(situation(), track({ cls: 'battleship' }))).toBeLessThanOrEqual(reachOf(base));
-    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 100, cls: 'battleship', heading: Math.PI, speed: 20 }))).toBe('kite');
+    expect(targetReachU(situation(), track({ cls: 'bismarck' }))).toBeLessThanOrEqual(reachOf(base));
+    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 100, cls: 'bismarck', heading: Math.PI, speed: 20 }))).toBe('kite');
   });
 
   it('FAIL + closing with the LONGER gun -> HIDE with a cover point (solid fog), DISENGAGE without one', () => {
-    const base = stats('torpedoBoat');
+    const base = stats('bismarck');
     const shorter = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 0.7 } } };
     const sit = situation({ stats: shorter, hp: wornHp(base) });
-    const t = track({ x: reachOf(shorter) + 200, cls: 'battleship', heading: Math.PI, speed: 20 });
+    const t = track({ x: reachOf(shorter) + 200, cls: 'yamato', heading: Math.PI, speed: 20 });
     expect(targetReachU(sit, t)).toBeGreaterThan(reachOf(shorter));
     const foggy = mind();
     foggy.fogAt = solidFog;
@@ -195,9 +195,9 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     // A worn hull at 90 % of the raider's bar, so the odds sit under the bar
     // whatever the class toughness ratio (every scaffold hull is a peer since
     // Story 10.3) yet above the lean-in floor.
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * profileOf('raider').oddsThreshold * 0.9 });
-    const t = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
+    const t = track({ x: reachOf(sit.stats) + 200, cls: 'yamato' });
     const odds = oddsFor(sit, t, [t], []);
     const bar = profileOf('raider').oddsThreshold;
     expect(odds).toBeLessThan(bar);
@@ -232,7 +232,7 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
   const bulwark = profileOf('bulwark');
 
   it('holds below line + hysteresis, and above it while a hostile still paints; releases once contact is broken', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const m = mind();
     m.fogAt = noFog;
     const chaser = plot({ x: 800, paintX: 800, paintAt: NOW, seenAt: NOW });
@@ -258,7 +258,7 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
   });
 
   it('reaching the cover point releases a healed hull even under paint', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const m = mind();
     m.contacts.set('c', plot({ x: 800, paintAt: NOW, seenAt: NOW }));
     m.disengagedSince = NOW - 5000;
@@ -282,10 +282,10 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
 });
 
 describe('ai/posture — THE RAM EXIT (epic-9 amendment 201)', () => {
-  const TB = stats('torpedoBoat');
+  const TB = stats('bismarck');
   const raider = profileOf('raider');
   const broken = TB.maxHp * raider.disengageHpFrac - 1;
-  const touching = hullBumper('torpedoBoat', 'droneMedium') - 1;
+  const touching = hullBumper('bismarck', 'droneMedium') - 1;
 
   it('falls to disengage ramExitMs after the strike on a surviving target, and never re-arms on it until the pair separate', () => {
     const m = mind('raider');
@@ -424,7 +424,7 @@ describe('ai/utility — DECOYS (epic-9 amendment 197)', () => {
 describe('ai/utility — HITS PER CLICK (epic-9 amendment 195)', () => {
   it('two hc rows of one click count one hit; the next click counts again', () => {
     const m = mind();
-    foldView(m, view({ contacts: [{ id: 'e1', x: 200, y: 0, heading: 0, speed: 0, cls: 'battleship' }] }), 1000);
+    foldView(m, view({ contacts: [{ id: 'e1', x: 200, y: 0, heading: 0, speed: 0, cls: 'yamato' }] }), 1000);
     m.fireSeq = 1;
     foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 200, y: 0 }, { k: 'hc', id: 'me', x: 202, y: 0 }] }), 1500);
     expect(m.contacts.get('e1')!.hits).toBe(1);

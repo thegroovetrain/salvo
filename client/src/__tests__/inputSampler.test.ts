@@ -11,12 +11,12 @@ import {
 } from '../sim/inputSampler.js';
 import { KeyboardInput } from '../input/keyboard.js';
 
-const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, held: false };
+const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, held: false, sec: false };
 
 describe('buildInput', () => {
   it('carries aim/fireSeq/aimDist/slot/fireT from the mouse + prime sample', () => {
     const msg = buildInput(3, { throttle: 1, rudder: -1 }, AIM);
-    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
   });
 
   it('carries a primed slot (the click resolves the skillshot on the wire)', () => {
@@ -39,7 +39,7 @@ describe('buildInput', () => {
   });
 
   it('clamps axes to [-1, 1]', () => {
-    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false });
+    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false, sec: false });
     expect(msg.throttle).toBe(1);
     expect(msg.rudder).toBe(-1);
   });
@@ -146,6 +146,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
       actSlot: AIM.actSlot,
       hornSeq: 0,
       held: false,
+      sec: false,
     });
     expect(sent).toHaveLength(2);
     expect(sent[1].type).toBe(MSG.input);
@@ -154,7 +155,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('zeroes the rudder (the dangerous stale input) but keeps the throttle steaming', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42, actSeq: 0, actSlot: 0, held: false });
+    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42, actSeq: 0, actSlot: 0, held: false, sec: false });
     const msg = sampler.sendNeutralNow(1);
     expect(msg.throttle).toBe(1); // deliberate engine order preserved
     expect(msg.rudder).toBe(0);
@@ -164,7 +165,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('re-sends the LAST fireSeq — never 0 after clicks — as the honest "no new clicks" signal', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false, sec: false });
     const msg = sampler.sendNeutralNow(0);
     expect(msg.fireSeq).toBe(9); // NOT reset — the counter states "9 clicks so far, none new"
     expect(msg.aimDist).toBe(120); // last aim distance retained too
@@ -172,7 +173,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('sends a click landing in the gap since the last sample (live count wins at hide time)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false, sec: false });
     // Click #10 lands after the sample but before visibilitychange fires:
     const msg = sampler.sendNeutralNow(0, 10);
     expect(msg.fireSeq).toBe(10); // fires NOW at a ≤1-tick-old aim, not minutes later on refocus
@@ -182,14 +183,14 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('carries the passed fireT for a gap-click (D1)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0, held: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0, held: false, sec: false });
     // Gap-click at hide time carries its own honest fire instant:
     expect(sampler.sendNeutralNow(0, 10, 8000).fireT).toBe(8000);
   });
 
   it('falls back to the last-sampled fireT when none is passed (no new click)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0, held: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0, held: false, sec: false });
     expect(sampler.sendNeutralNow(0).fireT).toBe(7000);
   });
 
@@ -212,7 +213,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
   it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot/fireT to zero', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
-    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
   });
 });
 
@@ -223,13 +224,35 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 describe('InputMsg.held — the held-fire level (Story 8.15)', () => {
   it('buildInput carries the sampled level verbatim', () => {
     expect(buildInput(1, { throttle: 0, rudder: 0 }, { ...AIM, held: true }).held).toBe(true);
-    expect(buildInput(1, { throttle: 0, rudder: 0 }, { ...AIM, held: false }).held).toBe(false);
+    expect(buildInput(1, { throttle: 0, rudder: 0 }, { ...AIM, held: false, sec: false }).held).toBe(false);
   });
 
   it('sendNeutralNow forces held FALSE even straight after a held sample', () => {
     const sampler = new InputSampler(() => undefined);
     expect(sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, held: true }).held).toBe(true);
     expect(sampler.sendNeutralNow(0).held).toBe(false);
+  });
+});
+
+// STORY 10.4: `sec` is the secondaries' held LEVEL (the right mouse button,
+// `MouseInput.secHeld`) — `held`'s grammar. Carried verbatim; the neutral send
+// forces it false so a backgrounded tab never leaves the secondaries firing.
+describe('InputMsg.sec — the secondaries level (Story 10.4)', () => {
+  it('buildInput carries the sampled level verbatim', () => {
+    expect(buildInput(1, { throttle: 0, rudder: 0 }, { ...AIM, sec: true }).sec).toBe(true);
+    expect(buildInput(1, { throttle: 0, rudder: 0 }, { ...AIM, sec: false }).sec).toBe(false);
+  });
+
+  it('is independent of the held-fire level', () => {
+    const msg = buildInput(1, { throttle: 0, rudder: 0 }, { ...AIM, sec: true, held: false });
+    expect(msg.sec).toBe(true);
+    expect(msg.held).toBe(false);
+  });
+
+  it('sendNeutralNow forces sec FALSE even straight after a sec sample', () => {
+    const sampler = new InputSampler(() => undefined);
+    expect(sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, sec: true }).sec).toBe(true);
+    expect(sampler.sendNeutralNow(0).sec).toBe(false);
   });
 });
 
@@ -297,7 +320,7 @@ describe('ability activation reaches the wire one-per-input (KeyboardInput + Inp
     kb.consumeActivation();
     return sampler.sample(
       { throttle: 0, rudder: 0 },
-      { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: kb.actSeq, actSlot: kb.actSlot, held: false },
+      { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: kb.actSeq, actSlot: kb.actSlot, held: false, sec: false },
     );
   }
 

@@ -59,6 +59,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   beginShadowWalk,
   buildHeightRaster,
   illuminatedFraction,
@@ -73,6 +75,15 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+
+/** Captain hulls by plan area, largest first — picked by the property a test leans on. */
+const BY_AREA = [...SHIP_CLASS_IDS].sort(
+  (a, b) =>
+    CONFIG.shipClasses[b].hull.length * CONFIG.shipClasses[b].hull.beam -
+    CONFIG.shipClasses[a].hull.length * CONFIG.shipClasses[a].hull.beam,
+);
+const BIGGEST = BY_AREA[0];
+const SMALLEST = BY_AREA[BY_AREA.length - 1];
 import { SURFACE, attenuation, heightReflectivity, noiseAmplitude } from '../render/radarFalloff.js';
 import {
   bandIndex,
@@ -330,8 +341,8 @@ describe('ships never shadow ships', () => {
   it('a hull behind a hull paints (amendment 141)', () => {
     const obs: Vec2 = { x: 0, y: 0 };
     const hulls: EchoHull[] = [
-      { id: 'near', x: 0, y: 150, heading: 0, cls: 'battleship' },
-      { id: 'far', x: 0, y: 300, heading: 0, cls: 'battleship' },
+      { id: 'near', x: 0, y: 150, heading: 0, cls: DEFAULT_CLASS_ID },
+      { id: 'far', x: 0, y: 300, heading: 0, cls: DEFAULT_CLASS_ID },
     ];
     const stamp = buildShipStamp(hulls, CLEAN.model, CLEAN.cellU);
     const s = marchAll(obs, shipOnlyField(stamp, CLEAN.cellU));
@@ -344,8 +355,8 @@ describe('ships never shadow ships', () => {
     const obs: Vec2 = { x: 0, y: 0 };
     const sea = rasterWithPyramid(700, () => 0); // all water, real pyramid
     const hulls: EchoHull[] = [
-      { id: 'near', x: 0, y: 150, heading: 0, cls: 'battleship' },
-      { id: 'far', x: 0, y: 300, heading: 0, cls: 'battleship' },
+      { id: 'near', x: 0, y: 150, heading: 0, cls: DEFAULT_CLASS_ID },
+      { id: 'far', x: 0, y: 300, heading: 0, cls: DEFAULT_CLASS_ID },
     ];
     const field = buildField({
       obs,
@@ -380,7 +391,7 @@ describe('terrain casts a height-derived shadow', () => {
       obs,
       raster,
       ships: buildShipStamp(
-        [{ id: 'a', x: 0, y, heading: 0, cls: 'battleship' }],
+        [{ id: 'a', x: 0, y, heading: 0, cls: DEFAULT_CLASS_ID }],
         CFG.model,
         CFG.cellU,
       ),
@@ -475,7 +486,7 @@ describe('terrain casts a height-derived shadow', () => {
 
   it('SOFT COVER: a half-mast obstacle FADES what is behind it through the '
     + 'bands — red → blue → green → gone — instead of cutting at a line', () => {
-    // One raster row of half-mast terrain at ~200u, and a battleship broadside
+    // One raster row of half-mast terrain at ~200u, and a captain hull broadside
     // at three ranges behind it. A HULL is the target rather than more terrain
     // because only LAND folds into the accumulator, so the mark cannot shadow
     // its own far cells and every cell of it reads one shadow depth.
@@ -537,7 +548,7 @@ describe('terrain casts a height-derived shadow', () => {
    *  as `Radar.marchEcho` does — optionally over a raster that shadows it. */
   function echoCells(obs: Vec2, y: number, raster: HeightRaster | null): number[] {
     const stamp = buildShipStamp(
-      [{ id: 'a', x: 0, y, heading: 0, cls: 'battleship' }],
+      [{ id: 'a', x: 0, y, heading: 0, cls: DEFAULT_CLASS_ID }],
       CFG.model,
       CFG.cellU,
     );
@@ -934,7 +945,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
 
   /** Extent of the painted region across the observer's bearing, for one hull. */
   function beamWidth(heading: number): number {
-    const hull: EchoHull = { id: 'a', x: 0, y: 300, heading, cls: 'battleship' };
+    const hull: EchoHull = { id: 'a', x: 0, y: 300, heading, cls: DEFAULT_CLASS_ID };
     const stamp = buildShipStamp([hull], CLEAN.model, CLEAN.cellU);
     const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
     const xs = cellsOf(s).map((c) => c.x);
@@ -953,9 +964,9 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
   });
 
   it('and it is the SHARED silhouette that decides the footprint, not a kernel', () => {
-    const hull: EchoHull = { id: 'a', x: 0, y: 300, heading: 0, cls: 'battleship' };
+    const hull: EchoHull = { id: 'a', x: 0, y: 300, heading: 0, cls: DEFAULT_CLASS_ID };
     const stamp = buildShipStamp([hull], CLEAN.model, CLEAN.cellU);
-    const poly = transformPolygon(hullSilhouette('battleship'), hull.x, hull.y, 0, []);
+    const poly = transformPolygon(hullSilhouette(DEFAULT_CLASS_ID), hull.x, hull.y, 0, []);
     const maxX = Math.max(...poly.map((p) => p.x));
     const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
     const xs = cellsOf(s).map((c) => c.x);
@@ -968,7 +979,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
   it('the same hull reads STRONGER close than far — the point curve still '
     + 'carries strength', () => {
     const read = (dist: number): number => {
-      const hull: EchoHull = { id: 'a', x: 0, y: dist, heading: 0, cls: 'battleship' };
+      const hull: EchoHull = { id: 'a', x: 0, y: dist, heading: 0, cls: DEFAULT_CLASS_ID };
       const stamp = buildShipStamp([hull], CLEAN.model, CLEAN.cellU);
       const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
       return Math.max(...cellsOf(s).map((c) => c.w));
@@ -1263,7 +1274,7 @@ describe('no NaN may ever reach a cell write', () => {
       obs,
       raster: RASTER,
       ships: buildShipStamp(
-        [{ id: 'a', x: 40, y: -160, heading: 0.7, cls: 'mineLayer' }],
+        [{ id: 'a', x: 40, y: -160, heading: 0.7, cls: DEFAULT_CLASS_ID }],
         CFG.model,
         CFG.cellU,
       ),
@@ -1297,9 +1308,9 @@ describe('an echo inside its own reach subtends a FULL TURN, and paints', () => 
 
   it('and the march paints it rather than folding the span to zero', () => {
     const obs: Vec2 = { x: 0, y: 0 };
-    // A battleship footprint almost on top of the observer: its own reach
+    // A captain hull footprint almost on top of the observer: its own reach
     // exceeds its distance, so its bearing window is the whole circle.
-    const cov = rasterizeHullCoverage('battleship', 4, 0, 0.3, CLEAN.cellU);
+    const cov = rasterizeHullCoverage(DEFAULT_CLASS_ID, 4, 0, 0.3, CLEAN.cellU);
     const stamp: ShipStamp = new Map();
     stampCoverage(stamp, cov, hullSample(CLEAN.model));
     const c = coverageCentre(cov, CLEAN.cellU);
@@ -1315,7 +1326,7 @@ describe('an echo inside its own reach subtends a FULL TURN, and paints', () => 
 });
 
 describe('a wire coverage footprint paints at EVERY heading (amendment 127 through the resolve path)', () => {
-  it('a torpedo boat mask at 500u, marched over its own bearing window, lights at least one cell for 32 headings', () => {
+  it('the smallest captain mask at 500u, marched over its own bearing window, lights at least one cell for 32 headings', () => {
     // The cycle-62 4-connectivity test pinned the retired `stampEcho` line
     // primitive; the wire footprint is now the true hull raster (2-D, with the
     // centre-cell fail-safe), so the guarantee to pin is the terminal one: the
@@ -1324,7 +1335,7 @@ describe('a wire coverage footprint paints at EVERY heading (amendment 127 throu
     const obs: Vec2 = { x: 0, y: 0 };
     for (let k = 0; k < 32; k++) {
       const heading = (k * TAU) / 32;
-      const cov = rasterizeHullCoverage('torpedoBoat', 400, 300, heading, CLEAN.cellU);
+      const cov = rasterizeHullCoverage(SMALLEST, 400, 300, heading, CLEAN.cellU);
       const stamp: ShipStamp = new Map();
       stampCoverage(stamp, cov, hullSample(CLEAN.model));
       const c = coverageCentre(cov, CLEAN.cellU);
@@ -1344,10 +1355,10 @@ describe('a wire coverage footprint paints at EVERY heading (amendment 127 throu
 describe('the SOLID layers resolve by strength, not by rank', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
   /** A hull aground on a mudflat: both layers claim the same cells. */
-  const HULL: EchoHull = { id: 'a', x: 0, y: 400, heading: 0, cls: 'battleship' };
+  const HULL: EchoHull = { id: 'a', x: 0, y: 400, heading: 0, cls: DEFAULT_CLASS_ID };
 
   it('A HULL AGAINST A COASTLINE IS NOT SUPPRESSED BY IT (amendment 127): the '
-    + 'battleship out-reads the mudflat it is sitting on', () => {
+    + 'captain hull out-reads the mudflat it is sitting on', () => {
     const raster = rasterFrom(700, box(0, 400, 90, 90, 1)); // a mudflat
     const field = buildField({
       obs: OBS,
@@ -1397,8 +1408,8 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
     // contest — so the pin is order-invariance plus "the shared reading is what
     // either hull alone would have written", which stays exactly as meaningful
     // the moment any hull-like material stops being plain steel.
-    const strong: EchoHull = { id: 'big', x: 0, y: 300, heading: 0, cls: 'battleship' };
-    const weak: EchoHull = { id: 'small', x: 2, y: 302, heading: 0, cls: 'torpedoBoat' };
+    const strong: EchoHull = { id: 'big', x: 0, y: 300, heading: 0, cls: BIGGEST };
+    const weak: EchoHull = { id: 'small', x: 2, y: 302, heading: 0, cls: SMALLEST };
     const a = buildShipStamp([strong, weak], CLEAN.model, CLEAN.cellU);
     const b = buildShipStamp([weak, strong], CLEAN.model, CLEAN.cellU);
     // Each hull's own coefficient, from its own single-hull stamp.

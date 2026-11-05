@@ -14,7 +14,7 @@
 // DECK_FORBIDDEN_KEYS.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_GUN, MULLIGAN_CHOICE, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_SHIFT, MULLIGAN_CHOICE, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 import { buildMatchRecord, type MatchRecord } from '../game/matchRecord.js';
@@ -101,10 +101,10 @@ function playMatch(hooks: MatchHooks = noopHooks(), onBuilt: (ctx: Ctx) => void 
   const m = new Match(w, TIMINGS, hooks);
   const ctx = { w, m };
   onBuilt(ctx);
-  w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-  w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
-  w.addShip('c', 'C', 'captain', 'mineLayer', undefined, undefined);
-  w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined);
+  w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+  w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+  w.addShip('c', 'C', 'captain', 'warspite', undefined, undefined);
+  w.addShip('bot-1', 'BOT', 'bot', 'bismarck', undefined, undefined);
   w.addShip('f1', 'F1', 'fleet', 'droneSmall', undefined, undefined);
   m.notifyRosterChanged();
   expect(m.phase).toBe('countdown');
@@ -219,9 +219,9 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     const results: ResultsMsg[] = [];
     const m = new Match(w, TIMINGS, noopHooks(results));
     const ctx = { w, m };
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
-    w.addShip('c', 'C', 'captain', 'mineLayer', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+    w.addShip('c', 'C', 'captain', 'warspite', undefined, undefined);
     m.notifyRosterChanged();
     expect(m.phase).toBe('countdown');
     step(ctx); // the opening hand is dealt
@@ -249,9 +249,9 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
   it('a leaver CREDITED during its scuttle window keeps that hand: the reap re-snapshots before the hull goes (review gate)', () => {
     const w = bareWorld();
     const m = new Match(w, TIMINGS, noopHooks());
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('c', 'C', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     const bRec = w.ships.get('b')!;
@@ -273,8 +273,8 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
   it('a snapshot never ALIASES the live record: a hand logged after the leave snapshot does not reach it', () => {
     const w = bareWorld();
     const m = new Match(w, TIMINGS, noopHooks());
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     const bRec = w.ships.get('b')!;
@@ -290,7 +290,7 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
 describe('the hand log — only an OFFER pick is a hand', () => {
   it('a REFUSED pick (a consumable at its cap) records nothing', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.countdownOpen = true;
     w.grantOpening();
     expect(a.hands).toHaveLength(1);
@@ -304,7 +304,7 @@ describe('the hand log — only an OFFER pick is a hand', () => {
 
   it('the dev spawn fit lands in `cards` but creates NO hand', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, ['armor', 'engines']);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined, ['armor', 'engines']);
     expect(a.cards).toEqual(['armor', 'engines']);
     expect(a.hands).toEqual([]);
   });
@@ -312,8 +312,8 @@ describe('the hand log — only an OFFER pick is a hand', () => {
   it('the activation redeploy PRESERVES the log, exactly as it preserves cards and the bank', () => {
     const w = bareWorld();
     const m = new Match(w, TIMINGS, noopHooks());
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     const atCountdown = JSON.stringify(a.hands);
     const bankAtCountdown = a.bankedLevels;
@@ -419,8 +419,8 @@ describe('the results hook hands the record over (pin d)', () => {
     const m = new Match(w, TIMINGS, hooks);
     h.room.world = w;
     h.room.match = m;
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     w.sinkShip('b', 'a');

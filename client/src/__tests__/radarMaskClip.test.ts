@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Sprite, Texture, TextureSource, updateRenderGroupTransforms } from 'pixi.js';
-import { CONFIG, rasterizeHullCoverage } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, rasterizeHullCoverage } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Camera } from '../render/camera.js';
 import { DIM_MASK_LABEL, Radar } from '../render/radar.js';
@@ -60,7 +60,7 @@ describe('the radar layer\'s masked pass stays inside the screen', () => {
     cam.snapTo(own);
     const screen = cam.screenWorldRect;
     radar.render(own, 900, cam.worldView, screen);
-    const c = rasterizeHullCoverage('mineLayer', own.x + 240, own.y - 180, 0, CELL);
+    const c = rasterizeHullCoverage(DEFAULT_CLASS_ID, own.x + 240, own.y - 180, 0, CELL);
     radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     radar.render(own, 1000, cam.worldView, screen);
 

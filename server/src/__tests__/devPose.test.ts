@@ -7,7 +7,7 @@
 // The room-side gate (dev-only, value-sanitized) is pinned in roomOptions.test.ts.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, DEFAULT_GUN, DEFAULT_HORN_ID, wrapAngle } from '@salvo/shared';
+import { CONFIG, DEFAULT_HORN_ID, DEFAULT_SHIFT, wrapAngle } from '@salvo/shared';
 import { World, type DevPose, type WorldOptions } from '../game/world.js';
 import { islandClearance, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
 
@@ -28,7 +28,7 @@ function offRingPose(w: World): DevPose {
 }
 
 function posedCaptain(w: World, id: string, pose: DevPose) {
-  return w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, undefined, [], pose);
+  return w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', DEFAULT_HORN_ID, undefined, DEFAULT_SHIFT, undefined, [], pose);
 }
 
 function expectAtPose(rec: { state: { x: number; y: number; heading: number } }, pose: DevPose): void {
@@ -79,7 +79,7 @@ describe('dev spawn pose — a captain placed at its pose at every placement edg
     const w = openWorld(34);
     const pose = offRingPose(w);
     posedCaptain(w, 'a', pose);
-    const b = w.addShip('b', 'BRAVO', 'captain', 'torpedoBoat', DEFAULT_HORN_ID, undefined);
+    const b = w.addShip('b', 'BRAVO', 'captain', 'bismarck', DEFAULT_HORN_ID, undefined);
     expect(b.devPose).toBeUndefined();
     expect(Math.hypot(b.state.x, b.state.y)).toBeCloseTo(w.map.spawnRing, 6);
     w.resetForMatchStart();
@@ -90,7 +90,7 @@ describe('dev spawn pose — a captain placed at its pose at every placement edg
   it('the pose is a CAPTAIN arm only — a bot handed one spawns by pickSpawn', () => {
     const w = openWorld(35);
     const pose = offRingPose(w);
-    const bot = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, undefined, [], pose);
+    const bot = w.addShip('bot-1', 'BOT', 'bot', 'bismarck', DEFAULT_HORN_ID, undefined, DEFAULT_SHIFT, undefined, [], pose);
     expect(bot.devPose).toBeUndefined();
     expect(Math.hypot(bot.state.x, bot.state.y)).toBeCloseTo(w.map.spawnRing, 6);
   });

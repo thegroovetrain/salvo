@@ -1,8 +1,9 @@
 // Pins the shared silhouette registry (Story 1.3): the silhouette IS the
 // hitbox, so this suite guards the geometry everything else derives from —
 // exact normalized dims, bow orientation, centering, the drone chevron trio,
-// and the concave-safety of every polygon query (the TB stern notch and ML
-// transom notch are real, missable cavities).
+// and the concave-safety of every polygon query (proved on the two notched
+// fixtures in concaveFixtures.ts — the traced battleships have no cavity deep
+// enough to show it).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -31,6 +32,7 @@ import { segSegClosest } from '../math/geom.js';
 // same cycle by that parallel rewrite, so this file verifies simplicity with
 // its own test-local check rather than depending on either copy.)
 import { polygonFitLimit, simplifyLoop } from '../sim/silhouette.js';
+import { TRANSOM_NOTCH_HULL, V_NOTCH_HULL } from './concaveFixtures.js';
 
 function extents(poly: readonly Vec2[]): { minX: number; maxX: number; minY: number; maxY: number } {
   return {
@@ -154,8 +156,8 @@ describe('transformPolygon', () => {
 });
 
 describe('polygon queries — concave-safe', () => {
-  const ml = hullSilhouette('mineLayer'); // transom notch: cavity astern between the prongs
-  const tb = hullSilhouette('torpedoBoat'); // stern notch: shallow V cavity
+  const ml = TRANSOM_NOTCH_HULL; // transom notch: cavity astern between the prongs
+  const tb = V_NOTCH_HULL; // stern notch: shallow V cavity
 
   it('pointInPolygon: interior in, exterior out, cavity out', () => {
     expect(pointInPolygon({ x: 0, y: 0 }, ml)).toBe(true);
@@ -187,16 +189,23 @@ describe('polygon queries — concave-safe', () => {
   });
 
   it('polygonMaxRadius is the farthest vert from the origin', () => {
-    // TB/BB: the stern prong corners sit farther out than the bow tip
-    // (hypot of length/2 and the prong's lateral offset).
-    expect(polygonMaxRadius(hullSilhouette('torpedoBoat'))).toBeCloseTo(Math.hypot(50, 3.5), 9);
-    expect(polygonMaxRadius(hullSilhouette('battleship'))).toBeCloseTo(Math.hypot(62, 6), 9);
-    expect(polygonMaxRadius(hullSilhouette('droneSmall'))).toBeCloseTo(42.5, 9); // bow tip
+    // The V-notch fixture: the stern prong corners sit farther out than the
+    // bow tip (hypot of length/2 and the prong's lateral offset).
+    expect(polygonMaxRadius(tb)).toBeCloseTo(Math.hypot(50, 3.5), 9);
+    for (const id of HULL_IDS) {
+      const poly = hullSilhouette(id);
+      const r = polygonMaxRadius(poly);
+      // Every vert is inside the bounding circle, one touches it, and the
+      // circle reaches at least the bow tip.
+      for (const v of poly) expect(Math.hypot(v.x, v.y), id).toBeLessThanOrEqual(r + 1e-9);
+      expect(poly.some((v) => Math.abs(Math.hypot(v.x, v.y) - r) < 1e-9), id).toBe(true);
+      expect(r, id).toBeGreaterThanOrEqual(hullEnvelope(id).hull.length / 2 - 1e-9);
+    }
   });
 });
 
 describe('segPolygonHit — swept projectile vs silhouette', () => {
-  const ml = hullSilhouette('mineLayer');
+  const ml = TRANSOM_NOTCH_HULL;
 
   it('returns the closest-approach fraction on a broadside crossing', () => {
     // Perpendicular pass through the hull midships: enters within radius early.
@@ -214,7 +223,7 @@ describe('segPolygonHit — swept projectile vs silhouette', () => {
     expect(segPolygonHit({ x: 60, y: 20 }, { x: 60, y: -20 }, ml, 2)).toBeNull();
   });
 
-  it('CONCAVE MISS: a torpedo running up the ML transom notch does not hit', () => {
+  it('CONCAVE MISS: a torpedo running up a transom notch does not hit', () => {
     // Straight up the stern cavity along the centerline, stopping between the
     // prongs: nearest hull edges are the prong walls at y = ±3.5 — farther
     // than the torpedo hitRadius (2), and the endpoint is outside the hull.
@@ -229,8 +238,8 @@ describe('segPolygonHit — swept projectile vs silhouette', () => {
     expect(capsuleDist).toBeLessThanOrEqual(10 + CONFIG.torpedo.hitRadius);
   });
 
-  it('CONCAVE MISS: the TB stern-notch cavity is missable too', () => {
-    const tb = hullSilhouette('torpedoBoat');
+  it('CONCAVE MISS: a V stern-notch cavity is missable too', () => {
+    const tb = V_NOTCH_HULL;
     // Approach dead astern, stopping at the cavity mouth: prong tips sit at
     // (−50, ±3.5), > hitRadius away from the centerline path.
     expect(segPolygonHit({ x: -80, y: 0 }, { x: -50, y: 0 }, tb, CONFIG.torpedo.hitRadius)).toBeNull();
@@ -521,7 +530,7 @@ describe('polygonFitLimit — how far a posed polygon may sit from a circle cent
 
   it('at the limit the farthest vert touches the circle exactly, at any pose', () => {
     expect(polygonFitLimit(square, 0, 1, 0, 10)).toBeCloseTo(Math.sqrt(99) - 1, 12);
-    const poly = hullSilhouette('battleship');
+    const poly = hullSilhouette('yamato');
     for (const heading of [0, 0.7, 2, -2.5]) {
       for (const a of [0, 1.1, 3]) {
         const ux = Math.cos(a);
@@ -533,7 +542,7 @@ describe('polygonFitLimit — how far a posed polygon may sit from a circle cent
   });
 
   it('a hull running parallel to the edge sits nearer it than one pointing at it', () => {
-    const poly = hullSilhouette('battleship');
+    const poly = hullSilhouette('yamato');
     expect(polygonFitLimit(poly, Math.PI / 2, 1, 0, 500)).toBeGreaterThan(polygonFitLimit(poly, 0, 1, 0, 500));
   });
 

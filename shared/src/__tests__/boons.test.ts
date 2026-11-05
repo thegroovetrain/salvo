@@ -64,8 +64,8 @@ import {
   type SlotItemId,
 } from '../index.js';
 
-const TB = CONFIG.shipClasses.torpedoBoat;
-const BS = CONFIG.shipClasses.battleship;
+const TB = CONFIG.shipClasses.iowa;
+const BS = CONFIG.shipClasses.yamato;
 
 /** THE TEST KIT (Story 10.1): a deliberate four that is NOT `DEFAULT_KIT`, so
  *  nothing in this file passes by riding the fresh-browser default — it swaps
@@ -405,7 +405,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     applySlotEffect(loadout, fill('starShells'), stats, KIT);
     expect(loadout[W2].equipmentId).toBe('starShells');
     expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'heavyTorpedo', 'navalMines', 'starShells', ...CONSUMABLE_SLOTS.map(() => null),
+      'mainBattery', 'boost', 'heavyTorpedo', 'navalMines', 'starShells', ...CONSUMABLE_SLOTS.map(() => null),
     ]);
   });
 
@@ -426,7 +426,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
       expect(slot, `slot ${i}`).toBe(slotRefs[i]); // the ARRAY is mutated in place
       if (i !== W1) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
     });
-    expect(loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 321 });
+    expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(stats, 'mainBattery'), reloadMsLeft: 321 });
     expect(loadout[SLOT_BOOST].state!.n).toBe(0);
     expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 4242 });
   });
@@ -561,7 +561,7 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 
   it('server slot ids == client-derived slot ids after arbitrary grant sequences (seeded property)', () => {
     const rng = mulberry32(0xb00b5);
-    const classes: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
+    const classes: ShipClassId[] = ['iowa', 'yamato', 'warspite'];
     for (let trial = 0; trial < 120; trial += 1) {
       const cls = rng.pick(classes);
       const n = rng.int(0, 6);
@@ -585,12 +585,15 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 
   it('a capacity ladder + an equipment fit compose: turret pool 2 beside a fresh fill', () => {
     // CANNON ×2 reaches tier III, whose rung adds the second turret (Eric
-    // 2026-09-30 — the deleted DECK GUN TURRET card's effect).
+    // 2026-09-30 — the deleted DECK GUN TURRET card's effect). Read on the
+    // GUN-MODULE fit (`fleet`): a captain mounts the main battery since Story
+    // 10.4 and is never dealt this ladder, but the composition of a folded
+    // pool with a fresh fill is a contract of the replay itself.
     const cards: LineId[] = ['deckGun', 'deckGun', 'navalMines'];
     const stats = effectiveStats(BS, cards);
-    const loadout = slotsWithCards(stats, cards, KIT);
+    const loadout = slotsWithCards(stats, cards, KIT, CATALOG, true);
     expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'navalMines', null, null, ...CONSUMABLE_SLOTS.map(() => null),
+      'gun', null, 'navalMines', null, null, ...CONSUMABLE_SLOTS.map(() => null),
     ]);
     expect(loadout[0].state).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 }); // the CANNON tier-III pool
     expect(equipmentMaxAmmo(stats, 'gun')).toBeGreaterThan(CONFIG.gun.maxAmmo);
@@ -624,7 +627,7 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 // path. The guard belongs in shared, where both sides read it.
 // ---------------------------------------------------------------------------
 describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const stats = effectiveStats(CONFIG.shipClasses.iowa);
   // PRODUCTION HAS NO EQUIPMENT STUB LEFT (Story 8.15 cut missile/monitor and
   // built the machine gun and flak), so the guard is exercised through an
   // injected catalog in which the BROADSIDE line is stubbed.

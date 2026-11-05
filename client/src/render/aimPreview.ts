@@ -23,6 +23,11 @@
 
 import { Container, Graphics } from 'pixi.js';
 import {
+  batteryAimPoint,
+  initialTurrets,
+  pickTurret,
+  turretSalvo,
+  type TurretState,
   CONFIG,
   blockedWater,
   buoyKindOf,
@@ -95,6 +100,12 @@ export interface AimPreviewInput {
    * clamp byte-for-byte, which is what every non-main caller (tests) wants.
    */
   gunReachU?: number;
+  /**
+   * THE OWN TURRETS (Story 10.4) — the predicted battery state (sim/ownBattery.ts)
+   * the main-battery preview picks from, so it shows where the NEXT shot will
+   * actually land. Omitted = every turret at rest and loaded.
+   */
+  turrets?: readonly TurretState[];
 }
 
 /** One travel line, already island-clipped (except where the shot overflies).
@@ -318,6 +329,52 @@ function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
     barrels: g.barrels,
     spacingU: CONFIG.gun.barrelSpacingU,
   });
+}
+
+/** Reused scratch for the main-battery preview's "as if loaded" pick. */
+const LOADED_SCRATCH: TurretState[] = [];
+
+/** The turrets as they stand but every one loaded (into the reused scratch). */
+function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
+  LOADED_SCRATCH.length = turrets.length;
+  for (let i = 0; i < turrets.length; i++) {
+    const t = LOADED_SCRATCH[i] ?? (LOADED_SCRATCH[i] = { a: 0, reloadMsLeft: 0 });
+    t.a = turrets[i].a;
+    t.reloadMsLeft = 0;
+  }
+  return LOADED_SCRATCH;
+}
+
+/**
+ * THE MAIN BATTERY (Story 10.4, R4): the SHARED turret pick + salvo — the two
+ * calls the server fires with — over the predicted turret state, so the preview
+ * is where the next salvo lands: on the aim point when a ready turret is on
+ * target, along that turret's current bearing otherwise. Nothing ready: the
+ * pick is made as if every turret were loaded (the turret that will fire first
+ * is the one the player is waiting on). One line + one burst per shell.
+ */
+function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
+  const row = inp.stats.equipment.mainBattery;
+  const hull = inp.ship.cls;
+  const turrets = inp.turrets ?? initialTurrets(hull);
+  // NO AIM (review gate C5): the shared `batteryAimPoint` the server steps and
+  // fires with — null holds every turret and the click is denied, so nothing
+  // falls anywhere.
+  const aimPoint = batteryAimPoint(inp.ship, inp.aim, inp.aimDist);
+  if (aimPoint === null) return EMPTY;
+  const pick = pickTurret(turrets, hull, inp.ship, aimPoint) ?? pickTurret(asLoaded(turrets), hull, inp.ship, aimPoint);
+  if (pick === null) return EMPTY;
+  const salvo = turretSalvo(pick, hull, inp.ship, inp.gunReachU ?? row.rangeU, inp.mapRadius);
+  const model: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
+  const spec: BurstSpec = {
+    rangeU: row.rangeU,
+    burstRadius: row.burstRadius,
+    shellRadius: CONFIG.mainBattery.shellRadius,
+    barrels: pick.guns,
+    spacingU: CONFIG.mainBattery.barrelSpacingU,
+  };
+  for (const sh of salvo.shells) shellPreview(inp, sh.origin, sh.target, spec, model, !pick.onTarget);
+  return model;
 }
 
 /**
@@ -634,6 +691,7 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
  *  is one row. Every id absent here falls through to the family checks. */
 const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => AimPreviewModel>> = {
   gun: cannonPreview,
+  mainBattery: mainBatteryPreview, // Story 10.4
   broadside: broadsidePreview,
   starShells: starShellPreview,
   phosphorShells: phosphorShellPreview,
@@ -665,6 +723,7 @@ export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | un
  *  star shell's burst is its lit circle, drawn by the zone itself. */
 const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveStats) => number>> = {
   gun: (s) => s.equipment.gun.burstRadius,
+  mainBattery: (s) => s.equipment.mainBattery.burstRadius, // Story 10.4
   broadside: (s) => s.equipment.broadside.burstRadius,
   flak: (s) => s.equipment.flak.burstRadius, // Story 8.15 — the fixed 50 u blast
   // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; the FOULING

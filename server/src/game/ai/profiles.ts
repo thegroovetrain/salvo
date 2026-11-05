@@ -134,11 +134,10 @@ export interface BotProfile {
    * the offer off the mind's decorrelated spendRng stream, for the
    * blind-vacuum test rows only. The heal rule is NOT randomized in either
    * mode (Eric ruling: card pick only), so damage control never becomes a
-   * confound in the survival data. 'gunFirst' — HARNESS-ONLY (batch-sim
-   * `--bot-spend gun`, never a shipped row): take the mounted gun's ladder
-   * card whenever the hand deals it, else the 'weighted' scorer.
+   * confound in the survival data. (The harness-only 'gunFirst' mode died
+   * with the deck-gun ladders' reach on a captain — Story 10.4.)
    */
-  spend: 'weighted' | 'random' | 'gunFirst';
+  spend: 'weighted' | 'random';
   /** The build taste the 'weighted' scorer reads (see BotTaste). */
   taste: BotTaste;
   /** THE BAND NUDGE (Story 9.13, epic-9 amendment 198): a signed fraction of
@@ -403,6 +402,7 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
   gun: 2.0,
   machineGun: 2.0,
   flak: 2.0,
+  mainBattery: 2.0,
   heavyTorpedo: 2.2,
   lightTorpedo: 2.2,
   navalMines: 2.2,
@@ -443,21 +443,23 @@ const testRow = (id: TestProfileId): BotProfile => ({
 /** `Record<TestProfileId, …>` is the same completeness gate BOT_PROFILES
  *  uses: a new test id in types.ts cannot ship without a row here. */
 export const TEST_PROFILES: Readonly<Record<TestProfileId, BotProfile>> = Object.freeze({
-  randomTorpedoBoat: testRow('randomTorpedoBoat'),
-  randomBattleship: testRow('randomBattleship'),
-  randomMineLayer: testRow('randomMineLayer'),
+  randomYamato: testRow('randomYamato'),
+  randomBismarck: testRow('randomBismarck'),
+  randomWarspite: testRow('randomWarspite'),
+  randomIowa: testRow('randomIowa'),
 });
 
 /** THE TEST ROWS STAY HULL-BOUND (Story 8.20): the harness's
  *  `--bot-profile random*` contract is one row per hull, so a forced test row
  *  still governs its bot's hull. The six in-game personalities have none. */
 export const TEST_PROFILE_HULL: Readonly<Record<TestProfileId, ShipClassId>> = Object.freeze({
-  randomTorpedoBoat: 'torpedoBoat',
-  randomBattleship: 'battleship',
-  randomMineLayer: 'mineLayer',
+  randomYamato: 'yamato',
+  randomBismarck: 'bismarck',
+  randomWarspite: 'warspite',
+  randomIowa: 'iowa',
 });
 
-/** True iff `id` is one of the three test-only rows. */
+/** True iff `id` is one of the test-only rows (one per hull, Story 10.4). */
 export function isTestProfileId(id: AnyProfileId): id is TestProfileId {
   return Object.hasOwn(TEST_PROFILES, id);
 }
@@ -469,12 +471,13 @@ export function testProfileHull(id: AnyProfileId): ShipClassId | null {
   return isTestProfileId(id) ? TEST_PROFILE_HULL[id] : null;
 }
 
-/** The test ids in hull-class order (TB, BS, ML) — the harness's round-robin
- *  deal order for `--bot-profile random`. */
+/** The test ids in hull-class order (SHIP_CLASS_IDS) — the harness's
+ *  round-robin deal order for `--bot-profile random`. */
 export const TEST_PROFILE_IDS: readonly TestProfileId[] = Object.freeze([
-  'randomTorpedoBoat',
-  'randomBattleship',
-  'randomMineLayer',
+  'randomYamato',
+  'randomBismarck',
+  'randomWarspite',
+  'randomIowa',
 ]);
 
 /** The profile table for an id — in-game or test-only. Total by construction

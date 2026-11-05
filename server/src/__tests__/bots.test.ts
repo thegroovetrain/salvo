@@ -23,7 +23,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, effectiveStats, isAfloat } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, effectiveStats, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
 import type { BotWorldPort } from '../game/ai/types.js';
@@ -53,7 +53,7 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
   // 0.97s a Battleship spends killing its forward way at the grounding cap,
   // so its measured net displacement over one burst was +3.21u — deeper in.
   it('the un-beach constants clear the BATTLESHIP\'s own reverse kinematics', () => {
-    const bs = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
+    const bs = effectiveStats(CONFIG.shipClasses.yamato).kinematics;
     // Re-derived here from the hull's kinematics, independently of the
     // comment in constants.ts: kill the forward way the grounding cap leaves
     // on (decel), then build sternway (accel) far enough to satisfy the
@@ -110,8 +110,10 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
       expect(SHIP_CLASS_IDS).toContain(rec.hullId);
       // ECONOMY: a bot is a participant that plays the game — it draws from
       // the SAME common pool a human draws from (Story 8.14), on its own
-      // private stream and with the default seat gun.
-      expect(rec.gun).toBe('deckGun');
+      // private stream, with the main battery in slot 0 and the default seat
+      // Shift (Story 10.4 — no caller passed one).
+      expect(rec.shift).toBe(DEFAULT_SHIFT);
+      expect(rec.loadout[0].equipmentId).toBe('mainBattery');
       expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     }
   });
@@ -151,12 +153,12 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
   it('a forced TEST row stays hull-bound; a forced in-game personality never decides the hull', () => {
     const w = new World(16);
     w.map.islands.length = 0;
-    const testRow = w.addBot(undefined, 'randomBattleship');
-    expect(testRow.hullId).toBe('battleship');
-    expect(w.bots.profileOf(testRow.id)).toBe('randomBattleship');
-    expect(w.addBot('torpedoBoat', 'randomMineLayer').hullId).toBe('mineLayer');
-    const forced = w.addBot('mineLayer', 'raider');
-    expect(forced.hullId).toBe('mineLayer');
+    const testRow = w.addBot(undefined, 'randomYamato');
+    expect(testRow.hullId).toBe('yamato');
+    expect(w.bots.profileOf(testRow.id)).toBe('randomYamato');
+    expect(w.addBot('bismarck', 'randomWarspite').hullId).toBe('warspite');
+    const forced = w.addBot('warspite', 'raider');
+    expect(forced.hullId).toBe('warspite');
     expect(w.bots.profileOf(forced.id)).toBe('raider');
   });
 
@@ -233,7 +235,7 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
     expect(bot.id).toBe('bot-1');
     const tx = CONFIG.vision.sight + 200;
     const ty = 0;
-    const tgt = w.addShip('victim', 'TARGET', 'captain', 'battleship', undefined, { x: tx, y: ty });
+    const tgt = w.addShip('victim', 'TARGET', 'captain', 'yamato', undefined, { x: tx, y: ty });
     let measured = 0;
     let tracked = 0;
     for (let t = 0; t < 2400; t += 1) {
@@ -422,7 +424,7 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     const b = new World(9);
     b.map.islands.length = 0;
     a.addBot(undefined, undefined);
-    b.addBot(undefined, 'randomMineLayer');
+    b.addBot(undefined, 'randomWarspite');
     const nextA = a.addBot(undefined, undefined);
     const nextB = b.addBot(undefined, undefined);
     expect(nextB.hullId).toBe(nextA.hullId);

@@ -34,17 +34,19 @@
 //      of match.ts's 20 s boarding backstop, so the backstop cannot be what we
 //      observed.
 //
-//   6. THE GUN CROSSES THE SEAT RESERVATION (Story 8.14, amendment 95 —
-//      inheriting Story 8.2's deck proof) — the arena's own `client.join` log
-//      lines are read off the server's stdout: one per captain, every one of
-//      them `"gun":"deckGun"`, and not a single deck refusal anywhere (there
-//      is no deck door left to refuse anything). This is the ONE proof that
-//      core carries a reservation's server-only `auth` payload into
-//      `client.auth` before `onJoin` — no in-process unit test reaches it.
+//   6. THE SHIFT CROSSES THE SEAT RESERVATION (Story 10.4 — the seat gun's
+//      successor, Story 8.14 amendment 95, inheriting Story 8.2's deck proof)
+//      — the arena's own `client.join` log lines are read off the server's
+//      stdout: one per captain, every one of them carrying the DEFAULT_SHIFT
+//      the queue froze, and not a single deck refusal anywhere (there is no
+//      deck door left to refuse anything). This is the ONE proof that core
+//      carries a reservation's server-only `auth` payload into `client.auth`
+//      before `onJoin` — no in-process unit test reaches it.
 //
-//   7. THE SEAT GUN AT THE DIRECT DOOR + THE LEAK SCAN (Story 8.14) — three
-//      solo joins prove the sanitizer's matrix over a real socket: `flak` is
-//      honoured and rides the OWN frame, `bogus` coerces to `deckGun`, and a
+//   7. THE SEAT SHIFT AT THE DIRECT DOOR + THE LEAK SCAN (Story 10.4) — solo
+//      joins prove the sanitizer's matrix over a real socket: every SHIFT_IDS
+//      entry is honoured and rides the OWN frame (`you.shift`), `bogus`
+//      coerces to DEFAULT_SHIFT, the LEGACY `gun` option is ignored, and a
 //      `deckId` key is DROPPED rather than refused (the 4402 is gone). Every
 //      welcome and every frame they receive is scanned for the six
 //      card-economy keys no client may ever see — the check the retired
@@ -54,7 +56,7 @@
 // overridable per-room. StandardQueueRoom builds its policy from
 // defaultQueueConfig() with no options seam at all (StandardQueueRoom.ts:125),
 // and the queue deliberately accepts no dev room options — sanitizeArenaOptions
-// forwards only {name, cls, horn, colorPref}. Shortening the wait would mean
+// forwards only {name, cls, horn} (Story 10.4 retired `colorPref`). Shortening the wait would mean
 // editing server/src, which this smoke is not allowed to do, so it drives the
 // OTHER form trigger instead: 20 real sockets reaching CONFIG.map.playerCap.
 // That is a stronger proof anyway — it is the only trigger a smoke can exercise
@@ -66,7 +68,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, MSG, PROTOCOL_VERSION } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, PROTOCOL_VERSION, SHIFT_IDS } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2603; // free: matchSmoke/zoneSmoke 2599, reconnect/latency 2601, metrics 2631
@@ -172,7 +174,7 @@ async function queueUp(name) {
   const queue = await client.joinOrCreate('queue', {
     name,
     pv: PROTOCOL_VERSION,
-    cls: 'torpedoBoat',
+    cls: DEFAULT_CLASS_ID,
     horn: 'standard',
   });
   const ctx = {
@@ -434,75 +436,76 @@ async function proveBoardingToActive(pool) {
 }
 
 /**
- * Step 6: THE GUN CROSSED THE RESERVATION (Story 8.14, amendment 95). Every
- * captain reached the arena through the queue, so every arena join must report
- * the gun the QUEUE froze into the seat's server-only `auth` payload. These
- * captains send no `gun` at all, so the queue sanitizes it to `deckGun` and the
- * arena must log exactly that — the same transport proof the deck used to give:
- * if `client.auth` arrived empty the arena would fall back to the join option
- * instead, and on this path the two answers happen to agree, so the log line is
- * read together with step 7's DIRECT-door check, where they do not.
+ * Step 6: THE SHIFT CROSSED THE RESERVATION (Story 10.4 — the seat gun's
+ * successor, Story 8.14 amendment 95). Every captain reached the arena through
+ * the queue, so every arena join must report the Shift the QUEUE froze into the
+ * seat's server-only `auth` payload. These captains send no `shift` at all, so
+ * the queue sanitizes it to DEFAULT_SHIFT and the arena must log exactly that —
+ * the same transport proof the deck used to give: if `client.auth` arrived
+ * empty the arena would fall back to the join option instead, and on this path
+ * the two answers happen to agree, so the log line is read together with step
+ * 7's DIRECT-door check, where they do not.
  *
  * `deck.illegal` and the 4402 refusal are GONE with the deck door: nothing at
  * either door can refuse a join over the card economy any more, and a line
  * claiming otherwise is a regression.
  */
-async function proveGunRodeTheSeat(expected) {
+async function proveShiftRodeTheSeat(expected) {
   await sleep(300); // let the last join's line flush through the pipe
   const joins = serverLines().filter((l) => l.startsWith('info client.join '));
   assert(
     joins.length === expected,
     `saw ${joins.length} arena client.join lines, expected ${expected}`,
   );
-  const seat = joins.filter((l) => l.includes('"gun":"deckGun"'));
+  const tag = `"shift":"${DEFAULT_SHIFT}"`;
+  const seat = joins.filter((l) => l.includes(tag));
   assert(
     seat.length === expected,
-    `only ${seat.length}/${expected} arena joins logged gun "deckGun" — the seat's auth did not reach client.auth: ${joins.filter((l) => !l.includes('"gun":"deckGun"')).join(' | ')}`,
+    `only ${seat.length}/${expected} arena joins logged ${tag} — the seat's auth did not reach client.auth: ${joins.filter((l) => !l.includes(tag)).join(' | ')}`,
   );
   const refusals = serverLines().filter((l) => l.includes('deck.illegal') || l.includes('deck illegal'));
   assert(refusals.length === 0, `a deck refusal fired in a codebase with no deck door: ${refusals.join(' | ')}`);
-  return `gun transport: all ${expected} arena joins logged gun "deckGun" (the seat's server-only auth reached client.auth), no deck refusal anywhere`;
+  return `shift transport: all ${expected} arena joins logged ${tag} (the seat's server-only auth reached client.auth), no deck refusal anywhere`;
 }
 
 /**
- * Step 7: THE SEAT GUN AT THE DIRECT DOOR (Story 8.14, amendment 95). Three
- * solo joins, each proving one row of the sanitizer's matrix end to end — over
- * a real socket, because `OwnShip.gun` is a WIRE field and no unit test proves
- * it left the server:
+ * Step 7: THE SEAT SHIFT AT THE DIRECT DOOR (Story 10.4). Solo joins, each
+ * proving one row of the sanitizer's matrix end to end — over a real socket,
+ * because `OwnShip.shift` is a WIRE field and no unit test proves it left the
+ * server:
  *
- *   - `gun: 'flak'`   → reaches the arena and the OWN frame reads `flak`;
- *   - `gun: 'bogus'`  → coerced to `deckGun`, never a refusal;
- *   - `deckId: 'x'`   → a dead key now: DROPPED like any unknown option, the
+ *   - every `SHIFT_IDS` entry -> reaches the arena and the OWN frame reads it;
+ *   - `shift: 'bogus'` -> coerced to DEFAULT_SHIFT, never a refusal;
+ *   - the legacy `gun: 'flak'` -> ignored (DEFAULT_SHIFT), never a refusal;
+ *   - `deckId: 'x'` -> a dead key now: DROPPED like any unknown option, the
  *     join proceeds, and the 4402 refusal that used to fire does not exist.
  */
-async function proveSeatGun() {
+async function proveSeatShift() {
   const cases = [
-    // All three seat ids (Story 8.15 builds the other two guns): each reads
-    // back on the own frame exactly as picked.
-    { label: "gun:'deckGun'", options: { gun: 'deckGun' }, expect: 'deckGun' },
-    { label: "gun:'machineGun'", options: { gun: 'machineGun' }, expect: 'machineGun' },
-    { label: "gun:'flak'", options: { gun: 'flak' }, expect: 'flak' },
-    { label: "gun:'bogus'", options: { gun: 'bogus' }, expect: 'deckGun' },
-    { label: "deckId:'x'", options: { deckId: 'x' }, expect: 'deckGun' },
+    // Every seat id reads back on the own frame exactly as picked.
+    ...SHIFT_IDS.map((id) => ({ label: `shift:'${id}'`, options: { shift: id }, expect: id })),
+    { label: "shift:'bogus'", options: { shift: 'bogus' }, expect: DEFAULT_SHIFT },
+    { label: "legacy gun:'flak'", options: { gun: 'flak' }, expect: DEFAULT_SHIFT },
+    { label: "deckId:'x'", options: { deckId: 'x' }, expect: DEFAULT_SHIFT },
   ];
   const seen = [];
   for (const c of cases) {
     const ctx = await createSolo(c.options);
     try {
       await waitFor(() => ownFrames(ctx).length > 0, 20000, `${c.label}: an own frame`);
-      const gun = ownFrames(ctx)[0].you.gun;
-      assert(gun === c.expect, `${c.label}: own frame reads gun '${gun}', expected '${c.expect}'`);
+      const shift = ownFrames(ctx)[0].you.shift;
+      assert(shift === c.expect, `${c.label}: own frame reads shift '${shift}', expected '${c.expect}'`);
       assert(findForbiddenKey(ctx.welcome, FORBIDDEN) === null, `${c.label}: the welcome carries a forbidden key`);
       for (const [i, f] of ctx.frames.entries()) {
         const hit = findForbiddenKey(f, FORBIDDEN);
         assert(hit === null, `${c.label}: frame ${i} carries a forbidden key at ${hit}`);
       }
-      seen.push(`${c.label} -> ${gun} (${ctx.frames.length} clean frames)`);
+      seen.push(`${c.label} -> ${shift} (${ctx.frames.length} clean frames)`);
     } finally {
       await leaveQuietly(ctx.room);
     }
   }
-  return `seat gun at the direct door: ${seen.join('; ')}`;
+  return `seat shift at the direct door: ${seen.join('; ')}`;
 }
 
 // --- main --------------------------------------------------------------------
@@ -535,8 +538,8 @@ async function main() {
 
     log.push(await step('4 one arena', 60000, () => proveOneArena(pool)));
     log.push(await step('5 boarding -> active', 90000, () => proveBoardingToActive(pool)));
-    log.push(await step('6 gun rode the seat reservation', 15000, () => proveGunRodeTheSeat(CAP)));
-    log.push(await step('7 seat gun at the direct door', 90000, () => proveSeatGun()));
+    log.push(await step('6 shift rode the seat reservation', 15000, () => proveShiftRodeTheSeat(CAP)));
+    log.push(await step('7 seat shift at the direct door', 120000, () => proveSeatShift()));
 
     console.log('QUEUE SMOKE OK:', { queue: pool[0].queue.roomId, arena: pool[0].arena.roomId, trace: log });
   } finally {

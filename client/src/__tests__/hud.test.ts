@@ -15,7 +15,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveStats } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, effectiveStats } from '@salvo/shared';
 import type { MatchUx } from '../ui/phase.js';
 import {
   Hud,
@@ -43,7 +43,7 @@ const V = CLIENT_CONFIG.vitals;
 const FLOOR = { w: 1366, h: 768 };
 const BAR_TOP = hudBarLayout(FLOOR.w, FLOOR.h).bar.y;
 
-const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
 function ownStatus(over: Partial<OwnStatus> = {}): OwnStatus {
   return {
@@ -55,9 +55,9 @@ function ownStatus(over: Partial<OwnStatus> = {}): OwnStatus {
     alive: true,
     sinking: false,
     respawnInMs: 0,
-    cls: 'torpedoBoat',
+    cls: DEFAULT_CLASS_ID,
     stats,
-    loadout: ['gun', 'heavyTorpedo', null, null],
+    loadout: ['mainBattery', 'heavyTorpedo', null, null],
     boostActive: false,
     slowedMsLeft: 0,
     dazzledMsLeft: 0,

@@ -26,7 +26,6 @@ import {
   type FrameMsg,
   type GameEvent,
   type ConsumableKit,
-  type GunId,
   type HealEvent,
   type HitCallEvent,
   type HullId,
@@ -36,6 +35,7 @@ import {
   type RequeueMsg,
   type ResultsMsg,
   type ShipClassId,
+  type ShiftId,
   type SpawnEvent,
   type SplashEvent,
   type SunkEvent,
@@ -209,7 +209,7 @@ export interface RoomBindingDeps {
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
-   * Fired when the authoritative own class, boon list OR seat gun first arrive
+   * Fired when the authoritative own class, boon list OR seat Shift first arrive
    * (or ever change) on `you` — the client trusts the server, not the
    * localStorage guess. The handler resolves the boon ids (fail-closed),
    * recomputes effectiveStats(cls, boons), and swaps the predictor kinematics +
@@ -218,12 +218,12 @@ export interface RoomBindingDeps {
    * D onOwnClass seam, grown the boons leg in Story 2.5; the legacy upgrade-
    * counts leg died with the wholesale strip in Story 2.8).
    *
-   * `gun` is the seat's gun (Story 8.14): slot 0's module is replayed from it,
+   * `shift` is the seat's Shift (Story 10.4): slot 1's module is replayed from it,
    * so the loadout derivation needs it alongside the cards. `kit` is the
    * seat's four-line consumable KIT (Story 10.1, `OwnShip.kit`): the kit
    * squares are replayed from it the same way.
    */
-  onOwnStats: (cls: ShipClassId, boons: readonly string[], gun: GunId, kit: ConsumableKit) => void;
+  onOwnStats: (cls: ShipClassId, boons: readonly string[], shift: ShiftId, kit: ConsumableKit) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -274,18 +274,17 @@ export interface RoomBindingDeps {
    *  rosterNameOrNull rule (main.ts handleSunkObserved). */
   names: (id: string) => string | null;
   /**
-   * Kill-feed name color (Story 1.12): a vessel id → the CSS-ready personal hue
-   * for its feed span (bright hue for a human, drone-outline for a drone), or null
+   * Kill-feed name color: a vessel id → the color for its feed span (the
+   * captain's RELATION stroke — Story 10.4 — drone-outline for a drone), or null
    * for a roster miss (the name inherits text-secondary). The feed text-safes it.
    */
   colors: (id: string) => number | null;
   /**
-   * Ordnance-marker tint (Story 1.12): a mine/decoy/lit-zone firer id (`by`) →
-   * that pilot's BRIGHT personal hue (the SAME hue for every observer), or null
-   * while the roster hasn't synced the firer (or the firer left). The renderer
-   * paints the amber fallback for a null and retries per frame until it resolves.
+   * THE OWN BATTERY (Story 10.4, sim/ownBattery.ts): corrected from every own
+   * frame — the turrets and the secondaries heat snap to the server's. Optional
+   * so headless harnesses with no battery behave as before.
    */
-  ordnanceHue: (by: string) => number | null;
+  ownBattery?: { correct(you: OwnShip, ackSeq: number): void };
   /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the
@@ -750,7 +749,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // never reads state.net.you.
     const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
-    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.gun, f.you.kit);
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift, f.you.kit);
+    // Story 10.4: the own turrets + secondaries heat snap to the server's.
+    deps.ownBattery?.correct(f.you, f.ackSeq);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
@@ -794,8 +795,8 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // the three zone kinds are ALERTS — own white, anybody else's the shared
   // yellow↔orange blend — so they take no hue lookup: a mine's own/enemy is
   // `MineView.own` from the server, a zone's is `by === sessionId` (undefined
-  // for a spectator → nobody's). Decoys keep the FIRER's personal hue (Story
-  // 1.12, `by` → deps.ordnanceHue).
+  // for a spectator → nobody's). Decoys wear the owner's RELATION color (Story
+  // 10.4 — `DecoyView.own`).
   // Own mines carry their owner-private radius rings (always-on, our stats,
   // THE FRAME's clock); enemy mines get exactly the marker they always got.
   // f.t — not a local clock reading: the arming dim measures a server-side
@@ -815,7 +816,7 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];
-  deps.decoys.sync(decoys, deps.ordnanceHue);
+  deps.decoys.sync(decoys);
   // COUNTERMEASURE clouds (Story 9.3): NOT the same reconcile — the frame's
   // clouds MERGE into the held set (amendment 51: a cloud once seen is held
   // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
@@ -916,7 +917,7 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure: did the own class, the seat gun or the fitted-boon list change between
+ * Pure: did the own class, the seat Shift or the fitted-boon list change between
  * frames? Cheap array-equality over the boon ids (Story 2.8: the legacy
  * 14-number `upg` vector died with the strip, so boons are the whole stat
  * input) — this gates the (heavier) effective-stats recompute in
@@ -925,16 +926,17 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
  * REPEATED ids are meaningful (a stack), so the comparison stays element-wise
  * and order-sensitive.
  *
- * The GUN (Story 8.14) is frozen at queue and cannot change mid-match, so in
- * practice only the first frame's `!prev` fires on it — it is compared anyway
- * because slot 0 is derived from it, and a watcher that ignores one of its
- * own inputs is how a stale loadout survives a change nobody expected.
+ * The SHIFT (Story 10.4 — the seat's pick, which replaced the seat's gun) is
+ * frozen at queue and cannot change mid-match, so in practice only the first
+ * frame's `!prev` fires on it — it is compared anyway because slot 1 is
+ * derived from it, and a watcher that ignores one of its own inputs is how a
+ * stale loadout survives a change nobody expected.
  *
- * The KIT (Story 10.1) is a seat value like the gun — frozen at the join — and
+ * The KIT (Story 10.1) is a seat value like the Shift — frozen at the join — and
  * is compared for the same reason: the kit squares are derived from it.
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
-  if (!prev || next.cls !== prev.cls || next.gun !== prev.gun) return true;
+  if (!prev || next.cls !== prev.cls || next.shift !== prev.shift) return true;
   return !sameList(next.kit, prev.kit) || !sameList(next.cards, prev.cards);
 }
 
@@ -1574,6 +1576,7 @@ const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'phosphorShells',
   'foulingShell',
   'dazzleShells',
+  'mainBattery', // Story 10.4 — the turret salvo, cannon shells
 ]);
 
 /**

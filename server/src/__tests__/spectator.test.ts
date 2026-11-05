@@ -14,7 +14,9 @@ import {
   isSinking,
   isSunk,
   CONFIG,
+  DEFAULT_CLASS_ID,
   bearing,
+  encodeTurretAngles,
   mulberry32,
   paintCoverage,
   segPolygonHit,
@@ -62,7 +64,7 @@ function bareWorld(seed = 1): World {
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
   // A captain fixture sails its hull's default deck (Story 8.2).
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', DEFAULT_CLASS_ID, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -136,8 +138,13 @@ describe('spectator frames — dead observer in the active phase', () => {
       y: c.state.y,
       heading: c.state.heading,
       speed: c.state.speed,
-      cls: 'torpedoBoat',
+      cls: DEFAULT_CLASS_ID,
+      // Story 10.4: a spectator gets a captain's turret ANGLES through the
+      // same contact row as everyone else (orchestrator ruling) — never a reload.
+      tu: encodeTurretAngles(c.turrets, c.hullId),
     });
+    expect(JSON.stringify(f)).not.toContain('reloadMsLeft');
+    expect(JSON.stringify(f)).not.toContain('"heat"');
   });
 
   it('carries every mine, flagging only the observer-owned ones — and the KIND rides every row (cycle 162)', () => {
@@ -174,12 +181,10 @@ describe('spectator frames — dead observer in the active phase', () => {
       w.step();
       dmgSeen = buildFrame(w, 'a', 'active').events.find((e) => e.k === 'dmg');
     }
-    expect(dmgSeen).toEqual({
-      k: 'dmg',
-      id: 'c',
-      amount: CONFIG.gun.damage,
-      hp: before - CONFIG.gun.damage,
-    });
+    // The blow is the ARMOR-FOLDED shell damage (Story 10.3) — whatever it
+    // settled to, the spectator sees the victim-private row verbatim.
+    expect(dmgSeen).toEqual({ k: 'dmg', id: 'c', amount: before - c.hp, hp: c.hp });
+    expect((dmgSeen as { amount: number }).amount).toBeGreaterThan(0);
   });
 
   it("a spectator's sunk ALWAYS carries seen: true (PV 23 — spectators witness everything)", () => {
@@ -274,7 +279,7 @@ describe('spectator frames — phase gating', () => {
     expect(winner.you).toBeUndefined();
     // The winner's own (alive) hull rides the contact pipeline now.
     expect(winner.contacts).toEqual([
-      { id: 'a', x: a.state.x, y: a.state.y, heading: a.state.heading, speed: a.state.speed, cls: 'torpedoBoat' },
+      { id: 'a', x: a.state.x, y: a.state.y, heading: a.state.heading, speed: a.state.speed, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(a.turrets, a.hullId) },
     ]);
     const loser = buildFrame(w, 'b', 'finished');
     expect(loser.spec).toBe(true);
@@ -318,19 +323,22 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     // must disclose NOTHING about the window, so pin the exact key set.
     expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
     // THE EXACT CONTACT KEY SET, updated deliberately for Story 5.6 (epic-5
-    // amendment 40). `aggro` is the ONE optional key a contact may now carry,
-    // and only when it is a PvE fleet hull that has acquired THIS observer —
-    // so a contact that is not a fleet hull hunting `me` must still be
-    // byte-identical to the shipped six. Both shapes are enumerated rather
-    // than allowed loosely: a stray seventh key still fails.
+    // amendment 40) and Story 10.4. `aggro` is optional — only on a PvE fleet
+    // hull that has acquired THIS observer — and `tu` (the turret angles) is
+    // present exactly on a hull with a battery (a captain / bot), never on a
+    // drone. Every shape is enumerated rather than allowed loosely: a stray
+    // extra key still fails.
     const keys = Object.keys(c).sort();
+    const base = ['cls', 'heading', 'id', 'speed', 'x', 'y'];
+    const withTu = target.turrets.length > 0;
     if (c.aggro === undefined) {
-      expect(keys).toEqual(['cls', 'heading', 'id', 'speed', 'x', 'y']);
+      expect(keys).toEqual(withTu ? [...base, 'tu'].sort() : base);
     } else {
-      expect(keys).toEqual(['aggro', 'cls', 'heading', 'id', 'speed', 'x', 'y']);
+      expect(keys).toEqual(['aggro', ...base]);
       expect(c.aggro).toBe(true); // never `false` — omitted is the negative
       expect(w.drones.isTargeting(c.id, me.id)).toBe(true); // the independent oracle
     }
+    if (withTu) expect(c.tu).toEqual(encodeTurretAngles(target.turrets, target.hullId));
     expect(c.id).not.toBe(me.id);
     expect(sighted(w, me, target.state)).toBe(true);
   }

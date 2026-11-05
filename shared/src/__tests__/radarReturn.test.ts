@@ -15,8 +15,8 @@ import {
   transformPolygon,
 } from '../index.js';
 
-const bb = hullSilhouette('battleship');
-const tb = hullSilhouette('torpedoBoat');
+const bb = hullSilhouette('yamato');
+const tb = hullSilhouette('iowa');
 
 /** [min, max] extent across bearings 0..π (π-symmetry covers the rest). */
 function extentRange(id: (typeof SHIP_CLASS_IDS)[number], samples = 256): [number, number] {
@@ -36,7 +36,7 @@ describe('perpendicularExtent — the design thesis (AC1)', () => {
     // Local frame: bow at +x. Bearing 0 = observer→target along the hull
     // axis (bow-on) → the echo spans the BEAM; bearing π/2 (abeam) → the
     // echo spans the LENGTH. Normalization pins both spans exactly.
-    const { hull } = hullEnvelope('battleship');
+    const { hull } = hullEnvelope('yamato');
     const bowOn = perpendicularExtent(bb, 0);
     const abeam = perpendicularExtent(bb, Math.PI / 2);
     expect(bowOn).toBeCloseTo(hull.beam, 9); // 32u
@@ -46,7 +46,7 @@ describe('perpendicularExtent — the design thesis (AC1)', () => {
 });
 
 describe('perpendicularExtent — no single extent value identifies a class (amendments 66, 68)', () => {
-  it('a torpedo boat abeam out-paints a battleship bow-on, so the class bands overlap', () => {
+  it('one hull abeam out-paints another bow-on, so the class bands overlap', () => {
     // The mysticism ohzie asked for, delivered by physics: the LIGHTEST hull
     // at its broadest aspect returns a BIGGER echo than the heaviest hull at
     // its narrowest, so echo size alone can never resolve class.

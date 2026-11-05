@@ -13,7 +13,8 @@
 // wall, a 60 Hz render, 60 s, the contact in every frame.
 
 import { describe, it, expect, vi } from 'vitest';
-import type { Contact } from '@salvo/shared';
+import { DEFAULT_CLASS_ID, type Contact } from '@salvo/shared';
+import type { Relation } from '../render/relationColor.js';
 
 vi.mock('pixi.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('pixi.js')>();
@@ -50,10 +51,10 @@ const PROBE_MS = 60_000;
 
 const camera = { worldToScreen: (p: { x: number; y: number }) => p, zoom: 1 };
 const plates = { nameOf: (): string | null => null, camera, pad: 8 };
-const rosterIndex = (): number | null => null;
+const relationOf = (): Relation => 'enemy';
 const plateSink = (): Container => ({ addChild() {}, removeChild() {} }) as unknown as Container;
 
-const enemy = (t: number): Contact => ({ id: 'e1', x: t / 100, y: 0, heading: 0, speed: 10, cls: 'torpedoBoat' });
+const enemy = (t: number): Contact => ({ id: 'e1', x: t / 100, y: 0, heading: 0, speed: 10, cls: DEFAULT_CLASS_ID });
 
 interface ProbeResult {
   removed: number;
@@ -113,7 +114,7 @@ function probe(o: ProbeOpts): ProbeResult {
     }
     if (!clock.ready) continue;
     const now = clock.serverNow(wall);
-    views.render(store, now - CONFIG.tick.interpDelayMs, o.staleClock(clock, wall), RENDER_MS, rosterIndex, plates);
+    views.render(store, now - CONFIG.tick.interpDelayMs, o.staleClock(clock, wall), RENDER_MS, relationOf, plates);
     const a = (views as unknown as HullViews).views.get('e1')?.fader.alpha ?? 0;
     if (a === 1) faded = true;
     else if (faded) out.hiddenFrames += 1;

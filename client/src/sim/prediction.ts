@@ -100,6 +100,7 @@ import {
   stepShip,
   wrapAngle,
   CONFIG,
+  DEFAULT_CLASS_ID,
   HOOK_REGISTRY,
   SHIP_CLASS_IDS,
   type ContactBody,
@@ -359,8 +360,8 @@ export class Predictor {
 
   constructor(
     private readonly map: CollisionMap,
-    private kin: ShipConfig = hullBaseKinematics('torpedoBoat'),
-    private localPoly: readonly Vec2[] = hullSilhouette('torpedoBoat'),
+    private kin: ShipConfig = hullBaseKinematics(DEFAULT_CLASS_ID),
+    private localPoly: readonly Vec2[] = hullSilhouette(DEFAULT_CLASS_ID),
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
     /** Hook registry the kinematics fold runs against — injectable for tests
      *  (parity suites), the empty shared HOOK_REGISTRY in production. */
@@ -368,8 +369,8 @@ export class Predictor {
   ) {
     // The seeded class's base ARMOR (its mass, Story 10.3) until applyOwnStats
     // calls setOwnMass with the effectiveStats fold (the default kinematics
-    // are the torpedo boat's zero-card fold).
-    this.hull.ownMass = CONFIG.shipClasses.torpedoBoat.index.armor;
+    // are the default hull's zero-card fold).
+    this.hull.ownMass = CONFIG.shipClasses[DEFAULT_CLASS_ID].index.armor;
   }
 
   /**

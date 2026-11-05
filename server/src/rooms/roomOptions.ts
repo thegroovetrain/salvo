@@ -7,16 +7,15 @@
 
 import {
   CONFIG,
-  DEFAULT_GUN,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
   isConsumableKit,
-  isGunId,
+  isShiftId,
   mapRadius,
   PROTOCOL_VERSION,
-  REGATTA_HUES,
   wrapAngle,
   type ConsumableKit,
-  type GunId,
+  type ShiftId,
   type ZoneTimeline,
 } from '@salvo/shared';
 import type { Logger } from '../log.js';
@@ -34,21 +33,13 @@ export const NAME_MAX = 14;
 export interface JoinOptions {
   name?: string;
   /**
-   * Client-chosen ship class ('torpedoBoat' | 'battleship' | 'mineLayer'). A
-   * plain join option (NOT gated by HC_DEV_OPTIONS): onJoin runs it through
+   * Client-chosen ship class (one of the four hulls, Story 10.4). A plain
+   * join option (NOT gated by HC_DEV_OPTIONS): onJoin runs it through
    * sanitizeClassId, so any garbage/absent/legacy value falls back to
-   * 'torpedoBoat'.
+   * DEFAULT_CLASS_ID (Bismarck, R7). (The `colorPref` hue option is GONE with
+   * the hue wheel — Story 10.4, R6; a client still sending it is ignored.)
    */
   cls?: string;
-  /**
-   * Regatta Hoist personal-hue PREFERENCE (Story 1.12): an integer hue index
-   * 0..19 into the shared REGATTA_HUES wheel. A plain join option (NOT gated by
-   * HC_DEV_OPTIONS, like `cls`): onJoin runs it through sanitizeColorPref, so any
-   * out-of-range / non-integer / absent value falls back to undefined (the
-   * no-preference path — a seeded-random free hue). This story only PLUMBS the
-   * option (connection.ts forwards a persisted value); no UI writes it yet (1.14).
-   */
-  colorPref?: number;
   /**
    * Client-chosen foghorn variant (Story 4.5, amendment 52) — the cosmetic
    * seam for a future purchased horn. A plain join option (NOT gated by
@@ -76,32 +67,31 @@ export interface JoinOptions {
    * else's match. That is the whole security argument for letting a
    * client-supplied flag through ungated: the only thing it can do is spawn the
    * asker's own 20-hull room, which is exactly what a legitimate solo player
-   * costs. NOT dev-gated (like `cls`/`colorPref`), but coerced STRICTLY: see
+   * costs. NOT dev-gated (like `cls`), but coerced STRICTLY: see
    * sanitizeSolo — only the boolean `true` counts.
    */
   solo?: boolean;
   /**
-   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
-   * captain picked — `deckGun` | `machineGun` | `flak`. A PLAIN join option
-   * (NOT gated by HC_DEV_OPTIONS, like `cls`): onJoin runs it through
-   * `sanitizeGun`, so anything missing, unknown or non-string becomes
-   * `deckGun`. The queue freezes the sanitized value into the seat
-   * reservation's server-only `auth`, exactly as the deck used to ride it.
+   * THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — in the seat GUN's
+   * place): which Shift ability this captain picked (a `ShiftId`). A PLAIN
+   * join option (NOT gated by HC_DEV_OPTIONS, like `cls`): onJoin runs it
+   * through `sanitizeShift`, so anything missing, unknown or non-string
+   * becomes `DEFAULT_SHIFT` (Speed Boost, R7). The queue freezes the sanitized
+   * value into the seat reservation's server-only `auth`.
    *
-   * All three ids are ACCEPTED NOW and `machineGun`/`flak` mount the shipped
-   * deck-gun module until Story 8.15 builds the other two (MOUNTED_GUN); the
-   * shipped client sends `deckGun` until the picker exists.
+   * The LEGACY `gun` option (Story 8.14) is no longer read: an old client
+   * still sending it is ignored, never refused.
    */
-  gun?: unknown;
+  shift?: unknown;
   /**
    * THE SEAT'S CONSUMABLE KIT (Story 10.1, epic-10 amendment 3): the FOUR
    * distinct non-stub consumable lines this captain picked on the port screen,
    * in key order (`kit[i]` on key `i + 1`, slot `5 + i`). A PLAIN identity join
-   * option exactly like `gun` (NOT gated by HC_DEV_OPTIONS): onJoin runs it
+   * option exactly like `shift` (NOT gated by HC_DEV_OPTIONS): onJoin runs it
    * through `sanitizeKit`, so anything missing or invalid (wrong length, a
    * duplicate, a stub, an unknown id, not an array) becomes `DEFAULT_KIT`.
    * The queue freezes the sanitized value into the seat reservation's
-   * server-only `auth` beside the gun.
+   * server-only `auth` beside the Shift.
    */
   kit?: unknown;
   /**
@@ -146,29 +136,29 @@ export interface SpawnPose {
 }
 
 /**
- * THE SEAT'S GUN, SANITIZED (Story 8.14, amendment 95). One of the three
- * `GunId`s, or `DEFAULT_GUN` for anything else — missing, unknown, non-string,
- * an object, a number. FAIL-OPEN TO THE DEFAULT, never a refusal: a gun is an
+ * THE SEAT'S SHIFT, SANITIZED (Story 10.4, epic-10 amendment 9 — the retired
+ * `sanitizeGun`'s successor, same door). One of the `SHIFT_IDS`, or
+ * `DEFAULT_SHIFT` for anything else — missing, unknown, non-string, an object,
+ * a number. FAIL-OPEN TO THE DEFAULT, never a refusal: the Shift is an
  * identity option like `cls` and `horn`, not a privileged override, and a
- * captain whose client sends junk sails the deck gun rather than bouncing off
+ * captain whose client sends junk sails the default rather than bouncing off
  * the door.
  *
- * A PRESENT-BUT-INVALID value is LOGGED once, in the coerced-option style the
- * other doors use, so a client shipping a bad id is visible instead of silently
- * reinterpreted; an ABSENT value logs nothing (that is every shipped client
- * until the Story 8.15 picker). Pure apart from the optional logger.
+ * A PRESENT-BUT-INVALID value is LOGGED once (`join.shiftCoerced`), in the
+ * coerced-option style the other doors use; an ABSENT value logs nothing.
+ * Pure apart from the optional logger.
  */
-export function sanitizeGun(raw: unknown, log?: Logger): GunId {
-  if (isGunId(raw)) return raw;
-  if (raw !== undefined) log?.warn('join.gunCoerced', { to: DEFAULT_GUN });
-  return DEFAULT_GUN;
+export function sanitizeShift(raw: unknown, log?: Logger): ShiftId {
+  if (isShiftId(raw)) return raw;
+  if (raw !== undefined) log?.warn('join.shiftCoerced', { to: DEFAULT_SHIFT });
+  return DEFAULT_SHIFT;
 }
 
 /**
- * THE SEAT'S KIT, SANITIZED (Story 10.1, epic-10 amendment 3) — `sanitizeGun`'s
+ * THE SEAT'S KIT, SANITIZED (Story 10.1, epic-10 amendment 3) — `sanitizeShift`'s
  * twin. A copy of the four lines when `isConsumableKit` (shared, the ONE
  * validator both sides call) accepts the value, else `DEFAULT_KIT`. FAIL-OPEN,
- * never a refusal: the kit is an identity option like `cls` and `gun`. A
+ * never a refusal: the kit is an identity option like `cls` and `shift`. A
  * PRESENT-BUT-INVALID value is logged once (`join.kitCoerced`); an ABSENT one
  * logs nothing. Pure apart from the optional logger.
  */
@@ -532,17 +522,6 @@ function sanitizeMapSeed(v: unknown): number | undefined {
 }
 
 /**
- * Sanitize a client-supplied Regatta hue PREFERENCE (Story 1.12): a valid pick is
- * an integer in [0, REGATTA_HUES.length) — anything else (out of range, fractional,
- * NaN, non-number, absent) becomes undefined, the no-preference path. Pure +
- * unit-testable; NEVER dev-gated (a plain join option like `cls`). Called from
- * onJoin, not sanitizeRoomOptions — preference is not a privileged dev override.
- */
-export function sanitizeColorPref(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < REGATTA_HUES.length ? v : undefined;
-}
-
-/**
  * Unicode category C — control (Cc), format (Cf, which includes the zero-width
  * joiner/non-joiner AND the bidi overrides U+202A–202E / U+2066–2069),
  * surrogate (Cs), private-use (Co) and unassigned (Cn) code points. NONE of
@@ -568,7 +547,7 @@ const CONTROL_OR_FORMAT = /\p{C}/gu;
  *     combining sequence is never split mid-character. A name that is empty,
  *     all-whitespace, or all-invisible after the strip falls back too.
  * Pure + unit-tested; NEVER dev-gated (a plain join option like `cls`). Mirrors
- * sanitizeClassId / sanitizeColorPref: fail to the safe default, never throw.
+ * sanitizeClassId / sanitizeShift: fail to the safe default, never throw.
  */
 export function sanitizeName(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;

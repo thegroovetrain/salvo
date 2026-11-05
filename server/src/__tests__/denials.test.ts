@@ -17,6 +17,7 @@ import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
+import { neutralize } from './deckGunFixture.js';
 
 /** World with no islands (directed cases add their own geometry). The height
  *  raster is flattened too (Story 4.11): real terrain must not radar-shadow a
@@ -42,9 +43,10 @@ function place(
   x: number,
   y: number,
   heading = 0,
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -69,7 +71,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     slot: 0,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0, hornSeq: 0, held: false,
+    actSlot: 0, hornSeq: 0, held: false, sec: false,
     ...extra,
   };
 }
@@ -92,12 +94,17 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("cooling: a weapon click against an empty (reloading) pool denies {'cooling'} — the reload-boundary race made explicit", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 100 }));
-    w.step(); // click 1 fires the gun (pool 1 → 0, reload starts)
-    expect('denied' in buildFrame(w, 'a')).toBe(false);
-    w.submitInput('a', input(2, { fireSeq: 2, slot: 0, aimDist: 100 }));
-    w.step(); // click 2 lands mid-cooldown — the previously-silent case
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 0, reason: 'cooling', seq: 2 }]);
+    // Story 10.4: slot 0 is the MAIN BATTERY — one click fires ONE ready
+    // turret (R4), so every turret is spent click by click first.
+    const turrets = a.stats.equipment.mainBattery.maxAmmo;
+    for (let k = 1; k <= turrets; k += 1) {
+      w.submitInput('a', input(k, { fireSeq: k, slot: 0, aimDist: 100 }));
+      w.step(); // click k fires one turret (its reload starts)
+      expect('denied' in buildFrame(w, 'a')).toBe(false);
+    }
+    w.submitInput('a', input(turrets + 1, { fireSeq: turrets + 1, slot: 0, aimDist: 100 }));
+    w.step(); // every turret reloading — the previously-silent case
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 0, reason: 'cooling', seq: turrets + 1 }]);
     // Nothing further spent: the pool stays empty with its reload running.
     expect(a.loadout[0].state!.n).toBe(0);
     expect(a.loadout[0].state!.reloadMsLeft).toBeGreaterThan(0);
@@ -106,11 +113,11 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("no-ammo: a within-RTT ability double press denies {'no-ammo'} keyed on the press's actSeq", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB: slot 1 = boost (1 charge) on every captain
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
     w.step(); // press 1 activates (charge 1 → 0)
     expect(a.boostUntil).toBeGreaterThan(0);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
     w.step(); // press 2, pool empty — silently swallowed before 1.10
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
   });
@@ -178,7 +185,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
 
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π
+    const a = place(w, 'a', 0, 0, 0, 'warspite'); // heading 0 ⇒ rear sector centers on π
     w.map.islands.push(circleIsland(-60, 0, 20)); // the rock the click lands on
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 60 }));
     w.step();
@@ -201,7 +208,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     // Facing map-inward (heading π → bow along −x), the rear sector centers on
     // +x — a click 60u astern from 30u inside the rim lands past the edge.
-    const a = place(w, 'a', w.map.radius - 30, 0, Math.PI, 'mineLayer');
+    const a = place(w, 'a', w.map.radius - 30, 0, Math.PI, 'warspite');
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: 0, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'blocked', seq: 1 }]);
@@ -210,7 +217,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
 
   it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    const a = place(w, 'a', 0, 0, 0, 'warspite');
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
@@ -280,7 +287,7 @@ describe('pv join gate — the stale-client error', () => {
 describe('blocked-drop geometry sanity (Story 2.8: clicked mine placement)', () => {
   it('an ML clicking open water astern still places normally (the check refuses only illegal water)', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'mineLayer');
+    place(w, 'a', 0, 0, 0, 'warspite');
     w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the click
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 60 }));
     w.step();

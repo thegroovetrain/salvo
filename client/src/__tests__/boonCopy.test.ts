@@ -22,7 +22,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, INDEX_IDS, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
 import {
   boonEffectLine,
   boonFitToastLine,
@@ -42,7 +42,15 @@ import {
   type CardKind,
 } from '../ui/boonCopy.js';
 
-const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
+const TB = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
+/** Story 10.4: no shipped hull sits at the base on every index, and RELOAD /
+ *  RANGE fold into the equipment rows — so a pin that reads a CONFIG dial
+ *  verbatim folds this neutral envelope (the default hull, every index at
+ *  `CONFIG.index.base`). A fixture, never a ship. */
+const NEUTRAL_HULL: ShipClass = {
+  ...CONFIG.shipClasses[DEFAULT_CLASS_ID],
+  index: Object.fromEntries(INDEX_IDS.map((k) => [k, CONFIG.index.base])) as HullIndex,
+};
 
 /** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
 const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
@@ -119,11 +127,11 @@ describe('the card view renders a STUB fail-open (amendment 5)', () => {
 // stats/numbers. One per line."* The prose explanations are DELETED; the slot
 // tooltip, the SHIP panel and the refit card's hover print these rows.
 describe('the stat tables — one builder for the face and both hovers', () => {
-  const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const bare = effectiveStats(NEUTRAL_HULL);
   const text = (rows: readonly { label: string; cur: string | null; next: string }[]) => rows.map(statValueText);
 
   it('equipmentStatRows: the EQUIPMENT_STAT_FIELDS in order, ABSOLUTE, off the live fold', () => {
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['heavyTorpedo', 'heavyTorpedo']);
+    const s = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['heavyTorpedo', 'heavyTorpedo']);
     const rows = equipmentStatRows('heavyTorpedo', s);
     expect(rows.every((r) => r.cur === null)).toBe(true);
     expect(text(rows)).toEqual([
@@ -146,7 +154,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 
   it('inserts the mine\'s derived TRIGGER RADIUS by the fit card\'s rule', () => {
-    const s = effectiveStats(CONFIG.shipClasses.mineLayer, ['navalMines']);
+    const s = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['navalMines']);
     const naval = text(equipmentStatRows('navalMines', s));
     // After the blast radius, the table's last row.
     expect(naval).toHaveLength(5);
@@ -171,7 +179,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
 
   it('prints RANGE to ONE DECIMAL ONLY WHEN NEEDED — whole values whole, a +31.25 u card step to one decimal (Eric 2026-10-13)', () => {
     // One flak card: Tier I + one (V − I) / 4 step, a quarter-unit value.
-    const one = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['flak']);
+    const one = effectiveStats(NEUTRAL_HULL, ['flak']);
     expect(Number.isInteger(one.equipment.flak.rangeU), 'the premise: a fractional reach').toBe(false);
     expect(text(equipmentStatRows('flak', one)).at(-1)).toBe(`${one.equipment.flak.rangeU.toFixed(1)} u`);
     // A whole reach prints whole — no trailing ".0".
@@ -187,7 +195,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `${(CONFIG.machineGun.rateMs / 1000).toFixed(2)} s`,
       `${rangeTxt(bare.equipment.machineGun.rangeU)} u`,
     ]);
-    const top = effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(4).fill('machineGun'));
+    const top = effectiveStats(NEUTRAL_HULL, Array<string>(4).fill('machineGun'));
     expect(text(equipmentStatRows('machineGun', top))).toContain(`${(top.equipment.machineGun.rateMs / 1000).toFixed(2)} s`);
   });
 
@@ -221,7 +229,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(shipStatRows(bare)).toHaveLength(INDEX_IDS.length);
     expect(text(shipStatRows(bare))).toEqual(INDEX_IDS.map((id) => String(bare[id])));
     // A row reads ITS index: moving one index moves exactly one row.
-    const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
+    const armored = effectiveStats(NEUTRAL_HULL, ['armor']);
     const moved = text(shipStatRows(armored)).map((v, i) => v !== text(shipStatRows(bare))[i]);
     expect(moved).toEqual(INDEX_IDS.map((id) => id === 'armor'));
     // Every label is distinct (seven rows, seven words).
@@ -230,17 +238,17 @@ describe('the stat tables — one builder for the face and both hovers', () => {
 
   it('cardHoverRows: the full table of what the card touches, valued AFTER the card', () => {
     // A weapon line: its weapon's table on the after fold.
-    const after = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['lightTorpedo']);
+    const after = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['lightTorpedo']);
     expect(cardHoverRows(CATALOG.lightTorpedo, 0, TB)).toEqual(equipmentStatRows('lightTorpedo', after));
     // A ship ladder: the six ship stats after the card (ARMOR moved).
-    const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
+    const armored = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['armor']);
     expect(cardHoverRows(CATALOG.armor, 0, TB)).toEqual(shipStatRows(armored));
     // A gun ladder: the CANNON's table after the card (the CANNON ladder —
     // DECK GUN BARREL folded into it, amendment 197).
-    const cannon = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']);
+    const cannon = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['deckGun']);
     expect(cardHoverRows(CATALOG.deckGun, 0, TB)).toEqual(equipmentStatRows('gun', cannon));
     // The two pickable guns' ladders climb their own gun.
-    const mg = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['machineGun']);
+    const mg = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['machineGun']);
     expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
     // A consumable: its CONFIG rows; a stub: none.
     expect(cardHoverRows(CATALOG.countermeasure, 0, TB)).toEqual(consumableStatRows('countermeasure'));
@@ -446,7 +454,7 @@ describe('the fitted toast', () => {
 });
 
 describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pitch', () => {
-  const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const bare = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
   it('reports a stat line\'s LIVE value, with no current→next arrow', () => {
     expect(boonEffectLine('armor', bare)).toContain(`${bare.armor}`);
@@ -458,7 +466,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
-    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor', 'armor']);
+    const stacked = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['armor', 'armor']);
     expect(boonEffectLine('armor', stacked)).not.toBe(boonEffectLine('armor', bare));
     expect(boonEffectLine('armor', stacked)).toContain(`${stacked.armor}`);
   });
@@ -467,7 +475,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   // it (amendment 134), and cycle 158 deleted the empty table: PHOSPHOR SHELLS
   // holds its own RELOAD like every weapon line.
   it('a former add-on holds a NUMBER now — PHOSPHOR SHELLS reports its reload', () => {
-    const phos = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['phosphorShells']);
+    const phos = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['phosphorShells']);
     const holding = boonEffectLine('phosphorShells', phos);
     expect(holding).toContain(`${(phos.equipment.phosphorShells.reloadMs / 1000).toFixed(1)} s`);
   });

@@ -12,7 +12,9 @@ import {
   SLOT_COUNT,
   isAfloat,
   CONFIG,
+  damageMultiplierFor,
   effectiveStats,
+  equipmentReloadMs,
   hullSilhouette,
   paintCoverage,
   transformPolygon,
@@ -49,6 +51,13 @@ const HALF_PI = Math.PI / 2;
 let idSeq = 0;
 const mkId = (): string => `t${++idSeq}`;
 
+/** What the damage gate LANDS for a raw blow `raw` from `by` on `victim` —
+ *  the one armor curve (× damageMultiplierFor(victim ARMOR − attacker POWER),
+ *  floored, never below 1). No shipped hull sits at index 100 since Story
+ *  10.4, so every expectation reads it rather than the raw row number. */
+const blow = (raw: number, victim: ShipRecord, by: ShipRecord): number =>
+  raw > 0 ? Math.max(1, Math.floor(raw * damageMultiplierFor(victim.stats.armor - by.stats.power))) : 0;
+
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
  *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 3): World {
@@ -67,7 +76,7 @@ function torpShip(w: World, id: string, x: number, y: number, heading: number): 
   // applyCard path a real pick takes. Every case below keeps its subject.
   fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
   rec.input = input;
   return rec;
 }
@@ -87,7 +96,7 @@ describe('torpedoes — single-round pool reload', () => {
     const t2 = fireTorpedo(ship, 0, mkId);
     expect(t1).not.toBeNull();
     expect(t2).toBeNull(); // pool empty, now reloading
-    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'heavyTorpedo') });
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
@@ -103,7 +112,7 @@ describe('torpedoes — single-round pool reload', () => {
     expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still empty
     ship.loadout[SLOT_TORPEDO].state = { n: 1, reloadMsLeft: 0 }; // reloaded
     expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // now fires
-    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'heavyTorpedo') });
   });
 });
 
@@ -134,7 +143,7 @@ describe('torpedoes — island block + ship hit', () => {
       w.step();
       events.push(...w.tickEvents);
     }
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(b.hp).toBe(CONFIG.shipClasses.bismarck.hp);
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true);
   });
 
@@ -144,8 +153,8 @@ describe('torpedoes — island block + ship hit', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 150, heading: 0, speed: 0 };
-    for (let i = 0; i < 80 && b.hp === CONFIG.shipClasses.torpedoBoat.hp; i++) w.step();
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.torpedo.damage);
+    for (let i = 0; i < 80 && b.hp === b.stats.maxHp; i++) w.step();
+    expect(b.hp).toBe(b.stats.maxHp - blow(CONFIG.torpedo.damage, b, a));
   });
 });
 
@@ -165,8 +174,8 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 750, heading: 0, speed: 0 }; // 750u away (> old 700 cap)
-    for (let i = 0; i < 400 && b.hp === CONFIG.shipClasses.torpedoBoat.hp; i++) w.step();
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.torpedo.damage);
+    for (let i = 0; i < 400 && b.hp === b.stats.maxHp; i++) w.step();
+    expect(b.hp).toBe(b.stats.maxHp - blow(CONFIG.torpedo.damage, b, a));
   });
 
   it('a torpedo with no target splashes at the map edge (boom, no victim)', () => {
@@ -191,7 +200,7 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
 describe('mines — arm delay, silhouette trigger, owner immunity', () => {
   // World-posed torpedoBoat silhouette (length 100: bow +50 / stern -50).
   function hull(id: string, x: number, y: number, heading: number): Target {
-    return { id, kind: 'hull', poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, heading) };
+    return { id, kind: 'hull', poly: transformPolygon(hullSilhouette('bismarck'), x, y, heading) };
   }
   function mineAt(
     ownerId: string,
@@ -259,11 +268,11 @@ describe('mines — NO CAP: a laid mine stays laid', () => {
 describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
   it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
     w.step(); // places one mine at the clicked point (40u astern, -x)
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
@@ -273,7 +282,7 @@ describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-a
     // radius — the built-in owner-exclusion geometry this test also pins below.
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: mine.x, y: mine.y, heading: 0, speed: 0 };
-    b.hp = CONFIG.mine.damage; // one blast sinks it
+    b.hp = 1; // any landed blow (floored at 1) sinks it
     for (let i = 0; i < CONFIG.mine.armDelay / CONFIG.tick.simDtMs + 2; i++) w.step();
     expect(w.mines.size).toBe(0); // detonated + despawned
     expect(isAfloat(b.lifecycle)).toBe(false);
@@ -287,7 +296,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
    *  theirs at the origin. */
   function minefield(): { w: World; o: ShipRecord } {
     const w = bareWorld(11);
-    const o = w.addShip('o', 'O', 'captain', 'mineLayer', undefined, undefined);
+    const o = w.addShip('o', 'O', 'captain', 'warspite', undefined, undefined);
     o.state = { x: 600, y: 600, heading: 0, speed: 0 }; // far from the blast
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     return { w, o };
@@ -303,8 +312,8 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     d.state = { x: 0, y: 200, heading: 0, speed: 0 };
     w.step();
     expect(w.mines.size).toBe(0);
-    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // full 45
-    expect(c.hp).toBe(c.stats.maxHp - CONFIG.mine.damage); // full 45 — same blast
+    expect(b.hp).toBe(b.stats.maxHp - blow(CONFIG.mine.damage, b, o)); // the full blast
+    expect(c.hp).toBe(c.stats.maxHp - blow(CONFIG.mine.damage, c, o)); // the full blast — same blast
     expect(d.hp).toBe(d.stats.maxHp); // outside the blast
     expect(o.hp).toBe(o.stats.maxHp); // owner far away AND excluded by rule
     // One boom at the mine point, victim = the tripping ship.
@@ -318,7 +327,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips it
     w.step();
-    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage);
+    expect(b.hp).toBe(b.stats.maxHp - blow(CONFIG.mine.damage, b, o));
     expect(o.hp).toBe(o.stats.maxHp); // owner-excluded blast (universal AoE convention)
   });
 
@@ -364,7 +373,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const hull = (id: string, x: number, y: number): Target => ({
       id,
       kind: 'hull',
-      poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, HALF_PI),
+      poly: transformPolygon(hullSilhouette('bismarck'), x, y, HALF_PI),
     });
     // Hull edge within 48 (center 90: stern at y=40, 40 ≤ 48); owner's own hull
     // ON the mine excluded; a hull whose closest point is beyond 48 excluded.
@@ -428,12 +437,22 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
 });
 
 describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arming included — amendment 200)', () => {
+  /** THE DECK GUN ON THE BENCH (Story 10.4): a captain's slot 0 is the MAIN
+   *  BATTERY now, whose mask has NO mine bit (R3). The cannon row survives as
+   *  the PvE drones' gun and still carries the mine bit (orchestrator ruling,
+   *  wave-1 gate), so these amendment-200 pins mount THAT row into slot 0 —
+   *  the slot a drone carries it in — and keep their subject. */
+  function mountDeckGun(a: ShipRecord): void {
+    a.loadout[SLOT_GUN] = { equipmentId: 'gun', state: { n: a.stats.equipment.gun.maxAmmo, reloadMsLeft: 0 } };
+  }
+
   /** ML `a` at the origin with an enemy `b` parked near a remote minefield:
    *  b's hull (y ∈ [35..55]) is OUTSIDE the gun's 30u burst at (300,0) but
    *  INSIDE the mine's 48u blast — any damage b takes is the MINE's. */
   function board(): { w: World; a: ShipRecord; b: ShipRecord } {
     const w = bareWorld(13);
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
+    mountDeckGun(a);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 300, y: 45, heading: 0, speed: 0 };
@@ -442,7 +461,7 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
 
   /** Click a's gun at (dist, 0) and step until the burst resolves. */
   function shootAt(w: World, dist: number): void {
-    w.submitInput('a', { seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     for (let i = 0; i < 60; i++) {
       w.step();
       if (w.tickEvents.some((e) => e.k === 'burst')) return;
@@ -457,7 +476,7 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
     expect(w.mines.size).toBe(0); // popped by the owner's shell (16 dmg >= 10 hp)
     // b's hull is outside the 30u gun burst but inside the mine's 48u blast:
     // exactly one full mine damage, nothing from the shell.
-    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage);
+    expect(b.hp).toBe(b.stats.maxHp - blow(CONFIG.mine.damage, b, a));
     expect(a.hp).toBe(a.stats.maxHp); // owner excluded from both
     // The detonation's own boom carries NO victim id (no tripping ship).
     const boom = w.tickEvents.find((e) => e.k === 'boom' && e.id === 'm1');
@@ -498,7 +517,8 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
   // asserted here is the BURST path alone.
   function lonely(): { w: World; a: ShipRecord } {
     const w = bareWorld(17);
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
+    mountDeckGun(a);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     return { w, a };
   }
@@ -567,7 +587,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     fitClassWeapons(w, a); // the tubes are a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     let torps = 0;
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -578,25 +598,25 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     // Under hold-to-fire this input would re-place every reload; a click must not.
     const ticks = CONFIG.mine.reloadMs / CONFIG.tick.simDtMs + 20;
     for (let i = 0; i < ticks; i++) w.step();
     expect(w.mines.size).toBe(1);
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(2);
   });
 
   it('a PRESS (actSeq) on the ML mine slot is inert — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin)', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(0); // the ability-only press wall refuses weapons
     expect(a.loadout[SLOT_MINE_ML].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charge intact
@@ -623,14 +643,19 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
     expect(wire[0]).not.toBe(ship.loadout[0].state);
   });
 
-  it('a fresh hull spawns with full pools; one click empties the single-shot gun pool', () => {
+  it('a fresh hull spawns with every turret loaded; one click fires ONE turret and slot 0 reads the battery summary', () => {
+    // Story 10.4: slot 0 is the MAIN BATTERY — its pair is DERIVED from the
+    // turrets (n = turrets ready, reloadMsLeft = the soonest running reload).
     const w = bareWorld();
     const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
-    w.step(); // one click -> one shell, pool 1 -> 0, the 3s cooldown starts
-    expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo - 1, reloadMsLeft: CONFIG.gun.reloadMs });
+    const row = ship.stats.equipment.mainBattery;
+    expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: row.maxAmmo, reloadMsLeft: 0 });
+    expect(row.maxAmmo).toBe(ship.turrets.length);
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+    w.step(); // one click -> one turret's salvo; only that turret's reload starts
+    expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: row.maxAmmo - 1, reloadMsLeft: row.reloadMs });
+    expect(ship.turrets.filter((t) => t.reloadMsLeft > 0)).toHaveLength(1);
   });
 });
 
@@ -687,10 +712,10 @@ const KIT: ConsumableKit = ['shieldBlock', 'supercavTorpedo', 'hullRepair', 'fou
  *  selected. Everything real: production catalog, production registry, the
  *  same `applyCard` path a pick takes. */
 function carrier(w: World, id: string, line: string, n: number, aim: number, slot: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, undefined, KIT);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined, undefined, KIT);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   for (let i = 0; i < n; i += 1) w.applyCard(rec, line);
-  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
   return rec;
 }
 
@@ -755,7 +780,7 @@ describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)',
     expect(fish.damage).toBe(CONFIG.lightTorpedo.damage);
     expect(fish.damage).not.toBe(CONFIG.torpedo.damage);
     expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.lightTorpedo.speed, 6);
-    expect(ship.loadout[SLOT_WEAPON_1].state).toEqual({ n: 0, reloadMsLeft: CONFIG.lightTorpedo.reloadMs });
+    expect(ship.loadout[SLOT_WEAPON_1].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'lightTorpedo') });
   });
 });
 

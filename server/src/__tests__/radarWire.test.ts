@@ -36,7 +36,7 @@ function bareWorld(seed = 50, opts: WorldOptions = {}): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
@@ -68,9 +68,9 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('a frame carries EXACTLY {k,t,gx,gy,w,h,bits} on every blip — no id, no position, no ext, no pose (amendment 152)', () => {
     const w = bareWorld(52);
     const a = place(w, 'a', 0, 0);
-    place(w, 'bb', 700, 0, 0.9, 'battleship');
-    place(w, 'tb', 0, 720, 2.1, 'torpedoBoat');
-    place(w, 'ml', -750, 0, -0.4, 'mineLayer');
+    place(w, 'bb', 700, 0, 0.9, 'yamato');
+    place(w, 'tb', 0, 720, 2.1, 'bismarck');
+    place(w, 'ml', -750, 0, -0.4, 'warspite');
     a.prevSweepAngle = 0; // one window sweeping the full circle minus ε
     a.sweepAngle = wrapPositive(-1e-9);
     const blips = blipsOf(buildFrame(w, 'a'));
@@ -80,9 +80,9 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // is `paintCoverage`, never the sharp rasterization) — matched exactly
     // once each, since the wire does not say which is which.
     const expected = [
-      paintCoverage('battleship', 700, 0, 0.9, CELL, w.now),
-      paintCoverage('torpedoBoat', 0, 720, 2.1, CELL, w.now),
-      paintCoverage('mineLayer', -750, 0, -0.4, CELL, w.now),
+      paintCoverage('yamato', 700, 0, 0.9, CELL, w.now),
+      paintCoverage('bismarck', 0, 720, 2.1, CELL, w.now),
+      paintCoverage('warspite', -750, 0, -0.4, CELL, w.now),
     ];
     for (const ev of blips) {
       // Assert on the object's KEYS, order included (msgpack wire shape) — and
@@ -102,14 +102,14 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     const w = bareWorld(53);
     const a1 = place(w, 'a1', 0, 0);
     const a2 = place(w, 'a2', 120, -260);
-    const b = place(w, 'b', 700, 0, 1.1, 'battleship');
+    const b = place(w, 'b', 700, 0, 1.1, 'yamato');
     windowAround(a1, Math.atan2(b.state.y - a1.state.y, b.state.x - a1.state.x));
     windowAround(a2, Math.atan2(b.state.y - a2.state.y, b.state.x - a2.state.x));
     const seen1 = blipsOf(buildFrame(w, 'a1'));
     const seen2 = blipsOf(buildFrame(w, 'a2'));
     // Compare the footprint that matches b's true raster, which must appear
     // for BOTH observers, byte-identical — moving the observer moves nothing.
-    const truth = JSON.stringify(paintCoverage('battleship', 700, 0, 1.1, CELL, w.now));
+    const truth = JSON.stringify(paintCoverage('yamato', 700, 0, 1.1, CELL, w.now));
     const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
     const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
     expect(of1).toHaveLength(1);
@@ -119,7 +119,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('a bow-on hull and a broadside hull of the same class produce DIFFERENT rects — the footprint points the way the hull does', () => {
     const w = bareWorld(54);
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 700, 0, 0, 'battleship'); // heading +x: long axis in x
+    const b = place(w, 'b', 700, 0, 0, 'yamato'); // heading +x: long axis in x
     windowAround(a, 0);
     const bowOn = blipsOf(buildFrame(w, 'a'))[0];
     b.state.heading = Math.PI / 2; // long axis in y
@@ -141,7 +141,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('ANTI-CHEAT (fail-proven): the footprint is UNCHANGED by granting boons or changing hp/damage state', () => {
     const w = bareWorld(55);
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 700, 0, 0.9, 'battleship');
+    const b = place(w, 'b', 700, 0, 0.9, 'yamato');
     windowAround(a, 0);
     const before = blipsOf(buildFrame(w, 'a'))[0];
     // Wound the target deep into the tier-2 smoke band AND grant it boons —
@@ -174,7 +174,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     expect(f.contacts.map((c) => c.id)).toEqual(['near']);
     // The two footprints are exactly the two swept hulls' rasters, and the
     // unswept ship leaks nowhere.
-    const expected = [paintCoverage('torpedoBoat', 700, 0, 0.3, CELL, w.now), paintCoverage('torpedoBoat', 100, 0, 0.3, CELL, w.now)];
+    const expected = [paintCoverage('bismarck', 700, 0, 0.3, CELL, w.now), paintCoverage('bismarck', 100, 0, 0.3, CELL, w.now)];
     expect(blips.map(maskOf)).toEqual(expect.arrayContaining(expected));
     const cellOfU = (v: number): number => Math.floor(v / CELL);
     expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(0) - b.gx, cellOfU(-700) - b.gy))).toBe(false);

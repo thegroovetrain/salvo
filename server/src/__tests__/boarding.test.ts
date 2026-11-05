@@ -17,7 +17,7 @@
 // suite asserts that directly rather than leaving it to the other 1,180 tests.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type MatchPhase, type SpawnEvent } from '@salvo/shared';
+import { CONFIG, turretMounts, type MatchPhase, type SpawnEvent } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BOARDING_GRACE_MS, Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { buildFrame } from '../game/frames.js';
@@ -82,14 +82,14 @@ const ALL_ON = { damage: true, xp: true, helm: true, weapons: true, radar: true 
 /** Full ahead + hard over, on the named seq. */
 function helmOrder(ctx: Ctx, id: string, seq: number): void {
   ctx.w.submitInput(id, {
-    seq, throttle: 1, rudder: 1, aim: 1.25, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    seq, throttle: 1, rudder: 1, aim: 1.25, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
   });
 }
 
 /** One fresh gun click (seq doubles as the click counter). */
 function fire(ctx: Ctx, id: string, seq: number): void {
   ctx.w.submitInput(id, {
-    seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
   });
 }
 
@@ -293,7 +293,7 @@ describe('boarding freeze — weapons locked', () => {
     // exactly the loadout they boarded with.
     const slot = a.loadout[0]!;
     expect(slot.state!.reloadMsLeft).toBe(0);
-    expect(slot.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
+    expect(slot.state!.n).toBe(a.stats.equipment.mainBattery.maxAmmo);
   });
 
   it('the same click fires in a non-boarding room', () => {
@@ -301,7 +301,9 @@ describe('boarding freeze — weapons locked', () => {
     join(ctx, 'a');
     fire(ctx, 'a', 1);
     step(ctx);
-    expect(ctx.w.shells.size).toBe(ctx.w.ships.get('a')!.stats.equipment.gun.barrels); // one click = one volley
+    // One click = ONE turret's salvo (Story 10.4): exactly that turret's guns.
+    const a = ctx.w.ships.get('a')!;
+    expect(turretMounts(a.hullId).map((m) => m.guns)).toContain(ctx.w.shells.size);
   });
 });
 
@@ -494,7 +496,7 @@ describe('the held start line — a boarding captain starts where they boarded',
     const offer = a.offer;
     activateAndDrainSpawns(ctx);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(a.loadout[0]!.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
+    expect(a.loadout[0]!.state!.n).toBe(a.stats.equipment.mainBattery.maxAmmo);
     expect(a.loadout[0]!.state!.reloadMsLeft).toBe(0);
     expect(a.bankedLevels).toBe(7); // PRESERVED under the hold
     expect(a.offer).toBe(offer); // ...and the same hand, byte for byte

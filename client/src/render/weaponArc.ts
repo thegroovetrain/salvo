@@ -202,6 +202,8 @@ export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): numb
   // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row (ruling 125).
   if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
   if (id === 'flak') return stats.equipment.flak.rangeU;
+  // STORY 10.4: the MAIN BATTERY reads its own folded row (RANGE scales it).
+  if (id === 'mainBattery') return stats.equipment.mainBattery.rangeU;
   // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
   // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
   // no placement field), so an id-equality test on `navalMines` would have given
@@ -229,12 +231,14 @@ export type { LitCircle };
 export { pointInLitZone };
 
 /**
- * THE DECK GUNS (amendment 114) — the three slot-0 gun rows that fire into the
- * shooter's own lit-up area: the cannon (`gun`), the MACHINE GUN and the FLAK
- * GUN. An explicit, pinned id SET (never an id equality), mirroring the server,
+ * THE DECK GUNS (amendment 114) — the slot-0 gun rows that fire into the
+ * shooter's own lit-up area: the cannon (`gun`), the MACHINE GUN, the FLAK
+ * GUN and (Story 10.4) the captain's MAIN BATTERY, whose server fire path calls
+ * the same `gunReachU` (measured there from the firing turret's station; this
+ * client read measures from the hull centre). An explicit, pinned id SET (never an id equality), mirroring the server,
  * where exactly these three rows call `gunReachU`.
  */
-const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineGun', 'flak']);
+const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineGun', 'flak', 'mainBattery']);
 
 /**
  * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114): the reach

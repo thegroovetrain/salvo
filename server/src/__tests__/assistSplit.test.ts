@@ -26,6 +26,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { neutralize } from './deckGunFixture.js';
 
 const XP = CONFIG.xp;
 const MUT = CONFIG.xp as { assistWindowMs: number; killerShare: number };
@@ -62,8 +63,11 @@ function bareWorld(seed = 3): World {
   return w;
 }
 
-function place(w: World, id: string, x = 0, hull: HullId = 'torpedoBoat', fleet = false): ShipRecord {
+function place(w: World, id: string, x = 0, hull: HullId = 'bismarck', fleet = false): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull, undefined, undefined);
+  // A captain on the NEUTRAL index (deckGunFixture): `hit()` lands EXACTLY
+  // `damage`, so no ARMOR / POWER fold may stand between the two.
+  if (!fleet) neutralize(rec);
   rec.state.x = x;
   rec.state.y = 0;
   rec.state.speed = 0;

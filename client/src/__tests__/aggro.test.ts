@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
+import { DEFAULT_CLASS_ID } from '@salvo/shared';
 import {
   AggroMark,
   aggroFrame,
@@ -147,10 +148,10 @@ describe('bracketHalfSize — the mark stands clear of the hull it wraps', () =>
   it('clears every hull\'s own bounding radius, and scales with the hull', () => {
     const small = bracketHalfSize('droneSmall');
     const large = bracketHalfSize('droneLarge');
-    const battleship = bracketHalfSize('battleship');
+    const captain = bracketHalfSize(DEFAULT_CLASS_ID);
     expect(small).toBeGreaterThan(0);
     expect(large).toBeGreaterThan(small);
-    expect(battleship).toBeGreaterThan(large);
+    expect(captain).toBeGreaterThan(large);
   });
 
   it('is memoized — the same hull id returns the identical number', () => {

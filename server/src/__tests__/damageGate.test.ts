@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG, DEFAULT_HORN_ID, damageMultiplierFor, droneHullOf, hullEnvelope, type DamageEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
+import { neutralize } from './deckGunFixture.js';
 
 const WORLD_SRC = readFileSync(fileURLToPath(new URL('../game/world.ts', import.meta.url)), 'utf8');
 
@@ -56,7 +57,8 @@ function bareWorld(seed = 3): World {
 }
 
 function place(w: World, id: string, x = 0, y = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  // NEUTRAL index (deckGunFixture, Story 10.4): the gate's arithmetic reads exact figures.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined));
   rec.state = { x, y, heading: 0, speed: 0 };
   return rec;
 }
@@ -245,7 +247,7 @@ describe('applyDamage — (c) the shield (Story 8.16 arms it; the gate READS it)
 describe('applyDamage — (b′) the HUNKER, before the shield (Story 8.15)', () => {
   /** A Battleship with its cut open for the full window. */
   function cutShip(w: World, id = 'a'): ShipRecord {
-    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'battleship', undefined, undefined);
+    const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'yamato', undefined, undefined));
     rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
     rec.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     return rec;
@@ -377,7 +379,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
 
   /** A Battleship at ARMOR Tier V with its cut open. */
   function cutTierV(w: World): ShipRecord {
-    const rec = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
+    const rec = neutralize(w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined));
     rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
     armored(w, rec, 5);
     rec.hunkerUntil = w.now + CONFIG.hunker.durationMs;
@@ -608,7 +610,7 @@ describe('applyDamage — (b′) POWER (was ARMOR PIERCING), the attacker read l
 
   it('a pierced HUNKER: Tier V + HUNKER (200) vs AP 100 is E 100 — a 12 hp shell lands 6', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
+    const a = neutralize(w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined));
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     carded(w, a, 'armor', 5);
     a.hunkerUntil = w.now + CONFIG.hunker.durationMs;

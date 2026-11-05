@@ -58,6 +58,7 @@
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
   EQUIPMENT_STAT_FIELDS,
   INDEX_IDS,
   LINE_IDS,
@@ -348,6 +349,12 @@ const INDEX_WORDS: Readonly<Record<IndexId, string>> = {
   intel: 'Intel',
   range: 'Range',
 };
+
+/** Pure: an index's ONE word in the HUD / card register (uppercase) — the
+ *  SHIP panel's row label, reused by the ship cards' pip rows. */
+export function indexWord(id: IndexId): string {
+  return INDEX_WORDS[id].toUpperCase();
+}
 
 /** One index's stat line: its word, read bare off its own index path (`num`
  *  prints the whole number with no unit — `ARMOR 100 → 120`). */
@@ -994,10 +1001,10 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  * nobody ever sees a raw figure out of 1000): the one law of
  * util/hullPercent.ts against `HULL_BASIS`. A consumable's rows are absolute
  * and hull-agnostic (the belt slot prints them with no fold in hand), so the
- * basis is the AVERAGE hull — the battleship, the scaffold's 100 (ruling 3);
- * every hull is the same size under the scaffold. [Story 10.3 reading]
+ * basis is the hull ceiling every ship shares (`hp` is 1000 on all four
+ * hulls since Story 10.4) — read off the default hull. [Story 10.3 reading]
  */
-const HULL_BASIS = CONFIG.shipClasses.battleship.hp;
+const HULL_BASIS = CONFIG.shipClasses[DEFAULT_CLASS_ID].hp;
 function hullPct(hp: number): string {
   return `${hullPercent(hp, HULL_BASIS)}%`;
 }

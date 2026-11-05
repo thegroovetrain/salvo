@@ -72,19 +72,33 @@ export function hullClearOffset(hullLength: number, extra: number): number {
  * hullClearOffset bow/astern rules above.
  */
 export function muzzleSpawn(pose: AimPose, hullId: HullId, dir: number, clearance: number): Vec2 {
+  return muzzleSpawnFrom(pose, pose, hullId, dir, clearance);
+}
+
+/**
+ * `muzzleSpawn` from ANY point inside the hull (Story 10.4 — a main-battery
+ * turret fires from its own STATION, not the ship centre): the point where a
+ * ray from `origin` along bearing `dir` crosses the ship's own transformed
+ * silhouette boundary, pushed `clearance` further out. Same construction as
+ * above — cast INWARD from a point guaranteed outside the hull toward
+ * `origin`. `origin` must lie inside the silhouette (a turret station is on
+ * the centreline between the bow and stern tips). With `origin` = the ship
+ * centre this IS `muzzleSpawn`, byte for byte.
+ */
+export function muzzleSpawnFrom(origin: Vec2, pose: AimPose, hullId: HullId, dir: number, clearance: number): Vec2 {
   const local = hullSilhouette(hullId);
   const poly = transformPolygon(local, pose.x, pose.y, pose.heading);
   const ux = Math.cos(dir);
   const uy = Math.sin(dir);
-  const far = polygonMaxRadius(local) + clearance + 1;
-  const outer: Vec2 = { x: pose.x + ux * far, y: pose.y + uy * far };
-  // The inbound segment ends at the ship center (inside the silhouette), so a
-  // hit always exists; `?? 0` is an unreachable fail-safe (spawn at `outer`)
+  const far = polygonMaxRadius(local) + Math.hypot(origin.x - pose.x, origin.y - pose.y) + clearance + 1;
+  const outer: Vec2 = { x: origin.x + ux * far, y: origin.y + uy * far };
+  // The inbound segment ends at `origin` (inside the silhouette), so a hit
+  // always exists; `?? 0` is an unreachable fail-safe (spawn at `outer`)
   // rather than a crash in the middle of a tick.
-  const s = segPolygonHit(outer, pose, poly, clearance) ?? 0;
+  const s = segPolygonHit(outer, origin, poly, clearance) ?? 0;
   return {
-    x: outer.x + (pose.x - outer.x) * s + ux * clearance,
-    y: outer.y + (pose.y - outer.y) * s + uy * clearance,
+    x: outer.x + (origin.x - outer.x) * s + ux * clearance,
+    y: outer.y + (origin.y - outer.y) * s + uy * clearance,
   };
 }
 

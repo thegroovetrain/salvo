@@ -1,48 +1,51 @@
 // Class-select layer (Story 1.14) — the "cards side by side" pick that OPENS
 // over the dimmed/blurred home (ui/home.ts), per the ratified mock
-// (home-class-picker-1.html `.layer`). Three class cards (356px) + a dashed
-// ghost card on a horizontal scroll rail, each card carrying the four
-// differences that matter: hull silhouette (the shared polygon via
-// util/silhouetteSvg), three real-value pip scales (util/pips against
-// absolute anchors). The weapon-row block is EMPTY on every card since Story
-// 8.10 (amendment 62 — no hull spawns with a class weapon any more); Story 8.15
-// (amendment 107) puts two rows back: `SPECIAL` (the hull's Shift NAME) and
-// `DECK GUN` (three chips CANNON · MACHINE GUN · FLAK — the captain's gun pick,
-// one pick shared by every card, CANNON preselected). The footer is the
-// ONLY home for the Color Hoist (the duplicate home picker is retired) and
-// carries CONFIRM SELECTION — which saves the class and returns to port. It
-// never deploys: PLAY is the single launch path.
+// (home-class-picker-1.html `.layer`). Since Story 10.4: FOUR ship cards (356px)
+// on a horizontal scroll rail (the dashed "more classes" ghost card is gone —
+// four cards fill the panel), each card carrying the
+// differences that matter: the hull's battleship art (render/hullArt/svgArt —
+// the canvas art's own shapes, at one shared scale so the four keep their true
+// relative sizes), seven index pip scales (util/pips against absolute
+// anchors). The weapon-row block is EMPTY on every card since Story
+// 8.10 (amendment 62 — no hull spawns with a class weapon any more). Story 10.4
+// replaces the DECK GUN chip row with the SHIFT pick in the same chip grammar:
+// row key `SPECIAL`, three chips SPEED BOOST · INSTANT RELOAD · HUNKER — ONE
+// pick for the captain, shared by every card (the Shift is the seat's, not the
+// hull's, so the read-only SPECIAL row went too). The Color Hoist is gone (R6):
+// the selection accent is the OWN relation color (ui/ownAccent.ts). The footer
+// carries the CONSUMABLES row and CONFIRM SELECTION — which saves the pick and
+// returns to port. It never deploys: PLAY is the single launch path.
 //
 // Card click (whole card, including its in-card SELECT button — same element)
 // only HIGHLIGHTS: it moves the highlight to that card and repaints, exactly
-// like a digit press, and never closes the layer. Keyboard: 1/2/3 + arrows
+// like a digit press, and never closes the layer. Keyboard: 1-4 + arrows
 // move the highlight, Enter ≡ CONFIRM SELECTION, ESC closes without change —
 // all gated OFF whenever a text input is focused (the callsign field keeps
 // its own Enter=PLAY). Colors/typography via CLIENT_CONFIG tokens (cssHex/
-// cssRgba for the personal hues, which have no --hc-* var; registerCss for
+// cssRgba for the own accent, which has no --hc-* var; registerCss for
 // the DESIGN type ramp). DESIGN spine over mock: CONFIRM SELECTION is an
 // amber OUTLINE+GLOW primary button (never a filled slab).
 
 import {
   CONFIG,
-  DEFAULT_GUN,
   DEFAULT_KIT,
-  GUN_IDS,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  INDEX_IDS,
   SHIP_CLASS_IDS,
-  classShift,
   isConsumableKit,
   type ConsumableKit,
-  type GunId,
   type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
-import { cssHex, cssRgba, textSafe } from '../util/color.js';
-import { silhouetteSvg } from '../util/silhouetteSvg.js';
+import { cssHex, cssRgba } from '../util/color.js';
+import { hullArtSvg, sharedFitPxPerU } from '../render/hullArt/svgArt.js';
+import { indexWord } from './boonCopy.js';
+import { CARD_INNER_PX } from './loadoutGrammar.js';
 import { pipFill } from '../util/pips.js';
-import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
-import { ensureColorPref, COLOR_PREF_KEY } from '../net/connection.js';
+import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import { registerCss } from './theme.js';
 import { monoTextWidth } from './refitCardFit.js';
 import { CLASS_DISPLAY_NAMES } from './classNames.js';
@@ -69,7 +72,7 @@ interface LoadoutRow {
 }
 
 /**
- * THE CLASS SHIFT's player-facing NAME, per Shift id (Story 8.15, Eric ruling
+ * THE SHIFT's player-facing NAME, per Shift id (Story 8.15, Eric ruling
  * 2026-09-28, epic-8 amendment 107). NAMES ONLY — amendment 96(c): "Any
  * description should be in the modal, not as subtext on the button that opens
  * it", and the modal is Story 9.4's LOADOUT screen. The row key is `SPECIAL`,
@@ -81,33 +84,17 @@ export const SPECIAL_NAMES: Readonly<Record<ShiftId, string>> = {
   hunker: 'HUNKER',
 };
 
-/**
- * THE GUN CHIPS' words, in pick order (amendments 96(e)/107/108): `CANNON` is
- * the player-facing name of the plain deck gun (id `deckGun`, untouched);
- * `DECK GUN` survives only as the ROW's key.
- */
-export const GUN_CHIP_LABELS: Readonly<Record<GunId, string>> = {
-  deckGun: 'CANNON',
-  machineGun: 'MACHINE GUN',
-  flak: 'FLAK',
-};
-
-/** The two card-row keys (amendment 96(e)'s words). */
+/** The Shift chip row's key (amendment 96(e)'s word — never "Shift"). */
 export const SPECIAL_KEY = 'SPECIAL';
-export const GUN_ROW_KEY = 'DECK GUN';
 
 /**
- * The card's loadout rows. EMPTY OF WEAPONS since Story 8.10 (amendment 62 —
- * no hull spawns with a class weapon), and since Story 8.15 carrying exactly
- * ONE derived row: `SPECIAL · <the hull's Shift name>` (amendment 107), read
- * through `classShift` so the card can never disagree with what slot 1 fits.
- * Eric ruling 2026-07-24 stands over the rest: NO fantasy tagline — "the card
- * sells what differs", and at spawn what differs is the ENVELOPE (the pips) and
- * the class Shift. The gun is the captain's pick, not the hull's, so it is not
- * a row here — it is the chip row `buildGunRow` adds under it.
+ * The card's read-only loadout rows: NONE since Story 10.4. The Shift is the
+ * captain's pick (the chip row `buildShiftRow` draws), not the hull's, so the
+ * `SPECIAL · <the hull's Shift>` row went with `classShift`. Eric ruling
+ * 2026-07-24 stands: NO fantasy tagline — "the card sells what differs".
  */
-function loadoutRows(cls: ShipClassId): readonly LoadoutRow[] {
-  return [{ key: SPECIAL_KEY, value: SPECIAL_NAMES[classShift(cls)] }];
+function loadoutRows(): readonly LoadoutRow[] {
+  return [];
 }
 
 // --- THE CONTAINER-FIT LAW ON THE CARD (amendment 47) ---------------------------
@@ -126,15 +113,14 @@ export {
   LOADOUT_VALUE_PX,
   LOADOUT_VALUE_TRACKING_EM,
 } from './loadoutGrammar.js';
-/** The gun chips: hudMicro-sized mono, tighter tracking than the register's
- *  0.18em so the three chips sit on ONE line with room to spare. */
-export const GUN_CHIP_TRACKING_EM = 0.1;
-export const GUN_CHIP_PAD_X_PX = 8;
-export const GUN_CHIP_GAP_PX = 6;
-export const GUN_CHIP_BORDER_PX = 1;
-
-/** Register label sitting to the LEFT of the footer swatch row. */
-const HOIST_LABEL = 'COLOR PREFERENCE:';
+/** The Shift chips (Story 10.4 — the retired gun chips' grammar): hudMicro-
+ *  sized mono, tighter tracking than the register's 0.18em. The three Shift
+ *  names are longer than the three gun names were, so the row WRAPS rather
+ *  than shrinking the type; each chip alone fits the card's inner line. */
+export const SHIFT_CHIP_TRACKING_EM = 0.1;
+export const SHIFT_CHIP_PAD_X_PX = 8;
+export const SHIFT_CHIP_GAP_PX = 6;
+export const SHIFT_CHIP_BORDER_PX = 1;
 
 // --- pure view-model + input helpers (tested) --------------------------------
 
@@ -145,21 +131,28 @@ interface PipRow {
   filled: number; // 1..5
 }
 
-/** The three indices the hull card shows, in row order (Story 10.3). */
+/** The indices the hull card shows (Story 10.3; re-cut in Story 10.4). */
 type PipIndex = keyof typeof CLIENT_CONFIG.home.pip;
 
-/** The three pip rows: ENGINES / ARMOR / RUDDER (Story 10.3 — the index words;
- *  until 10.3 SPEED / HULL / TURNING on raw speed, hp and turn rate). */
-const PIP_ROWS: readonly { label: string; index: PipIndex }[] = [
-  { label: 'ENGINES', index: 'engines' },
-  { label: 'ARMOR', index: 'armor' },
-  { label: 'RUDDER', index: 'rudder' },
-];
+/**
+ * The pip rows: ARMOR / POWER / ENGINES (Story 10.4 wave 2c), in the HP globe's
+ * SHIP panel order and labelled with that panel's own words (`indexWord` — no
+ * new copy). The Story 10.3 set (ENGINES / ARMOR / RUDDER) showed RUDDER, which
+ * is 100 on all four hulls. All SEVEN indices were tried first and measured on
+ * the rendered page at 1366×768: each row is 23 px, so four more rows pushed
+ * the card to 589 px and its SELECT button under the fold (bottom 760 px of a
+ * 742 px visible layer). Three rows keep the card on screen; ARMOR / POWER /
+ * ENGINES are the three where the hulls differ most. [Story 10.4 reading]
+ */
+const PIP_INDICES: readonly PipIndex[] = ['armor', 'power', 'engines'];
+const PIP_ROWS: readonly { label: string; index: PipIndex }[] = INDEX_IDS.filter((id): id is PipIndex =>
+  (PIP_INDICES as readonly string[]).includes(id),
+).map((index) => ({ label: indexWord(index), index }));
 
 export interface CardViewModel {
   cls: ShipClassId;
   name: string;
-  /** DISPLAYED zero-padded card key ('01'/'02'/'03'). */
+  /** DISPLAYED zero-padded card key ('01'..'04'). */
   key: string;
   pips: PipRow[];
   loadout: readonly LoadoutRow[];
@@ -167,10 +160,8 @@ export interface CardViewModel {
 
 /**
  * The card's data per class: name, zero-padded key (index+1), the three
- * index pips (util/pips against the index anchors — under the Story 10.3
- * scaffold ENGINES / ARMOR / RUDDER read TB 4/1/5, BS 2/1/1, ML 3/1/4), and
- * the loadout rows — which are EMPTY for every hull
- * since Story 8.10 (amendment 62). Pure — the DOM builder + tests consume it.
+ * index pips (util/pips against the index anchors), and the read-only
+ * loadout rows — EMPTY for every hull since Story 10.4. Pure — the DOM builder + tests consume it.
  */
 /**
  * The pip grid's LABEL COLUMN (px) and the label's own letter-spacing (em) —
@@ -200,7 +191,7 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
     name: CLASS_DISPLAY_NAMES[cls],
     key: String(SHIP_CLASS_IDS.indexOf(cls) + 1).padStart(2, '0'),
     pips: PIP_ROWS.map(({ label, index }) => ({ label, index, filled: pipFill(spec.index[index], anchors[index]) })),
-    loadout: loadoutRows(cls),
+    loadout: loadoutRows(),
   };
 }
 
@@ -233,213 +224,6 @@ export function moveHighlight(current: number, dir: number, count: number): numb
   return (((current + dir) % count) + count) % count;
 }
 
-// --- color hoist (shared controller) -----------------------------------------
-
-function accentColor(idx: number): string {
-  return cssHex(PLAYER_HUES[idx]);
-}
-
-function accentFillColor(idx: number): string {
-  return cssHex(PLAYER_FILLS[idx]);
-}
-
-function saveColorPref(idx: number): void {
-  try {
-    localStorage.setItem(COLOR_PREF_KEY, String(idx));
-  } catch {
-    // storage unavailable — the preference just won't persist
-  }
-}
-
-/**
- * The shared Color Hoist state. One instance is created by the home and passed
- * into the layer, so the layer's swatch row and the home's tinted chrome (Class
- * Chip, callsign field) stay in lockstep — the home itself no longer carries a
- * picker, only the tint that follows this state. `pick` writes
- * `hullcracker.color` — the exact key connection.ts's `loadColorPref` reads —
- * and notifies every subscriber (the row's rings, the home tint, the card).
- *
- * The index is NEVER null: the constructor seeds from `ensureColorPref()`,
- * which either returns the valid stored preference or rolls a uniform random
- * Regatta hue and persists it before first paint (the retired amber-unset
- * fallback is gone — an unset player still gets a personal identity color).
- */
-export class ColorHoist {
-  private index: number;
-  private readonly listeners: Array<(idx: number) => void> = [];
-
-  constructor() {
-    this.index = ensureColorPref();
-  }
-
-  /** Selected wheel index (0..19) — always a real index, never null. */
-  get selected(): number {
-    return this.index;
-  }
-
-  /** Resolved personal accent CSS color (the raw pref hue — outlines/borders). */
-  get accent(): string {
-    return accentColor(this.index);
-  }
-
-  /** The personal accent as a raw 0xRRGGBB number (for `cssRgba` glows). */
-  get accentValue(): number {
-    return PLAYER_HUES[this.index];
-  }
-
-  /** The personal accent rendered as TEXT — WCAG-lifted via `textSafe`. */
-  get accentText(): string {
-    return cssHex(textSafe(PLAYER_HUES[this.index]));
-  }
-
-  /** Personal interior fill CSS color. */
-  get accentFill(): string {
-    return accentFillColor(this.index);
-  }
-
-  /** Live subscriber count (test-only hook: proves layer open/close balances). */
-  get listenerCount(): number {
-    return this.listeners.length;
-  }
-
-  /** Register a repaint fired on every pick; returns an unsubscribe. */
-  onChange(fn: (idx: number) => void): () => void {
-    this.listeners.push(fn);
-    return () => {
-      const i = this.listeners.indexOf(fn);
-      if (i >= 0) this.listeners.splice(i, 1);
-    };
-  }
-
-  pick(idx: number): void {
-    this.index = idx;
-    saveColorPref(idx);
-    for (const fn of this.listeners) fn(idx);
-  }
-}
-
-/**
- * Pure: the wheel indices of `hues`, reordered so the swatches READ as a colour
- * wheel — ascending hue angle, with a stable fall-back to wheel order for ties.
- *
- * ERIC RULING 2026-08-21: *"organize the colors by hue or something."*
- *
- * IT RETURNS INDICES, NEVER COLOURS, AND THAT IS THE WHOLE SAFETY ARGUMENT. A
- * wheel index is IDENTITY — the server assigns it at join, it rides
- * `PlayerMeta.color` on the wire, and both sides map it back to a hex through
- * the same-ordered tables (`REGATTA_HUES`' own doc). Reordering the ARRAY would
- * silently repaint every player in the game and break that agreement; reordering
- * only the order we WALK it in is presentation and costs nothing. `makeSwatch`
- * still binds the true index, so a swatch picks the hue it shows.
- *
- * DERIVED FROM THE HEXES RATHER THAN HAND-LISTED, so it cannot drift: if a
- * palette value is ever retuned the row re-sorts itself, and it also does the
- * right thing under the colorblind assist (which swaps `PLAYER_HUES` wholesale
- * for 8 repeated families — those then group together instead of interleaving).
- *
- * WHAT THIS DOES NOT FIX, measured and left alone: the ratified wheel was
- * ALREADY hue-monotonic apart from two sub-4-degree swaps (cobalt/periwinkle at
- * 233 vs 231, orchid/fuchsia at 293 vs 290), so the visible scatter in the row
- * is not hue at all — it is LIGHTNESS, which zigzags across neighbours (65%,
- * 50%, 33%, 55%, 42%, 58%, 33%...) for a mean neighbour luminance jump of 0.24.
- * Smoothing that would mean re-tuning DESIGN.md's ratified hexes, which is a
- * design decision and not this function's to make.
- */
-export function hueSortedIndices(hues: readonly number[]): number[] {
-  return hues
-    .map((hex, index) => ({ index, hue: hueAngle(hex) }))
-    .sort((a, b) => a.hue - b.hue || a.index - b.index)
-    .map((e) => e.index);
-}
-
-/** Pure: the HSL hue angle (0-360) of a 0xRRGGBB value; 0 for any grey. */
-export function hueAngle(hex: number): number {
-  const r = ((hex >> 16) & 255) / 255;
-  const g = ((hex >> 8) & 255) / 255;
-  const b = (hex & 255) / 255;
-  const max = Math.max(r, g, b);
-  const span = max - Math.min(r, g, b);
-  if (span === 0) return 0;
-  const sextant = max === r ? ((g - b) / span) % 6 : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
-  return (sextant * 60 + 360) % 360;
-}
-
-const SWATCH_BASE = [
-  'width:20px',
-  'height:20px',
-  'border-radius:50%',
-  'border:1px solid transparent',
-  'cursor:pointer',
-  'padding:0',
-].join(';');
-
-/** One 20px round swatch; its ring is painted by the row's repaint. */
-function makeSwatch(hoist: ColorHoist, idx: number): HTMLButtonElement {
-  const sw = document.createElement('button');
-  sw.type = 'button';
-  sw.style.cssText = `${SWATCH_BASE};background:${cssHex(PLAYER_HUES[idx])}`;
-  sw.setAttribute('aria-label', `hue ${idx + 1}`);
-  sw.addEventListener('click', () => {
-    hoist.pick(idx);
-    // Release focus so the full keyboard (ESC/Enter/arrows) is live again —
-    // without this the swatch stays the focused BUTTON and Enter/Space stay
-    // swallowed by isSwallowedKey until a stray mouse click (Finding A).
-    sw.blur();
-  });
-  return sw;
-}
-
-export interface HoistRow {
-  el: HTMLElement;
-  /** Release the row's `hoist.onChange` subscription (call on layer/home teardown). */
-  off: () => void;
-}
-
-/**
- * THE Color Hoist row (a `COLOR PREFERENCE:` register label + 20 round
- * swatches), wired to the shared `hoist` and mounted only in the layer footer —
- * the home's duplicate picker is retired, so this row is the single place a hue
- * is chosen. The claim-caveat caption is gone with it. Repaints its selected
- * ring on every hoist change. Returns the element AND an `off` disposer so the
- * caller releases the subscription when its container tears down (the hoist
- * outlives the row).
- */
-export function makeHoistRow(hoist: ColorHoist): HoistRow {
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:row;align-items:center;gap:16px;min-width:0';
-
-  const label = document.createElement('span');
-  label.textContent = HOIST_LABEL;
-  label.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);white-space:nowrap`;
-
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-start;min-width:0';
-  // Walked in HUE order, not wheel order (see `hueSortedIndices`). `swatches` is
-  // keyed by the TRUE wheel index rather than by DOM position, so the ring
-  // repaint below still addresses `hoist.selected` directly and never has to
-  // know where in the row that hue ended up.
-  const swatches = new Map<number, HTMLButtonElement>();
-  for (const i of hueSortedIndices(PLAYER_HUES)) {
-    const sw = makeSwatch(hoist, i);
-    swatches.set(i, sw);
-    row.appendChild(sw);
-  }
-
-  const paintRing = (): void => {
-    const sel = hoist.selected;
-    for (const [i, sw] of swatches) {
-      const on = i === sel;
-      sw.style.outline = on ? `2px solid ${cssHex(PLAYER_HUES[i])}` : 'none';
-      sw.style.outlineOffset = on ? '3px' : '0';
-    }
-  };
-  paintRing();
-  const off = hoist.onChange(paintRing);
-
-  wrap.append(label, row);
-  return { el: wrap, off };
-}
-
 // --- card DOM ----------------------------------------------------------------
 
 interface CardEls {
@@ -450,8 +234,8 @@ interface CardEls {
   pipEls: HTMLElement[][]; // [row][pip]
   pipFilled: number[]; // filled count per row
   pickBtn: HTMLElement;
-  /** The three gun chips (Story 8.15), keyed by gun id. */
-  chips: Map<GunId, HTMLButtonElement>;
+  /** The three Shift chips (Story 10.4), keyed by Shift id. */
+  chips: Map<ShiftId, HTMLButtonElement>;
   silverStroke: string;
 }
 
@@ -480,11 +264,14 @@ function buildCardHead(vm: CardViewModel): HTMLElement {
   return head;
 }
 
+/** The silhouette box's height (px) — the ratified mock's 158. */
+const SILBOX_H_PX = 158;
+
 function buildSilbox(): HTMLElement {
   const box = document.createElement('div');
   box.style.cssText =
-    'height:158px;display:flex;align-items:center;justify-content:center;background:var(--hc-void);' +
-    'border:1px solid var(--hc-hairline);border-radius:7px;margin:12px 0 14px';
+    `height:${SILBOX_H_PX}px;display:flex;align-items:center;justify-content:center;background:var(--hc-void);` +
+    'border:1px solid var(--hc-hairline);border-radius:7px;margin:12px 0 14px;box-sizing:border-box';
   return box;
 }
 
@@ -494,7 +281,7 @@ function pipCell(): HTMLElement {
   return p;
 }
 
-/** A pip-scale grid (ENGINES/ARMOR/RUDDER × 5 bars); returns the row cells. */
+/** A pip-scale grid (one row per index × 5 bars); returns the row cells. */
 function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] } {
   const grid = document.createElement('div');
   grid.style.cssText =
@@ -519,12 +306,10 @@ function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] 
   return { el: grid, rows };
 }
 
-/** The loadout block, or NULL when the hull lists no rows (amendment 62): an
- *  empty wrap would still paint its 12px seam and its hairline rule above
- *  nothing, which reads as a block that failed to load. Since Story 8.15 every
- *  hull lists its `SPECIAL` row, and the block also hosts the gun chip row. */
-function buildLoadout(vm: CardViewModel): HTMLElement | null {
-  if (vm.loadout.length === 0) return null;
+/** The loadout block: the read-only rows (none since Story 10.4) and — always —
+ *  the Shift chip row the caller appends, so the block never paints its seam
+ *  and rule above nothing. */
+function buildLoadout(vm: CardViewModel): HTMLElement {
   const wrap = document.createElement('div');
   wrap.style.cssText =
     'margin-top:12px;border-top:1px solid var(--hc-hairline);padding-top:11px;' +
@@ -553,54 +338,51 @@ function rowKey(text: string, extra: string): HTMLElement {
 }
 
 /**
- * Pure: the rendered width (px) of the three gun chips on one line — the
- * container-fit pin's model (text + side padding + borders per chip, plus the
- * gaps between them). Must stay ≤ CARD_INNER_PX.
+ * Pure: the rendered width (px) of ONE Shift chip — the container-fit pin's
+ * model (text + side padding + borders). Every chip must stay ≤ CARD_INNER_PX;
+ * the row wraps between chips.
  */
-export function gunChipRowWidth(): number {
+export function shiftChipWidth(id: ShiftId): number {
   const px = CLIENT_CONFIG.type.registers.hudMicro.size;
-  const track = px * GUN_CHIP_TRACKING_EM;
-  let w = GUN_CHIP_GAP_PX * (GUN_IDS.length - 1);
-  for (const id of GUN_IDS) {
-    w += monoTextWidth(GUN_CHIP_LABELS[id], px, track) + 2 * (GUN_CHIP_PAD_X_PX + GUN_CHIP_BORDER_PX);
-  }
-  return w;
+  const track = px * SHIFT_CHIP_TRACKING_EM;
+  return monoTextWidth(SPECIAL_NAMES[id], px, track) + 2 * (SHIFT_CHIP_PAD_X_PX + SHIFT_CHIP_BORDER_PX);
 }
 
 /**
- * THE `DECK GUN` ROW (Story 8.15, amendment 107): the key on its own line and
- * the three chips on ONE full-width line under it — the 108 px key column would
- * leave the chips 194 px, too narrow for `MACHINE GUN` at a legible size, so
- * the row stacks rather than shrinking the type toward the 9 px floor. A chip
- * is a `<button>` painted in the card's own selected/unselected register by
- * `paintChips`. It does NOT stop propagation: picking a gun on a card also
- * highlights that card, exactly like its in-card SELECT button.
+ * THE `SPECIAL` ROW (Story 10.4 — the retired DECK GUN row's grammar): the key
+ * on its own line and the three Shift chips under it, wrapping. A chip is a
+ * `<button>` painted in the card's own selected/unselected register by
+ * `paintChips`. It STOPS propagation (review gate C4): the Shift is the
+ * captain's, independent of the hull, so a chip click — or a focused chip's
+ * Enter/Space, which is the same native `click` — sets the Shift only and never
+ * reaches the card root that would re-select that card's hull.
  */
-function buildGunRow(onGun: (gun: GunId) => void): { el: HTMLElement; chips: Map<GunId, HTMLButtonElement> } {
+function buildShiftRow(onShift: (id: ShiftId) => void): { el: HTMLElement; chips: Map<ShiftId, HTMLButtonElement> } {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:4px';
   const line = document.createElement('div');
-  line.style.cssText = `display:flex;flex-wrap:nowrap;gap:${GUN_CHIP_GAP_PX}px`;
-  const chips = new Map<GunId, HTMLButtonElement>();
-  for (const id of GUN_IDS) {
+  line.style.cssText = `display:flex;flex-wrap:wrap;gap:${SHIFT_CHIP_GAP_PX}px`;
+  const chips = new Map<ShiftId, HTMLButtonElement>();
+  for (const id of SHIFT_IDS) {
     const chip = document.createElement('button');
     chip.type = 'button';
-    chip.className = 'hc-gunchip';
-    chip.dataset.gun = id;
-    chip.textContent = GUN_CHIP_LABELS[id];
+    chip.className = 'hc-shiftchip';
+    chip.dataset.shift = id;
+    chip.textContent = SPECIAL_NAMES[id];
     chip.style.cssText =
-      `${registerCss('hudMicro')};letter-spacing:${GUN_CHIP_TRACKING_EM}em;flex:0 0 auto;white-space:nowrap;` +
-      `padding:5px ${GUN_CHIP_PAD_X_PX}px;border:${GUN_CHIP_BORDER_PX}px solid var(--hc-hairline);` +
+      `${registerCss('hudMicro')};letter-spacing:${SHIFT_CHIP_TRACKING_EM}em;flex:0 0 auto;white-space:nowrap;` +
+      `padding:5px ${SHIFT_CHIP_PAD_X_PX}px;border:${SHIFT_CHIP_BORDER_PX}px solid var(--hc-hairline);` +
       'border-radius:6px;background:transparent;cursor:pointer;box-sizing:border-box';
-    chip.addEventListener('click', () => {
-      onGun(id);
-      // Release focus so Enter/Space reach the layer again (the swatch rule).
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation(); // the Shift only — never the card's hull (C4)
+      onShift(id);
+      // Release focus so Enter/Space reach the layer again.
       chip.blur();
     });
     chips.set(id, chip);
     line.appendChild(chip);
   }
-  row.append(rowKey(GUN_ROW_KEY, 'display:block'), line);
+  row.append(rowKey(SPECIAL_KEY, 'display:block'), line);
   return { el: row, chips };
 }
 
@@ -621,7 +403,7 @@ function buildPickButton(): HTMLElement {
 function buildCard(
   vm: CardViewModel,
   onSelect: (cls: ShipClassId) => void,
-  onGun: (gun: GunId) => void,
+  onShift: (id: ShiftId) => void,
 ): CardEls {
   const root = document.createElement('div');
   root.className = 'hc-ccard';
@@ -631,11 +413,11 @@ function buildCard(
   const pips = buildPips(vm);
   const pickRow = buildPickButton();
   const loadout = buildLoadout(vm);
-  const gunRow = buildGunRow(onGun);
-  loadout?.appendChild(gunRow.el);
-  root.append(head, silbox, pips.el, ...(loadout ? [loadout] : []), pickRow);
+  const shiftRow = buildShiftRow(onShift);
+  loadout.appendChild(shiftRow.el);
+  root.append(head, silbox, pips.el, loadout, pickRow);
   root.addEventListener('click', () => onSelect(vm.cls));
-  return {
+  const card: CardEls = {
     cls: vm.cls,
     root,
     silbox,
@@ -643,53 +425,36 @@ function buildCard(
     pipEls: pips.rows,
     pipFilled: vm.pips.map((p) => p.filled),
     pickBtn: pickRow.querySelector('.hc-pickbtn') as HTMLElement,
-    chips: gunRow.chips,
+    chips: shiftRow.chips,
     silverStroke: cssHex(C.silver),
   };
-}
-
-function buildGhostCard(): HTMLElement {
-  const card = document.createElement('div');
-  card.style.cssText =
-    'flex:0 0 356px;background:var(--hc-panel-deep);border:1px dashed var(--hc-hairline);border-radius:10px;' +
-    'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:472px;opacity:0.85';
-  const qm = document.createElement('div');
-  qm.textContent = '?';
-  qm.style.cssText =
-    'width:70px;height:110px;border:1.5px dashed var(--hc-hairline);border-radius:10px;display:flex;' +
-    'align-items:center;justify-content:center;font:400 34px var(--hc-font-display);color:var(--hc-phosphor)';
-  const gt = document.createElement('div');
-  gt.innerHTML = 'MORE CLASSES<br>IN DEVELOPMENT';
-  gt.style.cssText =
-    `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.22em;text-align:center;line-height:2`;
-  card.append(qm, gt);
+  setSilhouette(card);
   return card;
 }
 
 // --- card paint (selection treatment) ----------------------------------------
 
-/** Repaint every card for the current highlight + personal accent, and every
- *  card's gun chips for the one shared gun pick. */
-function paintCards(cards: CardEls[], highlight: number, hoist: ColorHoist, gun: GunId): void {
-  const n = hoist.accentValue;
-  const fill = hoist.accentFill;
+/** Repaint every card for the current highlight in the own accent, and every
+ *  card's Shift chips for the one shared Shift pick. */
+function paintCards(cards: CardEls[], highlight: number, accent: OwnAccent, shift: ShiftId): void {
+  const n = accent.accentValue;
   cards.forEach((card, i) => {
-    paintCard(card, i === highlight, n, fill);
-    paintChips(card, gun, n);
+    paintCard(card, i === highlight, n);
+    paintChips(card, shift, n);
   });
 }
 
 /**
- * The gun chips in the card's OWN selected register (the SELECTED ✓ button's
- * paint: accent border + accent text + a 0.07 accent wash) for the picked gun,
- * and its unselected register (hairline border, secondary text, no wash) for
- * the other two. The pick is ONE value shared by every card, so every card
- * shows the same chip lit.
+ * The Shift chips in the card's OWN selected register (the SELECTED ✓ button's
+ * paint: accent border + accent text + a 0.07 accent wash) for the picked
+ * Shift, and its unselected register (hairline border, secondary text, no
+ * wash) for the other two. The pick is ONE value shared by every card, so
+ * every card shows the same chip lit.
  */
-function paintChips(card: CardEls, gun: GunId, accentN: number): void {
+function paintChips(card: CardEls, shift: ShiftId, accentN: number): void {
   const accent = cssHex(accentN);
   for (const [id, chip] of card.chips) {
-    const on = id === gun;
+    const on = id === shift;
     chip.style.borderColor = on ? accent : cssHex(C.hairline);
     chip.style.color = on ? accent : cssHex(C.textSecondary);
     chip.style.background = on ? cssRgba(accentN, 0.07) : 'transparent';
@@ -697,24 +462,42 @@ function paintChips(card: CardEls, gun: GunId, accentN: number): void {
   }
 }
 
-function paintCard(card: CardEls, on: boolean, accentN: number, fill: string): void {
-  if (on) paintCardOn(card, accentN, fill);
+function paintCard(card: CardEls, on: boolean, accentN: number): void {
+  if (on) paintCardOn(card, accentN);
   else paintCardOff(card);
 }
 
-function setSilhouette(card: CardEls, stroke: string, fill: string): void {
-  card.silbox.innerHTML = silhouetteSvg(card.cls, { stroke, fill, strokeWidth: 2 });
-  const svg = card.silbox.firstElementChild as HTMLElement | null;
-  if (svg) svg.style.cssText = 'height:140px;width:auto;max-width:100%';
+/**
+ * THE CARD ART (Story 10.4 wave 2c): the hull's battleship art (render/hullArt —
+ * the same shapes the canvas draws), bow RIGHT, turrets at rest, linework in the
+ * OWN relation color (it is the ship you would sail). ONE scale across the four
+ * cards (`sharedFitPxPerU`), fitted so the longest hull fills the box: the
+ * hulls keep their TRUE relative sizes, so Warspite reads shorter. Built once
+ * per card; a repaint only moves its opacity.
+ */
+let cardArtPxPerU = 0;
+
+function setSilhouette(card: CardEls): void {
+  if (cardArtPxPerU === 0) {
+    const pad = 2 + 2 * CLIENT_CONFIG.home.cardArtPadPx;
+    cardArtPxPerU = sharedFitPxPerU(SHIP_CLASS_IDS, CARD_INNER_PX - pad, SILBOX_H_PX - pad);
+  }
+  card.silbox.innerHTML = hullArtSvg(card.cls, 'own', { pxPerU: cardArtPxPerU });
 }
 
-function paintCardOn(card: CardEls, accentN: number, fill: string): void {
+/** The art's opacity: full on the picked card, dimmed on the others. */
+function paintArt(card: CardEls, on: boolean): void {
+  const svg = card.silbox.firstElementChild as HTMLElement | null;
+  if (svg) svg.style.opacity = on ? '1' : String(CLIENT_CONFIG.home.cardArtOffAlpha);
+}
+
+function paintCardOn(card: CardEls, accentN: number): void {
   const accent = cssHex(accentN);
   card.root.style.borderColor = accent;
   card.root.style.boxShadow = `0 0 26px ${cssRgba(accentN, 0.13)}`;
   card.silbox.style.borderColor = accent;
   card.cname.style.color = accent;
-  setSilhouette(card, accent, fill);
+  paintArt(card, true);
   paintPips(card, accent);
   card.pickBtn.textContent = 'SELECTED ✓';
   card.pickBtn.style.borderColor = accent;
@@ -728,7 +511,7 @@ function paintCardOff(card: CardEls): void {
   card.root.style.boxShadow = 'none';
   card.silbox.style.borderColor = hair;
   card.cname.style.color = cssHex(C.textPrimary);
-  setSilhouette(card, card.silverStroke, 'none');
+  paintArt(card, false);
   paintPips(card, card.silverStroke);
   card.pickBtn.textContent = 'SELECT';
   card.pickBtn.style.borderColor = hair;
@@ -784,7 +567,6 @@ function buildRail(cards: CardEls[]): RailEls {
   const rail = document.createElement('div');
   rail.style.cssText = 'display:flex;gap:22px;overflow-x:auto;padding:6px 42px 18px';
   for (const card of cards) rail.appendChild(card.root);
-  rail.appendChild(buildGhostCard());
   const fade = document.createElement('div');
   fade.style.cssText =
     `position:absolute;right:0;top:0;bottom:18px;width:110px;pointer-events:none;` +
@@ -821,44 +603,42 @@ function buildConfirm(onConfirm: () => void): HTMLButtonElement {
   return btn;
 }
 
-interface FooterEls extends HoistRow {
+interface FooterEls {
+  el: HTMLElement;
   confirm: HTMLButtonElement;
 }
 
 /** The footer: the CONSUMABLES row (Story 10.1 — a full-width first line, the
- *  kit is the captain's, shared by every card) above the hoist and CONFIRM. */
-function buildFooter(hoist: ColorHoist, kitRow: KitRow, onConfirm: () => void): FooterEls {
+ *  kit is the captain's, shared by every card) above CONFIRM. The Color Hoist
+ *  row is gone (Story 10.4, R6). */
+function buildFooter(kitRow: KitRow, onConfirm: () => void): FooterEls {
   const foot = document.createElement('div');
-  // flex-wrap:wrap — below ~700px viewport width this nowrap row (label + 20
-  // swatches + the 300px-min CONFIRM button) clipped the button outside the
-  // panel (vertical-only scroll can't reach it). Wrapping degrades gracefully
-  // instead; the ratified 1366x768 floor is unchanged (still fits on one row).
+  // flex-wrap:wrap — the CONSUMABLES row takes its own full-width line and
+  // CONFIRM wraps under it rather than clipping outside the panel.
   foot.style.cssText =
     'display:flex;align-items:center;flex-wrap:wrap;gap:18px 30px;padding:18px 42px 0;' +
     'border-top:1px solid var(--hc-hairline);margin-top:4px';
-  const hoistRow = makeHoistRow(hoist);
   const confirm = buildConfirm(onConfirm);
   kitRow.el.style.flexBasis = '100%';
-  foot.append(kitRow.el, hoistRow.el, confirm);
-  return { el: foot, off: hoistRow.off, confirm };
+  foot.append(kitRow.el, confirm);
+  return { el: foot, confirm };
 }
 
 // --- open / lifecycle --------------------------------------------------------
 
 export interface ClassSelectOpts {
-  /** Card pre-highlighted on open (first-run: Torpedo Boat). */
+  /** Card pre-highlighted on open (first-run: the default hull). */
   initial: ShipClassId;
-  /** The gun chip lit on open (Story 8.15) — the stored pick, else CANNON. */
-  initialGun?: GunId;
+  /** The Shift chip lit on open (Story 10.4) — the stored pick, else DEFAULT_SHIFT. */
+  initialShift?: ShiftId;
   /** The CONSUMABLES row's kit on open (Story 10.1) — the saved kit, else DEFAULT_KIT. */
   initialKit?: ConsumableKit;
-  hoist: ColorHoist;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
   /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
-   *  port. NEVER deploys — PLAY is the one launch path. Carries the gun pick
-   *  beside the class (Story 8.15) and the kit (Story 10.1). */
-  onConfirm: (cls: ShipClassId, gun: GunId, kit: ConsumableKit) => void;
+   *  port. NEVER deploys — PLAY is the one launch path. Carries the Shift pick
+   *  beside the class (Story 10.4) and the kit (Story 10.1). */
+  onConfirm: (cls: ShipClassId, shift: ShiftId, kit: ConsumableKit) => void;
   /** ESC / dimmer dismiss: close with no change. */
   onClose: () => void;
 }
@@ -875,7 +655,7 @@ function isTextInput(el: Element | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
 }
 
-/** A layer button (e.g. a focused color swatch) holds keyboard focus. */
+/** A layer button (e.g. a focused chip) holds keyboard focus. */
 function isLayerButton(el: Element | null, container: HTMLElement): boolean {
   return !!el && el.tagName === 'BUTTON' && container.contains(el);
 }
@@ -883,11 +663,10 @@ function isLayerButton(el: Element | null, container: HTMLElement): boolean {
 /**
  * Only Enter/Space are swallowed while a layer button holds focus — those two
  * would otherwise double-fire (native button activation racing our own
- * confirm — Enter on the CONFIRM button, or a focused swatch's Space/Enter
+ * confirm — Enter on the CONFIRM button, or a focused chip's Space/Enter
  * activation). Everything else (ESC/arrows/digits) must still reach the
- * layer regardless of focus, or a focused button (notably a color swatch —
- * the bay is the app's ONLY color picker) would deafen the whole layer to
- * every shortcut until a stray mouse click restored it (Finding A).
+ * layer regardless of focus, or a focused button would deafen the whole
+ * layer to every shortcut until a stray mouse click restored it (Finding A).
  */
 function isSwallowedKey(e: KeyboardEvent, container: HTMLElement): boolean {
   return (e.key === 'Enter' || e.key === ' ') && isLayerButton(document.activeElement, container);
@@ -900,14 +679,13 @@ function isIgnoredKey(e: KeyboardEvent, container: HTMLElement): boolean {
 }
 
 /** The single live layer, if any — so a re-open fully tears the prior one down
- *  (window listener + hoist subscriptions), never just its DOM (fix: half-teardown). */
+ *  (window listeners), never just its DOM (fix: half-teardown). */
 let current: { close(): void } | null = null;
 
 interface LayerWiring {
   container: HTMLElement;
   dimmer: HTMLElement;
   blurTarget: HTMLElement;
-  hoist: ColorHoist;
   onKey: (e: KeyboardEvent) => void;
   onResize: () => void;
   dismiss: () => void;
@@ -915,11 +693,10 @@ interface LayerWiring {
   evaluateOverflow: () => void;
 }
 
-/** Attach the layer's listeners, blur the home, mount it, and paint — returns the
- *  hoist unsubscribe. Split out of openClassSelect to keep that function lean. */
-function activateLayer(w: LayerWiring): () => void {
+/** Attach the layer's listeners, blur the home, mount it, and paint. Split out
+ *  of openClassSelect to keep that function lean. */
+function activateLayer(w: LayerWiring): void {
   w.dimmer.addEventListener('click', w.dismiss);
-  const unsubHoist = w.hoist.onChange(w.repaint);
   window.addEventListener('keydown', w.onKey);
   window.addEventListener('resize', w.onResize);
   // Hand keyboard control to the layer: drop callsign focus (typing-isolation guard).
@@ -929,7 +706,6 @@ function activateLayer(w: LayerWiring): () => void {
   document.body.appendChild(w.container);
   w.evaluateOverflow(); // now that the rail is laid out, hide fade/chevron if it fits
   w.repaint();
-  return unsubHoist;
 }
 
 /** Build the layer's fixed container + dimmer + viewport-capped panel shell. */
@@ -966,9 +742,9 @@ function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel:
  */
 export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   current?.close(); // full teardown of any prior layer (listener + subscriptions), not just DOM
-  const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select, pickGun));
+  const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select, pickShift));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
-  let gun: GunId = opts.initialGun ?? DEFAULT_GUN;
+  let shift: ShiftId = opts.initialShift ?? DEFAULT_SHIFT;
   let kit: ConsumableKit = opts.initialKit ?? DEFAULT_KIT;
   /** The CONSUMABLES picker while it is up (Story 10.1): the layer's keys are
    *  routed to it — only ESC acts, closing the picker, never the layer. */
@@ -977,7 +753,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const { container, dimmer, panel } = makeLayerShell();
   const rail = buildRail(cards);
   const kitRow = makeKitRow(openSlot);
-  const footer = buildFooter(opts.hoist, kitRow, confirmPick);
+  const footer = buildFooter(kitRow, confirmPick);
   panel.append(buildHeader(), rail.el, footer.el);
 
   // Ignore any keydown dispatched at/before this instant — the very keystroke
@@ -986,14 +762,14 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const openedAt = performance.now();
   const onResize = (): void => rail.evaluateOverflow();
   function repaint(): void {
-    paintCards(cards, highlight, opts.hoist, gun);
+    paintCards(cards, highlight, OWN_ACCENT, shift);
     kitRow.paint(kit, picker?.slot ?? null);
     footer.confirm.disabled = !isConsumableKit(kit); // a guard, not a state
   }
   /** A CONSUMABLES square: open the picker for that kit index over the layer. */
   function openSlot(slot: number): void {
     const handle = openKitPicker({
-      host: container, kit, slot, accent: opts.hoist,
+      host: container, kit, slot, accent: OWN_ACCENT,
       onPick: (next) => {
         kit = next;
         repaint();
@@ -1008,10 +784,10 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
     panel.setAttribute('inert', ''); // the layer's buttons are out of the tab order while the picker is up
     repaint();
   }
-  /** A gun chip: move the ONE gun pick and repaint. The chip's click then
-   *  bubbles to its card, which highlights that card too. */
-  function pickGun(id: GunId): void {
-    gun = id;
+  /** A Shift chip: move the ONE Shift pick and repaint. The chip's click
+   *  stops at the chip — the highlighted hull never moves (review gate C4). */
+  function pickShift(id: ShiftId): void {
+    shift = id;
     repaint();
   }
   /** Card click (or its in-card SELECT button): move the highlight and repaint —
@@ -1025,7 +801,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
     if (!isConsumableKit(kit)) return;
     const cls = SHIP_CLASS_IDS[highlight];
     close();
-    opts.onConfirm(cls, gun, kit);
+    opts.onConfirm(cls, shift, kit);
   }
   function dismiss(): void {
     close();
@@ -1051,16 +827,14 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('resize', onResize);
     picker?.handle.close();
-    unsubHoist();
-    footer.off();
     container.remove();
     opts.blurTarget.style.filter = '';
     opts.blurTarget.style.opacity = '';
     if (current === handle) current = null;
   }
   const handle: ClassSelectHandle = { close };
-  const unsubHoist = activateLayer({
-    container, dimmer, blurTarget: opts.blurTarget, hoist: opts.hoist,
+  activateLayer({
+    container, dimmer, blurTarget: opts.blurTarget,
     onKey, onResize, dismiss, repaint, evaluateOverflow: rail.evaluateOverflow,
   });
   current = handle;

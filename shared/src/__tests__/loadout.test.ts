@@ -19,10 +19,11 @@ import {
   CONSUMABLE_IDS,
   BUOY_LINE_IDS,
   CONSUMABLE_IS_WEAPON,
-  DEFAULT_GUN,
+  DEFAULT_SHIFT,
   HULL_IDS,
   SHIFT_IDS,
-  classShift,
+  isShiftId,
+  sanitizeShiftId,
   SHIP_CLASS_IDS,
   SLOT_COUNT,
   SLOT_GUN,
@@ -56,6 +57,7 @@ import {
   type LoadoutSlot,
   type SlotItemId,
 } from '../index.js';
+import { NEUTRAL_HULL } from './neutralHull.js';
 
 /** Fresh effective stats for any hull id at zero boons. */
 function statsFor(id: HullId): EffectiveStats {
@@ -138,6 +140,8 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       // Story 8.15: the two NEW class Shifts — instant activations like boost.
       instantReload: false,
       hunker: false,
+      // Story 10.4: THE MAIN BATTERY — a captain's slot 0, click-aimed.
+      mainBattery: true,
     });
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
   });
@@ -155,11 +159,11 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
   // and "the specials match the per-hull rule on every PICKABLE class". There
   // is no per-hull fit left to pin — the class weapons arrive as CARDS off the
   // offers, whose landing slots are pinned in nineSlots.test.ts.
-  it('every CAPTAIN hull gets the IDENTICAL shape and ids: [gun, boost, empty × the rest]', () => {
+  it('every CAPTAIN hull gets the IDENTICAL shape and ids: [mainBattery, the default Shift, empty × the rest]', () => {
     for (const id of SHIP_CLASS_IDS) {
       const loadout = loadoutFor(statsFor(id));
       expect(loadout.map((s) => s.equipmentId), id).toEqual([
-        'gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null),
+        'mainBattery', DEFAULT_SHIFT, ...new Array<null>(SLOT_COUNT - 2).fill(null),
       ]);
     }
   });
@@ -168,40 +172,51 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     for (const id of SHIP_CLASS_IDS) {
       const stats = statsFor(id);
       const loadout = loadoutFor(stats);
-      expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 });
+      // Slot 0's pool is the hull's TURRET COUNT — every turret loaded (Story 10.4).
+      expect(loadout[SLOT_GUN].state, id).toEqual({ n: CONFIG.shipClasses[id].battery.turrets.length, reloadMsLeft: 0 });
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'boost'), reloadMsLeft: 0 });
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });
     }
   });
 
-  it('the DEFAULT shift is the boost (the argument omitted fits the Torpedo Boat\'s Shift)', () => {
+  it('the DEFAULT shift fits when the argument is omitted', () => {
     for (const id of SHIP_CLASS_IDS) {
-      expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe('boost');
+      expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe(DEFAULT_SHIFT);
     }
   });
 
-  it('SLOT 1 IS THE HULL\'S CLASS SHIFT (Story 8.15, amendment 89c): TB boost · ML instant reload · BS hunker', () => {
-    const want = { torpedoBoat: 'boost', mineLayer: 'instantReload', battleship: 'hunker' } as const;
+  it("SLOT 1 IS THE SEAT'S SHIFT (Story 10.4): any hull fits any Shift, and nothing else moves", () => {
     for (const id of SHIP_CLASS_IDS) {
-      expect(CONFIG.shipClasses[id].shift, id).toBe(want[id]);
-      expect(classShift(id), id).toBe(want[id]);
       const stats = statsFor(id);
-      const loadout = loadoutFor(stats, false, DEFAULT_GUN, classShift(id));
-      expect(loadout[SLOT_BOOST].equipmentId, id).toBe(want[id]);
-      // A FULL charge, idle — the boost's semantics for every Shift.
-      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, want[id]), reloadMsLeft: 0 });
-      expect(EQUIPMENT_IS_WEAPON[want[id]], id).toBe(false);
-      // The rest of the fit does not move with the Shift.
-      expect(loadout.map((s) => s.equipmentId).filter((_, i) => i !== SLOT_BOOST), id)
-        .toEqual(['gun', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
+      for (const shift of SHIFT_IDS) {
+        const loadout = loadoutFor(stats, false, shift);
+        expect(loadout[SLOT_BOOST].equipmentId, `${id}/${shift}`).toBe(shift);
+        // A FULL charge, idle — the boost's semantics for every Shift.
+        expect(loadout[SLOT_BOOST].state, `${id}/${shift}`).toEqual({ n: equipmentMaxAmmo(stats, shift), reloadMsLeft: 0 });
+        expect(EQUIPMENT_IS_WEAPON[shift], shift).toBe(false);
+        // The rest of the fit does not move with the Shift.
+        expect(loadout.map((s) => s.equipmentId).filter((_, i) => i !== SLOT_BOOST), `${id}/${shift}`)
+          .toEqual(['mainBattery', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
+      }
     }
-    // Every ShiftId is some hull's — no orphan Shift, no hull without one.
-    expect(SHIP_CLASS_IDS.map((id) => classShift(id)).sort()).toEqual([...SHIFT_IDS].sort());
+  });
+
+  it('sanitizeShiftId passes every Shift through and fails OPEN to the default for anything else (R7)', () => {
+    for (const shift of SHIFT_IDS) {
+      expect(isShiftId(shift), shift).toBe(true);
+      expect(sanitizeShiftId(shift), shift).toBe(shift);
+    }
+    expect(SHIFT_IDS).toContain(DEFAULT_SHIFT);
+    // The retired seat-gun ids, an equipment id that is not a Shift, junk.
+    for (const raw of ['deckGun', 'machineGun', 'flak', 'mainBattery', 'gun', '', 'BOOST', undefined, null, 1, {}]) {
+      expect(isShiftId(raw), String(raw)).toBe(false);
+      expect(sanitizeShiftId(raw), String(raw)).toBe(DEFAULT_SHIFT);
+    }
   });
 
   it('a FLEET drone fits NO Shift whatever `shift` says', () => {
     for (const shift of SHIFT_IDS) {
-      expect(loadoutFor(statsFor('droneSmall'), true, DEFAULT_GUN, shift)[SLOT_BOOST])
+      expect(loadoutFor(statsFor('droneSmall'), true, shift)[SLOT_BOOST])
         .toEqual({ equipmentId: null, state: null });
     }
   });
@@ -225,13 +240,14 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     }
   });
 
-  it('is SLOT_COUNT slots with the gun in slot 0 on every hull id, captain or fleet', () => {
+  it('is SLOT_COUNT slots with slot 0 fitted on every hull id: the main battery on a captain fit, the gun on a fleet fit', () => {
     for (const id of HULL_IDS) {
       for (const fleet of [false, true]) {
+        const mounted = fleet ? 'gun' : 'mainBattery';
         const loadout = loadoutFor(statsFor(id), fleet);
         expect(loadout, `${id}/${String(fleet)}`).toHaveLength(SLOT_COUNT);
-        expect(loadout[SLOT_GUN].equipmentId).toBe('gun');
-        expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'gun'), reloadMsLeft: 0 });
+        expect(loadout[SLOT_GUN].equipmentId).toBe(mounted);
+        expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), mounted), reloadMsLeft: 0 });
       }
     }
   });
@@ -242,14 +258,14 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     for (const id of HULL_IDS) {
       if (!isFleet(id)) continue;
       expect(loadoutFor(statsFor(id)).map((s) => s.equipmentId), id)
-        .toEqual(loadoutFor(statsFor('torpedoBoat')).map((s) => s.equipmentId));
+        .toEqual(loadoutFor(statsFor('iowa')).map((s) => s.equipmentId));
     }
   });
 });
 
 describe('equipmentMaxAmmo / equipmentReloadMs cover the Shift boost (from stats.boost)', () => {
   it('the boost pool + reload come from CONFIG.boost (Story 8.9)', () => {
-    const stats = statsFor('torpedoBoat');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'boost')).toBe(stats.equipment.boost.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'boost')).toBe(CONFIG.boost.maxAmmo);
     expect(equipmentReloadMs(stats, 'boost')).toBe(stats.equipment.boost.reloadMs);
@@ -259,13 +275,13 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover the Shift boost (from stats
 
 describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + phosphorShells', () => {
   it('phosphorShells pool + reload come from CONFIG.phosphorShells (Story 8.17, amendment 131)', () => {
-    const stats = statsFor('battleship');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.maxAmmo);
     expect(equipmentReloadMs(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.reloadMs);
   });
 
   it('broadside pool + reload come from CONFIG.broadside (via stats.broadside)', () => {
-    const stats = statsFor('battleship');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'broadside')).toBe(stats.equipment.broadside.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'broadside')).toBe(CONFIG.broadside.maxAmmo);
     expect(equipmentReloadMs(stats, 'broadside')).toBe(stats.equipment.broadside.reloadMs);
@@ -273,7 +289,7 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + ph
   });
 
   it('starShells pool + reload come from CONFIG.starShells (via stats.starShells)', () => {
-    const stats = statsFor('battleship');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'starShells')).toBe(stats.equipment.starShells.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'starShells')).toBe(CONFIG.starShells.maxAmmo);
     expect(equipmentReloadMs(stats, 'starShells')).toBe(stats.equipment.starShells.reloadMs);
@@ -283,7 +299,7 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + ph
 
 describe('the radar buoy is DELETED (Story 8.16) — no id, no stat row, no pool', () => {
   it('radarBuoy is gone from EquipmentId and the stats record; the four BUOYS are consumables with NO row', () => {
-    const stats = statsFor('mineLayer');
+    const stats = statsFor('warspite');
     expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
     expect('radarBuoy' in stats.equipment).toBe(false);
     // The consumable law: a buoy carries no EffectiveStats row — its numbers
@@ -387,7 +403,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
 });
 
 describe('slotMaxAmmo — a stack is capped by its LINE, a weapon by its stats row', () => {
-  const stats = statsFor('torpedoBoat');
+  const stats = statsFor('iowa');
 
   it('routes every EquipmentId to equipmentMaxAmmo, unchanged', () => {
     for (const id of EQUIPMENT_IDS) expect(slotMaxAmmo(stats, id), id).toBe(equipmentMaxAmmo(stats, id));

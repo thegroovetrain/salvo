@@ -29,8 +29,10 @@ import {
   BUOY_LINE_IDS,
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
   EQUIPMENT_IDS,
+  INDEX_IDS,
   arcFor,
   effectiveStats,
   isConsumableId,
@@ -39,7 +41,7 @@ import {
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
 } from '@salvo/shared';
-import type { Catalog, CatalogLine, EquipmentId, SlotItemId } from '@salvo/shared';
+import type { Catalog, CatalogLine, EquipmentId, HullIndex, ShipClass, SlotItemId } from '@salvo/shared';
 import {
   MINE_EQUIPMENT_IDS,
   fireArcKind,
@@ -59,17 +61,25 @@ import {
 } from '../render/weaponArc.js';
 import { ownActiveZones } from '../render/litZones.js';
 
+/** Story 10.4: no shipped hull sits at the base on every index, so a pin on a
+ *  CONFIG dial verbatim folds this neutral envelope (the default hull, every
+ *  index at `CONFIG.index.base`) — a fixture, never a ship. */
+const NEUTRAL_HULL: ShipClass = {
+  ...CONFIG.shipClasses[DEFAULT_CLASS_ID],
+  index: Object.fromEntries(INDEX_IDS.map((k) => [k, CONFIG.index.base])) as HullIndex,
+};
+
 /**
  * THE FIXTURE (Story 8.10): the class weapons each hull is FITTED with for
  * these arc pins. They used to arrive from the interim spawn seed; that table
  * is deleted (a hull spawns with the gun and Shift alone), and what these pins
  * are about is the ARC of a fitted weapon, not who fitted it.
  */
-const FITTED: Record<'torpedoBoat' | 'battleship' | 'mineLayer', readonly string[]> = {
-  torpedoBoat: ['heavyTorpedo'],
-  battleship: ['broadside', 'starShells'],
-  mineLayer: ['navalMines'],
-};
+const FITTED = {
+  torpedoFit: ['heavyTorpedo'],
+  shellFit: ['broadside', 'starShells'],
+  mineFit: ['navalMines'],
+} as const satisfies Record<string, readonly string[]>;
 
 /**
  * The fitted equipment id at a slot for a hull — the client's slotIdsFor path,
@@ -77,9 +87,9 @@ const FITTED: Record<'torpedoBoat' | 'battleship' | 'mineLayer', readonly string
  * hull carries comes from its CARDS, which land in the first empty WEAPON slot,
  * i.e. from slot 2 (Q) upward.
  */
-function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
-  const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  const id = slotsWithCards(stats, FITTED[cls], DEFAULT_KIT)[slot].equipmentId;
+function idAt(fit: keyof typeof FITTED, slot: number): EquipmentId | null {
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
+  const id = slotsWithCards(stats, FITTED[fit], DEFAULT_KIT)[slot].equipmentId;
   // A slot's content is a `SlotItemId` since Story 8.7 — narrowed, never cast.
   return id === null || isConsumableId(id) ? null : id;
 }
@@ -257,7 +267,7 @@ describe('clickInArc — the click-aimed consumables are GATED by their arcs', (
     for (const id of MINE_EQUIPMENT_IDS) {
       expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange, id), id).toBe(true);
       expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, id), id).toBe(false);
-      expect(weaponRangeU(effectiveStats(CONFIG.shipClasses.mineLayer, []), id), id)
+      expect(weaponRangeU(effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []), id), id)
         .toBe(CONFIG.mine.placeRange);
     }
   });
@@ -287,8 +297,8 @@ describe('weaponArcHit — gun family (360°)', () => {
     // And the BB's real fitted slots (the whole point) — its seed fills Q with
     // the BROADSIDE, which is NOT 360° and gets its own suite below, and E with
     // the star shells.
-    expect(idAt('battleship', Q)).toBe('broadside');
-    expect(idAt('battleship', E)).toBe('starShells');
+    expect(idAt('shellFit', Q)).toBe('broadside');
+    expect(idAt('shellFit', E)).toBe('starShells');
   });
 });
 
@@ -393,14 +403,14 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
   const halfArc = CONFIG.torpedo.halfArc;
 
   it('the TB seed fills Q with the torpedo; the ML seed fills Q with the mine', () => {
-    expect(idAt('torpedoBoat', Q)).toBe('heavyTorpedo');
-    expect(idAt('mineLayer', Q)).toBe('navalMines');
+    expect(idAt('torpedoFit', Q)).toBe('heavyTorpedo');
+    expect(idAt('mineFit', Q)).toBe('navalMines');
     // AMENDMENT 22: nothing fits E on the ML (the radar buoy is deleted).
-    expect(idAt('mineLayer', E)).toBeNull();
+    expect(idAt('mineFit', E)).toBeNull();
   });
 
   it('the TB torpedo gates on the bow arc exactly as before', () => {
-    const torp = idAt('torpedoBoat', Q);
+    const torp = idAt('torpedoFit', Q);
     expect(weaponArcHit(0, 0, torp)).toBe(true);
     expect(weaponArcHit(0, halfArc, torp)).toBe(true);
     expect(weaponArcHit(0, halfArc + 0.01, torp)).toBe(false);
@@ -421,14 +431,16 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
 });
 
 describe('weaponRangeU — per-weapon burst/clamp range', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.battleship);
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
   // STORY 9.8 (epic-9 ruling 125): every weapon reach is its OWN tiered dial on
   // the twelfths ruler — `CONFIG.<weapon>.rangeU` at Tier I, stepped by the
   // line's cards through `effectiveStats()` — and none of them is radar.
   it('broadside + star shells read their OWN range block, seeded from their CONFIG dial', () => {
     expect(weaponRangeU(stats, 'broadside')).toBe(stats.equipment.broadside.rangeU);
-    expect(weaponRangeU(stats, 'broadside')).toBe(CONFIG.broadside.rangeU);
+    // The broadside rides the RANGE index (Story 10.4), so its CONFIG dial reads
+    // verbatim only on a hull at the base index.
+    expect(weaponRangeU(effectiveStats(NEUTRAL_HULL), 'broadside')).toBe(CONFIG.broadside.rangeU);
     expect(weaponRangeU(stats, 'starShells')).toBe(stats.equipment.starShells.rangeU);
     expect(weaponRangeU(stats, 'starShells')).toBe(CONFIG.starShells.rangeU);
   });
@@ -479,7 +491,7 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
   const WIDE_CATALOG: Catalog = { ...CATALOG, testWideRadar: WIDE_RADAR };
 
   it('a widened radarRange moves NO weapon range — each is its own dial (ruling 125)', () => {
-    const intel = effectiveStats(CONFIG.shipClasses.battleship, ['testWideRadar'], WIDE_CATALOG);
+    const intel = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['testWideRadar'], WIDE_CATALOG);
     expect(intel.radarRange).toBeGreaterThan(stats.radarRange); // the premise
     for (const id of ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'foulingShell'] as const) {
       expect(weaponRangeU(intel, id), id).toBe(weaponRangeU(stats, id));
@@ -500,7 +512,7 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
 // The two halves that must NOT widen are asserted head-on: the extension is
 // GUN-ONLY, and it is OWN-FLARES-ONLY.
 describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
-  const reachStats = effectiveStats(CONFIG.shipClasses.battleship);
+  const reachStats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
   const RANGE = reachStats.equipment.gun.rangeU;
   /** A live own flare centred 200u past the gun's own horizon. */
   const FAR_ZONE = [{ x: RANGE + 200, y: 0, r: 150 }];
@@ -715,7 +727,7 @@ describe('sectorOutline — the placement wedge boundary', () => {
 // whole circle (ruling 9: "Placement range should not change").
 describe('the click-placed ids share ONE placement leash (Eric 2026-08-20, Story 8.16 / 10.9)', () => {
   it('the mine and every buoy report the SAME reach, and it is the placement range', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
+    const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []);
     expect(weaponRangeU(stats, 'navalMines')).toBe(CONFIG.mine.placeRange);
     for (const id of BUOY_LINE_IDS) expect(weaponRangeU(stats, id), id).toBe(CONFIG.mine.placeRange);
   });
@@ -731,7 +743,7 @@ describe('the click-placed ids share ONE placement leash (Eric 2026-08-20, Story
 
 describe('FLASH SHELLS shares the FOULING SHELL\'s ONE reach dial (Story 10.9, ruling 2)', () => {
   it('reads CONFIG.foulingShell.rangeU, never radar', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.battleship);
+    const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
     expect(weaponRangeU(stats, 'dazzleShells')).toBe(weaponRangeU(stats, 'foulingShell'));
     expect(weaponRangeU(stats, 'dazzleShells')).toBe(CONFIG.foulingShell.rangeU);
   });

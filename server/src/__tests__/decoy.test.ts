@@ -48,7 +48,7 @@ function bareWorld(seed = 816): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined, undefined, KIT);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'warspite', undefined, undefined, undefined, KIT);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -163,7 +163,7 @@ describe('THE BUOY BODY — the drop (360°, the range clamp, one spend law)', (
     stock(w, a);
     w.submitInput('a', {
       seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: CONFIG.mine.placeRange + 1, slot: BELT,
-      fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
     });
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: BELT, reason: 'out-of-arc', seq: 1 }]);

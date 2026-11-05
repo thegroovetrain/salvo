@@ -35,7 +35,11 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, isOutside, zoneLiveState } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, bearing, angleDiff, effectiveStats, isOutside, zoneLiveState } from '@salvo/shared';
+
+/** Both clients join with no class option -> DEFAULT_CLASS_ID (Story 10.4:
+ *  Bismarck); its full hull from the same fold the server runs. */
+const FULL_HP = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).maxHp;
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599; // never the dev server's 2567 — this smoke self-boots
@@ -176,11 +180,12 @@ function onFrame(ctx, f) {
       if (ctx.firstOutsideLiveT === null) ctx.firstOutsideLiveT = f.t;
       ctx.outsideLiveFrames += 1;
     }
-    if (ctx.firstDamageT === null && f.you.hp < CONFIG.shipClasses.torpedoBoat.hp) {
+    if (ctx.firstDamageT === null && f.you.hp < FULL_HP) {
       ctx.firstDamageT = f.t;
     }
   }
   for (const e of f.events) {
+    if (e.k === 'dmg' && e.id === ctx.room.sessionId) (ctx.dmgSeen ??= []).push({ t: f.t, amount: e.amount, src: e.src ?? e.s });
     if (e.k === 'sunk' && e.id === ctx.room.sessionId) {
       ctx.sunkSeen = true;
       ctx.sunkBy = e.by; // undefined for a storm kill
@@ -189,7 +194,7 @@ function onFrame(ctx, f) {
 }
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
   const g = ctx.goal;
   if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
   ctx.room.send('i', inp);
@@ -234,7 +239,7 @@ function contained(a, b) {
 async function main() {
   const server = bootServer();
   const log = [];
-  const fullHp = CONFIG.shipClasses.torpedoBoat.hp; // both clients join the default class
+  const fullHp = FULL_HP; // both clients join the default class
   try {
     await waitForServer(15000);
     const a = await joinClient('ZONE-OUT'); // parks near the boundary
@@ -278,7 +283,7 @@ async function main() {
       `beat order was [${phasesSeen.join(',')}], expected [${BEAT_ORDER.join(',')}]`,
     );
     assert(revealedRing !== null, 'the reveal beat never populated zoneNext*');
-    assert(a.minHp === fullHp && b.minHp === fullHp, 'storm damage during the pre-close beats');
+    assert(a.minHp === fullHp && b.minHp === fullHp, `storm damage during the pre-close beats (min hp A ${a.minHp} / B ${b.minHp} of ${fullHp}; A dmg ${JSON.stringify(a.dmgSeen ?? [])} B dmg ${JSON.stringify(b.dmgSeen ?? [])})`);
     log.push(`rhythm: ${phasesSeen.slice(0, 4).join(' -> ')}; reveal gated (next zeroed pre-reveal, contained after)`);
 
     // --- 2b. close completion: the revealed ring becomes the current ring ----

@@ -25,9 +25,14 @@ import type { ShipRecord, World } from '../game/world.js';
  *  fitted them — so slot 2 (and, for the Battleship, slot 3) hold exactly what
  *  they held before Story 8.10. */
 export const CLASS_WEAPONS: Record<string, readonly string[]> = {
-  torpedoBoat: ['heavyTorpedo'],
-  battleship: ['broadside', 'starShells'],
-  mineLayer: ['navalMines'],
+  // Story 10.4: the three retired classes' fixtures re-keyed onto the four
+  // hulls by the suite-wide migration mapping — the old default (Torpedo
+  // Boat) → the new default (Bismarck), Battleship → Yamato, Mine Layer →
+  // Warspite. Iowa fits nothing (an empty weapon row). A weapon is a card any
+  // hull may carry; this is only "the weapon these fixtures are about".
+  bismarck: ['heavyTorpedo'],
+  yamato: ['broadside', 'starShells'],
+  warspite: ['navalMines'],
 };
 
 /**

@@ -57,6 +57,7 @@ import {
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
+import type { Relation } from './relationColor.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const A = CLIENT_CONFIG.home.ambient;
@@ -83,8 +84,9 @@ export interface AmbientMapLike {
 export interface AmbientHull {
   id: string;
   cls: ShipClassId;
-  /** Regatta wheel index handed to `contactStyle` — never a colour. */
-  hue: number;
+  /** The hull's relation to the scene's observer (Story 10.4 — the observer
+   *  is `own`, every rival `enemy`), handed to `contactStyle`. */
+  relation: Relation;
   state: ShipState;
   /** Fixed throttle (helm only steers). Well under full ahead: a menu is a
    *  calm sea, and a slower hull turns inside a tighter radius, which is what
@@ -211,7 +213,7 @@ function pickWater(
 function buildHull(
   id: string,
   cls: ShipClassId,
-  hue: number,
+  relation: Relation,
   band: { minU: number; maxU: number },
   rng: () => number,
   anchor: { x: number; y: number },
@@ -221,7 +223,7 @@ function buildHull(
   return {
     id,
     cls,
-    hue,
+    relation,
     state: { x: p.x, y: p.y, heading: rng() * Math.PI * 2, speed: 0 },
     throttle: A.throttle,
     spin: rng() < 0.5 ? -1 : 1,
@@ -252,7 +254,7 @@ export function buildAmbientWorld(map: AmbientMapLike, seed: number = A.seed): A
   const observer = buildHull(
     'home-observer',
     A.observerClass,
-    0,
+    'own',
     { minU: A.observerRoamU * 0.35, maxU: A.observerRoamU },
     rng,
     anchor,
@@ -260,7 +262,7 @@ export function buildAmbientWorld(map: AmbientMapLike, seed: number = A.seed): A
   );
   const hulls = [observer];
   A.rivalBands.forEach((band, i) => {
-    hulls.push(buildHull(`home-rival-${i}`, A.rivalClasses[i % A.rivalClasses.length], i + 1, band, rng, anchor, map.islands));
+    hulls.push(buildHull(`home-rival-${i}`, A.rivalClasses[i % A.rivalClasses.length], 'enemy', band, rng, anchor, map.islands));
   });
   return {
     anchor,

@@ -96,9 +96,12 @@ export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
  * `held` is the ship's fitted card ids, ONE ENTRY PER COPY (the shape of
  * `ShipRecord.cards`, passed straight through); `slotIds` is the ship's SLOT
  * CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `stockSlotFor`
- * and `pickRefusal` take); `mountedGun` is the EQUIPMENT row the seat's gun
- * mounts (sim/loadout.ts MOUNTED_GUN), which is what a gun ladder's host is
- * matched against; `kit` is the ship's four consumable lines (Story 10.1,
+ * and `pickRefusal` take); `mountedGun` is the EQUIPMENT row in the ship's
+ * slot 0, which is what a gun ladder's host is matched against. SINCE STORY
+ * 10.4 A CAPTAIN'S IS ALWAYS `'mainBattery'` — no ladder hosts on that row, so
+ * the CANNON, MACHINE GUN and FLAK ladders are NEVER eligible for a captain
+ * (their catalog lines stay for reference and the PvE fleet, which never
+ * draws); `kit` is the ship's four consumable lines (Story 10.1,
  * `ShipRecord.kit`) — the only consumables the draw may deal it.
  *
  * THE SLOT IDS REPLACED A `weaponSlotOpen` BOOLEAN (Story 8.14 review, F2).

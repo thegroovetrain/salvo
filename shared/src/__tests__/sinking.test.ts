@@ -14,7 +14,7 @@ import * as shared from '../index.js';
 
 const DT = CONFIG.tick.simDtMs; // 50 ms — the one fixed sim step
 const WINDOW = CONFIG.ship.sinkingWindowMs;
-const TB = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics; // fastest hull = worst case
+const TB = effectiveStats(CONFIG.shipClasses.iowa).kinematics; // fastest hull = worst case
 
 /** A hull mid-ocean, already at some way. Fresh per test — the fold mutates. */
 function ship(speed: number, heading = 0): ShipState {

@@ -11,8 +11,9 @@
 // effect reaches. The marker is the buoy's own GLYPH — the TINTED BEACON
 // (Eric 2026-10-29, family C; render/buoyMarks.ts, drawn through the one glyph
 // source, render/equipmentIcons.ts, exactly as the belt square draws it): the
-// hull in the OWNER'S personal hue (Eric 2026-09-11, UX-DR56; `DecoyView.by`
-// rides every view for exactly this) under a head filled in the kind's colour.
+// hull in the owner's RELATION color to this viewer (Story 10.4, Eric's ruling
+// R6 — own cyan, anyone else's red; `DecoyView.own` decides it) under a head
+// filled in the kind's colour.
 // Around it, its EFFECT RING (render/buoyRings.ts): own in the kind's colour,
 // a sighted enemy's in the shared alert blend. A buoy lays no wake; an ENEMY
 // buoy shows its kind and its reach, never its timer or sweep (the wire
@@ -52,11 +53,9 @@ import { alertClock, alertTint, OWN_TINT } from './alertBlend.js';
 import { BUOY_HEAD_CENTER, BUOY_HEAD_REACH } from './buoyMarks.js';
 import { ENEMY_RING_DRAW_COLOR, buoyLifeFrac, drawBuoyRing, ringModelFor, type BuoyRingModel } from './buoyRings.js';
 import { drawEquipmentIcon } from './equipmentIcons.js';
-import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
+import { relationStroke } from './relationColor.js';
 
 export { buoyLifeFrac };
-
-export type { HueFor };
 
 const R = CLIENT_CONFIG.mineRings; // the shared ordnance-ring stroke weights
 
@@ -140,13 +139,13 @@ export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly
   return { add, remove };
 }
 
-/** A live buoy sprite + its owner-hue latch (retryHue recolors it once the
- *  owner's roster hue syncs). `own` drives brightness and the layer. */
-interface DecoySprite extends HueState {
+/** A live buoy sprite. `own` drives brightness, the layer and the relation
+ *  color. */
+interface DecoySprite {
   g: Graphics;
   /** The effect ring (render/buoyRings.ts) — its own Graphics, beneath the
    *  marker in the same layer, so an enemy ring's alert tint never tints the
-   *  owner-hued marker. */
+   *  relation-colored marker. */
   ring: Graphics;
   /** The ring model currently drawn (null = no ring). */
   ringModel: BuoyRingModel | null;
@@ -154,7 +153,7 @@ interface DecoySprite extends HueState {
   view: DecoyView;
   own: boolean;
   kind: BuoyKind;
-  /** The color the marker is currently painted in (hue latch or amber fallback). */
+  /** The color the marker is painted in (the owner's relation stroke). */
   color: number;
   /** The owner-only hp fraction currently painted (null = no arc). */
   hpFrac: number | null;
@@ -190,19 +189,11 @@ export class Decoys {
    * no buoys). An empty list clears every sprite, which is how a match reset
    * lands (the mines precedent).
    */
-  sync(decoys: readonly DecoyView[], hueFor: HueFor): void {
+  sync(decoys: readonly DecoyView[]): void {
     const { add, remove } = reconcileDecoys(new Set(this.sprites.keys()), decoys);
     for (const id of remove) this.despawn(id);
-    for (const d of add) this.spawn(d, hueFor);
+    for (const d of add) this.spawn(d);
     for (const d of decoys) this.refresh(d);
-    for (const s of this.sprites.values()) {
-      // Story 1.12: recolor any buoy that booted on the amber fallback (owner
-      // hue not yet synced at spawn) once its personal hue lands.
-      retryHue(s, hueFor, (color) => {
-        s.color = color;
-        this.redraw(s);
-      });
-    }
   }
 
   /**
@@ -268,10 +259,10 @@ export class Decoys {
     this.redraw(s);
   }
 
-  private spawn(d: DecoyView, hueFor: HueFor): void {
+  private spawn(d: DecoyView): void {
     const g = new Graphics();
     const ring = new Graphics();
-    const { color, colored, rev } = resolveHue(d.by, hueFor);
+    const color = relationStroke(d.own ? 'own' : 'enemy');
     g.position.set(d.x, d.y);
     ring.position.set(d.x, d.y);
     const layer = d.own ? this.ownLayer : this.otherLayer;
@@ -283,11 +274,8 @@ export class Decoys {
       ring,
       ringModel: null,
       view: d,
-      by: d.by,
       own: d.own,
       kind: d.kind,
-      colored,
-      rev,
       color,
       hpFrac: decoyHpFrac(d),
       until: d.until,
@@ -331,7 +319,7 @@ export class Decoys {
 /**
  * Draw the beacon onto `g` (clearing prior geometry — the recolor and arc
  * paths redraw in place): the buoy line's own glyph, the hull in `color` (the
- * owner's personal hue, the same for all observers) and the head in the
+ * owner's relation stroke to this viewer) and the head in the
  * kind's colour, in a `BUOY_MARKER_BOX_U` box centred on the buoy. `own`
  * drives only the brightness (dim on your own chart, brighter as a warning on
  * someone else's).

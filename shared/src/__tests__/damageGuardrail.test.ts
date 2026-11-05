@@ -65,7 +65,7 @@ const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
 
 /** Stats under N copies of one catalog line (the max-stack computation). */
 const stacked = (id: LineId, n = CATALOG[id].cap) =>
-  effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(n).fill(id));
+  effectiveStats(CONFIG.shipClasses.iowa, new Array<LineId>(n).fill(id));
 
 describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, Story 5.6)', () => {
   it('gun burst / contact damage cannot one-hit the lightest hull; bodyblock is the lighter outcome', () => {
@@ -184,7 +184,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     };
     expect(damagePaths.length).toBeGreaterThanOrEqual(9);
     for (const path of damagePaths) {
-      const s2 = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path));
+      const s2 = effectiveStats(CONFIG.shipClasses.iowa, maxStackFor(path));
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
     // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN, the FIVE
@@ -225,7 +225,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
         .flat()
         .filter((e) => e.kind === 'stat' && e.path === path)
         .reduce((sum, e) => sum + (e as { add: number }).add, 0);
-      const got = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path)).equipment[id].damage;
+      const got = effectiveStats(CONFIG.shipClasses.iowa, maxStackFor(path)).equipment[id].damage;
       expect(got, path).toBe(base + steps);
       expect(got, path).toBeLessThan(minHullHp);
     }
@@ -243,8 +243,8 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
     // Every other damage endpoint IS its base this cycle — pinned so a silent
     // re-add is visible.
-    const bs = effectiveStats(CONFIG.shipClasses.battleship);
-    const tb = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+    const bs = effectiveStats(CONFIG.shipClasses.yamato);
+    const tb = effectiveStats(CONFIG.shipClasses.iowa);
     expect(bs.equipment.broadside.damage).toBe(CONFIG.broadside.damage);
     expect(tb.equipment.gun.damage).toBe(CONFIG.gun.damage);
     expect(tb.equipment.heavyTorpedo.damage).toBe(CONFIG.torpedo.damage);
@@ -270,7 +270,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // DECK GUN ladder at its cap.
     const perShell = stacked('deckGun').equipment.gun.damage;
     expect(barrels).toBe(CONFIG.gun.barrels); // fixed at every tier
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.gun.barrels).toBe(barrels);
+    expect(effectiveStats(CONFIG.shipClasses.iowa).equipment.gun.barrels).toBe(barrels);
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
     // max-stacked triple mount whose three overlapping bursts all connect
@@ -404,7 +404,7 @@ describe('mine blast geometry guardrail', () => {
     for (const id of ['navalMines', 'foulingMines'] as const) {
       const maxed = maxStackFor(`equipment.${id}.blastRadius`);
       expect(maxed.length, id).toBeGreaterThan(0);
-      const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+      const s = effectiveStats(CONFIG.shipClasses.iowa, maxed);
       expect(s.equipment[id].blastRadius, id).toBeGreaterThan(CONFIG[id === 'navalMines' ? 'mine' : id].blastRadius);
       expect(s.equipment[id].triggerRadius, id).toBeLessThan(s.equipment[id].blastRadius);
     }
@@ -416,7 +416,7 @@ describe('mine blast geometry guardrail', () => {
     // trip ring rides its TIER, not its blast (epic-8 amendment 84d) — so the
     // line grows the reach of the trap while the bang stays 32 u at every rung.
     for (const n of [1, 3, 5]) {
-      const row = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(n).fill('captiveMines'))
+      const row = effectiveStats(CONFIG.shipClasses.iowa, new Array<LineId>(n).fill('captiveMines'))
         .equipment.captiveMines;
       expect(row.blastRadius, `x${n}`).toBe(CONFIG.captiveMines.blastRadius);
       expect(row.triggerRadius, `x${n}`).toBeGreaterThan(row.blastRadius);
@@ -436,7 +436,7 @@ describe('star-shell tell guardrail', () => {
   it('the STAR SHELLS ladder grows litRadius (amendment 130), and the maxed radius stays inside BASE radar range', () => {
     const maxed = maxStackFor('equipment.starShells.litRadius');
     expect(maxed).toEqual(new Array<LineId>(5).fill('starShells'));
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+    const s = effectiveStats(CONFIG.shipClasses.iowa, maxed);
     expect(s.equipment.starShells.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.1 ** 4, 9);
     expect(s.equipment.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
@@ -451,25 +451,18 @@ describe('star-shell tell guardrail', () => {
 // ordnance never damages the own hull (Story 8.4, no friendly fire), so a firer
 // that re-catches its own fish takes nothing for it.
 describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired)', () => {
-  it('THE LIGHT TORPEDO IS SLOWER THAN EVERY HULL — allowed, and deliberate (FR53)', () => {
-    // 45 u/s at tier I and 55 at tier V, against class hulls of 45/40/35 that
-    // boost to 56.25/50/43.75. A Torpedo Boat can outrun its own light fish at
-    // every build, which is fine on two counts: FR7's outrun law is retired
-    // (Eric 2026-09-11, AR49) and own ordnance NEVER damages the own hull
-    // (Story 8.4, no friendly fire), so re-catching your own fish is not a
-    // self-damage hazard. The light torpedo buys its arc and its cadence, not
-    // its speed.
-    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.lightTorpedo;
-    const maxed = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(5).fill('lightTorpedo'))
-      .equipment.lightTorpedo;
-    // At tier I it merely MATCHES the fastest base hull (the Torpedo Boat's
-    // 45) — so a TB at full ahead is never outrun by it — and a SPEED-capped,
-    // boosted TB (71.875) outruns even the maxed fish.
-    expect(base.speed).toBeLessThanOrEqual(maxHullSpeed);
-    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.engines.cap).fill('engines'));
-    expect(boostedKinematics(capped.kinematics, CONFIG.boost.factor, true).maxSpeed)
-      .toBeGreaterThan(maxed.speed);
-    expect(maxed.speed).toBeLessThan(CONFIG.torpedo.speed); // always under the heavy's
+  it('the light torpedo stays under the heavy at every tier (FR53: it buys its arc and its cadence, not its speed)', () => {
+    // THE OLD FACT MOVED WITH THE HULLS (Story 10.4): against the scaffold
+    // classes (45 / 40 / 35 u/s) the tier-I light torpedo merely matched the
+    // fastest hull; the four battleships are slower than all of them, so it
+    // outruns every base hull now. Neither reading was ever a law (FR7's
+    // outrun rule is retired, Eric 2026-09-11, AR49; own ordnance never
+    // damages the own hull), so no hull speed is pinned here.
+    for (let n = 0; n <= 5; n += 1) {
+      const row = effectiveStats(CONFIG.shipClasses[SHIP_CLASS_IDS[0]], new Array<LineId>(n).fill('lightTorpedo'))
+        .equipment.lightTorpedo;
+      expect(row.speed, `x${n}`).toBeLessThan(CONFIG.torpedo.speed);
+    }
   });
 
   it('the SUPERCAV consumable is the fastest thing afloat, by a wide margin (amendment 74)', () => {
@@ -509,7 +502,7 @@ describe('the PvE farm must PAY — damage taken costs less to repair than the k
   // The CAPTAIN's click: `barrels` shells of `damage` each (two barrels at
   // every tier since Story 9.12, Eric 2026-10-16), read through the fold —
   // never CONFIG.gun.damage alone, which is one SHELL.
-  const captainGun = effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.gun;
+  const captainGun = effectiveStats(CONFIG.shipClasses.iowa).equipment.gun;
   const clickDamage = captainGun.damage * captainGun.barrels;
 
   it('a solo duel with each fleet size is XP-POSITIVE after repair costs', () => {

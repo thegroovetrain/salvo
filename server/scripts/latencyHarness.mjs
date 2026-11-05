@@ -47,6 +47,7 @@ import {
   CONFIG,
   PROTOCOL_VERSION,
   angleDiff,
+  effectiveStats,
   applyGroundingDamp,
   bearing,
   generateMap,
@@ -100,13 +101,21 @@ function sandboxZone(opts) {
 const SHOOTER_SHIM_SEED = 0xa11ce;
 const TARGET_SHIM_SEED = 0xb0b1e;
 
-// Scenario tunables. torpedoBoat vs torpedoBoat: the fast, slender target is
+// Scenario tunables. Story 10.4: the retired torpedoBoat pair became the
+// fastest, most slender of the four hulls (Iowa — the highest ENGINES index)
+// on both sides; the shot is the MAIN BATTERY (slot 0), one turret per click
+// (R4), its shell CONFIG.mainBattery's. The tunables below were calibrated on
+// the old deck gun and were NOT re-tuned for the battleships (Story 10.4 wave
+// 3 migrated this harness so it parses and joins; it was not run). The
+// original note: the fast, slender target is
 // the discriminating case — at 0.8 throttle (~40 u/s) the hull moves roughly
 // its own half-length + burstRadius during (staleness + flight), so the ~135ms
 // of latency D1 pays back is the difference between a burst that still clips
 // the hull and one that lands astern of it.
-const SHOOTER_CLS = 'torpedoBoat';
-const TARGET_CLS = 'torpedoBoat';
+const SHOOTER_CLS = 'iowa';
+const TARGET_CLS = 'iowa';
+/** The shooter's folded main-battery row (per-turret reload, reach). */
+const SHOOTER_BATTERY = effectiveStats(CONFIG.shipClasses[SHOOTER_CLS], []).equipment.mainBattery;
 // Empirically centered (tuning runs at rtt=150/jitter=30/loss=2): shots fire
 // at ~177-182u, inside the honest pass's hit band with margin while at/past
 // the uncompensated pass's band edge. Since the clamp-floor correction
@@ -121,7 +130,7 @@ const TARGET_CLS = 'torpedoBoat';
 // droppable-channel loss floor (a victim-private dmg rides a droppable 'f'
 // frame), not a band edge; B = 16/20 and 14/20 at the identical window.
 const ORBIT_RADIUS_U = 177; // u — target orbit radius around the shooter anchor
-const ORBIT_THROTTLE = 0.8; // ~40 u/s on a torpedoBoat
+const ORBIT_THROTTLE = 0.8; // a fraction of the folded top speed
 const FIRE_MIN_RANGE_U = 60;
 const FIRE_MAX_RANGE_U = 182; // blocks long shots during the target's spiral-in
 const BEAM_SIN_MIN = 0.75; // fire only near beam-on (near-constant muzzle offset)
@@ -285,7 +294,7 @@ function makeClock() {
 
 function makePredictor(map, cls) {
   return {
-    kin: CONFIG.shipClasses[cls].kinematics,
+    kin: effectiveStats(CONFIG.shipClasses[cls], []).kinematics, // the FOLDED kinematics the server steps
     poly: hullSilhouette(cls),
     map,
     dt: DT_MS / 1000,
@@ -475,7 +484,7 @@ function maybeFire(shooter, pass, now) {
   const own = shooter.pred.curr ?? shooter.you;
   const ammo = shooter.you?.ammo?.[0];
   if (!own || !ammo || ammo.n < 1) return;
-  if (now - shooter.lastClickWall < Math.max(CONFIG.gun.reloadMs * 0.15, CLICK_GUARD_MS)) return;
+  if (now - shooter.lastClickWall < Math.max(SHOOTER_BATTERY.reloadMs * 0.15, CLICK_GUARD_MS)) return;
   if (!shooter.track || now - shooter.track.lastWall > CONTACT_FRESH_MS) return;
   const renderT = shooter.clock.serverNow() - CONFIG.tick.interpDelayMs;
   const p = renderedTarget(shooter.track, renderT);
@@ -496,10 +505,10 @@ function maybeFire(shooter, pass, now) {
   shooter.aimDist = range;
   shooter.lastClickT = shooter.clock.serverNow();
   shooter.lastClickWall = now;
-  const predicted = dist2(p, p) <= CONFIG.gun.burstRadius; // click point == rendered hull pos
+  const predicted = dist2(p, p) <= SHOOTER_BATTERY.burstRadius; // click point == rendered hull pos
   pass.shots.push({
     wall: now,
-    deadline: now + (range / CONFIG.gun.shellSpeed) * 1000 + HIT_SLACK_MS,
+    deadline: now + (range / CONFIG.mainBattery.shellSpeed) * 1000 + HIT_SLACK_MS,
     range,
     relSin,
     predicted,
@@ -546,7 +555,7 @@ function buildInput(ctx) {
     // Story 1.6 ability-activation fields: the harness never activates an
     // ability, so it rides the inert sentinels on every input.
     actSeq: 0,
-    actSlot: 0, hornSeq: 0, held: false,
+    actSlot: 0, hornSeq: 0, held: false, sec: false,
   };
 }
 
