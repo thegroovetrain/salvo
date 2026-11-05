@@ -3633,3 +3633,14 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - own story: smoke rewrites - 2026-11-04 (Story 10.4, cycle 212)
   summary: THE THREE HEURISTIC-PILOT SMOKES ARE RED UNDER THE FOUR HULLS - `fogSmoke` ("timeout: park in radar band"), `combatSmoke` ("A never sank B", zero shells, range stuck at 6515 u) and `zoneSmoke` (a 37 hp contact blow plus grind bleed on the hull piloting to the ring centre, read by the smoke as storm damage). All three still sail heuristic pilots from random ring spawns; the default hull is now slower (28.5 u/s) and longer. Same family as the standing entry on the heuristic-pilot smokes; migrated to the new wire (they parse and send `sec`), not rewritten. `zoneSmoke` now prints its own dmg events in the failing assert.
   evidence: Story 10.4 wave 3 runs (7a623e54) on a scratch server; matchSmoke and weaponsSmoke (the scripted scenarios) pass first try.
+
+## 2026-11-05 - Story 10.4 follow-up, arc-only fire and hold outside the arc (cycle 213, 0.19.7, PV 96)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - Eric's call on staging - 2026-11-05 (cycle 213, epic-10 amendment 10(d))
+  summary: A CLOSE-IN DEAD ZONE - an aim on or just beside the own hull between the forward and aft turret groups is inside no turret's arc, so a click there fires nothing and reads as `cooling` with every turret loaded. A consequence of the arc-only rule and the real turret stations, not a defect; recorded for Eric.
+  evidence: measured by the implementer: within about 21-29 u of the ship's center and 11-17 u to the side on the four hulls; `shared/src/sim/turrets.ts` doc; the long-range coverage property test in `turrets.test.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - note - 2026-11-05 (cycle 213)
+  summary: `desiredTurretAngle` AND `desiredTurretAngleFrom` HAVE NO PRODUCTION CALLER after the hold-outside-arc law (tests and `weaponsSmoke.mjs` only). Kept exported; delete if still unused when 10.12 retools the bots.
+  evidence: `shared/src/sim/turrets.ts`; grep of `server/src` and `client/src`.

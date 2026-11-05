@@ -1,11 +1,12 @@
 // THE MAIN BATTERY AND THE SECONDARIES ON THE AUTHORITATIVE WORLD (Story 10.4,
-// Eric rulings R2–R4, epic-10 amendment 9). The pure steppers are pinned in
+// Eric rulings R2–R4, epic-10 amendment 9; arc-only fire, amendment 10). The pure steppers are pinned in
 // shared (turrets.test.ts / secondaries.test.ts); this suite pins the SERVER's
 // wiring of them — the I/O matrix rows the server owns:
 //   * on-target shot fires ONE turret's shells at the aim point, only its reload starts;
 //   * two candidates: the on-target turret wins over a lower-index off-target one;
 //   * early click fires a ready turret along its CURRENT bearing;
-//   * nothing ready → the `cooling` denial;
+//   * nothing ready, or no READY turret whose arc holds the aim → the `cooling`
+//     denial, nothing fires and no reload starts;
 //   * INSTANT RELOAD finishes every turret (angles and heat untouched);
 //   * a sinking hull's turrets HOLD their angles while reloads still run;
 //   * secondaries: burst, overheat lock, release / cool, refused once dead;
@@ -26,6 +27,7 @@ import {
   aimPointOf,
   bearing,
   desiredTurretAngle,
+  turretBears,
   turretMounts,
   turretStationWorld,
   type InputMsg,
@@ -75,7 +77,7 @@ function reloading(rec: ShipRecord): number[] {
 /** A port-beam aim point at `dist` from the centre of a heading-0 hull. */
 const BEAM = Math.PI / 2;
 
-describe('main battery — the R4 click on the authoritative world', () => {
+describe('main battery — the arc-only click on the authoritative world', () => {
   it('ON TARGET: a trained turret fires its own guns AT the aim point; only its reload starts', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -85,7 +87,7 @@ describe('main battery — the R4 click on the authoritative world', () => {
     w.submitInput('a', inp(2, { aim: BEAM, aimDist: dist, fireSeq: 1 }));
     w.step();
     const shells = shellsOf(w, 'a', 'cannon');
-    // R4 priority 1, lowest index: every turret bears on the beam, so turret 0.
+    // Pick priority 1, lowest index: every turret bears on the beam, so turret 0.
     expect(reloading(a)).toEqual([0]);
     expect(shells).toHaveLength(turretMounts(a.hullId)[0].guns);
     expect(a.turrets[0].reloadMsLeft).toBe(a.stats.equipment.mainBattery.reloadMs);
@@ -150,6 +152,25 @@ describe('main battery — the R4 click on the authoritative world', () => {
     w.step();
     expect(shellsOf(w, 'a', 'cannon')).toHaveLength(0);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: 1 }]);
+  });
+
+  it.each(SHIP_CLASS_IDS)('ARC-ONLY (%s): aim dead ahead, the forward turrets spent, the aft turrets loaded → nothing fires, `cooling`, the aft turrets stay loaded', (hull) => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, hull);
+    const dist = a.stats.equipment.mainBattery.rangeU / 2;
+    const aimPt = aimPointOf(a.state, 0, dist);
+    const mounts = turretMounts(a.hullId);
+    mounts.forEach((m, i) => {
+      expect(turretBears(a.hullId, i, a.state, aimPt), `${i}`).toBe(m.facing === 'fwd'); // the premise
+      if (m.facing === 'fwd') a.turrets[i].reloadMsLeft = a.stats.equipment.mainBattery.reloadMs;
+    });
+    const aft = mounts.flatMap((m, i) => (m.facing === 'aft' ? [i] : []));
+    w.submitInput('a', inp(1, { aim: 0, aimDist: dist, fireSeq: 1 }));
+    w.step();
+    expect(shellsOf(w, 'a', 'cannon')).toHaveLength(0);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: 1 }]);
+    for (const i of aft) expect(a.turrets[i].reloadMsLeft, `aft ${i}`).toBe(0);
+    expect(a.loadout[SLOT_GUN].state?.n).toBe(aft.length); // the hotbar still counts them ready
   });
 
   it('a turret fired at tick T is ready again exactly reloadMs later', () => {

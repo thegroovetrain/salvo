@@ -8,17 +8,18 @@
 //       every gun — and EQUAL BROADSIDE across the four hulls (R2), both read
 //       off CONFIG, never a literal;
 //   (3) traverse: never faster than the rate, never outside the train limits,
-//       arrives exactly; the blind sector parks at the NEARER stop and the far
-//       side is reached the LONG WAY ROUND; deterministic;
-//   (4) THE R4 PICK: on-target shot, two candidates, early click, nothing
-//       ready — and the fire solution (reach clamp, parallel barrels, muzzle
-//       clear of the own hull);
+//       arrives exactly; HOLD OUTSIDE THE ARC (Eric 2026-11-05, epic-10
+//       amendment 10) — a turret whose arc does not hold the aim does not move,
+//       resumes from where it was left, and reaches the far side through rest,
+//       never through the blind sector; deterministic;
+//   (4) THE ARC-ONLY PICK (Eric 2026-11-05, epic-10 amendment 10): on-target
+//       shot, two candidates, early click, nothing ready, a turret whose arc
+//       does not hold the aim point is never picked — and the fire solution
+//       (reach clamp, parallel barrels, muzzle clear of the own hull);
 //   (5) reload bookkeeping, the hotbar summary and the contact wire codec;
 //   (6) a hull with no battery (a PvE drone) degrades to the empty answer;
-//   (7) the review-gate patches: the fallback pick ranks a blind-parked
-//       turret by how wide it really points (P2), an aim on the centreline
-//       never makes a turret flip between stops (P3), and an aim with no
-//       bearing — zero distance, or on a turret's own station — holds (P4).
+//   (7) the review-gate patches: an aim with no bearing — zero distance, or on
+//       a turret's own station — holds (P4).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -185,8 +186,8 @@ describe('gunsBearing — how many guns bear on a hull-relative bearing', () => 
   });
 });
 
-describe('desiredTurretAngle — clamped to the train limits, the blind sector parks at the NEARER stop', () => {
-  it.each(SHIP_CLASS_IDS)('%s: an aim point inside the arc is wanted exactly; one in the blind sector is wanted at the nearer stop', (id) => {
+describe('desiredTurretAngle — the stateless clamped want (display / tests; the stepper holds outside the arc)', () => {
+  it.each(SHIP_CLASS_IDS)('%s: an aim point inside the arc is wanted exactly; one in the blind sector is clamped to the nearer stop', (id) => {
     const train = turretTrainRad(id);
     turretMounts(id).forEach((m, i) => {
       const rest = turretRest(m);
@@ -238,48 +239,15 @@ describe('stepTurrets — traverse at the rate, hard stops, never through the bl
     expect(settle(states, id, POSE, aim)).toBe(Math.ceil(farthest / STEP - 1e-9));
   });
 
-  it('THE LONG WAY ROUND: a target across the blind sector is reached through the rest bearing, never across the gap', () => {
-    for (const id of SHIP_CLASS_IDS) {
-      const train = turretTrainRad(id);
-      const mounts = turretMounts(id);
-      const i = mounts.findIndex((m) => m.facing === 'aft');
-      const blindSide = (sign: number): Vec2 => aimAt(POSE, sign * 0.05, FAR); // just off the bow: an aft turret's blind sector
-      const states = initialTurrets(id);
-      settle(states, id, POSE, blindSide(1));
-      expect(offRest(id, i, states[i].a)).toBeCloseTo(-train, 6); // from rest: parked at the nearer stop (the aim's own side)
-      // Swing the aim across the bow, still inside the blind sector: the turret
-      // STAYS on the stop it is on (it would be a long way round for nothing).
-      const parked = states[i].a;
-      for (let t = 0; t < 50; t += 1) stepTurrets(states, id, POSE, blindSide(-1), DT);
-      expect(states[i].a).toBe(parked);
-      // Now a target it CAN reach, on the far side of the gap: just inside the other train limit.
-      const margin = 0.05;
-      const st = turretStationWorld(id, i, POSE);
-      const brg = POSE.heading + turretRest(mounts[i]) + (train - margin);
-      const farSide: Vec2 = { x: st.x + Math.cos(brg) * FAR, y: st.y + Math.sin(brg) * FAR };
-      expect(turretBears(id, i, POSE, farSide)).toBe(true);
-      const path: number[] = [];
-      for (let t = 0; t < 400; t += 1) {
-        stepTurrets(states, id, POSE, farSide, DT);
-        path.push(offRest(id, i, states[i].a));
-      }
-      expect(path[path.length - 1]).toBeCloseTo(train - margin, 6);
-      // It swept the arc the long way: through rest (0), never past either stop.
-      expect(path.some((o) => Math.abs(o) < STEP)).toBe(true);
-      for (const o of path) expect(Math.abs(o)).toBeLessThanOrEqual(train + 1e-12);
-      // …and it took the long way's time: the whole travel at the rate, not the short hop across the gap.
-      const arrived = path.findIndex((o) => Math.abs(o - (train - margin)) < 1e-9);
-      expect(arrived + 1).toBe(Math.ceil((2 * train - margin) / STEP - 1e-9));
-    }
-  });
-
-  it('PROPERTY: over random poses and aims no turret ever turns faster than the rate or leaves its train limits', () => {
+  it('PROPERTY: over random poses and aim paths a turret moves ONLY on ticks its arc holds the aim, never faster than the rate, never outside its train limits', () => {
     const rng = mulberry32(0x104_7a7e);
     for (const id of SHIP_CLASS_IDS) {
       const train = turretTrainRad(id);
       const states = initialTurrets(id);
       const pose: AimPose = { x: 0, y: 0, heading: 0 };
       let aim: Vec2 = { x: 500, y: 0 };
+      let moved = 0;
+      let held = 0;
       for (let t = 0; t < 3000; t += 1) {
         // The ship turns and sails, and the aim jumps anywhere every few ticks — close in and far out.
         pose.heading = wrapAngle(pose.heading + rng.float(-0.03, 0.03));
@@ -289,11 +257,19 @@ describe('stepTurrets — traverse at the rate, hard stops, never through the bl
         const before = states.map((s) => s.a);
         stepTurrets(states, id, pose, aim, DT);
         states.forEach((s, i) => {
+          const bears = turretBears(id, i, pose, aim);
+          if (s.a !== before[i]) moved += 1;
+          if (!bears) {
+            held += 1;
+            expect(s.a, `${id}/${i} tick ${t}: moved with the aim outside its arc`).toBe(before[i]);
+          }
           expect(Math.abs(s.a - before[i]), `${id}/${i} tick ${t}`).toBeLessThanOrEqual(STEP + 1e-12);
           expect(Math.abs(offRest(id, i, s.a)), `${id}/${i} tick ${t}`).toBeLessThanOrEqual(train + 1e-12);
           expect(s.reloadMsLeft).toBeGreaterThanOrEqual(0);
         });
       }
+      expect(moved, id).toBeGreaterThan(0); // the property is not vacuous: turrets did move…
+      expect(held, id).toBeGreaterThan(0); // …and the aim did leave their arcs
     }
   });
 
@@ -327,7 +303,7 @@ describe('stepTurrets — traverse at the rate, hard stops, never through the bl
   });
 });
 
-describe('pickTurret — THE R4 PICK', () => {
+describe('pickTurret — THE ARC-ONLY PICK', () => {
   const id: ShipClassId = 'bismarck';
   const reach = effectiveStats(CONFIG.shipClasses[id]).equipment.mainBattery.rangeU;
   const reloadMs = effectiveStats(CONFIG.shipClasses[id]).equipment.mainBattery.reloadMs;
@@ -388,16 +364,16 @@ describe('pickTurret — THE R4 PICK', () => {
     expect(pickTurret(states, id, POSE, abeam)).toMatchObject({ index: 3, onTarget: false });
   });
 
-  it('EARLY CLICK into a blind sector: a turret parked at its stop is not "on target", and still fires along the stop', () => {
+  it('ARC-ONLY: aim dead ahead, the forward turrets reloading, the aft turrets ready (held, the aim in their blind sector) — nothing fires', () => {
     const states = initialTurrets(id);
     const ahead = aimAt(POSE, 0.02, FAR);
     settle(states, id, POSE, ahead);
-    for (let i = 0; i < 2; i += 1) fireTurret(states, i, reloadMs); // the forward turrets (which bear) are reloading
-    const pick = pickTurret(states, id, POSE, ahead)!;
-    expect(turretMounts(id)[pick.index].facing).toBe('aft');
-    expect(pick.onTarget).toBe(false);
-    expect(Math.abs(offRest(id, pick.index, states[pick.index].a))).toBeCloseTo(turretTrainRad(id), 9);
-    expect(pick.bearing).toBeCloseTo(POSE.heading + states[pick.index].a, 12);
+    turretMounts(id).forEach((m, i) => {
+      expect(turretBears(id, i, POSE, ahead), `${i}`).toBe(m.facing === 'fwd'); // the premise
+      if (m.facing === 'fwd') fireTurret(states, i, reloadMs);
+    });
+    expect(batterySummary(states).n).toBeGreaterThan(0); // turrets ARE ready…
+    expect(pickTurret(states, id, POSE, ahead)).toBeNull(); // …but none of them can bear
   });
 
   it('NOTHING READY: every turret reloading picks nothing', () => {
@@ -408,13 +384,37 @@ describe('pickTurret — THE R4 PICK', () => {
     expect(batterySummary(states)).toEqual({ n: 0, reloadMsLeft: reloadMs });
   });
 
-  it('a click ALWAYS fires while any turret is ready, wherever the aim is', () => {
+  it('PROPERTY: over random poses, aims and turret states the pick is always a READY turret that BEARS, and there is a pick whenever one exists', () => {
     const rng = mulberry32(99);
     for (const hull of SHIP_CLASS_IDS) {
-      const states = initialTurrets(hull);
-      for (let k = 0; k < 200; k += 1) {
-        const aim = aimPointOf(POSE, rng.float(-Math.PI, Math.PI), rng.float(0, 2000));
-        expect(pickTurret(states, hull, POSE, aim), `${hull} ${k}`).not.toBeNull();
+      const mounts = turretMounts(hull);
+      const train = turretTrainRad(hull);
+      for (let k = 0; k < 400; k += 1) {
+        const pose: AimPose = { x: rng.float(-3000, 3000), y: rng.float(-3000, 3000), heading: rng.float(-Math.PI, Math.PI) };
+        const aim = aimPointOf(pose, rng.float(-Math.PI, Math.PI), rng.float(1, 2000));
+        const states: TurretState[] = mounts.map((m) => ({
+          a: turretRest(m) + rng.float(-train, train),
+          reloadMsLeft: rng.float(0, 1) < 0.5 ? 0 : rng.float(1, 10000),
+        }));
+        const candidates = mounts.flatMap((_, i) => (states[i].reloadMsLeft <= 0 && turretBears(hull, i, pose, aim) ? [i] : []));
+        const pick = pickTurret(states, hull, pose, aim);
+        if (pick === null) {
+          expect(candidates, `${hull} ${k}`).toEqual([]);
+          continue;
+        }
+        expect(candidates, `${hull} ${k}`).toContain(pick.index);
+      }
+    }
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: COVERAGE — at long range every bearing around the compass is inside at least one turret\'s arc (so "no ready turret bears" means "the bearing ones are reloading")', (hull) => {
+    for (const pose of [POSE, { x: -800, y: 1500, heading: -2.4 }]) {
+      for (let k = 0; k < 720; k += 1) {
+        const aim = aimAt(pose, (k * Math.PI) / 360, FAR);
+        const bearing = turretMounts(hull).filter((_, i) => turretBears(hull, i, pose, aim));
+        expect(bearing.length, `${hull} ${k / 2}°`).toBeGreaterThan(0);
+        // …and a fresh battery (every turret ready) always has a pick there.
+        expect(pickTurret(initialTurrets(hull), hull, pose, aim), `${hull} ${k / 2}°`).not.toBeNull();
       }
     }
   });
@@ -591,49 +591,58 @@ describe('a hull with no battery (a PvE drone) has no turrets', () => {
   });
 });
 
-describe('THE FALLBACK PICK ranks by the TRUE bearing error (review-gate patch P2)', () => {
+describe('THE EARLY-CLICK PICK ranks only turrets that BEAR (arc-only fire, Eric 2026-11-05, epic-10 amendment 10)', () => {
   const id: ShipClassId = 'bismarck';
   const DEG = Math.PI / 180;
   const mounts = turretMounts(id);
   const fwd = mounts.flatMap((m, i) => (m.facing === 'fwd' ? [i] : []));
   const aft = mounts.flatMap((m, i) => (m.facing === 'aft' ? [i] : []));
-  const blind = Math.PI - turretTrainRad(id); // how wide of the bow an aft turret parked on its stop points
+  const blind = Math.PI - turretTrainRad(id); // how wide of the bow an aft turret left on its stop points
 
-  /** Every turret settled on an aim dead ahead: the forward turrets on it, the aft turrets parked on a stop. */
+  /** Every turret settled on an aim dead ahead: the forward turrets on it, the aft turrets HELD at rest (it is in their blind sector). */
   const settledAhead = (aim: Vec2): TurretState[] => {
     const states = initialTurrets(id);
     settle(states, id, POSE, aim);
-    for (const i of aft) expect(Math.abs(offRest(id, i, states[i].a))).toBeCloseTo(turretTrainRad(id), 9);
+    for (const i of aft) expect(states[i].a).toBe(turretRest(mounts[i]));
     return states;
   };
 
-  it('aim dead ahead, a forward turret ready and a degree short, an aft turret parked on its stop: the FORWARD turret fires', () => {
+  it('aim dead ahead, a forward turret ready and a degree short, the aft turrets ready: the FORWARD turret fires', () => {
     const ahead = aimAt(POSE, 0, FAR);
     const states = settledAhead(ahead);
     expect(1 * DEG).toBeGreaterThan(TOL); // the premise: a degree short is not "on target"
-    expect(1 * DEG).toBeLessThan(blind); // …and far nearer than the parked aft turret's real error
     fwd.forEach((i, k) => { states[i].a += (1 + k) * DEG; }); // the bow turret 1° short, the next 2°
     const pick = pickTurret(states, id, POSE, ahead)!;
     expect(pick.onTarget).toBe(false);
     expect(pick.index).toBe(fwd[0]);
-    expect(Math.abs(wrapAngle(pick.bearing - POSE.heading))).toBeCloseTo(1 * DEG, 9); // a degree wide, not the stop's 35°
+    expect(Math.abs(wrapAngle(pick.bearing - POSE.heading))).toBeCloseTo(1 * DEG, 9);
   });
 
-  it('a blind-parked turret ranks by how wide it really points: it loses to a turret nearer the aim and beats one farther off, whichever side of the centreline the aim sits', () => {
+  it('aim dead ahead, a forward turret ready but MID-TRAVERSE (pointing wider than an aft turret left on a stop), the aft turrets ready: the FORWARD turret fires along its current bearing, whichever side of the centreline', () => {
     for (const side of [-1, 1]) {
       const ahead = aimAt(POSE, side * 1e-4, FAR);
       for (const sign of [-1, 1]) {
-        // The aft turrets parked on EITHER stop: the same real error both ways.
         const states = settledAhead(ahead);
-        for (const i of aft) states[i].a = turretRest(mounts[i]) + sign * turretTrainRad(id);
-        fwd.forEach((i) => { states[i].a = blind * 0.5; }); // forward turrets nearer than the parked ones
-        expect(fwd, `${side}/${sign} near`).toContain(pickTurret(states, id, POSE, ahead)!.index);
-        fwd.forEach((i) => { states[i].a = blind * 1.5; }); // …and now farther off than them
+        for (const i of aft) states[i].a = turretRest(mounts[i]) + sign * turretTrainRad(id); // left on EITHER stop (pointing 35° off the bow)
+        fwd.forEach((i) => { states[i].a = blind * 1.5; }); // still swinging in from the beam: wider than the aft turrets
         const pick = pickTurret(states, id, POSE, ahead)!;
-        expect(aft, `${side}/${sign} far`).toContain(pick.index);
+        expect(fwd, `${side}/${sign}`).toContain(pick.index);
         expect(pick.onTarget).toBe(false);
+        expect(pick.bearing).toBeCloseTo(POSE.heading + states[pick.index].a, 12); // early: where it points, not the aim
       }
     }
+  });
+
+  it('broadside aim, every turret ready, none on target: the bearing turret with the SMALLEST error fires early', () => {
+    const abeam = aimAt(POSE, Math.PI / 2, FAR);
+    const states = initialTurrets(id);
+    settle(states, id, POSE, abeam);
+    mounts.forEach((_, i) => expect(turretBears(id, i, POSE, abeam), `${i}`).toBe(true)); // the premise: a broadside brings every turret
+    const errs = [0.5, 0.3, 0.2, 0.4]; // rad off target; turret 2 nearest
+    states.forEach((s, i) => { s.a -= errs[i]; });
+    const pick = pickTurret(states, id, POSE, abeam)!;
+    expect(pick).toMatchObject({ index: 2, onTarget: false });
+    expect(pick.bearing).toBeCloseTo(POSE.heading + states[2].a, 12);
   });
 
   it('the on-target test is unchanged: inside the arc and inside the tolerance still fires at the aim point', () => {
@@ -645,63 +654,121 @@ describe('THE FALLBACK PICK ranks by the TRUE bearing error (review-gate patch P
   });
 });
 
-describe('AN AIM ON THE CENTRELINE never makes a turret flip between stops (review-gate patch P3)', () => {
-  const JITTER = 1e-6;
+describe('HOLD OUTSIDE THE ARC (Eric 2026-11-05, epic-10 amendment 10)', () => {
+  const DEG = Math.PI / 180;
+  /** A FAR aim point `off` rad off turret `i`'s rest bearing, measured from its own station. */
+  const offAim = (id: ShipClassId, i: number, off: number): Vec2 => {
+    const st = turretStationWorld(id, i, POSE);
+    const brg = POSE.heading + turretRest(turretMounts(id)[i]) + off;
+    return { x: st.x + Math.cos(brg) * FAR, y: st.y + Math.sin(brg) * FAR };
+  };
 
-  it.each(SHIP_CLASS_IDS)('%s: aim dead astern with ±1e-6 rad of jitter — a forward turret travels monotonically to ONE stop and stays there', (id) => {
+  it.each(SHIP_CLASS_IDS)('%s: the aim leaves a forward turret\'s arc (dead astern) — the turret stays exactly where the aim left it, not at a stop', (id) => {
+    const states = initialTurrets(id);
+    const port = aimAt(POSE, Math.PI / 2, FAR);
+    // Mid-traverse toward the beam: a few ticks, so it is neither at rest nor at a stop.
+    for (let t = 0; t < 5; t += 1) stepTurrets(states, id, POSE, port, DT);
+    const left = states[0].a;
+    expect(Math.abs(offRest(id, 0, left))).toBeGreaterThan(0);
+    expect(Math.abs(offRest(id, 0, left))).toBeLessThan(turretTrainRad(id));
+    const astern = aimAt(POSE, Math.PI, FAR);
+    expect(turretBears(id, 0, POSE, astern)).toBe(false); // the premise
+    for (let t = 0; t < 60; t += 1) {
+      stepTurrets(states, id, POSE, astern, DT);
+      expect(states[0].a, `tick ${t}`).toBe(left);
+    }
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: TWO FRONTS — trained on A, the aim in the blind sector for 2 s, back on A: on target the first tick with zero traverse, and picked on target', (id) => {
+    const states = initialTurrets(id);
+    const A = aimAt(POSE, Math.PI / 2, FAR); // broadside port: every turret bears
+    settle(states, id, POSE, A);
+    const trained = states.map((s) => s.a);
+    const astern = aimAt(POSE, Math.PI, FAR); // the forward turrets' blind sector
+    for (let t = 0; t < 2000 / DT; t += 1) stepTurrets(states, id, POSE, astern, DT);
+    turretMounts(id).forEach((m, i) => {
+      if (m.facing === 'fwd') expect(states[i].a, `fwd ${i} held`).toBe(trained[i]);
+    });
+    stepTurrets(states, id, POSE, A, DT);
+    turretMounts(id).forEach((m, i) => {
+      if (m.facing === 'fwd') expect(states[i].a, `fwd ${i}: zero traverse`).toBe(trained[i]);
+    });
+    expect(pickTurret(states, id, POSE, A)).toMatchObject({ index: 0, onTarget: true });
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: leaving and re-entering on the FAR side — it resumes from the held angle and reaches the new aim through rest in exactly |Δoffset| / rate ticks', (id) => {
     const train = turretTrainRad(id);
     const states = initialTurrets(id);
-    const path: number[] = [0];
-    for (let t = 0; t < 100; t += 1) {
-      stepTurrets(states, id, POSE, aimAt(POSE, Math.PI + (t % 2 === 0 ? JITTER : -JITTER), FAR), DT);
+    const startOff = 80 * DEG;
+    settle(states, id, POSE, offAim(id, 0, startOff));
+    expect(offRest(id, 0, states[0].a)).toBeCloseTo(startOff, 9);
+    // Into the blind sector on the SAME side, a while: held.
+    for (let t = 0; t < 30; t += 1) stepTurrets(states, id, POSE, offAim(id, 0, (train + Math.PI) / 2), DT);
+    expect(offRest(id, 0, states[0].a)).toBeCloseTo(startOff, 9);
+    // Back in on the far side, just inside the other train limit.
+    const target = -(train - 0.05);
+    const far = offAim(id, 0, target);
+    expect(turretBears(id, 0, POSE, far)).toBe(true);
+    const path: number[] = [];
+    for (let t = 0; t < 400; t += 1) {
+      stepTurrets(states, id, POSE, far, DT);
       path.push(offRest(id, 0, states[0].a));
     }
-    expect(100 * STEP).toBeGreaterThan(train); // the premise: 100 ticks is time enough to reach a stop
-    const dir = Math.sign(path[1]);
-    expect(dir).not.toBe(0);
-    for (let k = 1; k < path.length; k += 1) {
-      expect((path[k] - path[k - 1]) * dir, `tick ${k}`).toBeGreaterThanOrEqual(0); // never a step back
-    }
-    expect(path[path.length - 1]).toBeCloseTo(dir * train, 9);
-    expect(path.slice(-10).every((o) => o === path[path.length - 1])).toBe(true);
+    expect(path[path.length - 1]).toBeCloseTo(target, 6);
+    expect(path.some((o) => Math.abs(o) < STEP)).toBe(true); // through rest
+    for (const o of path) expect(Math.abs(o)).toBeLessThanOrEqual(train + 1e-12); // never past a stop
+    for (let k = 1; k < path.length; k += 1) expect(path[k]).toBeLessThanOrEqual(path[k - 1]); // one direction
+    const arrived = path.findIndex((o) => Math.abs(o - target) < 1e-6);
+    expect(arrived + 1).toBe(Math.ceil((startOff - target) / STEP - 1e-9));
   });
 
-  it.each(SHIP_CLASS_IDS)('%s: aim dead ahead with jitter — an aft turret does the same, starting on either jitter phase', (id) => {
-    const train = turretTrainRad(id);
-    const i = turretMounts(id).findIndex((m) => m.facing === 'aft');
-    for (const phase of [0, 1]) {
+  it.each(SHIP_CLASS_IDS)('%s: a turret held outside its arc still counts its reload down', (id) => {
+    const states = initialTurrets(id);
+    const astern = aimAt(POSE, Math.PI, FAR);
+    fireTurret(states, 0, 1000);
+    const angle = states[0].a;
+    for (let t = 0; t < 1000 / DT; t += 1) stepTurrets(states, id, POSE, astern, DT);
+    expect(states[0].a).toBe(angle);
+    expect(states[0].reloadMsLeft).toBe(0);
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: an aim on the centreline with float jitter (dead astern of a forward turret, dead ahead of an aft one) never moves either', (id) => {
+    const mounts = turretMounts(id);
+    const fwd = mounts.findIndex((m) => m.facing === 'fwd');
+    const aft = mounts.findIndex((m) => m.facing === 'aft');
+    for (const start of [0, 0.4, -0.4]) {
       const states = initialTurrets(id);
-      const path: number[] = [0];
+      states[fwd].a = turretRest(mounts[fwd]) + start;
+      states[aft].a = turretRest(mounts[aft]) + start;
       for (let t = 0; t < 100; t += 1) {
-        stepTurrets(states, id, POSE, aimAt(POSE, (t + phase) % 2 === 0 ? JITTER : -JITTER, FAR), DT);
-        path.push(offRest(id, i, states[i].a));
+        const jitter = t % 2 === 0 ? 1e-6 : -1e-6;
+        stepTurrets(states, id, POSE, aimAt(POSE, Math.PI + jitter, FAR), DT);
+        expect(offRest(id, fwd, states[fwd].a), `fwd tick ${t}`).toBe(start);
       }
-      const dir = Math.sign(path[1]);
-      for (let k = 1; k < path.length; k += 1) expect((path[k] - path[k - 1]) * dir, `tick ${k}`).toBeGreaterThanOrEqual(0);
-      expect(path[path.length - 1]).toBeCloseTo(dir * train, 9);
+      // (dead astern IS inside the aft turret's arc, so it trained meanwhile:
+      // what must not move from here on is wherever that left it.)
+      states[aft].a = turretRest(mounts[aft]) + start;
+      const aftAt = states[aft].a;
+      for (let t = 0; t < 100; t += 1) {
+        const jitter = t % 2 === 0 ? 1e-6 : -1e-6;
+        stepTurrets(states, id, POSE, aimAt(POSE, jitter, FAR), DT);
+        expect(states[aft].a, `aft tick ${t}`).toBe(aftAt);
+      }
     }
   });
 
-  it('desiredTurretAngleFrom: at rest it is the nearer stop; off rest it is the stop on the side the turret already is; inside the arc it is desiredTurretAngle', () => {
+  it('desiredTurretAngleFrom: inside the arc it is desiredTurretAngle whatever the turret points at; outside the arc it is where the turret already is', () => {
     for (const id of SHIP_CLASS_IDS) {
       const train = turretTrainRad(id);
       turretMounts(id).forEach((m, i) => {
         const rest = turretRest(m);
         const station = turretStationWorld(id, i, POSE);
         const at = (off: number): Vec2 => ({ x: station.x + Math.cos(POSE.heading + rest + off) * 700, y: station.y + Math.sin(POSE.heading + rest + off) * 700 });
-        const blindOff = (train + Math.PI) / 2; // halfway into the blind sector, on the positive side
-        for (const side of [-1, 1]) {
-          const aim = at(side * blindOff);
-          // At rest: the nearer stop — the stateless rule.
-          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest) - rest, `${id}/${i}`).toBeCloseTo(side * train, 9);
-          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest)).toBeCloseTo(desiredTurretAngle(id, i, POSE, aim), 12);
-          // Off rest on the OTHER side: it keeps its own side, however near the other stop is.
-          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest - side * 0.2) - rest, `${id}/${i}`).toBeCloseTo(-side * train, 9);
-          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest - side * train) - rest, `${id}/${i}`).toBeCloseTo(-side * train, 9);
-        }
-        // Inside the arc the current angle does not matter.
-        for (const off of [-train * 0.9, -0.3, 0, 0.7, train * 0.9]) {
-          for (const cur of [rest - train, rest, rest + 0.4]) {
+        for (const cur of [rest - train, rest - 0.2, rest, rest + 0.4, rest + train]) {
+          for (const side of [-1, 1]) {
+            expect(desiredTurretAngleFrom(id, i, POSE, at(side * (train + Math.PI) / 2), cur), `${id}/${i}`).toBe(cur);
+          }
+          for (const off of [-train * 0.9, -0.3, 0, 0.7, train * 0.9]) {
             expect(desiredTurretAngleFrom(id, i, POSE, at(off), cur)).toBeCloseTo(desiredTurretAngle(id, i, POSE, at(off)), 12);
           }
         }
@@ -762,27 +829,20 @@ describe('AN AIM WITH NO BEARING holds the turrets (review-gate patch P4)', () =
     expect(states).toEqual(initialTurrets(id));
   });
 
-  it("pickTurret: a turret with the aim point on its own station is never on target and ranks LAST; the pick's numbers are always finite", () => {
+  it("pickTurret: a turret with the aim point on its own station does not bear and is never picked; the pick's numbers are always finite", () => {
     const id: ShipClassId = 'bismarck';
     const pose: AimPose = { x: 10, y: 20, heading: 0 }; // heading 0 + turret 0 at rest = the bearing atan2(0, 0) reads
     const aim = turretStationWorld(id, 0, pose);
     const states = initialTurrets(id);
     const pick = pickTurret(states, id, pose, aim)!;
-    expect(pick.index).not.toBe(0); // any turret with a real bearing outranks it
+    expect(pick.index).not.toBe(0); // a turret with a real bearing that bears is picked instead
+    expect(turretBears(id, pick.index, pose, aim)).toBe(true);
     for (const v of [pick.bearing, pick.aimDistU, pick.station.x, pick.station.y]) expect(Number.isFinite(v)).toBe(true);
-    // Only turret 0 ready: a click still fires (R4), along where it points, at no distance.
+    // Only turret 0 ready: it has no bearing to its own station, so nothing fires.
     states.forEach((_, i) => { if (i !== 0) fireTurret(states, i, 5000); });
-    const lone = pickTurret(states, id, pose, aim)!;
-    expect(lone).toMatchObject({ index: 0, onTarget: false, aimDistU: 0 });
-    expect(lone.bearing).toBe(pose.heading + states[0].a);
-    const salvo = turretSalvo(lone, id, pose, 1000, MAP_R);
-    for (const sh of salvo.shells) {
-      for (const v of [sh.origin.x, sh.origin.y, sh.target.x, sh.target.y]) expect(Number.isFinite(v)).toBe(true);
-    }
-    // A junk point: still a pick, still finite.
-    const junk = pickTurret(initialTurrets(id), id, pose, { x: Number.NaN, y: Number.NaN })!;
-    expect(junk).toMatchObject({ index: 0, onTarget: false, aimDistU: 0 });
-    expect(Number.isFinite(junk.bearing)).toBe(true);
+    expect(pickTurret(states, id, pose, aim)).toBeNull();
+    // A junk point bears from no turret: nothing fires.
+    expect(pickTurret(initialTurrets(id), id, pose, { x: Number.NaN, y: Number.NaN })).toBeNull();
   });
 });
 

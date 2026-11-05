@@ -133,13 +133,8 @@ export class OwnBattery {
     }
   }
 
-  /** Is any turret loaded? (R4: a click always fires when one is.) */
-  anyReady(): boolean {
-    for (const t of this.turrets) if (t.reloadMsLeft <= 0) return true;
-    return false;
-  }
-
-  /** The R4 pick for an aim point from `pose` — the shared pure picker. */
+  /** The arc-only pick for an aim point from `pose` — the shared pure picker
+   *  (null: no ready turret bears, so a click fires nothing). */
   pick(pose: AimPose, aimPoint: { x: number; y: number }): TurretPick | null {
     return pickTurret(this.turrets, this.hull, pose, aimPoint);
   }
