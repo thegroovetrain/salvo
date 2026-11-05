@@ -28,7 +28,7 @@ warnings: ['oversized']
 - **R5 A drone kill pays XP only** until 10.8; the consumable drop roll is removed. Rejected: XP + a little hull.
 - **R6 BROADSIDE leaves the deal** — kept in the file for reference like the deck guns. Rejected: a special-shell option.
 - **R7 FLASH and FOULING shell tiers widen the burst: +25 u per tier, 150 → 250 u** at Tier V, on top of the standard 5 % shorter reload per tier. Rejected: reload only; a longer effect; +15 u; +37.5 u. SUPERCAV tiers are amendment 8(e): 400 → 800 damage, +100 a tier.
-- **R8 PASSIVE HEALING IS BACK** (Eric 2026-11-05, chat, mid-run, verbatim: *"Also we need to add back in the 2% missing HP passive healing after 30 seconds of not taking damage. It wont make combat any less deadly, but it will allow ships who survive to recover."*): a hull that has taken no hull damage for 30 s heals 2 % of its MISSING hp per second. Supersedes amendment 6(b)(6) "passive healing DIES", amendment 8's regen removal and this story's "HULL REPAIR is the ONLY heal" clause; the PASSIVE HEALING card ladder stays deleted (he did not ask for it).
+- **R8 PASSIVE HEALING IS BACK** (Eric 2026-11-05, chat, mid-run, verbatim: *"Also we need to add back in the 2% missing HP passive healing after 30 seconds of not taking damage. It wont make combat any less deadly, but it will allow ships who survive to recover."*): a hull that has taken no hull damage for **15 s** heals 2 % of its MISSING hp per second. Same day, on being told the old wait was 15 s: *"2% per second is right."* and *"That's right. Make it 15, 30 was too long."* — the 30 s of his first sentence is superseded. Supersedes amendment 6(b)(6) "passive healing DIES", amendment 8's regen removal and this story's "HULL REPAIR is the ONLY heal" clause; the PASSIVE HEALING card ladder stays deleted (he did not ask for it).
 
 ## Boundaries & Constraints
 
@@ -68,8 +68,8 @@ warnings: ['oversized']
 | Shell tiers | FLASH / FOULING SHELL tier N | burst radius 150 + 25 × (N − 1) u | none |
 | Legacy client data | saved `hullcracker.kit`, join option `kit` | ignored | none, no log needed |
 | Drone kill | captain sinks a drone | XP only; no drop event | none |
-| Passive regen | hurt hull, 30 s since the last blow that removed hull hp | heals 2 % of missing hp per second, every tick | none |
-| Regen interrupted | any hull damage (shell, torpedo, mine, ram, storm, burn) | regen stops; the 30 s clock restarts | none |
+| Passive regen | hurt hull, 15 s since the last blow that removed hull hp | heals 2 % of missing hp per second, every tick | none |
+| Regen interrupted | any hull damage (shell, torpedo, mine, ram, storm, burn) | regen stops; the 15 s clock restarts | none |
 | Regen + repair | `C` pressed while regenerating | both apply; neither resets the other | none |
 
 </intent-contract>
@@ -97,7 +97,7 @@ warnings: ['oversized']
 - [ ] `shared/src/constants.ts` -- add the R1 / R2 cooldowns and R4 reloads, the R7 radius step; delete `shieldBlock`, `buoy`, `droneDrops` -- numbers.
 - [ ] `shared/src/sim/{loadout,catalog,boons,draw,effects,stats,arcs}.ts` -- five slots (battery, Shift, torpedo, mine, shell); slot families; one kind per slot in the draw and the refusal gate; `supercavTorpedo` / `dazzleShells` / `foulingShell` become equipment lines with tiers (R4, R7, 8(e)); consumable lines, kit functions and stock deleted; `broadside` undealable with a dated note; `depthCharge` stays a stub -- slot and catalog model.
 - [ ] `shared/src/sim/abilities.ts` (new), `shell.ts`, `buoy.ts` (deleted), `types.ts`, `index.ts` -- pure cooldown law for `C` / `V`; decoy target kind and buoy preference removed; wire: ability press, own cooldown fields, removed kit / shield / buoy / decoy / drop fields; PV 97 -- wire contract.
-- [ ] `shared/src/constants.ts`, `shared/src/sim/regen.ts` (new), `server/src/game/world.ts` -- `CONFIG.regen` (R8: 0.02 of missing per second, 30 000 ms wait) and one pure regen law read by the heal step off `lastDamagedAt` (already written at the one damage gate, reader-less since 10.3); the client learns hp from frames as today -- passive regen.
+- [ ] `shared/src/constants.ts`, `shared/src/sim/regen.ts` (new), `server/src/game/world.ts` -- `CONFIG.regen` (R8: 0.02 of missing per second, 15 000 ms wait) and one pure regen law read by the heal step off `lastDamagedAt` (already written at the one damage gate, reader-less since 10.3); the client learns hp from frames as today -- passive regen.
 - [ ] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (cooldown law, family fill, one-kind refusal, tier radius, draw never offers a second kind); delete kit / buoy / shield tests -- contracts.
 - [ ] `server/src/game/equipment/*`, `world.ts`, `decoys.ts` (deleted) -- two cooldown abilities; the three moved weapons on the reload pool; consumable rows, shield order, decoy store, buoy steps and drone drops removed; `STEP_ORDER` re-declared -- authoritative sim.
 - [ ] `server/src/game/{inputs,frames,signals,perception}.ts`, `server/src/rooms/*` -- validate the ability press; own block; remove the `decoy` channel and kit join path; trim and extend the invariant tests; re-record goldenFrames with a dated note -- chokepoint and join.
@@ -130,7 +130,7 @@ Implementer readings of record (each Eric's to veto on staging; none is a ruling
 - **Level-zero guarantee:** card 0 is a weapon that fills an empty slot. With the consumable kind gone, the remaining kind shares keep their relative weights (10.7 re-cuts the law).
 - **Deleted, not dormant:** shield, buoys, decoys, kit, drops (git history keeps them). The main shell's mask becomes hull only. `depthCharge` stays the one stub line.
 - **Bots:** repair below a hull threshold and smoke when under fire — thresholds in `CONFIG.bots`; favorite-consumable profile fields removed. The bot kit stream is deleted; the hull / Shift stream is untouched so pinned-seed seats hold.
-- **Passive regen (R8):** "2 %" is read as PER SECOND, the rate of the law 10.3 removed (epic-9 amendments 90–92, 100); the clock is the last blow that removed hull hp from ANY source, storm included (amendment 92 as built — with the shield gone every landed blow resets it); fixed for every hull, drones and bots included as before, not a stat, no card, not scaled by any index; no new HUD readout or in-game copy; bots get no "wait to heal" behavior (10.12).
+- **Passive regen (R8):** per second is Eric-confirmed (R8); the rate and the 15 s wait are the base of the law 10.3 removed (epic-9 amendments 90–92, 100); the clock is the last blow that removed hull hp from ANY source, storm included (amendment 92 as built — with the shield gone every landed blow resets it); fixed for every hull, drones and bots included as before, not a stat, no card, not scaled by any index; no new HUD readout or in-game copy; bots get no "wait to heal" behavior (10.12).
 - **Version** 0.19.7, cycle 213, PV 97.
 
 ## Verification

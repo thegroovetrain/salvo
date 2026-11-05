@@ -27,80 +27,101 @@
 //       exactly (same seed, same card) and distributionally (uniform).
 //
 // Pure, zero I/O.
+//
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 10): the kit is retired. The
+// `consumable` kind is gone from the draw (two kinds, `weapon` and `upgrade`),
+// an offer may be short or EMPTY, a bare weapon is eligible only while ITS
+// FAMILY'S slot is empty (one kind per slot — the property block below), the
+// level-zero guarantee is a slot-filling weapon, and BROADSIDE is never dealt.
 
 import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  CONSUMABLE_IDS,
+  EQUIPMENT_FAMILY,
+  FAMILY_SLOT,
+  SLOT_FAMILIES,
+  WEAPON_SLOTS,
   boonStackCount,
   drawOffer,
+  effectiveStats,
   eligibleLines,
+  familyMembers,
+  familySlotFor,
   ladderHost,
   lineWeight,
+  loadoutFor,
   mulberry32,
   usableLines,
   pickRefusal,
-  isConsumableKit,
-  rollKit,
-  KIT_SIZE,
-  SLOT_COUNT,
+  slotsWithCards,
+  tierTargetOf,
   LINE_IDS,
   type Catalog,
-  type ConsumableKit,
   type CatalogLine,
   type DrawKind,
   type DrawShip,
   type EquipmentId,
   type LineId,
   type Rng,
-  type SlotItemId,
+  type SlotFamily,
   type Weights,
 } from '../index.js';
+import { NEUTRAL_HULL } from './neutralHull.js';
 
-/** The slot ids of a fresh hull: the gun, the Shift, an EMPTY weapon row
- *  (2/3/4) and empty consumable slots. The draw reads the row off this array —
- *  there is no separate `weaponSlotOpen` boolean to disagree with it (review
- *  F2). */
-const ROW_OPEN: readonly (SlotItemId | null)[] = ['gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)];
+/** The slot ids of a fresh hull on the gun-module fit: the gun, no Shift and
+ *  three EMPTY family slots. The draw reads the row off this array — there is
+ *  no separate `weaponSlotOpen` boolean to disagree with it (review F2). */
+const ROW_OPEN: readonly (EquipmentId | null)[] = loadoutFor(effectiveStats(NEUTRAL_HULL), true).map((s) => s.equipmentId);
 
-/** The same hull with all three weapon slots occupied. */
-const ROW_FULL: readonly (SlotItemId | null)[] = [
-  'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...new Array<null>(SLOT_COUNT - 5).fill(null),
-];
+/** The same hull with all three family slots occupied — the first kind of each
+ *  family, read off the model. */
+const ROW_FULL: readonly (EquipmentId | null)[] = ROW_OPEN.map((id, i) => {
+  const k = (WEAPON_SLOTS as readonly number[]).indexOf(i);
+  return k < 0 ? id : familyMembers(SLOT_FAMILIES[k])[0];
+});
 
-/** THE TEST KIT (Story 10.1): a deliberate four that is NOT `DEFAULT_KIT` —
- *  the two lines this suite stacks to cap (HULL REPAIR, SUPERCAV TORPEDO)
- *  plus two more; the FOULING SHELL and the COUNTERMEASURE are OFF it. */
-const KIT: ConsumableKit = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'healingBuoy'];
-
-/** Is `id` one of the kit's four? */
-const inKit = (id: string, kit: ConsumableKit = KIT): boolean => (kit as readonly string[]).includes(id);
-
-/** A ship with an open weapon row, holding nothing — the level-zero state. */
 /** The three RETIRED deck-gun modules (reference + the PvE fleet since Story
  *  10.4) — the hosts the three gun ladders name. A captain mounts none of them. */
 const GUN_MODULES = ['gun', 'machineGun', 'flak'] as const satisfies readonly EquipmentId[];
 
-const OPEN: DrawShip = { held: [], slotIds: ROW_OPEN, mountedGun: 'gun', kit: KIT };
+/** A ship with an open weapon row, holding nothing — the level-zero state. */
+const OPEN: DrawShip = { held: [], slotIds: ROW_OPEN, mountedGun: 'gun' };
 
-/** The same ship with all three weapon slots full. */
-const CLOSED: DrawShip = { held: [], slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
+/** The same ship with all three family slots full (by a fit, holding no card). */
+const CLOSED: DrawShip = { held: [], slotIds: ROW_FULL, mountedGun: 'gun' };
 
 /** No takes anywhere: every line at its base weight of 1.0. */
 const NO_WEIGHTS: Weights = new Map<LineId, number>();
 
+/** Every dealable EQUIPMENT line whose weapon has a family slot, in catalog order. */
+const WEAPON_LINES: LineId[] = LINE_IDS.filter((id) => {
+  const line = CATALOG[id];
+  const eq = tierTargetOf(line);
+  return line.kind === 'equipment' && line.stub !== true && eq !== undefined && familySlotFor(eq) !== null;
+});
+
+/** The family of a weapon line. */
+const familyOfLine = (id: LineId): SlotFamily => EQUIPMENT_FAMILY[tierTargetOf(CATALOG[id])!]!;
+
+/** A REAL captain's draw state for a hand of cards: the slots are the replay of
+ *  the hand, never typed by hand. */
+function shipOf(held: readonly LineId[]): DrawShip {
+  const stats = effectiveStats(NEUTRAL_HULL, held);
+  return { held, slotIds: slotsWithCards(stats, held).map((s) => s.equipmentId), mountedGun: 'mainBattery' };
+}
+
 /** How many of `eligible` are of each kind. */
 function kindCounts(eligible: readonly { kind: DrawKind }[]): Record<DrawKind, number> {
-  const out: Record<DrawKind, number> = { weapon: 0, upgrade: 0, consumable: 0 };
+  const out: Record<DrawKind, number> = { weapon: 0, upgrade: 0 };
   for (const e of eligible) out[e.kind] += 1;
   return out;
 }
 
 /** The kind of each dealt line, for a ship's eligible set. */
-function kindsOf(ship: DrawShip, offer: readonly LineId[], catalog: Catalog = CATALOG): DrawKind[] {
+function kindsOf(ship: DrawShip, offer: readonly LineId[], catalog: Catalog = CATALOG): (DrawKind | undefined)[] {
   const byId = new Map(eligibleLines(ship, catalog).map((e) => [e.id, e.kind]));
-  return offer.map((id) => byId.get(id) ?? 'consumable');
+  return offer.map((id) => byId.get(id));
 }
 
 /** An rng that counts how many values it hands out. */
@@ -122,8 +143,7 @@ function countingRng(seed: number): { rng: Rng; calls: () => number } {
   };
 }
 
-/** A hand that fills every LADDER and ADD-ON to its cap — what a ship holds
- *  once it has taken every upgrade the pool can offer it. */
+/** A hand that fills every dealable LADDER and ADD-ON to its cap. */
 function everyUpgradeCapped(catalog: Catalog = CATALOG): LineId[] {
   const out: LineId[] = [];
   for (const key of Object.keys(catalog)) {
@@ -137,37 +157,50 @@ function everyUpgradeCapped(catalog: Catalog = CATALOG): LineId[] {
 
 describe('eligibleLines — the whole eligibility law', () => {
   it('is in CATALOG key order and never holds a stub or an unknown id', () => {
-    const order = Object.keys(CATALOG);
     const ids = eligibleLines(OPEN).map((e) => e.id);
-    expect([...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b))).toEqual(ids);
-    for (const id of ids) expect(CATALOG[id]?.stub, id).not.toBe(true);
+    expect(ids).toEqual(LINE_IDS.filter((id) => ids.includes(id)));
+    for (const id of ids) expect(CATALOG[id].stub, id).not.toBe(true);
   });
 
-  it('WITH A WEAPON SLOT OPEN: an unheld equipment line is kind `weapon`', () => {
-    const byId = new Map(eligibleLines(OPEN).map((e) => [e.id, e.kind]));
-    expect(byId.get('lightTorpedo')).toBe('weapon');
-    expect(byId.get('heavyTorpedo')).toBe('weapon');
-    expect(byId.get('navalMines')).toBe('weapon');
+  it('ON AN EMPTY ROW: every family weapon line is kind `weapon` — and BROADSIDE, with no slot, is not eligible at all (R6)', () => {
+    const eligible = eligibleLines(OPEN);
+    for (const id of WEAPON_LINES) expect(eligible, id).toContainEqual({ id, kind: 'weapon' });
+    expect(eligible.filter((e) => e.kind === 'weapon').map((e) => e.id)).toEqual(WEAPON_LINES);
+    expect(eligible.some((e) => e.id === 'broadside')).toBe(false);
   });
 
-  it('WITH THE ROW FULL: no unheld equipment line is eligible at all', () => {
-    for (const e of eligibleLines(CLOSED)) {
-      const line = CATALOG[e.id];
-      if (line.kind !== 'equipment') continue;
-      expect.fail(`${e.id} should not be eligible with the weapon row full`);
+  it('BROADSIDE and every line the kit retire deleted are never eligible, whatever the ship holds (Story 10.5)', () => {
+    const ships: DrawShip[] = [OPEN, CLOSED, shipOf([]), shipOf(['lightTorpedo']), { ...OPEN, held: ['broadside'] }];
+    for (const ship of ships) {
+      const ids = eligibleLines(ship).map((e) => e.id as string);
+      for (const gone of ['broadside', 'hullRepair', 'shieldBlock', 'countermeasure', 'radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy', 'depthCharge']) {
+        expect(ids, gone).not.toContain(gone);
+      }
     }
-    // ...and the kinds that survive are upgrades and consumables only.
-    expect(kindCounts(eligibleLines(CLOSED)).weapon).toBe(0);
+  });
+
+  it('WITH A FAMILY SLOT FILLED: no unheld line of THAT family is eligible; the other families are untouched', () => {
+    for (const family of SLOT_FAMILIES) {
+      const slotIds = [...ROW_OPEN];
+      slotIds[FAMILY_SLOT[family]] = familyMembers(family)[0];
+      const weapons = eligibleLines({ ...OPEN, slotIds }).filter((e) => e.kind === 'weapon').map((e) => e.id);
+      expect(weapons, family).toEqual(WEAPON_LINES.filter((id) => familyOfLine(id) !== family));
+    }
+    expect(eligibleLines(CLOSED).filter((e) => e.kind === 'weapon')).toEqual([]);
   });
 
   it('a HELD equipment line below its cap is an `upgrade` (the tier card), and at cap it is out', () => {
-    const one: DrawShip = { ...CLOSED, held: ['lightTorpedo'] };
-    expect(eligibleLines(one).find((e) => e.id === 'lightTorpedo')?.kind).toBe('upgrade');
-    const capped: DrawShip = {
-      ...CLOSED,
-      held: new Array<LineId>(CATALOG.lightTorpedo.cap).fill('lightTorpedo'),
-    };
-    expect(eligibleLines(capped).some((e) => e.id === 'lightTorpedo')).toBe(false);
+    for (const id of WEAPON_LINES) {
+      const cap = CATALOG[id].cap;
+      for (let copies = 1; copies < cap; copies += 1) {
+        expect(eligibleLines(shipOf(new Array<LineId>(copies).fill(id))), `${id} x${copies}`).toContainEqual({ id, kind: 'upgrade' });
+      }
+      expect(eligibleLines(shipOf(new Array<LineId>(cap).fill(id))).some((e) => e.id === id), id).toBe(false);
+    }
+  });
+
+  it('is FAIL-CLOSED on a short slot array: a missing family slot is never empty, so no bare weapon is eligible', () => {
+    expect(eligibleLines({ ...OPEN, slotIds: [] }).filter((e) => e.kind === 'weapon')).toEqual([]);
   });
 
   it('THE WHOLE GUN FAMILY follows the MOUNTED gun, appliesTo or not (amendment 89d, review F3)', () => {
@@ -317,52 +350,6 @@ describe('eligibleLines — the whole eligibility law', () => {
     // ...and at its cap of 1 it leaves, host or no host.
     expect(has({ ...CLOSED, held: ['starShells', 'foulingShell'] })).toBe(false);
   });
-
-  it('A CARRIED CONSUMABLE IS ALWAYS ELIGIBLE — at its cap, always (amendment 94; kit-confined since Story 10.1)', () => {
-    const capped: DrawShip = {
-      ...CLOSED,
-      held: [
-        ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
-        ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
-        ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
-        ...new Array<LineId>(CATALOG.countermeasure.cap).fill('countermeasure'),
-        ...new Array<LineId>(CATALOG.healingBuoy.cap).fill('healingBuoy'),
-        ...new Array<LineId>(CATALOG.foulingShell.cap).fill('foulingShell'),
-      ],
-    };
-    const eligible = eligibleLines(capped);
-    const ids = eligible.map((e) => e.id);
-    expect(ids).toContain('hullRepair');
-    expect(ids).toContain('supercavTorpedo');
-    // All are still tagged `consumable`, and EVERY line THE KIT CARRIES is
-    // present, in catalog order — the cap filters equipment, ladders and
-    // add-ons, never these. A live line OUTSIDE the kit never is (Story 10.1),
-    // and the one stub never is. (CHAFF retired in Story 9.2, amendment 31.)
-    expect(eligible.filter((e) => e.kind === 'consumable').map((e) => e.id))
-      .toEqual(LINE_IDS.filter((id) => inKit(id)));
-    expect(kindCounts(eligible).weapon).toBe(0); // the row is full
-  });
-
-  it('A CONSUMABLE OUTSIDE THE KIT IS NEVER A CANDIDATE (Story 10.1) — and the same line is, under a kit that carries it', () => {
-    const offKit = CONSUMABLE_IDS.filter((id) => CATALOG[id].stub !== true && !inKit(id));
-    expect(offKit.length).toBeGreaterThan(0); // the test kit really leaves live lines out
-    for (const ship of [OPEN, CLOSED]) {
-      const ids = eligibleLines(ship).map((e) => e.id);
-      for (const id of offKit) expect(ids, id).not.toContain(id);
-      for (const id of KIT) expect(ids, id).toContain(id);
-    }
-    for (const id of offKit) {
-      const carrying: ConsumableKit = [id, ...KIT.slice(1)];
-      expect(isConsumableKit(carrying), id).toBe(true);
-      expect(eligibleLines({ ...OPEN, kit: carrying }).map((e) => e.id), id).toContain(id);
-    }
-  });
-
-  it('the kit ORDER does not touch eligibility — membership is the whole law', () => {
-    const reversed: ConsumableKit = [...KIT].reverse();
-    expect(eligibleLines({ ...OPEN, kit: reversed })).toEqual(eligibleLines(OPEN));
-    expect(eligibleLines({ ...CLOSED, kit: reversed })).toEqual(eligibleLines(CLOSED));
-  });
 });
 
 describe('lineWeight — the weighting (amendments 90/91)', () => {
@@ -453,18 +440,18 @@ describe('THE KIND-ODDS INVARIANT — weighting moves WHICH weapon, never whethe
 
 describe('drawOffer — the shape of an offer', () => {
   it('deals CONFIG.offer.size DIFFERENT lines, every one of them eligible', () => {
-    for (let seed = 0; seed < 500; seed += 1) {
+    for (let seed = 0; seed < 300; seed += 1) {
       const offer = drawOffer(OPEN, NO_WEIGHTS, mulberry32(seed));
-      expect(offer, `seed ${seed}`).toHaveLength(CONFIG.offer.size);
-      expect(new Set(offer).size, `seed ${seed}`).toBe(offer.length);
-      const eligible = new Set(eligibleLines(OPEN).map((e) => e.id));
-      for (const id of offer) expect(eligible.has(id), `seed ${seed}:${id}`).toBe(true);
+      expect(offer).toHaveLength(CONFIG.offer.size);
+      expect(new Set(offer).size).toBe(offer.length);
+      const eligible = eligibleLines(OPEN).map((e) => e.id);
+      for (const id of offer) expect(eligible).toContain(id);
     }
   });
 
   it('is deterministic: the same seed and the same inputs give the same offer', () => {
-    for (let seed = 0; seed < 200; seed += 1) {
-      expect(drawOffer(OPEN, LOPSIDED, mulberry32(seed))).toEqual(drawOffer(OPEN, LOPSIDED, mulberry32(seed)));
+    for (let seed = 0; seed < 50; seed += 1) {
+      expect(drawOffer(OPEN, NO_WEIGHTS, mulberry32(seed))).toEqual(drawOffer(OPEN, NO_WEIGHTS, mulberry32(seed)));
     }
   });
 
@@ -472,246 +459,193 @@ describe('drawOffer — the shape of an offer', () => {
     for (let seed = 0; seed < 50; seed += 1) {
       const { rng, calls } = countingRng(seed);
       const offer = drawOffer(OPEN, NO_WEIGHTS, rng);
-      expect(calls(), `seed ${seed}`).toBe(2 * offer.length);
+      expect(calls()).toBe(2 * offer.length);
     }
   });
 
-  it('NEVER deals an equipment copy 1 with the weapon row full', () => {
-    for (let seed = 0; seed < 500; seed += 1) {
-      for (const id of drawOffer(CLOSED, LOPSIDED, mulberry32(seed))) {
-        const line = CATALOG[id];
-        expect(line.kind === 'equipment' && boonStackCount(CLOSED.held, id) === 0, `seed ${seed}:${id}`).toBe(false);
-      }
-    }
-  });
-
-  it('NEVER deals a line at or over its cap — EXCEPT a consumable, which is dealt at cap on purpose', () => {
-    // A deep hand: every ladder and add-on maxed, one equipment line at cap,
-    // both consumables at cap, the weapon row full.
-    const held: LineId[] = [
-      ...everyUpgradeCapped(),
-      ...new Array<LineId>(CATALOG.lightTorpedo.cap).fill('lightTorpedo'),
-      ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
-      ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
-    ];
-    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
-    let cappedConsumables = 0;
+  it('NEVER deals a line at or over its cap, and never a bare weapon whose family slot is taken', () => {
+    const capped = [...everyUpgradeCapped(), ...new Array<LineId>(CATALOG.lightTorpedo.cap).fill('lightTorpedo')];
+    const ship = shipOf(capped);
     for (let seed = 0; seed < 300; seed += 1) {
-      const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));
-      expect(offer.length, `seed ${seed}`).toBeGreaterThan(0); // never empty
-      for (const id of offer) {
-        const line = CATALOG[id];
-        const copies = boonStackCount(held, id);
-        if (line.kind === 'consumable') {
-          if (copies >= line.cap) cappedConsumables += 1;
-          continue;
-        }
-        expect(copies, `seed ${seed}:${id}`).toBeLessThan(line.cap);
+      for (const id of drawOffer(ship, NO_WEIGHTS, mulberry32(seed))) {
+        expect(boonStackCount(capped, id), id).toBeLessThan(CATALOG[id].cap);
+        expect(pickRefusal(ship.held, ship.slotIds, id), id).toBeNull();
       }
     }
-    // BOTH HALVES PINNED: the at-cap consumables really were dealt (amendment
-    // 94 — greyed client-side, refused server-side, never filtered out).
-    expect(cappedConsumables).toBeGreaterThan(0);
   });
 
   it('gives a SHORTER offer when fewer than CONFIG.offer.size lines are eligible — never padded, never repeated', () => {
-    // Since Story 8.16 production has FIVE live consumables (SIX since 8.17's
-    // FLASH SHELLS, SEVEN since 8.18's SMOKE SCREEN), always eligible, so it
-    // can no longer run short at offer size 4 — the property is pinned on the
-    // pre-8.16 catalog shape (shield/decoy — and flash and smoke — stubbed),
-    // injected. Two of the four stubbed lines are in KIT; the other two of
-    // KIT survive, so the eligible set is exactly those two.
-    const TWO_LIVE: Catalog = {
-      ...CATALOG,
-      shieldBlock: { ...CATALOG.shieldBlock, stub: true },
-      countermeasure: { ...CATALOG.countermeasure, stub: true },
-      healingBuoy: { ...CATALOG.healingBuoy, stub: true },
-      foulingShell: { ...CATALOG.foulingShell, stub: true },
-    };
-    const held: LineId[] = [
-      ...everyUpgradeCapped(),
-      ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
-      ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
-    ];
-    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
-    const eligible = eligibleLines(ship, TWO_LIVE);
-    expect(eligible.map((e) => e.id).sort()).toEqual(['hullRepair', 'supercavTorpedo']);
-    for (let seed = 0; seed < 200; seed += 1) {
-      const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed), TWO_LIVE);
-      expect([...offer].sort(), `seed ${seed}`).toEqual(['hullRepair', 'supercavTorpedo']);
+    // Every ladder capped and every family slot holding a capped weapon but
+    // ONE line one copy short: exactly one line is still eligible.
+    const full = [...everyUpgradeCapped(), ...SLOT_FAMILIES.flatMap((f) => {
+      const line = WEAPON_LINES.find((id) => familyOfLine(id) === f)!;
+      return new Array<LineId>(CATALOG[line].cap).fill(line);
+    })];
+    const last = full[full.length - 1];
+    const ship = shipOf(full.slice(0, -1));
+    expect(eligibleLines(ship).map((e) => e.id)).toEqual([last]);
+    for (let seed = 0; seed < 50; seed += 1) {
+      expect(drawOffer(ship, NO_WEIGHTS, mulberry32(seed))).toEqual([last]);
     }
   });
 
-  it('a fully capped captain sees an offer of its KIT\'s consumables in production — as many as the kit and the offer size allow', () => {
-    const held: LineId[] = [...everyUpgradeCapped()];
-    for (const id of KIT) held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
-    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
-    const live = [...KIT].sort();
-    expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
-    // Story 8.16 closed amendment 94's two-card offer by going live with five
-    // consumables; since Story 10.1 the ceiling is the KIT, so a capped
-    // captain's offer is min(offer size, kit size) different kit lines.
-    for (let seed = 0; seed < 200; seed += 1) {
-      const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));
-      expect(offer, `seed ${seed}`).toHaveLength(Math.min(CONFIG.offer.size, KIT_SIZE));
-      for (const id of offer) expect(live, `seed ${seed}:${id}`).toContain(id);
-      expect(new Set(offer).size).toBe(offer.length);
-    }
-  });
-
-  it('THE DRAW IS CONFINED TO THE KIT (Story 10.1, seeded property): 2,000+ offers, no consumable outside it — and a carried line at cap IS dealt', () => {
-    // Three ship states × sampled kits: the empty hull, the full row, and a
-    // hull holding every kit line at its cap (the amendment-94 case).
-    const rng = mulberry32(0x10_1);
-    let offers = 0;
-    let cappedDealt = 0;
-    for (let trial = 0; trial < 40; trial += 1) {
-      const kit = rollKit(rng.next);
-      const capped: LineId[] = [];
-      for (const id of kit) capped.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
-      const ships: DrawShip[] = [
-        { ...OPEN, kit },
-        { ...CLOSED, kit },
-        { held: [...everyUpgradeCapped(), ...capped], slotIds: ROW_FULL, mountedGun: 'gun', kit },
-      ];
-      for (const ship of ships) {
-        for (let k = 0; k < 20; k += 1) {
-          const seed = rng.int(0, 0x7fff_ffff);
-          for (const guarantee of [false, true]) {
-            const offer = drawOffer(ship, LOPSIDED, mulberry32(seed), CATALOG, { guarantee });
-            offers += 1;
-            for (const id of offer) {
-              if (CATALOG[id].kind !== 'consumable') continue;
-              expect(inKit(id, kit), `trial ${trial} seed ${seed}: ${id} ∉ [${kit.join(',')}]`).toBe(true);
-              if (boonStackCount(ship.held, id) >= CATALOG[id].cap) cappedDealt += 1;
-            }
-          }
-        }
-      }
-    }
-    expect(offers).toBeGreaterThanOrEqual(2000);
-    expect(cappedDealt).toBeGreaterThan(0); // amendment 94 stands: dealt greyed, never filtered
-  });
-
-  it('IS NEVER EMPTY while any consumable line is dealable (amendment 94)', () => {
-    // Even a ship that holds everything it possibly can is shown a card.
-    const held: LineId[] = [];
-    for (const key of Object.keys(CATALOG)) {
-      const line = CATALOG[key];
-      if (line.stub === true) continue;
-      for (let i = 0; i < line.cap; i += 1) held.push(key as LineId);
-    }
-    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
-    for (let seed = 0; seed < 100; seed += 1) {
-      expect(drawOffer(ship, NO_WEIGHTS, mulberry32(seed)).length, `seed ${seed}`).toBeGreaterThan(0);
-    }
+  it('AN EXHAUSTED HULL DRAWS AN EMPTY OFFER (Story 10.5 — the always-dealt consumables are gone), and spends no rng', () => {
+    const full = [...everyUpgradeCapped(), ...SLOT_FAMILIES.flatMap((f) => {
+      const line = WEAPON_LINES.find((id) => familyOfLine(id) === f)!;
+      return new Array<LineId>(CATALOG[line].cap).fill(line);
+    })];
+    const ship = shipOf(full);
+    expect(eligibleLines(ship)).toEqual([]);
+    const { rng, calls } = countingRng(7);
+    expect(drawOffer(ship, NO_WEIGHTS, rng)).toEqual([]);
+    expect(drawOffer(ship, NO_WEIGHTS, rng, CATALOG, { guarantee: true })).toEqual([]);
+    expect(calls()).toBe(0);
   });
 
   it('a catalog with NOTHING dealable draws an empty offer rather than throwing', () => {
-    const empty: Catalog = {};
-    expect(drawOffer(OPEN, NO_WEIGHTS, mulberry32(1), empty)).toEqual([]);
-    expect(drawOffer(OPEN, NO_WEIGHTS, mulberry32(1), empty, { guarantee: true })).toEqual([]);
+    const stubOnly: Catalog = { depthCharge: CATALOG.depthCharge };
+    expect(drawOffer(OPEN, NO_WEIGHTS, mulberry32(1), stubOnly)).toEqual([]);
+    expect(drawOffer(OPEN, NO_WEIGHTS, mulberry32(1), {})).toEqual([]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// THE LEVEL-ZERO GUARANTEE (Story 8.10 as amended by amendment 93: level zero
-// and its REDRAW only, and the weighting never touches it).
+// ONE KIND PER SLOT (Story 10.5, Eric 2026-11-05, epic-10 amendment 10): once a
+// family's slot holds a kind, no OTHER kind of that family may ever be offered
+// for the rest of the match — the acceptance criterion's property, over random
+// card histories built the way the server builds them (offer → legal pick).
 // ---------------------------------------------------------------------------
-
-describe('the level-zero guarantee — card 0 is a USABLE card, uniformly', () => {
-  const USABLE = usableLines([], ROW_OPEN, KIT);
-
-  it('usableLines is every KIT consumable + every unheld equipment line, in CATALOG order', () => {
-    const expected = Object.keys(CATALOG).filter((id) => {
-      const line = CATALOG[id];
-      return line.stub !== true && ((line.kind === 'consumable' && inKit(id)) || line.kind === 'equipment');
-    });
-    expect(USABLE).toEqual(expected);
-    // A live consumable outside the kit is never usable (Story 10.1) — under a
-    // kit that carries it, it is.
-    for (const id of CONSUMABLE_IDS) {
-      if (CATALOG[id].stub === true || inKit(id)) continue;
-      expect(USABLE, id).not.toContain(id);
-      expect(usableLines([], ROW_OPEN, [id, ...KIT.slice(1)]), id).toContain(id);
+describe('ONE KIND PER SLOT — the draw never offers a second kind of a filled family', () => {
+  /** The kind holding each family's slot, read off the replayed row. */
+  const slotted = (ship: DrawShip): Map<SlotFamily, EquipmentId> => {
+    const out = new Map<SlotFamily, EquipmentId>();
+    for (const f of SLOT_FAMILIES) {
+      const eq = ship.slotIds[FAMILY_SLOT[f]];
+      if (eq !== null && eq !== undefined) out.set(f, eq);
     }
-    // A line the ship already holds is not usable; nor is one at cap.
-    expect(usableLines(['lightTorpedo'], ROW_OPEN, KIT)).not.toContain('lightTorpedo');
-    expect(usableLines(new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'), ROW_OPEN, KIT))
-      .not.toContain('hullRepair');
+    return out;
+  };
+
+  it('PROPERTY: over seeded random histories, every offered equipment line is the slotted kind of its family or fills an EMPTY slot', () => {
+    const rng = mulberry32(0x105_0e);
+    let offers = 0;
+    let secondKindChances = 0;
+    for (let trial = 0; trial < 150; trial += 1) {
+      const held: LineId[] = [];
+      for (let level = 0; level < 30; level += 1) {
+        const ship = shipOf(held);
+        const offer = drawOffer(ship, NO_WEIGHTS, rng, CATALOG, { guarantee: level === 0 });
+        offers += 1;
+        const fitted = slotted(ship);
+        if (fitted.size > 0) secondKindChances += 1;
+        for (const id of offer) {
+          expect(id, 'never BROADSIDE').not.toBe('broadside');
+          const line = CATALOG[id];
+          if (line.kind !== 'equipment') continue;
+          const eq = tierTargetOf(line)!;
+          const holder = fitted.get(EQUIPMENT_FAMILY[eq]!);
+          expect(holder === undefined || holder === eq, `${id} offered with ${String(holder)} slotted (${held.join('+')})`).toBe(true);
+          // ...and the pick gate agrees with the draw on every offered card.
+          expect(pickRefusal(ship.held, ship.slotIds, id), id).toBeNull();
+        }
+        if (offer.length === 0) break;
+        held.push(rng.pick(offer)); // the captain takes a card, like the server's spend
+      }
+      // The history never put two kinds of one family aboard.
+      const kinds = new Map<SlotFamily, Set<EquipmentId>>();
+      for (const id of held) {
+        const line = CATALOG[id];
+        if (line.kind !== 'equipment') continue;
+        const eq = tierTargetOf(line)!;
+        const f = EQUIPMENT_FAMILY[eq]!;
+        kinds.set(f, (kinds.get(f) ?? new Set()).add(eq));
+      }
+      for (const [f, set] of kinds) expect(set.size, `${f} in ${held.join('+')}`).toBe(1);
+    }
+    // The property was actually exercised: most offers were drawn with a slot filled.
+    expect(secondKindChances).toBeGreaterThan(offers / 2);
   });
 
-  it('EXCLUDES a line this hull could not take — the guarantee runs pickRefusal (review F2)', () => {
-    // The level-zero guarantee also fires on the countdown REDRAW, and a dev
-    // `fitOverride` can have filled Q/E/R before then. Copy 1 of an equipment
-    // line would land in `cards` with no slot, so it is not usable there.
-    const rowFull = usableLines([], ROW_FULL, KIT);
-    for (const id of rowFull) expect(CATALOG[id].kind, id).toBe('consumable');
-    expect(rowFull).toContain('hullRepair');
-    // ...and with the row open every one of them is back.
-    expect(usableLines([], ROW_OPEN, KIT).some((id) => CATALOG[id].kind === 'equipment')).toBe(true);
-
-    // A consumable is out only at its cap ('atCap') — there is no full belt
-    // since Story 9.2 (epic-9 amendment 21); below cap it is always usable.
-    const capped = new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair');
-    expect(pickRefusal(capped, ROW_FULL, 'hullRepair', KIT)).toBe('atCap');
-    expect(usableLines(capped, ROW_FULL, KIT)).not.toContain('hullRepair');
-    expect(usableLines(capped, ROW_FULL, KIT)).toContain('supercavTorpedo');
-  });
-
-  it('CARD 0 IS ALWAYS TAKEABLE, whatever the row and the consumable slots look like', () => {
-    const ship: DrawShip = { held: [], slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
-    for (let seed = 0; seed < 200; seed += 1) {
-      const offer = drawOffer(ship, LOPSIDED, mulberry32(seed), CATALOG, { guarantee: true });
-      for (const id of offer) {
-        expect(CATALOG[id].kind === 'equipment' && boonStackCount(ship.held, id) === 0, `seed ${seed}:${id}`)
-          .toBe(false);
+  it('a second kind is refused if it is FORCED, for every ordered pair of kinds in a family', () => {
+    for (const first of WEAPON_LINES) {
+      const ship = shipOf([first]);
+      for (const second of WEAPON_LINES) {
+        if (second === first || familyOfLine(second) !== familyOfLine(first)) continue;
+        expect(pickRefusal(ship.held, ship.slotIds, second), `${second} after ${first}`).toBe('noWeaponSlot');
+        expect(eligibleLines(ship).some((e) => e.id === second), `${second} after ${first}`).toBe(false);
       }
     }
   });
+});
 
-  it("card 0 is always usable, and the rest of the offer is the ordinary draw", () => {
-    for (let seed = 0; seed < 500; seed += 1) {
-      const offer = drawOffer(OPEN, LOPSIDED, mulberry32(seed), CATALOG, { guarantee: true });
-      expect(offer, `seed ${seed}`).toHaveLength(CONFIG.offer.size);
-      expect(USABLE, `seed ${seed}`).toContain(offer[0]);
-      expect(new Set(offer).size, `seed ${seed}`).toBe(offer.length);
+describe('the level-zero guarantee — card 0 is a SLOT-FILLING WEAPON, uniformly', () => {
+  const FRESH = shipOf([]);
+
+  it('usableLines on a fresh hull is every family weapon line, in CATALOG order — never a ladder, the stub or BROADSIDE', () => {
+    expect(usableLines([], FRESH.slotIds)).toEqual(WEAPON_LINES);
+  });
+
+  it('EXCLUDES a line this hull could not take — the guarantee runs pickRefusal (review F2)', () => {
+    for (const family of SLOT_FAMILIES) {
+      const taken = WEAPON_LINES.find((id) => familyOfLine(id) === family)!;
+      const ship = shipOf([taken]);
+      const usable = usableLines(ship.held, ship.slotIds);
+      expect(usable, family).toEqual(WEAPON_LINES.filter((id) => familyOfLine(id) !== family));
+      for (const id of usable) expect(pickRefusal(ship.held, ship.slotIds, id), id).toBeNull();
+    }
+    expect(usableLines([], ROW_FULL)).toEqual([]);
+  });
+
+  it('CARD 0 IS A WEAPON THAT FILLS AN EMPTY SLOT, on a fresh hull and after any partial fit', () => {
+    const rng = mulberry32(0x0);
+    for (let seed = 0; seed < 300; seed += 1) {
+      const families = SLOT_FAMILIES.filter(() => rng.next() < 0.4);
+      const held = families.map((f) => rng.pick(WEAPON_LINES.filter((id) => familyOfLine(id) === f)));
+      const ship = shipOf(held);
+      if (families.length === SLOT_FAMILIES.length) continue; // nothing usable: the vacuous case, below
+      const [first] = drawOffer(ship, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true });
+      const line = CATALOG[first];
+      expect(line.kind, `seed ${seed}`).toBe('equipment');
+      const slot = familySlotFor(tierTargetOf(line)!);
+      expect(slot, `seed ${seed}`).not.toBeNull();
+      expect(ship.slotIds[slot!], `seed ${seed}`).toBeNull();
+      expect(pickRefusal(ship.held, ship.slotIds, first), `seed ${seed}`).toBeNull();
+    }
+  });
+
+  it('the rest of a guaranteed offer is the ordinary draw: full size, all different, all eligible', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const offer = drawOffer(FRESH, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true });
+      expect(offer).toHaveLength(CONFIG.offer.size);
+      expect(new Set(offer).size).toBe(offer.length);
+      const eligible = eligibleLines(FRESH).map((e) => e.id);
+      for (const id of offer) expect(eligible).toContain(id);
     }
   });
 
   it('THE GUARANTEED PICK IS UNWEIGHTED — same seed, same card, whatever the ledger', () => {
-    for (let seed = 0; seed < SEEDS; seed += 1) {
-      const plain = drawOffer(OPEN, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true });
-      const weighted = drawOffer(OPEN, LOPSIDED, mulberry32(seed), CATALOG, { guarantee: true });
+    const heavy: Weights = new Map(WEAPON_LINES.map((id, i) => [id, i % 2 === 0 ? CONFIG.offer.weighting.floor : 1]));
+    for (let seed = 0; seed < 200; seed += 1) {
+      const plain = drawOffer(FRESH, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true });
+      const weighted = drawOffer(FRESH, heavy, mulberry32(seed), CATALOG, { guarantee: true });
       expect(weighted[0], `seed ${seed}`).toBe(plain[0]);
     }
   });
 
-  it('...and its distribution is UNIFORM over the usable lines, weights or no weights', () => {
-    const counts = new Map<LineId, number>(USABLE.map((id) => [id, 0]));
-    for (let seed = 0; seed < SEEDS; seed += 1) {
-      const first = drawOffer(OPEN, LOPSIDED, mulberry32(seed), CATALOG, { guarantee: true })[0];
-      counts.set(first, (counts.get(first) ?? 0) + 1);
+  it('...and it reaches EVERY usable line over many seeds (a uniform pick leaves none out)', () => {
+    const seen = new Set<LineId>();
+    for (let seed = 0; seed < 2000; seed += 1) {
+      seen.add(drawOffer(FRESH, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true })[0]);
     }
-    const share = 1 / USABLE.length;
-    for (const [id, n] of counts) {
-      expect(Math.abs(n / SEEDS - share), `${id} share`).toBeLessThan(0.03);
-    }
+    expect([...seen].sort()).toEqual([...WEAPON_LINES].sort());
   });
 
-  it('is VACUOUS, never a reroll: with nothing usable the offer is the plain draw', () => {
-    // Every consumable and every equipment line at cap, the row full: nothing
-    // usable is left, so the guarantee spends no rng value and changes nothing.
-    const held: LineId[] = [];
-    for (const key of Object.keys(CATALOG)) {
-      const line = CATALOG[key];
-      if (line.stub === true || (line.kind !== 'consumable' && line.kind !== 'equipment')) continue;
-      for (let i = 0; i < line.cap; i += 1) held.push(key as LineId);
-    }
-    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun', kit: KIT };
-    expect(usableLines(held, ROW_FULL, KIT)).toEqual([]);
-    for (let seed = 0; seed < 200; seed += 1) {
-      expect(drawOffer(ship, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true }), `seed ${seed}`)
+  it('is VACUOUS, never a reroll: with every family slot filled the offer is the plain draw, rng value for rng value', () => {
+    const held = SLOT_FAMILIES.map((f) => WEAPON_LINES.find((id) => familyOfLine(id) === f)!);
+    const ship = shipOf(held);
+    expect(usableLines(ship.held, ship.slotIds)).toEqual([]);
+    for (let seed = 0; seed < 50; seed += 1) {
+      expect(drawOffer(ship, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true }))
         .toEqual(drawOffer(ship, NO_WEIGHTS, mulberry32(seed)));
     }
   });

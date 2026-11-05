@@ -30,7 +30,8 @@
 // (HULL POINTS is deleted), ARMOR is also the ramming MASS (sim/contact.ts
 // callers pass `stats.armor`), and `damageMultiplier` is published against an
 // AVERAGE attacker (POWER = base) so a base hull reads ×1. The `regen` pair is
-// GONE with PASSIVE HEALING and the out-of-combat regen.
+// GONE with PASSIVE HEALING: the out-of-combat regen that came back in Story
+// 10.5 (R8) is a fixed law over CONFIG.regen (sim/regen.ts), not a stat.
 //
 // Bases: the ship class for hull-ish stats (hp, the seven indices, the four
 // pass-through kinematics); CONFIG.vision for
@@ -147,9 +148,10 @@ export interface EffectiveBroadside extends EquipmentRowCommon {
 // the star shell's `phosphor`/`dazzle` were the last, and both are deleted.
 
 /**
- * A TORPEDO LINE's effective numbers — the LIGHT and HEAVY fish (the
- * supercavitating one left for the consumable id space, epic-8 amendment 74,
- * and carries no row at all).
+ * A TORPEDO LINE's effective numbers — the LIGHT, HEAVY and (again, since
+ * Story 10.5, epic-10 amendment 10) SUPERCAVITATING torpedoes. The supercav's
+ * `homingTurnRate` is 0 at every tier: it never homes (amendment 74) and the
+ * field is not stat-addressable on its row (sim/effects.ts).
  *
  * `homingTurnRate` REPLACED the `homing` boolean on 2026-09-19 (Eric ruling,
  * amendment 80): ACOUSTIC HOMING is deleted and homing is a TIER STAT — 0
@@ -260,7 +262,7 @@ export interface EffectiveHunker extends EquipmentRowCommon {
  * STAR SHELLS' effective numbers. Story 8.17 (Eric ruling 2026-09-29, epic-8
  * amendments 130/134): the flare deals `damage` to every non-owner hull inside
  * the WHOLE lit circle at burst, and the `phosphor`/`dazzle` verbs are DELETED
- * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS consumable).
+ * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS line).
  */
 export interface EffectiveStarShells extends EquipmentRowCommon {
   rangeU: number; // u — max flare travel — Tier I in CONFIG.starShells.rangeU, +step per upgrade card (ruling 125)
@@ -298,6 +300,22 @@ export interface EffectiveBoost extends EquipmentRowCommon {
   durationMs: number; // ms — active window per activation
 }
 
+/**
+ * A BURST SHELL's effective numbers — FLASH SHELLS (`dazzleShells`) and the
+ * FOULING SHELL, slot weapons since Story 10.5 (Eric 2026-11-05, epic-10
+ * amendment 10). `radius` is the one tiered number (R7: +25 u a tier,
+ * 150 → 250 at V) — the flash's one-time burst disc, the fouling shell's foul
+ * zone — and the server STAMPS it on the shell at launch (`ShellState.flash` /
+ * `.foul`), so a later card never changes a round in flight or a live zone.
+ * `rangeU` is the shared fixed reach (`CONFIG.foulingShell.rangeU` for both —
+ * no card steps it). Everything else about either shell (the whiteout phases,
+ * the zone's life, slow and linger) is a CONFIG constant no tier touches.
+ */
+export interface EffectiveBurstShell extends EquipmentRowCommon {
+  rangeU: number; // u — max shell travel / aimDist clamp (fixed at every tier)
+  radius: number; // u — burst / zone radius (CONFIG.<block>.radius + radiusStepPerTier per tier)
+}
+
 /** Any one equipment row. */
 export type EquipmentStatRow =
   | EffectiveGun
@@ -311,7 +329,8 @@ export type EquipmentStatRow =
   | EffectivePhosphorShells
   | EffectiveInstantReload
   | EffectiveHunker
-  | EffectiveMainBattery;
+  | EffectiveMainBattery
+  | EffectiveBurstShell;
 
 /**
  * THE TOTAL equipment record (Story 8.1) — one row per `EquipmentId`, present
@@ -336,6 +355,9 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   instantReload: EffectiveInstantReload;
   hunker: EffectiveHunker;
   mainBattery: EffectiveMainBattery;
+  supercavTorpedo: EffectiveTorpedo;
+  dazzleShells: EffectiveBurstShell;
+  foulingShell: EffectiveBurstShell;
 }
 
 /**
@@ -408,7 +430,7 @@ export interface EffectiveStats {
 // three of its seven, and 8.15 drained the rest — `missile` and `monitor` are
 // CUT (amendment 89e), and `machineGun`/`flak` are built from their own CONFIG
 // blocks with Eric's 2026-09-28 numbers (amendments 103–105), which supersede
-// the sheet's drafts. Consumable stubs (DEPTH CHARGE…) never had a row.
+// the sheet's drafts. The DEPTH CHARGE stub has no row.
 
 /** deg -> rad (CONFIG.broadside's two ladders are authored in degrees).
  *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
@@ -655,7 +677,37 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
   };
 }
 
-/** THE total equipment record at base. Every id present, every tier 1. */
+/**
+ * THE THREE MOVED WEAPONS' rows at CONFIG base (Story 10.5, Eric 2026-11-05,
+ * epic-10 amendment 10): the SUPERCAVITATING TORPEDO (a torpedo row —
+ * `CONFIG.supercavTorpedo`, R4's 45 s), FLASH SHELLS (`dazzleShells` —
+ * `CONFIG.flashShells`, 30 s) and the FOULING SHELL (`CONFIG.foulingShell`,
+ * 30 s). Each row starts at tier 1; its line's copies raise the tier in the
+ * fold, the −5 %/tier reload and RELOAD's scale are applied in clampStats like
+ * every row, and the catalog steps the supercav's `damage` and the two
+ * shells' `radius`. The flash reads the FOULING SHELL's reach — one dial for
+ * both (epic-10 amendment 4, ruling 2).
+ */
+function movedWeaponRows(): Pick<EquipmentRows, 'supercavTorpedo' | 'dazzleShells' | 'foulingShell'> {
+  return {
+    supercavTorpedo: torpedoRow(CONFIG.supercavTorpedo),
+    dazzleShells: {
+      tier: 1,
+      reloadMs: CONFIG.flashShells.reloadMs,
+      maxAmmo: CONFIG.flashShells.maxAmmo,
+      rangeU: CONFIG.foulingShell.rangeU,
+      radius: CONFIG.flashShells.radius,
+    },
+    foulingShell: {
+      tier: 1,
+      reloadMs: CONFIG.foulingShell.reloadMs,
+      maxAmmo: CONFIG.foulingShell.maxAmmo,
+      rangeU: CONFIG.foulingShell.rangeU,
+      radius: CONFIG.foulingShell.radius,
+    },
+  };
+}
+
 /**
  * THE MAIN BATTERY at zero cards (Story 10.4): the shared half from
  * `CONFIG.mainBattery`, the per-hull half (turret count, shell damage) from
@@ -674,6 +726,7 @@ function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
   };
 }
 
+/** THE total equipment record at base. Every id present, every tier 1. */
 function baseEquipment(cls: ShipClass): EquipmentRows {
   return {
     gun: gunRow(cls),
@@ -719,6 +772,7 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     ...pickableGunRows(),
     ...shippedSkillshotRows(),
     ...shiftRows(),
+    ...movedWeaponRows(),
   };
 }
 

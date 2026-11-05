@@ -1,6 +1,13 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 10): 28/137 -> 21/102 — the
+// kit is retired. Seven consumable lines are DELETED (HULL REPAIR, SHIELD
+// BLOCK, the COUNTERMEASURE line, the four buoys), three become EQUIPMENT
+// lines in their seats (SUPERCAV TORPEDO, FOULING SHELL, FLASH SHELLS), the
+// `consumable` kind and the `stock` effect are gone, and DEPTH CHARGE stays
+// the one stub.
+//
 // STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8): 30/147 -> 28/137 —
 // HULL POINTS and PASSIVE HEALING are DELETED (and with them the
 // `healOnGrant` flag), and four universal ladders are RENAMED in their seats:
@@ -64,7 +71,6 @@ import * as shared from '../index.js';
 import {
   CATALOG,
   CONFIG,
-  BUOY_LINE_IDS,
   EQUIPMENT_IDS,
   LINE_IDS,
   SHIP_CLASS_IDS,
@@ -95,62 +101,37 @@ const rangeStepOf = (w: 'gun' | 'machineGun' | 'flak' | 'broadside' | 'starShell
   add: (CONFIG[w].rangeUAtV - CONFIG[w].rangeU) / 4,
 });
 
-/** catalog-v3 §1, transcribed: every line's cap and kind. */
+/** catalog-v3 §1 as amended, transcribed: every line's cap and kind. */
 const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
-  // HULL POINTS (seat 1) and PASSIVE HEALING (after RELOAD) were DELETED by
-  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8); POWER / ENGINES /
-  // RUDDER / INTEL are the renamed ARMOR PIERCING / SPEED / TURNING / RADAR
-  // SWEEP, same seats.
-  armor: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.7 (epic-9 amendments 86–88)
-  power: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.9 as armorPiercing (epic-9 amendments 144–145)
+  armor: { cap: 5, kind: 'ladder', stub: false },
+  power: { cap: 5, kind: 'ladder', stub: false },
   engines: { cap: 5, kind: 'ladder', stub: false },
   rudder: { cap: 5, kind: 'ladder', stub: false },
   intel: { cap: 5, kind: 'ladder', stub: false },
   reload: { cap: 5, kind: 'ladder', stub: false },
   // CANNON — the one deck-gun line since 2026-09-30 (TURRET/BARREL deleted).
   deckGun: { cap: 4, kind: 'ladder', stub: false },
-  lightTorpedo: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R18)
+  lightTorpedo: { cap: 5, kind: 'equipment', stub: false },
   heavyTorpedo: { cap: 5, kind: 'equipment', stub: false },
-  // A CONSUMABLE since 8.13 (amendment 74) — it keeps its LINE_IDS slot.
-  supercavTorpedo: { cap: 5, kind: 'consumable', stub: false },
+  // An EQUIPMENT line again since Story 10.5 (a consumable from 8.13 until then).
+  supercavTorpedo: { cap: 5, kind: 'equipment', stub: false },
   navalMines: { cap: 5, kind: 'equipment', stub: false },
-  captiveMines: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R25)
-  // THE TWO PICKABLE GUNS' LADDERS since 8.15 (amendments 104/105) — each
-  // keeps its locked LINE_IDS slot; `missile`/`monitor` are CUT (89e).
+  captiveMines: { cap: 5, kind: 'equipment', stub: false },
+  // THE TWO PICKABLE GUNS' LADDERS since 8.15 (amendments 104/105).
   machineGun: { cap: 4, kind: 'ladder', stub: false },
   flak: { cap: 4, kind: 'ladder', stub: false },
   broadside: { cap: 5, kind: 'equipment', stub: false },
   starShells: { cap: 5, kind: 'equipment', stub: false },
-  hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
-  shieldBlock: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R37)
-  countermeasure: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 9.3 (replaced SMOKE SCREEN, live since 8.18)
-  // `decoyBuoy` (LIVE since 8.16, R36) sat here until Story 10.9 DELETED it.
-  depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
-  // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
+  // THE ONE STUB — typed `addon` since Story 10.5 deleted the consumable kind.
+  depthCharge: { cap: 5, kind: 'addon', stub: true },
   foulingMines: { cap: 5, kind: 'equipment', stub: false },
-  // FOULING SHELL — replaced FLASH SHELLS (a CONSUMABLE since 8.17) in its
-  // slot in Story 9.4.
-  foulingShell: { cap: 5, kind: 'consumable', stub: false },
-  // An EQUIPMENT line since 8.17 (amendment 131), slot kept.
+  // EQUIPMENT lines since Story 10.5 (consumables until then).
+  foulingShell: { cap: 5, kind: 'equipment', stub: false },
   phosphorShells: { cap: 5, kind: 'equipment', stub: false },
-  // STORY 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) APPENDED FIVE:
-  // FLASH SHELLS back beside the fouling shell, and the four BUOYS that replace
-  // the deleted DECOY BUOY. All live consumables.
-  dazzleShells: { cap: 5, kind: 'consumable', stub: false },
-  radarBuoy: { cap: 5, kind: 'consumable', stub: false },
-  healingBuoy: { cap: 5, kind: 'consumable', stub: false },
-  shieldBuoy: { cap: 5, kind: 'consumable', stub: false },
-  speedBuoy: { cap: 5, kind: 'consumable', stub: false },
+  dazzleShells: { cap: 5, kind: 'equipment', stub: false },
 };
 
-/** The 1 stub id (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
- *  built HULL REPAIR's effect, 12 until Story 8.13 built the LIGHT TORPEDO,
- *  the CAPTIVE MINE and the SUPERCAV TORPEDO (which also stopped being an
- *  equipment line) and added the stub DEPTH CHARGE, 10 until Story 8.15 cut
- *  missile/monitor/heatSeeking and built the machine gun and flak ladders,
- *  5 until Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY, 2 until Story
- *  8.18 built SMOKE SCREEN (R38, amendments 138–145). The one left is the
- *  DEPTH CHARGE consumable. */
+/** The 1 stub id (Eric ruling 2026-09-15, amendment 5): DEPTH CHARGE. */
 const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
@@ -179,8 +160,13 @@ describe('catalog v3 identity', () => {
     );
   });
 
-  it('has NO EMPTY RUNG on any production line — every upgrade is tiered (Eric 2026-09-30)', () => {
+  it('has NO EMPTY RUNG on any LIVE production line — every upgrade is tiered (Eric 2026-09-30); the stub authors nothing', () => {
     for (const id of LINE_IDS) {
+      if (isStubLine(id)) {
+        // A stub buys nothing: every rung is empty until its story builds it.
+        for (const tier of CATALOG[id].tiers) expect(tier, id).toEqual([]);
+        continue;
+      }
       CATALOG[id].tiers.forEach((tier, k) => expect(tier.length, `${id} tier ${k + 1}`).toBeGreaterThan(0));
     }
   });
@@ -244,7 +230,7 @@ describe('catalog v3 identity', () => {
     // stats.test.ts THE TIERED-LINE FOLD (zero-card row + authored adds /
     // mults, floored once), never a per-rung table (Story 9.14). The other
     // equipment lines are NON-UNIFORM (`tieredWeaponSteps`): see the next case.
-    const UNIFORM: readonly LineId[] = ['foulingMines', 'broadside'];
+    const UNIFORM: readonly LineId[] = ['foulingMines', 'broadside', 'supercavTorpedo', 'dazzleShells', 'foulingShell'];
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       if (line.kind !== 'equipment') continue;
@@ -328,29 +314,40 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('gives every consumable a `stock` on every copy and nothing else', () => {
-    for (const id of LINE_IDS) {
-      const line = CATALOG[id];
-      if (line.kind !== 'consumable') continue;
-      for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stock', equipmentId: id }]);
+  it('the three MOVED lines (Story 10.5) author ONE stat step per upgrade tier: supercav damage, the two shells\' radius read from CONFIG', () => {
+    const only = (id: LineId) => CATALOG[id].tiers.slice(1).map((tier) => {
+      expect(tier, id).toHaveLength(1);
+      return tier[0] as { kind: string; path: string; add: number };
+    });
+    for (const e of only('supercavTorpedo')) {
+      expect(e.path).toBe('equipment.supercavTorpedo.damage');
+      expect(Number.isInteger(e.add) && e.add > 0).toBe(true);
+    }
+    for (const e of only('dazzleShells')) {
+      expect(e).toEqual({ kind: 'stat', path: 'equipment.dazzleShells.radius', add: CONFIG.flashShells.radiusStepPerTier });
+    }
+    for (const e of only('foulingShell')) {
+      expect(e).toEqual({ kind: 'stat', path: 'equipment.foulingShell.radius', add: CONFIG.foulingShell.radiusStepPerTier });
     }
   });
 
-  it('carries NO add-on line any more (Story 8.17, Eric 2026-09-29, amendments 131–134)', () => {
+  it('carries NO LIVE add-on line any more (Story 8.17, Eric 2026-09-29, amendments 131–134) — the kind holds only the stub', () => {
     // TWO ADD-ONS WENT IN 8.13 (Eric rulings 2026-09-19, epic-8 amendments
     // 80/81): ACOUSTIC HOMING is deleted outright (homing became a tier stat on
     // the torpedo lines) and FOULING MINES became its own tiered EQUIPMENT line.
     // A THIRD WENT IN 8.15: HEAT SEEKING is CUT with the missile (89e). THE LAST
     // TWO WENT IN 8.17: PHOSPHOR SHELLS is its own weapon and DAZZLE SHELLS the
-    // FLASH SHELLS consumable (the FOULING SHELL since Story 9.4). The `addon`
-    // kind itself stays (amendment 134).
-    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon')).toEqual([]);
-    expect(CATALOG.phosphorShells.kind).toBe('equipment');
-    expect(CATALOG.foulingShell.kind).toBe('consumable');
-    expect(CATALOG.phosphorShells.appliesTo).toBeUndefined();
-    expect(CATALOG.foulingShell.appliesTo).toBeUndefined();
-    expect(tierTargetOf(CATALOG.phosphorShells)).toBe('phosphorShells');
-    expect(tierTargetOf(CATALOG.foulingShell)).toBeUndefined();
+    // FLASH SHELLS line. The `addon` kind itself stays (amendment 134); since
+    // Story 10.5 the DEPTH CHARGE stub is parked in it (the consumable kind it
+    // carried is deleted), bolting onto nothing.
+    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon' && !isStubLine(id))).toEqual([]);
+    expect(CATALOG.depthCharge.appliesTo).toBeUndefined();
+    expect(tierTargetOf(CATALOG.depthCharge)).toBeUndefined();
+    for (const id of ['phosphorShells', 'foulingShell', 'dazzleShells', 'supercavTorpedo'] as const) {
+      expect(CATALOG[id].kind, id).toBe('equipment');
+      expect(CATALOG[id].appliesTo, id).toBeUndefined();
+      expect(tierTargetOf(CATALOG[id]), id).toBe(id);
+    }
     expect((CATALOG as Record<string, unknown>).acousticHoming).toBeUndefined();
   });
 
@@ -363,28 +360,27 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('DELETES the 8.16 radar buoy EQUIPMENT end to end — no card fits it; the 10.9 buoys are CONSUMABLE lines', () => {
-    expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
-    expect(EQUIPMENT_IDS).toContain('phosphorShells');
-    expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
-    // The DECOY BUOY that replaced it is gone too (Story 10.9); the four buoys
-    // that replace THAT are live CONSUMABLE lines, not equipment.
-    expect((LINE_IDS as readonly string[]).includes('decoyBuoy')).toBe(false);
-    expect((CONFIG as Record<string, unknown>).decoyBuoy).toBeUndefined();
-    for (const id of BUOY_LINE_IDS) {
-      expect(CATALOG[id].kind, id).toBe('consumable');
-      expect(CATALOG[id].stub, id).toBeUndefined();
-      expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
+  it('resolves NO line Story 10.5 deleted with the kit (Eric 2026-11-05, epic-10 amendment 10) — a dead id on the wire is dropped', () => {
+    for (const dead of [
+      'hullRepair', 'shieldBlock', 'countermeasure', 'radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy', 'decoyBuoy',
+    ]) {
+      expect((LINE_IDS as readonly string[]).includes(dead), dead).toBe(false);
+      expect(Object.hasOwn(CATALOG, dead), dead).toBe(false);
+      expect((EQUIPMENT_IDS as readonly string[]).includes(dead), dead).toBe(false);
+      expect(resolveCards([dead]), dead).toEqual([]);
+      expect(effectiveStats(CONFIG.shipClasses.iowa, [dead, 'engines']), dead).toEqual(
+        effectiveStats(CONFIG.shipClasses.iowa, ['engines']),
+      );
     }
   });
 
-  it('FLASH SHELLS is BACK beside the FOULING SHELL — two live click shells, neither in the other\'s seat (Story 10.9)', () => {
-    expect(CATALOG.dazzleShells.kind).toBe('consumable');
-    expect(CATALOG.dazzleShells.stub).toBeUndefined();
-    expect(CATALOG.foulingShell.kind).toBe('consumable');
-    expect(LINE_IDS.indexOf('dazzleShells')).toBeGreaterThan(LINE_IDS.indexOf('foulingShell'));
-    // The five 10.9 lines are APPENDED, in order, at the foot of the list.
-    expect(LINE_IDS.slice(-5)).toEqual(['dazzleShells', ...BUOY_LINE_IDS]);
+  it('no line carries a `stock` effect or the `consumable` kind any more', () => {
+    for (const id of LINE_IDS) {
+      expect(CATALOG[id].kind as string, id).not.toBe('consumable');
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) expect(e.kind as string, id).not.toBe('stock');
+      }
+    }
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
@@ -524,9 +520,9 @@ describe('STORY 10.3 — the six index ladders and the re-ruled weapon rungs', (
   const addOf = (tier: readonly unknown[], path: string): number | undefined =>
     (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
 
-  it('the catalog has 28 lines and the six ship ladders are the six universal (hostless) ladders', () => {
-    expect(LINE_IDS).toHaveLength(28);
-    expect(Object.keys(CATALOG)).toHaveLength(28);
+  it('the catalog and LINE_IDS agree line for line, and the six ship ladders are the six universal (hostless) ladders', () => {
+    expect(Object.keys(CATALOG)).toHaveLength(LINE_IDS.length);
+    expect(new Set(LINE_IDS).size).toBe(LINE_IDS.length);
     const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);
     expect([...universal].sort()).toEqual([...INDEX_LADDERS].sort());
   });
@@ -631,18 +627,19 @@ describe('validateCatalog', () => {
     expect(validateCatalog(bad).join(' ')).toContain("key 'engines' does not match line id 'armor'");
   });
 
-  it('refuses off-whitelist stat paths, unknown doctrine verbs and unknown slotFill/stock targets', () => {
+  it('refuses off-whitelist stat paths, unknown doctrine verbs, unknown slotFill targets and an unknown effect kind', () => {
     const bad: Catalog = {
       a: { id: 'armor', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'sightRange' as never, add: 1 }]] },
       b: { id: 'engines', kind: 'addon', cap: 1, tiers: [[{ kind: 'doctrine', weapon: 'gun', mode: 'homing' }]] },
       c: { id: 'rudder', kind: 'equipment', cap: 1, tiers: [[{ kind: 'slotFill', equipmentId: 'nope' as never }]] },
-      d: { id: 'reload', kind: 'consumable', cap: 1, tiers: [[{ kind: 'stock', equipmentId: 'nope' as never }]] },
+      // The deleted `stock` effect is an unknown kind now (Story 10.5).
+      d: { id: 'reload', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stock', equipmentId: 'nope' } as never]] },
     };
     const errs = validateCatalog(bad).join(' | ');
     expect(errs).toContain("off-whitelist stat path 'sightRange'");
     expect(errs).toContain("doctrine on non-doctrine equipment 'gun'");
     expect(errs).toContain("slotFill of unknown equipment 'nope'");
-    expect(errs).toContain("stock of unknown consumable 'nope'");
+    expect(errs).toContain('unknown effect kind');
   });
 
   it('REFUSES a stat path that takes add from one line and mult from another', () => {

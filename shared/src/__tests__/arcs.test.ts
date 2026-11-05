@@ -1,29 +1,23 @@
 // arcFor — the single arc-shape source (Story 1.10). These tests pin the
 // RATIFIED geometry byte-for-byte to CONFIG: the gun family 360°, the heavy torpedo
 // bow sector ±30°, the mine's aimed REAR sector (FLIPPED from the stern drop
-// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg; the DECOY BUOY
-// consumable shared it from Story 8.16 until Story 10.9 deleted it — the four
-// BUOYS that replace it are placed at ANY bearing, Eric 2026-10-28 ruling 9), the
-// BROADSIDE's twin beam sectors, and the aimless speed boost. A geometry change
+// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg), the
+// BROADSIDE's twin beam sectors, and the aimless speed boost. The three weapons
+// that were consumables until Story 10.5 (supercav, flash, fouling shell) keep
+// their arcs as equipment. A geometry change
 // here is a DESIGN change and must be deliberate — these are regression pins,
 // not derivations.
 //
-// RETIRED in Story 7-5 wave 2: the whole `sternDropArcFor` describe block and
-// the decoy stern-drop pin. The decoy buoy was the `stern-drop` shape's only
-// user and the radar buoy replacing it is click-placed, so the shape, its
-// accessor and their pins go together rather than testing a grammar nothing
-// declares.
+// RETIRED in Story 7-5 wave 2: the whole `sternDropArcFor` describe block (the
+// `stern-drop` shape went with its only user).
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  CONSUMABLE_IDS,
-  CONSUMABLE_IS_WEAPON,
-  BUOY_LINE_IDS,
   EQUIPMENT_IDS,
+  EQUIPMENT_IS_WEAPON,
   SHIFT_IDS,
   arcFor,
-  isConsumableId,
   sectorArcFor,
   twinSectorArcFor,
   twinSectorSide,
@@ -46,8 +40,7 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     }
   });
 
-  it('the FOULING SHELL (`foulingShell`) is a 360° CONSUMABLE shell (Story 9.4; FLASH SHELLS before it)', () => {
-    expect(isConsumableId('foulingShell')).toBe(true);
+  it('the FOULING SHELL (`foulingShell`) is a 360° shell (Story 9.4; a slot weapon since Story 10.5)', () => {
     expect(arcFor('foulingShell')).toEqual({ kind: CONFIG.foulingShell.arc });
     // Its reach is its OWN fixed CONFIG dial since Story 9.8 (ruling 125:
     // 8/12 of the radar ruler) — never the firer's radarRange.
@@ -108,51 +101,25 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(twinSectorSide(0, deg(-90), arc)).toBe(-1);
   });
 
-  it('the SUPERCAV TORPEDO is a bow sector — and it is a CONSUMABLE (amendment 74)', () => {
+  it('the SUPERCAV TORPEDO keeps its bow sector as a slot weapon (amendment 74\'s arc, Story 10.5)', () => {
     expect(arcFor('supercavTorpedo')).toEqual({
       kind: 'sector',
       offset: CONFIG.supercavTorpedo.offset,
       halfArc: CONFIG.supercavTorpedo.halfArc,
     });
     expect(CONFIG.supercavTorpedo.offset).toBe(0);
-    expect(isConsumableId('supercavTorpedo')).toBe(true);
   });
 
-  it('EVERY OTHER consumable declares no arc — the aimed ones are exactly the click-aimed set (CONSUMABLE_IS_WEAPON)', () => {
-    // FLASH SHELLS joined the aimed set in Story 8.17 (amendment 132); the
-    // FOULING SHELL took its seat in Story 9.4; Story 10.9 brought FLASH
-    // SHELLS back and added the four BUOYS. The arc table and the weapon table
-    // must agree id for id: aimed ⇔ it declares an arc.
-    for (const id of CONSUMABLE_IDS) {
-      expect(arcFor(id).kind !== 'none', id).toBe(CONSUMABLE_IS_WEAPON[id]);
+  it('aimed ⇔ it declares an arc: the arc table and EQUIPMENT_IS_WEAPON agree id for id', () => {
+    for (const id of EQUIPMENT_IDS) {
+      expect(arcFor(id).kind !== 'none', id).toBe(EQUIPMENT_IS_WEAPON[id]);
     }
-    const aimed = CONSUMABLE_IDS.filter((id) => arcFor(id).kind !== 'none');
-    expect([...aimed].sort()).toEqual(
-      ['supercavTorpedo', 'foulingShell', 'dazzleShells', ...BUOY_LINE_IDS].sort(),
-    );
   });
 
   it('FLASH SHELLS is 360° like the FOULING SHELL — one arc dial each, both `full` (Story 10.9, ruling 2)', () => {
     expect(arcFor('dazzleShells')).toEqual({ kind: CONFIG.flashShells.arc });
     expect(arcFor('dazzleShells')).toEqual(arcFor('foulingShell'));
     expect(arcFor('dazzleShells').kind).toBe('full');
-  });
-
-  it('EVERY BUOY is placed at ANY bearing — a `full` arc, NOT the mine sector (Story 10.9, Eric 2026-10-28 ruling 9)', () => {
-    for (const id of BUOY_LINE_IDS) {
-      expect(arcFor(id), id).toEqual({ kind: 'full' });
-      expect(arcFor(id), id).not.toEqual(arcFor('navalMines'));
-      expect(isConsumableId(id), id).toBe(true);
-    }
-    // The mines KEEP their rear sector — the buoys leaving it changed nothing
-    // for them.
-    expect(arcFor('navalMines')).toEqual({
-      kind: 'sector',
-      offset: CONFIG.mine.offset,
-      halfArc: deg(CONFIG.mine.placeHalfArcDeg),
-    });
-    // The deleted DECOY BUOY is no consumable at all any more.
-    expect(isConsumableId('decoyBuoy')).toBe(false);
   });
 
   it('the THREE class Shifts declare no arc — nothing else does (Story 8.15)', () => {
@@ -163,10 +130,6 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     }
     const none = EQUIPMENT_IDS.filter((id) => arcFor(id).kind === 'none');
     expect([...none].sort()).toEqual([...SHIFT_IDS].sort());
-  });
-
-  it('the radar buoy is GONE from the equipment id space (Story 8.16)', () => {
-    expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
   });
 
   it('the broadside is TWO mirrored beam sectors at ±90°, byte-identical to CONFIG', () => {
@@ -183,14 +146,9 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(arcFor('boost')).toEqual({ kind: 'none' });
   });
 
-  it('covers every SlotItemId (a new id cannot ship without an arc shape)', () => {
+  it('covers every EquipmentId (a new id cannot ship without an arc shape)', () => {
     const ids: EquipmentId[] = [...EQUIPMENT_IDS];
     for (const id of ids) {
-      expect(['full', 'sector', 'twin-sector', 'none'], id).toContain(arcFor(id).kind);
-    }
-    // WIDENED PAST EQUIPMENT in Story 8.13 (amendment 74): the arc grammar now
-    // answers for consumables too, because one of them is click-aimed.
-    for (const id of CONSUMABLE_IDS) {
       expect(['full', 'sector', 'twin-sector', 'none'], id).toContain(arcFor(id).kind);
     }
   });
@@ -202,8 +160,8 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   });
 });
 
-describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/decoy rear arc)', () => {
-  it('narrows the heavy torpedo, the supercav, the mines AND the decoy buoy to their sectors', () => {
+describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine rear arc)', () => {
+  it('narrows the heavy torpedo, the supercav and the mines to their sectors', () => {
     expect(sectorArcFor('supercavTorpedo')).toEqual({
       kind: 'sector',
       offset: CONFIG.supercavTorpedo.offset,
@@ -225,7 +183,7 @@ describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/decoy rear ar
   });
 
   it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
-    for (const id of ['gun', 'broadside', 'starShells', 'boost', 'lightTorpedo', 'hullRepair'] as const) {
+    for (const id of ['gun', 'broadside', 'starShells', 'boost', 'lightTorpedo', 'foulingShell'] as const) {
       expect(() => sectorArcFor(id)).toThrow(/must be a sector/);
     }
   });
@@ -251,7 +209,7 @@ describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', (
 
   it('THROWS on every other id — including the plain SECTOR weapons', () => {
     for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'foulingMines',
-      'healingBuoy', 'dazzleShells', 'boost', 'supercavTorpedo'] as const) {
+      'dazzleShells', 'boost', 'supercavTorpedo'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
   });
@@ -271,7 +229,6 @@ describe('the mine-line family', () => {
   it('isMineEquipment admits exactly the mine lines and refuses null', () => {
     const mines = new Set<string>(MINE_EQUIPMENT_IDS);
     for (const id of EQUIPMENT_IDS) expect(isMineEquipment(id), id).toBe(mines.has(id));
-    for (const id of CONSUMABLE_IDS) expect(isMineEquipment(id), id).toBe(false);
     expect(isMineEquipment(null)).toBe(false);
   });
 });

@@ -2,34 +2,33 @@
 // hooks" law under catalog v3. The CONTENT pins (29 lines, caps, kinds, the
 // stub set, the validator, order-independence) live in catalog.test.ts; this
 // suite is about the ENGINE:
-//   - the five-effect vocabulary, and that `slotReplace` is gone;
+//   - the four-effect vocabulary (`slotReplace` and, since Story 10.5, `stock`
+//     are gone);
 //   - home 1: `stat` effects reach EffectiveStats and nothing else, through a
 //     GENERATED whitelist whose deliberate absences are pinned;
 //   - home 2: `slotFill` mutates the one LoadoutSlot[] and nothing else —
-//     since Story 8.5 it takes the FIRST EMPTY WEAPON SLOT (2, then 3, then 4)
-//     and leaves every other slot's state object REFERENCE-IDENTICAL;
-//   - `doctrine` verbs, `behavior` hooks, and `stock` — which since Story 8.7
-//     fills a consumable slot, the kind's OWN fixed slot since Story 9.2, bound
-//     by the SHIP'S KIT since Story 10.1 (its own section near the foot of
-//     this file, with the kit validator and the bot roll);
+//     since Story 10.5 into the weapon's FAMILY slot (one kind per slot),
+//     leaving every other slot's state object REFERENCE-IDENTICAL;
+//   - `doctrine` verbs and `behavior` hooks;
 //   - the parity property: the server's INCREMENTAL slot path and the client's
-//     REPLAYED `slotsWithCards` agree after any sequence of grants.
+//     REPLAYED `slotsWithCards` agree after any sequence of grants;
+//   - `pickRefusal`, the one "can this ship take this card" predicate.
 
 import { describe, it, expect } from 'vitest';
 import {
   BOON_STAT_PATHS,
   CATALOG,
   CONFIG,
-  CONSUMABLE_IDS,
-  CONSUMABLE_SLOTS,
-  DEFAULT_KIT,
   DOCTRINE_MODES,
+  EQUIPMENT_FAMILY,
   EQUIPMENT_INT_FIELDS,
   EQUIPMENT_STAT_FIELDS,
   EQUIPMENT_IDS,
+  FAMILY_SLOT,
   LINE_IDS,
   NO_CARDS,
   SLOT_BOOST,
+  SLOT_FAMILIES,
   SLOT_GUN,
   WEAPON_SLOTS,
   applyCardStats,
@@ -38,43 +37,28 @@ import {
   pickRefusal,
   cardBehaviors,
   cardCounts,
-  consumableKindAt,
-  consumableSlotFor,
-  dealableConsumables,
   effectiveStats,
   equipmentMaxAmmo,
-  isConsumableKit,
-  KIT_SIZE,
-  KitRollError,
+  familyMembers,
+  familySlotFor,
   loadoutFor,
   mulberry32,
-  rollKit,
   slotsWithCards,
-  stockSlotFor,
-  validateLine,
+  tierTargetOf,
   type BoonEffect,
   type Catalog,
   type CatalogLine,
-  type ConsumableId,
-  type ConsumableKit,
   type EffectiveStats,
+  type EquipmentId,
   type LineId,
   type LoadoutSlot,
   type ShipClassId,
-  type SlotItemId,
+  type SlotFamily,
 } from '../index.js';
+import { lineForEquipment } from '../sim/catalog.js';
 
 const TB = CONFIG.shipClasses.iowa;
 const BS = CONFIG.shipClasses.yamato;
-
-/** THE TEST KIT (Story 10.1): a deliberate four that is NOT `DEFAULT_KIT`, so
- *  nothing in this file passes by riding the fresh-browser default — it swaps
- *  the FOULING SHELL out for the DECOY BUOY the stock tests reach for. */
-const KIT: ConsumableKit = ['hullRepair', 'shieldBlock', 'countermeasure', 'healingBuoy'];
-
-/** Every consumable id the test kit does NOT carry — live or stub, the kit law
- *  treats them alike: no slot. */
-const OFF_KIT: readonly ConsumableId[] = CONSUMABLE_IDS.filter((id) => !(KIT as readonly string[]).includes(id));
 
 /** A one-copy test line carrying `effects` (never in the production catalog). */
 const line = (id: string, ...effects: BoonEffect[]): CatalogLine => ({
@@ -177,12 +161,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       // addressable (the captive's fixed-burst precedent above).
       'equipment.flak.burstRadius',
       'equipment.flak.contactDamage',
-      // ...and `supercavTorpedo` has no paths AT ALL: it became a CONSUMABLE
-      // (amendment 74), and a consumable has no stat row to address.
-      'equipment.supercavTorpedo.damage',
-      'equipment.supercavTorpedo.speed',
-      'equipment.supercavTorpedo.reloadMs',
-      'equipment.supercavTorpedo.maxAmmo',
+      // THE SUPERCAV NEVER HOMES (amendment 74): its row is back since Story
+      // 10.5, but its turn rate is not addressable.
+      'equipment.supercavTorpedo.homingTurnRate',
     ];
     for (const path of absent) expect(BOON_STAT_PATHS, path).not.toContain(path);
     // `tier` is derived from the COPY COUNT, never from an effect: a card that
@@ -233,6 +214,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       // Story 9.8 (ruling 125): every tiered weapon's reach steps per card.
       'equipment.gun.rangeU', 'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
       'equipment.broadside.rangeU', 'equipment.starShells.rangeU', 'equipment.phosphorShells.rangeU',
+      // Story 10.5: the three moved weapons' one tiered stat each.
+      'equipment.supercavTorpedo.damage', 'equipment.dazzleShells.radius', 'equipment.foulingShell.radius',
     ].sort());
     // Still addressable in principle, still written by nothing: the
     // BROADSIDE's damage is fixed by ruling (amendment 133), radarRange has no
@@ -244,6 +227,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'radarRange', 'equipment.broadside.damage',
       'equipment.gun.barrels', 'equipment.machineGun.damage',
       'maxHp', 'range', 'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
+      // The two burst shells' reach is FIXED (Story 10.5, R7 tiers the radius).
+      'equipment.dazzleShells.rangeU', 'equipment.foulingShell.rangeU',
     ]) {
       expect(BOON_STAT_PATHS, path).toContain(path);
       expect(written.has(path), path).toBe(false);
@@ -266,14 +251,12 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // equipment line. CUT TO ONE in Story 8.15: the missile's `homing` went
     // with HEAT SEEKING and the missile itself (amendment 89e). EMPTIED in
     // Story 8.17 (Eric 2026-09-29, amendments 131–134): PHOSPHOR SHELLS is its
-    // own weapon and DAZZLE the FLASH SHELLS consumable, so the star shell's
+    // own weapon and DAZZLE the FLASH SHELLS line, so the star shell's
     // verbs are gone. The table stays, empty (the machinery is kept).
     expect(DOCTRINE_MODES).toEqual({});
     expect('starShells' in DOCTRINE_MODES).toBe(false);
     for (const weapon of Object.keys(DOCTRINE_MODES)) expect(EQUIPMENT_IDS).toContain(weapon);
-    // The radar buoy's gun/jamming verbs left with the buoy (catalog-v3 R1) and
     // `captive` left because CAPTIVE MINES became its own equipment line (R25).
-    expect('radarBuoy' in DOCTRINE_MODES).toBe(false);
     expect('navalMines' in DOCTRINE_MODES).toBe(false);
     expect('lightTorpedo' in DOCTRINE_MODES).toBe(false);
     expect('heavyTorpedo' in DOCTRINE_MODES).toBe(false);
@@ -350,12 +333,9 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
     expect(stats.maxHp).toBe(TB.hp + 25);
   });
 
-  it('`stock` is a TOTAL no-op in the fold (Story 8.7 owns the rack)', () => {
-    const l: CatalogLine = {
-      id: 'hullRepair', kind: 'consumable', cap: 5,
-      tiers: new Array(5).fill([{ kind: 'stock', equipmentId: 'hullRepair' }]),
-    };
-    expect(effectiveStats(TB, new Array<LineId>(5).fill('hullRepair'), catalogOf(l))).toEqual(effectiveStats(TB));
+  it('the deleted `stock` effect is a TOTAL no-op in the fold (an untyped line carrying one moves nothing)', () => {
+    const l = line('s', { kind: 'stock', equipmentId: 'hullRepair' } as unknown as BoonEffect);
+    expect(foldOne(TB, l)).toEqual(effectiveStats(TB));
   });
 });
 
@@ -386,27 +366,24 @@ describe('cardCounts / boonStackCount — the copy-count spine', () => {
 // Home 2: slot effects.
 // ---------------------------------------------------------------------------
 
+/** One weapon of each family, and a second kind of each — read off the model. */
+const FIRST_OF = Object.fromEntries(SLOT_FAMILIES.map((f) => [f, familyMembers(f)[0]])) as Record<SlotFamily, EquipmentId>;
+const SECOND_OF = Object.fromEntries(SLOT_FAMILIES.map((f) => [f, familyMembers(f)[1]])) as Record<SlotFamily, EquipmentId>;
+const fill = (equipmentId: EquipmentId): BoonEffect => ({ kind: 'slotFill', equipmentId });
+
 describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])', () => {
   const stats = effectiveStats(TB);
-  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells' | 'broadside'): BoonEffect =>
-    ({ kind: 'slotFill', equipmentId });
-  const [W0, W1, W2] = WEAPON_SLOTS;
 
-  it('slotFill fills the FIRST EMPTY WEAPON SLOT — 2, then 3, then 4, in fit order', () => {
-    // WAS: the single SLOT_EXTRA (3). The weapon row is three wide now, so the
-    // second and third equipment cards stop being no-ops (deferred-work :1988).
-    const loadout = loadoutFor(stats);
-    expect(loadout[W0].equipmentId).toBeNull();
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats, KIT);
-    expect(loadout[W0].equipmentId).toBe('heavyTorpedo');
-    expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 0 });
-    applySlotEffect(loadout, fill('navalMines'), stats, KIT);
-    expect(loadout[W1].equipmentId).toBe('navalMines');
-    applySlotEffect(loadout, fill('starShells'), stats, KIT);
-    expect(loadout[W2].equipmentId).toBe('starShells');
-    expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'mainBattery', 'boost', 'heavyTorpedo', 'navalMines', 'starShells', ...CONSUMABLE_SLOTS.map(() => null),
-    ]);
+  it('slotFill fills the weapon\'s FAMILY slot with a fresh full pool — every family weapon, on an empty row', () => {
+    for (const id of EQUIPMENT_IDS) {
+      const slot = familySlotFor(id);
+      if (slot === null) continue;
+      const loadout = loadoutFor(stats);
+      applySlotEffect(loadout, fill(id), stats);
+      expect(loadout[slot], id).toEqual({ equipmentId: id, state: { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 } });
+      // ...and nowhere else: the other two family slots stay empty.
+      for (const i of WEAPON_SLOTS) if (i !== slot) expect(loadout[i].equipmentId, `${id} slot ${i}`).toBeNull();
+    }
   });
 
   it('A FILL TOUCHES ITS TARGET SLOT AND NOTHING ELSE — every other state object is REFERENCE-IDENTICAL', () => {
@@ -415,76 +392,76 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     // timers make it bite — an implementation that rebuilds the array (or
     // re-freshens a pool) fails here while a toEqual would pass.
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats, KIT);
+    applySlotEffect(loadout, fill(FIRST_OF.torpedo), stats);
     loadout[SLOT_GUN].state!.reloadMsLeft = 321;
     loadout[SLOT_BOOST].state!.n = 0;
-    loadout[W0].state!.reloadMsLeft = 4242;
+    loadout[FAMILY_SLOT.torpedo].state!.reloadMsLeft = 4242;
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
-    applySlotEffect(loadout, fill('navalMines'), stats, KIT);
+    applySlotEffect(loadout, fill(FIRST_OF.mine), stats);
     loadout.forEach((slot, i) => {
       expect(slot, `slot ${i}`).toBe(slotRefs[i]); // the ARRAY is mutated in place
-      if (i !== W1) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
+      if (i !== FAMILY_SLOT.mine) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
     });
-    expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(stats, 'mainBattery'), reloadMsLeft: 321 });
+    expect(loadout[SLOT_GUN].state!.reloadMsLeft).toBe(321);
     expect(loadout[SLOT_BOOST].state!.n).toBe(0);
-    expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 4242 });
+    expect(loadout[FAMILY_SLOT.torpedo].state!.reloadMsLeft).toBe(4242);
   });
 
-  it('a FULL weapon row is a silent no-op — the loadout is untouched, nothing spills into the consumable slots', () => {
-    const loadout = loadoutFor(stats);
-    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) {
-      applySlotEffect(loadout, e, stats, KIT);
+  it('ONE KIND PER SLOT: a second kind of a filled family is a silent no-op — it never displaces, never spills into another slot', () => {
+    for (const family of SLOT_FAMILIES) {
+      const loadout = loadoutFor(stats);
+      applySlotEffect(loadout, fill(FIRST_OF[family]), stats);
+      const before = loadout.map((s) => s.equipmentId);
+      const stateRefs = loadout.map((s) => s.state);
+      for (const other of familyMembers(family)) applySlotEffect(loadout, fill(other), stats);
+      expect(loadout.map((s) => s.equipmentId), family).toEqual(before);
+      loadout.forEach((s, i) => expect(s.state, `${family} slot ${i}`).toBe(stateRefs[i]));
     }
-    const before = loadout.map((s) => s.equipmentId);
-    const stateRefs = loadout.map((s) => s.state);
-    applySlotEffect(loadout, fill('broadside'), stats, KIT);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(before);
-    loadout.forEach((s, i) => expect(s.state, `slot ${i}`).toBe(stateRefs[i]));
   });
 
-  it('slotFill of equipment ALREADY fitted is a no-op (the duplicate guard, over ANY slot)', () => {
+  it('slotFill of equipment ALREADY fitted is a no-op: the pool is never re-freshened', () => {
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats, KIT);
-    const stateRef = loadout[W0].state;
-    loadout[W0].state!.n = 1;
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats, KIT);
-    expect(loadout[W0].state).toBe(stateRef);
-    expect(loadout[W0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // never re-freshened
-    expect(loadout[W1].equipmentId).toBeNull(); // and it did NOT land in the next slot
-    // An UNfitted id still fills normally (the guard is duplicate-only).
-    applySlotEffect(loadout, fill('navalMines'), stats, KIT);
-    expect(loadout[W1].equipmentId).toBe('navalMines');
+    applySlotEffect(loadout, fill(FIRST_OF.mine), stats);
+    const stateRef = loadout[FAMILY_SLOT.mine].state;
+    loadout[FAMILY_SLOT.mine].state!.n = 0;
+    applySlotEffect(loadout, fill(FIRST_OF.mine), stats);
+    expect(loadout[FAMILY_SLOT.mine].state).toBe(stateRef);
+    expect(loadout[FAMILY_SLOT.mine].state!.n).toBe(0);
   });
 
-  it('stat, behavior and doctrine effects are structural no-ops in the slot home (and a STUB stock with them)', () => {
-    // `stock` moved home in Story 8.7 — it fills a consumable slot now. The one used
-    // here is DEPTH CHARGE, still a stub (epic-8 amendment 83; SHIELD BLOCK
-    // until Story 8.16 and SMOKE SCREEN until Story 8.18 were used here and
-    // went live), so the stub
-    // gate refuses it and it stays a no-op; a LIVE keyed line would fill its slot. The live rack is exercised against a non-stub
-    // test catalog at the foot of this file.
+  it('equipment with NO family slot fits nowhere: BROADSIDE (left the deal, R6), the guns and the Shifts', () => {
+    for (const id of EQUIPMENT_IDS) {
+      if (familySlotFor(id) !== null) continue;
+      const loadout = loadoutFor(stats);
+      const before = loadout.map((s) => s.equipmentId);
+      applySlotEffect(loadout, fill(id), stats);
+      expect(loadout.map((s) => s.equipmentId), id).toEqual(before);
+    }
+    expect(slotsWithCards(stats, ['broadside'])).toEqual(loadoutFor(stats));
+  });
+
+  it('a short or malformed loadout is fail-closed: a missing family slot is never filled', () => {
+    const short = loadoutFor(stats).slice(0, FAMILY_SLOT.torpedo);
+    applySlotEffect(short, fill(FIRST_OF.torpedo), stats);
+    expect(short).toHaveLength(FAMILY_SLOT.torpedo);
+    expect(short.some((s) => s.equipmentId === FIRST_OF.torpedo)).toBe(false);
+  });
+
+  it('stat, behavior and doctrine effects are structural no-ops in the slot home — and so is the deleted `stock`', () => {
     const loadout = loadoutFor(stats);
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
     const effects: BoonEffect[] = [
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
-      // A doctrine effect for a verb that no longer exists (Story 8.17): the
-      // slot home ignores doctrine regardless.
       { kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' },
-      { kind: 'stock', equipmentId: 'depthCharge' },
+      { kind: 'stock', equipmentId: 'hullRepair' } as unknown as BoonEffect,
+      { kind: 'slotReplace', from: 'heavyTorpedo', to: 'navalMines' } as unknown as BoonEffect,
     ];
-    for (const e of effects) applySlotEffect(loadout, e, stats, KIT);
+    for (const e of effects) applySlotEffect(loadout, e, stats);
     expect(loadout.map((s) => s)).toEqual(slotRefs);
     loadout.forEach((s, i) => expect(s.state).toBe(stateRefs[i]));
-  });
-
-  it('`slotReplace` IS DELETED: an untyped one moves nothing (no catalog-v3 line swaps equipment)', () => {
-    const loadout = loadoutFor(stats);
-    const before = loadout.map((s) => s.equipmentId);
-    applySlotEffect(loadout, { kind: 'slotReplace', from: 'heavyTorpedo', to: 'navalMines' } as unknown as BoonEffect, stats, KIT);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(before);
   });
 });
 
@@ -498,14 +475,14 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
     const stats = foldOne(TB, l);
     const base = loadoutFor(stats);
     const slotRefs = [...base];
-    for (const e of l.tiers[0]) applySlotEffect(base, e, stats, KIT);
+    for (const e of l.tiers[0]) applySlotEffect(base, e, stats);
     base.forEach((s, i) => expect(s).toBe(slotRefs[i]));
   });
 
   it('a slot-only card leaves effectiveStats output BYTE-IDENTICAL', () => {
     // The production equipment lines are exactly this shape at copy 1.
     expect(effectiveStats(TB, ['navalMines'])).toEqual(effectiveStats(TB));
-    expect(effectiveStats(TB, ['broadside'])).toEqual(effectiveStats(TB));
+    expect(effectiveStats(TB, ['dazzleShells'])).toEqual(effectiveStats(TB));
   });
 
   it('a behavior-only card touches NEITHER home (hooks are its only leg)', () => {
@@ -536,10 +513,13 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
 // Parity property: server-incremental vs client-replayed slot ids.
 // ---------------------------------------------------------------------------
 
+/** Every dealable EQUIPMENT line (a weapon card), in catalog order. */
+const WEAPON_LINES: LineId[] = LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment' && CATALOG[id].stub !== true);
+
 describe('one derivation, both sides — incremental vs replayed slot-id parity', () => {
-  /** The NON-STUB equipment lines plus two ladders (CANNON carries the pool
-   *  rung since 2026-09-30), as a grant pool. */
-  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'armor', 'deckGun'];
+  /** A grant pool: every weapon line (BROADSIDE included — it fits nowhere on
+   *  either path) plus two ladders. */
+  const POOL: LineId[] = [...WEAPON_LINES, 'armor', 'deckGun'];
 
   /**
    * The server's incremental path, emulated faithfully: per granted card,
@@ -554,67 +534,73 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
       held.push(id);
       stats = effectiveStats(CONFIG.shipClasses[cls], held);
       const copy = held.filter((h) => h === id).length;
-      for (const e of CATALOG[id].tiers[copy - 1] ?? []) applySlotEffect(loadout, e, stats, KIT);
+      for (const e of CATALOG[id].tiers[copy - 1] ?? []) applySlotEffect(loadout, e, stats);
     }
     return loadout;
   }
 
-  it('server slot ids == client-derived slot ids after arbitrary grant sequences (seeded property)', () => {
+  it('server slot ids == client-derived slot ids after arbitrary grant sequences — second kinds of a family included (seeded property)', () => {
     const rng = mulberry32(0xb00b5);
     const classes: ShipClassId[] = ['iowa', 'yamato', 'warspite'];
-    for (let trial = 0; trial < 120; trial += 1) {
+    for (let trial = 0; trial < 200; trial += 1) {
       const cls = rng.pick(classes);
-      const n = rng.int(0, 6);
+      const n = rng.int(0, 8);
       const cards = Array.from({ length: n }, () => rng.pick(POOL));
       const server = serverIncremental(cls, cards).map((s) => s.equipmentId);
-      const client = slotsWithCards(effectiveStats(CONFIG.shipClasses[cls], cards), cards, KIT)
-        .map((s) => s.equipmentId);
+      const client = slotsWithCards(effectiveStats(CONFIG.shipClasses[cls], cards), cards).map((s) => s.equipmentId);
       expect(client, cards.join('+')).toEqual(server);
     }
   });
 
   it('slotsWithCards at zero cards equals plain loadoutFor (byte-identical baseline)', () => {
     const stats = effectiveStats(TB);
-    expect(slotsWithCards(stats, [], KIT)).toEqual(loadoutFor(stats));
-    // ...and the fleet flag rides through to the gun-only drone fit (a drone
-    // holds no cards at all — EMPTY_DECK_LIST — so this IS its whole loadout).
-    expect(slotsWithCards(stats, [], KIT, CATALOG, true)).toEqual(loadoutFor(stats, true));
-    expect(slotsWithCards(stats, [], KIT, CATALOG, true)[SLOT_BOOST])
-      .toEqual({ equipmentId: null, state: null });
+    expect(slotsWithCards(stats, [])).toEqual(loadoutFor(stats));
+    // ...and the fleet flag rides through to the gun-only drone fit.
+    expect(slotsWithCards(stats, [], CATALOG, true)).toEqual(loadoutFor(stats, true));
+    expect(slotsWithCards(stats, [], CATALOG, true)[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
   });
 
-  it('a capacity ladder + an equipment fit compose: turret pool 2 beside a fresh fill', () => {
+  it('a capacity ladder + an equipment fit compose: the folded gun pool beside a fresh fill', () => {
     // CANNON ×2 reaches tier III, whose rung adds the second turret (Eric
-    // 2026-09-30 — the deleted DECK GUN TURRET card's effect). Read on the
-    // GUN-MODULE fit (`fleet`): a captain mounts the main battery since Story
-    // 10.4 and is never dealt this ladder, but the composition of a folded
-    // pool with a fresh fill is a contract of the replay itself.
+    // 2026-09-30). Read on the GUN-MODULE fit (`fleet`): a captain mounts the
+    // main battery since Story 10.4 and is never dealt this ladder, but the
+    // composition of a folded pool with a fresh fill is a contract of the
+    // replay itself.
     const cards: LineId[] = ['deckGun', 'deckGun', 'navalMines'];
     const stats = effectiveStats(BS, cards);
-    const loadout = slotsWithCards(stats, cards, KIT, CATALOG, true);
-    expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', null, 'navalMines', null, null, ...CONSUMABLE_SLOTS.map(() => null),
-    ]);
-    expect(loadout[0].state).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 }); // the CANNON tier-III pool
+    const loadout = slotsWithCards(stats, cards, CATALOG, true);
+    expect(loadout[SLOT_GUN]).toEqual({ equipmentId: 'gun', state: { n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 } });
     expect(equipmentMaxAmmo(stats, 'gun')).toBeGreaterThan(CONFIG.gun.maxAmmo);
-    expect(loadout[WEAPON_SLOTS[0]].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
+    expect(loadout[FAMILY_SLOT.mine]).toEqual({
+      equipmentId: 'navalMines', state: { n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 },
+    });
   });
 
-  it('THE WEAPON ROW IS FIRST-EMPTY-FIRST: the replay follows FIT order, where the stat fold does not', () => {
-    // Three weapon slots, two equipment cards — WHICH weapon sits in Q and
-    // which in E is a fact about the order they took the cards in. The stats,
-    // meanwhile, are identical either way: that asymmetry is the contract.
-    // (Before Story 8.5 the same asymmetry decided which single card landed at
-    // all; now both land, in order.)
-    const cards: LineId[] = ['navalMines', 'heavyTorpedo'];
-    const reversed: LineId[] = ['heavyTorpedo', 'navalMines'];
-    const stats = effectiveStats(BS, cards);
-    expect(effectiveStats(BS, reversed)).toEqual(stats);
-    const [Q, E] = WEAPON_SLOTS;
-    expect(slotsWithCards(stats, cards, KIT)[Q].equipmentId).toBe('navalMines');
-    expect(slotsWithCards(stats, cards, KIT)[E].equipmentId).toBe('heavyTorpedo');
-    expect(slotsWithCards(stats, reversed, KIT)[Q].equipmentId).toBe('heavyTorpedo');
-    expect(slotsWithCards(stats, reversed, KIT)[E].equipmentId).toBe('navalMines');
+  it('THE SLOT IS THE FAMILY\'S, WHATEVER THE CARD ORDER: every permutation of one weapon per family replays the same row', () => {
+    // WAS first-empty-first (Story 8.5): which weapon sat in Q was a fact about
+    // the order the cards were taken in. Since Story 10.5 it is a fact about
+    // the weapon's KIND and nothing else.
+    const rng = mulberry32(0x105);
+    for (let trial = 0; trial < 100; trial += 1) {
+      const picks = SLOT_FAMILIES.map((f) => rng.pick(familyMembers(f)));
+      const cards = picks.map((eq) => lineForEquipment(eq)!.id);
+      const shuffled = [...cards].sort(() => rng.next() - 0.5);
+      const stats = effectiveStats(BS, shuffled);
+      const row = slotsWithCards(stats, shuffled).map((s) => s.equipmentId);
+      SLOT_FAMILIES.forEach((f, k) => expect(row[FAMILY_SLOT[f]], shuffled.join('+')).toBe(picks[k]));
+      expect(effectiveStats(BS, cards)).toEqual(stats); // and the stats never cared
+    }
+  });
+
+  it('between two kinds of ONE family the FIRST card taken holds the slot — on both paths', () => {
+    for (const family of SLOT_FAMILIES) {
+      const a = lineForEquipment(FIRST_OF[family])!.id;
+      const b = lineForEquipment(SECOND_OF[family])!.id;
+      const stats = effectiveStats(TB, [a, b]);
+      expect(slotsWithCards(stats, [a, b])[FAMILY_SLOT[family]].equipmentId, family).toBe(FIRST_OF[family]);
+      expect(slotsWithCards(stats, [b, a])[FAMILY_SLOT[family]].equipmentId, family).toBe(SECOND_OF[family]);
+      expect(serverIncremental('iowa', [b, a])[FAMILY_SLOT[family]].equipmentId, family).toBe(SECOND_OF[family]);
+    }
   });
 });
 
@@ -623,503 +609,111 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 // shape -- copy 1 carries a real `slotFill` -- with NO module behind it. The
 // server refused to fit one; the SHARED fold did not, so the client (and the
 // server own respawn replay, which goes through slotsWithCards) would fit a
-// phantom weapon into the extra slot off a card id that reached `cards` by any
-// path. The guard belongs in shared, where both sides read it.
+// phantom weapon off a card id that reached `cards` by any path. The guard
+// belongs in shared, where both sides read it.
 // ---------------------------------------------------------------------------
 describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
   const stats = effectiveStats(CONFIG.shipClasses.iowa);
-  // PRODUCTION HAS NO EQUIPMENT STUB LEFT (Story 8.15 cut missile/monitor and
-  // built the machine gun and flak), so the guard is exercised through an
-  // injected catalog in which the BROADSIDE line is stubbed.
-  const STUBBED: Catalog = { ...CATALOG, broadside: { ...CATALOG.broadside, stub: true } };
+  // PRODUCTION HAS NO EQUIPMENT STUB (the one stub, DEPTH CHARGE, fits
+  // nothing), so the guard is exercised through an injected catalog in which
+  // the NAVAL MINES line is stubbed.
+  const STUBBED: Catalog = { ...CATALOG, navalMines: { ...CATALOG.navalMines, stub: true } };
 
   it('slotsWithCards over a stub id leaves the loadout exactly loadoutFor', () => {
-    expect(slotsWithCards(stats, ['broadside'], KIT, STUBBED)).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['navalMines'], STUBBED)).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['depthCharge'])).toEqual(loadoutFor(stats));
   });
 
-  it('...and a LIVE line still fills it, so the guard is about stubs alone', () => {
-    expect(slotsWithCards(stats, ['navalMines'], KIT, STUBBED)[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
-    expect(slotsWithCards(stats, ['broadside'], KIT)[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
+  it('...and the same line fills when live, so the guard is about stubs alone', () => {
+    expect(slotsWithCards(stats, ['navalMines'])[FAMILY_SLOT.mine].equipmentId).toBe('navalMines');
   });
 
-  it('a stub NEVER consumes a weapon slot — a live line behind it still takes slot 2', () => {
-    // The stub is skipped, not "fitted then ignored": the row does not shift.
-    expect(slotsWithCards(stats, ['broadside', 'navalMines'], KIT, STUBBED)[WEAPON_SLOTS[0]].equipmentId)
-      .toBe('navalMines');
+  it('a stub NEVER holds its family slot — a live kind of that family behind it still takes it', () => {
+    expect(slotsWithCards(stats, ['navalMines', 'captiveMines'], STUBBED)[FAMILY_SLOT.mine].equipmentId)
+      .toBe('captiveMines');
   });
 
   it('applySlotEffect itself refuses a stub fill', () => {
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'broadside' }, stats, KIT, STUBBED);
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'navalMines' }, stats, STUBBED);
     for (const i of WEAPON_SLOTS) expect(loadout[i].equipmentId).toBeNull();
   });
 
   it('a GUN LADDER card (machineGun / flak, Story 8.15) never fills a slot — it only steps its gun', () => {
-    expect(slotsWithCards(stats, ['machineGun', 'flak'], KIT)).toEqual(loadoutFor(stats));
-    expect(slotsWithCards(stats, ['machineGun', 'navalMines'], KIT)[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['machineGun', 'flak'])).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['machineGun', 'navalMines'])[FAMILY_SLOT.mine].equipmentId).toBe('navalMines');
   });
 });
 
 // ---------------------------------------------------------------------------
-// THE CONSUMABLE SLOTS (Story 8.7, FIXED since Story 9.2) — a consumable copy
-// goes into its KIND'S OWN slot (`consumableSlotFor`, sim/loadout.ts — epic-9
-// amendments 21/31): the packed belt is retired, nothing packs and nothing
-// shifts, so a kind's key means the same thing all match. A stack is
-// `{ n: copiesHeld, reloadMsLeft: 0 }` — it never reloads — and
-// `slotsWithCards` needs no code of its own to replay it: k copies replayed IS
-// n = k. The DEPTH CHARGE stub has no slot at all.
+// pickRefusal — THE one "can this ship take this card" predicate.
 // ---------------------------------------------------------------------------
-
-describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fixed slots since 9.2)', () => {
-  const stats = effectiveStats(TB);
-
-  /** The private `consumable()` helper of sim/catalog.ts — the shape is
-   *  identical (cap copies, one `stock` per copy, a fresh effect object per
-   *  tier) and `validateLine` is asserted clean. */
-  const consumableLine = (id: ConsumableId, opts: { stub?: true; cap?: number } = {}): CatalogLine => {
-    const cap = opts.cap ?? 5;
-    const tiers = Array.from({ length: cap }, () => [{ kind: 'stock', equipmentId: id }] as readonly BoonEffect[]);
-    const l: CatalogLine = { id: id as LineId, kind: 'consumable', cap, tiers };
-    return opts.stub === undefined ? l : { ...l, stub: opts.stub };
-  };
-
-  /** Every consumable line, NONE of them a stub — so the unkeyed DEPTH CHARGE
-   *  is exercised as a LIVE line with no slot to go to. */
-  const UNSTUBBED: Catalog = catalogOf(...CONSUMABLE_IDS.map((id) => consumableLine(id)));
-  const stock = (id: ConsumableId): BoonEffect => ({ kind: 'stock', equipmentId: id });
-  const slotOf = (id: ConsumableId): number => {
-    const slot = consumableSlotFor(KIT, id);
-    if (slot === null) throw new Error(`${id} has no slot`);
-    return slot;
-  };
-  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells'): BoonEffect =>
-    ({ kind: 'slotFill', equipmentId });
-
-  /** THE FIXED-PLACEMENT CONTRACT over one loadout and the cards it replayed:
-   *  every held keyed kind sits at its own slot with n = its copies (≤ cap),
-   *  every unheld kind's slot is empty, and no slot holds another kind. */
-  function expectFixedPlacement(loadout: LoadoutSlot[], cards: readonly string[], label: string): void {
-    for (const id of KIT) {
-      const slot = loadout[slotOf(id)];
-      const copies = Math.min(boonStackCount(cards, id), CATALOG[id].cap);
-      if (copies === 0) {
-        expect(slot, `${label}: ${id} empty`).toEqual({ equipmentId: null, state: null });
-      } else {
-        expect(slot, `${label}: ${id}`).toEqual({ equipmentId: id, state: { n: copies, reloadMsLeft: 0 } });
-      }
-    }
-  }
-
-  it('the test lines are LEGAL catalog lines, and a kit keys exactly its four — a stub never has a slot', () => {
-    for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
-    expect(isConsumableKit(KIT)).toBe(true);
-    for (const id of CONSUMABLE_IDS) {
-      expect(consumableSlotFor(KIT, id) !== null, id).toBe((KIT as readonly string[]).includes(id));
-    }
-    expect(consumableSlotFor(KIT, 'depthCharge')).toBeNull();
-  });
-
-  // --- the slot ------------------------------------------------------------
-
-  it('stockSlotFor answers the kind’s OWN slot, empty or already holding it, over any other contents', () => {
-    const rng = mulberry32(0x9a2);
-    for (let trial = 0; trial < 100; trial += 1) {
-      // Random OTHER kinds fill the remaining consumable slots legally.
-      const ids: (SlotItemId | null)[] = loadoutFor(stats).map((s) => s.equipmentId);
-      for (const id of KIT) if (rng.next() < 0.5) ids[slotOf(id)] = id;
-      for (const id of KIT) {
-        expect(stockSlotFor(ids, id, KIT), `${id} over ${ids.join(',')}`).toBe(slotOf(id));
-      }
-    }
-  });
-
-  it('a kind OUTSIDE the kit (live or the DEPTH CHARGE stub) and a malformed array have no slot (fail-closed)', () => {
-    const ids: (SlotItemId | null)[] = loadoutFor(stats).map((s) => s.equipmentId);
-    for (const id of OFF_KIT) expect(stockSlotFor(ids, id, KIT), id).toBeNull();
-    expect(stockSlotFor([], 'hullRepair', KIT)).toBeNull(); // a missing slot is never "empty"
-    const corrupt = [...ids];
-    corrupt[slotOf('hullRepair')] = 'shieldBlock'; // another kind where none may sit
-    expect(stockSlotFor(corrupt, 'hullRepair', KIT)).toBeNull();
-  });
-
-  // --- the fold -------------------------------------------------------------
-
-  it('the FIRST copy opens { n: 1, reloadMsLeft: 0 } at the kind’s slot and touches nothing else', () => {
-    for (const id of KIT) {
-      const loadout = loadoutFor(stats);
-      const slotRefs = [...loadout];
-      const stateRefs = loadout.map((s) => s.state);
-      applySlotEffect(loadout, stock(id), stats, KIT);
-      expect(loadout[slotOf(id)], id).toEqual({ equipmentId: id, state: { n: 1, reloadMsLeft: 0 } });
-      loadout.forEach((slot, i) => {
-        expect(slot, `${id} slot ${i}`).toBe(slotRefs[i]);
-        if (i !== slotOf(id)) expect(slot.state, `${id} slot ${i} state`).toBe(stateRefs[i]);
-      });
-    }
-  });
-
-  it('the SECOND copy INCREMENTS n in place — same state object', () => {
-    const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, stock('shieldBlock'), stats, KIT);
-    const stateRef = loadout[slotOf('shieldBlock')].state;
-    applySlotEffect(loadout, stock('shieldBlock'), stats, KIT);
-    expect(loadout[slotOf('shieldBlock')].state).toBe(stateRef); // mutated in place, never re-built
-    expect(stateRef).toEqual({ n: 2, reloadMsLeft: 0 });
-  });
-
-  it('stocking a SECOND kind never moves the first (no packing)', () => {
-    const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, stock('hullRepair'), stats, KIT);
-    const repair = loadout[slotOf('hullRepair')];
-    const repairState = repair.state;
-    applySlotEffect(loadout, stock('healingBuoy'), stats, KIT);
-    expect(loadout[slotOf('hullRepair')]).toBe(repair);
-    expect(loadout[slotOf('hullRepair')].state).toBe(repairState);
-    expect(loadout[slotOf('healingBuoy')].equipmentId).toBe('healingBuoy');
-    expectFixedPlacement(loadout, ['hullRepair', 'healingBuoy'], 'repair then healing buoy');
-  });
-
-  it('a STUB consumable line is REFUSED — the same gate `slotFill` uses, catalog-driven', () => {
-    const loadout = loadoutFor(stats);
-    const before = JSON.parse(JSON.stringify(loadout)) as LoadoutSlot[];
-    applySlotEffect(loadout, stock('hullRepair'), stats, KIT, catalogOf(consumableLine('hullRepair', { stub: true })));
-    expect(loadout).toEqual(before);
-  });
-
-  it('a line OUTSIDE THE KIT stocks nowhere even when live — a silent no-op, every state object the same', () => {
-    // Story 10.1: the FOULING SHELL is live in production and the DEPTH CHARGE
-    // is live in UNSTUBBED; neither is in KIT, so neither has a slot.
-    for (const id of OFF_KIT) {
-      const loadout = loadoutFor(stats);
-      const before = JSON.parse(JSON.stringify(loadout)) as LoadoutSlot[];
-      const stateRefs = loadout.map((s) => s.state);
-      applySlotEffect(loadout, stock(id), stats, KIT, UNSTUBBED);
-      expect(loadout, id).toEqual(before);
-      loadout.forEach((s, i) => expect(s.state, `${id} slot ${i}`).toBe(stateRefs[i]));
-    }
-  });
-
-  it('THE SLOT FOLLOWS THE KIT ORDER: the same four in another order stock at other slots', () => {
-    const reversed: ConsumableKit = [...KIT].reverse();
-    for (const id of KIT) {
-      const a = loadoutFor(stats);
-      const b = loadoutFor(stats);
-      applySlotEffect(a, stock(id), stats, KIT);
-      applySlotEffect(b, stock(id), stats, reversed);
-      expect(a[consumableSlotFor(KIT, id) ?? -1].equipmentId, id).toBe(id);
-      expect(b[consumableSlotFor(reversed, id) ?? -1].equipmentId, id).toBe(id);
-      // A reversed kit mirrors every slot about the row's center.
-      expect((consumableSlotFor(KIT, id) ?? 0) + (consumableSlotFor(reversed, id) ?? 0), id)
-        .toBe(2 * CONSUMABLE_SLOTS[0] + KIT_SIZE - 1);
-    }
-  });
-
-  it('a stock NEVER touches the gun, the Shift or the weapon row — even with the row full', () => {
-    const loadout = loadoutFor(stats);
-    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) applySlotEffect(loadout, e, stats, KIT);
-    const head = [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS];
-    const headIds = head.map((i) => loadout[i].equipmentId);
-    const headStates = head.map((i) => loadout[i].state);
-    for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats, KIT);
-    expect(head.map((i) => loadout[i].equipmentId)).toEqual(headIds);
-    head.forEach((i, k) => expect(loadout[i].state, `slot ${i}`).toBe(headStates[k]));
-    expectFixedPlacement(loadout, CONSUMABLE_IDS, 'one of each');
-    // ...and the kinds the kit does not carry landed NOWHERE (Story 10.1).
-    for (const id of OFF_KIT) expect(loadout.some((s) => s.equipmentId === id), id).toBe(false);
-  });
-
-  it('...and a slotFill never spills into the consumable slots while stacks sit there', () => {
-    const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, stock('hullRepair'), stats, KIT);
-    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) applySlotEffect(loadout, e, stats, KIT);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats, KIT); // duplicate, and the row is full anyway
-    expectFixedPlacement(loadout, ['hullRepair'], 'repair beside a full row');
-  });
-
-  // --- the replay -----------------------------------------------------------
-
-  it('slotsWithCards REPLAYS the slot with no code of its own: k copies ⇒ n = k (capped at the line cap)', () => {
-    for (let k = 1; k <= 7; k += 1) {
-      const cards = new Array<string>(k).fill('hullRepair');
-      expectFixedPlacement(slotsWithCards(stats, cards, KIT), cards, `k=${k}`);
-    }
-  });
-
-  it('FIXED PLACEMENT (seeded property): any legal hand puts every stack at its own slot, weapons untouched', () => {
-    const rng = mulberry32(0x5107);
-    const WEAPONS: LineId[] = ['heavyTorpedo', 'navalMines', 'starShells', 'lightTorpedo'];
-    const KINDS = [...KIT] as LineId[];
-    for (let trial = 0; trial < 200; trial += 1) {
-      const held: LineId[] = [];
-      const n = rng.int(0, 20);
-      for (let i = 0; i < n; i += 1) {
-        const id = rng.next() < 0.2 ? rng.pick(WEAPONS) : rng.pick(KINDS);
-        // A LEGAL hand: the server never lets a refused pick into `cards`.
-        const slotIds = slotsWithCards(effectiveStats(TB, held), held, KIT).map((s) => s.equipmentId);
-        if (pickRefusal(held, slotIds, id, KIT) === null) held.push(id);
-      }
-      const loadout = slotsWithCards(effectiveStats(TB, held), held, KIT);
-      const label = held.join('+');
-      expectFixedPlacement(loadout, held, label);
-      // The weapon row is exactly what the same hand WITHOUT its consumables fits.
-      const weaponsOnly = held.filter((id) => !(CONSUMABLE_IDS as readonly string[]).includes(id));
-      const bare = slotsWithCards(effectiveStats(TB, weaponsOnly), weaponsOnly, KIT);
-      for (const i of [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS]) {
-        expect(loadout[i].equipmentId, `${label} slot ${i}`).toBe(bare[i].equipmentId);
-      }
-    }
-  });
-
-  it('the replay agrees with the INCREMENTAL path over a mixed hand, in either fit order', () => {
-    const cards: ConsumableId[] = ['healingBuoy', 'hullRepair', 'healingBuoy', 'countermeasure', 'hullRepair', 'healingBuoy'];
-    for (const hand of [cards, [...cards].reverse()]) {
-      const replayed = slotsWithCards(stats, hand, KIT);
-      const incremental = loadoutFor(stats);
-      for (const id of hand) applySlotEffect(incremental, stock(id), stats, KIT);
-      expect(replayed).toEqual(incremental);
-      expectFixedPlacement(replayed, hand, hand.join('+'));
-    }
-  });
-
-  it('using the LAST copy nulls ONLY that kind’s slot — every other stack stays put', () => {
-    // A spent copy leaves `cards` server-side, so the next replay is the
-    // clear-at-zero state: the kind's own slot reads null, nothing shifts.
-    const before: ConsumableId[] = ['hullRepair', 'countermeasure', 'healingBuoy', 'healingBuoy'];
-    const after = before.filter((id) => id !== 'countermeasure');
-    const a = slotsWithCards(stats, before, KIT);
-    const b = slotsWithCards(stats, after, KIT);
-    expect(b[slotOf('countermeasure')]).toEqual({ equipmentId: null, state: null });
-    a.forEach((slot, i) => {
-      if (i !== slotOf('countermeasure')) expect(b[i], `slot ${i}`).toEqual(slot);
-    });
-  });
-});
-
-
-// ---------------------------------------------------------------------------
-// THE KIT LAW (Story 10.1, Eric 2026-10-25/27, epic-10 amendments 1(c) and 3):
-// `isConsumableKit` is the ONE validator both sides call and `rollKit` the ONE
-// roll every bot caller shares. Relations only — never the default kit's
-// members, never a seed-produced four.
-// ---------------------------------------------------------------------------
-
-describe('isConsumableKit — the one kit validator', () => {
-  const POOL = dealableConsumables();
-
-  it('the dealable pool is every NON-STUB consumable line of the catalog, in catalog order', () => {
-    expect(POOL).toEqual(LINE_IDS.filter((id) => CATALOG[id].kind === 'consumable' && CATALOG[id].stub !== true));
-    expect(POOL.length).toBeGreaterThanOrEqual(KIT_SIZE); // a kit can always be rolled in production
-    expect(dealableConsumables({})).toEqual([]);
-  });
-
-  it('DEFAULT_KIT is a valid kit, and so is every permutation of it', () => {
-    expect(DEFAULT_KIT).toHaveLength(KIT_SIZE);
-    expect(isConsumableKit(DEFAULT_KIT)).toBe(true);
-    expect(isConsumableKit([...DEFAULT_KIT].reverse())).toBe(true);
-    expect(Object.isFrozen(DEFAULT_KIT)).toBe(true);
-  });
-
-  it('accepts exactly KIT_SIZE distinct dealable lines — and nothing shorter, longer, repeated, stubbed, unknown or non-array', () => {
-    const four = POOL.slice(0, KIT_SIZE);
-    expect(isConsumableKit(four)).toBe(true);
-    expect(isConsumableKit(four.slice(0, KIT_SIZE - 1))).toBe(false); // short
-    expect(isConsumableKit([...four, POOL[KIT_SIZE] ?? POOL[0]])).toBe(false); // long
-    expect(isConsumableKit([four[0], four[0], four[1], four[2]])).toBe(false); // a repeat
-    expect(isConsumableKit([...four.slice(1), 'depthCharge'])).toBe(false); // the stub
-    expect(isConsumableKit([...four.slice(1), 'heavyTorpedo'])).toBe(false); // a weapon id
-    expect(isConsumableKit([...four.slice(1), 'notALine'])).toBe(false); // unknown
-    expect(isConsumableKit([...four.slice(1), '__proto__'])).toBe(false); // a prototype key
-    expect(isConsumableKit([...four.slice(1), 42])).toBe(false); // not a string
-    for (const junk of [null, undefined, 'hullRepair', {}, 4, four.join(',')]) {
-      expect(isConsumableKit(junk), String(junk)).toBe(false);
-    }
-  });
-
-  it('reads the INJECTED catalog: a line stubbed there fails, a line live there passes', () => {
-    const { stub: _dropped, ...liveDepthCharge } = CATALOG.depthCharge;
-    const unstubbed: Catalog = { ...CATALOG, depthCharge: liveDepthCharge };
-    const withStub: ConsumableKit = ['depthCharge', ...KIT.slice(1)];
-    expect(isConsumableKit(withStub)).toBe(false);
-    expect(isConsumableKit(withStub, unstubbed)).toBe(true);
-    const stubbedRepair: Catalog = { ...CATALOG, hullRepair: { ...CATALOG.hullRepair, stub: true } };
-    expect(isConsumableKit(KIT, stubbedRepair)).toBe(false);
-  });
-
-  it('every slot helper agrees with the validator over a valid kit: four slots, round-trip, nothing else bound', () => {
-    for (const kit of [KIT, DEFAULT_KIT, [...KIT].reverse()]) {
-      expect(CONSUMABLE_SLOTS.map((i) => consumableKindAt(kit, i))).toEqual([...kit]);
-      kit.forEach((id, i) => expect(consumableSlotFor(kit, id), id).toBe(CONSUMABLE_SLOTS[i]));
-    }
-  });
-});
-
-describe('rollKit — a seeded uniform four without replacement (Eric ruling 6)', () => {
-  const TRIALS = 2000;
-
-  it('every roll is a valid kit, and a fixed seed always rolls the same four', () => {
-    for (let seed = 0; seed < TRIALS; seed += 1) {
-      const kit = rollKit(mulberry32(seed).next);
-      expect(isConsumableKit(kit), `seed ${seed}`).toBe(true);
-      expect(rollKit(mulberry32(seed).next), `seed ${seed}`).toEqual(kit);
-    }
-  });
-
-  it('spends exactly KIT_SIZE rng values', () => {
-    let calls = 0;
-    const inner = mulberry32(7);
-    rollKit(() => { calls += 1; return inner.next(); });
-    expect(calls).toBe(KIT_SIZE);
-  });
-
-  it('is UNIFORM: every dealable line is carried at about KIT_SIZE / pool share, in every slot alike', () => {
-    const pool = dealableConsumables();
-    const carried = new Map<string, number>(pool.map((id) => [id, 0]));
-    const first = new Map<string, number>(pool.map((id) => [id, 0]));
-    for (let seed = 0; seed < TRIALS; seed += 1) {
-      const kit = rollKit(mulberry32(seed + 10_000).next);
-      for (const id of kit) carried.set(id, (carried.get(id) ?? 0) + 1);
-      first.set(kit[0], (first.get(kit[0]) ?? 0) + 1);
-    }
-    for (const id of pool) {
-      expect(Math.abs((carried.get(id) ?? 0) / TRIALS - KIT_SIZE / pool.length), `${id} carried`).toBeLessThan(0.05);
-      expect(Math.abs((first.get(id) ?? 0) / TRIALS - 1 / pool.length), `${id} on key 1`).toBeLessThan(0.05);
-    }
-  });
-
-  it('THROWS KitRollError on a catalog with fewer dealable lines than KIT_SIZE — never a silent short kit', () => {
-    const thin: Catalog = {
-      hullRepair: CATALOG.hullRepair,
-      shieldBlock: CATALOG.shieldBlock,
-      countermeasure: CATALOG.countermeasure,
-    };
-    expect(dealableConsumables(thin).length).toBe(KIT_SIZE - 1);
-    expect(() => rollKit(mulberry32(1).next, thin)).toThrow(KitRollError);
-    expect(() => rollKit(mulberry32(1).next, {})).toThrow(KitRollError);
-  });
-
-  it('a broken rng (NaN, negative, >= 1, float dust) is clamped into the pool and still rolls a VALID kit', () => {
-    for (const bad of [Number.NaN, -0.5, 2, 0.999_999_999_999_999_9, 0]) {
-      const kit = rollKit(() => bad);
-      expect(isConsumableKit(kit), String(bad)).toBe(true);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// pickRefusal — THE ONE PICK PREDICATE (Story 8.14 review, F1/F2)
-//
-// Every "can this ship take this card" question in the engine runs through
-// this: World.refusesCard (so applyCard, the dev spawn fit and every directed
-// grant), World.spendCard (before the level is consumed), the client's greyed
-// refit card, the bot spend scorer and the batch-sim spend instrument. One
-// branch per refusal, plus the legal cases and the fail-closed edges.
-// ---------------------------------------------------------------------------
-
 describe('pickRefusal — every branch', () => {
-  /** A fresh hull's slots: gun, Shift, an empty weapon row, empty consumable slots. */
-  const OPEN_SLOTS: readonly (SlotItemId | null)[] = loadoutFor(effectiveStats(TB)).map((s) => s.equipmentId);
-  /** The same hull with Q/E/R occupied. */
-  const ROW_IDS: readonly SlotItemId[] = ['lightTorpedo', 'heavyTorpedo', 'navalMines'];
-  const ROW_FULL: readonly (SlotItemId | null)[] = OPEN_SLOTS.map((id, i) => {
-    const k = (WEAPON_SLOTS as readonly number[]).indexOf(i);
-    return k < 0 ? id : ROW_IDS[k];
-  });
-  /** Every keyed consumable kind stocked in its own slot. */
-  const ALL_STOCKED: readonly (SlotItemId | null)[] = OPEN_SLOTS.map(
-    (id, i) => KIT.find((k) => consumableSlotFor(KIT, k) === i) ?? id,
-  );
+  const stats = effectiveStats(TB);
+  const idsFor = (held: readonly LineId[]): (EquipmentId | null)[] =>
+    slotsWithCards(effectiveStats(TB, held), held).map((s) => s.equipmentId);
+  const EMPTY = loadoutFor(stats).map((s) => s.equipmentId);
 
-  it("'stub' — a consumable with no key has no slot, so it is refused even when the catalog un-stubs it", () => {
-    // Story 9.2: the slot IS the key; a keyless line must never enter `cards`.
-    const { stub: _dropped, ...liveDepthCharge } = CATALOG.depthCharge;
-    const unstubbed: Catalog = { ...CATALOG, depthCharge: liveDepthCharge };
-    expect(consumableSlotFor(KIT, 'depthCharge')).toBeNull();
-    expect(pickRefusal([], OPEN_SLOTS, 'depthCharge', KIT, unstubbed)).toBe('stub');
-    // and the keyed kinds in the same catalog are untouched by the guard
-    for (const k of KIT) expect(pickRefusal([], OPEN_SLOTS, k, KIT, unstubbed)).toBeNull();
-  });
-
-  it('null — the ordinary legal pick, every kind', () => {
-    expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo', KIT)).toBeNull(); // copy 1, row open
-    expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo', KIT)).toBeNull(); // a TIER card
-    expect(pickRefusal([], OPEN_SLOTS, 'armor', KIT)).toBeNull(); // a ladder
-    expect(pickRefusal([], OPEN_SLOTS, 'healingBuoy', KIT)).toBeNull(); // HEALING BUOY, a carried consumable (no add-on is left since 8.17)
-    expect(pickRefusal([], OPEN_SLOTS, 'hullRepair', KIT)).toBeNull(); // a carried consumable
-  });
-
-  it("'stub' — a LIVE consumable the kit does not carry has no slot (Story 10.1, the one gate; no new word)", () => {
-    // The same line is legal under a kit that carries it: the refusal is a
-    // fact about the kit, not the line.
-    for (const id of OFF_KIT) {
-      if (CATALOG[id].stub === true) continue;
-      expect(pickRefusal([], OPEN_SLOTS, id, KIT), id).toBe('stub');
-      const carrying: ConsumableKit = [id, ...KIT.slice(1)];
-      expect(isConsumableKit(carrying), id).toBe(true);
-      expect(pickRefusal([], OPEN_SLOTS, id, carrying), id).toBeNull();
-    }
-    // ...and the kit's own four pass whatever else the kit holds.
-    for (const id of KIT) expect(pickRefusal([], OPEN_SLOTS, id, KIT), id).toBeNull();
-  });
-
-  it("'stub' — an unbuilt line, an unknown id, and a prototype key (fail closed)", () => {
-    const stubId = LINE_IDS.find((id) => CATALOG[id].stub === true);
-    expect(stubId, 'the catalog still carries at least one stub line').toBeDefined();
-    expect(pickRefusal([], OPEN_SLOTS, stubId as string, KIT)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'notALine', KIT)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'constructor', KIT)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, '__proto__', KIT)).toBe('stub');
-  });
-
-  it("'atCap' — at the line's cap, for EVERY kind, consumables included", () => {
-    // THE BUG THIS EXISTS FOR (review F1): a consumable at its cap already owns
-    // its slot, so the slot alone would take copy 6 — the cap does not.
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    expect(stockSlotFor(ALL_STOCKED, 'hullRepair', KIT)).not.toBeNull(); // the slot would take it...
-    expect(pickRefusal(five, ALL_STOCKED, 'hullRepair', KIT)).toBe('atCap'); // ...the cap does not.
-    for (const id of KIT) {
-      const capped = new Array<string>(CATALOG[id].cap).fill(id);
-      expect(CATALOG[id].cap, id).toBe(5);
-      expect(pickRefusal(capped, OPEN_SLOTS, id, KIT), id).toBe('atCap');
-      expect(pickRefusal(capped.slice(1), OPEN_SLOTS, id, KIT), `${id} below cap`).toBeNull();
-    }
-    expect(pickRefusal(new Array<string>(CATALOG.armor.cap).fill('armor'), OPEN_SLOTS, 'armor', KIT)).toBe('atCap');
-    const maxTorp = new Array<string>(CATALOG.lightTorpedo.cap).fill('lightTorpedo');
-    expect(pickRefusal(maxTorp, ROW_FULL, 'lightTorpedo', KIT)).toBe('atCap');
-    // The cap is decided BEFORE the row, so a capped line reads
-    // `atCap` whatever the slots look like.
-    expect(pickRefusal(five, OPEN_SLOTS, 'hullRepair', KIT)).toBe('atCap');
-  });
-
-  it('a consumable is never refused for room: every keyed kind is pickable beside all the others (no full belt)', () => {
-    // Since Story 9.2 (epic-9 amendment 21) there is no belt to fill: below its
-    // cap a live consumable is legal whatever else is stocked.
-    const held = [...KIT];
-    for (const id of KIT) {
-      expect(pickRefusal(held, ALL_STOCKED, id, KIT), id).toBeNull();
-      expect(pickRefusal([], OPEN_SLOTS, id, KIT), id).toBeNull();
+  it('null — the ordinary legal pick: every dealable line with a home, on a fresh hull', () => {
+    for (const id of LINE_IDS) {
+      const want = CATALOG[id].stub === true ? 'stub' : id === 'broadside' ? 'noWeaponSlot' : null;
+      expect(pickRefusal([], EMPTY, id), id).toBe(want);
     }
   });
 
-  it("'noWeaponSlot' — copy 1 of an equipment line with Q/E/R full, never a later copy", () => {
-    expect(pickRefusal([], ROW_FULL, 'starShells', KIT)).toBe('noWeaponSlot');
-    expect(pickRefusal(['starShells'], ROW_FULL, 'starShells', KIT)).toBeNull(); // tier II lands on the hull
-    // Only EQUIPMENT claims the row: a ladder and two consumables (the
-    // FOULING SHELL and HULL REPAIR) all pass with the row full.
-    for (const id of ['armor', 'healingBuoy', 'hullRepair']) {
-      expect(pickRefusal([], ROW_FULL, id, KIT), id).toBeNull();
+  it("'stub' — an unbuilt line, an unknown id, a deleted line and a prototype key (fail closed)", () => {
+    for (const id of ['depthCharge', 'nope', 'hullRepair', 'healingBuoy', 'constructor', 'toString', '']) {
+      expect(pickRefusal([], EMPTY, id), id).toBe('stub');
     }
   });
 
-  it('is FAIL-CLOSED on a short or malformed slot array for the weapon row (a missing slot is never empty)', () => {
-    expect(pickRefusal([], [], 'starShells', KIT)).toBe('noWeaponSlot');
-    // ...and undefined entries are not empty either.
-    expect(pickRefusal([], new Array<null>(OPEN_SLOTS.length).fill(null).map(() => undefined) as never, 'starShells', KIT))
-      .toBe('noWeaponSlot');
+  it("'atCap' — at the line's cap, for every dealable line, and one under it is still legal", () => {
+    for (const id of LINE_IDS) {
+      if (CATALOG[id].stub === true || id === 'broadside') continue;
+      const cap = CATALOG[id].cap;
+      const full = new Array<LineId>(cap).fill(id);
+      expect(pickRefusal(full, idsFor(full), id), id).toBe('atCap');
+      const under = new Array<LineId>(cap - 1).fill(id);
+      expect(pickRefusal(under, idsFor(under), id), id).toBeNull();
+    }
+  });
+
+  it("'noWeaponSlot' — a SECOND KIND of a filled family is refused; the SAME kind tiers up; the other families stay open", () => {
+    for (const line of WEAPON_LINES) {
+      const eq = tierTargetOf(CATALOG[line])!;
+      const family = EQUIPMENT_FAMILY[eq];
+      if (family === null) continue;
+      const held = [line];
+      const ids = idsFor(held);
+      for (const other of WEAPON_LINES) {
+        const otherFamily = EQUIPMENT_FAMILY[tierTargetOf(CATALOG[other])!];
+        if (otherFamily === null) continue;
+        const want = other === line || otherFamily !== family ? null : 'noWeaponSlot';
+        expect(pickRefusal(held, ids, other), `${other} after ${line}`).toBe(want);
+      }
+    }
+  });
+
+  it("'noWeaponSlot' — BROADSIDE has no slot at all (it left the deal, R6), at any count and on any row", () => {
+    expect(pickRefusal([], EMPTY, 'broadside')).toBe('noWeaponSlot');
+    const held: LineId[] = ['lightTorpedo'];
+    expect(pickRefusal(held, idsFor(held), 'broadside')).toBe('noWeaponSlot');
+  });
+
+  it('is FAIL-CLOSED on a short or malformed slot array (a missing slot is never empty)', () => {
+    for (const line of WEAPON_LINES) {
+      if (line === 'broadside') continue;
+      expect(pickRefusal([], [], line), line).toBe('noWeaponSlot');
+      expect(pickRefusal([], EMPTY.slice(0, WEAPON_SLOTS[0]), line), line).toBe('noWeaponSlot');
+    }
+    // A ladder never asks about a slot.
+    expect(pickRefusal([], [], 'armor')).toBeNull();
   });
 
   it('honours an INJECTED catalog rather than the shipped one', () => {
-    const rows = { ...CATALOG, armor: { ...CATALOG.armor, stub: true as const } };
-    expect(pickRefusal([], OPEN_SLOTS, 'armor', KIT, rows)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'armor', KIT)).toBeNull();
+    const cat = catalogOf({ ...CATALOG.navalMines, stub: true }, CATALOG.captiveMines);
+    expect(pickRefusal([], EMPTY, 'navalMines', cat)).toBe('stub');
+    expect(pickRefusal([], EMPTY, 'captiveMines', cat)).toBeNull();
+    expect(pickRefusal([], EMPTY, 'armor', cat)).toBe('stub'); // not a line of this catalog
   });
 });
