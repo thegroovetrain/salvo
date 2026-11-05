@@ -48,7 +48,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_KIT, DEFAULT_SHIFT, initialTurrets, type OwnShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, initialTurrets, type OwnShip } from '@salvo/shared';
 import type { Relation } from '../render/relationColor.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
@@ -125,7 +125,7 @@ function refitViewFixture(): OfferView {
   const you: OwnShip = {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
     ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
-    sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1,
+    sec: { heat: 0, locked: false }, pts: 1,
     offer: ['intel', 'armor', 'deckGun', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   };
@@ -196,9 +196,9 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
     expect(EVERY_ROOT_PLACED).toBe(true);
   });
 
-  it('the world layers stack ocean → wake → projectile → mines → decoys, and the HUD vignette → hud → foghorn', () => {
+  it('the world layers stack ocean → wake → projectile → mines, and the HUD vignette → hud → foghorn', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld', // Story 8.16: buoyWorld renamed
+      'ocean', 'wake', 'projectile', 'mineWorld', // the buoy layer went with the buoys (Story 10.5)
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
   });

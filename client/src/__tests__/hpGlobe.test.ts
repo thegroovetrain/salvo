@@ -32,8 +32,6 @@ import {
   railPulsing,
   railSig,
   repairFraction,
-  shieldedFill,
-  shieldPoolHp,
   type HpGlobeInput,
 } from '../render/hpGlobe.js';
 import { circleSegmentBelow } from '../render/globe.js';
@@ -429,7 +427,7 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
   const MAX = stats.maxHp;
 
   function input(over: Partial<HpGlobeInput> = {}): HpGlobeInput {
-    return { hp: MAX * 0.8, maxHp: MAX, repairHp: 0, shield: 0, alive: true, sinking: false, ...over };
+    return { hp: MAX * 0.8, maxHp: MAX, repairHp: 0, alive: true, sinking: false, ...over };
   }
 
   afterEach(() => settings.reset());
@@ -474,59 +472,14 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     expect(globe.readoutText()).not.toContain(String(MAX)); // the raw max is never printed
   });
 
-  // THE SHIELDED READOUT (Story 8.16, epic-8 amendments 116/117; in percent
-  // since Story 10.3): hull + shield in the `info` token while a SHIELD BLOCK
-  // holds — NUMBER ONLY, and it may pass 100. The globe's band and its water
-  // never see the shield.
-  it('reads hull + shield past 100 in `info` while shielded, and reverts at 0', () => {
+  // THE SHIELDED READOUT left with SHIELD BLOCK and the shield buoy (Story
+  // 10.5, 2026-11-05): the numeral is the hull alone, always the primary text.
+  it('the numeral is the hull alone, in the primary text register', () => {
     const globe = new HpGlobe(new Container());
     globe.update(input({ hp: MAX }), GLOBE, 1, false, 1);
-    expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
-    const shield = MAX * 0.12;
-    globe.update(input({ hp: MAX, shield }), GLOBE, 2, false, 1);
-    expect(shown(globe)).toBe(hullPercent(MAX + shield, MAX));
-    expect(shown(globe)).toBeGreaterThan(100);
-    expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.info);
-    globe.update(input({ hp: MAX, shield: shield / 2 }), GLOBE, 3, false, 1);
-    expect(shown(globe)).toBe(hullPercent(MAX + shield / 2, MAX)); // an absorbed hit: the blue number falls
-    globe.update(input({ hp: MAX, shield: 0 }), GLOBE, 4, false, 1);
     expect(shown(globe)).toBe(hullPercent(MAX, MAX));
-    expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
-  });
-
-  it('the shield never touches the globe: water, band and alpha are the hull’s alone', () => {
-    const plain = new HpGlobe(new Container());
-    const shielded = new HpGlobe(new Container());
-    plain.update(input({ hp: MAX * 0.4 }), GLOBE, 1, false, 1);
-    shielded.update(input({ hp: MAX * 0.4, shield: 100 }), GLOBE, 1, false, 1);
-    expect(shielded.fillAlpha).toBe(plain.fillAlpha);
-  });
-
-  // THE SHIELD BUOY (Story 10.9, AC 7): its pool joins the SHIELD BLOCK's in the
-  // one shielded readout — the globe shows hp + shield + buoyShield.
-  it('shieldPoolHp sums the SHIELD BLOCK and the SHIELD BUOY pools; absent keys read 0', () => {
-    expect(shieldPoolHp({ shield: { hp: 40 }, buoyShield: { hp: 17.5 } })).toBe(57.5);
-    expect(shieldPoolHp({ shield: { hp: 40 } })).toBe(40);
-    expect(shieldPoolHp({ buoyShield: { hp: 17.5 } })).toBe(17.5);
-    expect(shieldPoolHp({})).toBe(0);
-    expect(shieldPoolHp(null)).toBe(0);
-  });
-
-  it('the globe shows hp + shield + buoyShield as one percent, in the shielded fill', () => {
-    const globe = new HpGlobe(new Container());
-    const hp = MAX * 0.8;
-    const you = { shield: { hp: MAX * 0.12 }, buoyShield: { hp: MAX * 0.1 } };
-    globe.update(input({ hp, shield: shieldPoolHp(you) }), GLOBE, 1, false, 1);
-    expect(shown(globe)).toBe(hullPercent(hp + shieldPoolHp(you), MAX));
-    expect(globe.valueFill).toBe(shieldedFill(shieldPoolHp(you)));
-    // A buoy pool alone shields the number too — same fill, no new colour.
-    globe.update(input({ hp, shield: shieldPoolHp({ buoyShield: { hp: 5 } }) }), GLOBE, 2, false, 1);
-    expect(globe.valueFill).toBe(shieldedFill(1));
-  });
-
-  it('shieldedFill is info iff shield hp is left', () => {
-    expect(shieldedFill(1)).toBe(CLIENT_CONFIG.colors.info);
-    expect(shieldedFill(0)).toBe(CLIENT_CONFIG.colors.textPrimary);
+    globe.update(input({ hp: MAX / 2 }), GLOBE, 2, false, 1);
+    expect(shown(globe)).toBe(hullPercent(MAX / 2, MAX));
   });
 
   // THE strobe regression, driven through the real instrument: a hull draining

@@ -21,11 +21,12 @@
 // into the bar's own container and shares the slot geometry. What lives here is
 // the pure core, which is what the tests measure.
 
-import { isConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId, type SlotItemId } from '@salvo/shared';
+import type { EffectiveStats, EquipmentId, ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
+  abilityName,
+  abilityStatRows,
   boonName,
-  consumableStatRows,
   equipmentStatRows,
   shipStatRows,
   statValueText,
@@ -35,6 +36,7 @@ import { CLASS_DISPLAY_NAMES } from '../ui/classNames.js';
 import { monoTextWidth, monoWrapLines } from '../ui/refitCardFit.js';
 import type { Rect } from './hudBar.js';
 import { equipmentInfo, interactionLine, lineForEquipment } from './equipmentInfo.js';
+import { isCooldownAbility, type SquareItemId } from './hotbarSquares.js';
 
 const H = CLIENT_CONFIG.hotbar;
 
@@ -91,29 +93,22 @@ export interface TooltipModel {
  * `cards` is the own fitted-card id list (repeats intact) — the interaction
  * line's tier reads it.
  *
- * A BELT SLOT takes its name from the copy layer and its rows from the card
- * face's `CONSUMABLE_ROWS`, and carries the shape and the STOCK on its
- * interaction line (Story 8.7, ruling 13). `stock` is the belt slot's
- * `ammo[slot].n` — copies held.
+ * A COOLDOWN-ABILITY square (`C` HULL REPAIR / `V` SMOKE — Story 10.5,
+ * 2026-11-05, epic-10 amendment 10) reads like the Shift square: its name and
+ * its rows (the card face's former rows for the line, off CONFIG), with no
+ * interaction word — an ability has no tier.
  */
 export function tooltipModel(
   slot: number,
-  id: SlotItemId | null,
+  id: SquareItemId | null,
   stats: EffectiveStats,
   cards: readonly string[] = [],
-  stock = 0,
 ): TooltipModel | null {
   if (id === null) return null;
-  if (isConsumableId(id)) {
-    return {
-      name: boonName(id).toUpperCase(),
-      interaction: interactionLine(slot, id, cards, stock),
-      stats: consumableStatRows(id),
-    };
-  }
+  if (isCooldownAbility(id)) return { name: abilityName(id), interaction: '', stats: abilityStatRows(id) };
   return {
     name: slotHeading(id, stats),
-    interaction: interactionLine(slot, id, cards, 0, stats),
+    interaction: interactionLine(slot, id, cards, stats),
     stats: equipmentStatRows(id, stats),
   };
 }

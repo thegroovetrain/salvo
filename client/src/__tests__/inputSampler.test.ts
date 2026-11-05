@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MSG, SLOT_GUN, WEAPON_SLOTS, type InputMsg } from '@salvo/shared';
+import { MSG, SLOT_GUN, WEAPON_SLOTS, abilityCode, type InputMsg } from '@salvo/shared';
 import {
   InputSampler,
   abilityPressDenied,
@@ -11,12 +11,12 @@ import {
 } from '../sim/inputSampler.js';
 import { KeyboardInput } from '../input/keyboard.js';
 
-const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, held: false, sec: false };
+const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, act: 0, held: false, sec: false };
 
 describe('buildInput', () => {
   it('carries aim/fireSeq/aimDist/slot/fireT from the mouse + prime sample', () => {
     const msg = buildInput(3, { throttle: 1, rudder: -1 }, AIM);
-    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   });
 
   it('carries a primed slot (the click resolves the skillshot on the wire)', () => {
@@ -29,17 +29,17 @@ describe('buildInput', () => {
     expect(buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, fireT: 0 }).fireT).toBe(0); // no-claim sentinel
   });
 
-  it('carries the ability-activation counters (Story 1.6: actSeq/actSlot, 0-sentinel default)', () => {
-    const on = buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, actSeq: 2, actSlot: 2 });
+  it('carries the ability-activation counters (Story 1.6: actSeq/act, 0-sentinel default)', () => {
+    const on = buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, actSeq: 2, act: 2 });
     expect(on.actSeq).toBe(2);
-    expect(on.actSlot).toBe(2);
+    expect(on.act).toBe(2);
     const off = buildInput(4, { throttle: 0, rudder: 0 }, AIM);
     expect(off.actSeq).toBe(0); // never pressed -> the explicit sentinel
-    expect(off.actSlot).toBe(0);
+    expect(off.act).toBe(0);
   });
 
   it('clamps axes to [-1, 1]', () => {
-    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false, sec: false });
+    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, held: false, sec: false });
     expect(msg.throttle).toBe(1);
     expect(msg.rudder).toBe(-1);
   });
@@ -119,11 +119,11 @@ describe('InputSampler', () => {
     expect(sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, fireT: 5000 }).fireT).toBe(5000);
   });
 
-  it('threads the sampled actSeq/actSlot onto the wire input (Story 1.6)', () => {
+  it('threads the sampled actSeq/act onto the wire input (Story 1.6)', () => {
     const sampler = new InputSampler(() => undefined);
-    const msg = sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 3, actSlot: 2 });
+    const msg = sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 3, act: 2 });
     expect(msg.actSeq).toBe(3);
-    expect(msg.actSlot).toBe(2);
+    expect(msg.act).toBe(2);
   });
 });
 
@@ -143,7 +143,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
       slot: AIM.slot,
       fireT: AIM.fireT,
       actSeq: AIM.actSeq,
-      actSlot: AIM.actSlot,
+      act: AIM.act,
       hornSeq: 0,
       held: false,
       sec: false,
@@ -155,7 +155,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('zeroes the rudder (the dangerous stale input) but keeps the throttle steaming', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42, actSeq: 0, actSlot: 0, held: false, sec: false });
+    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42, actSeq: 0, act: 0, held: false, sec: false });
     const msg = sampler.sendNeutralNow(1);
     expect(msg.throttle).toBe(1); // deliberate engine order preserved
     expect(msg.rudder).toBe(0);
@@ -165,7 +165,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('re-sends the LAST fireSeq — never 0 after clicks — as the honest "no new clicks" signal', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false, sec: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, act: 0, held: false, sec: false });
     const msg = sampler.sendNeutralNow(0);
     expect(msg.fireSeq).toBe(9); // NOT reset — the counter states "9 clicks so far, none new"
     expect(msg.aimDist).toBe(120); // last aim distance retained too
@@ -173,7 +173,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('sends a click landing in the gap since the last sample (live count wins at hide time)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, held: false, sec: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, act: 0, held: false, sec: false });
     // Click #10 lands after the sample but before visibilitychange fires:
     const msg = sampler.sendNeutralNow(0, 10);
     expect(msg.fireSeq).toBe(10); // fires NOW at a ≤1-tick-old aim, not minutes later on refocus
@@ -183,14 +183,14 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('carries the passed fireT for a gap-click (D1)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0, held: false, sec: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, act: 0, held: false, sec: false });
     // Gap-click at hide time carries its own honest fire instant:
     expect(sampler.sendNeutralNow(0, 10, 8000).fireT).toBe(8000);
   });
 
   it('falls back to the last-sampled fireT when none is passed (no new click)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0, held: false, sec: false });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, act: 0, held: false, sec: false });
     expect(sampler.sendNeutralNow(0).fireT).toBe(7000);
   });
 
@@ -213,7 +213,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
   it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot/fireT to zero', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
-    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   });
 });
 
@@ -257,31 +257,31 @@ describe('InputMsg.sec — the secondaries level (Story 10.4)', () => {
 });
 
 describe('InputSampler.sendNeutralNow — ability counters (Story 1.6, mirrors fireSeq)', () => {
-  it('re-sends the LAST actSeq/actSlot as the honest "no new presses" signal', () => {
+  it('re-sends the LAST actSeq/act as the honest "no new presses" signal', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 4, actSlot: 2 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 4, act: 2 });
     const msg = sampler.sendNeutralNow(0);
     expect(msg.actSeq).toBe(4); // NOT reset — the counter states "4 presses so far, none new"
-    expect(msg.actSlot).toBe(2);
+    expect(msg.act).toBe(2);
   });
 
   it('sends a press landing in the gap since the last sample (live counter wins at hide time)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 4, actSlot: 2 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 4, act: 2 });
     // Press #5 lands after the sample but before visibilitychange fires:
     const msg = sampler.sendNeutralNow(0, undefined, undefined, 5, 2);
     expect(msg.actSeq).toBe(5); // activates NOW, not minutes later on refocus
-    expect(msg.actSlot).toBe(2);
+    expect(msg.act).toBe(2);
     // And the wire counter never regresses if the live count is somehow behind:
     expect(sampler.sendNeutralNow(0, undefined, undefined, 3, 1).actSeq).toBe(5);
-    expect(sampler.sendNeutralNow(0).actSlot).toBe(2); // stale live slot never adopted
+    expect(sampler.sendNeutralNow(0).act).toBe(2); // stale live slot never adopted
   });
 
   it('defaults both counters to the 0 sentinel before any sample or press', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
     expect(msg.actSeq).toBe(0);
-    expect(msg.actSlot).toBe(0);
+    expect(msg.act).toBe(0);
   });
 });
 
@@ -320,24 +320,24 @@ describe('ability activation reaches the wire one-per-input (KeyboardInput + Inp
     kb.consumeActivation();
     return sampler.sample(
       { throttle: 0, rudder: 0 },
-      { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: kb.actSeq, actSlot: kb.actSlot, held: false, sec: false },
+      { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: kb.actSeq, act: kb.act, held: false, sec: false },
     );
   }
 
-  it('two different-slot presses in ONE window ride SUCCESSIVE inputs, neither lost', () => {
-    // every slot fitted + an ability (isSlotFitted fails closed — it must be wired)
-    const kb = new KeyboardInput({ isSlotFitted: () => true, isAbilitySlot: () => true });
+  it('two different-ability presses in ONE window ride SUCCESSIVE inputs, neither lost', () => {
+    // Story 10.5: the wire names the ABILITY (`act`), so C then V — two
+    // presses in one 50ms window — ride two inputs, each with its own code.
+    const kb = new KeyboardInput();
     kb.attach();
     const sampler = new InputSampler(() => undefined);
-    const [Q, E] = WEAPON_SLOTS; // slots 2 and 3 since Story 8.5
-    press('KeyQ'); // weapon slot Q
-    press('KeyE'); // weapon slot E — same 50ms window, before any sample
+    press('KeyC'); // HULL REPAIR
+    press('KeyV'); // SMOKE — same 50ms window, before any sample
     const a = tick(kb, sampler);
     const b = tick(kb, sampler);
     const c = tick(kb, sampler);
-    expect([a.actSeq, a.actSlot]).toEqual([1, Q]); // first press this input
-    expect([b.actSeq, b.actSlot]).toEqual([2, E]); // second press the next input — NOT collapsed
-    expect([c.actSeq, c.actSlot]).toEqual([2, E]); // nothing new — the counter simply repeats
+    expect([a.actSeq, a.act]).toEqual([1, abilityCode('repair')]); // first press this input
+    expect([b.actSeq, b.act]).toEqual([2, abilityCode('smoke')]); // second press the next input — NOT collapsed
+    expect([c.actSeq, c.act]).toEqual([2, abilityCode('smoke')]); // nothing new — the counter simply repeats
     kb.detach();
   });
 

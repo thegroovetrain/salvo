@@ -40,7 +40,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import {
   BOOST_KEY_CODES,
-  CONSUMABLE_KEY_CODES,
+  ABILITY_KEY_CODES,
   REFIT_DIGIT_CODES,
   SLOT_KEY_CODES,
 } from '../input/keyboard.js';
@@ -336,7 +336,7 @@ describe('bindingRows — the view-only reference model', () => {
     ARROWS: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'],
   };
   /** Words in a keys label that name no key (a mouse action, an absence, a qualifier). */
-  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'NUMPAD']);
+  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'RIGHT', 'NUMPAD']);
   /** keyboard.ts binds these directly (not via an exported table). */
   const DIRECT_CODES = [
     'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM',
@@ -344,7 +344,7 @@ describe('bindingRows — the view-only reference model', () => {
   const BOUND = new Set<string>([
     ...THROTTLE_AHEAD, ...THROTTLE_ASTERN, ...DIRECT_CODES,
     ...Object.keys(SLOT_KEY_CODES), ...BOOST_KEY_CODES,
-    ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(CONSUMABLE_KEY_CODES),
+    ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(ABILITY_KEY_CODES),
   ]);
 
   /** A row's keys label → the codes it advertises; an unmapped token throws, naming it. */
@@ -375,13 +375,13 @@ describe('bindingRows — the view-only reference model', () => {
     }
   });
 
-  it('every key in keyboard.ts\'s slot / boost / refit-digit / consumable tables is advertised', () => {
+  it('every key in keyboard.ts\'s slot / boost / refit-digit / ability tables is advertised', () => {
     const shown = advertised();
     const tables: Record<string, readonly string[]> = {
       SLOT_KEY_CODES: Object.keys(SLOT_KEY_CODES),
       BOOST_KEY_CODES,
       REFIT_DIGIT_CODES: Object.keys(REFIT_DIGIT_CODES),
-      CONSUMABLE_KEY_CODES: Object.keys(CONSUMABLE_KEY_CODES),
+      ABILITY_KEY_CODES: Object.keys(ABILITY_KEY_CODES),
     };
     for (const [name, codes] of Object.entries(tables)) {
       for (const code of codes) expect(shown.has(code), `${name}.${code} has no row`).toBe(true);

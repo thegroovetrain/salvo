@@ -1,6 +1,6 @@
 // The loadout row grammar, a LEAF module: the numbers the class card's loadout
-// rows and the CONSUMABLES row/picker (ui/kitPicker.ts) share. They live here
-// so kitPicker never imports classSelect (which imports kitPicker).
+// rows read. (They were shared with the CONSUMABLES picker until the kit
+// retired — Story 10.5.)
 
 /** The card's inner content width (px): 356 − 2 × 22 padding. */
 export const CARD_INNER_PX = 356 - 2 * 22;

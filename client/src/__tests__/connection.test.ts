@@ -7,13 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CONFIG,
   DEFAULT_HORN_ID,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
   MSG,
   PROTOCOL_VERSION,
-  type ConsumableKit,
   type ShiftId,
 } from '@salvo/shared';
 
@@ -184,9 +182,8 @@ const SEAT = { room: { roomId: 'arena-1', processId: 'p1' }, sessionId: 'arena-s
 async function connectAndWelcome(
   hooks: ConnectHooks = {},
   shift?: ShiftId,
-  kit?: ConsumableKit,
 ): Promise<Awaited<ReturnType<typeof connect>>> {
-  const pending = connect('tester', undefined, hooks, false, shift, kit);
+  const pending = connect('tester', undefined, hooks, false, shift);
   await vi.waitFor(() => {
     if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
   });
@@ -394,7 +391,7 @@ describe('connect — the SOLO VS AI door (Story 6.5)', () => {
     // Story 10.4: the SEAT'S SHIFT rides the solo door exactly as it rides the
     // queue door — the solo arena seats a captain the same way.
     expect(lastCreateOpts?.shift).toBe(DEFAULT_SHIFT);
-    expect(lastCreateOpts?.kit).toEqual([...DEFAULT_KIT]); // Story 10.1: the kit rides the solo door too
+    expect(lastCreateOpts).not.toHaveProperty('kit'); // Story 10.5: the kit left the join
   });
 
   it('binds NO queue channel and hands out NO canceller — there is nothing to wait for', async () => {
@@ -466,17 +463,11 @@ describe('connect', () => {
     expect(lastJoinOpts).not.toHaveProperty('colorPref');
   });
 
-  // Story 10.1 (epic-10 amendment 3): the kit rides exactly as the Shift does.
-  it("forwards the seat's kit as `kit` — DEFAULT_KIT when the caller names none", async () => {
+  // Story 10.5 (2026-11-05, epic-10 amendment 10): the consumable kit left
+  // the join with the kit — no `kit` key is ever sent.
+  it('sends no `kit` key (the kit retired)', async () => {
     await connectAndWelcome();
-    expect(lastJoinOpts?.kit).toEqual([...DEFAULT_KIT]);
-  });
-
-  it('forwards the THREADED kit verbatim, as a plain array', async () => {
-    const kit = [...DEFAULT_KIT].reverse();
-    await connectAndWelcome({}, undefined, kit);
-    expect(lastJoinOpts?.kit).toEqual(kit);
-    expect(Array.isArray(lastJoinOpts?.kit)).toBe(true);
+    expect(lastJoinOpts).not.toHaveProperty('kit');
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {

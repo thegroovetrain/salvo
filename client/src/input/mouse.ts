@@ -64,6 +64,13 @@
 // so a sub-sample tap still yields one `sec: true`. Pointer Events report a
 // SECOND button pressed during a hold as a `pointermove` carrying that
 // `button` (not a pointerdown), so the move handler reads the right button's
+// THE READIED WEAPON (Story 10.5, 2026-11-05, epic-10 amendment 10 — ruling
+// B): with a slot weapon readied, a right PRESS cancels the ready and fires
+// nothing (input/rightClick.ts `rightPressVerdict`), and the secondaries level
+// is masked for as long as the ready lasts (`secondariesLevel`). Both read the
+// injected `ready` hooks; with none injected nothing is ever readied and the
+// right button is exactly Story 10.4's.
+//
 // chord edges and the left's, so a gun click made while the secondaries
 // stream is never lost. The right button counts no click and opens no
 // prime-revert hold.
@@ -77,6 +84,8 @@
 // (released outside the window, a native context menu on chrome) cannot stream
 // forever: any pointermove whose `buttons` lacks the secondary bit, or the
 // pointer leaving the WINDOW, ends the level.
+
+import { rightPressVerdict, secondariesLevel } from './rightClick.js';
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -111,6 +120,16 @@ const LONE_POINTER_ID = -1;
 function pointerIdOf(e: PointerEvent): number {
   return Number.isFinite(e.pointerId) ? e.pointerId : LONE_POINTER_ID;
 }
+
+/** The readied-weapon hooks the right button consults (Story 10.5). */
+export interface ReadyHooks {
+  /** Is a slot weapon readied (primed) right now? */
+  isReadied: () => boolean;
+  /** Cancel the ready (revert the prime to the gun). */
+  cancel: () => void;
+}
+
+const NEVER_READIED: ReadyHooks = { isReadied: () => false, cancel: () => undefined };
 
 export class MouseInput {
   private readonly pos: ScreenPoint = { x: 0, y: 0 };
@@ -168,12 +187,16 @@ export class MouseInput {
    *   C3a): true iff the point lies on the hotbar's swallowing chrome. The right
    *   button asks this one, so a right press there is swallowed and acts on
    *   nothing.
+   * @param ready The READIED-WEAPON hooks (Story 10.5): `isReadied` — a slot
+   *   weapon is primed — and `cancel` — revert the prime to the gun. Default:
+   *   never readied (the right button is then only the secondaries).
    */
   constructor(
     private readonly nowServer: () => number = () => 0,
     private readonly isLocked: () => boolean = () => false,
     private readonly onSlotPress: (p: ScreenPoint) => boolean = () => false,
     private readonly overHotbar: (p: ScreenPoint) => boolean = () => false,
+    private readonly ready: ReadyHooks = NEVER_READIED,
   ) {}
 
   private readonly onMove = (e: PointerEvent): void => {
@@ -201,12 +224,19 @@ export class MouseInput {
     }
   }
 
-  /** Accept a right press — the same canvas / lockout / hotbar gates as a
-   *  click, the hotbar asked through the side-effect-free hit test. */
+  /** Judge a right press (`rightPressVerdict`) — the same canvas / lockout /
+   *  hotbar gates as a click, the hotbar asked through the side-effect-free
+   *  hit test; past them a READIED weapon is cancelled and the press latches
+   *  nothing (Story 10.5), else it is the secondaries. */
   private secPress(e: PointerEvent): void {
-    if (e.target !== this.canvas) return;
-    if (this.isLocked()) return;
-    if (this.overHotbar({ x: e.clientX, y: e.clientY })) return;
+    const verdict = rightPressVerdict({
+      onCanvas: e.target === this.canvas,
+      locked: this.isLocked(),
+      overHotbar: this.overHotbar({ x: e.clientX, y: e.clientY }),
+      readied: this.ready.isReadied(),
+    });
+    if (verdict === 'cancelReady') this.ready.cancel();
+    if (verdict !== 'secondaries') return;
     this.secDown = true;
     this.secPressedSinceSample = true;
   }
@@ -400,13 +430,14 @@ export class MouseInput {
 
   /**
    * The value `InputMsg.sec` carries for ONE sample: the live right-button level
-   * OR a right press accepted since the previous sample. Clears the latch — call
+   * OR a right press accepted since the previous sample — MASKED while a slot
+   * weapon is readied (Story 10.5, `secondariesLevel`). Clears the latch — call
    * it once per sampled input.
    */
   consumeSec(): boolean {
     const sec = this.secDown || this.secPressedSinceSample;
     this.secPressedSinceSample = false;
-    return sec;
+    return secondariesLevel(sec, this.ready.isReadied());
   }
 
   /** Cumulative button-0 canvas clicks since boot (feeds InputMsg.fireSeq). */

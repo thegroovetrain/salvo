@@ -151,7 +151,10 @@ describe('how-to-play page mount', () => {
   it('renders one stat table per entry, plus the controls table', () => {
     const tables = page().querySelectorAll('table');
     const keyTables = HOWTO_SECTIONS.filter((s) => s.keys !== undefined).length;
-    expect(tables).toHaveLength(allEntries().filter(inCatalog).length + keyTables);
+    // Story 10.5: a `consumable`-tagged entry derives no table until the copy
+    // pass (Story 10.14) — the kit's lines are gone.
+    const tabled = allEntries().filter(inCatalog).filter((e) => e.table !== 'consumable');
+    expect(tables).toHaveLength(tabled.length + keyTables);
   });
 
   // Eric 2026-10-01: each entry shows its icon as the card / hotbar draws it.

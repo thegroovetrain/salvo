@@ -903,9 +903,6 @@ export const CLIENT_CONFIG = {
    * mines "a lot more visible"): width 1 → 2, blastAlpha 0.3 → 0.6,
    * triggerAlpha 0.34 → 0.65 — IMPLEMENTER DRAFTS for his eye on staging.
    * `armingScale` is unchanged, so an arming mine still reads quieter.
-   * render/decoys.ts borrows `width` for the owner-only masthead hp arc (a
-   * 9.5 u clock face at the topmark, never around the hull), which therefore
-   * also thickens to 2 — it still cannot read as a mine ring.
    */
   mineRings: {
     width: 2, // ring stroke width (cycle 162 draft; was 1)
@@ -915,25 +912,6 @@ export const CLIENT_CONFIG = {
      *  (client-inferred: first-seen + CONFIG.mine.armDelay). Dim = "not live
      *  yet"; it snaps to full the moment it arms. */
     armingScale: 0.4,
-  },
-
-  /** THE BUOY EFFECT RINGS (Story 10.9, Eric 2026-10-29: every own buoy and
-   *  every SIGHTED enemy buoy draws its `CONFIG.buoy.radiusU` ring on the
-   *  chart, all DASHED — render/buoyRings.ts). A 1 px non-scaling hairline
-   *  (Pixi `pixelLine`); own rings in the kind's colour, an enemy's in the
-   *  shared alert blend. Feel knobs only — the radius is CONFIG's. */
-  buoyRing: {
-    /** Stroke alpha of an own ring at full life (scaled by its life left). */
-    alpha: 0.55,
-    /** Stroke alpha of a sighted enemy's ring (the alert tint rides on it). */
-    enemyAlpha: 0.6,
-    /** Interior wash of an own HEALING / SHIELD / SPEED ring at full life;
-     *  RADAR has none (its sweep wedge is the interior); an enemy's has none. */
-    fillAlpha: 0.07,
-    /** The dash: segments around the full circle and the inked fraction of
-     *  each — more than the mine rings' 28, because this ring is ~100× wider. */
-    dashSegments: 120,
-    dashDuty: 0.5,
   },
 
   /** Own/contact ship view feel constants. */
@@ -1849,13 +1827,13 @@ export const CLIENT_CONFIG = {
    * from the mock's 96 to the helm globe's 104, so ONE `globe` number serves
    * both). Story 9.2's two-row D-prime stack (`mockups/hud-consumables-1.html`)
    * is RETIRED: Eric 2026-10-14 (epic-9 amendment 151) put the bar back on the
-   * literal 8.6 one-row geometry, with the framed belt holding the
-   * consumable squares (all SIX, keys 1–6, from Story 9.11 until Story 10.1; the
-   * kit's four, keys 1–4, since).
+   * literal 8.6 one-row geometry. STORY 10.5 (2026-11-05, epic-10 amendment
+   * 10) retired the framed consumable belt with the kit: `C` (HULL REPAIR) and
+   * `V` (SMOKE) are two more 54 px squares in the one run, after `R`.
    *
-   * Anatomy of the bar, left to right (868 px with the six squares of Story 9.11):
-   *   HP globe 104 | 16 | Gun Shift Q E R (5 x 54, 8 gaps) | 16 |
-   *   framed belt 1-n (8 + n x 44 + (n - 1) x 6 + 8, n = KIT_SIZE) | 16 | helm globe 104
+   * Anatomy of the bar, left to right (the width is DERIVED — render/hudBar.ts
+   * `HUD_BAR_WIDTH`):
+   *   HP globe 104 | 16 | Gun Sec Shift Q E R C V (8 x 54, 7 gaps of 8) | 16 | helm globe 104
    * with the XP strip's 24 px row 8 px beneath the 104 px main row
    * (104 + 8 + 24 = 136 tall).
    *
@@ -1875,36 +1853,25 @@ export const CLIENT_CONFIG = {
      *  the HP globe at 96 and the helm at 104; Eric lifted them to one size. */
     globe: 104,
     /** The bar's one horizontal gap (mock `.B-main { gap: 16px }`): globe to
-     *  slots, slots to belt, belt to globe. */
+     *  the run of squares, and the run to the other globe. */
     globeGap: 16,
     /** Weapon slot square (px) and the gap between them (mock `.slot`,
      *  `.B-slots { gap: 8px }`). */
     slot: 54,
     slotGap: 8,
-    /** Consumable belt square (px) and its tighter gap (mock `.belt .slot`,
-     *  `.belt { gap: 6px }`). The kit's four (keys 1–4, Story 10.1); six from Story 9.11 until then. */
-    beltSlot: 44,
-    beltGap: 6,
-    /** Belt frame padding (mock `.belt { padding: 8px 8px 6px }`). The frame
-     *  ENCLOSES the key chips, exactly as the mock's `.belt > .sw` column does,
-     *  so `bottom` is measured under the chip, not under the square. */
-    beltPad: { top: 8, side: 8, bottom: 6 },
     /** Key chip (mock `.kc`): 16 px tall, 16 px minimum width, 3 px of padding
      *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`)
-     *  — the same seam under every square, weapon and belt alike. */
+     *  — the same seam under every square. */
     chipH: 16,
     chipMinW: 16,
     chipPadX: 3,
     chipGap: 5,
-    /** Icon linework box (px) in a weapon square / a belt square (mock
-     *  `.slot > svg` 28, `.belt .slot > svg` 22). */
+    /** Icon linework box (px) in a square (mock `.slot > svg` 28). */
     icon: 28,
-    beltIcon: 22,
-    /** Ammo badge square (px) and its top-right overhang on both axes — the
-     *  belt's badge rides 1 px tighter (mock `.badge`, `.belt .badge`). */
+    /** Ammo badge square (px) and its top-right overhang on both axes (mock
+     *  `.badge`). */
     badge: 16,
     badgeOverhang: 7,
-    beltBadgeOverhang: 6,
     /** XP STRIP. `stripGap` is the main row to strip row gap (mock `.B-xp
      *  { margin-top: 8px }`); `strip` the track's own height (mock `.B-xp
      *  .hbar.xp { height: 4px }`); `stripRowH` the row the strip's items are
@@ -1918,8 +1885,8 @@ export const CLIENT_CONFIG = {
     stripItemGap: 10,
     bankChip: 24,
     cueGap: 8,
-    /** Alpha the TWO dim groups (the five weapon slots, the framed belt) drop
-     *  to while the refit window is open or the start line is held — mock
+    /** Alpha the run of squares drops to while the refit window is open or
+     *  the start line is held — mock
      *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
      *  the XP strip deliberately stay at 1. */
     dimAlpha: 0.38,
@@ -1929,8 +1896,8 @@ export const CLIENT_CONFIG = {
      *  A feel knob: bigger = softer, wider halos; the per-state reach and peak
      *  stay the mock's numbers in the skin table. */
     glowBlurPx: 8,
-    /** Hairline width (px) — every 1 px rule on the bar (square edges, the
-     *  belt frame, rings, chip boxes, the strip's border). */
+    /** Hairline width (px) — every 1 px rule on the bar (square edges,
+     *  rings, chip boxes, the strip's border). */
     lineW: 1,
     /** Globe bed alpha over the water — mock `rgba(3,6,5,.7)` on `cardScrim`. */
     globeBedAlpha: 0.7,
@@ -2168,18 +2135,6 @@ export const CLIENT_CONFIG = {
      * reason word carry it in glyphs).
      */
     greyedAlpha: 0.55,
-    /**
-     * ms — the INERT GRACE after the refit window closes by ANY path (Story
-     * 8.7, ruling 8). The digits `1`-`4` mean two different things either side
-     * of that close (pick a card / fire a belt slot), and a player who spends
-     * their last level with `1` is still holding the key when the window goes
-     * away. For this long afterwards a digit is swallowed: nothing is sent,
-     * nothing is primed. Matches the `results.keyGraceMs` precedent.
-     *
-     * Declared HERE, in this cycle, although the keyboard wave is what reads it
-     * — one config edit per block, never two.
-     */
-    closeGraceMs: 400,
     /** Denied edge pulse on the PICKED card: the ratified 80ms one-shot with a
      *  300ms same-source floor (the deniedFire grammar, reused verbatim). */
     deniedPulseMs: 80,

@@ -6,7 +6,7 @@
 // through the queue path's own stage 2.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_KIT, DEFAULT_SHIFT, MSG, PROTOCOL_VERSION, SHIFT_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, MSG, PROTOCOL_VERSION, SHIFT_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
 
 /** Any real hull — the lobby forwards `cls` verbatim. */
 const CLS = SHIP_CLASS_IDS[0];
@@ -269,22 +269,13 @@ describe('CREATE', () => {
     expect(created?.name).toBe('lobby');
     expect(created?.opts).toMatchObject({ pv: PROTOCOL_VERSION, name: 'NEMO', cls: CLS, shift: OTHER_SHIFT });
     expect(created?.opts).not.toHaveProperty('gun');
-    expect(created?.opts.kit).toEqual([...DEFAULT_KIT]); // Story 10.1: absent kit → DEFAULT_KIT
+    expect(created?.opts).not.toHaveProperty('kit'); // Story 10.5: the kit left the join
     lobbyRoom.fireState(STATE);
     expect(h.views.at(-1)?.code).toBe('QWERTY');
     expect(lobbyActive()).toBe(true);
     leaveLobby();
     expect(await pending).toBeNull();
     expect(h.calls).toEqual(['left']);
-  });
-
-  it('the deploy kit rides the lobby join options (Story 10.1)', async () => {
-    const kit = [...DEFAULT_KIT].reverse();
-    const pending = createLobby({ cls: CLS, kit }, hooks());
-    await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
-    expect(created?.opts.kit).toEqual(kit);
-    leaveLobby();
-    expect(await pending).toBeNull();
   });
 
   it('a refused create (version gate) reports the queue door copy and settles null', async () => {

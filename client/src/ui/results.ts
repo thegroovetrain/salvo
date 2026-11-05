@@ -50,13 +50,11 @@
 // rest is a thin DOM adapter.
 
 import {
-  type ConsumableKit,
   type EffectiveStats,
   type ResultsMsg,
   type ResultsRow,
   type ShipClassId,
-  type SlotItemId,
-  type WeaponAmmo,
+  type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
@@ -321,16 +319,11 @@ export interface ResultsOwn {
   hue: number;
   /** Fitted card ids, REPEATS INTACT (`OwnShip.cards`). */
   cards: readonly string[];
-  /** The ship's KIT (`OwnShip.kit`, Story 10.1): the four consumable lines in
-   *  key order — the LOADOUT twin names a ZERO-STOCK belt square's kind
-   *  through `consumableKindAt(kit, slot)`. */
-  kit: ConsumableKit;
-  /** Slot-aligned item ids of the own loadout as it ended (`g.ownSlots`: the
-   *  replayed `slotIdsFor`), `null` for an empty square — a belt stack fired to
-   *  zero has left `cards`, so it is simply empty here too (Eric R4). */
-  slots: readonly (SlotItemId | null)[];
-  /** Slot-aligned stock (`OwnShip.ammo`) — the belt's `×n` badges read it. */
-  ammo: readonly (WeaponAmmo | null)[];
+  /** Slot-aligned equipment ids of the own loadout as it ended (`g.ownSlots`:
+   *  the replayed `slotIdsFor`), `null` for an empty square. (The kit and the
+   *  belt's stock left with the kit — Story 10.5, 2026-11-05, epic-10
+   *  amendment 10.) */
+  slots: readonly (EquipmentId | null)[];
   /** The own effective stats (`g.ownStats`, the hotbar's own fold) — the gun's
    *  tier is read off it, never re-derived. */
   stats: EffectiveStats;

@@ -25,7 +25,7 @@
 // `amberPulseWinner`, so the two can never disagree about which amber wins.
 
 import { Container, Text } from 'pixi.js';
-import type { EffectiveStats, OwnShip, ShipClassId, SlotItemId, WeaponAmmo } from '@salvo/shared';
+import type { EffectiveStats, OwnShip, ShipClassId, EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 // The Tier-1 hold easing is the storm vignette's, imported rather than
@@ -69,11 +69,6 @@ export interface OwnStatus {
    *  amendment 35) and nothing else — the authoritative hull number is still
    *  `hp`, which the pool pays into every server tick. */
   repairHp: number;
-  /** hp — the SHIELD BLOCK's remaining absorb (`OwnShip.shield.hp`, Story
-   *  8.16); 0 when no shield is up. Self-private, read verbatim off the server
-   *  frame. Drives the HP globe's shielded NUMBER (amendment 116) and nothing
-   *  else — `hp` stays the hull. */
-  shield: number;
   // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT
   // (NINE since Story 8.5), null for an empty slot — which at 0:00 is seven of
   // the nine: the three weapon slots and the whole consumable belt.
@@ -101,7 +96,7 @@ export interface OwnStatus {
    *  Story 8.5); null = an unfitted slot. Read by the firing UX and passed
    *  through to the HOTBAR (render/hotbar.ts owns the loadout surface). Ammo
    *  VALUES still come from the server via `ammo`. */
-  loadout: readonly (SlotItemId | null)[];
+  loadout: readonly (EquipmentId | null)[];
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
    *  drives the boosted speed-needle cap on the helm globe's telegraph arc. */
   boostActive: boolean;

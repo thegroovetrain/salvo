@@ -16,10 +16,8 @@
 import { describe, it, expect } from 'vitest';
 import { Container, type Graphics } from 'pixi.js';
 import {
-  BUOY_LINE_IDS,
   CONFIG,
   DEFAULT_CLASS_ID,
-  buoyKindOf,
   burstPointAlong,
   effectiveStats,
   broadsideMountSpread,
@@ -167,62 +165,6 @@ describe('computeAimPreview — nothing is previewed that cannot be fired', () =
     // decoy suite below).
     expect(computeAimPreview(input({ id: 'boost' }))).toEqual({ lines: [], bursts: [], place: null, band: null });
     expect(computeAimPreview(input({ id: null }))).toEqual({ lines: [], bursts: [], place: null, band: null });
-  });
-});
-
-describe('buoy placement — the drop marker with its kind, no rings (Story 8.16 / 10.9)', () => {
-  const decoy = (over: Partial<AimPreviewInput> = {}) =>
-    computeAimPreview(input({ id: 'healingBuoy', aim: 0, aimDist: 120, ...over }));
-
-  it('marks the drop point AT the click, not at the ship', () => {
-    const m = decoy();
-    expect(m.drop).toEqual({ x: SHIP.x + 120, y: SHIP.y, blocked: false, kind: buoyKindOf('healingBuoy') });
-  });
-
-  it('draws NO rings — no blast, no trigger, no effect circle (a decoy has none)', () => {
-    const m = decoy();
-    expect(m.bursts).toEqual([]);
-    expect(m.place).toBeNull(); // the mine placement (with its two rings) is never used
-    expect(m.lines).toEqual([]);
-    expect(m.band).toBeNull();
-  });
-
-  it('marks a drop into a rock BLOCKED — the server refuses it', () => {
-    const rock = squareIsland(120, 0, 30);
-    expect(decoy({ islands: [rock] }).drop?.blocked).toBe(true);
-    expect(decoy({ islands: [rock], aimDist: 20 }).drop?.blocked).toBe(false);
-  });
-
-  it('an ILLEGAL aim (past the placement reach) previews nothing', () => {
-    expect(computeAimPreview(input({ id: 'healingBuoy', legal: false }))).toEqual(EMPTY_MODEL);
-  });
-
-  it('EVERY buoy line previews the same drop, carrying its own kind (Story 10.9)', () => {
-    for (const id of BUOY_LINE_IDS) {
-      const m = computeAimPreview(input({ id, aim: Math.PI / 2, aimDist: 80 })); // any bearing — 360° (ruling 9)
-      expect(m.drop?.kind, id).toBe(buoyKindOf(id));
-      expect(m.bursts, id).toEqual([]);
-      expect(m.place, id).toBeNull();
-    }
-  });
-
-  it('no other id carries a drop marker (a mine keeps its rings, never the decoy marker)', () => {
-    expect(computeAimPreview(input({ id: 'navalMines', aim: 0, aimDist: 120 })).drop).toBeUndefined();
-    expect(computeAimPreview(input({ id: 'gun', aimDist: 300 })).drop).toBeUndefined();
-  });
-
-  it('the Pixi adapter draws the tinted beacon (filled head) and no circle', () => {
-    const layer = new Container();
-    const preview = new AimPreview(layer);
-    preview.update(decoy(), 0xffffff);
-    const g = layer.children[0] as Graphics;
-    const actions = g.context.instructions.flatMap((ins) => {
-      const path = (ins.data as { path?: { instructions: { action: string }[] } }).path;
-      return path === undefined ? [] : path.instructions.map((q) => q.action);
-    });
-    expect(actions).toContain('poly');
-    expect(actions).not.toContain('circle');
-    expect(actions).not.toContain('arc');
   });
 });
 
@@ -892,20 +834,29 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.equipment.phosphorShells.rangeU, 6);
   });
 
-  it('the FOULING SHELL draws the fixed CONFIG zone in the EFFECT register, to its own reach dial (Story 9.4, ruling 125)', () => {
+  it('the FOULING SHELL draws its row\'s zone in the EFFECT register, to its row\'s reach (Story 10.5)', () => {
     const inp = input({ id: 'foulingShell', aimDist: 99999 });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(1);
-    expect(m.bursts[0].r).toBe(CONFIG.foulingShell.radius);
+    expect(m.bursts[0].r).toBe(inp.stats.equipment.foulingShell.radius);
     expect(m.bursts[0].effect).toBe(true); // it slows, it deals no damage
-    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(CONFIG.foulingShell.rangeU, 6);
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.equipment.foulingShell.rangeU, 6);
+  });
+
+  it('a shell TIER widens the previewed burst — the circle reads the folded row (R7)', () => {
+    for (const id of ['foulingShell', 'dazzleShells'] as const) {
+      const one = computeAimPreview(input({ id, stats: stats(id), aimDist: 99999 }));
+      const two = computeAimPreview(input({ id, stats: stats(id, id), aimDist: 99999 }));
+      expect(two.bursts[0].r, id).toBe(stats(id, id).equipment[id].radius);
+      expect(two.bursts[0].r, id).toBeGreaterThan(one.bursts[0].r);
+    }
   });
 
   it('FLASH SHELLS draws its own burst in the EFFECT register, at the FOULING SHELL\'s reach (Story 10.9, ruling 2)', () => {
     const flash = computeAimPreview(input({ id: 'dazzleShells', aimDist: 99999 }));
     const foul = computeAimPreview(input({ id: 'foulingShell', aimDist: 99999 }));
     expect(flash.bursts).toHaveLength(1);
-    expect(flash.bursts[0].r).toBe(CONFIG.flashShells.radius);
+    expect(flash.bursts[0].r).toBe(stats().equipment.dazzleShells.radius);
     expect(flash.bursts[0].effect).toBe(true); // it blinds, it deals no damage
     // ONE reach dial for the two click-aimed shells — the same clamp point.
     expect(flash.bursts[0].x).toBeCloseTo(foul.bursts[0].x, 9);
@@ -936,11 +887,11 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
   });
 
-  it('sizes an own PHOSPHOR burst off its zone and a FOULING SHELL burst off CONFIG', () => {
-    const s = stats('phosphorShells', 'phosphorShells', 'phosphorShells');
+  it('sizes an own PHOSPHOR burst off its zone and the two special shells off their TIERED rows', () => {
+    const s = stats('phosphorShells', 'phosphorShells', 'phosphorShells', 'foulingShell', 'foulingShell', 'dazzleShells');
     expect(ownBurstRadius(s, 'phosphorShells')).toBe(s.equipment.phosphorShells.zoneRadius);
-    expect(ownBurstRadius(s, 'foulingShell')).toBe(CONFIG.foulingShell.radius);
-    expect(ownBurstRadius(s, 'dazzleShells')).toBe(CONFIG.flashShells.radius); // Story 10.9
+    expect(ownBurstRadius(s, 'foulingShell')).toBe(s.equipment.foulingShell.radius); // Story 10.5, R7
+    expect(ownBurstRadius(s, 'dazzleShells')).toBe(s.equipment.dazzleShells.radius);
   });
 
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): no torpedo bursts at a

@@ -17,13 +17,11 @@
 
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   generateMap,
   MSG,
   PROTOCOL_VERSION,
   sanitizeHornId,
-  type ConsumableKit,
   type FrameMsg,
   type ShiftId,
   type HornId,
@@ -197,17 +195,13 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
  *  exactly as `cls` is (`sanitizeShiftId`). Chosen on the class-select SPECIAL
  *  row, stored under `hullcracker.shift` (ui/home.ts) and threaded here through
  *  `startGame` → `connect(…, shift)`. Always SENT, never omitted. No `gun` and
- *  no color preference ride the join any more (R6: the hue wheel is gone).
- *
- *  `kit` is THE SEAT'S FOUR CONSUMABLE LINES (Story 10.1, epic-10 amendment 3),
- *  carried exactly as `shift` is: chosen on the class-select CONSUMABLES row,
- *  stored under `hullcracker.kit`, always SENT (a fresh browser sends
- *  DEFAULT_KIT), re-sanitized server-side (fail-open to DEFAULT_KIT). */
+ *  no color preference ride the join any more (R6: the hue wheel is gone). The
+ *  consumable `kit` left the join with the kit (Story 10.5, 2026-11-05,
+ *  epic-10 amendment 10). */
 export function joinOptions(
   name?: string,
   cls?: string,
   shift: ShiftId = DEFAULT_SHIFT,
-  kit: ConsumableKit = DEFAULT_KIT,
 ): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
@@ -219,8 +213,7 @@ export function joinOptions(
     cls?: string;
     horn?: string;
     shift: ShiftId;
-    kit: string[];
-  } = { pv: PROTOCOL_VERSION, shift, kit: [...kit] };
+  } = { pv: PROTOCOL_VERSION, shift };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   // Story 4.5: the equipped foghorn variant, alongside cls. Always
@@ -515,10 +508,9 @@ export async function connect(
   hooks: ConnectHooks = {},
   solo = false,
   shift: ShiftId = DEFAULT_SHIFT,
-  kit: ConsumableKit = DEFAULT_KIT,
 ): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls, shift, kit);
+  const opts = joinOptions(name, cls, shift);
   // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
   // ARENA room, so bindRoom/buildGame see exactly what they always did.
   const room = await acquireArena(client, opts, hooks, solo);

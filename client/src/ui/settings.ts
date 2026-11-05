@@ -99,6 +99,10 @@ export interface BindingRow {
  * gave them (`REFIT_DIGIT_CODES` with the window open, `CONSUMABLE_KEY_CODES` with it
  * closed), which is what the row now states. The numpad aliasing is unchanged.
  *
+ * STORY 10.5 (2026-11-05, epic-10 amendment 10) re-cut it again: the digits
+ * keep only the refit pick (the kit keys left with the kit), `C` / `V` are the
+ * two cooldown abilities, and the right button cancels a readied weapon.
+ *
  * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story
  * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
  * Shift, so `Q / E` + `R` are one `Q / E / R` row and SHIFT has its own. The
@@ -109,12 +113,17 @@ export function bindingRows(): BindingRow[] {
     { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
     { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
     { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
-    { keys: 'Q / E / R', action: 'WEAPON SLOTS — PRESS TO SELECT, AGAIN TO CANCEL' },
+    // Story 10.5 (2026-11-05, epic-10 amendment 10): the three family slots, the
+    // two cooldown abilities, the right button and the digits' one meaning.
+    { keys: 'Q / E / R', action: 'TORPEDO / MINE / SPECIAL SHELL — PRESS TO READY, AGAIN TO CANCEL' },
+    { keys: 'C', action: 'HULL REPAIR' },
+    { keys: 'V', action: 'SMOKE SCREEN' },
     { keys: 'SHIFT', action: 'CLASS SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
-    { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
+    { keys: 'CLICK', action: 'FIRE THE MAIN BATTERY, OR THE READIED WEAPON' },
+    { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD) / CANCEL A READIED WEAPON' },
     { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
-    { keys: '1 – 4 (+ NUMPAD)', action: 'PICK A REFIT CARD (WINDOW OPEN) / FIRE A BELT SLOT (WINDOW CLOSED)' },
+    { keys: '1 – 4 (+ NUMPAD)', action: 'PICK A REFIT CARD' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
     { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
     { keys: 'M', action: 'MUTE' },

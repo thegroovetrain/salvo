@@ -33,13 +33,10 @@ import { indexWord } from '../ui/boonCopy.js';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   CONFIG,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   INDEX_IDS,
-  KIT_SIZE,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
-  dealableConsumables,
   type ShiftId,
 } from '@salvo/shared';
 
@@ -49,8 +46,8 @@ const THIRD = SHIP_CLASS_IDS[2];
 /** A Shift that is not the default — so a pick is observable. */
 const OTHER_SHIFT = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT) as ShiftId;
 
-/** The footer primary: the one layer button that is neither a kit square
- *  (aria-labelled) nor a Shift chip (found by role, never by label). */
+/** The footer primary: the one layer button that is not a Shift chip (found
+ *  by role, never by label). */
 function confirmButtonIn(root: ParentNode): HTMLButtonElement {
   return [...root.querySelectorAll<HTMLButtonElement>('button')].find(
     (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && b.textContent !== '',
@@ -322,7 +319,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm } = open();
     press('2');
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -334,7 +331,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const cards = [...layer.querySelectorAll('.hc-ccard')];
     (cards[1] as HTMLElement).click();
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -359,7 +356,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm, onClose } = open();
     press('3');
     confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith(THIRD, DEFAULT_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(THIRD, DEFAULT_SHIFT);
     expect(onClose).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull(); // closed back to port
   });
@@ -421,7 +418,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     (cards[1] as HTMLElement).click();
     confirmButton().click();
     expect(onConfirm).toHaveBeenCalledOnce();
-    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -496,7 +493,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     chip.click();
     expect(document.activeElement).not.toBe(chip); // blurred after the pick
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith(FIRST, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(FIRST, OTHER_SHIFT);
   });
 });
 
@@ -565,7 +562,7 @@ describe('openClassSelect — the Shift pick (Story 10.4)', () => {
     for (const card of cards()) expect(pressedOf(card)).toEqual([OTHER_SHIFT]);
     expect(litMap()).toEqual(only(1));
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith(SECOND, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, OTHER_SHIFT);
   });
 
   it('opens on the stored pick (initialShift)', () => {
@@ -573,108 +570,7 @@ describe('openClassSelect — the Shift pick (Story 10.4)', () => {
     openClassSelect({ initial: SECOND, initialShift: OTHER_SHIFT, blurTarget, onConfirm, onClose: vi.fn() });
     for (const card of cards()) expect(pressedOf(card)).toEqual([OTHER_SHIFT]);
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith(SECOND, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, OTHER_SHIFT);
   });
 });
 
-// --- Story 10.1: the CONSUMABLES row on the footer ------------------------------
-
-describe('openClassSelect — the CONSUMABLES row (Story 10.1)', () => {
-  let blurTarget: HTMLElement;
-  beforeEach(() => {
-    localStorage.clear();
-    blurTarget = document.createElement('div');
-    document.body.appendChild(blurTarget);
-  });
-  afterEach(() => {
-    document.getElementById('hc-class-select')?.remove();
-    blurTarget.remove();
-  });
-
-  const layer = (): HTMLElement => document.getElementById('hc-class-select') as HTMLElement;
-  const slots = (): HTMLButtonElement[] => [...layer().querySelectorAll<HTMLButtonElement>('button[data-slot]')];
-  const pickerOpen = (): boolean => layer().querySelector('[data-kit-picker]') !== null;
-  const keydown = (key: string): void => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key }));
-  };
-  function open(initialKit?: typeof DEFAULT_KIT): ReturnType<typeof vi.fn> {
-    const onConfirm = vi.fn();
-    openClassSelect({
-      initial: FIRST, blurTarget, onConfirm, onClose: vi.fn(),
-      ...(initialKit ? { initialKit } : {}),
-    });
-    return onConfirm;
-  }
-
-  it('the footer carries the row: KIT_SIZE squares showing the kit in slot order, before CONFIRM', () => {
-    open();
-    expect(slots()).toHaveLength(KIT_SIZE);
-    expect(slots().map((b) => b.dataset.kind)).toEqual([...DEFAULT_KIT]);
-    const row = layer().querySelector('[data-kit-row]') as HTMLElement;
-    const confirm = confirmButtonIn(layer());
-    expect(row.parentElement).toBe(confirm.parentElement);
-    expect(row.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('opens on initialKit', () => {
-    const kit = [...DEFAULT_KIT].reverse();
-    open(kit);
-    expect(slots().map((b) => b.dataset.kind)).toEqual(kit);
-  });
-
-  it('onConfirm receives the kit after a pick', () => {
-    const lit = dealableConsumables().find((l) => !DEFAULT_KIT.includes(l))!;
-    const onConfirm = open();
-    slots()[1].click();
-    expect(pickerOpen()).toBe(true);
-    layer().querySelector<HTMLButtonElement>(`[data-line="${lit}"]`)!.click();
-    expect(pickerOpen()).toBe(false);
-    const expected = DEFAULT_KIT.map((l, i) => (i === 1 ? lit : l));
-    expect(slots().map((b) => b.dataset.kind)).toEqual(expected);
-    keydown('Enter');
-    expect(onConfirm).toHaveBeenCalledWith(FIRST, DEFAULT_SHIFT, expected);
-  });
-
-  it('while the picker is open the layer keys are suppressed; ESC closes the picker, not the layer', () => {
-    const onConfirm = open();
-    slots()[0].click();
-    keydown('2'); // would highlight the second card
-    keydown('Enter'); // would confirm
-    expect(onConfirm).not.toHaveBeenCalled();
-    keydown('Escape');
-    expect(pickerOpen()).toBe(false);
-    expect(document.getElementById('hc-class-select')).not.toBeNull();
-    keydown('Enter');
-    expect(onConfirm).toHaveBeenCalledWith(FIRST, DEFAULT_SHIFT, DEFAULT_KIT); // highlight and kit unchanged
-  });
-
-  describe('focus is trapped in the picker', () => {
-    const panelOf = (): HTMLElement =>
-      [...layer().children].find((c) => c.querySelector('[data-kit-row]')) as HTMLElement;
-
-    it('the panel is inert while the picker is up and not after; Tab is default-prevented while up', () => {
-      open();
-      expect(panelOf().hasAttribute('inert')).toBe(false);
-      slots()[0].click();
-      expect(panelOf().hasAttribute('inert')).toBe(true);
-      const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
-      window.dispatchEvent(tab);
-      expect(tab.defaultPrevented).toBe(true);
-      keydown('Escape');
-      expect(panelOf().hasAttribute('inert')).toBe(false);
-      const tab2 = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
-      window.dispatchEvent(tab2);
-      expect(tab2.defaultPrevented).toBe(false);
-    });
-
-    it('focus moves to the picker close chip on open and returns to the opening square on close', () => {
-      open();
-      const opener = slots()[2];
-      opener.focus();
-      opener.click();
-      expect(document.activeElement).toBe(layer().querySelector('[data-kit-esc]'));
-      keydown('Escape');
-      expect(document.activeElement).toBe(opener);
-    });
-  });
-});

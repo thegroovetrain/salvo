@@ -13,7 +13,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  CONSUMABLE_SLOTS,
   DEFAULT_CLASS_ID,
   INDEX_IDS,
   SLOT_BOOST,
@@ -47,14 +46,16 @@ import {
 import { hotbarPress, hoverAnchor, hoverTargetAt, tipCacheHit, type TooltipCache } from '../render/hotbar.js';
 import { hudBarLayout } from '../render/hudBar.js';
 import { EQUIPMENT_NAME, interactionLine } from '../render/equipmentInfo.js';
-import { boonName, consumableStatRows, equipmentStatRows, shipStatRows } from '../ui/boonCopy.js';
+import { abilityName, abilityStatRows, boonName, equipmentStatRows, shipStatRows } from '../ui/boonCopy.js';
+import { ABILITY_SQUARES, abilitySquare } from '../render/hotbarSquares.js';
 import { CLASS_DISPLAY_NAMES } from '../ui/classNames.js';
 import { romanTier } from '../ui/tierRamp.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const STATS: EffectiveStats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 const [Q, E] = WEAPON_SLOTS;
-const [BELT_1, BELT_2] = CONSUMABLE_SLOTS;
+/** The `C` / `V` squares (Story 10.5). */
+const [REPAIR_SQ, SMOKE_SQ] = ABILITY_SQUARES.map(abilitySquare);
 const H = CLIENT_CONFIG.hotbar;
 const R = WEAPON_SLOTS[2];
 /** Any hull that is not the default — "a different hull". */
@@ -161,18 +162,16 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
     }
   });
 
-  it('prints a belt slot\'s CONSUMABLE_ROWS — the card face\'s own rows', () => {
-    const m = tooltipModel(BELT_1, 'hullRepair', STATS, [], 2)!;
-    expect(m.interaction).toBe('');
-    expect(m.stats).toEqual(consumableStatRows('hullRepair'));
-    expect(tooltipModel(BELT_2, 'countermeasure', STATS, [], 3)!.stats).toEqual(consumableStatRows('countermeasure'));
-    // The one stub left (DEPTH CHARGE) has no mechanism, so no rows.
-    expect(tooltipModel(BELT_1, 'depthCharge', STATS, [], 1)!.stats).toEqual([]);
+  it('prints a C / V square\'s ability name over its rows, with no tier word (Story 10.5)', () => {
+    const repair = tooltipModel(REPAIR_SQ, 'repair', STATS)!;
+    expect(repair).toEqual({ name: abilityName('repair'), interaction: '', stats: abilityStatRows('repair') });
+    const smoke = tooltipModel(SMOKE_SQ, 'smoke', STATS)!;
+    expect(smoke).toEqual({ name: abilityName('smoke'), interaction: '', stats: abilityStatRows('smoke') });
   });
 
-  it('has nothing to describe for an unfitted slot — weapon row or belt', () => {
+  it('has nothing to describe for an unfitted slot', () => {
     expect(tooltipModel(Q, null, STATS)).toBeNull();
-    expect(tooltipModel(8, null, STATS)).toBeNull();
+    expect(tooltipModel(R, null, STATS)).toBeNull();
   });
 
   it('prints no line for a weapon without a build, and none for an ability (amendment 203)', () => {
@@ -256,20 +255,19 @@ describe('the HP globe opens a SHIP panel with the seven ship indices (amendment
 describe('the model cache is keyed on the TARGET', () => {
   const stats = STATS;
   const boons: readonly string[] = [];
-  const slotEntry: TooltipCache = { target: Q, id: 'heavyTorpedo', stats, boons, n: 1, model: null };
-  const shipEntry: TooltipCache = { target: 'ship', id: null, cls: DEFAULT_CLASS_ID, stats, boons, n: 0, model: null };
+  const slotEntry: TooltipCache = { target: Q, id: 'heavyTorpedo', stats, boons, model: null };
+  const shipEntry: TooltipCache = { target: 'ship', id: null, cls: DEFAULT_CLASS_ID, stats, boons, model: null };
 
   it('hits only for the same target and inputs', () => {
-    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', stats, boons, 1)).toBe(true);
-    expect(tipCacheHit(slotEntry, 'ship', null, stats, boons, 0)).toBe(false);
-    expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, 0, DEFAULT_CLASS_ID)).toBe(true);
-    expect(tipCacheHit(shipEntry, Q, 'heavyTorpedo', stats, boons, 1)).toBe(false);
+    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', stats, boons)).toBe(true);
+    expect(tipCacheHit(slotEntry, 'ship', null, stats, boons)).toBe(false);
+    expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, DEFAULT_CLASS_ID)).toBe(true);
+    expect(tipCacheHit(shipEntry, Q, 'heavyTorpedo', stats, boons)).toBe(false);
     // A different hull is a different panel.
-    expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, 0, OTHER_CLASS)).toBe(false);
-    // New stats (a fold) or a moved stock re-build.
-    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor(DEFAULT_CLASS_ID, { armor: 1 }), boons, 1)).toBe(false);
-    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', stats, boons, 2)).toBe(false);
-    expect(tipCacheHit(null, Q, 'heavyTorpedo', stats, boons, 1)).toBe(false);
+    expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, OTHER_CLASS)).toBe(false);
+    // New stats (a fold) re-build.
+    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor(DEFAULT_CLASS_ID, { armor: 1 }), boons)).toBe(false);
+    expect(tipCacheHit(null, Q, 'heavyTorpedo', stats, boons)).toBe(false);
   });
 });
 
@@ -324,7 +322,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     // so without this pin a future edit could read the RAW copy count off it
     // (2, one short of the fold's `1 + copies` = 3) and never notice.
     expect(rungOf(
-      interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'], 0, effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['deckGun', 'deckGun'])),
+      interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'], effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['deckGun', 'deckGun'])),
     )).toBe(romanTier(3));
   });
 
@@ -336,7 +334,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   // sim cannot disagree.
   it('carries the DECK GUN\'s own rung on the keyless header, read off the fold', () => {
     const gunRung = (held: Record<string, number>) =>
-      rungOf(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor(DEFAULT_CLASS_ID, held)));
+      rungOf(interactionLine(SLOT_GUN, 'gun', [], statsFor(DEFAULT_CLASS_ID, held)));
     expect(gunRung({})).toBe(romanTier(1));
     expect(gunRung({ deckGun: 2 })).toBe(romanTier(3));
     // At the cap, and past a cap the server should never have granted: V, never VI.
@@ -359,30 +357,13 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   });
 });
 
-describe('a BELT slot has NO interaction line (amendment 203)', () => {
-  it('prints nothing for any consumable, whatever its shape or stock', () => {
-    expect(interactionLine(BELT_1, 'hullRepair', [], 2)).toBe('');
-    expect(interactionLine(BELT_2, 'countermeasure', [], 1)).toBe('');
-    expect(interactionLine(BELT_1, 'radarBuoy', [], 3)).toBe('');
-    expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe('');
-  });
-
-  // THE BELT'S TORPEDO (amendment 74/75). Its name comes from the copy layer
-  // (a consumable has no equipment row to read one off), and the whole model
-  // is built without a stats row.
-  it('builds the SUPERCAV TORPEDO\'s model off the copy layer', () => {
-    const m = tooltipModel(BELT_2, 'supercavTorpedo', STATS, [], 2);
+describe('the moved slot weapons read like every weapon (Story 10.5)', () => {
+  it('names the SUPERCAV TORPEDO off its line and prints its own stat table', () => {
+    const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['supercavTorpedo']);
+    const m = tooltipModel(Q, 'supercavTorpedo', stats, ['supercavTorpedo']);
     expect(m?.name).toBe(boonName('supercavTorpedo').toUpperCase());
-    expect(m?.interaction).toBe('');
-    // Its rows are the card face's own CONSUMABLE_ROWS, off CONFIG.
-    expect(m?.stats).toEqual(consumableStatRows('supercavTorpedo'));
-  });
-
-  it('builds the WHOLE model for a stocked belt slot — no equipment row needed', () => {
-    const m = tooltipModel(BELT_1, 'hullRepair', STATS, ['hullRepair', 'hullRepair'], 2);
-    expect(m).not.toBeNull();
-    expect(m?.name).toBe(boonName('hullRepair').toUpperCase());
-    expect(m?.interaction).toBe('');
+    expect(m?.stats).toEqual(equipmentStatRows('supercavTorpedo', stats));
+    expect(rungOf(m?.interaction ?? '')).toBe(romanTier(1));
   });
 });
 
@@ -392,7 +373,7 @@ describe('the panel keeps its box (amendment 42)', () => {
     expect(headingHeight('')).toBe(TIP_TYPE.headLineHeight);
     expect(interactionLines('TIER II')).toBe(1);
     expect(headingHeight('TIER II')).toBe(TIP_TYPE.headLineHeight * 2);
-    const m = tooltipModel(BELT_1, 'radarBuoy', STATS, [], 5)!;
+    const m = tooltipModel(REPAIR_SQ, 'repair', STATS)!;
     expect(tooltipMetrics(m).interactionLines).toBe(0);
     expect(tooltipMetrics(m).overflow).toBeLessThanOrEqual(0);
   });
@@ -431,7 +412,7 @@ describe('tooltip placement — ABOVE the hovered square, never off the screen',
   });
 
   it('clamps sideways rather than running off a narrow screen', () => {
-    const p = tooltipPlacement(layout.squares[8], 120, 700, 768);
+    const p = tooltipPlacement(layout.squares[layout.squares.length - 1], 120, 700, 768);
     expect(p.x).toBeGreaterThanOrEqual(H.tooltip.margin);
     expect(p.x + H.tooltip.width).toBeLessThanOrEqual(700 - H.tooltip.margin);
     expect(p.notchX).toBeLessThanOrEqual(p.x + H.tooltip.width);

@@ -13,8 +13,9 @@
 // pick for the captain, shared by every card (the Shift is the seat's, not the
 // hull's, so the read-only SPECIAL row went too). The Color Hoist is gone (R6):
 // the selection accent is the OWN relation color (ui/ownAccent.ts). The footer
-// carries the CONSUMABLES row and CONFIRM SELECTION — which saves the pick and
-// returns to port. It never deploys: PLAY is the single launch path.
+// carries CONFIRM SELECTION — which saves the pick and returns to port (the
+// CONSUMABLES row left with the kit — 2026-11-05, Story 10.5, epic-10
+// amendment 10). It never deploys: PLAY is the single launch path.
 //
 // Card click (whole card, including its in-card SELECT button — same element)
 // only HIGHLIGHTS: it moves the highlight to that card and repaints, exactly
@@ -28,13 +29,10 @@
 
 import {
   CONFIG,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   SHIFT_IDS,
   INDEX_IDS,
   SHIP_CLASS_IDS,
-  isConsumableKit,
-  type ConsumableKit,
   type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
@@ -56,7 +54,6 @@ import {
   LOADOUT_VALUE_PX,
   LOADOUT_VALUE_TRACKING_EM,
 } from './loadoutGrammar.js';
-import { makeKitRow, openKitPicker, type KitPickerHandle, type KitRow } from './kitPicker.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -608,19 +605,15 @@ interface FooterEls {
   confirm: HTMLButtonElement;
 }
 
-/** The footer: the CONSUMABLES row (Story 10.1 — a full-width first line, the
- *  kit is the captain's, shared by every card) above CONFIRM. The Color Hoist
- *  row is gone (Story 10.4, R6). */
-function buildFooter(kitRow: KitRow, onConfirm: () => void): FooterEls {
+/** The footer: CONFIRM alone (the CONSUMABLES row left with the kit — Story
+ *  10.5; the Color Hoist row went in Story 10.4, R6). */
+function buildFooter(onConfirm: () => void): FooterEls {
   const foot = document.createElement('div');
-  // flex-wrap:wrap — the CONSUMABLES row takes its own full-width line and
-  // CONFIRM wraps under it rather than clipping outside the panel.
   foot.style.cssText =
     'display:flex;align-items:center;flex-wrap:wrap;gap:18px 30px;padding:18px 42px 0;' +
     'border-top:1px solid var(--hc-hairline);margin-top:4px';
   const confirm = buildConfirm(onConfirm);
-  kitRow.el.style.flexBasis = '100%';
-  foot.append(kitRow.el, confirm);
+  foot.append(confirm);
   return { el: foot, confirm };
 }
 
@@ -631,14 +624,12 @@ export interface ClassSelectOpts {
   initial: ShipClassId;
   /** The Shift chip lit on open (Story 10.4) — the stored pick, else DEFAULT_SHIFT. */
   initialShift?: ShiftId;
-  /** The CONSUMABLES row's kit on open (Story 10.1) — the saved kit, else DEFAULT_KIT. */
-  initialKit?: ConsumableKit;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
   /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
    *  port. NEVER deploys — PLAY is the one launch path. Carries the Shift pick
-   *  beside the class (Story 10.4) and the kit (Story 10.1). */
-  onConfirm: (cls: ShipClassId, shift: ShiftId, kit: ConsumableKit) => void;
+   *  beside the class (Story 10.4). */
+  onConfirm: (cls: ShipClassId, shift: ShiftId) => void;
   /** ESC / dimmer dismiss: close with no change. */
   onClose: () => void;
 }
@@ -745,15 +736,10 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select, pickShift));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
   let shift: ShiftId = opts.initialShift ?? DEFAULT_SHIFT;
-  let kit: ConsumableKit = opts.initialKit ?? DEFAULT_KIT;
-  /** The CONSUMABLES picker while it is up (Story 10.1): the layer's keys are
-   *  routed to it — only ESC acts, closing the picker, never the layer. */
-  let picker: { slot: number; handle: KitPickerHandle } | null = null;
 
   const { container, dimmer, panel } = makeLayerShell();
   const rail = buildRail(cards);
-  const kitRow = makeKitRow(openSlot);
-  const footer = buildFooter(kitRow, confirmPick);
+  const footer = buildFooter(confirmPick);
   panel.append(buildHeader(), rail.el, footer.el);
 
   // Ignore any keydown dispatched at/before this instant — the very keystroke
@@ -763,26 +749,6 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const onResize = (): void => rail.evaluateOverflow();
   function repaint(): void {
     paintCards(cards, highlight, OWN_ACCENT, shift);
-    kitRow.paint(kit, picker?.slot ?? null);
-    footer.confirm.disabled = !isConsumableKit(kit); // a guard, not a state
-  }
-  /** A CONSUMABLES square: open the picker for that kit index over the layer. */
-  function openSlot(slot: number): void {
-    const handle = openKitPicker({
-      host: container, kit, slot, accent: OWN_ACCENT,
-      onPick: (next) => {
-        kit = next;
-        repaint();
-      },
-      onClose: () => {
-        if (picker?.handle === handle) picker = null;
-        panel.removeAttribute('inert');
-        repaint();
-      },
-    });
-    picker = { slot, handle };
-    panel.setAttribute('inert', ''); // the layer's buttons are out of the tab order while the picker is up
-    repaint();
   }
   /** A Shift chip: move the ONE Shift pick and repaint. The chip's click
    *  stops at the chip — the highlighted hull never moves (review gate C4). */
@@ -798,10 +764,9 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   }
   /** CONFIRM SELECTION / Enter: resolve the highlight, close, hand it back. */
   function confirmPick(): void {
-    if (!isConsumableKit(kit)) return;
     const cls = SHIP_CLASS_IDS[highlight];
     close();
-    opts.onConfirm(cls, shift, kit);
+    opts.onConfirm(cls, shift);
   }
   function dismiss(): void {
     close();
@@ -809,10 +774,6 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   }
   function onKey(e: KeyboardEvent): void {
     if (e.timeStamp <= openedAt) return; // the opening keystroke — never ours to act on
-    if (picker) {
-      if (e.key === 'Tab') e.preventDefault(); // belt-and-braces with `inert`: no focus walk under the dim
-      return picker.handle.key(e); // the picker owns the keyboard (ESC only)
-    }
     if (isIgnoredKey(e, container)) return;
     const action = keyAction(e.key, cards.length);
     if (!action) return;
@@ -826,7 +787,6 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   function close(): void {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('resize', onResize);
-    picker?.handle.close();
     container.remove();
     opts.blurTarget.style.filter = '';
     opts.blurTarget.style.opacity = '';

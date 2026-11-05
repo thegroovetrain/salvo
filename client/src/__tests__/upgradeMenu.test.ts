@@ -11,17 +11,14 @@ import {
   CATALOG,
   CONFIG,
   effectiveStats,
-  CONSUMABLE_SLOTS,
   DEFAULT_CLASS_ID,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
   MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
   SLOT_COUNT,
   initialTurrets,
-  type ConsumableKit,
   type OwnShip,
-  type SlotItemId,
+  type EquipmentId,
 } from '@salvo/shared';
 import {
   REDRAW_FOOTER_PX,
@@ -35,6 +32,7 @@ import {
   frontOfferSignature,
   mulliganLanded,
   offerView,
+  pickableChoice,
   refitBandLayout,
   shouldAutoOpen,
   spendLatchReleased,
@@ -70,15 +68,11 @@ const R = CLIENT_CONFIG.refit;
 const OFFER = ['intel', 'armor', 'deckGun', 'navalMines'];
 const OFFER_B = ['reload', 'engines', 'intel', 'navalMines'];
 
-/** The suite's KIT (Story 10.1): a NON-DEFAULT four, so the greyed predicate is
- *  proven to read `you.kit` and never a default. */
-const KIT: ConsumableKit = ['supercavTorpedo', 'hullRepair', 'foulingShell', 'shieldBlock'];
-
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
     ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
-    sec: { heat: 0, locked: false }, kit: [...KIT], pts: 1, offer: [...OFFER],
+    sec: { heat: 0, locked: false }, pts: 1, offer: [...OFFER],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
@@ -411,7 +405,8 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // player — a function of the line AND the copies held.
   it('carries the KIND word and its tone, unconditional, on every card', () => {
     const view = offerView(ownShip({ offer: ['intel', 'deckGun', 'captiveMines', 'foulingShell'] }), false, false, false);
-    expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
+    // Story 10.5: the FOULING SHELL is a slot weapon — copy 1 is a WEAPON.
+    expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'weapon']);
     for (const o of view!.options) expect(o.kind, o.id).toBe(cardKindLabel(o.kindTone));
     // Copy 2 of an equipment line is a WEAPON UPGRADE.
     const tier = offerView(ownShip({ offer: ['captiveMines'], cards: ['captiveMines'] }), false, false, false);
@@ -430,12 +425,44 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(view?.options[1].cap).toBe(CATALOG.deckGun.cap);
   });
 
-  it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
-    const view = offerView(ownShip({ offer: ['hullRepair', 'foulingShell', 'intel'] }), false, false, false);
+  it('draws NO ladder for an add-on (the DEPTH CHARGE stub) — it has no rungs', () => {
+    const view = offerView(ownShip({ offer: ['depthCharge', 'foulingShell', 'intel'] }), false, false, false);
     expect(view?.options[0].tier).toBeNull();
     expect(view?.options[0].tierStep).toBeNull();
-    expect(view?.options[1].tier).toBeNull();
+    expect(view?.options[1].tier).not.toBeNull(); // a slot weapon climbs (Story 10.5)
     expect(view?.options[2].tier).not.toBeNull();
+  });
+
+  // STORY 10.5: the draw may deal a SHORT offer (an exhausted hull) — the view
+  // shows exactly what was dealt — or an EMPTY one, which opens no window.
+  it('a SHORT offer shows exactly its cards; an EMPTY offer yields no view at all', () => {
+    const short = offerView(ownShip({ offer: ['intel', 'armor'] }), false, false, false);
+    expect(short?.options.map((o) => o.id)).toEqual(['intel', 'armor']);
+    expect(offerView(ownShip({ pts: 2, offer: [] }), false, false, false)).toBeNull();
+  });
+
+  it('pickableChoice: a digit past a SHORT offer, a greyed card, a locked row or no view picks nothing', () => {
+    const short = offerView(ownShip({ offer: ['intel', 'armor'] }), false, false, false)!;
+    expect(pickableChoice(short, 0)).toBe(true);
+    expect(pickableChoice(short, 1)).toBe(true);
+    expect(pickableChoice(short, 2)).toBe(false); // the third digit addresses no card
+    expect(pickableChoice(short, 3)).toBe(false);
+    expect(pickableChoice(short, -1)).toBe(false);
+    expect(pickableChoice({ ...short, locked: true }, 0)).toBe(false);
+    expect(pickableChoice(null, 0)).toBe(false); // an empty offer never opened a window
+    const greyed = { ...short, options: [{ ...short.options[0], greyed: true }, short.options[1]] };
+    expect(pickableChoice(greyed, 0)).toBe(false);
+    expect(pickableChoice(greyed, 1)).toBe(true);
+  });
+
+  it('renders a SHORT offer as fewer cards, keyed 1…n', () => {
+    document.body.replaceChildren();
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(offerView(ownShip({ offer: ['intel', 'armor'] }), false, false, false)!);
+    const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
+    expect(cards).toHaveLength(2);
+    expect(cards.map((b) => b.querySelector('span')?.textContent)).toEqual(['1', '2']);
+    menu.hide();
   });
 
   // THE DOCTRINE-SWAP PIN IS RETIRED (Story 7-5 wave 2, R2.6). Amendment 44's
@@ -586,10 +613,10 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
         // the gun ladder that is still a WEAPON UPGRADE.
         { ...cardsOf(['deckGun'])[0] },
         { ...cardsOf(['captiveMines'])[0] },
-        { ...cardsOf(['hullRepair'])[0] },
+        { ...cardsOf(['depthCharge'])[0] },
       ],
     }));
-    const tones = ['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable'] as const;
+    const tones = ['shipUpgrade', 'weaponUpgrade', 'weapon', 'addon'] as const;
     cards().forEach((b, i) => {
       const tone = tones[i];
       const word = cardKindLabel(tone);
@@ -630,9 +657,9 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.hide();
   });
 
-  it('a CONSUMABLE whose stat rows are empty opens NO panel — it has no shape line any more (amendment 203)', () => {
+  it('a card whose stat rows are empty opens NO panel — there is no shape line (amendment 203)', () => {
     const menu = new UpgradeMenu(() => {});
-    menu.toggle(view({ options: [{ ...cardsOf(['hullRepair'])[0], hover: [] }] }));
+    menu.toggle(view({ options: [{ ...cardsOf(['intel'])[0], hover: [] }] }));
     const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
     cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('none');
@@ -644,8 +671,8 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.toggle(view({
       options: [
         { ...cardsOf(['intel'])[0], stack: 2, tier: 'II → III', tierStep: { cur: 2, next: 3 } },
-        { ...cardsOf(['hullRepair'])[0] },   // consumable: no ladder at all
-        { ...cardsOf(['foulingShell'])[0] }, // FOULING SHELL (a consumable, Story 9.4): likewise
+        { ...cardsOf(['depthCharge'])[0] }, // an add-on (the stub): no ladder at all
+        { ...cardsOf(['depthCharge'])[0] }, // likewise
       ],
     }));
     const [stacked, consumable, addon] = cards();
@@ -654,7 +681,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(ladderOf(stacked).querySelectorAll('i')).toHaveLength(5);
     // ...and the step's numerals beside them.
     expect(ladderOf(stacked).textContent).not.toBe('');
-    // BLANK for a consumable and an add-on — the row is still 16px tall, so
+    // BLANK for an add-on — the row is still 16px tall, so
     // every card in the offer keeps one baseline.
     for (const b of [consumable, addon]) {
       expect(ladderOf(b).children).toHaveLength(0);
@@ -1412,77 +1439,53 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
 describe('the greyed card — a refusal stated before the press', () => {
   beforeEach(() => document.body.replaceChildren());
 
-  type Slots = readonly (SlotItemId | null)[];
-  const NO_KIT_STOCK = CONSUMABLE_SLOTS.map(() => null);
-  /** Q/E/R all fitted — copy 1 of a weapon has nowhere to land. */
-  const ROW_FULL: Slots = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...NO_KIT_STOCK];
-  /** Every kind of the kit held — each owns its own square (Story 9.2; the kit's since 10.1). */
-  const ALL_KINDS: Slots = ['gun', 'boost', null, null, null, ...KIT];
+  type Slots = readonly (EquipmentId | null)[];
+  /** All three FAMILY slots filled (Story 10.5): torpedo, mine, special shell. */
+  const ROW_FULL: Slots = ['gun', 'boost', 'lightTorpedo', 'navalMines', 'starShells'];
   /** Nothing fitted past the gun and Shift. */
   const ROOM_LEFT: Slots = ['gun', 'boost', ...Array.from({ length: SLOT_COUNT - 2 }, () => null)];
-  const FIVE_REPAIRS = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+  const ARMOR_CAPPED = new Array<string>(CATALOG.armor.cap).fill('armor');
 
   function cards(): HTMLButtonElement[] {
     return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
   }
 
-  it('NEVER greys a consumable for want of room — every kind owns its own square (amendment 21)', () => {
-    // The belt is retired: holding the whole kit refuses nothing under the cap.
-    for (const id of KIT) {
-      expect(cardGreyed(CATALOG[id], ALL_KINDS, [...KIT], KIT), id).toBe(false);
-    }
-    expect(cardGreyed(CATALOG.intel, ALL_KINDS, [], KIT)).toBe(false);
-  });
-
-  it('a consumable OUTSIDE the kit is refused by the same shared gate — greyed, no foot word (Story 10.1)', () => {
-    // The draw never deals one (the kit confines it), so this is the fail-closed
-    // face of `pickRefusal`'s `'stub'`: it reads the kit it is handed.
-    const offKit = DEFAULT_KIT.find((id) => !KIT.includes(id));
-    if (offKit === undefined) throw new Error('KIT must differ from DEFAULT_KIT');
-    expect(cardGreyed(CATALOG[offKit], ROOM_LEFT, [], KIT)).toBe(true);
-    expect(cardGreyed(CATALOG[offKit], ROOM_LEFT, [], DEFAULT_KIT)).toBe(false);
-    expect(cardFoot(CATALOG[offKit], ROOM_LEFT, [], KIT)).toBe('');
-  });
-
-  // --- THE TWO REFUSALS (Story 8.14 review, F1; the belt's third retired in 9.2)
-  // Amendment 94 deals a consumable AT ITS CAP on purpose, so the face greys it
-  // (the server refuses the pick silently); and copy 1 of a weapon with Q/E/R
-  // full is the fail-closed twin of the server's own guard.
+  // --- THE TWO REFUSALS (Story 8.14 review, F1; re-cut for the family slots in
+  // Story 10.5): a line already AT ITS CAP, and copy 1 of a weapon whose FAMILY
+  // slot holds another kind — the fail-closed twin of the server's own guard
+  // (the draw never deals either).
 
   it('greys a line the player already holds AT ITS CAP', () => {
-    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS, KIT)).toBe(true);
+    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, ARMOR_CAPPED)).toBe(true);
     // ...one short of the cap it is a live card again.
-    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS.slice(1), KIT)).toBe(false);
-    // Every kind, not just consumables.
-    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'), KIT)).toBe(true);
+    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, ARMOR_CAPPED.slice(1))).toBe(false);
   });
 
-  it('greys copy 1 of a weapon when Q/E/R are full, and never a later copy', () => {
-    expect(cardGreyed(CATALOG.broadside, ROW_FULL, [], KIT)).toBe(true);
-    expect(cardGreyed(CATALOG.broadside, ROW_FULL, ['broadside'], KIT)).toBe(false); // a TIER card
-    expect(cardGreyed(CATALOG.broadside, ROOM_LEFT, [], KIT)).toBe(false); // row open
+  it('greys copy 1 of a weapon whose family slot holds ANOTHER kind, and never a later copy of the held kind', () => {
+    expect(cardGreyed(CATALOG.heavyTorpedo, ROW_FULL, ['lightTorpedo'])).toBe(true); // Q holds the light torpedo
+    expect(cardGreyed(CATALOG.lightTorpedo, ROW_FULL, ['lightTorpedo'])).toBe(false); // a TIER card of the held kind
+    expect(cardGreyed(CATALOG.heavyTorpedo, ROOM_LEFT, [])).toBe(false); // the family slot is open
   });
 
-  it('prints SLOTS FULL for the weapon-slot refusal ONLY — a capped consumable has NO foot word (amendment 32)', () => {
-    expect(cardFoot(CATALOG.broadside, ROW_FULL, [], KIT)).toBe(SLOTS_FULL);
-    expect(cardFoot(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS, KIT)).toBe('');
-    expect(cardFoot(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'), KIT)).toBe('');
-    expect(cardFoot(CATALOG.intel, ROW_FULL, [], KIT)).toBe(''); // a live card
+  it('prints SLOTS FULL for the family-slot refusal ONLY — a capped line has NO foot word (amendment 32)', () => {
+    expect(cardFoot(CATALOG.heavyTorpedo, ROW_FULL, ['lightTorpedo'])).toBe(SLOTS_FULL);
+    expect(cardFoot(CATALOG.armor, ROOM_LEFT, ARMOR_CAPPED)).toBe('');
+    expect(cardFoot(CATALOG.intel, ROW_FULL, [])).toBe(''); // a live card
   });
 
   it('carries the flag AND the foot onto the OfferCard, through the same shared predicate', () => {
-    const you = ownShip({ offer: ['broadside', 'hullRepair', 'intel', 'supercavTorpedo'], cards: FIVE_REPAIRS });
+    const you = ownShip({ offer: ['heavyTorpedo', 'armor', 'intel'], cards: [...ARMOR_CAPPED, 'lightTorpedo'] });
     const view = offerView(you, false, false, false, ROW_FULL);
-    expect(view?.options.map((o) => o.greyed)).toEqual([true, true, false, false]);
-    expect(view?.options.map((o) => o.foot)).toEqual([SLOTS_FULL, '', '', '']);
-    // ...and with room on the weapon row only the capped line stays greyed.
-    expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed))
-      .toEqual([false, true, false, false]);
+    expect(view?.options.map((o) => o.greyed)).toEqual([true, true, false]);
+    expect(view?.options.map((o) => o.foot)).toEqual([SLOTS_FULL, '', '']);
+    // ...and with the family slot open only the capped line stays greyed.
+    expect(offerView({ ...you, cards: ARMOR_CAPPED }, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed))
+      .toEqual([false, true, false]);
   });
 
   it('renders the weapon refusal three ways: dimmed face, DASHED chip, boxed SLOTS FULL', () => {
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['broadside', 'intel'] });
+    const you = ownShip({ offer: ['heavyTorpedo', 'intel'], cards: ['lightTorpedo'] });
     menu.toggle(offerView(you, false, false, false, ROW_FULL)!);
     const [refused, ok] = cards();
     expect(refused.style.opacity).toBe(String(R.greyedAlpha));
@@ -1500,9 +1503,9 @@ describe('the greyed card — a refusal stated before the press', () => {
     menu.hide();
   });
 
-  it('renders a CAPPED consumable greyed with a BARE foot — dim and dashed chip, no word, no box', () => {
+  it('renders a CAPPED line greyed with a BARE foot — dim and dashed chip, no word, no box', () => {
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['hullRepair', 'intel'], cards: FIVE_REPAIRS });
+    const you = ownShip({ offer: ['armor', 'intel'], cards: ARMOR_CAPPED });
     menu.toggle(offerView(you, false, false, false, ROOM_LEFT)!);
     const [capped] = cards();
     expect(capped.style.opacity).toBe(String(R.greyedAlpha));
@@ -1516,7 +1519,7 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('sends NOTHING on a greyed card\'s click — no spend, and no denied pulse', () => {
     const spends: number[] = [];
     const menu = new UpgradeMenu((c) => spends.push(c));
-    const you = ownShip({ offer: ['broadside', 'intel'] });
+    const you = ownShip({ offer: ['heavyTorpedo', 'intel'], cards: ['lightTorpedo'] });
     menu.toggle(offerView(you, false, false, false, ROW_FULL)!);
     cards()[0].click();
     expect(spends).toEqual([]);
@@ -1530,7 +1533,7 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('is DISTINCT from the spend-latch dim — a refusal must stay readable', () => {
     expect(R.greyedAlpha).toBeGreaterThan(R.lockedAlpha);
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['broadside', 'intel'] });
+    const you = ownShip({ offer: ['heavyTorpedo', 'intel'], cards: ['lightTorpedo'] });
     // Locked dims the WHOLE row and genuinely disables it; greyed does neither.
     menu.toggle({ ...offerView(you, false, true, false, ROW_FULL)!, locked: true });
     for (const b of cards()) {

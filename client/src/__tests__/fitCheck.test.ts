@@ -77,25 +77,12 @@ describe('fit-check — VISIBLE toast (every stack position prints a line)', () 
     const blank: string[] = [];
     for (const line of LINES) {
       for (let stack = 1; stack <= line.cap; stack += 1) {
-        // The kind is what picks the VERB (Story 8.7, ruling 14): a consumable
-        // is STOCKED, everything else is FITTED. Both are walked, because
-        // net/roomBindings passes the resolved kind and a missing one must
-        // still print a line.
         if (boonFitToastLine(line.id, stack).trim() === '') blank.push(`${line.id}@${stack}`);
-        if (boonFitToastLine(line.id, stack, line.kind).trim() === '') blank.push(`${line.id}@${stack}/kind`);
       }
     }
     expect(blank).toEqual([]);
   });
 
-  it('the kind picks the verb: a consumable toasts the stocked line, every other kind the fitted one', () => {
-    for (const line of LINES) {
-      const stocked = boonFitToastLine(line.id, 1, 'consumable');
-      const fitted = boonFitToastLine(line.id, 1, 'equipment');
-      expect(stocked, line.id).not.toBe(fitted);
-      expect(boonFitToastLine(line.id, 1, line.kind), line.id).toBe(line.kind === 'consumable' ? stocked : fitted);
-    }
-  });
 });
 
 // --- VISIBLE: the refit card's five rows (Story 8.7, ruling 12) -----------------
@@ -112,7 +99,7 @@ describe('fit-check — VISIBLE card rows (every offerable ladder/weapon prints 
   it('every LADDER and WEAPON line yields 1-5 rows at every rung, on every class', () => {
     const bad: string[] = [];
     for (const line of LIVE) {
-      if (line.kind === 'addon' || line.kind === 'consumable') continue;
+      if (line.kind === 'addon') continue;
       for (let k = 0; k < line.cap; k += 1) {
         for (const cls of CLASSES) {
           const rows = cardStatRows(line, k, { cls, cards: Array<string>(k).fill(line.id) });
@@ -135,24 +122,21 @@ describe('fit-check — VISIBLE card rows (every offerable ladder/weapon prints 
     expect(bad).toEqual([]);
   });
 
-  it('every offerable line states its TIER STEP, except the two kinds with no ladder', () => {
+  it('every offerable line states its TIER STEP, except an add-on (no ladder)', () => {
     for (const line of LIVE) {
       const label = cardTierLabel(line, 0);
-      const noLadder = line.kind === 'addon' || line.kind === 'consumable';
+      const noLadder = line.kind === 'addon';
       expect(label === null, line.id).toBe(noLadder);
     }
   });
 });
 
-// --- STORY 8.13: the SUPERCAV TORPEDO routes as a consumable ---------------------
+// --- STORY 10.5: the SUPERCAV TORPEDO is a slot weapon again --------------------
 
-describe('fit-check — the SUPERCAV TORPEDO (Story 8.13)', () => {
-  it('the SUPERCAV TORPEDO routes as a CONSUMABLE — stocked, never slot-fitted', () => {
-    expect(CATALOG.supercavTorpedo.kind).toBe('consumable');
-    // It addresses no EQUIPMENT, so it owns no weapon slot — its square is a
-    // belt square, and the stock rides the slot tooltip's interaction line.
-    expect(cardEquipmentIds('supercavTorpedo')).toEqual([]);
-    // ...and its fish never takes the homing look at any build (amendment 74).
+describe('fit-check — the SUPERCAV TORPEDO (Story 10.5)', () => {
+  it('routes as EQUIPMENT — it fits its own weapon, and its fish never homes', () => {
+    expect(CATALOG.supercavTorpedo.kind).toBe('equipment');
+    expect(cardEquipmentIds('supercavTorpedo')).toEqual(['supercavTorpedo']);
     expect(lookForReveal('torp', 'supercavTorpedo', { lightTorpedo: true, heavyTorpedo: true })).toBe('torp');
   });
 });
@@ -168,14 +152,14 @@ describe('fit-check — the SUPERCAV TORPEDO (Story 8.13)', () => {
  * `equipment` (STUB ONLY) — a stub line's weapon does not exist, so there is no
  *   row to read a holding off. A LIVE equipment line DOES print one: its own
  *   reload, which every copy past the first cuts by 5 %.
- * `consumable` — the whole rack is Story 8.7.
+ * `addon` — the DEPTH CHARGE stub (Story 10.5 re-kinded it an add-on).
  * (`heatSeeking` left this list when Story 8.15 CUT it with the missile.)
  * `turning` / `deckGun` — new v3 lines with no v2 text to carry: they DO print a
  *   live `current → next` sentence on the card face, which is the channel that
  *   matters; this list covers the hotbar/results HOLDING readout only.
  */
 const SILENT_EFFECT_LINE: readonly string[] = [
-  ...LINES.filter((l) => (l.kind === 'equipment' && l.stub === true) || l.kind === 'consumable').map((l) => l.id),
+  ...LINES.filter((l) => (l.kind === 'equipment' && l.stub === true) || l.kind === 'addon').map((l) => l.id),
 ];
 
 describe('fit-check — VISIBLE tooltip (every authored line reports a real effect)', () => {
@@ -218,7 +202,7 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
     // Story 9.9 (epic-9 amendments 145, 159): ARMOR PIERCING joins;
     // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): HULL POINTS and
     // PASSIVE HEALING deleted, four ids renamed (power/engines/rudder/intel).
-    const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'consumable').map((l) => l.id);
+    const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'addon').map((l) => l.id);
     expect(shipwide.sort()).toEqual(['armor', 'engines', 'intel', 'power', 'reload', 'rudder']);
   });
 

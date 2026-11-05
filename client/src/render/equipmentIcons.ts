@@ -30,12 +30,14 @@
 // triangle-with-a-torpedo and the rod of Asclepius are his own words.
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
-// slot holds), `CONSUMABLE_GLYPHS` by consumable id (what a belt square holds),
-// and `LINE_GLYPHS` by the CARD LINES that are neither — the eight ship ladders
-// and the CANNON ladder (`deckGun`, drawn as the mounted `gun`). `glyphPaths`
-// asks them in that order (consumable → equipment → line), so the hotbar and
-// the results loadout (slot-item ids) and the refit card and How-to-Play (line
-// ids) all draw from the one source.
+// slot holds), `ABILITY_GLYPHS` by cooldown ability (the bar's `C` / `V`
+// squares — Story 10.5, 2026-11-05, epic-10 amendment 10: the consumable table
+// retired with the kit, its HULL REPAIR and SMOKE SCREEN drawings moved here
+// and its three weapons into `GLYPHS`), and `LINE_GLYPHS` by the CARD LINES
+// that are neither — the ship ladders and the CANNON ladder (`deckGun`, drawn
+// as the mounted `gun`). `glyphPaths` asks them in that order (ability →
+// equipment → line), so the hotbar and the results loadout and the refit card
+// and How-to-Play all draw from the one source.
 //
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
@@ -76,8 +78,7 @@
 // are CUT (amendment 89e) and never had glyphs.
 
 import type { Graphics, StrokeInput } from 'pixi.js';
-import { buoyKindOf, isConsumableId, type BuoyKind, type EquipmentId, type LineId, type SlotItemId } from '@salvo/shared';
-import { BUOY_CUT_COLOR, BUOY_HEADS, BUOY_HULL } from './buoyMarks.js';
+import type { CooldownAbilityId, EquipmentId, LineId } from '@salvo/shared';
 
 /** A point in the unit glyph frame: (0,0) is the icon box's centre, ±1 its edge. */
 export type GlyphPoint = readonly [number, number];
@@ -324,57 +325,6 @@ const phosphorShells: GlyphPaths = [
   path([0.45, 0.8], [0.45, 0.45], [0.62, 0.05], [0.8, 0.45], [0.8, 0.8]),
 ];
 
-/**
- * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
- * two guns and the two new Shifts (the missile and the monitor, which never
- * had modules, are CUT). It stays typed `Partial` so a future id with no module
- * yet can land without inventing art; the lookup answers null for it.
- */
-const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
-  gun,
-  // STORY 10.4: the main battery fires the cannon's shell — it wears the
-  // cannon's glyph until the full UI pass draws its own.
-  mainBattery: gun,
-  machineGun,
-  flak,
-  instantReload,
-  hunker,
-  // ONE GLYPH PER LINE (cycle 162, the icon pass): the heavy torpedo and the
-  // naval mine keep the family drawings they always had; the light torpedo and
-  // the captive and fouling mines got their own (above).
-  lightTorpedo,
-  heavyTorpedo: torpedo,
-  navalMines: mine,
-  captiveMines,
-  foulingMines,
-  boost,
-  broadside,
-  starShells,
-  phosphorShells, // Story 8.17 DRAFT (above)
-};
-
-/**
- * Shield block (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SHIELD OUTLINE —
- * a flat-topped heater shield, closed, with no inner mark. Deliberately not
- * HUNKER's halved hexagon: one absorbs, the other reduces (amendment 118).
- */
-const shieldBlock: GlyphPaths = [
-  path([-0.72, -0.82], [0.72, -0.82], [0.72, 0.08], [0, 0.95], [-0.72, 0.08], [-0.72, -0.82]),
-];
-
-/**
- * THE FOUR BUOYS — the TINTED BEACON (Eric 2026-10-29, family C): the shared
- * monochrome HULL (render/buoyMarks.ts `BUOY_HULL` — waterline, can, mast) and
- * the kind's HEAD, filled in its own colour, with its cut (radar's mast,
- * healing's pulse) drawn over it in the ground colour. The chart marker draws
- * this same glyph (render/decoys.ts), so belt and water agree on the kind.
- */
-function buoyGlyph(kind: BuoyKind): GlyphPaths {
-  const head = BUOY_HEADS[kind];
-  const parts: GlyphPart[] = [...BUOY_HULL.map((pts) => path(...pts)), { kind: 'path', pts: head.fill, fill: head.color }];
-  if (head.cut !== null) parts.push({ kind: 'path', pts: head.cut, ink: BUOY_CUT_COLOR, inkW: head.cutWidth });
-  return parts;
-}
 
 /**
  * Flash shells (`dazzleShells` — Story 8.17 DRAFT, epic-8 amendment 135(j);
@@ -444,30 +394,44 @@ const hullRepair: GlyphPaths = [
 ];
 
 /**
- * THE CONSUMABLE half of the table. EMPTY until Story 8.13, because no belt
- * line had a weapon behind it: a stocked square and a consumable card's icon
- * box both rendered blank, which was the honest answer for an id with no
- * module.
- *
- * THE SUPERCAV TORPEDO WAS THE FIRST ENTRY (epic-8 amendment 74), and since
- * cycle 162 it has its own drawing — a fish inside its cavity bubble — rather
- * than the torpedo family's. DEPTH CHARGE gets none: it is a STUB (amendment
- * 83), never dealt, with no mechanism to draw.
+ * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
+ * two guns and the two new Shifts (the missile and the monitor, which never
+ * had modules, are CUT). It stays typed `Partial` so a future id with no module
+ * yet can land without inventing art; the lookup answers null for it.
  */
-const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
-  supercavTorpedo, // cycle 162 DRAFT (above)
-  hullRepair, // cycle 162 — the rod of Asclepius (above)
-  // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
-  // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
-  shieldBlock,
-  foulingShell, // FOULING SHELL — Story 9.4, Eric's pick 2026-10-12 (above)
-  dazzleShells, // FLASH SHELLS — the 8.17 struck-through eye, restored (Story 10.9)
-  // THE FOUR BUOYS — the tinted beacon (Story 10.9, Eric 2026-10-29, above).
-  radarBuoy: buoyGlyph(buoyKindOf('radarBuoy')),
-  healingBuoy: buoyGlyph(buoyKindOf('healingBuoy')),
-  shieldBuoy: buoyGlyph(buoyKindOf('shieldBuoy')),
-  speedBuoy: buoyGlyph(buoyKindOf('speedBuoy')),
-  countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
+const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
+  gun,
+  // STORY 10.4: the main battery fires the cannon's shell — it wears the
+  // cannon's glyph until the full UI pass draws its own.
+  mainBattery: gun,
+  machineGun,
+  flak,
+  instantReload,
+  hunker,
+  // ONE GLYPH PER LINE (cycle 162, the icon pass): the heavy torpedo and the
+  // naval mine keep the family drawings they always had; the light torpedo and
+  // the captive and fouling mines got their own (above).
+  lightTorpedo,
+  heavyTorpedo: torpedo,
+  navalMines: mine,
+  captiveMines,
+  foulingMines,
+  boost,
+  broadside,
+  starShells,
+  phosphorShells, // Story 8.17 DRAFT (above)
+  // STORY 10.5 (2026-11-05, epic-10 amendment 10): the three moved weapons
+  // are slot equipment again and keep the drawings they had as consumables.
+  supercavTorpedo,
+  dazzleShells,
+  foulingShell,
+};
+
+/** THE TWO COOLDOWN ABILITIES (Story 10.5): HULL REPAIR's rod of Asclepius
+ *  (cycle 162) and SMOKE SCREEN's cloud of pixels (Story 9.3, Eric's pick). */
+const ABILITY_GLYPHS: Readonly<Record<CooldownAbilityId, GlyphPaths>> = {
+  repair: hullRepair,
+  smoke: countermeasure,
 };
 
 // The HULL POINTS glyph (three stacked hull plates) sat here until Story 10.3
@@ -564,14 +528,13 @@ const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
 
 /**
  * THE one lookup, over slot content AND card lines (Story 8.7, ruling 1;
- * cycle 162). The id spaces stay DISJOINT — `GLYPHS` is keyed by `EquipmentId`
- * and a consumable entry in it would be a lie — so a consumable is answered
+ * cycle 162). The id spaces stay DISJOINT — a cooldown ability is answered
  * from its own table first, then an equipment row, then a card line that is
  * neither (a ship ladder, or the CANNON ladder). Null, never a throw: an id
  * with no art (the stub DEPTH CHARGE) is not a crash.
  */
 export function glyphPaths(id: string): GlyphPaths | null {
-  if (isConsumableId(id)) return CONSUMABLE_GLYPHS[id] ?? null;
+  if (Object.hasOwn(ABILITY_GLYPHS, id)) return ABILITY_GLYPHS[id as CooldownAbilityId];
   if (Object.hasOwn(GLYPHS, id)) return GLYPHS[id as EquipmentId] ?? null;
   return Object.hasOwn(LINE_GLYPHS, id) ? LINE_GLYPHS[id as LineId] ?? null : null;
 }
@@ -597,7 +560,7 @@ export function drawDashGlyph(g: Graphics, cx: number, cy: number, size: number,
  *  no crash, no word, no invented art). */
 export function drawEquipmentIcon(
   g: Graphics,
-  id: SlotItemId,
+  id: string,
   cx: number,
   cy: number,
   size: number,

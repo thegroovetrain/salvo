@@ -13,7 +13,7 @@
 // for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
 // audio stack; not free of configuration.
 
-import { CONFIG, type LineKind, type SlotItemId } from '@salvo/shared';
+import { CONFIG, type LineKind, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Every distinct cue the client can play. */
@@ -23,7 +23,6 @@ export type ToneId =
   | 'fireMine'
   | 'fireBroadside'
   | 'fireStarShells'
-  | 'placeDecoy'
   | 'denied'
   | 'damage'
   | 'kill'
@@ -84,11 +83,8 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
-  // Decoy buoy placement (Story 8.16 — the deleted radar buoy's sound, renamed):
-  // a hollow water "bloop" — same soft sine drop family as the mine plop but
-  // pitched a touch higher + brighter so dropping a decoy is audibly distinct
-  // from dropping a mine.
-  placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
+  // (The decoy/buoy placement cue left with the buoys — Story 10.5,
+  // 2026-11-05, epic-10 amendment 10: nothing is placed but a mine.)
   // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
   // pitched fast downward with no noise layer — reads as a refusal, distinct
   // from every success cue (the gun family cracks start ≥520Hz with noise, the
@@ -297,9 +293,9 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and centred.
   //   • `point` (700→1100→1500) and `kill` (500→900→1200) start in the same place
   //     and RISE through two octaves; nothing about a miss rises.
-  //   • `fireMine` (220) and `placeDecoy` (340) are the catalog's other soft sine
-  //     drops, an octave or more below and both transient-free — the hiss is what
-  //     says "water", and both of those are your own hand, centred.
+  //   • `fireMine` (220) is the catalog's other soft sine drop, an octave or
+  //     more below and transient-free — the hiss is what says "water", and that
+  //     one is your own hand, centred.
   splash: { freqStart: 700, freqMid: 460, freqEnd: 280, duration: 0.1, volume: 0.24, type: 'sine', noise: true },
   // A hull you can SEE going down. Witnessed sinkings only: the Public
   // Register's fog kills stay silent, because `sunk` carries no position and the
@@ -399,14 +395,11 @@ export function telegraphTone(dir: number): ToneId {
 }
 
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
- *  instant abilities that have NO such cue here are excluded at the type level:
- *  boost (a pure speed window) and the DECOY BUOY (Story 8.16 — its placement
- *  cue is played as 'placeDecoy' from the decoy reconcile own-spawn hook, not
- *  via fireTone). The MINE stays included even though it is now an ability
- *  (Story 1.8) — its 'fireMine' drop cue still fires, via the Mines reconcile
- *  own-spawn hook (main.ts); the decoy's cue rides the same hook shape. */
+ *  instant abilities that have NO such cue here are excluded at the type level
+ *  (the Shifts — pure windows). The MINE stays included — its 'fireMine' drop
+ *  cue fires via the Mines reconcile own-spawn hook (main.ts). */
 type FiringEquipmentId = Extract<
-  SlotItemId,
+  EquipmentId,
   | 'gun'
   | 'broadside'
   | 'starShells'
@@ -420,7 +413,7 @@ type FiringEquipmentId = Extract<
   | 'dazzleShells'
   // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
   // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
-  // Extract widened from `EquipmentId` to `SlotItemId`.
+  // Extract widened from `EquipmentId` to `EquipmentId`.
   | 'lightTorpedo'
   | 'heavyTorpedo'
   | 'supercavTorpedo'
@@ -479,7 +472,6 @@ const FIT_TONE: Record<LineKind, ToneId> = {
   equipment: 'fitRare',
   ladder: 'fitCommon',
   addon: 'fitCommon',
-  consumable: 'fitCommon',
 };
 
 /** Pure: the fit cue for a fitted card's kind. Fail-open to the light weight -
@@ -511,7 +503,6 @@ const FIT_KIND_CENTS: Readonly<Record<string, number>> = {
   equipment: -2 * SEMITONE_CENTS,
   ladder: 0,
   addon: 1 * SEMITONE_CENTS,
-  consumable: 2 * SEMITONE_CENTS,
 };
 
 /**

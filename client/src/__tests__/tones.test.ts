@@ -30,7 +30,6 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireMine',
   'fireBroadside',
   'fireStarShells',
-  'placeDecoy',
   'denied',
   'damage',
   'kill',
@@ -157,21 +156,6 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   });
 });
 
-describe('placeDecoy tone (Story 8.16) — decoy placement cue', () => {
-  // The DECOY BUOY is placed, not fired, so it is NOT in the fireTone map; its
-  // cue plays as 'placeDecoy' from the decoy reconcile own-spawn hook (the mine
-  // precedent). Story 8.16 RENAMED the deleted radar buoy's 'placeBuoy' tone —
-  // same sound, new id.
-  // It shares the soft sine "drop" family with the mine plop but is pitched a
-  // touch higher so dropping a decoy is audibly distinct from dropping a mine.
-  it('is a soft sine drop, within the short-tone budget, pitched above the mine plop', () => {
-    expect(TONES.placeDecoy.type).toBe('sine');
-    expect(TONES.placeDecoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
-    expect(TONES.placeDecoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
-    expect(TONES.placeDecoy.freqEnd).toBeLessThan(TONES.placeDecoy.freqStart); // a downward drop
-  });
-});
-
 describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', () => {
   // Fired only via the exactly-one-feedback path (predicted denial OR an
   // unmatched server denial — weapons AND abilities); mute-awareness rides
@@ -189,7 +173,6 @@ describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', ()
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
     // …is not a soft sine drop (the mine/decoy placement family)…
     expect(TONES.denied.type).not.toBe(TONES.fireMine.type);
-    expect(TONES.denied.type).not.toBe(TONES.placeDecoy.type);
     // …and is a different waveform family from the damage thud.
     expect(TONES.denied.type).not.toBe(TONES.damage.type);
   });
@@ -237,7 +220,6 @@ describe('the FIT family (Story 2.9) — one two-note template, three tier weigh
     expect(fitTone('equipment')).toBe('fitRare');
     expect(fitTone('ladder')).toBe('fitCommon');
     expect(fitTone('addon')).toBe('fitCommon');
-    expect(fitTone('consumable')).toBe('fitCommon');
     expect(fitTone(undefined)).toBe('fitCommon');
     expect(fitTone('legendary' as LineKind)).toBe('fitCommon');
   });
@@ -398,10 +380,9 @@ describe('stormEnterEdge', () => {
 // categories are deleted, so the kind is the only axis the catalog still states.
 
 describe('fitDetune — one fit family, four kind voices', () => {
-  // The FOUR kinds the catalog's type declares. Since Story 8.17 (amendment
-  // 134) the shipped catalog USES three — no add-on line remains — but the
-  // `addon` kind stays in place, so its voice stays too.
-  const KINDS: readonly LineKind[] = ['equipment', 'ladder', 'addon', 'consumable'];
+  // The THREE kinds the catalog's type declares since Story 10.5 deleted the
+  // `consumable` kind with the kit (2026-11-05, epic-10 amendment 10).
+  const KINDS: readonly LineKind[] = ['equipment', 'ladder', 'addon'];
   const USED = [...new Set(Object.values(CATALOG).map((line) => line.kind))];
 
   it('covers EXACTLY the catalog\'s kinds — no gap, no orphan', () => {
@@ -583,7 +564,7 @@ describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for 
       expect(TONES[id].freqEnd, id).toBeGreaterThan(TONES[id].freqStart);
     }
     // ...and it is not one of the soft sine DROPS, which live an octave below.
-    for (const id of ['fireMine', 'placeDecoy'] as const) {
+    for (const id of ['fireMine'] as const) {
       expect(TONES.splash.freqStart, id).toBeGreaterThan(TONES[id].freqStart * 1.5);
       expect(TONES[id].noise, id).toBeUndefined();
     }
