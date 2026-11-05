@@ -7,8 +7,8 @@
 // spatial. Its whole effect is the World's `finishReloads` capability: for the
 // mounted gun and every fitted Q/E/R weapon whose reload is RUNNING, that ONE
 // reload completes now (one round tops up, timer to zero; the machine gun's
-// magazine fills). It does not refill a pool, never touches the belt, and never
-// touches itself (amendment 98).
+// magazine fills). It does not refill a pool, never touches the HULL REPAIR /
+// SMOKE cooldowns (Story 10.5, R3), and never touches itself (amendment 98).
 
 import { EQUIPMENT_IS_WEAPON, type LoadoutSlot } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';

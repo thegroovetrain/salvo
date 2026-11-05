@@ -34,7 +34,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 /** Drive `id` full ahead for `ticks` ticks. */
 function drive(w: World, id: string, ticks: number): void {
   for (let t = 1; t <= ticks; t++) {
-    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
   }
 }
@@ -63,10 +63,9 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // would silently drop the oldest tail. wakeTopSpeed derives it through the
     // SAME shared boostedKinematics → draftedKinematics hooks the client's ring
     // budget uses.
-    // Story 10.9 (ruling 6): the Shift and a SPEED BUOY add on the base —
-    // the first fold stage's one combined factor.
+    // (The SPEED BUOY's term left with the buoys — Story 10.5.)
     const base = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed;
-    const boosted = base + base * (CONFIG.boost.factor + CONFIG.buoy.speed.factor);
+    const boosted = base + base * CONFIG.boost.factor;
     const top = boosted + boosted * CONFIG.wake.draft.lift;
     expect(a.wake.cap).toBe(wakeCapacity(top, CONFIG.vision.wakeLifeMs));
     expect(a.wake.cap).toBeGreaterThan(wakeCapacity(boosted, CONFIG.vision.wakeLifeMs)); // the draft lift is counted, not just the boost

@@ -3,11 +3,14 @@
 // Story 9.3 session 2 (Eric 2026-10-12: "just draw it on top of ships" — the
 // cloud is a CLIENT VISUAL OVERLAY; the server hides nothing):
 //
-//   • the PRESS: one copy makes ONE stationary cloud at the hull's CENTRE,
-//     born now, deleted at now + lifeMs; a RE-PRESS makes a second full cloud
-//     at the hull's new position (46); a SINKING press is refused `blocked`,
-//     copy kept, and clouds already made live out their life (amendment 127);
-//     a non-finite pose makes none;
+//   • the PRESS — the SMOKE ability on `V` since Story 10.5 (2026-11-05,
+//     epic-10 amendment 10, R2): a press makes ONE stationary cloud at the
+//     hull's CENTRE, born now, deleted at now + lifeMs, and starts the fixed
+//     cooldown (`smokeReadyAt = abilityReadyAt(now, 'smoke')`); a press inside
+//     the cooldown is refused `cooling`; a ready RE-PRESS makes a second full
+//     cloud at the hull's new position (46); a SINKING press is refused
+//     `blocked`, no cooldown, and clouds already made live out their life
+//     (amendment 127); a non-finite pose makes none;
 //   • a cloud HIDES NOTHING: a fresh cloud between two hulls hides neither
 //     (contacts, radar paints, the owner inside its own cloud alike);
 //   • the `clouds` CHANNEL's own gate over the spray DISC (centre, radius
@@ -16,8 +19,8 @@
 //     within radar range, the beam across the disc's bearing span, the centre
 //     shadow-visible; owner always, spectator always; the wire shape
 //     `{id,x,y,t0}` and nothing else; gone the step it expires;
-//   • the bot presses once on the way out and not again until its cloud
-//     expires; resetForMatchStart clears the water.
+//   • the bot presses once on the way out and not again inside the cooldown;
+//     resetForMatchStart clears the water.
 //
 // The perception FUZZ and its independent cloud oracle live in
 // perception.test.ts; the bot drill in botTactics.test.ts.
@@ -25,9 +28,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  abilityCode,
+  abilityReadyAt,
+  abilitySlot,
   cloudOutlineRadius,
-  consumableSlotFor,
-  DEFAULT_KIT,
   islandBlocksSegment,
   isSinking,
   wrapPositive,
@@ -40,7 +44,6 @@ import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixtur
 
 const CM = CONFIG.countermeasure;
 const DT = CONFIG.tick.simDtMs;
-const KEY = consumableSlotFor(DEFAULT_KIT, 'countermeasure')!;
 
 type P = { x: number; y: number };
 
@@ -63,15 +66,18 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
   return rec;
 }
 
-/** Stock `n` copies in the countermeasure's fixed slot (production catalog). */
-function stock(w: World, ship: ShipRecord, n = 1): void {
-  for (let i = 0; i < n; i += 1) w.applyCard(ship, 'countermeasure');
+/** One SMOKE press through the real input path (the actSeq edge naming
+ *  `abilityCode('smoke')`), resolved by one step. Returns the press time — the
+ *  `now` activationControl ran at. */
+function press(w: World, ship: ShipRecord): number {
+  ship.input = { ...ship.input, seq: ship.input.seq + 1, actSeq: ship.lastActSeq + 1, act: abilityCode('smoke') };
+  w.step(DT);
+  return w.now;
 }
 
-/** Fire the slot through the ONE activation path. */
-const press = (w: World, ship: ShipRecord): unknown => w.sinkingActivationGate(ship, KEY);
-
-const copies = (ship: ShipRecord): number => ship.loadout[KEY].state?.n ?? 0;
+/** The ability-press denials queued for `ship` on the last step. */
+const smokeDenials = (w: World, ship: ShipRecord) =>
+  (w.denialsFor(ship.id) ?? []).filter((d) => d.act === abilityCode('smoke'));
 
 /** Drop a cloud straight into the store (the injectMine posture): owned by
  *  `ownerId`, born at `bornAt` (fresh by default), alive for the full life. */
@@ -99,21 +105,19 @@ const O: P = { x: 0, y: 0 };
 // The press
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => {
-  it('one copy: spent at the press, ONE cloud at the hull\'s centre, born now, until now + life, the hull\'s own stamp advanced', () => {
+describe('SMOKE — the press (rulings 43 / 46, amendment 127; the cooldown ability since Story 10.5)', () => {
+  it('a press makes ONE cloud at the hull\'s centre, born now, until now + life; the cooldown starts at the press', () => {
     const w = bareWorld();
     const a = place(w, 'a', 30, -40, 1.2);
-    stock(w, a, 1);
-    const t0 = w.now;
-    expect(press(w, a)).toEqual({ ok: true });
-    expect(copies(a)).toBe(0); // the ONE SPEND LAW: a successful press costs the copy
-    expect(a.cards.filter((c) => c === 'countermeasure')).toHaveLength(0);
+    expect(a.smokeReadyAt).toBe(0); // ready at spawn
+    const t0 = press(w, a);
     expect(w.clouds.size).toBe(1); // made AT the press, not on a later tick
     expect(w.cloudCount).toBe(1);
     const [cloud] = [...w.clouds.values()];
     expect(cloud.id).toMatch(/^cl\d+$/);
     expect(cloud).toMatchObject({ ownerId: 'a', x: 30, y: -40, bornAt: t0, until: t0 + CM.lifeMs });
     expect(a.cloudUntil).toBe(t0 + CM.lifeMs);
+    expect(a.smokeReadyAt).toBe(abilityReadyAt(t0, 'smoke'));
     steps(w, 40);
     expect(w.clouds.size).toBe(1); // nothing else drops: no trail, no cadence
   });
@@ -122,7 +126,6 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
       const w = bareWorld();
       const a = place(w, 'a', 100, 100, heading);
-      stock(w, a, 1);
       press(w, a);
       const [c] = [...w.clouds.values()];
       expect(c.x, `heading ${heading}`).toBe(a.state.x);
@@ -130,18 +133,30 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     }
   });
 
-  it('RE-PRESS 3 s later at a new position: a SECOND full cloud there; the first is untouched (no restart, no refusal — ruling 46)', () => {
+  it('a press INSIDE the cooldown is refused `cooling` (act + abilitySlot), no cloud, the stamp unmoved', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2);
-    const t0 = w.now;
+    const t0 = press(w, a);
+    steps(w, 60); // +3 s, well inside the cooldown
+    const ready = a.smokeReadyAt;
     press(w, a);
-    steps(w, 60); // +3 s
+    expect(w.clouds.size).toBe(1);
+    expect(a.smokeReadyAt).toBe(ready);
+    expect(smokeDenials(w, a)).toEqual([
+      { slot: abilitySlot('smoke'), reason: 'cooling', seq: a.lastActSeq, act: abilityCode('smoke') },
+    ]);
+    expect(ready).toBe(abilityReadyAt(t0, 'smoke'));
+  });
+
+  it('a READY re-press at a new position makes a SECOND full cloud there; the first is untouched (no restart — ruling 46)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const t0 = press(w, a);
+    steps(w, 60);
     a.state.x = 120;
     a.state.y = -30;
-    const t1 = w.now;
-    expect(press(w, a)).toEqual({ ok: true });
-    expect(copies(a)).toBe(0); // the second copy is SPENT
+    a.smokeReadyAt = 0; // test seam: the cooldown is not what this case is about
+    const t1 = press(w, a);
     const clouds = [...w.clouds.values()];
     expect(clouds).toHaveLength(2);
     expect(clouds[0]).toMatchObject({ x: 0, y: 0, bornAt: t0, until: t0 + CM.lifeMs });
@@ -155,19 +170,18 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     expect(w.clouds.size).toBe(0);
   });
 
-  it('a SINKING press is refused `blocked`, the copy kept, no cloud made; clouds already made live out their life past the hull (amendment 127)', () => {
+  it('a SINKING press is refused `blocked`, no cooldown, no cloud; clouds already made live out their life past the hull (amendment 127)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2);
-    const t0 = w.now;
-    press(w, a);
+    const t0 = press(w, a);
     expect(w.clouds.size).toBe(1);
     w.sinkShip('a');
     expect(isSinking(a.lifecycle)).toBe(true);
     expect(a.cloudUntil).toBe(0); // the own-cloud stamp dies with the life
-    expect(press(w, a)).toEqual({ ok: false, reason: 'blocked' });
-    expect(copies(a)).toBe(1);
-    expect(a.cards.filter((c) => c === 'countermeasure')).toHaveLength(1);
+    a.smokeReadyAt = 0; // ready, so only the sinking gate can refuse
+    press(w, a);
+    expect(smokeDenials(w, a).map((d) => d.reason)).toEqual(['blocked']);
+    expect(a.smokeReadyAt).toBe(0);
     expect(w.clouds.size).toBe(1);
     steps(w, 120); // through the founder edge and the respawn — the cloud is still on the water
     expect(w.clouds.size).toBe(1);
@@ -178,21 +192,17 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
   it('a NON-FINITE position makes nothing: no NaN cloud ever enters the store', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2);
     a.state.x = Number.NaN;
+    a.state.speed = 0;
     press(w, a);
     expect(w.clouds.size).toBe(0);
-    a.state.x = 0;
-    press(w, a);
-    expect(w.clouds.size).toBe(1);
     for (const c of w.clouds.values()) expect(Number.isFinite(c.x) && Number.isFinite(c.y)).toBe(true);
   });
 
-  it('resetForMatchStart clears every cloud and every own-cloud stamp (the mines / decoys precedent)', () => {
+  it('resetForMatchStart clears every cloud and every own-cloud stamp (the mines precedent)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 900, 0);
-    stock(w, a, 1);
     press(w, a);
     expect(w.clouds.size).toBe(1);
     expect(a.cloudUntil).toBeGreaterThan(w.now);
@@ -200,6 +210,7 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     expect(w.clouds.size).toBe(0);
     expect(w.cloudCount).toBe(0);
     for (const s of w.ships.values()) expect(s.cloudUntil).toBe(0);
+    expect(a.smokeReadyAt).toBe(0); // and the ability is ready again (Story 10.5)
     steps(w, 20);
     expect(w.clouds.size).toBe(0);
   });
@@ -356,24 +367,25 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
 // The bot
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — the bot (R12 on one cloud per press)', () => {
-  it('a hurt bot holding two copies presses ONCE on the way out — one cloud at its centre — and not again until that cloud expires', () => {
+describe('SMOKE — the bot (one press, then the cooldown)', () => {
+  it('a hurt bot presses SMOKE on the way out — one cloud at its centre, the cooldown stamped — and not again inside the cooldown', () => {
     const w = new World(81624, 4);
     w.map.islands.length = 0;
     const rec = w.addBot('bismarck', 'duelist');
-    stock(w, rec, 2);
     const step = (ms: number): void => steps(w, Math.round(ms / DT));
     rec.hp = rec.stats.maxHp * 0.1;
     step(12_000);
-    expect(copies(rec)).toBe(1);
     expect(w.clouds.size).toBe(1);
     const [cloud] = [...w.clouds.values()];
     expect(cloud.ownerId).toBe(rec.id);
     expect(rec.cloudUntil).toBe(cloud.until);
+    expect(rec.smokeReadyAt).toBe(abilityReadyAt(cloud.bornAt, 'smoke'));
     rec.hp = rec.stats.maxHp * 0.1; // stay on the way out
-    while (w.now < cloud.until - DT) steps(w, 1);
-    expect(copies(rec)).toBe(1); // its own cloud is still up
-    step(5_000);
-    expect(copies(rec)).toBe(0); // expired: pressed again
+    while (w.now < cloud.until + 5_000) {
+      steps(w, 1);
+      rec.hp = Math.min(rec.hp, rec.stats.maxHp * 0.1);
+    }
+    expect(w.clouds.size).toBe(0); // the cloud expired, and the cooldown still holds the key
+    expect(w.now).toBeLessThan(rec.smokeReadyAt);
   });
 });

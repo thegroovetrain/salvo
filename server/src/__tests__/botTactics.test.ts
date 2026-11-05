@@ -19,12 +19,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  consumableSlotFor,
-  DEFAULT_KIT,
   FLASH_WINDOW_MS,
-  type ConsumableId,
-  type ConsumableKit,
   CONFIG,
+  abilityCode,
+  abilityReadyAt,
+  familySlotFor,
   hullBumper,
   angleDiff,
   bearing,
@@ -36,7 +35,6 @@ import {
   nearestCoastPoint,
   polygonMaxRadius,
   sectorArcFor,
-  CONSUMABLE_IDS,
   EQUIPMENT_IDS,
   SHIFT_IDS,
   WEAPON_SLOTS,
@@ -51,13 +49,14 @@ import {
   type Island,
   type ShiftId,
   type ShipClassId,
-  type SlotItemId,
+  type EquipmentId,
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
-import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS, SHIFT_ROWS, tacticFor } from '../game/ai/tacticRegistry.js';
+import { EQUIPMENT_TACTICS, SHIFT_ROWS, tacticFor } from '../game/ai/tacticRegistry.js';
+import { ABILITY_WANTS } from '../game/ai/abilities.js';
 import { EQUIPMENT } from '../game/equipment/index.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
@@ -126,12 +125,6 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
 /** A bot hull placed exactly where the test wants it, pointed where it wants.
  *  Islands are cleared so placement is never fought by the spawn lattice or
  *  the collision push-out (the island-specific tests clear nothing). */
-/** A kit that CARRIES `line` (Story 10.1) — on key 1, the default four
- *  filling the rest — so a belt case never depends on the default holding it. */
-function kitWith(line: ConsumableId): ConsumableKit {
-  return [line, ...DEFAULT_KIT.filter((k) => k !== line)].slice(0, DEFAULT_KIT.length);
-}
-
 /** THE FIXTURE SHIFT per hull (Story 10.4 — the Shift is the SEAT's pick, no
  *  longer the class's). A test FIXTURE, not a game rule: each hull keeps the
  *  Shift its re-keyed class fixtures were written against (the classWeapons.ts
@@ -152,8 +145,8 @@ function trainOn(rec: ShipRecord, x: number, y: number): void {
   rec.turrets.forEach((t, i) => (t.a = desiredTurretAngle(rec.hullId, i, rec.state, { x, y })));
 }
 
-function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0, kit: ConsumableKit = DEFAULT_KIT): ShipRecord {
-  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y }, FIXTURE_SHIFT[hullId], kit);
+function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0): ShipRecord {
+  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y }, FIXTURE_SHIFT[hullId]);
   // THE CLASS WEAPON IS A CARD (Story 8.10, amendment 62): a hull spawns with
   // gun + Shift and an EMPTY weapon row, so this fixture fits the tube / the
   // barrage / the rack explicitly — every weapon-policy case below is about
@@ -217,7 +210,7 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
     litZones: [],
     burnZones: [],
     foulZones: [],
-    decoys: [],
+   
     clouds: [],
   };
 }
@@ -743,7 +736,7 @@ describe('steering — the priority order is the policy', () => {
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const view = (own: boolean | null): BotMind['view'] => ({
       contacts: [], events: [], mines: own === null ? [] : [{ id: 'm1', x: 60, y: 20, by: 'enemy', own }],
-      litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [],
+      litZones: [], burnZones: [], foulZones: [], clouds: [],
     });
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     // RE-STATED (Story 9.13, amendment 202): the idle bearing is a patrol
@@ -1162,7 +1155,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const rec = mkBot(w, 'yamato', 0, 0, 0);
     const far = rec.stats.equipment.mainBattery.rangeU + 100;
     const litView = (by: string): BotMind['view'] => ({
-      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], decoys: [], clouds: [],
+      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], clouds: [],
       litZones: [{ id: 'z', x: far, y: 0, r: CONFIG.starShells.litRadius, until: port.now + 5000, by }],
     });
     const mind = mkMind('bulwark');
@@ -1196,7 +1189,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     tb.hp = tb.stats.maxHp * 0.1; // below raider's 0.5 -> disengage
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
+    expect(COMBAT_BRAIN.decide(tb, raider, port).act).toBe(abilityCode('shift'));
     // A withdrawing MINE LAYER HAS NO BOOST TO PRESS (Story 8.15, amendment
     // 89(c)): slot 1 is its class Shift, INSTANT RELOAD, and the boost is the
     // Torpedo Boat's alone again. The withdrawal tactic therefore presses
@@ -1206,100 +1199,74 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(slotOf(ml, 'boost')).toBe(-1);
-    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).not.toBe(-1);
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).act).not.toBe(-1);
     // Healthy: no ability spent. A FRESH mind — the hurt raider's own mind is
     // latched in its break-off (Story 9.13, amendment 196: it ends only on
     // hysteresis AND broken contact, and the target is still in sight).
     const healthy = mkBot(w, 'bismarck', 0, 0, 0);
     const calm = mkMind('raider');
     plot(calm, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(healthy, calm, port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(healthy, calm, port).act).toBeNull();
   });
 
-  // THE BELT PRESS (Story 8.8, epic-8 amendment 49). `HEAL_CHOICE` left the
-  // spend policy with the wire, so a bot that could draw HULL REPAIR cards and
-  // never fire one would simply stop healing. One rule, on the SAME ability
-  // channel the boost rides: under the profile's healHpFrac, press the stack.
-  it('a hurt bot holding a HULL REPAIR stack presses its belt slot; a full-hull one does not', () => {
+  // HULL REPAIR (`C`) IS A COOLDOWN ABILITY (Story 10.5, epic-10 amendment
+  // 10). Every hull carries it, ready at spawn; the bot presses it on the
+  // belt row's own hurt read and the shared refusal law (sim/abilities.ts).
+  it('a hurt bot presses HULL REPAIR (its wire code) when ready; a full hull, or one still cooling, does not', () => {
     const w = openWorld(212);
     const port = fakePort(w);
-    const duelist = mkMind('duelist');
-
     const hurt = mkBot(w, 'bismarck', 0, 0, 0);
-    w.applyCard(hurt, 'hullRepair');
-    const belt = slotOf(hurt, 'hullRepair');
-    expect(belt).toBeGreaterThanOrEqual(0);
+    // Under the heal line but over the break-off line: not disengaging, so the
+    // Shift does not answer first.
     hurt.hp = hurt.stats.maxHp * (profileOf('duelist').healHpFrac - 0.05);
-    expect(COMBAT_BRAIN.decide(hurt, duelist, port).actSlot).toBe(belt);
-
-    // At full hull it holds the copy — and the boost does not fire either,
-    // because a healthy hull is not disengaging.
+    expect(hurt.hp / hurt.stats.maxHp).toBeGreaterThan(profileOf('duelist').disengageHpFrac);
+    expect(COMBAT_BRAIN.decide(hurt, mkMind('duelist'), port).act).toBe(abilityCode('repair'));
+    // Inside the cooldown: the press would be refused 'cooling', so it is never made.
+    hurt.repairReadyAt = abilityReadyAt(port.now, 'repair');
+    expect(COMBAT_BRAIN.decide(hurt, mkMind('duelist'), port).act).toBeNull();
+    // ...and ready again at the instant the cooldown ends.
+    hurt.repairReadyAt = port.now;
+    expect(COMBAT_BRAIN.decide(hurt, mkMind('duelist'), port).act).toBe(abilityCode('repair'));
+    // At full hull nothing is pressed.
     const full = mkBot(w, 'bismarck', 0, 0, 0);
-    w.applyCard(full, 'hullRepair');
-    expect(COMBAT_BRAIN.decide(full, mkMind('duelist'), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(full, mkMind('duelist'), port).act).toBeNull();
   });
 
-  it('does NOT press a second copy while the first one\'s pool is still draining in', () => {
-    // THE PAID POOL IS HP ALREADY BOUGHT (`repairHp`, 50 hp landing over 5 s).
-    // Reading the bare `hp` is reading the hull mid-payment: a bulwark that
-    // fires at 120/350 is at 170 with 50 more coming — 220 of 350, over its
-    // own 0.6 threshold — and would otherwise burn its whole stack inside one
-    // pool's lifetime, which is exactly the scarcity the card model exists for.
+  it('does NOT press HULL REPAIR while a pool is still draining in', () => {
+    // THE PAID POOL IS HP ALREADY BOUGHT (`repairHp`): reading the bare `hp`
+    // is reading the hull mid-payment.
     const w = openWorld(214);
     const port = fakePort(w);
     const bot = mkBot(w, 'yamato', 0, 0, 0);
-    for (let i = 0; i < 3; i += 1) w.applyCard(bot, 'hullRepair');
-    const belt = slotOf(bot, 'hullRepair');
-    expect(belt).toBeGreaterThanOrEqual(0);
-
-    // Mid-payment: the instant half has landed, the pooled half has not. The
-    // hull sits half a pool under the heal bar, so the pool still owed lifts
-    // it over (fractions of maxHp — 1000 since Story 10.3).
     bot.hp = bot.stats.maxHp * profileOf('bulwark').healHpFrac - CONFIG.hullRepair.regenHp / 2;
     bot.repairHp = CONFIG.hullRepair.regenHp;
     expect(bot.hp / bot.stats.maxHp).toBeLessThan(profileOf('bulwark').healHpFrac); // the bare read still says "heal"
-    expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).actSlot).toBeNull();
-
-    // THE CONTROL: the same hull with nothing draining in does press. Only the
-    // pool separates the two, so an inverted read cannot pass both.
+    expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).act).toBeNull();
+    // THE CONTROL: the same hull with nothing draining in does press.
     bot.repairHp = 0;
-    expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).actSlot).toBe(belt);
+    expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).act).toBe(abilityCode('repair'));
   });
 
-  it('a SINKING bot never presses its belt, however low its hull reads', () => {
-    // The driver already drops non-afloat bots before they decide, so this is
-    // the row's own guard — the same one the server's HULL REPAIR row keeps
-    // (amendment 10: no hp comes back to a hull in the window). Without it the
-    // tactic's only test is `hp / maxHp`, which a sinking hull passes most of
-    // all, and any future caller that reaches a brain without the driver's
-    // afloat check would have the bot mashing a key the row always refuses.
+  it('a SINKING bot never presses HULL REPAIR, however low its hull reads', () => {
     const w = openWorld(215);
     const port = fakePort(w);
     const dying = mkBot(w, 'yamato', 0, 0, 0);
-    w.applyCard(dying, 'hullRepair');
-    const belt = slotOf(dying, 'hullRepair');
     dying.hp = 0;
     dying.lifecycle = transitionLifecycle(dying.lifecycle, 'sink', port.now);
     expect(isAfloat(dying.lifecycle)).toBe(false);
-    expect(belt).toBeGreaterThanOrEqual(0);
-    // The BOOST is drained so it cannot answer first and mask the belt: a
-    // hull at 0 hp is disengaging, and the boost outranks the belt on slot
-    // index. With it dry, the belt slot is the only ability left to press.
+    // The Shift is drained so it cannot answer first and mask the repair.
     dying.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 4000 };
-    expect(COMBAT_BRAIN.decide(dying, mkMind('bulwark'), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(dying, mkMind('bulwark'), port).act).toBeNull();
   });
 
-  it('...and a hurt bot with an EMPTY belt reaches for its boost, never a belt slot', () => {
+  it('...and a hurt, disengaging bot presses its Shift first — one press a tick; the repair answers once the Shift is spent', () => {
     const w = openWorld(213);
     const port = fakePort(w);
-    // A TORPEDO BOAT, since Story 8.15: the boost is the Torpedo Boat's Shift
-    // alone (a Battleship's slot 1 is HUNKER; was DAMAGE CUT until Story 9.9).
     const bare = mkBot(w, 'bismarck', 0, 0, 0);
-    bare.hp = bare.stats.maxHp * 0.1; // hurt enough to want a heal it does not hold
-    expect(slotOf(bare, 'hullRepair')).toBe(-1);
-    // The withdrawal boost is the only ability it can press: a want() with no
-    // fitted slot behind it is never even asked (rankedSlots walks the LOADOUT).
-    expect(COMBAT_BRAIN.decide(bare, mkMind('bulwark'), port).actSlot).toBe(slotOf(bare, 'boost'));
+    bare.hp = bare.stats.maxHp * 0.1; // hurt AND below the break-off line
+    expect(COMBAT_BRAIN.decide(bare, mkMind('bulwark'), port).act).toBe(abilityCode('shift'));
+    bare.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 4000 };
+    expect(COMBAT_BRAIN.decide(bare, mkMind('bulwark'), port).act).toBe(abilityCode('repair'));
   });
 
   it('the BROADSIDE is not spent on a plot that has gone dark (the `live` gate is a real gate)', () => {
@@ -1340,7 +1307,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     // Layer whose prepared lay is not eager requests nothing; nor does a
     // TORPEDO BOAT with no placements.
     expect(d.fireSlot).toBeNull();
-    expect(d.actSlot).toBeNull();
+    expect(d.act).toBeNull();
     expect(d.spendChoice).toBeNull();
     expect(Number.isFinite(d.aim)).toBe(true);
     expect(d.throttle).toBeGreaterThan(0);
@@ -1652,7 +1619,9 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('PHOSPHOR SHELLS (8.17): fired at the NEAREST live contact inside sight; the plain flare never targets a live contact', () => {
     const w = openWorld(407);
     const port = fakePort(w);
-    const phos = mkBot(w, 'yamato', 0, 0, 0);
+    // A hull whose special-shell slot is free (Story 10.5 — one kind per
+    // slot; the Yamato fixture already holds STAR SHELLS there).
+    const phos = mkBot(w, 'bismarck', 0, 0, 0);
     w.applyCard(phos, 'phosphorShells');
     const slot = slotOf(phos, 'phosphorShells');
     expect(slot).toBeGreaterThanOrEqual(0);
@@ -1663,7 +1632,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(d.fireSlot).toBe(slot);
     expect(d.aimDist).toBeCloseTo(150, 6); // the nearest, whatever its speed
     // A live contact OUTSIDE our own sight bubble draws no phosphor.
-    const blind = mkBot(w, 'yamato', 0, 0, 0);
+    const blind = mkBot(w, 'bismarck', 0, 0, 0);
     w.applyCard(blind, 'phosphorShells');
     const blindMind = mkMind('siege');
     plot(blindMind, track(port.now, { x: LOST_X, y: 0, live: true, speed: 10 })); // beyond sight (Story 9.8)
@@ -1687,12 +1656,8 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const staleMind = mkMind('bulwark');
     plot(staleMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3400 }));
     expect(COMBAT_BRAIN.decide(stale, staleMind, port).fireSlot).toBe(slotOf(stale, 'starShells'));
-    // ...and a holder with PHOSPHOR fitted lights the same stale plot (the cap is gone).
-    const both = mkBot(w, 'yamato', 0, 0, 0);
-    w.applyCard(both, 'phosphorShells');
-    const bothMind = mkMind('bulwark');
-    plot(bothMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3400 }));
-    expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'starShells'));
+    // (A holder of BOTH star and phosphor shells cannot exist since Story 10.5:
+    // one kind per special-shell slot.)
   });
 
   it('A FLASHED BOT\'S TWO SIGHT GATES READ ITS WHITED-OUT SIGHT (gate fix F8): at hit + 1 s a live track 100 u away is NOT in sight (no phosphor) and a lost plot 200 u away IS beyond it (the sensor flare goes up); at the window\'s end both read full sight again', () => {
@@ -1702,7 +1667,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const lapsed = port.now; // the window has just ended
     // PHOSPHOR (nearestLiveInSight): a live contact at 100 u.
     const phosAt = (mark: number): boolean => {
-      const rec = mkBot(w, 'yamato', 0, 0, 0);
+      const rec = mkBot(w, 'bismarck', 0, 0, 0);
       w.applyCard(rec, 'phosphorShells');
       rec.dazzledUntil = mark;
       const mind = mkMind('siege');
@@ -1723,8 +1688,9 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(flareAt(lapsed)).toBe(false);
   });
 
-  /** A torpedo boat at the origin, bow EAST, holding ONE FOULING SHELL copy
-   *  and nothing else that fires (the boost and the weapon row cleared). */
+  /** A torpedo boat at the origin, bow EAST, holding the FOULING SHELL in its
+   *  special-shell slot (Story 10.5) and nothing else that fires (the boost
+   *  and the weapon row cleared). */
   function foulingShellBoat(seed: number): { w: World; port: FakePort; rec: ShipRecord; slot: number } {
     const w = openWorld(seed);
     const port = fakePort(w);
@@ -1732,14 +1698,14 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
     w.applyCard(rec, 'foulingShell');
     const slot = slotOf(rec, 'foulingShell');
-    expect(slot).toBeGreaterThanOrEqual(5);
+    expect(slot).toBe(familySlotFor('foulingShell'));
     return { w, port, rec, slot };
   }
 
   it('FOULING SHELL (9.4, amendment 65) — ENGAGING: the row PRIMES and FIRES at the nearest live contact in sight; held with no live contact', () => {
     const { w, port, rec, slot } = foulingShellBoat(408);
-    expect(CONSUMABLE_TACTICS.foulingShell.kind).toBe('shot');
-    expect(CONSUMABLE_TACTICS.foulingShell.reachU(rec.stats)).toBe(CONFIG.foulingShell.rangeU); // its own fixed dial (Story 9.8, ruling 125)
+    expect(EQUIPMENT_TACTICS.foulingShell.kind).toBe('shot');
+    expect(EQUIPMENT_TACTICS.foulingShell.reachU(rec.stats)).toBe(rec.stats.equipment.foulingShell.rangeU); // the row's own reach
     const band = gunBand(profileOf('duelist'), rec.stats);
     const mid = Math.min((band.min + band.max) / 2, 250);
     const engaged = mkMind('duelist');
@@ -1789,23 +1755,23 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(d3.aimDist).toBeCloseTo(200, 6);
   });
 
-  /** A torpedo boat at the origin, bow EAST, holding ONE FLASH SHELLS copy
-   *  and nothing else that fires (Story 10.9 — the fouling boat's twin). */
+  /** A torpedo boat at the origin, bow EAST, holding FLASH SHELLS in its
+   *  special-shell slot and nothing else that fires (the fouling boat's twin). */
   function flashShellBoat(seed: number): { port: FakePort; rec: ShipRecord; slot: number } {
     const w = openWorld(seed);
     const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0, kitWith('dazzleShells'));
+    const rec = mkBot(w, 'bismarck', 0, 0, 0);
     for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
     w.applyCard(rec, 'dazzleShells');
     const slot = slotOf(rec, 'dazzleShells');
-    expect(slot).toBeGreaterThanOrEqual(5);
+    expect(slot).toBe(familySlotFor('dazzleShells'));
     return { port, rec, slot };
   }
 
-  it('FLASH SHELLS (10.9, ruling 7) — a \'shot\' row on the fouling shell\'s reach: ENGAGING it fires at the nearest live contact in sight; never disengaging, never at a blip', () => {
+  it('FLASH SHELLS (10.9, ruling 7; a slot weapon since 10.5) — a \'shot\' row on the shared reach: ENGAGING it fires at the nearest live contact in sight; never disengaging, never at a blip', () => {
     const { port, rec, slot } = flashShellBoat(410);
-    expect(CONSUMABLE_TACTICS.dazzleShells.kind).toBe('shot');
-    expect(CONSUMABLE_TACTICS.dazzleShells.reachU(rec.stats)).toBe(CONFIG.foulingShell.rangeU); // ONE shared reach (ruling 2)
+    expect(EQUIPMENT_TACTICS.dazzleShells.kind).toBe('shot');
+    expect(EQUIPMENT_TACTICS.dazzleShells.reachU(rec.stats)).toBe(rec.stats.equipment.dazzleShells.rangeU); // the row's own reach (one shared dial, ruling 2)
     const band = gunBand(profileOf('duelist'), rec.stats);
     const mid = Math.min((band.min + band.max) / 2, 250);
     const engaged = mkMind('duelist');
@@ -1841,28 +1807,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     cap.hp = cap.stats.maxHp * 0.1; // forces `disengage`
     const capMind = mkMind('trapper'); // no target plotted at all
     expect(COMBAT_BRAIN.decide(cap, capMind, port).fireSlot).toBe(rack);
-  });
-
-  // RE-CUT, NOT DELETED (Story 8.13, epic-8 amendment 81). Cycle 110's finding
-  // was that a layer holding BOTH verbs on ONE rack lost the fouling widening,
-  // because `mineWant` handed the whole decision to the captive branch —
-  // adding a card made the bot worse. The verbs are separate LINES with
-  // separate racks now, so the cross-branch hazard is gone by construction and
-  // the widening belongs to the FOULING rack alone. The pin therefore proves
-  // the new shape: a layer carrying both racks still lays the FOULING one at
-  // 450u closing, and the captive rack is not what fires.
-  it('a layer carrying BOTH racks lays the FOULING one in the widened closing window', () => {
-    const w = openWorld(416);
-    const port = fakePort(w);
-    const chase = { x: -450, y: 0, heading: 0, speed: 20 };
-    const both = mkBot(w, 'warspite', 0, 0, 0);
-    const captiveRack = swapRack(both, 'captiveMines');
-    const foulRack = fitExtra(both, 'foulingMines', 4);
-    const bothMind = mkMind('forager'); // NEUTRAL appetite: the reactive branch
-    plot(bothMind, track(port.now, chase));
-    const d = COMBAT_BRAIN.decide(both, bothMind, port);
-    expect(d.fireSlot).toBe(foulRack);
-    expect(d.fireSlot).not.toBe(captiveRack);
   });
 
   // THE PREPARED LAY + THE FIELD-CHURN BOUND (Eric ruling 2026-08-20, cycle
@@ -2026,23 +1970,20 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(pullBand(band, readyShotReaches(rec, rec.stats))).toEqual(band);
   });
 
-  // CYCLE-148 REVIEW GATE, P3 — THE BELT IS A SHOT SLOT NOW. `readyShotReaches`
-  // skipped every consumable on the claim that no consumable line was a 'shot'
-  // tactic; Story 8.13 put the SUPERCAV TORPEDO on the belt (epic-8 amendment
-  // 74) and made that claim false. A bot that will genuinely fire the stack was
-  // steering to a band computed as though it had only its gun.
-  it('THE BELT PULLS TOO: a ready SUPERCAV stack contributes its reach', () => {
+  // CYCLE-148 REVIEW GATE, P3: a ready SUPERCAV contributes its reach to the
+  // band pull — a slot weapon in the torpedo slot since Story 10.5.
+  it('a ready SUPERCAV contributes its reach to the band pull', () => {
     const w = openWorld(416);
-    const rec = mkBot(w, 'yamato', 0, 0, 0, kitWith('supercavTorpedo'));
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
     // Strip the hull back to the GUN alone, so the only thing that can move the
-    // band is the belt.
+    // band is the supercav.
     for (let i = 0; i < rec.loadout.length; i += 1) {
       if (rec.loadout[i].equipmentId !== 'mainBattery') rec.loadout[i] = { equipmentId: null, state: null };
     }
     expect(readyShotReaches(rec, rec.stats)).toEqual([rec.stats.equipment.mainBattery.rangeU]);
 
     w.applyCard(rec, 'supercavTorpedo');
-    expect(slotOf(rec, 'supercavTorpedo')).toBeGreaterThanOrEqual(0);
+    expect(slotOf(rec, 'supercavTorpedo')).toBe(familySlotFor('supercavTorpedo'));
     const reaches = readyShotReaches(rec, rec.stats);
     // The supercav's OWN credible reach (epic-9 amendment 199: it scales with
     // the fish's speed — CONFIG.bots.supercavCredibleU; it never homes, so the
@@ -2154,7 +2095,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
       seq += 1;
       w.submitInput('drill', {
         seq, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-        fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+        fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
       });
     };
     const berth = seawardBerth(w);
@@ -2357,7 +2298,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [] };
     mind.viewAt = now;
   }
 
@@ -2454,23 +2395,23 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       return m;
     };
     // Nothing reloading: held.
-    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).not.toBe(abilityCode('shift'));
     // The gun reloading, target in reach: pressed.
     ml.loadout[0].state = { n: 0, reloadMsLeft: 2100 };
-    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBe(shift);
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).toBe(abilityCode('shift'));
     // Same reload, target OUT of the gun's reach: held.
     const far = mkMind('trapper');
     plot(far, track(port.now, { x: ml.stats.equipment.mainBattery.rangeU + 100, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(ml, far, port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(ml, far, port).act).not.toBe(abilityCode('shift'));
     // No target at all: held.
-    expect(COMBAT_BRAIN.decide(ml, mkMind('trapper'), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(ml, mkMind('trapper'), port).act).not.toBe(abilityCode('shift'));
     // A Q/E/R weapon reloading (the rack) counts too; the gun full again.
     ml.loadout[0].state = { n: ml.stats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 };
-    ml.loadout[2].state = { n: 1, reloadMsLeft: 5000 };
-    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBe(shift);
+    ml.loadout[slotOf(ml, 'navalMines')].state = { n: 1, reloadMsLeft: 5000 };
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).toBe(abilityCode('shift'));
     // The charge spent (cooling): never pressed.
     ml.loadout[1].state = { n: 0, reloadMsLeft: 45000 };
-    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).not.toBe(abilityCode('shift'));
   });
 
   // Story 10.4 gate S3: slot 0's summary `reloadMsLeft` is the SOONEST running
@@ -2490,10 +2431,10 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     const reloadMs = ml.stats.equipment.mainBattery.reloadMs;
     ml.turrets[0].reloadMsLeft = reloadMs;
     ml.loadout[0].state = { n: ml.turrets.length - 1, reloadMsLeft: reloadMs };
-    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).not.toBe(abilityCode('shift'));
     for (const t of ml.turrets) t.reloadMsLeft = reloadMs;
     ml.loadout[0].state = { n: 0, reloadMsLeft: reloadMs };
-    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBe(shift);
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).toBe(abilityCode('shift'));
   });
 
   // HUNKER is PROACTIVE (Eric, 2026-09-29, amendment 115): pressed while
@@ -2511,7 +2452,12 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const w = openWorld(seed);
       const port = fakePort(w);
       const bs = mkBot(w, 'yamato', 0, 0, 0);
-      if (hurt) bs.hp = bs.stats.maxHp * 0.1;
+      if (hurt) {
+        bs.hp = bs.stats.maxHp * 0.1;
+        // HULL REPAIR is cooling (Story 10.5): a hurt hull would otherwise
+        // press it, and this suite is about the Shift alone.
+        bs.repairReadyAt = abilityReadyAt(port.now, 'repair');
+      }
       const shift = slotOf(bs, 'hunker');
       expect(shift).toBe(1);
       return { bs, port, shift };
@@ -2533,7 +2479,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const engaged = mkMind('bulwark');
       plot(engaged, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
       viewOf(engaged, port.now, []);
-      expect(COMBAT_BRAIN.decide(bs, engaged, port).actSlot).toBe(shift);
+      expect(COMBAT_BRAIN.decide(bs, engaged, port).act).toBe(abilityCode('shift'));
       expect(engaged.posture).toBe('engage');
       // The same hull hurt below its break-off: disengaging, the chaser past
       // the gun's reach (amendment 199 presses only with a hostile IN reach),
@@ -2542,7 +2488,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const away = mkMind('bulwark');
       plot(away, track(hurt.port.now, { x: hurt.bs.stats.equipment.mainBattery.rangeU + 100, y: 0, speed: 0 }));
       viewOf(away, hurt.port.now, []);
-      expect(COMBAT_BRAIN.decide(hurt.bs, away, hurt.port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(hurt.bs, away, hurt.port).act).not.toBe(abilityCode('shift'));
       expect(away.posture).toBe('disengage');
     });
 
@@ -2551,7 +2497,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const mind = mkMind('bulwark');
       plot(mind, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
       viewOf(mind, port.now, []);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBe(shift);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).toBe(abilityCode('shift'));
       expect(mind.posture).toBe('disengage');
     });
 
@@ -2559,7 +2505,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const { bs, port, shift } = setup(8157, true);
       const mind = mkMind('bulwark');
       viewOf(mind, port.now, [fish('t1', port.now, 140, 0, Math.PI)]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBe(shift);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).toBe(abilityCode('shift'));
       expect(mind.posture).toBe('disengage');
     });
 
@@ -2567,17 +2513,17 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const { bs, port } = setup(8158, true);
       const far = mkMind('bulwark');
       viewOf(far, port.now, [fish('t1', port.now, 160, 0, Math.PI)]);
-      expect(COMBAT_BRAIN.decide(bs, far, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, far, port).act).not.toBe(abilityCode('shift'));
       // Offset abeam by more than the hull's bounding radius, running parallel.
       const off = BS_RADIUS + CONFIG.torpedo.hitRadius + 8;
       expect(Math.hypot(120, off)).toBeLessThan(150);
       const miss = mkMind('bulwark');
       viewOf(miss, port.now, [fish('t2', port.now, 120, off, Math.PI)]);
-      expect(COMBAT_BRAIN.decide(bs, miss, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, miss, port).act).not.toBe(abilityCode('shift'));
       // Inside 150 u but pointed AWAY (already past): not pressed.
       const gone = mkMind('bulwark');
       viewOf(gone, port.now, [fish('t3', port.now, -100, 0, Math.PI)]);
-      expect(COMBAT_BRAIN.decide(bs, gone, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, gone, port).act).not.toBe(abilityCode('shift'));
     });
 
     it('a fish revealed ONCE far out is dead-reckoned in: pressed once it closes inside 150 u; its boom clears it', () => {
@@ -2585,17 +2531,17 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const mind = mkMind('bulwark');
       // The reveal is once per visit: seen at 300 u, then the views go quiet.
       viewOf(mind, port.now, [fish('t1', port.now, 300, 0, Math.PI)]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
       port.now += 2000; // 300 − 130 = 170 u: still outside
       viewOf(mind, port.now, []);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
       port.now += 500; // 137.5 u: inside
       viewOf(mind, port.now, []);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBe(shift);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).toBe(abilityCode('shift'));
       // It detonated (a boom keyed by its id): the threat is gone.
       port.now += 50;
       viewOf(mind, port.now, [{ k: 'boom', id: 't1', x: 130, y: 0 }]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
     });
 
     it('the bot\'s OWN torpedo never triggers it — even when a homing update swings it back at the hull', () => {
@@ -2604,23 +2550,23 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       // The owner's launch-tick reveal: just off the bow, running away.
       const launchX = BS_RADIUS + CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance;
       viewOf(mind, port.now, [fish('own', port.now, launchX, 0, 0)]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
       // Later a homing update swings it straight back at us from 120 u.
       port.now += 1000;
       viewOf(mind, port.now, [{ k: 'torpU', id: 'own', x: 120, y: 0, vx: -FISH_SPEED, vy: 0, t: port.now }]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
     });
 
     it('JUST HIT but neither engaged nor threatened: NOT pressed (the damage-reaction rule is gone)', () => {
       const { bs, port } = setup(8161, false);
       const mind = mkMind('bulwark');
       viewOf(mind, port.now, [{ k: 'dmg', id: bs.id, amount: 15, hp: bs.hp - 15 }]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
       expect(mind.posture).toBe('reposition');
       const hurt = setup(8161, true);
       const m2 = mkMind('bulwark');
       viewOf(m2, hurt.port.now, [{ k: 'dmg', id: hurt.bs.id, amount: 15, hp: hurt.bs.hp - 15 }]);
-      expect(COMBAT_BRAIN.decide(hurt.bs, m2, hurt.port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(hurt.bs, m2, hurt.port).act).not.toBe(abilityCode('shift'));
       expect(m2.posture).toBe('disengage');
     });
 
@@ -2630,7 +2576,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const mind = mkMind('bulwark');
       plot(mind, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
       viewOf(mind, port.now, [fish('t1', port.now, 140, 0, Math.PI)]);
-      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(COMBAT_BRAIN.decide(bs, mind, port).act).not.toBe(abilityCode('shift'));
       expect(mind.posture).toBe('engage');
     });
   });
@@ -2643,304 +2589,102 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 // SCREEN's seat) never while one of its own clouds is up (Eric ruling R12).
 // ---------------------------------------------------------------------------
 
-describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
-  /** A TORPEDO BOAT with its boost AND its tube stripped, so the stocked belt
-   *  line is the only ability/placement the brain can choose (the tests are
-   *  about the belt row, not about ranking). */
-  function beltOnly(seed: number, line: 'shieldBlock' | 'healingBuoy' | 'countermeasure'): {
-    w: World;
+describe('SMOKE (`V`) — the cooldown ability on the countermeasure occasion (Story 10.5)', () => {
+  // The 9.3 countermeasure's occasion and R12 (never while its own cloud is
+  // up) carry over unchanged; the cooldown (`smokeRefusal`) is the one gate
+  // added. The drill drives the real brain tick by tick and plays the World's
+  // half by hand: a press stamps `smokeReadyAt` and `cloudUntil`, exactly as
+  // World.pressCooldownAbility does (the driver copies `cloudUntil` onto the
+  // mind every tick). HULL REPAIR is held cooling so the drill is about SMOKE.
+  const TICK = CONFIG.tick.simDtMs;
+  const TWELVE_S = 12000 / TICK;
+  const LIFE = CONFIG.countermeasure.lifeMs;
+
+  function drill(seed: number): {
     port: FakePort;
     rec: ShipRecord;
-    belt: number;
+    mind: BotMind;
+    run: (ticks: number) => number;
+    runUntil: (t: number) => number;
   } {
     const w = openWorld(seed);
     const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0, kitWith(line));
+    const rec = mkBot(w, 'bismarck', 0, 0, 0);
+    // The Shift and the weapon row stripped: SMOKE is the only press left.
     for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
-    w.applyCard(rec, line);
-    const belt = slotOf(rec, line);
-    expect(belt).toBeGreaterThanOrEqual(5);
-    return { w, port, rec, belt };
-  }
-
-  /** Hand the mind a fresh (this-tick) view carrying only `events`. */
-  function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
-    mind.viewAt = now;
-  }
-
-  /** A SEEN enemy fish at (x, 0) running straight at the origin. */
-  function inbound(now: number, x = 140): GameEvent {
-    return { k: 'torp', id: 'f1', x, y: 0, vx: -65, vy: 0, t: now };
-  }
-
-  it('the belt rows carry their kinds', () => {
-    expect(CONSUMABLE_TACTICS.shieldBlock.kind).toBe('ability');
-    for (const id of ['radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy'] as const) {
-      expect(CONSUMABLE_TACTICS[id].kind, id).toBe('placement');
-    }
-    expect(CONSUMABLE_TACTICS.countermeasure.kind).toBe('ability');
-  });
-
-  // THE COUNTERMEASURE IS NEVER PRESSED WHILE ONE OF THE BOT'S OWN CLOUDS IS
-  // UP (Eric ruling R12, 2026-09-30 — supersedes R8's once-per-retreat
-  // bookkeeping; re-based on Story 9.3's one-cloud-per-press): pressed on the
-  // way out, and not again until the most recent cloud has expired
-  // (`now >= cloudUntil`). The drill drives the real brain tick by tick and
-  // plays the World's half by hand — a press spends a copy and stamps
-  // `cloudUntil = now + lifeMs` (which the World keeps after the cloud dies;
-  // the driver copies it onto the mind every tick).
-  describe('COUNTERMEASURE — never while one of its own clouds is up (R12)', () => {
-    const TICK = CONFIG.tick.simDtMs;
-    const TWELVE_S = 12000 / TICK;
-    const LIFE = CONFIG.countermeasure.lifeMs;
-
-    function drill(seed: number, copies: number): {
-      w: World;
-      port: FakePort;
-      rec: ShipRecord;
-      mind: BotMind;
-      run: (ticks: number) => number;
-      runUntil: (t: number) => number;
-    } {
-      const { w, port, rec } = beltOnly(seed, 'countermeasure');
-      for (let i = 1; i < copies; i += 1) w.applyCard(rec, 'countermeasure');
-      const mind = mkMind('duelist');
-      mind.cloudUntil = 0; // the World's reset value, as the driver copies it
-      const run = (ticks: number): number => {
-        let presses = 0;
-        for (let i = 0; i < ticks; i += 1) {
-          const belt = slotOf(rec, 'countermeasure');
-          const d = COMBAT_BRAIN.decide(rec, mind, port);
-          if (belt >= 0 && d.actSlot === belt) {
-            presses += 1;
-            const state = rec.loadout[belt].state!;
-            state.n -= 1;
-            mind.cloudUntil = port.now + LIFE;
-          }
-          port.now += TICK;
+    rec.repairReadyAt = Number.POSITIVE_INFINITY;
+    const mind = mkMind('duelist');
+    mind.cloudUntil = 0; // the World's reset value, as the driver copies it
+    const run = (ticks: number): number => {
+      let presses = 0;
+      for (let i = 0; i < ticks; i += 1) {
+        const d = COMBAT_BRAIN.decide(rec, mind, port);
+        if (d.act === abilityCode('smoke')) {
+          presses += 1;
+          rec.smokeReadyAt = abilityReadyAt(port.now, 'smoke');
+          mind.cloudUntil = port.now + LIFE;
         }
-        return presses;
-      };
-      /** Tick up to (not including) server time `t`. */
-      const runUntil = (t: number): number => run(Math.max(0, Math.round((t - port.now) / TICK)));
-      return { w, port, rec, mind, run, runUntil };
-    }
-
-    const hurt = (rec: ShipRecord): void => {
-      rec.hp = rec.stats.maxHp * 0.1; // under every profile's break-off
+        port.now += TICK;
+      }
+      return presses;
     };
-    const healed = (rec: ShipRecord): void => {
-      rec.hp = rec.stats.maxHp;
-    };
-    const stock = (rec: ShipRecord): number => rec.loadout[slotOf(rec, 'countermeasure')].state!.n;
+    const runUntil = (t: number): number => run(Math.max(0, Math.round((t - port.now) / TICK)));
+    return { port, rec, mind, run, runUntil };
+  }
 
-    it('once: entering disengage holding 3, 12 s in disengage -> exactly one press', () => {
-      const { rec, mind, run } = drill(81618, 3);
-      expect(stock(rec)).toBe(3);
-      expect(run(20)).toBe(0); // healthy: not retreating
-      hurt(rec);
-      expect(run(TWELVE_S)).toBe(1);
-      expect(mind.posture).toBe('disengage');
-      expect(stock(rec)).toBe(2);
-    });
+  const hurt = (rec: ShipRecord): void => {
+    rec.hp = rec.stats.maxHp * 0.1; // under every profile's break-off
+  };
 
-    it('still up (R12): leaving disengage and re-entering 5 s after the press -> no press anywhere before the cloud expires', () => {
-      const { port, rec, mind, run, runUntil } = drill(81619, 3);
-      hurt(rec);
-      expect(run(10)).toBe(1);
-      const pressedAt = mind.cloudUntil! - LIFE;
-      healed(rec);
-      expect(runUntil(pressedAt + 5000)).toBe(0);
-      expect(mind.posture).not.toBe('disengage');
-      hurt(rec);
-      // Re-entered 5 s after the press: the cloud it made is still on the
-      // water — no press anywhere before it is gone.
-      expect(runUntil(pressedAt + LIFE)).toBe(0);
-      expect(mind.posture).toBe('disengage');
-      expect(port.now).toBe(pressedAt + LIFE);
-      expect(stock(rec)).toBe(2);
-    });
-
-    it('still up (R12): a storm-edge ringRun interlude and an hp pop-up above the flee line re-arm nothing', () => {
-      const { port, rec, mind, run, runUntil } = drill(81620, 3);
-      hurt(rec);
-      expect(run(10)).toBe(1);
-      const pressedAt = mind.cloudUntil! - LIFE;
-      // A storm-edge dodge: outside the ring (r = 0 is outside everywhere).
-      const ring = port.zoneLiveRing;
-      port.zoneLiveRing = { cx: 0, cy: 0, r: 0 };
-      expect(run(20)).toBe(0);
-      expect(mind.posture).toBe('ringRun');
-      port.zoneLiveRing = ring;
-      expect(run(20)).toBe(0);
-      expect(mind.posture).toBe('disengage');
-      // A heal pop-up above the flee line, then a drop below it.
-      healed(rec);
-      expect(run(20)).toBe(0);
-      expect(mind.posture).not.toBe('disengage');
-      hurt(rec);
-      expect(runUntil(pressedAt + LIFE)).toBe(0);
-      expect(mind.posture).toBe('disengage');
-      expect(stock(rec)).toBe(2);
-    });
-
-    it('gone (R12): still in disengage past the cloud\'s life -> one more press', () => {
-      const { rec, mind, run, runUntil } = drill(81625, 3);
-      hurt(rec);
-      expect(run(10)).toBe(1);
-      const pressedAt = mind.cloudUntil! - LIFE;
-      expect(runUntil(pressedAt + LIFE + 5000)).toBe(1);
-      expect(mind.posture).toBe('disengage');
-      expect(stock(rec)).toBe(1);
-    });
-
-    it('gone (R12): AGAIN in disengage past the cloud\'s life -> one more press', () => {
-      const { rec, mind, run, runUntil } = drill(81626, 3);
-      hurt(rec);
-      expect(run(10)).toBe(1);
-      const pressedAt = mind.cloudUntil! - LIFE;
-      healed(rec);
-      expect(runUntil(pressedAt + LIFE + 5000)).toBe(0);
-      expect(mind.posture).not.toBe('disengage');
-      hurt(rec);
-      expect(run(TWELVE_S)).toBe(1);
-      expect(stock(rec)).toBe(1);
-    });
-
-    it('late stock: a copy stocked mid-retreat, none of its own up -> pressed once', () => {
-      const { w, rec, mind, run } = drill(81621, 1);
-      // Empty the belt, then retreat with nothing to press.
-      const belt = slotOf(rec, 'countermeasure');
-      rec.loadout[belt] = { equipmentId: null, state: null };
-      hurt(rec);
-      expect(run(100)).toBe(0);
-      expect(mind.posture).toBe('disengage');
-      // Stock arrives mid-retreat.
-      w.applyCard(rec, 'countermeasure');
-      w.applyCard(rec, 'countermeasure');
-      expect(slotOf(rec, 'countermeasure')).toBeGreaterThanOrEqual(5);
-      expect(run(TWELVE_S)).toBe(1);
-    });
-
-    it('want() reads only the own-cloud stamp, and is write-free', () => {
-      const { port, rec, mind } = drill(81623, 1);
-      hurt(rec);
-      type Ctx = Parameters<typeof CONSUMABLE_TACTICS.countermeasure.want>[0];
-      const at = (now: number): Ctx => ({ self: rec, mind, sit: { now }, posture: 'disengage' }) as unknown as Ctx;
-      const now = port.now;
-      const before = { ...mind };
-      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(true);
-      expect(mind).toEqual(before);
-      // A 0 (World reset) or absent stamp is "nothing up" — even early in a
-      // match, when `now < lifeMs`.
-      expect(CONSUMABLE_TACTICS.countermeasure.want(at(1000))).toBe(true);
-      mind.cloudUntil = undefined;
-      expect(CONSUMABLE_TACTICS.countermeasure.want(at(1000))).toBe(true);
-      // The most recent cloud still up: held.
-      mind.cloudUntil = now + 1;
-      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(false);
-      // Its last tick of life: still held.
-      mind.cloudUntil = now + TICK;
-      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(false);
-      // Expired this very tick: pressed.
-      mind.cloudUntil = now;
-      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(true);
-      expect(mind.cloudUntil).toBe(now);
-    });
-
-    it('END TO END: a real World and its driver — no press while its own cloud is up, one once it is gone', () => {
-      const w = openWorld(81624, 4);
-      const rec = w.addBot('bismarck', 'duelist');
-      for (let i = 0; i < 3; i += 1) w.applyCard(rec, 'countermeasure');
-      const belt = slotOf(rec, 'countermeasure');
-      expect(rec.loadout[belt].state!.n).toBe(3);
-      const step = (ms: number): void => {
-        for (let i = 0; i < ms / TICK; i += 1) w.step();
-      };
-      rec.hp = rec.stats.maxHp * 0.1;
-      step(12000);
-      expect(rec.loadout[belt].state!.n).toBe(2);
-      expect(w.clouds.size).toBe(1); // the press made ONE cloud at the bot's centre (Story 9.3)
-      expect(rec.cloudUntil).toBeGreaterThan(w.now);
-      rec.hp = rec.stats.maxHp;
-      step(1000);
-      expect(rec.loadout[belt].state!.n).toBe(2);
-      rec.hp = rec.stats.maxHp * 0.1;
-      step(1000);
-      expect(rec.loadout[belt].state!.n).toBe(2); // its own cloud is still up (pressed < 14 s ago)
-      const firstUntil = rec.cloudUntil;
-      expect(firstUntil).toBeGreaterThan(w.now);
-      while (w.now < firstUntil + 2000) w.step(); // just past the first cloud's life — one more press, whose cloud is still up
-      expect(rec.loadout[belt].state!.n).toBe(1);
-      expect(rec.cloudUntil).toBeGreaterThan(w.now);
-    });
+  it('once: healthy -> nothing; entering disengage, 12 s in -> exactly one press', () => {
+    const { rec, mind, run } = drill(81618);
+    expect(run(20)).toBe(0); // healthy: not retreating
+    hurt(rec);
+    expect(run(TWELVE_S)).toBe(1);
+    expect(mind.posture).toBe('disengage');
   });
 
-  it('SHIELD BLOCK: pressed on the HUNKER cues (engaged, or a fish inbound) — never over a shield still up', () => {
-    const { port, rec, belt } = beltOnly(81601, 'shieldBlock');
-    const band = gunBand(profileOf('duelist'), rec.stats);
-    const engaged = mkMind('duelist');
-    plot(engaged, track(port.now, { x: (band.min + band.max) / 2, y: 0, speed: 0 }));
-    viewOf(engaged, port.now, []);
-    expect(COMBAT_BRAIN.decide(rec, engaged, port).actSlot).toBe(belt);
-    expect(engaged.posture).toBe('engage');
-    // No target, nothing inbound: held.
-    const idle = mkMind('duelist');
-    viewOf(idle, port.now, []);
-    expect(COMBAT_BRAIN.decide(rec, idle, port).actSlot).toBeNull();
-    // A fish inbound within 150 u: pressed with no target at all.
-    const threatened = mkMind('duelist');
-    viewOf(threatened, port.now, [inbound(port.now)]);
-    expect(COMBAT_BRAIN.decide(rec, threatened, port).actSlot).toBe(belt);
-    // ...but NOT while a shield is still up (a second copy would replace it).
-    rec.shield = { hpLeft: 60, until: port.now + 5000 };
-    const again = mkMind('duelist');
-    viewOf(again, port.now, [inbound(port.now)]);
-    expect(COMBAT_BRAIN.decide(rec, again, port).actSlot).toBeNull();
-    // A lapsed shield no longer holds the press back.
-    rec.shield = { hpLeft: 60, until: port.now - 1 };
-    const lapsed = mkMind('duelist');
-    viewOf(lapsed, port.now, [inbound(port.now)]);
-    expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
+  it('never inside the cooldown, and once more as soon as it ends (still on the occasion)', () => {
+    const { rec, run, runUntil } = drill(81619);
+    hurt(rec);
+    expect(run(10)).toBe(1);
+    const readyAt = rec.smokeReadyAt;
+    expect(runUntil(readyAt)).toBe(0); // its own cloud gone or not, the press is cooling
+    expect(run(10)).toBe(1);
   });
 
-  it('ANY BUOY (Story 10.9 — the DECOY BUOY\'s sponge want): dropped dead astern at full placeRange on open water when a fish is inbound — and only then', () => {
-    const { port, rec, belt } = beltOnly(81603, 'healingBuoy');
-    const calm = mkMind('duelist');
-    viewOf(calm, port.now, []);
-    expect(COMBAT_BRAIN.decide(rec, calm, port).fireSlot).toBeNull();
-    const threatened = mkMind('duelist');
-    viewOf(threatened, port.now, [inbound(port.now)]);
-    const d = COMBAT_BRAIN.decide(rec, threatened, port);
-    expect(d.fireSlot).toBe(belt);
-    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
-    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
-    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6);
-  });
-
-  it('ANY BUOY: a SINKING bot with a fish inbound does not want it (the afloat guard its siblings carry)', () => {
-    const { port, rec } = beltOnly(81604, 'healingBuoy');
+  it('never while its OWN cloud is up, even when ready (R12)', () => {
+    const { port, rec, mind } = drill(81620);
+    hurt(rec);
+    const ctx = (): Parameters<typeof ABILITY_WANTS.smoke>[0] =>
+      ({ self: rec, mind, sit: { now: port.now, profile: profileOf('duelist'), hp: rec.hp, maxHp: rec.stats.maxHp, stats: rec.stats }, posture: 'disengage', target: null, slot: -1 }) as unknown as Parameters<typeof ABILITY_WANTS.smoke>[0];
+    expect(ABILITY_WANTS.smoke(ctx())).toBe(true);
+    mind.cloudUntil = port.now + TICK; // its last tick of life: held
+    expect(ABILITY_WANTS.smoke(ctx())).toBe(false);
+    mind.cloudUntil = port.now; // expired this very tick: pressed
+    expect(ABILITY_WANTS.smoke(ctx())).toBe(true);
+    // Cooling holds it whatever the cloud says.
+    rec.smokeReadyAt = abilityReadyAt(port.now, 'smoke');
+    expect(ABILITY_WANTS.smoke(ctx())).toBe(false);
+    // A sinking hull wants nothing.
+    rec.smokeReadyAt = 0;
     rec.lifecycle = transitionLifecycle(rec.lifecycle, 'sink', port.now);
-    const threatened = mkMind('duelist');
-    viewOf(threatened, port.now, [inbound(port.now)]);
-    const tactic = CONSUMABLE_TACTICS.healingBuoy;
-    const ctx = { self: rec, mind: threatened, sit: { now: port.now }, posture: 'reposition' } as unknown as Parameters<typeof tactic.want>[0];
-    noteTorpedoes(threatened, rec, port.now);
-    expect(tactic.want(ctx)).toBe(false);
-    // ...and the same fish over an AFLOAT hull is wanted (the guard is the only difference).
-    const afloat = beltOnly(81605, 'healingBuoy').rec;
-    const mind2 = mkMind('duelist');
-    viewOf(mind2, port.now, [inbound(port.now)]);
-    noteTorpedoes(mind2, afloat, port.now);
-    expect(tactic.want({ ...ctx, self: afloat, mind: mind2 })).toBe(true);
+    expect(ABILITY_WANTS.smoke(ctx())).toBe(false);
+  });
+
+  it('END TO END: a real World and its driver — a hurt bot presses BOTH abilities; each cooldown is stamped and one cloud made', () => {
+    const w = openWorld(81624, 4);
+    const rec = w.addBot('bismarck', 'duelist');
+    expect(rec.repairReadyAt).toBe(0); // both ready at spawn
+    expect(rec.smokeReadyAt).toBe(0);
+    rec.hp = rec.stats.maxHp * 0.1;
+    for (let i = 0; i < TWELVE_S; i += 1) w.step();
+    expect(rec.repairReadyAt).toBeGreaterThan(w.now); // HULL REPAIR pressed: cooling
+    expect(rec.smokeReadyAt).toBeGreaterThan(w.now); // SMOKE pressed: cooling
+    expect(w.clouds.size).toBe(1); // ONE cloud for the one press
+    expect(rec.cloudUntil).toBeGreaterThan(w.now);
   });
 });
-
-// ---------------------------------------------------------------------------
-// STORY 8.20 — the TOTAL tactic registries, BOOST INTO FIGHTS (R7) and the
-// never-fires stub row.
-// ---------------------------------------------------------------------------
 
 describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
   const isDeepFrozen = (table: object): boolean =>
@@ -2955,13 +2699,32 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     expect(isDeepFrozen(EQUIPMENT_TACTICS)).toBe(true);
   });
 
-  it('CONSUMABLE_TACTICS has exactly one row per ConsumableId, keyed by its own id, deep-frozen', () => {
-    expect(Object.keys(CONSUMABLE_TACTICS).sort()).toEqual([...CONSUMABLE_IDS].sort());
-    for (const id of CONSUMABLE_IDS) {
-      expect(CONSUMABLE_TACTICS[id].id).toBe(id);
-      expect(tacticFor(id)).toBe(CONSUMABLE_TACTICS[id]);
+  it('THE THREE MOVED WEAPONS (Story 10.5) are WEAPON rows: kind \'shot\', reach off their own effective rows (the supercav\'s its credible range)', () => {
+    const w = openWorld(8208);
+    const rec = mkBot(w, 'bismarck', 0, 0, 0);
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+      expect(EQUIPMENT_TACTICS[id].id).toBe(id);
+      expect(EQUIPMENT_TACTICS[id].kind, id).toBe('shot');
+      expect(tacticFor(id)).toBe(EQUIPMENT_TACTICS[id]);
     }
-    expect(isDeepFrozen(CONSUMABLE_TACTICS)).toBe(true);
+    expect(EQUIPMENT_TACTICS.supercavTorpedo.reachU(rec.stats)).toBe(CONFIG.bots.supercavCredibleU);
+    expect(EQUIPMENT_TACTICS.dazzleShells.reachU(rec.stats)).toBe(rec.stats.equipment.dazzleShells.rangeU);
+    expect(EQUIPMENT_TACTICS.foulingShell.reachU(rec.stats)).toBe(rec.stats.equipment.foulingShell.rangeU);
+  });
+
+  it('a fitted SUPERCAV fires through the ordinary slot path at a live target dead ahead inside its credible range', () => {
+    const w = openWorld(8209);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due east
+    for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
+    w.applyCard(rec, 'supercavTorpedo');
+    const slot = slotOf(rec, 'supercavTorpedo');
+    expect(slot).toBe(familySlotFor('supercavTorpedo'));
+    const mind = mkMind('raider');
+    plot(mind, track(port.now, { x: CONFIG.bots.supercavCredibleU / 2, y: 0, heading: 0, speed: 5, live: true }));
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.fireSlot).toBe(slot);
+    expect(inArc(d.aim, rec.state.heading, sectorArcFor('supercavTorpedo').halfArc)).toBe(true);
   });
 
   it('SHIFT_ROWS has one row per Shift — keyed by the SEAT\'s pick, never a hull (Story 10.4) — and it is the EQUIPMENT_TACTICS row', () => {
@@ -2974,52 +2737,25 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     expect(isDeepFrozen(SHIFT_ROWS)).toBe(true);
   });
 
-  it('FAIL CLOSED: a loadout slot whose id neither registry knows is skipped by every pass, no throw', () => {
+  it('FAIL CLOSED: a loadout slot whose id the registry does not know is skipped by every pass, no throw', () => {
     for (const bogus of ['bogusLine', 'constructor']) {
-      expect(tacticFor(bogus as SlotItemId)).toBeUndefined();
+      expect(tacticFor(bogus as EquipmentId)).toBeUndefined();
       const w = openWorld(8207);
       const port = fakePort(w);
       const rec = mkBot(w, 'bismarck', 0, 0, 0);
       rec.hp = rec.stats.maxHp * 0.1; // disengaging: the ability pass runs too
-      for (const slot of [4, 5]) rec.loadout[slot] = { equipmentId: bogus as SlotItemId, state: { n: 3, reloadMsLeft: 0 } };
+      for (const slot of [3, 4]) rec.loadout[slot] = { equipmentId: bogus as EquipmentId, state: { n: 3, reloadMsLeft: 0 } };
       const mind = mkMind('duelist');
       plot(mind, track(port.now, { x: 150, y: 0, speed: 0 }));
       let d: BotDecision | null = null;
       expect(() => {
         d = COMBAT_BRAIN.decide(rec, mind, port);
       }).not.toThrow();
-      expect([4, 5]).not.toContain(d!.actSlot);
-      expect([4, 5]).not.toContain(d!.fireSlot);
+      expect([3, 4]).not.toContain(d!.fireSlot);
       expect(() => readyShotReaches(rec, rec.stats)).not.toThrow();
     }
   });
 
-  it('Stub row: a bot somehow holding DEPTH CHARGE never wants it, and nothing throws', () => {
-    const row = CONSUMABLE_TACTICS.depthCharge;
-    expect(row.kind).toBe('ability');
-    expect(row.reachU({} as never)).toBe(0);
-    const w = openWorld(8201);
-    const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0);
-    rec.hp = rec.stats.maxHp * 0.1; // disengaging: every retreat cue is live
-    // The stub has no slot under any kit (Story 10.1), so it is forced into
-    // the FIRST kit line's slot — "somehow holding" it.
-    const slot = consumableSlotFor(rec.kit, rec.kit[0])!;
-    rec.loadout[slot] = { equipmentId: 'depthCharge', state: { n: 3, reloadMsLeft: 0 } };
-    const mind = mkMind('duelist');
-    plot(mind, track(port.now, { x: 150, y: 0, speed: 0 }));
-    const ctx = { self: rec, mind, sit: { now: port.now }, posture: 'disengage', target: null, slot } as unknown as Parameters<
-      typeof row.want
-    >[0];
-    expect(row.want(ctx)).toBe(false);
-    expect(row.solve(ctx)).toBeNull();
-    let d: BotDecision | null = null;
-    expect(() => {
-      d = COMBAT_BRAIN.decide(rec, mind, port);
-    }).not.toThrow();
-    expect(d!.actSlot).not.toBe(5);
-    expect(d!.fireSlot).not.toBe(5);
-  });
 });
 
 describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)', () => {
@@ -3046,7 +2782,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
   it('Boost in: posture pursue, target at band.max + 50 u, boost ready -> pressed', () => {
     const { port, tb, boost, bandMax } = setup(8202);
     const mind = heldOn(port, bandMax + 50, 'pursue');
-    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBe(boost);
+    expect(COMBAT_BRAIN.decide(tb, mind, port, false).act).toBe(abilityCode('shift'));
     expect(mind.posture).toBe('pursue');
   });
 
@@ -3054,7 +2790,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     const { port, tb, bandMax } = setup(8203);
     for (const posture of ['engage', 'kite', 'hold'] as const) {
       const mind = heldOn(port, bandMax + 50, posture);
-      expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot, posture).toBeNull();
+      expect(COMBAT_BRAIN.decide(tb, mind, port, false).act, posture).not.toBe(abilityCode('shift'));
     }
   });
 
@@ -3062,7 +2798,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     const { port, tb, boost, bandMax } = setup(8207);
     for (const posture of ['disengage', 'hide'] as const) {
       const mind = heldOn(port, bandMax + 50, posture);
-      expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot, posture).toBe(boost);
+      expect(COMBAT_BRAIN.decide(tb, mind, port, false).act, posture).toBe(abilityCode('shift'));
     }
   });
 
@@ -3070,15 +2806,15 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     const { port, tb } = setup(8204);
     const band = gunBand(profileOf('raider'), tb.stats);
     const mind = heldOn(port, (band.min + band.max) / 2, 'pursue');
-    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(tb, mind, port, false).act).not.toBe(abilityCode('shift'));
   });
 
   it('no target, or the boost cooling: never pressed on the way in', () => {
     const { port, tb, bandMax } = setup(8205);
-    expect(COMBAT_BRAIN.decide(tb, mkMind('raider'), port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(tb, mkMind('raider'), port).act).not.toBe(abilityCode('shift'));
     tb.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 20000 };
     const mind = heldOn(port, bandMax + 50, 'pursue');
-    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(tb, mind, port, false).act).not.toBe(abilityCode('shift'));
   });
 
   it('Boost vs fleet (R13): a TB bot in farm posture, fleet group at band.max + 200 u -> not pressed', () => {
@@ -3087,7 +2823,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     const fleet = { x: bandMax + 200, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true };
     const mind = mkMind('forager');
     plot(mind, track(port.now, fleet));
-    expect(COMBAT_BRAIN.decide(tb, mind, port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(tb, mind, port).act).not.toBe(abilityCode('shift'));
     expect(mind.posture).toBe('farm');
     // Control: the same captain, the same far target, in a real-fight posture
     // boosts — so the hold above is the posture, not the appetite.
@@ -3095,7 +2831,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     plot(fighting, track(port.now, fleet));
     fighting.targetKey = 'tgt';
     fighting.posture = 'pursue';
-    expect(COMBAT_BRAIN.decide(tb, fighting, port, false).actSlot).toBe(boost);
+    expect(COMBAT_BRAIN.decide(tb, fighting, port, false).act).toBe(abilityCode('shift'));
   });
 });
 

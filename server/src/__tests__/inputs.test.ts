@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SLOT_COUNT } from '@salvo/shared';
+import { ABILITY_IDS, CONFIG, SLOT_COUNT, abilityCode } from '@salvo/shared';
 import {
   InputStore,
   clampFireTime,
@@ -21,7 +21,7 @@ const valid = (seq = 1) => ({
   slot: 0,
   fireT: 850,
   actSeq: 5,
-  actSlot: 2,
+  act: abilityCode('repair'),
   hornSeq: 7,
   held: true,
   sec: true,
@@ -59,7 +59,7 @@ describe('sanitizeInput — validation table', () => {
     ['boolean fireSeq (old wire shape)', { ...valid(), fireSeq: true }],
     ['string aimDist', { ...valid(), aimDist: '240' }],
     ['slot out of range (12)', { ...valid(), slot: 12 }],
-    ['slot just past the last index', { ...valid(), slot: SLOT_COUNT }], // SLOT_COUNT (nine since Story 10.1): SLOT_COUNT - 1 is the last
+    ['slot just past the last index', { ...valid(), slot: SLOT_COUNT }], // SLOT_COUNT (five since Story 10.5): SLOT_COUNT - 1 is the last
     ['negative slot', { ...valid(), slot: -1 }],
     ['fractional slot', { ...valid(), slot: 1.5 }],
     ['NaN slot', { ...valid(), slot: NaN }],
@@ -80,14 +80,16 @@ describe('sanitizeInput — validation table', () => {
     ['fractional actSeq', { ...valid(), actSeq: 1.5 }],
     ['string actSeq', { ...valid(), actSeq: '5' }],
     ['boolean actSeq', { ...valid(), actSeq: true }],
-    ['missing actSlot', { ...valid(), actSlot: undefined }],
-    ['actSlot out of range (12)', { ...valid(), actSlot: 12 }],
-    ['actSlot just past the last index', { ...valid(), actSlot: SLOT_COUNT }], // SLOT_COUNT (nine since Story 10.1): SLOT_COUNT - 1 is the last
-    ['negative actSlot', { ...valid(), actSlot: -1 }],
-    ['fractional actSlot', { ...valid(), actSlot: 1.5 }],
-    ['NaN actSlot', { ...valid(), actSlot: NaN }],
-    ['Infinity actSlot', { ...valid(), actSlot: Infinity }],
-    ['string actSlot', { ...valid(), actSlot: '1' }],
+    // Story 10.5 (epic-10 amendment 10): `act` — the ABILITY CODE — must be
+    // one `abilityFromCode` names; anything else drops the whole message.
+    ['missing act', { ...valid(), act: undefined }],
+    ['act past the last ability', { ...valid(), act: ABILITY_IDS.length }],
+    ['negative act', { ...valid(), act: -1 }],
+    ['fractional act', { ...valid(), act: 0.5 }],
+    ['NaN act', { ...valid(), act: NaN }],
+    ['Infinity act', { ...valid(), act: Infinity }],
+    ['string act', { ...valid(), act: '1' }],
+    ['boolean act', { ...valid(), act: true }],
     // Story 4.5 foghorn counter: validated EXACTLY as actSeq (finite int >= 0),
     // whole message dropped on anything malformed — the same sanitize law.
     ['missing hornSeq', { ...valid(), hornSeq: undefined }],
@@ -158,12 +160,13 @@ describe('sanitizeInput — validation table', () => {
     }
   });
 
-  it('accepts the actSeq sentinel (0) and positive counters verbatim; every in-range actSlot', () => {
+  it('accepts the actSeq sentinel (0) and positive counters verbatim; every ability code (Story 10.5)', () => {
     expect(sanitizeInput({ ...valid(), actSeq: 0 }, 0)?.actSeq).toBe(0);
     expect(sanitizeInput({ ...valid(), actSeq: 42 }, 0)?.actSeq).toBe(42);
-    for (let actSlot = 0; actSlot < SLOT_COUNT; actSlot++) {
-      expect(sanitizeInput({ ...valid(), actSlot }, 0)?.actSlot).toBe(actSlot);
+    for (const id of ABILITY_IDS) {
+      expect(sanitizeInput({ ...valid(), act: abilityCode(id) }, 0)?.act).toBe(abilityCode(id));
     }
+    expect(neutralInput().act).toBe(abilityCode('shift'));
   });
 
   it('accepts BOTH held levels verbatim, and the neutral input is released (Story 8.15)', () => {
@@ -324,7 +327,7 @@ describe('InputStore', () => {
   it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
     expect(a).toEqual({
-      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
     });
     expect(neutralInput()).not.toBe(a);
   });

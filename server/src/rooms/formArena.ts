@@ -14,7 +14,7 @@
 // construction.
 
 import { CloseCode, ErrorCode, matchMaker, type Client } from 'colyseus';
-import { sanitizeClassId, sanitizeHornId, MSG, type ConsumableKit, type ShiftId } from '@salvo/shared';
+import { sanitizeClassId, sanitizeHornId, MSG, type ShiftId } from '@salvo/shared';
 import { sanitizeName, type JoinOptions } from './roomOptions.js';
 import type { LogFields, Logger } from '../log.js';
 
@@ -52,13 +52,6 @@ export interface SeatedCaptain {
    * shape. ArenaRoom.onJoin reads it back off `client.auth.shift`.
    */
   shift: ShiftId;
-  /**
-   * THE FROZEN KIT (Story 10.1, epic-10 amendment 3): the captain's four
-   * consumable lines, sanitized at the front door (`sanitizeKit`) and written
-   * into the same server-only `auth` payload as the Shift. ArenaRoom.onJoin
-   * reads it back off `client.auth.kit`.
-   */
-  kit: ConsumableKit;
 }
 
 /** What one form needs. */
@@ -80,13 +73,13 @@ export interface FormArenaRequest {
  * — a static `onAuth` returning the bare verdict `true` is mapped to
  * `undefined` by @colyseus/core 0.18.13's `callOnAuth`, and `_onJoin` assigns
  * only a TRUTHY `authData`; Epic 9 puts the account there) plus the frozen
- * SHIFT (Story 10.4) and KIT (Story 10.1). Only an OBJECT is spread: a primitive verdict would otherwise be lost
+ * SHIFT (Story 10.4; the KIT beside it left with Story 10.5). Only an OBJECT is spread: a primitive verdict would otherwise be lost
  * silently and a hostile shape can never reach here (auth is server-written).
  */
-export function seatAuth(client: Client, shift: ShiftId, kit: ConsumableKit): Record<string, unknown> {
+export function seatAuth(client: Client, shift: ShiftId): Record<string, unknown> {
   const base: unknown = client.auth;
   const carried = typeof base === 'object' && base !== null ? (base as Record<string, unknown>) : {};
-  return { ...carried, shift, kit: [...kit] };
+  return { ...carried, shift };
 }
 
 /**
@@ -143,7 +136,7 @@ export async function formArena(req: FormArenaRequest): Promise<boolean> {
     // onJoin :1125.
     const reserved = await matchMaker.reserveMultipleSeatsFor(
       arena,
-      req.seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: seatAuth(p.client, p.shift, p.kit) })),
+      req.seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: seatAuth(p.client, p.shift) })),
     );
     deliverSeats(req, arena, reserved);
     return true;

@@ -121,7 +121,7 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
 function inputOf(d: BotDecision, seq: number): InputMsg {
   return {
     seq, throttle: d.throttle, rudder: d.rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+    fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
   };
 }
 
@@ -377,7 +377,7 @@ describe('the wave-1 wiring at the helm', () => {
     const t = track(port.now, { x: 1200, y: 0, live: false });
     const zone = { id: 'z', x: 1200, y: 0, r: 200, until: port.now + 5000, by: rec.id };
     const dark = situationOf(rec, mind, port);
-    mind.view = { contacts: [], events: [], mines: [], litZones: [zone], burnZones: [], foulZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events: [], mines: [], litZones: [zone], burnZones: [], foulZones: [], clouds: [] };
     const lit = situationOf(rec, mind, port);
     expect(lit.ownLitZones).toHaveLength(1);
     expect(scoreTrack(t, lit, [t]) / scoreTrack(t, dark, [t])).toBeCloseTo(CONFIG.bots.litTargetBonus, 9);

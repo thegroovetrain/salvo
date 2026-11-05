@@ -34,7 +34,6 @@ import type {
   ZoneRing,
   CONFIG,
   BoonOffer,
-  ConsumableKit,
   EffectiveStats,
   LoadoutSlot,
   SecondariesHeat,
@@ -128,10 +127,12 @@ export interface BotSelf {
   readonly repairHp: number;
   readonly stats: EffectiveStats;
   readonly loadout: readonly LoadoutSlot[];
-  /** This hull's OWN FOUR consumable lines, in key order (Story 10.1, Eric
-   *  ruling 6) — exactly the `OwnShip.kit` a human client is sent. The spend
-   *  policy reads it to stay inside the four; ShipRecord has it. */
-  readonly kit: ConsumableKit;
+  /** ms — when this hull's HULL REPAIR / SMOKE are ready again (Story 10.5;
+   *  0 = ready) — exactly the `OwnShip.repairReadyAt` / `smokeReadyAt` a human
+   *  client is sent. The two ability rows read them through the shared
+   *  refusal law (ai/abilities.ts). */
+  readonly repairReadyAt: number;
+  readonly smokeReadyAt: number;
   /** The sim's own "this hull is pressing into LAND" bit (map-edge press is
    *  deliberately NOT contact — cycle 59). The un-beach trip reads this,
    *  never a speed guess. */
@@ -140,13 +141,6 @@ export interface BotSelf {
   readonly offer: BoonOffer | null;
   /** Fitted card LINE ids, in fit order (Story 8.1 — repeats are stacks). */
   readonly cards: readonly string[];
-  /**
-   * This hull's SHIELD BLOCK seat (Story 8.16) — the owner is told exactly
-   * this (`OwnShip.shield`). Read by the SHIELD BLOCK belt tactic so a
-   * bot never replaces a shield still up. Optional so hand-built fixtures that
-   * predate it stay valid; absent reads as "no shield".
-   */
-  readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
   /**
    * This hull's OWN radar beam angle (rad, wrapped to [0, 2π)) — exactly the
    * `OwnShip.sweep` a human client is sent every frame, and nothing more. The
@@ -690,9 +684,10 @@ export interface BotDecision {
   /** Loadout slot to fire this tick, or null to hold fire. A non-null value
    *  advances the mind's fireSeq exactly once. */
   fireSlot: number | null;
-  /** Loadout slot to activate (ability press), or null. A non-null value
-   *  advances the mind's actSeq exactly once. */
-  actSlot: number | null;
+  /** The ability to press — its wire code (`InputMsg.act`, Story 10.5: 0
+   *  Shift, 1 HULL REPAIR, 2 SMOKE) — or null. A non-null value advances the
+   *  mind's actSeq exactly once. */
+  act: number | null;
   /** THE HELD LEVEL (Story 8.15, amendment 103) — `InputMsg.held`, the
    *  machine gun's trigger. A LEVEL, never an edge: true on every tick the
    *  stream should run, and it NEVER advances fireSeq (a click edge on a

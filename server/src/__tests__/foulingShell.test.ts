@@ -1,5 +1,6 @@
 // THE FOULING SHELL, end to end (Story 9.4, Eric ruling 2026-10-11, epic-9
-// amendments 61–68) — the consumable that replaced FLASH SHELLS on key `4`:
+// amendments 61–68; a special-shell SLOT WEAPON on the reload pool since Story
+// 10.5, epic-10 amendment 10 — it was a belt consumable):
 // one click-aimed, zero-damage shell whose stop point (burst or interception)
 // leaves a stationary FOUL ZONE; every afloat hull whose OUTLINE touches the
 // zone — the owner, enemies and PvE drones alike, sinking hulls excluded — is
@@ -17,8 +18,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   DEFAULT_HORN_ID,
-  consumableSlotFor,
-  DEFAULT_KIT,
+  familySlotFor,
   droneHullOf,
   isAfloat,
   isSinking,
@@ -34,7 +34,7 @@ import { neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const FS = CONFIG.foulingShell;
-const SLOT = consumableSlotFor(DEFAULT_KIT, 'foulingShell')!;
+const SLOT = familySlotFor('foulingShell')!; // the special-shell slot (Story 10.5)
 
 /** Islands cleared and the raster flattened: open water, nothing to stop a
  *  shell or shadow a sensor. */
@@ -55,7 +55,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Sh
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 ⇒ no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Fire `slot` at (aim, aimDist) and step until the shell BURSTS or is
@@ -73,11 +73,12 @@ function fireUntilStop(w: World, firer: ShipRecord, slot: number, aim: number, a
 
 const kinds = (events: readonly GameEvent[]): string[] => events.map((e) => e.k);
 
-/** A Battleship at the origin holding ONE FOULING SHELL copy, aimed east. */
+/** A hull at the origin with the FOULING SHELL fitted (its shell slot empty
+ *  before — the Bismarck fixture holds a torpedo), loaded, aimed east. */
 function armed(w: World, id = 'a'): ShipRecord {
-  const a = place(w, id, 0, 0, 0, 'yamato');
+  const a = place(w, id, 0, 0, 0, 'bismarck');
   w.applyCard(a, 'foulingShell');
-  expect(a.loadout[SLOT]).toEqual({ equipmentId: 'foulingShell', state: { n: 1, reloadMsLeft: 0 } });
+  expect(a.loadout[SLOT]).toEqual({ equipmentId: 'foulingShell', state: { n: a.stats.equipment.foulingShell.maxAmmo, reloadMsLeft: 0 } });
   return a;
 }
 
@@ -95,7 +96,7 @@ function plateau(w: World, ship: ShipRecord, ticks = 80): number {
 }
 
 describe('FOULING SHELL — the shell and its zone (amendments 61, 67)', () => {
-  it('bursts at the click: a zone with r / until from CONFIG at the burst point, `sp` to the firer, no damage, no `hc`, one copy spent', () => {
+  it('bursts at the click: a zone with r / until from CONFIG at the burst point, `sp` to the firer, no damage, no `hc`, one round off the pool', () => {
     const w = bareWorld();
     const a = armed(w);
     const b = place(w, 'b', 500, 0, Math.PI / 2); // 100 u from the burst point, beam-on
@@ -115,11 +116,15 @@ describe('FOULING SHELL — the shell and its zone (amendments 61, 67)', () => {
     expect(zone.until).toBe(at + FS.durationMs);
     expect(w.litZones.size).toBe(0); // no light...
     expect(w.burnZones.size).toBe(0); // ...no fire
-    expect(a.loadout[SLOT]).toEqual({ equipmentId: null, state: null }); // ONE SPEND
-    expect(a.cards).not.toContain('foulingShell');
+    // THE RELOAD POOL (Story 10.5): the round is spent and its reload runs —
+    // the slot and the card stay.
+    expect(a.loadout[SLOT].equipmentId).toBe('foulingShell');
+    expect(a.loadout[SLOT].state!.n).toBe(a.stats.equipment.foulingShell.maxAmmo - 1);
+    expect(a.loadout[SLOT].state!.reloadMsLeft).toBeGreaterThan(0);
+    expect(a.cards).toContain('foulingShell');
   });
 
-  it('the shell is the flash\'s shape: clamped at its own reach dial (Story 9.8, ruling 125), zero damage both ways, the hull|decoy mask, the `foul` tag from CONFIG', () => {
+  it('the shell is the flash\'s shape: clamped at its own reach dial (Story 9.8, ruling 125), zero damage both ways, the hull mask, the `foul` tag from CONFIG', () => {
     const w = bareWorld();
     const a = armed(w);
     setInput(a, { aim: Math.PI, aimDist: 5000, slot: SLOT, fireSeq: 1, seq: 2 });
@@ -282,7 +287,7 @@ describe('FOULING SHELL — the stamp refreshes, lingers, never stacks (amendmen
     fireUntilStop(w2, a, SLOT, 0, 400);
     w2.step();
     expect(b.fouledUntil).toBe(w2.now + FS.lingerMs);
-    w2.applyCard(a, 'foulingShell');
+    a.loadout[SLOT].state = { n: 1, reloadMsLeft: 0 }; // reloaded by hand (no tier change)
     fireUntilStop(w2, a, SLOT, 0, 400);
     expect(w2.foulZones.size).toBe(2);
     w2.step();

@@ -26,7 +26,6 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
-import { addDecoy } from '../game/decoys.js';
 
 /** Torpedo slot index: the FIRST weapon slot (Q), where the Torpedo Boat's
  *  spawn seed lands `heavyTorpedo` since Story 8.5's nine-slot loadout. */
@@ -97,7 +96,7 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
   it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
     const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
@@ -125,7 +124,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     const dmgs: DamageEvent[] = [];
 
     // Full ahead, aimed at the bow, weapon selected but not fired yet.
-    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const accelTicks = Math.ceil(a.stats.kinematics.maxSpeed / a.stats.kinematics.accel / (CONFIG.tick.simDtMs / 1000)) + 20;
     for (let i = 0; i < accelTicks; i++) {
       w.step();
@@ -134,7 +133,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(a.state.speed).toBeCloseTo(a.stats.kinematics.maxSpeed, 1); // confirmed at full speed
 
     // Fire the bow torpedo (one click: fireSeq bumps).
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const fireTicks = 5000 / CONFIG.tick.simDtMs;
     for (let i = 0; i < fireTicks; i++) {
       w.step();
@@ -244,101 +243,5 @@ describe('own weapons never damage the owner (gun / torpedo / mine)', () => {
     w.step();
     expect(enemy.hp).toBeLessThan(enemy.stats.maxHp); // enemies still trip owner's mine
     expect(w.mines.has('m-enemy')).toBe(false); // consumed on trigger
-  });
-});
-
-// ---------------------------------------------------------------------------
-// STORY 8.16 — the DECOY BUOY and no friendly fire (amendments 119/120): the
-// owner's own fish passes THROUGH the owner's decoy (the shared sweep skips a
-// decoy whose `Target.ownerId` is the fish's owner), and an ENEMY fish
-// detonates on it for its full damage (a 50-damage fish kills a fresh 50 hp
-// decoy outright), consumed exactly as on a hull.
-// ---------------------------------------------------------------------------
-
-describe('torpedoes vs the DECOY BUOY (Story 8.16, amendments 119/120)', () => {
-  /** A live fish owned by `ownerId` at (x, 0), running +x at torpedo speed. */
-  function fish(w: World, id: string, ownerId: string, x: number): ShellState {
-    const s: ShellState = {
-      id,
-      ownerId,
-      x,
-      y: 0,
-      vx: CONFIG.torpedo.speed,
-      vy: 0,
-      distLeft: CONFIG.vision.radar,
-      bornAt: 0,
-      kind: 'torp',
-      family: null,
-      damage: CONFIG.torpedo.damage,
-      hitRadius: CONFIG.torpedo.hitRadius,
-      targetX: null,
-      targetY: null,
-      burstRadius: 0,
-      contactDamage: CONFIG.torpedo.damage,
-      hits: CONFIG.torpedo.hits,
-    };
-    w.shells.set(id, s);
-    return s;
-  }
-
-  it("the OWNER's fish runs straight through the owner's decoy — no detonation, no damage", () => {
-    const w = bareWorld();
-    place(w, 'o', -600, 600, 0); // the owner, well off the fish's line
-    addDecoy(w.decoys, 'o', 100, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    fish(w, 'own', 'o', 60);
-    for (let i = 0; i < 20; i++) w.step(); // ~65 u of run: well past the float
-    expect(w.decoys.get('d1')?.hp).toBe(CONFIG.buoy.hp);
-    const f = w.shells.get('own');
-    expect(f).toBeDefined(); // still running — it never detonated
-    expect(f!.x).toBeGreaterThan(110);
-  });
-
-  it('an ENEMY fish detonates on the decoy for its FULL damage — a fish at or above the decoy\'s hp kills a fresh decoy (amendment 120)', () => {
-    const w = bareWorld();
-    place(w, 'o', -600, 600, 0);
-    place(w, 'e', -600, -600, 0); // the enemy shooter, off the line too
-    addDecoy(w.decoys, 'o', 100, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.buoy.hp);
-    fish(w, 'enemy', 'e', 60);
-    const events: GameEvent[] = [];
-    for (let i = 0; i < 20 && w.shells.has('enemy'); i++) {
-      w.step();
-      events.push(...w.tickEvents);
-    }
-    expect(w.shells.has('enemy')).toBe(false); // the fish is consumed, as on a hull
-    expect(w.decoys.has('d1')).toBe(false); // ...and the decoy is gone
-    expect(events.some((e) => e.k === 'boom' && e.id === 'enemy')).toBe(true);
-    expect(events.some((e) => e.k === 'hc' && e.id === 'e')).toBe(true); // amendment 121: the shooter's mark
-    expect(events.filter((e): e is DamageEvent => e.k === 'dmg')).toEqual([]); // a decoy is not a ship
-  });
-
-  it('THE BUOY-FIRST HOMING LAW end to end (Story 10.9, ruling 3): a homing ENEMY fish with a hull NEARER and an enemy buoy FARTHER, both in acquire range, locks the BUOY — and the owner\'s own buoy never', () => {
-    const acquire = CONFIG.torpedo.homingAcquireRange;
-    const run = (buoyOwner: 'o' | 'e'): string | undefined => {
-      const w = bareWorld();
-      place(w, 'o', 60 + acquire * 0.2, acquire * 0.4, 0); // the hull, NEARER the fish than the buoy (off its line — no contact)
-      place(w, 'e', -600, -600, 0); // the shooter, far off the line
-      addDecoy(w.decoys, buoyOwner, 60 + acquire * 0.8, -acquire * 0.1, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-      const f = fish(w, 'enemy', 'e', 60);
-      f.homing = { turnRate: CONFIG.torpedo.homingTurnRate, acquireRange: acquire };
-      w.step();
-      return w.shells.get('enemy')?.homing?.targetId;
-    };
-    expect(run('o')).toBe('d1'); // an ENEMY buoy (owned by o, the fish is e's) wins over the nearer hull
-    expect(run('e')).toBe('o'); // the shooter's OWN buoy is never a target — the hull is
-  });
-
-  it('a LIGHTER blow leaves the decoy damaged, not destroyed (the decoy is an hp buffer)', () => {
-    const w = bareWorld();
-    place(w, 'o', -600, 600, 0);
-    place(w, 'e', -600, -600, 0);
-    addDecoy(w.decoys, 'o', 100, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    const f = fish(w, 'enemy', 'e', 60);
-    f.contactDamage = 20;
-    f.damage = 20;
-    expect(f.damage).toBeLessThan(CONFIG.buoy.hp); // the premise: a blow short of the buffer
-    for (let i = 0; i < 20 && w.shells.has('enemy'); i++) w.step();
-    expect(w.shells.has('enemy')).toBe(false);
-    expect(w.decoys.get('d1')?.hp).toBe(CONFIG.buoy.hp - 20);
   });
 });

@@ -22,7 +22,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, CATALOG, MULLIGAN_CHOICE, SLOT_COUNT, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
-import { DEFAULT_SHIFT } from '@salvo/shared';
+import { DEFAULT_SHIFT, familySlotFor } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -96,7 +96,7 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
         w.grantOpening();
         const first = a.offer![0];
         const line = CATALOG[first];
-        const usable = line.kind === 'consumable' || (line.kind === 'equipment' && !a.cards.includes(first));
+        const usable = line.kind === 'equipment' && !a.cards.includes(first);
         expect(usable, `${hull}/${seed}: ${first}`).toBe(true);
       }
     }
@@ -177,7 +177,7 @@ describe('mulligan — the one free redraw at the start line', () => {
       expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
       const first = a.offer![0];
       const line = CATALOG[first];
-      expect(line.kind === 'consumable' || (line.kind === 'equipment' && !a.cards.includes(first)), first).toBe(true);
+      expect(line.kind === 'equipment' && !a.cards.includes(first), first).toBe(true);
     }
   });
 
@@ -420,7 +420,7 @@ function fitted(
   fit: readonly string[],
   hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_SHIFT, undefined, fit);
+  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_SHIFT, fit);
 }
 
 const slotIds = (rec: ShipRecord): (string | null)[] => rec.loadout.map((s) => s.equipmentId);
@@ -429,7 +429,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const w = bareWorld();
     const a = fitted(w, 'a', ['heavyTorpedo']);
     expect(a.cards).toEqual(['heavyTorpedo']);
-    expect(slotIds(a)).toEqual(['mainBattery', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]);
+    expect(slotIds(a)).toEqual(['mainBattery', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]); // the torpedo family slot
     // A fit is a real fit: the slot arrives LOADED, like any pick (amendment 41).
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.heavyTorpedo.maxAmmo, reloadMsLeft: 0 });
     // ...and it goes through applyCard, so it COUNTS AS A TAKE (Story 8.14):
@@ -459,8 +459,10 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const w = bareWorld();
     // Story 8.14: with the decks retired there is no per-hull list to pay a
     // copy out of, so a Battleship can be handed the Torpedo Boat's fish.
+    // (BROADSIDE left the deal, Story 10.5 R6 — it has no family slot, so a
+    // fit naming it is refused.)
     const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'yamato');
-    expect(b.cards).toEqual(['broadside', 'heavyTorpedo', 'starShells']);
+    expect(b.cards).toEqual(['heavyTorpedo', 'starShells']);
     // ...but the line's own cap still bounds it, and an unknown/stub id drops.
     const cap = CATALOG.armor.cap;
     const c = fitted(w, 'c', [...new Array<string>(cap + 3).fill('armor'), 'nope', 'depthCharge']);
@@ -470,8 +472,8 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
 
   it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
     const w = bareWorld();
-    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined, ['heavyTorpedo']);
-    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_SHIFT, undefined, ['heavyTorpedo']);
+    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'bismarck', undefined, undefined, DEFAULT_SHIFT, ['heavyTorpedo']);
+    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_SHIFT, ['heavyTorpedo']);
     for (const s of [ai, drone]) {
       expect(s.devFit, s.id).toEqual([]);
       expect(s.cards, s.id).toEqual([]);
@@ -486,19 +488,20 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     // but unbuilt, amendment 11). 'navalMines' used to be refused here as
     // "not in this hull's deck" and is now perfectly fittable: Story 8.14
     // retired the decks, so a hull is no longer a bound on what it can hold.
+    // Each lands in its FAMILY slot (Story 10.5), whatever the fit order.
     const a = fitted(w, 'a', ['nope', 'depthCharge', 'navalMines', 'heavyTorpedo']);
     expect(a.cards).toEqual(['navalMines', 'heavyTorpedo']);
-    expect(slotIds(a)[2]).toBe('navalMines');
-    expect(slotIds(a)[3]).toBe('heavyTorpedo');
+    expect(slotIds(a)[familySlotFor('heavyTorpedo')!]).toBe('heavyTorpedo');
+    expect(slotIds(a)[familySlotFor('navalMines')!]).toBe('navalMines');
   });
 
   it('cannot fit PAST a line\'s CAP — the cap is the whole bound now (Story 8.14)', () => {
     // There is no deck left to run out of copies, so the CAP is the only thing
     // standing between a dev fit and a build no pick, draw or offer could ever
-    // produce. Consumables are the sharpest case: nothing thins them.
+    // produce.
     const w = bareWorld();
-    const a = fitted(w, 'a', new Array<string>(CATALOG.hullRepair.cap + 3).fill('hullRepair'));
-    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
+    const a = fitted(w, 'a', new Array<string>(CATALOG.heavyTorpedo.cap + 3).fill('heavyTorpedo'));
+    expect(boonStackCount(a.cards, 'heavyTorpedo')).toBe(CATALOG.heavyTorpedo.cap);
   });
 
   // THE FIT IS APPLIED AT SPAWN AND NEVER AGAIN (Story 8.10 review, P1). It
@@ -533,47 +536,29 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
   });
 });
 
-// ---------- Story 10.1 review gate: the kit at the addShip seam --------------
+// ---------- a refused dev-fit line is logged (Story 10.1 F4; Story 10.5) ------
 //
-// F4: a dev fit line that `refusesCard` drops (an off-kit consumable, a stub,
-// a capped line) is no longer dropped silently — one `devFit.refused` warning
-// per dropped line. F2: `addShip`'s kit is a programming invariant, not input
-// (every production door sanitizes it), so an invalid kit throws.
+// A dev fit line that `refusesCard` drops (a SECOND KIND of a filled family —
+// Story 10.5, one kind per slot — a stub, a capped line) is never dropped
+// silently: one `devFit.refused` warning per dropped line, with
+// `pickRefusal`'s reason. (The kit, and its addShip guard, left with Story 10.5.)
 
-describe('the dev spawn fit — a refused line is logged, not silently dropped (Story 10.1 F4)', () => {
-  it('an OFF-KIT consumable logs devFit.refused and leaves the belt unstocked', () => {
+describe('the dev spawn fit — a refused line is logged, not silently dropped', () => {
+  it('a SECOND torpedo kind after the first logs devFit.refused (noWeaponSlot) and is not fitted', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const w = bareWorld();
-      // DEFAULT_KIT does not carry the HEALING BUOY.
-      const a = fitted(w, 'a', ['healingBuoy']);
-      expect(a.cards).toEqual([]);
-      expect(slotIds(a).slice(5)).toEqual(new Array<null>(SLOT_COUNT - 5).fill(null));
+      const a = fitted(w, 'a', ['lightTorpedo', 'heavyTorpedo']);
+      expect(a.cards).toEqual(['lightTorpedo']);
+      expect(slotIds(a)[familySlotFor('lightTorpedo')!]).toBe('lightTorpedo');
+      expect(w.takes.has('heavyTorpedo' as LineId)).toBe(false); // a refused fit is no take
       const prefix = 'warn devFit.refused ';
       const warns = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith(prefix));
       expect(warns).toHaveLength(1);
-      expect(JSON.parse(warns[0].slice(prefix.length))).toEqual({ id: 'a', line: 'healingBuoy', reason: 'stub' });
+      expect(JSON.parse(warns[0].slice(prefix.length))).toEqual({ id: 'a', line: 'heavyTorpedo', reason: 'noWeaponSlot' });
     } finally {
       log.mockRestore();
     }
   });
 });
 
-describe('addShip — an invalid kit is a programming error and throws (Story 10.1 F2)', () => {
-  const seat = (w: World, id: string, kit: readonly string[]): ShipRecord =>
-    w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, kit as never);
-
-  it('throws on an empty kit and on a kit with a repeat, seating nothing', () => {
-    const w = bareWorld();
-    expect(() => seat(w, 'a', [])).toThrow(/addShip: invalid kit for a/);
-    expect(() => seat(w, 'b', ['hullRepair', 'hullRepair', 'shieldBlock', 'countermeasure'])).toThrow(/addShip: invalid kit for b/);
-    expect(w.ships.size).toBe(0);
-  });
-
-  it('stores a valid non-default kit in the order given, and addBot inherits the guard', () => {
-    const w = bareWorld();
-    const kit = ['healingBuoy', 'foulingShell', 'hullRepair', 'shieldBlock'];
-    expect(seat(w, 'a', kit).kit).toEqual(kit);
-    expect(() => w.addBot('bismarck', undefined, DEFAULT_SHIFT, [] as never)).toThrow(/addShip: invalid kit/);
-  });
-});

@@ -59,7 +59,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull?: S
 
 /** One well-formed input; `seq` must rise per ship. */
 function inp(seq: number, o: Partial<InputMsg> = {}): InputMsg {
-  return { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...o };
+  return { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...o };
 }
 
 /** The ship's own shells, by family. */

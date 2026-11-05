@@ -20,10 +20,10 @@
 // are about".
 
 import type { ShipRecord, World } from '../game/world.js';
+import { mountBroadside } from './deckGunFixture.js';
 
-/** The weapon line(s) each hull's fixtures fit, in the order the deleted seed
- *  fitted them — so slot 2 (and, for the Battleship, slot 3) hold exactly what
- *  they held before Story 8.10. */
+/** The weapon line(s) each hull's fixtures fit through a CARD — each lands in
+ *  its FAMILY slot (Story 10.5: torpedo 2, mine 3, special shell 4). */
 export const CLASS_WEAPONS: Record<string, readonly string[]> = {
   // Story 10.4: the three retired classes' fixtures re-keyed onto the four
   // hulls by the suite-wide migration mapping — the old default (Torpedo
@@ -31,16 +31,21 @@ export const CLASS_WEAPONS: Record<string, readonly string[]> = {
   // Warspite. Iowa fits nothing (an empty weapon row). A weapon is a card any
   // hull may carry; this is only "the weapon these fixtures are about".
   bismarck: ['heavyTorpedo'],
-  yamato: ['broadside', 'starShells'],
+  // Story 10.5 (2026-11-05, R6): BROADSIDE left the deal — fitClassWeapons
+  // SEATS it on slot 2 (deckGunFixture mountBroadside) instead of picking it;
+  // STAR SHELLS is a card into the special-shell slot (4).
+  yamato: ['starShells'],
   warspite: ['navalMines'],
 };
 
 /**
- * Fit `rec`'s class weapon cards, first-empty-first, exactly as a pick would.
- * Only for Worlds whose catalog actually carries those lines (production, or
- * an injected catalog that imports them) — a suite running a content-free test
- * catalog wants the empty weapon row and never calls this.
+ * Fit `rec`'s class weapon cards, each into its family slot, exactly as a
+ * pick would (the Yamato's broadside is seated, not picked — see
+ * CLASS_WEAPONS). Only for Worlds whose catalog actually carries those lines
+ * (production, or an injected catalog that imports them) — a suite running a
+ * content-free test catalog wants the empty weapon row and never calls this.
  */
 export function fitClassWeapons(w: World, rec: ShipRecord): void {
+  if (rec.hullId === 'yamato') mountBroadside(rec);
   for (const id of CLASS_WEAPONS[rec.hullId] ?? []) w.applyCard(rec, id);
 }

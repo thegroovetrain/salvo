@@ -18,13 +18,10 @@ import {
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
-  isConsumableKit,
   isShiftId,
-  rollKit,
   type RequeueMsg,
   type ResultsMsg,
   type Rng,
-  type ConsumableKit,
   type ShiftId,
   type ShipClassId,
   type WelcomeMsg,
@@ -55,7 +52,6 @@ import {
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
-  sanitizeKit,
   sanitizeShift,
   sanitizeName,
   sanitizeRoomOptions,
@@ -768,22 +764,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    */
   private buildBotFleet(count: number): void {
     const order = this.shuffledClasses();
-    // THE KIT STREAM (Story 10.1 review gate): its own mulberry32 off the same
-    // map seed the bot-fleet stream is built from, decorrelated by 0x6b17, so
-    // the kit roll never moves a hull or Shift draw of a pinned seed.
-    const kitRng = mulberry32((this.state.mapSeed ^ 0x6b17) >>> 0);
     for (let i = 0; i < count; i += 1) {
       // Bots draw from the SAME common pool a captain draws from (Story 8.14)
       // and each picks A RANDOM SHIFT (Story 10.4 — the seat pick that
       // replaced the gun): one of SHIFT_IDS drawn UNIFORMLY off the room's
       // bot-fleet stream, so staging fights every Shift and a pinned map seed
       // seats a pinned fleet. Never Math.random.
+      // (The bot's KIT stream — Story 10.1 — left with the kit, Story 10.5;
+      // it was its own stream, so this one's draws are unchanged.)
       const shift = SHIFT_IDS[this.fleetRng.int(0, SHIFT_IDS.length - 1)];
-      // ...and CARRIES A RANDOM FOUR (Story 10.1, Eric ruling 6): four distinct
-      // non-stub consumable lines, uniform, rolled off the room's separate
-      // seeded KIT stream. Never Math.random.
-      const kit = rollKit(() => kitRng.next());
-      const rec = this.world.addBot(order[i % order.length], undefined, shift, kit);
+      const rec = this.world.addBot(order[i % order.length], undefined, shift);
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;
@@ -889,9 +879,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // spawn fit — both resolved BEFORE anything is spawned or written. Neither
     // can refuse a join: a bad Shift coerces to DEFAULT_SHIFT and a dev fit
     // outside HC_DEV_OPTIONS=1 is stripped.
+    // (A legacy `kit` option or `auth.kit` — Story 10.1 — is never read since
+    // Story 10.5: silently ignored, never refused.)
     const shift = this.resolveJoinShift(client, options);
-    // THE SEAT'S KIT (Story 10.1) — the Shift's twin: fail-open, never refuses.
-    const kit = this.resolveJoinKit(client, options);
     const { devFit, devPose } = this.resolveDevJoin(client, options);
     // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
     // no longer be refused. Incrementing it first BURNED an ordinal on every
@@ -917,7 +907,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // the dev gate strips `fitOverride` and the queue never forwards it — so
     // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.
     // `devPose` (Story 9.15) likewise: undefined unless a smoke posed the hull.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, shift, kit, devFit, devPose);
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, shift, devFit, devPose);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -965,20 +955,6 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const seated: unknown = typeof auth === 'object' && auth !== null ? (auth as { shift?: unknown }).shift : undefined;
     if (isShiftId(seated)) return seated;
     return sanitizeShift(options.shift, this.log);
-  }
-
-  /**
-   * THE SEAT'S KIT AT THE ARENA DOOR (Story 10.1, epic-10 amendment 3) —
-   * `resolveJoinShift`'s twin, same precedence: the seat's server-written
-   * `auth.kit` (frozen by the queue / lobby door), else the join option
-   * sanitized here (Solo vs AI, dev direct join), else `DEFAULT_KIT` — which
-   * `sanitizeKit` fails open to. Nothing refuses.
-   */
-  private resolveJoinKit(client: Client, options: JoinOptions): ConsumableKit {
-    const auth: unknown = client.auth;
-    const seated: unknown = typeof auth === 'object' && auth !== null ? (auth as { kit?: unknown }).kit : undefined;
-    if (isConsumableKit(seated)) return [...seated];
-    return sanitizeKit(options.kit, this.log);
   }
 
   /**

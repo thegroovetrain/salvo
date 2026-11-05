@@ -14,7 +14,7 @@
 // DECK_FORBIDDEN_KEYS.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_SHIFT, MULLIGAN_CHOICE, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, MULLIGAN_CHOICE, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 import { buildMatchRecord, type MatchRecord } from '../game/matchRecord.js';
@@ -288,14 +288,14 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
 });
 
 describe('the hand log — only an OFFER pick is a hand', () => {
-  it('a REFUSED pick (a consumable at its cap) records nothing', () => {
+  it('a REFUSED pick (a second torpedo kind — one kind per slot, Story 10.5) records nothing', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.countdownOpen = true;
     w.grantOpening();
     expect(a.hands).toHaveLength(1);
-    for (let i = 0; i < CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
-    a.offer = ['hullRepair'];
+    w.applyCard(a, 'lightTorpedo');
+    a.offer = ['heavyTorpedo'];
     const before = JSON.stringify(a.hands);
     expect(w.spendPoint('a', 0)).toBe(false);
     expect(JSON.stringify(a.hands)).toBe(before);
@@ -304,7 +304,7 @@ describe('the hand log — only an OFFER pick is a hand', () => {
 
   it('the dev spawn fit lands in `cards` but creates NO hand', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined, ['armor', 'engines']);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, ['armor', 'engines']);
     expect(a.cards).toEqual(['armor', 'engines']);
     expect(a.hands).toEqual([]);
   });

@@ -808,7 +808,8 @@ describe('LobbyRoom — the adapter', () => {
 
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {
     const { r, send, tick, join, timeouts, startNow } = await lobbyRoom();
-    // A NON-default kit (Story 10.1): it must ride the seat's `auth` verbatim.
+    // A LEGACY kit option (Story 10.1's, retired by Story 10.5): silently
+    // ignored — it rides neither the seat's `auth` nor its options.
     const kit = ['healingBuoy', 'hullRepair', 'supercavTorpedo', 'shieldBlock'];
     // ...and a NON-default Shift (Story 10.4 — the seat gun's successor).
     const shift = SHIFT_IDS.find((s) => s !== DEFAULT_SHIFT)!;
@@ -835,8 +836,8 @@ describe('LobbyRoom — the adapter', () => {
     const seats = matchMaker.reserveMultipleSeatsFor.mock.calls[0][1] as Array<{ options: Record<string, unknown>; auth: Record<string, unknown> }>;
     expect(seats[0].auth.shift).toBe(shift);
     expect(seats[0].options.shift).toBeUndefined();
-    // ...and so did the kit (Story 10.1), byte for byte like the Shift.
-    expect(seats[0].auth.kit).toEqual(kit);
+    // ...and the legacy kit went nowhere (Story 10.5).
+    expect(seats[0].auth.kit).toBeUndefined();
     expect(seats[0].options.kit).toBeUndefined();
     // The code is dead, the room locked, and it lingers before closing.
     expect(r.state.phase).toBe('started');

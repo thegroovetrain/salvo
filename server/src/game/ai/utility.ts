@@ -66,13 +66,12 @@ import {
   pointInLitZone,
   type BlipEvent,
   type Contact,
-  type DecoyView,
   type EffectiveStats,
   type GameEvent,
   type HullId,
   type Island,
   type LitZoneView,
-  type SlotItemId,
+  type EquipmentId,
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
@@ -89,7 +88,6 @@ import {
   associatePaint,
   foldWakeCells,
   lineBlocked,
-  nearKnownDecoy,
   nearestPredicted,
   nextStillSweeps,
   paintCellCount,
@@ -97,7 +95,6 @@ import {
   paintVelocity,
   plotPoint,
   predictedPos,
-  probableDecoy,
   refitWakeCourses,
   trackVelocity,
 } from './plot.js';
@@ -167,7 +164,7 @@ export interface BotSituation {
    *  9.8, ruling 126): the engagement band's anchor is this gun's folded
    *  reach (profiles.ts engagementBand). Optional so a hand-built situation
    *  can omit it (the deck gun is assumed). */
-  gunId?: SlotItemId | null;
+  gunId?: EquipmentId | null;
   /** This hull's own class (a self-read, Story 9.13): the ram exit's contact
    *  distance (`hullBumper`) and the cover arrival tolerance (one own hull
    *  length) read it. Optional so a hand-built situation can omit it (the
@@ -214,14 +211,6 @@ export function ownReachU(
     mountedGun(sit.gunId),
   );
   return reach.maxU;
-}
-
-/** Is this plot a DECOY BUOY by what the bot can see (Story 9.13, epic-9
- *  amendment 197)? The paint of a decoy the view names (own at any range, an
- *  enemy one inside sight / own light), or a radar-only plot whose cues read
- *  as a probable buoy. Never counted as a hostile in the odds gate. */
-export function isDecoyPlot(t: BotTrack, decoys: readonly DecoyView[]): boolean {
-  return probableDecoy(t) || nearKnownDecoy(t, { x: t.x, y: t.y }, decoys);
 }
 
 /** Where this situation reads a plot: its predicted point (ai/plot.ts
@@ -859,7 +848,7 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   const dmg = 1 + w.damaged * damageEstimate(t);
   const iso = 1 + w.isolated * isolation(t, neighbours, sit);
   const reach = lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands) ? BLOCKED_LINE_SCORE : 1;
-  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * decoyFactor(t, sit, neighbours) * litFactor(p, sit);
+  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * litFactor(p, sit);
 }
 
 /** THE LIT-TARGET BONUS (Story 9.13, epic-9 amendment 204): a plot inside
@@ -867,29 +856,6 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
 function litFactor(p: Vec2, sit: BotSituation): number {
   const zones = sit.ownLitZones;
   return zones !== undefined && zones.length > 0 && pointInLitZone(p, zones) ? CONFIG.bots.litTargetBonus : 1;
-}
-
-/**
- * THE PROBABLE-BUOY DEMOTION (Story 9.13, epic-9 amendment 197(c)): a
- * radar-only plot whose cues read as a buoy (ai/plot.ts probableDecoy) scores
- * x CONFIG.bots.decoyDemote WHILE any live sighted hull sits inside the bot's
- * own weapon reach — and at full weight when nothing else is around (it may
- * still be a hull, and it is all there is to shoot).
- */
-function decoyFactor(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
-  if (!probableDecoy(t)) return 1;
-  return liveHullInReach(sit, neighbours) ? CONFIG.bots.decoyDemote : 1;
-}
-
-/** Is a live sighted, afloat hull inside the bot's own weapon reach? */
-function liveHullInReach(sit: BotSituation, tracks: readonly BotTrack[]): boolean {
-  const reach = ownReachU(sit);
-  for (const o of tracks) {
-    if (!o.live || o.sunk) continue;
-    const p = plotAt(sit, o);
-    if (Math.hypot(p.x - sit.x, p.y - sit.y) <= reach) return true;
-  }
-  return false;
 }
 
 /**
@@ -901,14 +867,10 @@ function liveHullInReach(sit: BotSituation, tracks: readonly BotTrack[]): boolea
  */
 export function selectTargetKey(mind: BotMind, sit: BotSituation): string | null {
   const all = tracksOf(mind);
-  const decoys = mind.view?.decoys ?? [];
   let best: string | null = null;
   let bestScore = 0;
   for (const [key, t] of mind.contacts) {
     if (!isActionable(t, sit.now)) continue;
-    // A KNOWN decoy's paint (own at any range, an enemy buoy in sight) is
-    // never a candidate (Story 9.13, epic-9 amendment 197(a)).
-    if (nearKnownDecoy(t, { x: t.x, y: t.y }, decoys)) continue;
     const s = scoreTrack(t, sit, all);
     if (s > bestScore) {
       bestScore = s;

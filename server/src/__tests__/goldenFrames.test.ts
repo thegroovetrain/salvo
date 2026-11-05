@@ -45,8 +45,8 @@ import {
   isAfloat,
   transitionLifecycle,
   CONFIG,
-  consumableSlotFor,
-  DEFAULT_KIT,
+  abilityCode,
+  FAMILY_SLOT,
   DEFAULT_CLASS_ID,
   coverageHas,
   wrapPositive,
@@ -93,8 +93,8 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
 // plus the three contact-like channels (contact/mine/litzone) and the
 // spectator frame. (`decoy` left with the decoy buoy — Story 7-5 wave 2; the
-// Story 8.16 DECOY BUOY's `decoys` channel has no battery scenario — it is
-// pinned by perception.test.ts's fuzz and decoy.test.ts.)
+// Story 8.16 DECOY BUOY's `decoys` channel never had a battery scenario and
+// was deleted with the buoys in Story 10.5.)
 // BALANCE CYCLE 1 ADDED 'sm' — and it was the doubling that added it, not a
 // perception change. Hull hp doubled while the fixture's ordnance did not, so
 // hits that used to sink a hull outright now leave it ALIVE and inside the
@@ -535,7 +535,7 @@ function scnBurst(g: Golden): void {
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 120, 0);
   b.hp = 100; // survives the 25 burst — a clean dmg, no sunk
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   let burst = false;
   for (let i = 0; i < 30 && !burst; i++) {
     w.step();
@@ -569,7 +569,7 @@ function scnStarShell(g: Golden): void {
   place(w, 'd', -BEYOND_RADAR, 0); // dist to zone center (flareDist,0) > radar — beyond radar
   // Story 8.5: the Battleship's seed fits `broadside` into weapon slot 2 and
   // `starShells` into 3.
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 3, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: FAMILY_SLOT.shell, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step(); // consumes the click; the flare spawns and starts flying
   cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
   let zoneUp = false;
@@ -643,7 +643,7 @@ function scnMineBlast(g: Golden): void {
   const a = place(w, 'a', 0, 0, 0, 'warspite');
   const b = place(w, 'b', -76, 20); // hull beside the future clicked point (clear of a's hull — Story 10.4 beams) — trips it
   const c = place(w, 'c', -76, -40); // second victim: hull within the 48u blast
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: FAMILY_SLOT.mine, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step(); // the click places the mine at the clicked point (weapon channel)
   expect(w.mines.size).toBe(1);
   cap(g, w, 'a'); // own mine view + spawns/contacts
@@ -679,7 +679,7 @@ function scnMineBurstDetonation(g: Golden): void {
   const w = bareWorld(1014);
   const a = place(w, 'a', 0, 0, 0, 'warspite');
   injectMine(w, 'om', 'a', 300, 0); // a's own armed mine, up-range (inside the secondaries' reach)
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: true });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: true });
   let detonated = false;
   for (let i = 0; i < 60 && !detonated; i++) {
     w.step();
@@ -725,8 +725,8 @@ function scnDenied(g: Golden): void {
   // block the drop but m would now PAINT on a's radar through it.
   w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
   // Tick 1: a clicks the torpedo dead astern; m clicks a MINE into the rock.
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
-  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: FAMILY_SLOT.mine, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   const fa1 = cap(g, w, 'a');
   const fm1 = cap(g, w, 'm');
@@ -737,11 +737,11 @@ function scnDenied(g: Golden): void {
     (fa1.denied ?? []).some((d) => d.reason === 'out-of-arc' && d.slot === 2 && d.seq === 1) &&
       !('denied' in fb1),
   );
-  prove(g, 'denied-blocked-mine-click', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 2) && w.mines.size === 0);
+  prove(g, 'denied-blocked-mine-click', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === FAMILY_SLOT.mine) && w.mines.size === 0);
   // Tick 2: a fires the main battery (spends ONE turret) + activates the boost
   // (spends the charge).
   const aRec = w.ships.get('a')!;
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 1, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   const salvoFrames: FrameMsg[] = [cap(g, w, 'a')]; // no denial: the shell reveal + a clean frame
   // Story 10.4: every OTHER turret is ready, so each further click fires one
@@ -749,13 +749,13 @@ function scnDenied(g: Golden): void {
   let seq = 3;
   let fireSeq = 3;
   for (let k = 1; k < aRec.turrets.length; k++) {
-    w.submitInput('a', { seq: seq++, throttle: 0, rudder: 0, aim: 0, fireSeq: fireSeq++, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 1, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: seq++, throttle: 0, rudder: 0, aim: 0, fireSeq: fireSeq++, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     salvoFrames.push(cap(g, w, 'a'));
   }
   // The denial tick: both channels re-press against their empty pools.
   const deniedSeq = fireSeq;
-  w.submitInput('a', { seq: seq++, throttle: 0, rudder: 0, aim: 0, fireSeq: deniedSeq, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, actSlot: 1, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: seq++, throttle: 0, rudder: 0, aim: 0, fireSeq: deniedSeq, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   const fa3 = cap(g, w, 'a');
   prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === deniedSeq);
@@ -797,7 +797,7 @@ function scnHoming(g: Golden): void {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
   }
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   let cReveals = 0;
   let cUpdates = 0;
   let dBytes = 0;
@@ -885,7 +885,7 @@ function scnGunnery(g: Golden): void {
   // Story 10.4: the turrets are TRAINED onto the aim first (an un-trained
   // click would fire along a turret's current bearing — R4 — into the island).
   holdAim(w, 'a', 1, Math.PI / 4, SIGHT + 400);
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: SIGHT + 400, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: SIGHT + 400, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step(); // the click fires: mz + shell reveal ride this tick
   cap(g, w, 'a'); // shooter: own mz + own shell reveal
   const fo1 = cap(g, w, 'o1');
@@ -910,7 +910,7 @@ function scnGunnery(g: Golden): void {
       !fo1Miss.events.some((e) => e.k === 'sp'),
   );
   // The torpedo launch — the ratified quiet weapon: no mz for anyone.
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   cap(g, w, 'a'); // own torp reveal, no mz
   const fo1Torp = cap(g, w, 'o1');
@@ -920,7 +920,7 @@ function scnGunnery(g: Golden): void {
   const reloadTicks = Math.ceil(CONFIG.mainBattery.reloadMs / DT) + 1;
   for (let i = 0; i < reloadTicks; i++) w.step();
   holdAim(w, 'a', 4, Math.PI, ANNULUS);
-  w.submitInput('a', { seq: 5, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: ANNULUS, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 5, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: ANNULUS, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   let hit = false;
   for (let i = 0; i < 40 && !hit; i++) {
     w.step();
@@ -948,7 +948,7 @@ const SETTLE_TICKS = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * DT) 
  *  bear has trained onto it. Consumes input seq `seq`. */
 function holdAim(w: World, id: string, seq: number, aim: number, aimDist: number): void {
   const fireSeq = w.ships.get(id)!.lastFireSeq;
-  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   for (let i = 0; i < SETTLE_TICKS; i++) w.step();
 }
 
@@ -960,8 +960,8 @@ function holdAim(w: World, id: string, seq: number, aim: number, aimDist: number
  * `gunnery-miss-own-splash`. */
 
 /**
- * HULL REPAIR on the wire (Eric rulings 2026-08-04; a CARD since Story 8.8):
- * `a` takes damage and FIRES a stocked HULL REPAIR copy off its belt. Its own
+ * HULL REPAIR on the wire (Eric rulings 2026-08-04; the `C` cooldown ability
+ * since Story 10.5): `a` takes damage and PRESSES HULL REPAIR. Its own
  * frame carries the self-private `heal` event and a live `you.repairHp`; `b` —
  * a sighted neighbour hull-to-hull with it — gets NEITHER, and the string
  * `repairHp` appears nowhere in b's serialized frame. A later frame proves the
@@ -972,8 +972,7 @@ function scnHeal(g: Golden): void {
   const a = place(w, 'a', 0, 0);
   place(w, 'b', 60, 0); // hull-to-hull: fully sighted, and still told nothing
   a.hp -= 60;
-  w.applyCard(a, 'hullRepair');
-  expect(w.sinkingActivationGate(a, consumableSlotFor(DEFAULT_KIT, 'hullRepair')!)).toEqual({ ok: true });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, act: abilityCode('repair'), hornSeq: 0, held: false, sec: false });
   w.step();
   const fa = cap(g, w, 'a');
   const fb = cap(g, w, 'b');
@@ -1280,6 +1279,23 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // (the same events, the mine popping a shell earlier). No contact,
   // position, channel or event TYPE was added or removed.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
+    // REGENERATED KNOWINGLY IN STORY 10.5 (2026-11-05, PV 97, THE KIT RETIRE
+    // AND THE THREE EQUIPMENT SLOTS — epic-10 amendment 10). Read by diffing
+    // old against new with the structural fields masked; every change is one
+    // of: (1) `you.ammo` is five entries (gun, Shift, torpedo, mine, special
+    // shell) — a Warspite's rack now sits in the MINE slot (3), so its pool
+    // moved one place right; (2) the self-private `you.kit` is gone; (3) the
+    // catalog lost its consumable lines, so the seeded draw deals different
+    // `you.offer` hands; (4) one kind per family slot: the Yamato fixture's
+    // BROADSIDE (out of the deal, no family — R6) and the Warspite fixtures'
+    // second / third mine lines are refused, so their `cards` shrank; (5) the
+    // mine click's `blocked` denial names slot 3, and the Shift's `no-ammo`
+    // denial now carries its ability code (`act`); (6) scnHeal PRESSES HULL
+    // REPAIR through the input path (`C`), so its frames gain `ackSeq` 1, the
+    // self-private `you.repairReadyAt`, and a whole pool on the press tick (the
+    // press lands after tickRepairs, so the first drain is the next tick). No
+    // contact, event type, position or hp outside scnHeal moved; the passive
+    // regen (R8) pays nothing inside the battery's short windows.
     expect(runBattery()).toMatchSnapshot();
   });
 });

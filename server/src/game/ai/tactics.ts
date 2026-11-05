@@ -89,12 +89,12 @@
 //
 // ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
 // chooseShot iterates the bot's ACTUAL FITTED SLOTS through `tacticFor` — the
-// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/tacticRegistry.ts — never
+// EQUIPMENT_TACTICS table in ai/tacticRegistry.ts — never
 // a hull-keyed weapon ladder — so an equipment
 // ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
 // there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
-// the placement class (flare / mine / decoy) is resolved ABOVE the
+// the placement class (flare / mine) is resolved ABOVE the
 // target === null guard, because siting a sensor was most valuable when
 // nothing is tracked. Every legality gate (arcs, ranges, water, the
 // coastline check on every flat-trajectory round) lives with its weapon in
@@ -108,14 +108,16 @@ import {
   bearing,
   lineClear,
   wrapAngle,
+  abilityCode,
   type EffectiveStats,
-  type SlotItemId,
+  type EquipmentId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort, UnbeachState } from './types.js';
 import { profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor } from './tacticRegistry.js';
+import { chooseCooldownAbility } from './abilities.js';
 import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
 import { batteryAim, secondariesHeld } from './battery.js';
@@ -237,30 +239,23 @@ export function spendStateOf(self: BotSelf): BotSpendState {
     bankedLevels: self.bankedLevels,
     offer: self.offer,
     cards: self.cards,
-    // The nine slot contents, so the scorer can skip a card `spendCard` would
+    // The five slot contents, so the scorer can skip a card `spendCard` would
     // refuse (Story 8.14 review, F4) — a self-read like every other field here.
     slotIds: self.loadout.map((s) => s.equipmentId),
-    // Its own four consumable lines (Story 10.1): the spend stays inside them.
-    kit: self.kit,
-    hp: self.hp,
-    // The paid HULL REPAIR still draining in (Story 8.20): the scorer's HURT
-    // read is (hp + repairHp) / maxHp — the heal tactic's own read.
-    repairHp: self.repairHp,
-    maxHp: self.stats.maxHp,
   };
 }
 
 // ---------------------------------------------------------------------------
 // WEAPONS — the EQUIPMENT AXIS. Every row's want/solve/reach lives with its
-// item (ai/equipment.ts weapons, ai/shift.ts Shifts, ai/consumables.ts belt),
-// assembled by ai/tacticRegistry.ts; this file only walks the bot's ACTUAL
+// item (ai/equipment.ts weapons, ai/shift.ts Shifts), assembled by
+// ai/tacticRegistry.ts; this file only walks the bot's ACTUAL
 // FITTED SLOTS through those registries, in appetite order.
 // ---------------------------------------------------------------------------
 
 /** One fitted slot, ranked by the profile's appetite for what it holds. */
 interface RankedSlot {
   slot: number;
-  id: SlotItemId;
+  id: EquipmentId;
   appetite: number;
 }
 
@@ -269,13 +264,6 @@ interface RankedSlot {
  * descending, slot index as the deterministic tie-break. Capability is read
  * from the LOADOUT, never from the hull — an acquired R-slot weapon ranks
  * exactly like a native fit.
- *
- * THE BELT IS ADMITTED since Story 8.8 (epic-8 amendment 49): a stocked
- * consumable is a fitted slot like any other, ranked by `slotAppetite` (which
- * spans both id spaces) and resolved by `tacticFor` at each pass. Every belt
- * line sits at the neutral base today, so a consumable ties with an unlisted
- * weapon and the slot index breaks it — the belt is always to the right, so
- * nothing the bot already reached for moves.
  */
 function rankedSlots(self: BotSelf, profile: BotProfile): RankedSlot[] {
   const out: RankedSlot[] = [];
@@ -316,7 +304,7 @@ function firePass(
 }
 
 /**
- * The one weapon this tick. PLACEMENTS (flare / mine / decoy) are resolved
+ * The one weapon this tick. PLACEMENTS (flare / mine) are resolved
  * ABOVE the target guard — a placement's want() may fire exactly when
  * nothing is tracked, and a withdrawing layer's mine wants no target at all.
  * Shots need a target; the gun's low base appetite keeps it the last resort,
@@ -339,10 +327,11 @@ function chooseShot(
 }
 
 /**
- * The ability press, if any: the 'ability' rows of EITHER registry — the class
- * Shift (the speed boost on the way out or into a fight, INSTANT RELOAD, DAMAGE
- * CUT) and the consumable abilities (HULL REPAIR, SHIELD BLOCK, MULTI-SPECTRAL COUNTERMEASURE). Abilities ride the actSeq channel, so this composes with a shot in
- * the same tick.
+ * The ability press, if any, as its WIRE CODE (`InputMsg.act`, Story 10.5):
+ * first the class Shift's 'ability' row (the speed boost on the way out or
+ * into a fight, INSTANT RELOAD, HUNKER) off its slot, then the two cooldown
+ * abilities (ai/abilities.ts — HULL REPAIR, SMOKE). Abilities ride the actSeq
+ * channel, so this composes with a shot in the same tick; one press a tick.
  */
 function chooseAct(
   self: BotSelf,
@@ -358,9 +347,12 @@ function chooseAct(
     if (!slotReady(self, r.slot)) continue;
     if (!tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) continue;
     mind.lastTactic = r.id; // harness readout (Story 9.13)
-    return r.slot;
+    return abilityCode('shift');
   }
-  return null;
+  const ability = chooseCooldownAbility({ self, mind, sit, port, target, posture, slot: -1 });
+  if (ability === null) return null;
+  mind.lastTactic = ability; // harness readout (Story 9.13)
+  return abilityCode(ability);
 }
 
 /**
@@ -368,15 +360,9 @@ function chooseAct(
  * with rounds in the pool contributes its tactic's effective reach. Exported
  * for the band-pull tests — the "only while loaded" clause is this list.
  *
- * THE BELT IS IN IT (cycle-148 review gate, P3). This used to skip every
- * consumable slot on the claim that no consumable line was a 'shot' tactic —
- * true when it was written, and false since Story 8.13 gave the belt the
- * SUPERCAV TORPEDO (epic-8 amendment 74). A bot holding supercav stock will
- * genuinely shoot it (`firePass` resolves the belt through `tacticFor`), so a
- * band pull computed without its reach steered the hull to a range its own
- * ready weapon did not want. The lookup goes through `tacticFor`, the ONE
- * resolver that spans both id spaces, so the registries stay the authority on
- * what is a shot.
+ * The lookup goes through `tacticFor`, so the registry stays the authority
+ * on what is a shot (the SUPERCAV, FLASH and FOULING SHELL rows included
+ * since they became slot weapons, Story 10.5).
  */
 export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[] {
   const out: number[] = [];
@@ -917,7 +903,7 @@ export const COMBAT_BRAIN: BotBrain = {
       throttle: helm.throttle,
       rudder: helm.rudder,
       ...triggerOf(self, mind, sit, target, shot),
-      actSlot: chooseAct(self, mind, port, sit, target, posture),
+      act: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
   },
@@ -944,7 +930,7 @@ export const COMBAT_BRAIN: BotBrain = {
       aim: self.state.heading,
       aimDist: 0,
       fireSlot: null,
-      actSlot: null,
+      act: null,
       held: false,
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };

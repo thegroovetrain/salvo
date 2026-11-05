@@ -5,8 +5,8 @@
 //
 //   heavyTorpedo    — equipment, bow sector (CONFIG.torpedo)
 //   lightTorpedo    — equipment, TWIN beam sectors (CONFIG.lightTorpedo)
-//   supercavTorpedo — a belt CONSUMABLE, bow +/-15 deg (CONFIG.supercavTorpedo,
-//                     epic-8 amendment 74)
+//   supercavTorpedo — equipment, bow +/-15 deg (CONFIG.supercavTorpedo; a
+//                     slot weapon again since Story 10.5, epic-10 amendment 10)
 //
 // Everything else about a fish is the FAMILY's (epic-8 amendment 84e —
 // `CONFIG.torpedo` is the heavy's block AND the family's shared fields): the
@@ -28,11 +28,8 @@
 //
 // ORDER OF CHECKS, and why it is not negotiable: ARC FIRST, and an arc miss
 // spends NOTHING. That is the shipped torpedo grammar and it is also what
-// keeps the SUPERCAV consumable honest — a click outside the bow sector must
-// leave the copy on the belt (the ONE SPEND LAW, equipment/consumables/
-// row.ts). `spend` is therefore a thunk the caller owns: the equipment lines
-// hand it their slot pool's `consume`, the consumable hands it a no-op,
-// because its factory takes the copy on `ok` instead.
+// keeps an out-of-arc click free. `spend` is a thunk the caller owns: every
+// torpedo line hands it its slot pool's `consume`.
 //
 // NO FRIENDLY FIRE, ALWAYS (Eric ruling 2026-07-19): owner immunity is
 // permanent inside stepShell, so the spawn clearance here is about clean
@@ -49,7 +46,7 @@ import {
   twinSectorSide,
   wrapAngle,
   type ShellState,
-  type SlotItemId,
+  type EquipmentId,
   type TargetKind,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -57,8 +54,7 @@ import type { ActivationDenial } from './index.js';
 import { clampToArc } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
-/** The THREE numbers a torpedo line reads off its own effective row (or, for
- *  the consumable, straight out of its CONFIG block — a stack has no row).
+/** The THREE numbers a torpedo line reads off its own effective row.
  *  Everything else a fish needs is the family's. */
 export interface TorpedoRow {
   speed: number; // u/s
@@ -81,7 +77,7 @@ export interface TorpedoLaunchContext {
  *  client's rendered arc can never diverge); `hits` is the firing row's OWN
  *  target mask (AR44 — required, never borrowed from another row). */
 export interface TorpedoLaunchOptions {
-  id: SlotItemId;
+  id: EquipmentId;
   row: TorpedoRow;
   hits: readonly TargetKind[];
   /** Take the round. `false` = the pool was empty ('no-ammo'). Runs ONLY
@@ -106,7 +102,7 @@ export interface TorpedoLaunchOptions {
  * or `none` arc on a torpedo is an authoring error, thrown at the call rather
  * than silently launching into a 360 deg free-fire.
  */
-export function torpedoBearing(ship: ShipRecord, id: SlotItemId): number | null {
+export function torpedoBearing(ship: ShipRecord, id: EquipmentId): number | null {
   const arc = arcFor(id);
   if (arc.kind === 'twin-sector') {
     const side = twinSectorSide(ship.state.heading, ship.input.aim, arc);

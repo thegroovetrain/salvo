@@ -3,13 +3,13 @@
 // One `hitTargets(mask)` is how EVERY ordnance step finds anything. Before this
 // story each step had its own route to its victims — `aliveHulls()` plus a
 // `withBuoyTargets()` merge for shells (the radar buoy, deleted in Story 8.16), a separate iteration over `this.mines`
-// for bursts, another for chains — which is why "shoot any mine", the decoy and
+// for bursts, another for chains — which is why "shoot any mine", the (since deleted) decoy and
 // uncapped mines would each have needed three copies of one rule.
 //
 // What this file pins:
 //   * the memo (per tick, per mask, mask order irrelevant) and its two
 //     invalidations — a SINK and a CONSUMED MINE;
-//   * the four kinds, including `ordnance` — EVERY live torpedo as a point,
+//   * the three kinds (the `decoy` kind left with Story 10.5), including `ordnance` — EVERY live torpedo as a point,
 //     BURST-ONLY like `mine`, populated since Story 8.15 (the flak gun's side
 //     effect, amendment 105; own-fish immunity and the burst outcome are
 //     pinned in flak.test.ts);
@@ -39,7 +39,6 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { addDecoy } from '../game/decoys.js';
 import { flatRaster } from './islandFixture.js';
 import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
@@ -104,7 +103,7 @@ const kinds = (ts: readonly Target[]): TargetKind[] => ts.map((t) => t.kind);
 function shootAt(w: World, shooter: string, dist: number, seq = 9): void {
   w.submitInput(shooter, {
     seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: dist,
-    slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+    slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
   });
   for (let i = 0; i < 60; i += 1) {
     w.step();
@@ -179,7 +178,7 @@ describe('hitTargets — the invalidations', () => {
 // THE KINDS
 // ---------------------------------------------------------------------------
 
-describe('hitTargets — the four kinds', () => {
+describe('hitTargets — the three kinds', () => {
   it('`hull` is afloat silhouettes only — a sinking hull is not a collision subject', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
@@ -210,24 +209,6 @@ describe('hitTargets — the four kinds', () => {
     expect(ids(w.hitTargets(['mine']))).toEqual(['armed', 'arming', 'captive', 'fouling']);
   });
 
-  it('`decoy` is every live DECOY BUOY from the store, carrying its OWNER id (Story 8.16)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    addDecoy(w.decoys, a.id, 300, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    addDecoy(w.decoys, 'b', 400, 0, 'd2', 'healing', Number.POSITIVE_INFINITY, 0);
-    expect(kinds(w.hitTargets(['decoy']))).toEqual(['decoy', 'decoy']);
-    // The owner id rides the target so the shared sweep/acquire/burst math can
-    // skip the OWNER's own decoy (amendment 119) — without it the owner's fish
-    // would detonate on their own float.
-    expect(w.hitTargets(['decoy']).map((t) => [t.id, t.ownerId])).toEqual([
-      ['d1', a.id],
-      ['d2', 'b'],
-    ]);
-    expect(w.hitTargets(['decoy'])[0].poly).toEqual([
-      { x: 294, y: -6 }, { x: 306, y: -6 }, { x: 306, y: 6 }, { x: 294, y: 6 },
-    ]);
-  });
-
   it('`ordnance` is every live TORPEDO as a point — never a gun-pattern shell — and still memoized (Story 8.15)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
@@ -240,7 +221,7 @@ describe('hitTargets — the four kinds', () => {
     expect(w.hitTargets(['ordnance'])).toEqual([{ id: 'fish', kind: 'ordnance', poly: [{ x: fishNow.x, y: fishNow.y }] }]);
     expect(w.hitTargets(['ordnance'])).toBe(w.hitTargets(['ordnance']));
     // Neither a hull nor a mine bleeds into the kind, and the build order puts
-    // ordnance LAST (after hulls, mines, decoys).
+    // ordnance LAST (after hulls and mines).
     expect(kinds(w.hitTargets(['hull', 'mine', 'ordnance']))).toEqual(['hull', 'mine', 'ordnance']);
   });
 
@@ -263,14 +244,6 @@ describe('hitTargets — the four kinds', () => {
     expect(burst!.x).toBeCloseTo(320, 3);
     // The fish sat 20u OUTSIDE the 50u blast, so it survives untouched.
     expect(w.shells.has('fish')).toBe(true);
-  });
-
-  it('the build ORDER is hulls, then mines, then decoys (parity with the old hulls+buoys list)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    mine(w, 'm1', 'b', 100, 0);
-    addDecoy(w.decoys, a.id, 300, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
-    expect(kinds(w.hitTargets(['hull', 'mine', 'decoy']))).toEqual(['hull', 'mine', 'decoy']);
   });
 });
 
@@ -302,7 +275,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     for (const [id, owner, x, y] of mines) mine(w, id, owner, x, y);
     w.submitInput('a', {
       seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist,
-      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+      slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
     });
     const frames: GameEvent[][] = [];
     for (let i = 0; i < 40; i += 1) {
@@ -538,7 +511,7 @@ describe('P2 — the interception dispatches by KIND, not by store membership', 
     // `this.mines.get(id)` dispatch the collision resolved as the MINE. The
     // in-flight half of that defect is now structurally impossible (amendment
     // 20 keeps mines out of the sweep entirely); the KIND dispatch survives
-    // because hull-vs-decoy still turns on it.
+    // as the guard that only a HULL takes contact damage.
     const w = bareWorld(44);
     place(w, 'a', 0, 0, 0, 'warspite');
     const b = place(w, 'collide', 200, 0);
@@ -547,57 +520,6 @@ describe('P2 — the interception dispatches by KIND, not by store membership', 
     shootAt(w, 'a', 600);
     expect(b.hp).toBeLessThan(hp0); // the HULL took the hit
     expect(w.mines.has('collide')).toBe(true); // the mine never detonated
-  });
-});
-
-describe('P3 — a destroyed decoy invalidates the memo THE SAME TICK (Story 8.16: the buoy\'s successor)', () => {
-  /** A decoy on the +x axis with a hand-set hp. */
-  function decoy(w: World, id: string, ownerId: string, x: number, hp: number): void {
-    addDecoy(w.decoys, ownerId, x, 0, id, 'healing', Number.POSITIVE_INFINITY, 0).hp = hp;
-  }
-
-  it('a decoy DESTROYED by fire is gone from the next list built the same tick', () => {
-    const w = bareWorld(45);
-    decoy(w, 'b1', 'x', 200, 1); // one point of hp: the first hit destroys it
-    expect(ids(w.hitTargets(['decoy']))).toEqual(['b1']);
-    const inner = w as unknown as { damageDecoy(id: string, amount: number, byId: string): boolean };
-    expect(inner.damageDecoy('b1', 50, 'enemy')).toBe(true);
-    expect(w.decoys.has('b1')).toBe(false);
-    // WITHOUT the generation bump this is the stale memo, and the second shell
-    // of the click dies on a square that is not on the water any more.
-    expect(ids(w.hitTargets(['decoy']))).toEqual([]);
-  });
-
-  it('a NEW decoy is a target the same tick it lands (spawnDecoy bumps the generation)', () => {
-    const w = bareWorld(46);
-    const a = place(w, 'a', 0, 0, 0, 'warspite');
-    expect(ids(w.hitTargets(['decoy']))).toEqual([]); // memoized empty
-    const inner = w as unknown as { spawnDecoy(owner: ShipRecord, x: number, y: number): void };
-    inner.spawnDecoy(a, -60, 0);
-    expect(ids(w.hitTargets(['decoy']))).toEqual(['d1']);
-  });
-
-  it('two shells in one tick: the first kills the decoy, the second is NOT consumed by it', () => {
-    const w = bareWorld(47);
-    const a = place(w, 'a', 0, 0, 0, 'warspite');
-    decoy(w, 'b1', 'x', 300, 1);
-    const inner = w as unknown as {
-      resolveShell(shell: unknown, outcome: unknown, hulls: readonly Target[]): void;
-      hitTargets(mask: readonly TargetKind[]): readonly Target[];
-      pending: GameEvent[];
-    };
-    const shellAt = (id: string): unknown => ({
-      id, ownerId: a.id, x: 300, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now,
-      kind: 'shell', damage: CONFIG.gun.damage, hitRadius: CONFIG.gun.shellRadius,
-      targetX: 300, targetY: 0, burstRadius: CONFIG.gun.burstRadius,
-      contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
-    });
-    const hit = { kind: 'hitShip', victimId: 'b1', x: 300, y: 0 };
-    inner.resolveShell(shellAt('s1'), hit, inner.hitTargets(CONFIG.gun.hits));
-    expect(w.decoys.has('b1')).toBe(false);
-    // The SECOND shell asks the collector again — and must be offered nothing,
-    // so its own resolution can never name the dead square at all.
-    expect(ids(inner.hitTargets(CONFIG.gun.hits))).not.toContain('b1');
   });
 });
 
@@ -656,8 +578,8 @@ describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
 // The trip scan collected `CONFIG.mine.hits` ONCE and scanned every armed mine
 // against that one list, whatever rack it came off. `CONFIG.foulingMines.hits`
 // was therefore authored data nothing read — and the day the fouling line's
-// mask diverges from the naval one (a fouling mine that catches a decoy's
-// screws, say) the divergence would have been silently ignored. The masks agree
+// mask diverges from the naval one (a fouling mine that catches something
+// other than a hull, say) the divergence would have been silently ignored. The masks agree
 // today, so the only way to SEE the routing is to make them disagree.
 describe('the mine trip scan routes by KIND (MINE_TRIP_HITS)', () => {
   /** One layer, and two victims each parked on top of one of their mines. */

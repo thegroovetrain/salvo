@@ -24,6 +24,7 @@ import {
   type InputMsg,
   type ShiftId,
   type ShipClassId,
+  abilityCode,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -46,12 +47,12 @@ function place(w: World, id: string, hull: ShipClassId, shift: ShiftId = DEFAULT
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Press the Shift (actSeq edge on slot 1) and step once. */
 function pressShift(w: World, id: string, seq: number): void {
-  w.submitInput(id, makeInput({ seq, actSeq: seq, actSlot: SLOT_BOOST }));
+  w.submitInput(id, makeInput({ seq, actSeq: seq, act: 0 }));
   w.step();
 }
 
@@ -159,7 +160,7 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     pressShift(w, 'a', 1);
     a.turrets.forEach((t) => (t.reloadMsLeft = 2000)); // the battery fires again meanwhile
     pressShift(w, 'a', 2);
-    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2, act: abilityCode('shift') }]);
     expect(a.turrets.every((t) => t.reloadMsLeft > 0)).toBe(true); // nothing finished
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
@@ -197,7 +198,7 @@ describe('HUNKER (amendments 99–102)', () => {
     expect(a.hp).toBe(a.stats.maxHp - cut);
     // A second press inside the cooldown: no-ammo, the window not extended.
     pressShift(w, 'a', 2);
-    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2, act: abilityCode('shift') }]);
     expect(a.hunkerUntil).toBe(w.now - DT + hk.durationMs);
     // After the window: full damage.
     for (let i = 0; i < hk.durationMs / DT; i++) w.step();

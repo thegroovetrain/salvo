@@ -10,7 +10,6 @@
 import {
   SLOT_GUN,
   WEAPON_SLOTS,
-  isConsumableId,
   type EffectiveStats,
   type LoadoutSlot,
   type ShiftId,
@@ -75,7 +74,7 @@ function mountedGunReachU(self: BotSelf, stats: EffectiveStats): number {
 }
 
 /** The slots INSTANT RELOAD serves (amendment 98): the mounted gun and the
- *  Q/E/R weapon row — never the Shift slot, never the belt. */
+ *  Q/E/R weapon row — never the Shift slot. */
 const RELOADABLE_SLOTS: readonly number[] = [SLOT_GUN, ...WEAPON_SLOTS];
 
 /** Does this fitted slot want a reload? THE MAIN BATTERY (Story 10.4 gate S3)
@@ -83,7 +82,7 @@ const RELOADABLE_SLOTS: readonly number[] = [SLOT_GUN, ...WEAPON_SLOTS];
  *  `reloadMsLeft` is the soonest running turret reload, positive as soon as
  *  ONE turret fired. Every other row: its timer is running. */
 function slotWantsReload(slot: LoadoutSlot): boolean {
-  if (slot.equipmentId === null || slot.state === null || isConsumableId(slot.equipmentId)) return false;
+  if (slot.equipmentId === null || slot.state === null) return false;
   if (slot.equipmentId === 'mainBattery') return slot.state.n === 0;
   return slot.state.reloadMsLeft > 0;
 }

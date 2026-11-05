@@ -57,3 +57,14 @@ export function sternReachU(hullId: HullId): number {
   const y0 = 1000;
   return y0 - pointPolygonDistance({ x: 0, y: 0 }, transformPolygon(hullSilhouette(hullId), 0, y0, Math.PI / 2));
 }
+
+/** THE BROADSIDE (Story 10.5, 2026-11-05, R6): it left the deal — no family
+ *  slot, never fittable through a card — but its row still exists and its
+ *  mechanics stay guarded. A test seats it straight onto `slot` (default the
+ *  torpedo family slot 2, where the pre-10.5 fixtures had it), loaded,
+ *  exactly as `mountDeckGun` seats a retired gun. It is NOT in `cards`, so a
+ *  redeploy or respawn (which rebuild the loadout from cards) drops it. */
+export function mountBroadside<T extends ShipRecord>(rec: T, slot = 2): T {
+  rec.loadout[slot] = { equipmentId: 'broadside', state: freshAmmo(equipmentMaxAmmo(rec.stats, 'broadside')) };
+  return rec;
+}

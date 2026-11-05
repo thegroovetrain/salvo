@@ -7,14 +7,11 @@
 
 import {
   CONFIG,
-  DEFAULT_KIT,
   DEFAULT_SHIFT,
-  isConsumableKit,
   isShiftId,
   mapRadius,
   PROTOCOL_VERSION,
   wrapAngle,
-  type ConsumableKit,
   type ShiftId,
   type ZoneTimeline,
 } from '@salvo/shared';
@@ -83,17 +80,9 @@ export interface JoinOptions {
    * still sending it is ignored, never refused.
    */
   shift?: unknown;
-  /**
-   * THE SEAT'S CONSUMABLE KIT (Story 10.1, epic-10 amendment 3): the FOUR
-   * distinct non-stub consumable lines this captain picked on the port screen,
-   * in key order (`kit[i]` on key `i + 1`, slot `5 + i`). A PLAIN identity join
-   * option exactly like `shift` (NOT gated by HC_DEV_OPTIONS): onJoin runs it
-   * through `sanitizeKit`, so anything missing or invalid (wrong length, a
-   * duplicate, a stub, an unknown id, not an array) becomes `DEFAULT_KIT`.
-   * The queue freezes the sanitized value into the seat reservation's
-   * server-only `auth` beside the Shift.
-   */
-  kit?: unknown;
+  // (The seat's consumable `kit` option — Story 10.1 — was DELETED with the
+  // kit, Story 10.5: a legacy client still sending it is silently ignored,
+  // never refused, exactly as the legacy `gun` option above.)
   /**
    * DEV SMOKE ARM for tests/smokes only (Story 8.10, epic-8 amendment 65) —
    * the real client NEVER sets it, and production never sees it. A list of
@@ -152,20 +141,6 @@ export function sanitizeShift(raw: unknown, log?: Logger): ShiftId {
   if (isShiftId(raw)) return raw;
   if (raw !== undefined) log?.warn('join.shiftCoerced', { to: DEFAULT_SHIFT });
   return DEFAULT_SHIFT;
-}
-
-/**
- * THE SEAT'S KIT, SANITIZED (Story 10.1, epic-10 amendment 3) — `sanitizeShift`'s
- * twin. A copy of the four lines when `isConsumableKit` (shared, the ONE
- * validator both sides call) accepts the value, else `DEFAULT_KIT`. FAIL-OPEN,
- * never a refusal: the kit is an identity option like `cls` and `shift`. A
- * PRESENT-BUT-INVALID value is logged once (`join.kitCoerced`); an ABSENT one
- * logs nothing. Pure apart from the optional logger.
- */
-export function sanitizeKit(raw: unknown, log?: Logger): ConsumableKit {
-  if (isConsumableKit(raw)) return [...raw];
-  if (raw !== undefined) log?.warn('join.kitCoerced', { to: DEFAULT_KIT });
-  return DEFAULT_KIT;
 }
 
 /** Bounds on a dev id list: entries, and code points per entry. Generous —

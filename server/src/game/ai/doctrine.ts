@@ -25,7 +25,7 @@ import {
   pointInLitZone,
   type EffectiveStats,
   type LitZoneView,
-  type SlotItemId,
+  type EquipmentId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotSelf } from './types.js';
@@ -40,7 +40,7 @@ export type DeckGun = 'gun' | 'machineGun' | 'flak' | 'mainBattery';
 /** The gun mounted in slot 0: the main battery, the machine gun and flak by
  *  their own ids, anything else (the cannon, an empty or unknown slot) the
  *  cannon. */
-export function mountedGun(gunId: SlotItemId | null | undefined): DeckGun {
+export function mountedGun(gunId: EquipmentId | null | undefined): DeckGun {
   return gunId === 'machineGun' || gunId === 'flak' || gunId === 'mainBattery' ? gunId : 'gun';
 }
 
@@ -82,7 +82,7 @@ export interface GunBand {
  * does not close, so it may fire attenuated at range. The band edges (where
  * the helm holds station) do not move.
  */
-export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: SlotItemId | null, shadowing = false): GunBand {
+export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: EquipmentId | null, shadowing = false): GunBand {
   const gun = mountedGun(gunId);
   const rangeU = gunRangeU(stats, gun);
   const [minFrac, maxFrac] = CONFIG.bots.gunBand[bandKey(gun)];
@@ -164,7 +164,7 @@ export function reachOf(ctx: TacticContext, weapon: DeckGun): EffectiveReach {
 
 /** The MOUNTED gun's slot-0 id in a tactic context (the situation's copy,
  *  else the loadout's own). */
-function mountedIdOf(ctx: TacticContext): SlotItemId | null | undefined {
+function mountedIdOf(ctx: TacticContext): EquipmentId | null | undefined {
   return ctx.sit.gunId !== undefined ? ctx.sit.gunId : ctx.self.loadout[0]?.equipmentId;
 }
 

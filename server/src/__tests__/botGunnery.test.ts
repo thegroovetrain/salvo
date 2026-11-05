@@ -136,7 +136,7 @@ function pushTargetInput(rig: Rig, throttle: number): void {
   rig.seq += 1;
   rig.w.submitInput('tgt', {
     seq: rig.seq, throttle, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
+    fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
   });
 }
 

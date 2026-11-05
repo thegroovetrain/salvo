@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, DEFAULT_KIT, SLOT_COUNT, encodeTurretAngles, type ConsumableKit } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, SLOT_COUNT, abilityReadyAt, encodeTurretAngles } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -14,7 +14,7 @@ const input = (seq: number, extra = {}) => ({
   slot: 0,
   fireT: 0,
   actSeq: 0,
-  actSlot: 0, hornSeq: 0, held: false, sec: false,
+  act: 0, hornSeq: 0, held: false, sec: false,
   ...extra,
 });
 
@@ -61,8 +61,8 @@ describe('buildFrame — shape and clock', () => {
       speed: ship.state.speed,
       hp: CONFIG.shipClasses[DEFAULT_CLASS_ID].hp,
       alive: true,
-      // Slot-aligned ammo: length SLOT_COUNT (nine since Story 10.1: five
-      // fixed slots + one per carried kit line), null for every empty slot.
+      // Slot-aligned ammo: length SLOT_COUNT (five since Story 10.5: gun,
+      // Shift, torpedo, mine, special shell), null for every empty slot.
       // The MAIN BATTERY's derived pair in 0 (Story 10.4: n = turrets ready —
       // all of them, fresh), the default Shift in 1, and every other slot
       // empty since Story 8.10 deleted the spawn seed.
@@ -81,9 +81,6 @@ describe('buildFrame — shape and clock', () => {
       turrets: ship.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })),
       // THE SECONDARIES' HEAT — `{heat, locked}` only; cold and unlocked.
       sec: { heat: 0, locked: false },
-      // THE SEAT'S KIT (Story 10.1) — self-private beside the Shift; this
-      // fixture names none, so the hull sails the default four.
-      kit: [...DEFAULT_KIT],
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
       // / fouledUntil are OMITTED, not 0, while inactive.)
       pts: 0, // no points banked
@@ -103,23 +100,23 @@ describe('buildFrame — shape and clock', () => {
       xp: CONFIG.tick.simDtMs / CONFIG.xp.levelMs,
     });
     expect(f.spec).toBeUndefined();
-    // THE FIELD ORDER (contract §7): cls, shift, turrets, sec, kit — adjacent.
+    // THE FIELD ORDER (contract §7): cls, shift, turrets, sec — adjacent (the
+    // seat's `kit` that followed them left with Story 10.5).
     const keys = Object.keys(f.you!);
     const at = keys.indexOf('cls');
-    expect(keys.slice(at, at + 5)).toEqual(['cls', 'shift', 'turrets', 'sec', 'kit']);
+    expect(keys.slice(at, at + 4)).toEqual(['cls', 'shift', 'turrets', 'sec']);
+    expect(keys).not.toContain('kit');
     expect(f.you!.turrets).toHaveLength(ship.stats.equipment.mainBattery.maxAmmo);
     expect(f.you!.turrets).not.toBe(ship.turrets); // a copy, never the live array
   });
 
-  it('the seat\'s KIT rides `you` as the hull\'s own four, in key order, and as a copy (Story 10.1)', () => {
+  it('`ammo` holds exactly one entry per slot — FIVE since Story 10.5 — and no kit / shield / buoy key rides `you`', () => {
     const w = new World(1);
-    const kit: ConsumableKit = ['healingBuoy', 'foulingShell', 'shieldBlock', 'supercavTorpedo'];
-    const ship = w.addShip('k', 'K', 'captain', DEFAULT_CLASS_ID, undefined, undefined, undefined, kit);
+    w.addShip('k', 'K', 'captain', DEFAULT_CLASS_ID, undefined, undefined);
     const you = buildFrame(w, 'k').you!;
-    expect(you.kit).toEqual(kit);
-    expect(you.kit).not.toBe(ship.kit); // a mutation on the wire copy never reaches the record
-    // ...and `ammo` holds exactly one entry per slot, the kit's four included.
     expect(you.ammo).toHaveLength(SLOT_COUNT);
+    for (const k of ['kit', 'shield', 'buoyShield', 'speedBuoyAt']) expect(k in you, k).toBe(false);
+    expect('decoys' in buildFrame(w, 'k')).toBe(false);
   });
 
   it('throws if a drone record is ever routed into an OwnShip (chokepoint guard)', () => {
@@ -299,32 +296,35 @@ describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
   });
 });
 
-describe('buildFrame — the Story 10.9 self-private own fields (dazzledUntil, buoyShield, speedBuoyAt)', () => {
+describe('buildFrame — the self-private own windows (dazzledUntil; the Story 10.5 cooldowns)', () => {
   it('each is OMITTED while inactive and rides ONLY its own `you` while live — never a contact, never another observer', () => {
     const w = makeWorld();
     const a = w.ships.get('a')!;
+    const KEYS = ['dazzledUntil', 'repairReadyAt', 'smokeReadyAt'];
     const idle = buildFrame(w, 'a').you!;
-    for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(k in idle, k).toBe(false);
+    for (const k of KEYS) expect(k in idle, k).toBe(false); // ready at spawn: no key
     w.now = 100_000;
     a.dazzledUntil = w.now + FLASH_WINDOW_MS;
-    a.buoyShield = { hpLeft: 12.25, insideAt: w.now };
-    a.speedBuoyAt = w.now;
+    a.repairReadyAt = abilityReadyAt(w.now, 'repair');
+    a.smokeReadyAt = abilityReadyAt(w.now, 'smoke');
     const you = buildFrame(w, 'a').you!;
     expect(you.dazzledUntil).toBe(a.dazzledUntil);
-    expect(you.buoyShield).toEqual({ hp: 13 }); // rounded UP for the readout, the SHIELD BLOCK idiom
-    expect(you.speedBuoyAt).toBe(a.speedBuoyAt);
+    expect(you.repairReadyAt).toBe(a.repairReadyAt);
+    expect(you.smokeReadyAt).toBe(a.smokeReadyAt);
     const other = buildFrame(w, 'b');
     expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
     const text = JSON.stringify({ ...other, you: undefined });
-    for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) {
+    for (const k of KEYS) {
       expect(text).not.toContain(k);
       expect(k in other.you!, k).toBe(false);
     }
-    // Lapsed: the dazzle past its mark, the pool emptied, the speed tail run out.
-    w.now = a.speedBuoyAt + CONFIG.buoy.tailHoldMs + CONFIG.buoy.tailRampMs;
-    expect(w.now).toBeGreaterThanOrEqual(a.dazzledUntil); // premise
-    a.buoyShield = { hpLeft: 0, insideAt: a.speedBuoyAt };
+    // ...and a SPECTATOR frame carries no `you` at all, so no one's cooldowns.
+    const spec = buildFrame(w, 'b', 'finished');
+    expect(spec.you).toBeUndefined();
+    for (const k of KEYS) expect(JSON.stringify(spec)).not.toContain(k);
+    // Lapsed: every window in the past — every key gone.
+    w.now = Math.max(a.dazzledUntil, a.repairReadyAt, a.smokeReadyAt);
     const after = buildFrame(w, 'a').you!;
-    for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(k in after, k).toBe(false);
+    for (const k of KEYS) expect(k in after, k).toBe(false);
   });
 });

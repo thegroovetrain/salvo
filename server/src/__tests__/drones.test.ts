@@ -109,11 +109,11 @@ describe('fleet hulls — inputs are the only interface', () => {
     expect(w.mines.size).toBe(0);
   });
 
-  it('never activates an ability or honks — actSeq/actSlot/hornSeq are structurally constant', () => {
+  it('never activates an ability or honks — actSeq/act/hornSeq are structurally constant', () => {
     const w = bareWorld(7);
     const f1 = fleetShip(w, 'f1', 'large', 0, 0);
-    // THE STRUCTURAL REASON, restated for the SLOT_COUNT loadout (Story 8.5;
-    // eleven slots since Story 9.2): a fleet hull fits the GUN IN SLOT 0 AND
+    // THE STRUCTURAL REASON, restated for the SLOT_COUNT loadout (five slots
+    // since Story 10.5): a fleet hull fits the GUN IN SLOT 0 AND
     // NOTHING ELSE — no boost in slot 1 (amendment 24), so there is no
     // ability for a press to reach.
     expect(f1.loadout.map((s) => s.equipmentId)).toEqual([
@@ -125,7 +125,7 @@ describe('fleet hulls — inputs are the only interface', () => {
       w.step();
       const inp = w.inputs.get('f1')!;
       expect(inp.actSeq).toBe(0);
-      expect(inp.actSlot).toBe(0);
+      expect(inp.act).toBe(0);
       expect(inp.hornSeq).toBe(0);
       expect(inp.fireT).toBe(0); // the no-claim sentinel: a server shooter never back-dates
     }

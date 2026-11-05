@@ -38,7 +38,6 @@ import {
   effectiveStats,
   hullEnvelope,
   islandBlocksSegment,
-  type DecoyView,
   type GameEvent,
   type GhostPaint,
   type Island,
@@ -159,40 +158,10 @@ export function paintCellCount(e: GhostPaint): number {
 }
 
 // ---------------------------------------------------------------------------
-// DECOY CUES (Story 9.13, epic-9 amendment 197)
+// STILL-PAINT CUES (Story 9.13, epic-9 amendment 197). The DECOY reads they
+// fed (`nearKnownDecoy` / `probableDecoy`) left with the buoys in Story 10.5;
+// the paint bookkeeping itself is kept on the track.
 // ---------------------------------------------------------------------------
-
-/** u — how near a plot must sit to a KNOWN decoy (one in `view.decoys`: the
- *  bot's own, at any range, or an enemy buoy inside its sight / own light) to
- *  be that buoy's paint: the buoy's paint square plus one lattice cell of
- *  rasterization slop (amendment 197(a)). */
-export const DECOY_SLOP_U = CONFIG.buoy.sizeU + CONFIG.vision.radarCellU;
-
-/** Lit cells at or under which a paint is buoy-sized (amendment 197(b), the
- *  orchestrator's reading: the 12 u buoy square on the 9 u lattice lights at
- *  most a 2 × 2 block). A footprint, not a distance — no CONFIG dial. */
-export const DECOY_MAX_CELLS = 4;
-
-/** Is the identity-free plot at `p` the paint of a decoy the view names?
- *  Only an ANONYMOUS plot can be a buoy's paint: a plot carrying an id is a
- *  hull the bot saw (amendment 197(a)). */
-export function nearKnownDecoy(t: RememberedContact, p: Vec2, decoys: readonly DecoyView[]): boolean {
-  if (t.id !== null) return false;
-  for (const d of decoys) {
-    if (Math.hypot(d.x - p.x, d.y - p.y) <= DECOY_SLOP_U) return true;
-  }
-  return false;
-}
-
-/** A radar-only plot that reads as a PROBABLE BUOY (amendment 197(b)): never
- *  sighted, buoy-sized paint, no wake ever fitted, and measured stationary for
- *  CONFIG.bots.decoyStillSweeps consecutive sweeps. A plot with no paint
- *  evidence (no `paintCells`) is never one. */
-export function probableDecoy(t: RememberedContact): boolean {
-  if (t.live || t.id !== null || t.hasWake === true) return false;
-  if (t.paintCells === undefined || t.paintCells > DECOY_MAX_CELLS) return false;
-  return (t.stillSweeps ?? 0) >= CONFIG.bots.decoyStillSweeps;
-}
 
 /** u/s — a paint-to-paint speed below this reads STILL (fix wave P17, the
  *  orchestrator's reading under amendment 197(b)): half a radar paint cell

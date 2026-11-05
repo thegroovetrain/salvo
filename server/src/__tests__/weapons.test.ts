@@ -7,8 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  consumableSlotFor,
-  type ConsumableKit,
+  familySlotFor,
   SLOT_COUNT,
   isAfloat,
   CONFIG,
@@ -36,16 +35,14 @@ import {
   slotAmmo,
   type MineState,
 } from '../game/equipment/index.js';
-import { CONSUMABLES } from '../game/equipment/consumables.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
-// NINE FIXED-ROLE SLOTS (Story 8.5): [gun, boost, weapon x3, consumable x4] on
-// every captain. A hull's class weapon is no longer hardware — it arrives as
-// the SPAWN SEED's card and lands in the FIRST weapon slot (2): the Torpedo
-// Boat's `heavyTorpedo` and the Mine Layer's `navalMines` both sit there.
+// FIVE FIXED-ROLE SLOTS (Story 10.5): [gun, boost, torpedo, mine, shell] on
+// every captain. A hull's class weapon arrives as a card and lands in its
+// FAMILY slot: the torpedo in 2, the mine rack in 3.
 const SLOT_GUN = 0;
-const SLOT_TORPEDO = 2;
-const SLOT_MINE_ML = 2;
+const SLOT_TORPEDO = familySlotFor('heavyTorpedo')!;
+const SLOT_MINE_ML = familySlotFor('navalMines')!;
 
 const HALF_PI = Math.PI / 2;
 let idSeq = 0;
@@ -76,7 +73,7 @@ function torpShip(w: World, id: string, x: number, y: number, heading: number): 
   // applyCard path a real pick takes. Every case below keeps its subject.
   fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
   rec.input = input;
   return rec;
 }
@@ -272,7 +269,7 @@ describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-a
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     w.step(); // places one mine at the clicked point (40u astern, -x)
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
@@ -461,7 +458,7 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
 
   /** Click a's gun at (dist, 0) and step until the burst resolves. */
   function shootAt(w: World, dist: number): void {
-    w.submitInput('a', { seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     for (let i = 0; i < 60; i++) {
       w.step();
       if (w.tickEvents.some((e) => e.k === 'burst')) return;
@@ -587,7 +584,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     fitClassWeapons(w, a); // the tubes are a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     let torps = 0;
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -601,22 +598,22 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     // Under hold-to-fire this input would re-place every reload; a click must not.
     const ticks = CONFIG.mine.reloadMs / CONFIG.tick.simDtMs + 20;
     for (let i = 0; i < ticks; i++) w.step();
     expect(w.mines.size).toBe(1);
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(2);
   });
 
-  it('a PRESS (actSeq) on the ML mine slot is inert — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin)', () => {
+  it('a PRESS (actSeq) never reaches the mine slot — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin; the press names an ability since Story 10.5)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(0); // the ability-only press wall refuses weapons
     expect(a.loadout[SLOT_MINE_ML].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charge intact
@@ -652,7 +649,7 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
     const row = ship.stats.equipment.mainBattery;
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: row.maxAmmo, reloadMsLeft: 0 });
     expect(row.maxAmmo).toBe(ship.turrets.length);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     w.step(); // one click -> one turret's salvo; only that turret's reload starts
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: row.maxAmmo - 1, reloadMsLeft: row.reloadMs });
     expect(ship.turrets.filter((t) => t.reloadMsLeft > 0)).toHaveLength(1);
@@ -701,28 +698,23 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// STORY 8.13 — THE LIGHT TORPEDO AND THE SUPERCAV CONSUMABLE
+// STORY 8.13 — THE LIGHT TORPEDO; STORY 10.5 — THE SUPERCAV AS A SLOT WEAPON
 // ---------------------------------------------------------------------------
-
-/** The carriers' kit (Story 10.1): it must CARRY the supercav, which the
- *  default four do not — a consumable outside the kit has no slot. */
-const KIT: ConsumableKit = ['shieldBlock', 'supercavTorpedo', 'hullRepair', 'foulingShell'];
 
 /** A captain holding `n` copies of `line`, aimed at `aim`, with the named slot
  *  selected. Everything real: production catalog, production registry, the
  *  same `applyCard` path a pick takes. */
 function carrier(w: World, id: string, line: string, n: number, aim: number, slot: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined, undefined, KIT);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   for (let i = 0; i < n; i += 1) w.applyCard(rec, line);
-  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
   return rec;
 }
 
-const SLOT_WEAPON_1 = 2;
-/** SUPERCAV TORPEDO's slot under the carrier's kit (Story 10.1) — the subject
- *  below. */
-const SLOT_BELT_1 = consumableSlotFor(KIT, 'supercavTorpedo')!;
+const SLOT_WEAPON_1 = familySlotFor('lightTorpedo')!;
+/** The SUPERCAV's slot: the TORPEDO family slot (Story 10.5). */
+const SLOT_SUPERCAV = familySlotFor('supercavTorpedo')!;
 
 describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)', () => {
   // THE ARC IS THE WHOLE POINT OF THIS LINE. The heavy fires into a ±30° bow
@@ -784,45 +776,59 @@ describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)',
   });
 });
 
-describe('SUPERCAV TORPEDO — the belt\'s click-aimed consumable (epic-8 amendment 74)', () => {
-  it('a click inside the bow ±15° sector fires one fish, takes ONE copy off the stack and out of `cards`', () => {
+describe('SUPERCAV TORPEDO — a torpedo-slot weapon on the reload pool (Story 10.5, R4, amendment 8(e))', () => {
+  it('fills the TORPEDO family slot, loaded at its row\'s maxAmmo', () => {
     const w = bareWorld(35);
-    const ship = carrier(w, 'a', 'supercavTorpedo', 2, 0, SLOT_BELT_1);
-    expect(ship.loadout[SLOT_BELT_1].equipmentId).toBe('supercavTorpedo');
-    expect(w.sinkingActivationGate(ship, SLOT_BELT_1)).toEqual({ ok: true });
+    const ship = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_SUPERCAV);
+    expect(SLOT_SUPERCAV).toBe(SLOT_TORPEDO); // one family, one slot
+    expect(ship.loadout[SLOT_SUPERCAV]).toEqual({
+      equipmentId: 'supercavTorpedo',
+      state: { n: ship.stats.equipment.supercavTorpedo.maxAmmo, reloadMsLeft: 0 },
+    });
+  });
+
+  it('a click inside the bow sector fires ONE fish off its effective row and starts the row\'s reload; the card stays', () => {
+    const w = bareWorld(35);
+    const ship = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_SUPERCAV);
+    const row = ship.stats.equipment.supercavTorpedo;
+    expect(w.sinkingActivationGate(ship, SLOT_SUPERCAV)).toEqual({ ok: true });
     const fish = [...w.shells.values()].find((sh) => sh.kind === 'torp')!;
-    expect(fish.damage).toBe(CONFIG.supercavTorpedo.damage);
-    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.supercavTorpedo.speed, 6);
-    // IT NEVER HOMES, whatever the captain's torpedo tiers say.
+    expect(fish.damage).toBe(row.damage);
+    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(row.speed, 6);
+    // IT NEVER HOMES, at any tier (amendment 74).
     expect(fish.homing).toBeUndefined();
     expect(fish.distLeft).toBe(Number.POSITIVE_INFINITY);
-    // ONE SPEND LAW: the copy leaves the stack AND the deck-held build together.
-    expect(ship.loadout[SLOT_BELT_1].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(ship.cards.filter((c) => c === 'supercavTorpedo')).toHaveLength(1);
+    expect(ship.loadout[SLOT_SUPERCAV].state).toEqual({ n: row.maxAmmo - 1, reloadMsLeft: row.reloadMs });
+    expect(ship.cards).toEqual(['supercavTorpedo']);
   });
 
-  // FAIL-FIRST REGRESSION (Story 8.13): an out-of-arc click on a belt weapon
-  // must cost NOTHING. The copy is the scarce thing — a consumable never
-  // reloads — so a denial that took one would be unrecoverable, and the arc
-  // check therefore runs BEFORE the row factory's spend.
-  it('a click OUTSIDE the bow sector is denied and spends NOTHING — no copy, no card', () => {
+  it('a click OUTSIDE the bow sector is denied out-of-arc and spends nothing', () => {
     const w = bareWorld(36);
-    const ship = carrier(w, 'a', 'supercavTorpedo', 2, Math.PI / 2, SLOT_BELT_1); // 90° abeam
-    expect(w.sinkingActivationGate(ship, SLOT_BELT_1)).toEqual({ ok: false, reason: 'out-of-arc' });
+    const ship = carrier(w, 'a', 'supercavTorpedo', 1, Math.PI / 2, SLOT_SUPERCAV); // 90° abeam
+    expect(w.sinkingActivationGate(ship, SLOT_SUPERCAV)).toEqual({ ok: false, reason: 'out-of-arc' });
     expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false);
-    expect(ship.loadout[SLOT_BELT_1].state).toEqual({ n: 2, reloadMsLeft: 0 }); // stack untouched
-    expect(ship.cards.filter((c) => c === 'supercavTorpedo')).toHaveLength(2);
+    expect(ship.loadout[SLOT_SUPERCAV].state).toEqual({ n: ship.stats.equipment.supercavTorpedo.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('an empty stack answers no-ammo, and the row NEVER reloads (a stack is copies, not ammo)', () => {
+  it('an empty pool answers no-ammo, and the round comes back on the row\'s reload clock', () => {
     const w = bareWorld(37);
-    const ship = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_BELT_1);
-    expect(w.sinkingActivationGate(ship, SLOT_BELT_1)).toEqual({ ok: true });
-    // The slot clears at zero (the World's gate owns that), so drive a
-    // hand-built empty stack through the row directly for the backstop.
-    const row = CONSUMABLES.supercavTorpedo!;
-    const empty = { equipmentId: 'supercavTorpedo' as const, state: { n: 0, reloadMsLeft: 0 } };
-    row.tick(ship, empty, 5000, 0);
-    expect(empty.state.reloadMsLeft).toBe(0); // no reload, ever
+    const ship = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_SUPERCAV);
+    const row = ship.stats.equipment.supercavTorpedo;
+    expect(w.sinkingActivationGate(ship, SLOT_SUPERCAV)).toEqual({ ok: true });
+    expect(w.sinkingActivationGate(ship, SLOT_SUPERCAV)).toEqual({ ok: false, reason: 'no-ammo' });
+    const ticks = Math.ceil(row.reloadMs / CONFIG.tick.simDtMs);
+    for (let i = 0; i < ticks; i += 1) w.step();
+    expect(ship.loadout[SLOT_SUPERCAV].state!.n).toBe(row.maxAmmo);
+  });
+
+  it('its TIER raises the fish\'s damage (amendment 8(e)); speed and reload follow the row', () => {
+    const w = bareWorld(38);
+    const one = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_SUPERCAV);
+    const two = carrier(w, 'b', 'supercavTorpedo', 2, 0, SLOT_SUPERCAV);
+    expect(two.stats.equipment.supercavTorpedo.damage).toBeGreaterThan(one.stats.equipment.supercavTorpedo.damage);
+    expect(w.sinkingActivationGate(two, SLOT_SUPERCAV)).toEqual({ ok: true });
+    const fish = [...w.shells.values()].find((sh) => sh.kind === 'torp' && sh.ownerId === 'b')!;
+    expect(fish.damage).toBe(two.stats.equipment.supercavTorpedo.damage);
   });
 });
+

@@ -10,8 +10,10 @@
 // had no idea what a mine was.
 //
 // THIS FILE holds the WEAPON rows — the three guns and every Q/E/R line —
-// as `WEAPON_TACTICS`, TOTAL over every EquipmentId that is not a class Shift.
-// The three Shift rows live in ai/shift.ts, the belt rows in ai/consumables.ts,
+// as `WEAPON_TACTICS`, TOTAL over every EquipmentId that is not a class Shift
+// (the three lines that left the belt in Story 10.5 — SUPERCAV, FLASH SHELLS,
+// FOULING SHELL — are written in ai/movedWeapons.ts and listed here).
+// The three Shift rows live in ai/shift.ts,
 // the shared vocabulary (types, aiming, appetite) in ai/tacticKit.ts, and
 // ai/tacticRegistry.ts assembles the TOTAL `EQUIPMENT_TACTICS` a fitted slot
 // resolves through.
@@ -31,9 +33,8 @@
 //   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
-// (PHOSPHOR SHELLS is its own weapon row below; the FOULING SHELL
-// (`foulingShell`, Story 9.4 — FLASH SHELLS' seat) is a row in
-// ai/consumables.ts.)
+// (PHOSPHOR SHELLS is its own weapon row below; FLASH SHELLS and the
+// FOULING SHELL are rows in ai/movedWeapons.ts.)
 //
 // No rng is drawn anywhere in want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
@@ -66,6 +67,7 @@ import {
 import type { BotProfile } from './profiles.js';
 import { LONGEST_HULL_U, TRACK_PERSIST_MS, trackVelocity } from './plot.js';
 import { mainBatteryTactic } from './battery.js';
+import { dazzleShellsTactic, foulingShellTactic, supercavTorpedoTactic } from './movedWeapons.js';
 import {
   APPETITE_EAGER,
   APPETITE_NEUTRAL,
@@ -701,4 +703,8 @@ export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = d
   broadside: broadsideTactic,
   starShells: starShellsTactic,
   phosphorShells: phosphorShellsTactic,
+  // Story 10.5 (epic-10 amendment 10): the three lines that left the belt.
+  supercavTorpedo: supercavTorpedoTactic,
+  dazzleShells: dazzleShellsTactic,
+  foulingShell: foulingShellTactic,
 });

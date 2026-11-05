@@ -3,16 +3,17 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_KIT, DEFAULT_SHIFT, KIT_SIZE, SHIFT_IDS, dealableConsumables, isConsumableKit, mapRadius } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, SHIFT_IDS, mapRadius } from '@salvo/shared';
 import {
   DEV_LIST_MAX,
   NAME_MAX,
-  sanitizeKit,
   sanitizeShift,
   sanitizeName,
   sanitizeRoomOptions,
+  type JoinOptions,
   type RoomOptions,
 } from '../rooms/roomOptions.js';
+import { sanitizeArenaOptions, seatAuth } from '../rooms/formArena.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
 
 const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0, mulligan: true };
@@ -339,52 +340,29 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
 // `cls` and `horn`, not a privileged override: it fails OPEN to DEFAULT_SHIFT
 // and can never refuse a join.
 
-// sanitizeKit (Story 10.1, epic-10 amendment 3) — THE SEAT'S KIT, the Shift's
-// twin: an identity option that fails OPEN to DEFAULT_KIT, logs a
-// present-but-invalid value once (`join.kitCoerced`) and never refuses.
-describe('sanitizeKit — the seat\'s four consumable lines', () => {
-  type Log = Parameters<typeof sanitizeKit>[1];
-  const capture = () => {
-    const lines: { event: string; fields: unknown }[] = [];
-    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) } as unknown as Log;
-    return { lines, log };
-  };
-  const pool = dealableConsumables();
-
-  it('passes a valid kit through as the same four, in order (a copy, never the caller\'s array)', () => {
-    // Non-default: the pool's LAST four, reversed.
-    const kit = pool.slice(-KIT_SIZE).reverse();
-    expect(isConsumableKit(kit)).toBe(true);
-    const { lines, log } = capture();
-    const out = sanitizeKit(kit, log);
-    expect(out).toEqual(kit);
-    expect(out).not.toBe(kit);
-    expect(lines).toEqual([]);
+// THE LEGACY KIT OPTION (Story 10.5, 2026-11-05, epic-10 amendment 10): the
+// seat's consumable kit is gone with the kit. A client still sending `kit`
+// (a saved `hullracker.kit`) is silently IGNORED — never refused, no log —
+// exactly as the legacy `gun` option: the front door drops it from the
+// travelling options and the seat's server-only auth carries the Shift alone.
+describe('a legacy `kit` join option is ignored (Story 10.5)', () => {
+  it('sanitizeArenaOptions drops it like any unknown key, without a throw', () => {
+    const bag = { name: 'ANNE', kit: ['hullRepair', 'countermeasure', 'shieldBlock', 'radarBuoy'] } as unknown as JoinOptions;
+    const out = sanitizeArenaOptions(bag);
+    expect(Object.hasOwn(out, 'kit')).toBe(false);
+    expect(out).toEqual(sanitizeArenaOptions({ name: 'ANNE' }));
   });
 
-  it('an ABSENT kit is DEFAULT_KIT, silently', () => {
-    const { lines, log } = capture();
-    expect(sanitizeKit(undefined, log)).toEqual(DEFAULT_KIT);
-    expect(lines).toEqual([]);
+  it("the seat's auth carries the Shift and no kit", () => {
+    const client = { auth: undefined } as unknown as Parameters<typeof seatAuth>[0];
+    expect(seatAuth(client, DEFAULT_SHIFT)).toEqual({ shift: DEFAULT_SHIFT });
   });
 
-  it('junk, a wrong length, a duplicate, a stub and an unknown id are each DEFAULT_KIT with ONE join.kitCoerced', () => {
-    const valid = pool.slice(0, KIT_SIZE);
-    const bad: unknown[] = [
-      null, 42, 'hullRepair', {}, [], // junk
-      valid.slice(0, KIT_SIZE - 1), // short
-      [...valid, pool[KIT_SIZE]], // long
-      [valid[0], valid[0], ...valid.slice(2)], // a duplicate
-      [...valid.slice(0, KIT_SIZE - 1), 'depthCharge'], // the stub
-      [...valid.slice(0, KIT_SIZE - 1), 'noSuchLine'], // unknown
-      ['decoyBuoy', ...valid.slice(1)], // the RETIRED DECOY BUOY (Story 10.9) — a saved kit holding it, no alias
-      [...valid.slice(0, KIT_SIZE - 1), 7], // a non-string entry
-    ];
-    for (const raw of bad) {
-      const { lines, log } = capture();
-      expect(sanitizeKit(raw, log), JSON.stringify(raw)).toEqual(DEFAULT_KIT);
-      expect(lines.map((l) => l.event), JSON.stringify(raw)).toEqual(['join.kitCoerced']);
-    }
+  it('sanitizeShift is untouched by a kit riding the same bag', () => {
+    const lines: string[] = [];
+    const log = { warn: (event: string) => lines.push(event) } as unknown as Parameters<typeof sanitizeShift>[1];
+    expect(sanitizeShift(SHIFT_IDS[0], log)).toBe(SHIFT_IDS[0]);
+    expect(lines).toEqual([]);
   });
 });
 

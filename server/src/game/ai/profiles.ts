@@ -60,7 +60,7 @@
 // class. The only kind distinction any profile draws is participant-vs-PvE
 // fleet hull, which is a real difference in what the target is worth.
 
-import { CONFIG, type ConsumableId, type EquipmentId, type ShipClassId } from '@salvo/shared';
+import { CONFIG, type EquipmentId, type ShipClassId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -106,16 +106,14 @@ export type UpgradeFavorite =
  * A personality's BUILD TASTE (Story 8.20, Eric ruling 2026-09-30, R5) — read
  * only by the card scorer (ai/spending.ts) against CONFIG.bots.cardPoints.
  * `style`: 'rounded' favors raising its lowest upgradeable line, 'specialist'
- * its highest. `beltHunger` keys CONFIG.bots.cardPoints.beltHunger (applied to
- * a consumable it carries none of). The favorites add points to a matching
- * card; `favoriteWeapons` decides among weapons for an empty Q/E/R slot only.
+ * its highest. The favorites add points to a matching card; `favoriteWeapons`
+ * decides among weapons for an empty family slot only. (`favoriteConsumables`
+ * and `beltHunger` left with the kit, Story 10.5.)
  */
 export interface BotTaste {
   style: 'rounded' | 'specialist';
   favoriteUpgrades: readonly UpgradeFavorite[];
-  favoriteConsumables: readonly ConsumableId[];
   favoriteWeapons: readonly EquipmentId[];
-  beltHunger: 'low' | 'medium' | 'high';
 }
 
 /** One priority profile — the tunable surface ai/utility.ts (targeting +
@@ -207,9 +205,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
       // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
       favoriteUpgrades: ['engines', 'weapons', 'power'],
-      favoriteConsumables: ['countermeasure'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
-      beltHunger: 'medium',
     },
     // Strikes from around half its gun's reach and does not loiter
     // inside knife range — the torpedo opener needs run-out room, and a TB
@@ -235,9 +231,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
       // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
       favoriteUpgrades: ['gun', 'rudder', 'reload', 'power'],
-      favoriteConsumables: ['shieldBlock', 'foulingShell'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
-      beltHunger: 'low',
     },
     // Knife range: inside 0.3 of gun reach the rear-quarter turn-fight is decided by
     // rudder and gun cooldown, which is exactly where this profile wins.
@@ -263,9 +257,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       // 'passiveHealing' (epic-9 amendment 97) left with their lines, Story
       // 10.3 (Eric 2026-11-04, epic-10 amendment 8).
       favoriteUpgrades: ['armor'],
-      favoriteConsumables: ['hullRepair', 'shieldBlock'],
       favoriteWeapons: ['broadside', 'starShells'],
-      beltHunger: 'high',
     },
     // Holds ground at gun-trade range and refuses to be kited out of it.
     // (9.8 fractions retired by amendment 198: were 0.15–0.4)
@@ -288,9 +280,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'specialist',
       favoriteUpgrades: ['weapons', 'intel'], // 'radarSweep' until Story 10.3
-      favoriteConsumables: ['foulingShell', 'supercavTorpedo'],
       favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
-      beltHunger: 'low',
     },
     // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
     // rather than chosen: the old 0.55–0.95 band put the BROADSIDE BARRAGE
@@ -319,9 +309,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'rounded',
       favoriteUpgrades: ['gun', 'reload'],
-      favoriteConsumables: ['hullRepair', 'healingBuoy'],
       favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
-      beltHunger: 'medium',
     },
     // HANGS BACK TO SURVIVE TO THE PAYOFF (Eric ruling 2026-08-20, cycle
     // 111). The ML *"wants certain things, and when it gets them it is a
@@ -354,9 +342,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'rounded',
       favoriteUpgrades: ['weapons', 'engines'], // 'speed' until Story 10.3
-      favoriteConsumables: ['countermeasure', 'radarBuoy'],
       favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
-      beltHunger: 'high',
     },
     // RE-BANDED OUTWARD (Eric ruling 2026-08-20, cycle 111): the old
     // 0.12–0.35 "fights near its own field" band was the closest in the game
@@ -421,9 +407,7 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
 const TEST_TASTE: BotTaste = Object.freeze({
   style: 'rounded',
   favoriteUpgrades: [],
-  favoriteConsumables: [],
   favoriteWeapons: [],
-  beltHunger: 'medium',
 });
 
 const testRow = (id: TestProfileId): BotProfile => ({

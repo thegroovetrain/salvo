@@ -10,7 +10,7 @@
 // returns the ActivationResult (never a wire event), mirroring how the World is
 // the one production caller.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
@@ -18,17 +18,13 @@ import {
   isAfloat,
   CONFIG,
   CATALOG,
-  CONSUMABLE_IDS,
-  CONSUMABLE_IS_WEAPON,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
-  CONSUMABLE_SLOTS,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
   WEAPON_SLOTS,
-  consumableSlotFor,
-  DEFAULT_KIT,
+  familySlotFor,
   equipmentMaxAmmo,
   isStubLine,
   tierTargetOf,
@@ -36,21 +32,13 @@ import {
   SHIP_CLASS_IDS,
   SHIFT_IDS,
   type InputMsg,
-  type Catalog,
-  type LoadoutSlot,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
-import * as ammo from '../game/equipment/ammo.js';
-import { hullRepairRow } from '../game/equipment/consumables/hullRepair.js';
 import {
-  CONSUMABLES,
   EQUIPMENT,
-  buildConsumableRegistry,
-  consumableRow,
   slotAmmo,
   slotRow,
-  type ActivationContext,
   type Equipment,
 } from '../game/equipment/index.js';
 
@@ -69,20 +57,19 @@ const DT = CONFIG.tick.simDtMs;
 /** Mine Layer fit, in slot order (the rest are empty). Slot 1 is
  *  the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)): INSTANT RELOAD
  *  on the Mine Layer. */
-const ML_IDS = ['mainBattery', 'boost', 'navalMines'] as const;
+const ML_IDS = ['mainBattery', 'boost', null, 'navalMines'] as const; // the rack in the MINE family slot (Story 10.5)
 /** Torpedo Boat fit, in slot order. */
 const TB_IDS = ['mainBattery', 'boost', 'heavyTorpedo'] as const;
-/** The first WEAPON slot (Q) — where each hull's single seeded weapon lands. */
-const SLOT_MINE = WEAPON_SLOTS[0];
-const SLOT_TORPEDO = WEAPON_SLOTS[0];
-/** The SECOND weapon slot (E) — free on every hull, so it is where the tests
- *  hand-fit a second weapon (fitSecond). */
-const SLOT_SECOND = WEAPON_SLOTS[1];
-/** An EMPTY weapon slot on every hull today (R): the empty-slot subject. */
-const SLOT_EMPTY_WEAPON = WEAPON_SLOTS[2];
-/** HULL REPAIR's FIXED consumable slot (Story 9.2 — every kind owns one; the
- *  cases below stock HULL REPAIR, so this is where its stack lives). */
-const SLOT_BELT = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
+/** Each hull's single fixture weapon lands in its FAMILY slot (Story 10.5):
+ *  the rack in the mine slot (E), the tube in the torpedo slot (Q). */
+const SLOT_MINE = familySlotFor('navalMines')!;
+const SLOT_TORPEDO = familySlotFor('heavyTorpedo')!;
+/** The TORPEDO slot (Q) — free on the Mine Layer fixture, so it is where the
+ *  tests hand-fit a second weapon (fitSecond — Mine Layer only). */
+const SLOT_SECOND = familySlotFor('lightTorpedo')!;
+/** The special-SHELL slot (R) — empty on every fixture hull: the empty-slot
+ *  subject. */
+const SLOT_EMPTY_WEAPON = familySlotFor('starShells')!;
 
 // ---------- construction helpers ---------------------------------------------
 
@@ -124,7 +111,7 @@ function placeTb(w: World, id: string, heading = 0): ShipRecord {
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** HAND-FIT A LIGHT TORPEDO into the second weapon slot (E) — written
@@ -145,9 +132,13 @@ function secondReloadMs(ship: ShipRecord): number {
 /** Assert a ship carries its fresh SLOT_COUNT-slot fit: the named ids at full pool
  *  and an idle timer, with EVERY remaining slot empty. `ids` is passed rather
  *  than assumed, so a hull's fit is pinned HERE and not inherited. */
-function expectFreshLoadout(ship: ShipRecord, ids: readonly ['mainBattery', ...string[]]): void {
+function expectFreshLoadout(ship: ShipRecord, ids: readonly ['mainBattery', ...(string | null)[]]): void {
   expect(ship.loadout).toHaveLength(SLOT_COUNT);
   for (let i = 0; i < ids.length; i++) {
+    if (ids[i] === null) {
+      expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
+      continue;
+    }
     expect(ship.loadout[i].equipmentId).toBe(ids[i]);
     const id = ids[i] as Parameters<typeof equipmentMaxAmmo>[1];
     expect(ship.loadout[i].state).toEqual({ n: equipmentMaxAmmo(ship.stats, id), reloadMsLeft: 0 });
@@ -216,15 +207,15 @@ describe('EQUIPMENT registry — interface conformance', () => {
     expect(Object.hasOwn(EQUIPMENT, 'gun')).toBe(true);
     for (const id of SHIFT_IDS) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(true);
     // NO STUB EQUIPMENT OR LADDER LINE IS LEFT (STUB_ROWS drained, Story
-    // 8.15); the stubs that remain are all CONSUMABLE lines (8.16+).
-    expect(LINE_IDS.filter((id) => isStubLine(id) && CATALOG[id].kind !== 'consumable')).toEqual([]);
+    // 8.15); the one stub left is the depth-charge ADD-ON (Story 10.5).
+    expect(LINE_IDS.filter((id) => isStubLine(id) && CATALOG[id].kind !== 'addon')).toEqual([]);
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
   // EQUIPMENT_IS_WEAPON map (single source) — gun/torpedo/broadside/starShells
   // AND (as of Story 2.8, amendment 45) the mine are aimed-click weapons, and
   // the RADAR BUOY (click-placed since Story 7-5 wave 2) was deleted in Story
-  // 8.16 — the DECOY BUOY consumable took its rear-sector click. boost (1.6)
+  // 8.16. boost (1.6)
   // and the class Shifts are the non-weapons.
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
@@ -241,6 +232,10 @@ describe('EQUIPMENT registry — interface conformance', () => {
     expect(EQUIPMENT.boost!.isWeapon).toBe(false);
     expect(EQUIPMENT.broadside!.isWeapon).toBe(true); // Story 7-5 wave 2
     expect(EQUIPMENT.starShells!.isWeapon).toBe(true); // Story 1.7
+    // Story 10.5: the three lines that left the belt are slot WEAPONS.
+    expect(EQUIPMENT.supercavTorpedo!.isWeapon).toBe(true);
+    expect(EQUIPMENT.dazzleShells!.isWeapon).toBe(true);
+    expect(EQUIPMENT.foulingShell!.isWeapon).toBe(true);
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {
@@ -260,324 +255,15 @@ describe('EQUIPMENT registry — interface conformance', () => {
   });
 });
 
-// ---------- 1b. the CONSUMABLE rows + the two-registry lookup (Story 8.7) -----
+// ---------- 1b. slotRow — the one lookup for a slot's content -----------------
 
-// A consumable is not a module: it is a STACK of copies in its kind's fixed slot (5-10),
-// each copy one use, with NO reload EVER (catalog-v3 R40). The row below is
-// the equipment row with its reload machinery removed, and these pins are what
-// say so — including the PRODUCTION pin that the registry holds exactly the
-// lines whose effects are BUILT: since Story 8.8 that is HULL REPAIR and
-// nothing else (the other four stay `stub`, so they are still undealable and
-// unstockable in play).
-
-describe('consumable rows — the belt half of the Equipment interface (Story 8.7)', () => {
-  /** A stack as `applyStock` writes one: n copies, and a timer that is 0 for
-   *  the stack's whole life. */
-  const stack = (n: number): LoadoutSlot => ({ equipmentId: 'hullRepair', state: { n, reloadMsLeft: 0 } });
-  /** Rows never read the context in 8.7 (no effect ships), so a directed
-   *  activation hands them a minimal one. */
-  const CTX = { now: 0, fireT: 0 } as unknown as ActivationContext;
-
-  it('a row conforms to the Equipment interface, keyed by its own ConsumableId', () => {
-    for (const id of CONSUMABLE_IDS) {
-      const row = consumableRow(id, () => ({ ok: true }));
-      expect(row.id).toBe(id);
-      expect(typeof row.tick).toBe('function');
-      expect(typeof row.activate).toBe('function');
-      // The split is READ from the shared single source, never re-stated: only
-      // the DECOY BUOY is click-placed (catalog-v3 R1).
-      expect(row.isWeapon, id).toBe(CONSUMABLE_IS_WEAPON[id]);
-    }
-    expect(consumableRow('healingBuoy', () => ({ ok: true })).isWeapon).toBe(true);
-    expect(consumableRow('hullRepair', () => ({ ok: true })).isWeapon).toBe(false);
-  });
-
-  it('tick is a NO-OP: a stack never reloads, however long it sits fitted', () => {
-    const row = consumableRow('hullRepair', () => ({ ok: true }));
-    const slot = stack(2);
-    const ship = placeTb(bareWorld(), 'a');
-    for (let i = 0; i < 200; i++) row.tick(ship, slot, DT, 0);
-    expect(slot.state).toEqual({ n: 2, reloadMsLeft: 0 });
-  });
-
-  it('activate runs the line effect FIRST and spends the copy only on success', () => {
-    const seen: number[] = [];
-    const row = consumableRow('hullRepair', (_ctx, slot) => {
-      seen.push(slot.state!.n); // the copy is still on the stack while the effect runs
-      return { ok: true };
-    });
-    const slot = stack(2);
-    expect(row.activate(CTX, slot)).toEqual({ ok: true });
-    expect(slot.state).toEqual({ n: 1, reloadMsLeft: 0 }); // ...and NO reload armed
-    expect(row.activate(CTX, slot)).toEqual({ ok: true });
-    expect(slot.state).toEqual({ n: 0, reloadMsLeft: 0 });
-    expect(seen).toEqual([2, 1]);
-  });
-
-  it('an EMPTY or cleared stack denies no-ammo, runs no effect, and changes nothing', () => {
-    let ran = 0;
-    const row = consumableRow('hullRepair', () => { ran += 1; return { ok: true }; });
-    const empty = stack(0);
-    expect(row.activate(CTX, empty)).toEqual({ ok: false, reason: 'no-ammo' });
-    expect(empty.state).toEqual({ n: 0, reloadMsLeft: 0 });
-    const cleared: LoadoutSlot = { equipmentId: null, state: null };
-    expect(row.activate(CTX, cleared)).toEqual({ ok: false, reason: 'no-ammo' });
-    expect(cleared).toEqual({ equipmentId: null, state: null });
-    expect(ran).toBe(0);
-  });
-
-  // ONE SPEND LAW (Story 8.7 review patch P2). A copy leaves the stack and a
-  // copy leaves `ship.cards` on the SAME condition — `result.ok` — and nowhere
-  // else. The gate only runs `spendStock` on success, so a decrement here on a
-  // denial would leave an `{ n: 0 }` zombie stack whose card is still held and
-  // is handed back on the next respawn replay. A denied effect is a no-event.
-  it('a DENIED effect costs nothing: n, cards and the slot are untouched', () => {
-    const row = consumableRow('hullRepair', () => ({ ok: false, reason: 'blocked' }));
-    const slot = stack(1);
-    expect(row.activate(CTX, slot)).toEqual({ ok: false, reason: 'blocked' });
-    expect(slot.state).toEqual({ n: 1, reloadMsLeft: 0 });
-    // ...and it stays free to retry, as many times as it is denied.
-    expect(row.activate(CTX, slot)).toEqual({ ok: false, reason: 'blocked' });
-    expect(slot.state).toEqual({ n: 1, reloadMsLeft: 0 });
-  });
-
-  it('buildConsumableRegistry deep-freezes: the map AND every row inside it', () => {
-    const row = consumableRow('hullRepair', () => ({ ok: true }));
-    const reg = buildConsumableRegistry([row]);
-    expect(reg.hullRepair).toBe(row);
-    expect(Object.isFrozen(reg)).toBe(true);
-    expect(Object.isFrozen(reg.hullRepair)).toBe(true);
-    expect(() => {
-      (reg as unknown as Record<string, unknown>).shieldBlock = row;
-    }).toThrow();
-    expect(() => {
-      (reg.hullRepair as unknown as { isWeapon: boolean }).isWeapon = true;
-    }).toThrow();
-  });
-
-  // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row;
-  // Story 8.13 added SUPERCAV TORPEDO, the belt's first CLICK-AIMED line
-  // (epic-8 amendment 74); Story 8.16 added SHIELD BLOCK, CHAFF and the
-  // click-placed DECOY BUOY; Story 8.17 FLASH SHELLS; Story 8.18 SMOKE SCREEN;
-  // Story 9.2 retired CHAFF from the catalog (epic-9 amendment 31).
-  // The DEPTH CHARGE stub is the ONE line still `stub` in the catalog, so
-  // nothing else is drawable or stockable in play, and the PARTIAL registry is
-  // what makes even a forged press fail closed.
-  it('the PRODUCTION consumable registry holds exactly the non-stub lines, frozen, and every stub line is absent', () => {
-    const BUILT: string[] = CONSUMABLE_IDS.filter((id) => !isStubLine(id));
-    expect(BUILT.length).toBeGreaterThan(0); // non-vacuity: some consumable is built
-    expect(Object.keys(CONSUMABLES).sort()).toEqual([...BUILT].sort());
-    expect(Object.isFrozen(CONSUMABLES)).toBe(true);
-    for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
-    expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
-    expect(CONSUMABLES.healingBuoy!.isWeapon).toBe(true); // click-placed (the buoy body, Story 8.16 / 10.9)
-    expect(CONSUMABLES.dazzleShells!.isWeapon).toBe(true); // FLASH SHELLS: prime-and-click (Story 10.9, beside the fouling shell)
-    expect(CONSUMABLES.foulingShell!.isWeapon).toBe(true); // FOULING SHELL: prime-and-click (Story 9.4 — FLASH SHELLS' seat)
-    expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
-    expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
-    expect(CONSUMABLES.countermeasure!.isWeapon).toBe(false); // key-fired (Story 9.3 — SMOKE SCREEN's 8.18 seat)
-    for (const id of CONSUMABLE_IDS) {
-      if (BUILT.includes(id)) continue;
-      expect(isStubLine(id), id).toBe(true); // every absent line is absent BECAUSE it is a stub
-      expect(CONSUMABLES[id], id).toBeUndefined();
-    }
-  });
-
-  // The `slotFill` totality pin's sibling (see section 1): every NON-STUB
-  // consumable line must have a row, every STUB one must have none. Live on
-  // both halves since Story 8.8 — exactly one line is built, and the pin
-  // tightens by itself the day another is.
-  it('every NON-STUB consumable line has a row; every STUB one has none', () => {
-    let nonStub = 0;
-    for (const id of CONSUMABLE_IDS) {
-      expect(CATALOG[id].kind, id).toBe('consumable');
-      expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
-      if (!isStubLine(id)) nonStub += 1;
-    }
-    expect(nonStub).toBeGreaterThan(0); // non-vacuity: the loop checked real built lines
-    // ...and exactly ONE stub remains (DEPTH CHARGE — never built, amendment 83).
-    expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge']);
-  });
-
-  it('slotRow routes BOTH id spaces, and fails closed on null / an unbuilt id', () => {
-    const row = consumableRow('hullRepair', () => ({ ok: true }));
-    const reg = buildConsumableRegistry([row]);
-    // equipment ids -> EQUIPMENT (the consumable registry is never consulted)
-    expect(slotRow('gun', reg)).toBe(EQUIPMENT.gun);
-    expect(slotRow('boost', reg)).toBe(EQUIPMENT.boost);
-    expect(slotRow('lightTorpedo', reg)).toBe(EQUIPMENT.lightTorpedo); // BUILT in Story 8.13
-    expect(slotRow('machineGun', reg)).toBe(EQUIPMENT.machineGun); // BUILT in Story 8.15
-    // consumable ids -> the injected registry, NEVER EQUIPMENT
-    expect(slotRow('hullRepair', reg)).toBe(row);
-    expect(slotRow('shieldBlock', reg)).toBeUndefined();
-    // ...and production resolves the BUILT belt lines, never a stub one
-    expect(slotRow('hullRepair')).toBe(hullRepairRow);
-    expect(slotRow('shieldBlock')).toBe(CONSUMABLES.shieldBlock); // built in Story 8.16
-    expect(slotRow('countermeasure')).toBe(CONSUMABLES.countermeasure); // built in Story 9.3 (8.18's smokeScreen seat)
-    expect(slotRow('depthCharge')).toBeUndefined(); // the one stub left
-    expect(slotRow(null, reg)).toBeUndefined();
-  });
-
-  // THE NO-RELOAD PIN, at the machinery rather than at the numbers: the shared
-  // ammo state machine is never reached for a belt slot, on either path. The
-  // spies watch the REAL module the weapon rows call into, and the fitted gun
-  // proves the spies are live.
-  it('neither tickReload nor consume is EVER called for a belt slot (spied, through the real tick + gate)', () => {
-    const row = consumableRow('hullRepair', () => ({ ok: true }));
-    // A REAL stack, backed by REAL cards: since review patch P1 the belt is
-    // re-derived from `ship.cards` after every spend, so a hand-planted slot
-    // with no card behind it would simply vanish. HULL REPAIR is a live
-    // catalog line since Story 8.8, so the production catalog holds two copies
-    // as it stands; only the ROW is injected, to keep the effect a spy.
-    const w = bareWorld(7, { consumables: buildConsumableRegistry([row]) });
-    const ship = place(w, 'a');
-    w.applyCard(ship, 'hullRepair');
-    w.applyCard(ship, 'hullRepair');
-    const belt = ship.loadout[SLOT_BELT];
-    expect(belt.state).toEqual({ n: 2, reloadMsLeft: 0 });
-    const beltState = belt.state;
-    const tickSpy = vi.spyOn(ammo, 'tickReload');
-    const consumeSpy = vi.spyOn(ammo, 'consume');
-    try {
-      ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
-      for (let i = 0; i < 5; i++) w.step();
-      expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
-      // The gun's pool DID go through the machine — the spies are live.
-      expect(tickSpy.mock.calls.length).toBeGreaterThan(0);
-      // ...and the belt's state object never did, on either call.
-      for (const call of tickSpy.mock.calls) expect(call[0]).not.toBe(beltState);
-      for (const call of consumeSpy.mock.calls) expect(call[0]).not.toBe(beltState);
-      expect(belt.state).toEqual({ n: 1, reloadMsLeft: 0 });
-    } finally {
-      tickSpy.mockRestore();
-      consumeSpy.mockRestore();
-    }
+describe('slotRow — the one lookup for a slot\'s content (one registry since Story 10.5)', () => {
+  it('resolves every EquipmentId to its EQUIPMENT row, and fails closed on null / an unknown id', () => {
+    for (const id of EQUIPMENT_IDS) expect(slotRow(id), id).toBe(EQUIPMENT[id]);
+    expect(slotRow(null)).toBeUndefined();
+    expect(slotRow('hullRepair' as never)).toBeUndefined(); // a deleted consumable id: no row
   });
 });
-
-// ---------- 1c. HULL REPAIR, the first live consumable (Story 8.8) ------------
-
-// The paid heal's body, unchanged, under a new trigger: a CARD you stock and
-// FIRE instead of an always-available `5` key. What these pins are actually
-// about is the two guards and the ONE SPEND LAW around them — a denied press
-// must cost nothing, because the copy is the scarce thing now.
-
-describe('HULL REPAIR — the first live consumable line (Story 8.8)', () => {
-  const HR = CONFIG.hullRepair;
-
-  /** A captain holding `n` HULL REPAIR copies in the first belt slot, hurt by
-   *  `missing` hp. Everything real: production catalog, production registry. */
-  function healer(w: World, id = 'a', n = 1, missing = 100): ShipRecord {
-    const ship = place(w, id);
-    for (let i = 0; i < n; i += 1) w.applyCard(ship, 'hullRepair');
-    ship.hp = ship.stats.maxHp - missing;
-    return ship;
-  }
-
-  const healEvents = (w: World, id: string): unknown[] =>
-    (w as unknown as { pending: { k: string; id: string }[] }).pending.filter((e) => e.k === 'heal' && e.id === id);
-
-  it('stocks from a card into the belt, and the production row is what fires', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 2);
-    expect(ship.loadout[SLOT_BELT].equipmentId).toBe('hullRepair');
-    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 2, reloadMsLeft: 0 });
-    expect(slotRow('hullRepair')).toBe(hullRepairRow);
-  });
-
-  it('a damaged afloat hull: +instantHp now, +regenHp pooled, a `heal` cue, n-1, one copy leaves `cards`', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 2, 100);
-    const before = ship.hp;
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
-    expect(ship.hp).toBe(before + HR.instantHp);
-    expect(ship.repairHp).toBe(HR.regenHp);
-    expect(healEvents(w, 'a')).toHaveLength(1);
-    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(ship.cards.filter((c) => c === 'hullRepair')).toHaveLength(1);
-  });
-
-  it('the pool pays out at the fixed rate, and a second press REPLACES the pool (Eric ruling 2026-09-29, amendment 141)', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 2, 300);
-    w.sinkingActivationGate(ship, SLOT_BELT);
-    w.sinkingActivationGate(ship, SLOT_BELT);
-    expect(ship.repairHp).toBe(HR.regenHp); // REPLACES — never 2 × regenHp (the retired "pools ADD" law)
-    const hpBefore = ship.hp;
-    w.step(DT);
-    // ...and the RATE is unchanged: one regenMs' worth of pool per regenMs.
-    expect(ship.hp - hpBefore).toBeCloseTo((HR.regenHp / HR.regenMs) * DT, 9);
-  });
-
-  it('THE MATRIX ROW (amendment 141): a re-press mid-drain discards what is owed, lands the instant half, and pays a fresh full pool over a fresh regenMs at the unchanged rate', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 2, 2 * (HR.instantHp + HR.regenHp)); // room for both heals: no clamp
-    w.sinkingActivationGate(ship, SLOT_BELT);
-    // Drain part of the pool (40 ticks at the fixed regenHp/regenMs rate).
-    const drained = (HR.regenHp / HR.regenMs) * DT * 40;
-    expect(drained).toBeLessThan(HR.regenHp); // non-vacuity: something is still owed
-    for (let i = 0; i < 40; i += 1) w.step(DT);
-    expect(ship.repairHp).toBeCloseTo(HR.regenHp - drained, 6);
-    const hpBefore = ship.hp;
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
-    expect(ship.hp).toBe(hpBefore + HR.instantHp); // the instant half, as before
-    expect(ship.repairHp).toBe(HR.regenHp); // the owed remainder is DISCARDED (never added)
-    // ...and the fresh pool pays out over a fresh regenMs at the unchanged rate.
-    const hpAfterPress = ship.hp;
-    for (let i = 0; i < HR.regenMs / DT; i += 1) w.step(DT);
-    expect(ship.hp - hpAfterPress).toBeCloseTo(HR.regenHp, 6);
-    expect(ship.repairHp).toBeCloseTo(0, 6);
-  });
-
-  it('a FULL hull is refused `blocked` and NOTHING is spent (ONE SPEND LAW)', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 1, 0);
-    expect(ship.hp).toBe(ship.stats.maxHp);
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: false, reason: 'blocked' });
-    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(ship.cards.filter((c) => c === 'hullRepair')).toHaveLength(1);
-    expect(ship.repairHp).toBe(0);
-    expect(healEvents(w, 'a')).toHaveLength(0);
-  });
-
-  it('a SINKING hull is refused by the ROW — the gate passes it through (amendment 10)', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 1, 100);
-    ship.hp = 0;
-    (w as unknown as { sinkShip(id: string, by?: string): void }).sinkShip('a', undefined);
-    expect(isAfloat(ship.lifecycle)).toBe(false);
-    ship.hp = ship.stats.maxHp - 100; // directed, so "full hull" is not what refuses it
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: false, reason: 'blocked' });
-    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(ship.repairHp).toBe(0);
-  });
-
-  it('a FULLY CLOSED zone does not refuse it — heals stay legal in the collapse (FR47)', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 1, 100);
-    // The collapse bites through the damage gate; nothing about it reads a
-    // repair, and the row holds no zone term at all.
-    const before = ship.hp;
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
-    expect(ship.hp).toBe(before + HR.instantHp);
-  });
-
-  it('the last copy clears the belt slot, and a press after that answers empty-slot', () => {
-    const w = bareWorld();
-    const ship = healer(w, 'a', 1, 200);
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
-    expect(ship.loadout[SLOT_BELT]).toEqual({ equipmentId: null, state: null });
-    expect(ship.cards).not.toContain('hullRepair');
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: false, reason: 'empty-slot' });
-  });
-
-  it('it rides the ABILITY channel, never the weapon one', () => {
-    expect(hullRepairRow.isWeapon).toBe(false);
-    expect(CONSUMABLE_IS_WEAPON.hullRepair).toBe(false);
-  });
-});
-
-// ---------- 2. denial reasons, derived without effect changes -----------------
 
 describe('denial reasons — derived through the gate without changing effects', () => {
   it('the gun is NEVER out-of-arc (360°): a dead-ahead activation fires and spends the round', () => {
@@ -650,17 +336,17 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     const w = bareWorld();
     const ship = place(w, 'a'); // ML fit: mine at weapon slot 2; heading 0 => astern = pi
     // CLICK (weapon channel): places at the clicked point.
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(1);
     const [mine] = [...w.mines.values()];
     expect(mine.x).toBeCloseTo(ship.state.x - 50, 0); // AT the click (astern 50u; hull barely moved)
-    // PRESS (ability channel) with a reloaded pool: refused by the ability wall
-    // — actSeq targets non-weapons only, and the mine is a weapon now.
+    // PRESS (ability channel) with a reloaded pool: a press names an ABILITY
+    // (Story 10.5 — `act`), never a slot, so it can never reach the rack.
     // A FULL rack (2-deep at base since the 2026-08-04 balance pass) with an
     // idle timer — so the only thing that could move the pool is the press.
     ship.loadout[SLOT_MINE].state = { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 };
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
     expect(ship.loadout[SLOT_MINE].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charges intact
@@ -670,9 +356,9 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
 // ---------- 3. empty-slot safety ---------------------------------------------
 
 describe('empty-slot safety — the gate answers before any dereference', () => {
-  it('an empty WEAPON slot (4, R) denies empty-slot without crashing', () => {
+  it('an empty WEAPON slot (R) denies empty-slot without crashing', () => {
     const w = bareWorld();
-    const ship = placeTb(w, 'a'); // TB seed fills only slot 2, so 3 and 4 are empty
+    const ship = placeTb(w, 'a'); // the tube fills only the torpedo slot
     expect(ship.loadout[SLOT_EMPTY_WEAPON]).toEqual({ equipmentId: null, state: null });
     expect(w.sinkingActivationGate(ship, SLOT_EMPTY_WEAPON)).toEqual({
       ok: false,
@@ -680,17 +366,7 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
     });
   });
 
-  it('an empty consumable slot denies empty-slot without crashing (the rack is Story 8.7)', () => {
-    const w = bareWorld();
-    const ship = place(w, 'a');
-    expect(ship.loadout[SLOT_BELT]).toEqual({ equipmentId: null, state: null });
-    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({
-      ok: false,
-      reason: 'empty-slot',
-    });
-  });
-
-  it('the index one past the last slot (9) denies empty-slot without crashing', () => {
+  it('the index one past the last slot (SLOT_COUNT) denies empty-slot without crashing', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     expect(w.sinkingActivationGate(ship, SLOT_COUNT)).toEqual({ ok: false, reason: 'empty-slot' });
@@ -744,10 +420,10 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
 // ---------- 4b. the empty slots are never ticked ------------------------------
 
 describe('the empty slots are never ticked', () => {
-  it('behavioral: a ship steps many ticks with SIX empty slots, world stays healthy while the fitted ones reload', () => {
+  it('behavioral: a ship steps many ticks with an empty slot, world stays healthy while the fitted ones reload', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    fitSecond(ship); // a fourth fitted slot, so the loop has more than the seed to do
+    fitSecond(ship); // a fitted torpedo slot, so the loop has more than the seed to do
     setInput(ship, { slot: SLOT_GUN }); // no click (fireSeq 0)
     // Drain the fitted slots so their reload timers must tick down.
     // Slot 0's pair is DERIVED from the turrets (Story 10.4): drain them.
@@ -760,7 +436,7 @@ describe('the empty slots are never ticked', () => {
       for (let i = 0; i < N; i++) w.step();
     }).not.toThrow();
     // EVERY empty slot untouched — no state materialized, nothing to tick.
-    for (const i of [SLOT_EMPTY_WEAPON, ...CONSUMABLE_SLOTS]) {
+    for (const i of [SLOT_EMPTY_WEAPON]) {
       expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
     }
     // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
@@ -778,9 +454,9 @@ describe('the empty slots are never ticked', () => {
     // The tick dispatch runs only for fitted slots — the `equipmentId !== null`
     // guard MOVED INTO `slotRow` in Story 8.7 (it answers undefined for a null
     // id), which is why the `?.` is now the whole guard. `?.` since Story 8.1:
-    // both registries are PARTIAL over their id space, so an id with no built
-    // row ticks nothing — and a BELT slot's consumable row ticks nothing ever.
-    expect(/slotRow\(slot\.equipmentId, this\.consumables\)\?\.tick\(/.test(loopBody)).toBe(true);
+    // the registry is PARTIAL over its id space, so an id with no built row
+    // ticks nothing.
+    expect(/slotRow\(slot\.equipmentId\)\?\.tick\(/.test(loopBody)).toBe(true);
     expect(/EQUIPMENT\[slot\.equipmentId\]/.test(loopBody)).toBe(false);
   });
 });
@@ -873,7 +549,7 @@ describe('the sinking-activation gate is the sole dispatch path to activate()', 
 // ---------- 6. loadout init / respawn / redeploy parity -----------------------
 
 describe('loadout init parity — addShip / respawn / redeploy', () => {
-  it('addShip produces a full idle loadout matching equipmentMaxAmmo, the rest of the nine empty', () => {
+  it('addShip produces a full idle loadout matching equipmentMaxAmmo, the rest empty', () => {
     const w = bareWorld();
     expectFreshLoadout(place(w, 'a'), ML_IDS);
     expectFreshLoadout(placeTb(w, 'tb'), TB_IDS);
@@ -900,13 +576,12 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
       expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual(
         Array<null>(WEAPON_SLOTS.length).fill(null),
       );
-      for (const i of CONSUMABLE_SLOTS) expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
       expect(ship.cards).toEqual([]); // nothing is held at spawn any more
       expect(slotAmmo(ship)).toHaveLength(SLOT_COUNT);
     }
   });
 
-  it('a FLEET hull spawns gun-only: eight empties, no boost (amendment 24)', () => {
+  it('a FLEET hull spawns gun-only: every other slot empty, no boost (amendment 24)', () => {
     const w = bareWorld();
     const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
     expect(d.loadout).toHaveLength(SLOT_COUNT);
@@ -959,8 +634,12 @@ describe('slotAmmo — slot-aligned fresh wire copies, not live pool references'
     const w = bareWorld();
     const ship = place(w, 'a');
     const wire = slotAmmo(ship);
-    expect(wire).toHaveLength(SLOT_COUNT); // slot-aligned: one entry per loadout slot (NINE)
+    expect(wire).toHaveLength(SLOT_COUNT); // slot-aligned: one entry per loadout slot
     for (let i = 0; i < ML_IDS.length; i++) {
+      if (ML_IDS[i] === null) {
+        expect(wire[i]).toBeNull();
+        continue;
+      }
       expect(wire[i]).not.toBe(ship.loadout[i].state); // a fresh copy, not the live pool object
       expect(Object.keys(wire[i]!)).toEqual(['n', 'reloadMsLeft']); // key order pinned for the wire
       expect(wire[i]).toEqual(ship.loadout[i].state); // same values

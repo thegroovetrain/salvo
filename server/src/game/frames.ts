@@ -9,7 +9,6 @@
 import {
   CONFIG,
   DRONE_HULL_IDS,
-  buoyTail,
   founderDeadline,
   isAfloat,
   isSunk,
@@ -22,36 +21,6 @@ import { observe, observeSpectator, type PerceptionView } from './perception.js'
 import { slotAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
-/** The own-ship `shield` key (Story 8.16): `{ shield: {hp, until} }` while a
- *  SHIELD BLOCK is up (hp left, not yet expired), else an EMPTY object so the
- *  spread leaves the key absent. `hp` is ROUNDED UP to a whole number: the
- *  shield soaks fractional storm bites and burn ticks, and the HP numeral
- *  reads floor(hull) + shield — a raw 99.8 would knock the shielded readout
- *  down a whole point on the first 0.2 absorbed, while the ceiling keeps it
- *  at 100 until a whole point of shield is gone (a live shield never reads 0).
- *  Display only: the absorb math stays exact on the server. */
-function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
-  const s = ship.shield;
-  if (s === null || s.hpLeft <= 0 || now >= s.until) return {};
-  return { shield: { hp: Math.ceil(s.hpLeft), until: s.until } };
-}
-
-/** The own-ship `buoyShield` key (Story 10.9): `{ buoyShield: {hp} }` while
- *  the SHIELD BUOY's pool holds hp — `hp` ROUNDED UP for the readout exactly
- *  as the block's is (ownShield) — else an EMPTY object (key absent). */
-function ownBuoyShield(ship: ShipRecord): Pick<OwnShip, 'buoyShield'> {
-  const pool = ship.buoyShield;
-  if (pool === null || !(pool.hpLeft > 0)) return {};
-  return { buoyShield: { hp: Math.ceil(pool.hpLeft) } };
-}
-
-/** The own-ship `speedBuoyAt` key (Story 10.9): the raw stamp while the
- *  shared `buoyTail` over it is still above 0, else an EMPTY object. */
-function ownSpeedBuoy(ship: ShipRecord, now: number): Pick<OwnShip, 'speedBuoyAt'> {
-  const tail = buoyTail(now, ship.speedBuoyAt, CONFIG.buoy.tailHoldMs, CONFIG.buoy.tailRampMs);
-  return tail > 0 ? { speedBuoyAt: ship.speedBuoyAt } : {};
-}
-
 /** The own-ship `draft` key (Story 8.19): `{ draft }` — the exact double —
  *  while the hull rides a wake (`ship.draft > 0`), else an EMPTY object so the
  *  spread leaves the key absent (never `undefined`, never 0). The exact
@@ -63,6 +32,15 @@ function ownSpeedBuoy(ship: ShipRecord, now: number): Pick<OwnShip, 'speedBuoyAt
  *  double, and the exception count is unaffected. */
 function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
   return ship.draft > 0 ? { draft: ship.draft } : {};
+}
+
+/** The own-ship cooldown keys (Story 10.5): each ability's ready time while
+ *  it is still cooling, else absent. */
+function ownCooldowns(ship: ShipRecord, now: number): Pick<OwnShip, 'repairReadyAt' | 'smokeReadyAt'> {
+  return {
+    ...(ship.repairReadyAt > now ? { repairReadyAt: ship.repairReadyAt } : {}),
+    ...(ship.smokeReadyAt > now ? { smokeReadyAt: ship.smokeReadyAt } : {}),
+  };
 }
 
 function toOwnShip(ship: ShipRecord, now: number): OwnShip {
@@ -111,11 +89,6 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // THE SECONDARIES' HEAT (Story 10.4, R3) — `{heat, locked}` ONLY,
     // SELF-PRIVATE; the round phase (`untilRoundMs`) never leaves the server.
     sec: { heat: ship.sec.heat, locked: ship.sec.locked },
-    // THE SEAT'S KIT (Story 10.1, epic-10 amendment 3) — SELF-PRIVATE on the
-    // Shift's exact terms: the viewer's own four consumable lines, in key order,
-    // riding `you` and nothing else (non-spatial; not a perception exception).
-    // The client derives every kind -> slot answer from it. Defensively copied.
-    kit: [...ship.kit],
     // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
     // wholesale strip. The client derives effective stats from (cls, boons).)
     // Banked levels = the bare unspent-level count (single source of truth).
@@ -138,11 +111,9 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // is repairing; it reads only the hp it can actually see change. REQUIRED
     // (not optional like slowedUntil/fouledUntil): the client's strip renders
     // the pool every frame, so a dropped key would read as "pool gone".
-    // THE PAID POOL ALONE since Story 8.8 (epic-8 amendment 46): the free
-    // per-level channel this used to be summed with is gone (and the
-    // out-of-combat regen that replaced it is gone too, Story 10.3); the
-    // healing buoy's term has no pool — it pays straight into `hp`, which the
-    // owner already receives every frame.
+    // THE PAID POOL ALONE since Story 8.8 (epic-8 amendment 46): the R8
+    // passive regen (Story 10.5) has no pool — it pays straight into `hp`,
+    // which the owner already receives every frame.
     repairHp: ship.repairHp,
     // Fitted card LINE ids in fit order (Story 8.1 — catalog v3 renamed the
     // field from `boons`), defensive copy. SELF-PRIVATE like upg/boostUntil:
@@ -179,8 +150,8 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // invariant keeps its SIX declared exceptions; the zone itself reaches
     // observers through the separate `foulZones` channel, which says nothing
     // about who is slowed. The predictor folds CONFIG.foulingShell.slowFactor
-    // while `serverNow < fouledUntil` — no factor rides (a consumable has no
-    // tiers), unlike the mine's `slowFactor` above.
+    // while `serverNow < fouledUntil` — no factor rides (the shell's tiers
+    // step its radius, never its slow), unlike the mine's `slowFactor` above.
     ...(ship.fouledUntil > now ? { fouledUntil: ship.fouledUntil } : {}),
     // THE FLASH SHELLS DAZZLE (Story 8.17, amendment 132; RESTORED by Story
     // 10.9 beside the foul stamp): the server time the dazzle ends, OMITTED
@@ -191,11 +162,6 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // `effectiveSight(stats, dazzledUntil, serverNow)` from it (the whiteout's
     // clear circle, epic-10 amendment 5), so its fog hole is honest.
     ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
-    // THE SPEED BUOY's clock (Story 10.9, ruling 6): the last tick this hull
-    // stood inside an own SPEED BUOY — PRESENT while its shared `buoyTail` is
-    // still above 0, OMITTED after. The predictor folds the same
-    // combinedBoostFactor from it. SELF-PRIVATE on the boostUntil terms.
-    ...ownSpeedBuoy(ship, now),
     // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
     // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
     // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
@@ -228,17 +194,15 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // blip, a ballistic event or a spectator payload — so the master
     // perception invariant keeps exactly SIX declared exceptions.
     ...(ship.hunkerUntil > 0 ? { hunkerUntil: ship.hunkerUntil } : {}),
-    // The SHIELD BLOCK seat (Story 8.16, amendments 100/116–118): present IFF
-    // a shield is UP — hp left and not yet expired (the gate nulls a spent or
-    // lapsed seat lazily, on the next hit, so the frame re-checks `until`) —
-    // OMITTED otherwise, never an `undefined` value. SELF-PRIVATE BY
-    // CONSTRUCTION on the boostUntil terms: it rides `you` and NOTHING else,
-    // so the perception exception count stays at SIX.
-    ...ownShield(ship, now),
-    // THE SHIELD BUOY's pool (Story 10.9, ruling 4): present IFF it holds hp
-    // (ceil'd for display like the block's); OMITTED otherwise. SELF-PRIVATE
-    // on the boostUntil terms — the count stays SIX.
-    ...ownBuoyShield(ship),
+    // THE TWO COOLDOWN ABILITIES (Story 10.5, epic-10 amendment 10, R1/R2):
+    // HULL REPAIR's and SMOKE's ready times, each PRESENT IFF still in the
+    // future (cooling) and OMITTED while ready — never 0, never `undefined`
+    // (the slowedUntil precedent). SELF-PRIVATE BY CONSTRUCTION on the
+    // boostUntil terms: they ride `you` and NOTHING else — never a Contact, a
+    // blip, an event or a spectator payload (a spectator frame carries no
+    // `you` at all) — so no observer can learn another captain's cooldowns
+    // and the perception exception count stays SIX.
+    ...ownCooldowns(ship, now),
   };
 }
 
@@ -279,24 +243,23 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
 /**
- * The five OPTIONAL contact-like channels, on one rule for both frame paths:
+ * The four OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
- * zone-free / decoy-free / cloud-free frames stay byte-identical to pre-1.7
- * frames. WIRE ORDER (key insertion, load-bearing for msgpack): `litZones`
- * (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit
- * zone's gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the
- * burn zone's gate, `{id,x,y,r,until,by}` each), `decoys` (Story 8.16), then
- * `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
- * `{id,x,y,t0}` each; 8.18's `smoke` seat). FOG HAS NO CHANNEL (Story 9.10):
+ * zone-free / cloud-free frames stay byte-identical to pre-1.7 frames. WIRE
+ * ORDER (key insertion, load-bearing for msgpack): `litZones` (Story 1.7),
+ * `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit zone's
+ * gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the burn
+ * zone's gate, `{id,x,y,r,until,by}` each), then `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
+ * `{id,x,y,t0}` each; 8.18's `smoke` seat). The DECOY BUOYS' `decoys`
+ * channel left with Story 10.5. FOG HAS NO CHANNEL (Story 9.10):
  * the field is public weather off the welcome seed and the schema cut; its
  * hiding is the toll inside every sight site, never a frame key.
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'decoys' | 'clouds'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'clouds'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
     ...(view.foulZones.length > 0 ? { foulZones: view.foulZones } : {}),
-    ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
     ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
   };
 }
@@ -316,7 +279,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       contacts: view.contacts,
       events: view.events,
       mines: view.mines,
-      // litZones / burnZones / foulZones / decoys / clouds: OPTIONAL on the
+      // litZones / burnZones / foulZones / clouds: OPTIONAL on the
       // wire (see optionalChannels — the same rule on both paths).
       ...optionalChannels(view),
       spec: true,
@@ -335,7 +298,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...optionalChannels(view), // litZones / burnZones / foulZones / decoys / clouds, omitted when none
+    ...optionalChannels(view), // litZones / burnZones / foulZones / clouds, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

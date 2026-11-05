@@ -35,7 +35,7 @@
 // built test situation still reads exactly what it reads.
 //
 // PARITY. Everything read is the bot's own self-read, its own track store
-// and fogged view (decoys included), the public map / fog, and the zone
+// and fogged view, the public map / fog, and the zone
 // readouts of amendment 190. No world import, no rng, no clock read.
 
 import {
@@ -44,7 +44,6 @@ import {
   effectiveStats,
   hullBumper,
   hullEnvelope,
-  type DecoyView,
   type HullId,
   type NavGrid,
   type Vec2,
@@ -57,7 +56,6 @@ import {
   closingSpeed,
   damageEstimate,
   estimatedRemainingHp,
-  isDecoyPlot,
   ownReachU,
   plotAt,
   ringDeadband,
@@ -209,9 +207,8 @@ function freshGate(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind |
  *  contact with the longer gun is left for cover). */
 function gateVerdict(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind | null): Exclude<GateVerdict, 'decline'> | null {
   const tracks = mind === null ? [target] : tracksOf(mind);
-  const decoys = mind?.view?.decoys ?? [];
-  if (outnumbered(sit, target, tracks, decoys)) return null;
-  const odds = oddsFor(sit, target, tracks, decoys);
+  if (outnumbered(sit, target, tracks)) return null;
+  const odds = oddsFor(sit, target, tracks);
   const bar = sit.profile.oddsThreshold;
   if (odds >= bar) return 'pursue';
   if (sit.profile.leansIn && odds >= bar * CONFIG.bots.leanInFactor) return 'pursue';
@@ -252,10 +249,9 @@ export function oddsFor(
   sit: BotSituation,
   target: BotTrack,
   tracks: readonly BotTrack[],
-  decoys: readonly DecoyView[],
 ): number {
   const hpFrac = sit.maxHp > 0 ? sit.hp / sit.maxHp : 0;
-  const crowd = CONFIG.bots.crowdPenalty * Math.max(0, nearbyHostiles(sit, target, tracks, decoys) - 1);
+  const crowd = CONFIG.bots.crowdPenalty * Math.max(0, nearbyHostiles(sit, target, tracks) - 1);
   return (hpFrac * (1 + damageEstimate(target))) / peerFactor(sit, target) - crowd;
 }
 
@@ -265,22 +261,16 @@ export function outnumbered(
   sit: BotSituation,
   target: BotTrack,
   tracks: readonly BotTrack[],
-  decoys: readonly DecoyView[],
 ): boolean {
-  return nearbyHostiles(sit, target, tracks, decoys) >= CONFIG.bots.outnumberedCount;
+  return nearbyHostiles(sit, target, tracks) >= CONFIG.bots.outnumberedCount;
 }
 
 /** Other HOSTILE tracks within the bot's radar range: not the target, not a
- *  wreck, not PvE fleet, not a decoy (known or probable — amendment 197). */
-export function nearbyHostiles(
-  sit: BotSituation,
-  target: BotTrack,
-  tracks: readonly BotTrack[],
-  decoys: readonly DecoyView[],
-): number {
+ *  wreck, not PvE fleet (the decoy exclusion left with the buoys, Story 10.5). */
+export function nearbyHostiles(sit: BotSituation, target: BotTrack, tracks: readonly BotTrack[]): number {
   let n = 0;
   for (const t of tracks) {
-    if (t === target || t.sunk || t.fleet || isDecoyPlot(t, decoys)) continue;
+    if (t === target || t.sunk || t.fleet) continue;
     const p = plotAt(sit, t);
     if (Math.hypot(p.x - sit.x, p.y - sit.y) <= sit.stats.radarRange) n += 1;
   }
@@ -382,15 +372,13 @@ function stillLatched(mind: BotMind | null, sit: BotSituation): boolean {
 /**
  * THE CONTACT CLOCK (amendment 196's broken-contact half): stamp
  * `mind.lastContactAt` with the latest moment any hostile was SEEN (a live
- * track: now) or PAINTED (its last paint time). Wrecks and decoys (known or
- * probable) are not contact. Reads paint times, not "painted this tick", so
+ * track: now) or PAINTED (its last paint time). Wrecks are not contact. Reads paint times, not "painted this tick", so
  * a paint between two deliberations still counts.
  */
 export function noteContact(mind: BotMind, now: number): void {
-  const decoys = mind.view?.decoys ?? [];
   let last = mind.lastContactAt ?? -1;
   for (const t of mind.contacts.values()) {
-    if (t.sunk || isDecoyPlot(t, decoys)) continue;
+    if (t.sunk) continue;
     last = Math.max(last, t.live ? now : t.paintAt);
   }
   mind.lastContactAt = last;
@@ -440,11 +428,10 @@ function refreshCover(mind: BotMind, sit: BotSituation, threat: Vec2 | null, pre
  *  hostile the bot tracks, else nothing. */
 function threatOf(sit: BotSituation, target: BotTrack | null, mind: BotMind): Vec2 | null {
   if (target !== null) return plotAt(sit, target);
-  const decoys = mind.view?.decoys ?? [];
   let best: Vec2 | null = null;
   let bestD = Infinity;
   for (const t of mind.contacts.values()) {
-    if (t.sunk || isDecoyPlot(t, decoys)) continue;
+    if (t.sunk) continue;
     const p = plotAt(sit, t);
     const d = Math.hypot(p.x - sit.x, p.y - sit.y);
     if (d < bestD) {

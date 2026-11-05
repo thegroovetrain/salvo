@@ -1,21 +1,23 @@
 // THE TACTIC KIT — the shared vocabulary every bot tactic row is written in.
 //
 // The tactic rows live in three files by what they drive: ai/equipment.ts
-// (the weapons: gun, Q/E/R lines), ai/shift.ts (the three class Shifts) and
-// ai/consumables.ts (the belt). ai/tacticRegistry.ts assembles them into the
-// TOTAL registries tactics.ts reads. Everything more than one of those files
-// needs lives HERE, so the imports flow one way and never cycle:
+// (the weapons: gun, Q/E/R lines — the three moved since Story 10.5 in
+// ai/movedWeapons.ts) and ai/shift.ts (the class Shifts); the two cooldown
+// abilities (HULL REPAIR / SMOKE) are ai/abilities.ts. ai/tacticRegistry.ts
+// assembles the slot rows into the TOTAL registry tactics.ts reads.
+// Everything more than one of those files needs lives HERE, so the imports
+// flow one way and never cycle:
 //
-//   tacticKit  <-  equipment / shift / consumables  <-  tacticRegistry  <-  tactics
+//   tacticKit  <-  equipment / shift / abilities  <-  tacticRegistry  <-  tactics
 //
 // (A cycle would read a `const` row before its module had evaluated it.)
 //
 // What lives here: the tactic types, the appetite resolver and thresholds,
 // aiming (lead solve + scatter + the coastline check), the torpedo shot solve
-// (shared by both torpedo lines and the SUPERCAV belt fish), the sector
-// placement (mines and the buoys), the live-contact burst (PHOSPHOR
-// SHELLS and the FOULING SHELL) with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
-// cues (the Shift and SHIELD BLOCK) and the registry freezer.
+// (shared by all three torpedo lines), the sector placement (mines), the
+// live-contact burst (PHOSPHOR SHELLS, FLASH SHELLS and the FOULING SHELL)
+// with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
+// cues and the registry freezer.
 //
 // No rng is drawn anywhere in a want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
@@ -29,12 +31,9 @@ import {
   twinSectorArcFor,
   twinSectorSide,
   wrapAngle,
-  type BuoyKind,
-  type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
   type Rng,
-  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
@@ -57,7 +56,7 @@ const TAU = Math.PI * 2;
 export type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
 
 /** The HEAVY torpedo's bow sector, the LIGHT torpedo's TWIN beam sectors and
- *  the SUPERCAV consumable's narrow bow cone — resolved ONCE at module load
+ *  the SUPERCAV's narrow bow cone — resolved ONCE at module load
  *  from the single shared arc source the server rows enforce with, so a bot
  *  never solves a shot its own weapon refuses. */
 const BOW_SECTOR = sectorArcFor('heavyTorpedo');
@@ -104,6 +103,11 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   broadside: APPETITE_NEUTRAL,
   starShells: APPETITE_NEUTRAL,
   phosphorShells: APPETITE_NEUTRAL,
+  // Story 10.5: the three moved weapons at the neutral base (their belt rows'
+  // appetite, carried over — no profile names them).
+  supercavTorpedo: APPETITE_NEUTRAL,
+  dazzleShells: APPETITE_NEUTRAL,
+  foulingShell: APPETITE_NEUTRAL,
 });
 
 /** How eager this profile is about one equipment id — the profile's own entry,
@@ -130,8 +134,8 @@ export interface Shot {
 }
 
 /** How a tactic's output reaches the world: a 'shot' needs a target and is
- *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine /
- *  decoy) is resolved ABOVE it — a placement's own want() decides whether it
+ *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine) is
+ *  resolved ABOVE it — a placement's own want() decides whether it
  *  needs a target; an 'ability' rides the actSeq channel (chooseAct). */
 export type TacticKind = 'shot' | 'placement' | 'ability';
 
@@ -150,16 +154,12 @@ export interface TacticContext {
 }
 
 /**
- * ONE SLOT ITEM'S BOT TACTIC — the shape every row shares. A fitted slot may
- * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (its kind's fixed slot, 5-10),
- * the two id spaces are disjoint, and each has its OWN registry keyed by its
- * OWN id (`EQUIPMENT_TACTICS` / `CONSUMABLE_TACTICS`) so neither record ever
- * grows a fake row. `tacticFor` is the one lookup that spans them, narrowing
- * through the shared guard rather than a cast — exactly the two-registry
- * discipline `slotRow` uses on the server side.
+ * ONE SLOT ITEM'S BOT TACTIC — the shape every row shares. A fitted slot holds
+ * a piece of EQUIPMENT (Story 10.5 deleted the consumable belt and its
+ * registry); `tacticFor` is the one lookup, `slotRow`'s bot-side twin.
  */
 export interface SlotTactic {
-  readonly id: SlotItemId;
+  readonly id: EquipmentId;
   readonly kind: TacticKind;
   /** u — the effective COMMITTED reach at these stats (the band pull's input;
    *  0 = never pulls). For a shot weapon this is the range it is genuinely
@@ -176,12 +176,6 @@ export interface SlotTactic {
 /** One equipment's bot tactic — the weapon axis (and the Shift slot). */
 export interface EquipmentTactic extends SlotTactic {
   readonly id: EquipmentId;
-}
-
-/** One consumable line's bot tactic — the BELT axis (epic-8 amendment 49).
- *  Same shape, narrower id. */
-export interface ConsumableTactic extends SlotTactic {
-  readonly id: ConsumableId;
 }
 
 /** Freeze every row, then the table — the registries are deep-frozen like the
@@ -280,8 +274,7 @@ function torpedoAimLegal(id: TorpedoLineId | 'supercavTorpedo', heading: number,
   return inArc(aim, wrapAngle(heading + sector.offset), sector.halfArc);
 }
 
-/** One torpedo shot solve, shared by both equipment lines and the supercav
- *  belt fish: lead at THIS weapon's speed, refuse out of THIS weapon's arc
+/** One torpedo shot solve, shared by all three torpedo lines: lead at THIS weapon's speed, refuse out of THIS weapon's arc
  *  (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
 export function solveTorpedoShot(
   ctx: TacticContext,
@@ -308,30 +301,7 @@ export function solveTorpedoShot(
 /** A drop commanded at the centre of the given ratified placement sector —
  *  so arc and range pass by construction and only the water can refuse
  *  (`blockedWater` is the SAME predicate the equipment rows deny with). The
- *  mines drop this way; the buoys try it bearing by bearing (ringPlacement). */
-/** The ring solver's bearing step (rad) — twelve candidate bearings round
- *  the hull. A sampling resolution, not a gameplay dial. */
-const RING_STEP = Math.PI / 6;
-
-/**
- * THE FULL-CIRCLE drop (Story 10.9, ruling 9 — the buoys' 360° arc): the
- * first WATER-LEGAL point at `dropU` (the full placeRange), trying dead
- * astern first (the mine's sector centre, `CONFIG.mine.offset` — where the
- * DECOY BUOY always dropped) and then fanning out alternately port and
- * starboard round the whole circle; null when every candidate is ashore or
- * off the disk. Range passes by construction; only the water can refuse
- * (`blockedWater`, the equipment row's own predicate).
- */
-export function ringPlacement(ctx: TacticContext, dropU: number): Shot | null {
-  const steps = Math.round((2 * Math.PI) / RING_STEP);
-  for (let i = 0; i < steps; i++) {
-    const k = Math.ceil(i / 2) * (i % 2 === 0 ? 1 : -1);
-    const shot = sectorPlacement(ctx, { offset: CONFIG.mine.offset + k * RING_STEP }, dropU);
-    if (shot !== null) return shot;
-  }
-  return null;
-}
-
+ *  mines drop this way. */
 export function sectorPlacement(
   ctx: TacticContext,
   sector: { offset: number },
@@ -344,8 +314,8 @@ export function sectorPlacement(
 }
 
 /** The nearest LIVE, actionable track inside our own truesight bubble — the
- *  target the PHOSPHOR SHELLS row and the engaging FOULING SHELL row burst
- *  on. `keep` narrows the candidates (the astern pick below); the default
+ *  target the PHOSPHOR SHELLS row and the engaging FLASH / FOULING SHELL rows
+ *  burst on. `keep` narrows the candidates (the astern pick below); the default
  *  keeps every track. The bubble is the bot's EFFECTIVE sight (`ownSightU` —
  *  a flashed bot's clear circle, gate fix F8). */
 export function nearestLiveInSight(ctx: TacticContext, keep: (t: BotTrack) => boolean = () => true): BotTrack | null {
@@ -449,14 +419,6 @@ export function healthy(sit: BotSituation): boolean {
   return sit.maxHp > 0 && sit.hp / sit.maxHp >= sit.profile.disengageHpFrac;
 }
 
-/** Is one of the bot's OWN buoys of `kind` on the water (Story 10.9 — the
- *  DECOY BUOY's `ownDecoyLive`, now per kind)? The owner is always sent its
- *  own (`DecoyView.own`, the decoy row's owner-always clause), and every view
- *  carries `kind`. */
-export function ownBuoyLive(mind: BotMind, kind: BuoyKind): boolean {
-  return mind.view?.decoys.some((d) => d.own && d.kind === kind) ?? false;
-}
-
 /** THE HARNESS STAMP (Story 9.13): record the tactic row that produced a shot
  *  on the mind's `lastTactic` seat and hand the shot through. A null shot
  *  stamps nothing. */
@@ -465,8 +427,8 @@ export function stamped(ctx: TacticContext, row: string, shot: Shot | null): Sho
   return shot;
 }
 
-/** Postures in which HUNKER / SHIELD BLOCK also fire with a hostile in weapon
- *  reach (amendment 199): pursuing, kiting, fleeing, hiding. */
+/** Postures in which HUNKER also fires with a hostile in weapon reach
+ *  (amendment 199): pursuing, kiting, fleeing, hiding. */
 const REACH_GUARD_POSTURES: readonly BotPosture[] = ['pursue', 'kite', 'disengage', 'hide'];
 
 /** The last seconds before a ram (amendment 199): the ram posture with its
@@ -480,8 +442,8 @@ function preRam(ctx: TacticContext): boolean {
  * COMBAT: the bot's own `engage` posture, with a target; (b) a seen enemy
  * torpedo inbound on a collision line within 150 u (ai/torpedoThreat.ts);
  * (c) the last seconds before a ram; (d) pursuing, kiting, fleeing or hiding
- * with ANY fresh hostile inside the mounted gun's reach. Shared by the HUNKER
- * Shift and the SHIELD BLOCK belt row (amendment 124(g)).
+ * with ANY fresh hostile inside the mounted gun's reach. The HUNKER Shift's
+ * (the SHIELD BLOCK belt row that shared them left with Story 10.5).
  */
 export function hunkerCues(ctx: TacticContext): boolean {
   if (ctx.posture === 'engage' && ctx.target !== null) return true;

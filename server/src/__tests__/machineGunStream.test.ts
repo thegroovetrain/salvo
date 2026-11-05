@@ -56,7 +56,7 @@ function gunner(w: World, id: string, x = 0, y = 0, heading = 0): ShipRecord {
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 400, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 400, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Drive `ticks` ticks with the given level, collecting every tick's events. */
