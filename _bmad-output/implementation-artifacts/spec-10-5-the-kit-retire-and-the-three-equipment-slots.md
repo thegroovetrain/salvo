@@ -2,8 +2,9 @@
 title: 'Story 10.5: The Kit Retire and the Three Equipment Slots'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'f063f3be'
+final_revision: '7cb0e33a (code, review-gate patches) + the closing records commit at the PR head on worktree-story-10-5-kit-retire-equipment-slots'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -98,20 +99,20 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- add the R1 / R2 cooldowns and R4 reloads, the R7 radius step; delete `shieldBlock`, `buoy`, `droneDrops` -- numbers.
-- [ ] `shared/src/sim/{loadout,catalog,boons,draw,effects,stats,arcs}.ts` -- five slots (battery, Shift, torpedo, mine, shell); slot families; one kind per slot in the draw and the refusal gate; `supercavTorpedo` / `dazzleShells` / `foulingShell` become equipment lines with tiers (R4, R7, 8(e)); consumable lines, kit functions and stock deleted; `broadside` undealable with a dated note; `depthCharge` stays a stub -- slot and catalog model.
-- [ ] `shared/src/sim/abilities.ts` (new), `shell.ts`, `buoy.ts` (deleted), `types.ts`, `index.ts` -- pure cooldown law for `C` / `V`; decoy target kind and buoy preference removed; wire: ability press, own cooldown fields, removed kit / shield / buoy / decoy / drop fields; PV 97 -- wire contract.
-- [ ] `shared/src/constants.ts`, `shared/src/sim/regen.ts` (new), `server/src/game/world.ts` -- `CONFIG.regen` (R8: 0.02 of missing per second, 15 000 ms wait) and one pure regen law read by the heal step off `lastDamagedAt` (already written at the one damage gate, reader-less since 10.3); the client learns hp from frames as today -- passive regen.
-- [ ] `shared/src/sim/stats.ts`, `shared/src/sim/secondaries.ts`, `server/src/game/equipment/instantReload.ts` + reload-rescale sites, `client/src/sim/ownBattery*.ts` -- R9 / R10: the RELOAD multiply reaches the main battery only; INSTANT RELOAD zeroes heat on both sides (one shared helper); the running-reload rescale applies to turrets only -- RELOAD scope.
-- [ ] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (cooldown law, family fill, one-kind refusal, tier radius, draw never offers a second kind); delete kit / buoy / shield tests -- contracts.
-- [ ] `server/src/game/equipment/*`, `world.ts`, `decoys.ts` (deleted) -- two cooldown abilities; the three moved weapons on the reload pool; consumable rows, shield order, decoy store, buoy steps and drone drops removed; `STEP_ORDER` re-declared -- authoritative sim.
-- [ ] `server/src/game/{inputs,frames,signals,perception}.ts`, `server/src/rooms/*` -- validate the ability press; own block; remove the `decoy` channel and kit join path; trim and extend the invariant tests; re-record goldenFrames with a dated note -- chokepoint and join.
-- [ ] `server/src/game/ai/*` -- bots press `C` when hurt and `V` under fire on the cooldowns, and fire slot weapons through the existing tactics (flash / fouling / supercav tactics move to the weapon table); kit, buoy and shield logic removed -- functional bots.
-- [ ] `server/scripts/**` -- smokes and harness lose kits, decoys and drops; `weaponsSmoke` gains a HULL REPAIR cooldown phase, a SMOKE phase and a one-kind-per-slot phase -- smokes.
-- [ ] `client/src/input/*`, `sim/*`, `main.ts`, `net/*` -- `C` / `V` presses; right click cancels a ready and a ready blocks secondaries; belt keys 1–4 keep only the refit pick; kit, shield, buoy and drop plumbing removed -- input and state.
-- [ ] `client/src/render/*`, `config.ts` -- hotbar Gun · Sec · Shift · Q · E · R · C · V with cooldown wipes, empty-slot look for an unfilled family slot, belt frame gone; shield fill and buoy renderers deleted; the flash burst disc draws the tiered radius -- HUD.
-- [ ] `client/src/ui/*` -- kit picker and CONSUMABLES row deleted; `settings.ts` key rows for Q / E / R, C, V, right click; card copy rows for the three moved lines -- chrome.
-- [ ] `_bmad-output/**`, `VERSION`, `package.json` -- amendment 11 (rulings verbatim + readings) in the amendments file AND the compiled context, DESIGN.md dated stamps, deferred-work, both trackers one line each, 0.19.8 -- records.
+- [x] `shared/src/constants.ts` -- add the R1 / R2 cooldowns and R4 reloads, the R7 radius step; delete `shieldBlock`, `buoy`, `droneDrops` -- numbers.
+- [x] `shared/src/sim/{loadout,catalog,boons,draw,effects,stats,arcs}.ts` -- five slots (battery, Shift, torpedo, mine, shell); slot families; one kind per slot in the draw and the refusal gate; `supercavTorpedo` / `dazzleShells` / `foulingShell` become equipment lines with tiers (R4, R7, 8(e)); consumable lines, kit functions and stock deleted; `broadside` undealable with a dated note; `depthCharge` stays a stub -- slot and catalog model.
+- [x] `shared/src/sim/abilities.ts` (new), `shell.ts`, `buoy.ts` (deleted), `types.ts`, `index.ts` -- pure cooldown law for `C` / `V`; decoy target kind and buoy preference removed; wire: ability press, own cooldown fields, removed kit / shield / buoy / decoy / drop fields; PV 97 -- wire contract.
+- [x] `shared/src/constants.ts`, `shared/src/sim/regen.ts` (new), `server/src/game/world.ts` -- `CONFIG.regen` (R8: 0.02 of missing per second, 15 000 ms wait) and one pure regen law read by the heal step off `lastDamagedAt` (already written at the one damage gate, reader-less since 10.3); the client learns hp from frames as today -- passive regen.
+- [x] `shared/src/sim/stats.ts`, `shared/src/sim/secondaries.ts`, `server/src/game/equipment/instantReload.ts` + reload-rescale sites, `client/src/sim/ownBattery*.ts` -- R9 / R10: the RELOAD multiply reaches the main battery only; INSTANT RELOAD zeroes heat on both sides (one shared helper); the running-reload rescale applies to turrets only -- RELOAD scope.
+- [x] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (cooldown law, family fill, one-kind refusal, tier radius, draw never offers a second kind); delete kit / buoy / shield tests -- contracts.
+- [x] `server/src/game/equipment/*`, `world.ts`, `decoys.ts` (deleted) -- two cooldown abilities; the three moved weapons on the reload pool; consumable rows, shield order, decoy store, buoy steps and drone drops removed; `STEP_ORDER` re-declared -- authoritative sim.
+- [x] `server/src/game/{inputs,frames,signals,perception}.ts`, `server/src/rooms/*` -- validate the ability press; own block; remove the `decoy` channel and kit join path; trim and extend the invariant tests; re-record goldenFrames with a dated note -- chokepoint and join.
+- [x] `server/src/game/ai/*` -- bots press `C` when hurt and `V` under fire on the cooldowns, and fire slot weapons through the existing tactics (flash / fouling / supercav tactics move to the weapon table); kit, buoy and shield logic removed -- functional bots.
+- [x] `server/scripts/**` -- smokes and harness lose kits, decoys and drops; `weaponsSmoke` gains a HULL REPAIR cooldown phase, a SMOKE phase and a one-kind-per-slot phase -- smokes.
+- [x] `client/src/input/*`, `sim/*`, `main.ts`, `net/*` -- `C` / `V` presses; right click cancels a ready and a ready blocks secondaries; belt keys 1–4 keep only the refit pick; kit, shield, buoy and drop plumbing removed -- input and state.
+- [x] `client/src/render/*`, `config.ts` -- hotbar Gun · Sec · Shift · Q · E · R · C · V with cooldown wipes, empty-slot look for an unfilled family slot, belt frame gone; shield fill and buoy renderers deleted; the flash burst disc draws the tiered radius -- HUD.
+- [x] `client/src/ui/*` -- kit picker and CONSUMABLES row deleted; `settings.ts` key rows for Q / E / R, C, V, right click; card copy rows for the three moved lines -- chrome.
+- [x] `_bmad-output/**`, `VERSION`, `package.json` -- amendment 11 (rulings verbatim + readings) in the amendments file AND the compiled context, DESIGN.md dated stamps, deferred-work, both trackers one line each, 0.19.8 -- records.
 
 **Acceptance Criteria:**
 - Given a fresh match, when a captain spawns, then the three equipment slots are empty, `C` and `V` are ready, and no consumable, shield or buoy can be obtained by any path (offer, dev fit, drone kill).
@@ -140,6 +141,44 @@ Verdicts: Blind Hunter BUILD-ON-IT (3 low findings, 7 suspicion areas traced cle
   - `[low]` `[patch]` Edge Case Hunter: `familySlotFor` returned `undefined` for an unknown id → `null`, own keys only (`shared/src/sim/loadout.ts`); test red first.
 - deferred (ledger): exhausted hull keeps banking levels (10.7); INSTANT RELOAD unpredicted on the client (HUD / UX pass); add-on eligibility vs the host's family slot (10.6); an `actSeq` jump evaluates only the newest `act` (no owner).
 - rejected: How-to-Play staleness (frozen until 10.14, already on the ledger).
+
+## Auto Run Result
+
+**Summary.** The consumable kit, SHIELD BLOCK, the four buoys / decoys and drone drops are deleted. HULL REPAIR (`C`, 90 s) and SMOKE (`V`, 60 s) are per-ship cooldown abilities. The three weapon slots are family slots — `Q` torpedo, `E` mine, `R` special shell — one kind per slot for the match; SUPERCAV, FLASH SHELLS and FOULING SHELL are reloading slot weapons. Passive healing is back (2 % of missing hull per second after 15 s without hull damage). RELOAD scales every reload except the three Shift abilities; INSTANT RELOAD also cools the secondaries. The hotbar is Gun · Sec · Shift · Q · E · R · C · V. Cycle 214, 0.19.7 → 0.19.8, PROTOCOL_VERSION 96 → 97, epic-10 amendment 11 (renumbered from 213 / 0.19.7 / 10 after PR #321 landed first; `origin/development` merged in).
+
+**Eric's rulings in this run:** R1–R7 at the spec step; R8 passive healing (30 s, then 15 s); the empty-offer ruling (10.7); R9 (built) reversed by R11; R10; the hotbar candidate (v1 changes, LMB / RMB chips, v2 approved as shown).
+
+**Files changed (by area).**
+- `shared/src` — `constants.ts`, `types.ts`, `index.ts`, `sim/{loadout,catalog,boons,draw,effects,stats,arcs,shell,secondaries}.ts`, new `sim/abilities.ts` and `sim/regen.ts`, `sim/buoy.ts` deleted.
+- `server/src` — `game/{world,inputs,frames,signals,perception,drones}.ts`, `game/equipment/*` (new `burstShells.ts`; `consumables*` deleted), `game/decoys.ts` deleted, `game/ai/*` (new `abilities.ts`, `movedWeapons.ts`; `consumables.ts` deleted), `rooms/*`.
+- `server/scripts` — every smoke and the harness on `InputMsg.act`; kit / decoy / shield / drop readouts removed; `weaponsSmoke` phases 10–14.
+- `client/src` — `input/{keyboard,mouse,rightClick}.ts`, `render/{hotbar,hotbarSquares,hudBar,equipmentInfo,…}.ts`, `sim/abilityLatch.ts`, `ui/*` (kit picker deleted), `net/*`, `main.ts`; buoy / decoy renderers deleted.
+- `_bmad-output/**`, `VERSION`, `package.json` — amendment 11, DESIGN.md stamps, ledger, trackers, 0.19.8.
+
+**Waves (per `/orchestrate`).** 1 shared — Fable; 2a server, 2b client, 2c server finish + RELOAD scope, 2d client follow-ups, 3 smokes + harness, merge + renumber + R11, gate patches — Opus; records — Sonnet; review gate — Fable Blind Hunter + Fable Edge Case Hunter + Codex `gpt-5.6-sol`.
+
+**Verification (final tree, 7cb0e33a, run by the orchestrator).**
+
+| Check | Result |
+|---|---|
+| `npm run check` | EXIT 0 — eslint 0 errors (3 old warnings); shared 1320, server 2709, client 4074; hook 266 |
+| Tests before → after | shared 1340 → 1320, server 2841 → 2709, client 4195 → 4074 (deleted features' tests removed; none skipped) |
+| `matchSmoke` | PASS first try |
+| `weaponsSmoke` (scratch server :2699, killed after) | PASS first try — repair `blocked` at full hull, +100 and a 90 000 ms stamp, `cooling` on the second press; regen first rise 15 000 ms after the blow; smoke cloud + 60 000 ms stamp; a second torpedo kind refused; flash from slot 4 with `r` = folded radius |
+| Other smokes (wave 3 tree) | smoke, prediction, opening, reconnect, metrics, queue, lobby, solo, liveness PASS; fog, combat, zone RED on heuristic piloting (standing ledger entry, red before this story) |
+| goldenFrames | re-recorded with dated notes and diffed against both merge parents |
+| Rendered candidate | https://claude.ai/artifact/JnVc6K2ihRxPmr6LEtRtLZ — v2 APPROVED AS SHOWN by Eric |
+
+**Review findings.** 4 patches (low; one test-only), 4 deferred to the ledger, 1 rejected — see the Review Triage Log.
+
+**Residual risks.**
+- With regen back, one tier-I torpedo tube can never sink a full hull alone (the heal between hits outpaces it); two-tube tier-III stacks kill in 4–5 hits. Recorded, not ruled.
+- An exhausted hull (45 cards) banks levels it cannot spend and the HUD chip still shows them — rides with Eric's 10.7 ruling.
+- INSTANT RELOAD is not predicted on the client: turrets and heat update one server frame later.
+- SUPERCAV reloads in about 64 s on Yamato (RELOAD 70) — Eric's accepted tradeoff.
+- Readings Eric may veto: a right button held before a weapon is readied resumes the secondaries once it fires; passive regen excludes PvE drones; the empty mine and shell placeholders look alike; the results strip's empty slot shows a dash.
+- How-to-Play still teaches the retired kit until 10.14. `gds-workflow-status.yaml` does not parse as strict YAML (already so on `development`).
+- Bots are functional, not tuned (10.12): no wait-to-heal, dropped favorites for fouling shell / supercav.
 
 ## Design Notes
 
