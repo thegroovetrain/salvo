@@ -14,18 +14,26 @@
 //       ready — and the fire solution (reach clamp, parallel barrels, muzzle
 //       clear of the own hull);
 //   (5) reload bookkeeping, the hotbar summary and the contact wire codec;
-//   (6) a hull with no battery (a PvE drone) degrades to the empty answer.
+//   (6) a hull with no battery (a PvE drone) degrades to the empty answer;
+//   (7) the review-gate patches: the fallback pick ranks a blind-parked
+//       turret by how wide it really points (P2), an aim on the centreline
+//       never makes a turret flip between stops (P3), and an aim with no
+//       bearing — zero distance, or on a turret's own station — holds (P4).
 
 import { describe, it, expect } from 'vitest';
 import {
+  AIM_STATION_EPS_U,
   CONFIG,
   DRONE_HULL_IDS,
   SHIP_CLASS_IDS,
+  U_PER_M,
   aimPointOf,
+  batteryAimPoint,
   batterySummary,
   copyTurrets,
   decodeTurretAngle,
   desiredTurretAngle,
+  desiredTurretAngleFrom,
   effectiveStats,
   encodeTurretAngles,
   fireTurret,
@@ -238,20 +246,30 @@ describe('stepTurrets — traverse at the rate, hard stops, never through the bl
       const blindSide = (sign: number): Vec2 => aimAt(POSE, sign * 0.05, FAR); // just off the bow: an aft turret's blind sector
       const states = initialTurrets(id);
       settle(states, id, POSE, blindSide(1));
-      expect(offRest(id, i, states[i].a)).toBeCloseTo(-train, 6); // parked at the nearer stop (the aim's own side)
-      // Swing the aim across the bow: the nearer stop is now the OTHER one.
+      expect(offRest(id, i, states[i].a)).toBeCloseTo(-train, 6); // from rest: parked at the nearer stop (the aim's own side)
+      // Swing the aim across the bow, still inside the blind sector: the turret
+      // STAYS on the stop it is on (it would be a long way round for nothing).
+      const parked = states[i].a;
+      for (let t = 0; t < 50; t += 1) stepTurrets(states, id, POSE, blindSide(-1), DT);
+      expect(states[i].a).toBe(parked);
+      // Now a target it CAN reach, on the far side of the gap: just inside the other train limit.
+      const margin = 0.05;
+      const st = turretStationWorld(id, i, POSE);
+      const brg = POSE.heading + turretRest(mounts[i]) + (train - margin);
+      const farSide: Vec2 = { x: st.x + Math.cos(brg) * FAR, y: st.y + Math.sin(brg) * FAR };
+      expect(turretBears(id, i, POSE, farSide)).toBe(true);
       const path: number[] = [];
       for (let t = 0; t < 400; t += 1) {
-        stepTurrets(states, id, POSE, blindSide(-1), DT);
+        stepTurrets(states, id, POSE, farSide, DT);
         path.push(offRest(id, i, states[i].a));
       }
-      expect(path[path.length - 1]).toBeCloseTo(train, 6);
-      // It swept the whole arc: through rest (0), never past either stop.
+      expect(path[path.length - 1]).toBeCloseTo(train - margin, 6);
+      // It swept the arc the long way: through rest (0), never past either stop.
       expect(path.some((o) => Math.abs(o) < STEP)).toBe(true);
       for (const o of path) expect(Math.abs(o)).toBeLessThanOrEqual(train + 1e-12);
-      // …and it took the long way's time: two train limits at the rate.
-      const arrived = path.findIndex((o) => Math.abs(o - train) < 1e-9);
-      expect(arrived + 1).toBe(Math.ceil((2 * train) / STEP - 1e-9));
+      // …and it took the long way's time: the whole travel at the rate, not the short hop across the gap.
+      const arrived = path.findIndex((o) => Math.abs(o - (train - margin)) < 1e-9);
+      expect(arrived + 1).toBe(Math.ceil((2 * train - margin) / STEP - 1e-9));
     }
   });
 
@@ -569,6 +587,214 @@ describe('a hull with no battery (a PvE drone) has no turrets', () => {
       const stray: TurretState[] = [{ a: 1, reloadMsLeft: 100 }];
       stepTurrets(stray, hull, POSE, { x: 0, y: 0 }, DT);
       expect(stray).toEqual([{ a: 1, reloadMsLeft: 100 }]); // no mount, nothing stepped
+    }
+  });
+});
+
+describe('THE FALLBACK PICK ranks by the TRUE bearing error (review-gate patch P2)', () => {
+  const id: ShipClassId = 'bismarck';
+  const DEG = Math.PI / 180;
+  const mounts = turretMounts(id);
+  const fwd = mounts.flatMap((m, i) => (m.facing === 'fwd' ? [i] : []));
+  const aft = mounts.flatMap((m, i) => (m.facing === 'aft' ? [i] : []));
+  const blind = Math.PI - turretTrainRad(id); // how wide of the bow an aft turret parked on its stop points
+
+  /** Every turret settled on an aim dead ahead: the forward turrets on it, the aft turrets parked on a stop. */
+  const settledAhead = (aim: Vec2): TurretState[] => {
+    const states = initialTurrets(id);
+    settle(states, id, POSE, aim);
+    for (const i of aft) expect(Math.abs(offRest(id, i, states[i].a))).toBeCloseTo(turretTrainRad(id), 9);
+    return states;
+  };
+
+  it('aim dead ahead, a forward turret ready and a degree short, an aft turret parked on its stop: the FORWARD turret fires', () => {
+    const ahead = aimAt(POSE, 0, FAR);
+    const states = settledAhead(ahead);
+    expect(1 * DEG).toBeGreaterThan(TOL); // the premise: a degree short is not "on target"
+    expect(1 * DEG).toBeLessThan(blind); // …and far nearer than the parked aft turret's real error
+    fwd.forEach((i, k) => { states[i].a += (1 + k) * DEG; }); // the bow turret 1° short, the next 2°
+    const pick = pickTurret(states, id, POSE, ahead)!;
+    expect(pick.onTarget).toBe(false);
+    expect(pick.index).toBe(fwd[0]);
+    expect(Math.abs(wrapAngle(pick.bearing - POSE.heading))).toBeCloseTo(1 * DEG, 9); // a degree wide, not the stop's 35°
+  });
+
+  it('a blind-parked turret ranks by how wide it really points: it loses to a turret nearer the aim and beats one farther off, whichever side of the centreline the aim sits', () => {
+    for (const side of [-1, 1]) {
+      const ahead = aimAt(POSE, side * 1e-4, FAR);
+      for (const sign of [-1, 1]) {
+        // The aft turrets parked on EITHER stop: the same real error both ways.
+        const states = settledAhead(ahead);
+        for (const i of aft) states[i].a = turretRest(mounts[i]) + sign * turretTrainRad(id);
+        fwd.forEach((i) => { states[i].a = blind * 0.5; }); // forward turrets nearer than the parked ones
+        expect(fwd, `${side}/${sign} near`).toContain(pickTurret(states, id, POSE, ahead)!.index);
+        fwd.forEach((i) => { states[i].a = blind * 1.5; }); // …and now farther off than them
+        const pick = pickTurret(states, id, POSE, ahead)!;
+        expect(aft, `${side}/${sign} far`).toContain(pick.index);
+        expect(pick.onTarget).toBe(false);
+      }
+    }
+  });
+
+  it('the on-target test is unchanged: inside the arc and inside the tolerance still fires at the aim point', () => {
+    const abeam = aimAt(POSE, Math.PI / 2, 600);
+    const states = initialTurrets(id);
+    settle(states, id, POSE, abeam);
+    states[0].a += TOL * 0.9;
+    expect(pickTurret(states, id, POSE, abeam)).toMatchObject({ index: 0, onTarget: true });
+  });
+});
+
+describe('AN AIM ON THE CENTRELINE never makes a turret flip between stops (review-gate patch P3)', () => {
+  const JITTER = 1e-6;
+
+  it.each(SHIP_CLASS_IDS)('%s: aim dead astern with ±1e-6 rad of jitter — a forward turret travels monotonically to ONE stop and stays there', (id) => {
+    const train = turretTrainRad(id);
+    const states = initialTurrets(id);
+    const path: number[] = [0];
+    for (let t = 0; t < 100; t += 1) {
+      stepTurrets(states, id, POSE, aimAt(POSE, Math.PI + (t % 2 === 0 ? JITTER : -JITTER), FAR), DT);
+      path.push(offRest(id, 0, states[0].a));
+    }
+    expect(100 * STEP).toBeGreaterThan(train); // the premise: 100 ticks is time enough to reach a stop
+    const dir = Math.sign(path[1]);
+    expect(dir).not.toBe(0);
+    for (let k = 1; k < path.length; k += 1) {
+      expect((path[k] - path[k - 1]) * dir, `tick ${k}`).toBeGreaterThanOrEqual(0); // never a step back
+    }
+    expect(path[path.length - 1]).toBeCloseTo(dir * train, 9);
+    expect(path.slice(-10).every((o) => o === path[path.length - 1])).toBe(true);
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: aim dead ahead with jitter — an aft turret does the same, starting on either jitter phase', (id) => {
+    const train = turretTrainRad(id);
+    const i = turretMounts(id).findIndex((m) => m.facing === 'aft');
+    for (const phase of [0, 1]) {
+      const states = initialTurrets(id);
+      const path: number[] = [0];
+      for (let t = 0; t < 100; t += 1) {
+        stepTurrets(states, id, POSE, aimAt(POSE, (t + phase) % 2 === 0 ? JITTER : -JITTER, FAR), DT);
+        path.push(offRest(id, i, states[i].a));
+      }
+      const dir = Math.sign(path[1]);
+      for (let k = 1; k < path.length; k += 1) expect((path[k] - path[k - 1]) * dir, `tick ${k}`).toBeGreaterThanOrEqual(0);
+      expect(path[path.length - 1]).toBeCloseTo(dir * train, 9);
+    }
+  });
+
+  it('desiredTurretAngleFrom: at rest it is the nearer stop; off rest it is the stop on the side the turret already is; inside the arc it is desiredTurretAngle', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const train = turretTrainRad(id);
+      turretMounts(id).forEach((m, i) => {
+        const rest = turretRest(m);
+        const station = turretStationWorld(id, i, POSE);
+        const at = (off: number): Vec2 => ({ x: station.x + Math.cos(POSE.heading + rest + off) * 700, y: station.y + Math.sin(POSE.heading + rest + off) * 700 });
+        const blindOff = (train + Math.PI) / 2; // halfway into the blind sector, on the positive side
+        for (const side of [-1, 1]) {
+          const aim = at(side * blindOff);
+          // At rest: the nearer stop — the stateless rule.
+          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest) - rest, `${id}/${i}`).toBeCloseTo(side * train, 9);
+          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest)).toBeCloseTo(desiredTurretAngle(id, i, POSE, aim), 12);
+          // Off rest on the OTHER side: it keeps its own side, however near the other stop is.
+          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest - side * 0.2) - rest, `${id}/${i}`).toBeCloseTo(-side * train, 9);
+          expect(desiredTurretAngleFrom(id, i, POSE, aim, rest - side * train) - rest, `${id}/${i}`).toBeCloseTo(-side * train, 9);
+        }
+        // Inside the arc the current angle does not matter.
+        for (const off of [-train * 0.9, -0.3, 0, 0.7, train * 0.9]) {
+          for (const cur of [rest - train, rest, rest + 0.4]) {
+            expect(desiredTurretAngleFrom(id, i, POSE, at(off), cur)).toBeCloseTo(desiredTurretAngle(id, i, POSE, at(off)), 12);
+          }
+        }
+      });
+    }
+  });
+});
+
+describe('AN AIM WITH NO BEARING holds the turrets (review-gate patch P4)', () => {
+  it('batteryAimPoint: no aim (null) for a distance that is not a finite number above zero; aimPointOf for any real distance, however short', () => {
+    for (const dist of [0, -0, -5, Number.NaN, Infinity, -Infinity]) {
+      expect(batteryAimPoint(POSE, 0.4, dist), `${dist}`).toBeNull();
+    }
+    expect(batteryAimPoint(POSE, Number.NaN, 300)).toBeNull();
+    for (const dist of [AIM_STATION_EPS_U / 10, 0.5, 40, 900, 5000]) {
+      expect(batteryAimPoint(POSE, 0.4, dist), `${dist}`).toEqual(aimPointOf(POSE, 0.4, dist));
+    }
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: a zero aim distance leaves every turret where it is — a neutral input never slews the battery to its stops', (id) => {
+    const states = initialTurrets(id);
+    settle(states, id, POSE, aimAt(POSE, 0.8, 900));
+    const before = states.map((s) => s.a);
+    fireTurret(states, 0, 1000);
+    for (let t = 0; t < 100; t += 1) stepTurrets(states, id, POSE, batteryAimPoint(POSE, 0.8, 0), DT);
+    expect(states.map((s) => s.a)).toEqual(before);
+    expect(states[0].reloadMsLeft).toBe(0); // the reloads still ran
+    // …and from the spawn state too: nothing leaves rest.
+    const fresh = initialTurrets(id);
+    for (let t = 0; t < 100; t += 1) stepTurrets(fresh, id, POSE, batteryAimPoint(POSE, 0, 0), DT);
+    expect(fresh).toEqual(initialTurrets(id));
+  });
+
+  it("stepTurrets: an aim point ON a turret's own station holds THAT turret for the step; the others still traverse", () => {
+    for (const id of SHIP_CLASS_IDS) {
+      turretMounts(id).forEach((_, i) => {
+        const pose: AimPose = { x: 40, y: -70, heading: 2.2 }; // a heading where atan2(0, 0) = 0 is NOT where turret i points
+        const station = turretStationWorld(id, i, pose);
+        for (const aim of [station, { x: station.x + AIM_STATION_EPS_U / 4, y: station.y - AIM_STATION_EPS_U / 4 }]) {
+          const states = initialTurrets(id);
+          const before = states.map((s) => s.a);
+          for (let t = 0; t < 100; t += 1) stepTurrets(states, id, pose, aim, DT);
+          expect(states[i].a, `${id}/${i}`).toBe(before[i]);
+          // Every other turret has a real bearing to that point and is free to chase it.
+          states.forEach((s, k) => {
+            if (k !== i) expect(s.a, `${id}/${i}/${k}`).toBe(desiredTurretAngleFrom(id, k, pose, aim, s.a));
+          });
+          expect(desiredTurretAngleFrom(id, i, pose, aim, before[i])).toBe(before[i]);
+        }
+      });
+    }
+  });
+
+  it('stepTurrets: a point that is not finite moves nothing and writes no NaN', () => {
+    const id = SHIP_CLASS_IDS[0];
+    const states = initialTurrets(id);
+    stepTurrets(states, id, POSE, { x: Number.NaN, y: 0 }, DT);
+    expect(states).toEqual(initialTurrets(id));
+  });
+
+  it("pickTurret: a turret with the aim point on its own station is never on target and ranks LAST; the pick's numbers are always finite", () => {
+    const id: ShipClassId = 'bismarck';
+    const pose: AimPose = { x: 10, y: 20, heading: 0 }; // heading 0 + turret 0 at rest = the bearing atan2(0, 0) reads
+    const aim = turretStationWorld(id, 0, pose);
+    const states = initialTurrets(id);
+    const pick = pickTurret(states, id, pose, aim)!;
+    expect(pick.index).not.toBe(0); // any turret with a real bearing outranks it
+    for (const v of [pick.bearing, pick.aimDistU, pick.station.x, pick.station.y]) expect(Number.isFinite(v)).toBe(true);
+    // Only turret 0 ready: a click still fires (R4), along where it points, at no distance.
+    states.forEach((_, i) => { if (i !== 0) fireTurret(states, i, 5000); });
+    const lone = pickTurret(states, id, pose, aim)!;
+    expect(lone).toMatchObject({ index: 0, onTarget: false, aimDistU: 0 });
+    expect(lone.bearing).toBe(pose.heading + states[0].a);
+    const salvo = turretSalvo(lone, id, pose, 1000, MAP_R);
+    for (const sh of salvo.shells) {
+      for (const v of [sh.origin.x, sh.origin.y, sh.target.x, sh.target.y]) expect(Number.isFinite(v)).toBe(true);
+    }
+    // A junk point: still a pick, still finite.
+    const junk = pickTurret(initialTurrets(id), id, pose, { x: Number.NaN, y: Number.NaN })!;
+    expect(junk).toMatchObject({ index: 0, onTarget: false, aimDistU: 0 });
+    expect(Number.isFinite(junk.bearing)).toBe(true);
+  });
+});
+
+describe('the hull scale is exported (review-gate patch P6)', () => {
+  it('U_PER_M is the one scale every battleship hull was authored at: length and beam are whole decimetres of a real ship', () => {
+    expect(U_PER_M).toBeGreaterThan(0);
+    for (const id of SHIP_CLASS_IDS) {
+      const { length, beam } = hullEnvelope(id).hull;
+      for (const u of [length, beam]) {
+        const dm = (u / U_PER_M) * 10;
+        expect(Math.abs(dm - Math.round(dm)), `${id} ${u}`).toBeLessThan(1e-6);
+      }
     }
   });
 });

@@ -7,12 +7,28 @@
 // 50 ms tick off the held level (`InputMsg.sec`), and the client steps its own
 // with the same call (corrected from `OwnShip.sec`).
 //
-//   - While HELD and not locked: one round every `CONFIG.secondaries.rateMs`,
-//     and heat rises linearly — cold to full over `overheatMs` of firing.
+// THE HEAT LAW IS PER ROUND (review-gate patch P1 — the orchestrator's
+// ruling on R3's numbers; the earlier per-held-tick law let a tapped button
+// fire about twice a hold's rounds and never overheat):
+//
+//   - While HELD and not locked: one round every `CONFIG.secondaries.rateMs`.
+//   - EVERY ROUND FIRED adds `rateMs / overheatMs` of heat, so a continuous
+//     hold goes cold to full over `overheatMs` of fire.
+//   - A round's own `rateMs` window NEVER COOLS: while the gun is still busy
+//     with its last round (`untilRoundMs > 0`) heat holds, button held or not.
+//     Heat drains — full to zero over `coolMs` — only for time OUTSIDE such a
+//     window in which no new round fires. The split is exact inside a step
+//     (a window that ends 20 ms into a 50 ms step leaves 30 ms of cooling),
+//     so the law is the same against any tick and any press pattern.
 //   - Reaching full heat LOCKS the guns: no round fires, held or not, until
-//     heat is back to ZERO.
-//   - Whenever not firing (released, or locked) heat drains linearly — full to
-//     zero over `coolMs`.
+//     heat is back to ZERO. The step in which heat reaches zero only unlocks;
+//     a held button fires again on the next step.
+//
+// What that buys: heat is a ledger of rounds, so NO press pattern beats the
+// duty cycle — each round's heat takes `rateMs × coolMs / overheatMs` of idle
+// time to shed, so the long-run rate can never exceed one round per
+// `rateMs × (1 + coolMs / overheatMs)` (plus one full heat's worth of rounds
+// banked at the start).
 //
 // THE RATE IS EXACT AGAINST ANY TICK. `untilRoundMs` is the time until the
 // next round is due; a step fires every round that falls due inside it and
@@ -27,7 +43,7 @@
 
 import { CONFIG } from '../constants.js';
 
-/** Float slack on the two heat thresholds — 80 steps of 50 / 4000 must reach "full" on the 80th, not the 81st. */
+/** Float slack on the two heat thresholds — a whole number of rounds that sums to "full" must lock on the last of them, not one later. */
 const HEAT_EPS = 1e-9;
 
 /** A hull's secondaries state. */
@@ -36,7 +52,11 @@ export interface SecondariesState {
   heat: number;
   /** True from the step heat reaches 1 until the step it is back to 0: no round fires while locked. */
   locked: boolean;
-  /** ms until the next round is due (0 = a round may fire now). */
+  /**
+   * ms until the next round is due (0 = a round may fire now) — which is also
+   * how much of the LAST round's own rate window is still running: no heat
+   * drains while this is above zero.
+   */
   untilRoundMs: number;
 }
 
@@ -52,31 +72,24 @@ export function initialSecondaries(): SecondariesState {
   return { heat: 0, locked: false, untilRoundMs: 0 };
 }
 
-/** Fire every round that falls due inside this step; returns how many. */
-function fireDue(state: SecondariesState, dtMs: number): number {
-  const rateMs = CONFIG.secondaries.rateMs;
-  let until = state.untilRoundMs - dtMs;
-  let rounds = 0;
-  while (until <= 0) {
-    rounds += 1;
-    until += rateMs;
-  }
-  state.untilRoundMs = until;
-  return rounds;
+/** Heat of ONE round fired, as a fraction of full: `rateMs / overheatMs`. */
+export function secondariesHeatPerRound(): number {
+  return CONFIG.secondaries.rateMs / CONFIG.secondaries.overheatMs;
 }
 
-/** Heat for a FIRING step: rise, and lock on reaching full. */
-function heatUp(state: SecondariesState, dtMs: number): void {
-  state.heat += dtMs / CONFIG.secondaries.overheatMs;
+/** Fire one round NOW: its heat lands (locking on reaching full) and its rate window starts. */
+function fireRound(state: SecondariesState): void {
+  state.heat += secondariesHeatPerRound();
   if (state.heat >= 1 - HEAT_EPS) {
     state.heat = 1;
     state.locked = true;
   }
+  state.untilRoundMs = CONFIG.secondaries.rateMs;
 }
 
-/** Heat for a NON-firing step: drain, and unlock on reaching zero. */
-function coolDown(state: SecondariesState, dtMs: number): void {
-  state.heat -= dtMs / CONFIG.secondaries.coolMs;
+/** Drain `ms` of idle time (outside any round's window), unlocking on reaching zero. */
+function coolDown(state: SecondariesState, ms: number): void {
+  state.heat -= ms / CONFIG.secondaries.coolMs;
   if (state.heat <= HEAT_EPS) {
     state.heat = 0;
     state.locked = false;
@@ -85,21 +98,32 @@ function coolDown(state: SecondariesState, dtMs: number): void {
 
 /**
  * ONE STEP of a hull's secondaries, IN PLACE. `held` is the right-mouse level
- * for this tick. Returns the number of rounds that fire this step (0, 1, or
+ * for this step. Returns the number of rounds that fire this step (0, 1, or
  * more when `dtMs` spans several `rateMs`).
  *
- * A step that reaches full heat still fires its own rounds — the lock bites
- * from the NEXT step.
+ * The step is walked in time order: the rest of the last round's window
+ * passes first (no cooling); then, with the gun free, a held unlocked gun
+ * fires a round (heat up, a new window) and the walk repeats, while a
+ * released or locked gun cools for whatever is left of the step. A round due
+ * exactly on the step's end fires in this step. The round that reaches full
+ * heat is fired; the lock stops the next one.
  */
 export function stepSecondaries(state: SecondariesState, held: boolean, dtMs: number): number {
-  if (held && !state.locked) {
-    const rounds = fireDue(state, dtMs);
-    heatUp(state, dtMs);
-    return rounds;
+  if (!(dtMs > 0)) return 0;
+  let left = dtMs;
+  let rounds = 0;
+  for (;;) {
+    const busy = Math.min(state.untilRoundMs, left);
+    state.untilRoundMs -= busy;
+    left -= busy;
+    if (state.untilRoundMs > 0) return rounds;
+    if (!held || state.locked) {
+      coolDown(state, left);
+      return rounds;
+    }
+    fireRound(state);
+    rounds += 1;
   }
-  state.untilRoundMs = Math.max(0, state.untilRoundMs - dtMs);
-  coolDown(state, dtMs);
-  return 0;
 }
 
 /**

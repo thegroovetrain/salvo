@@ -29,7 +29,7 @@ const RUNG = (SIGHT * 3) / 12;
 // the design-sitting page, epic-10 amendment 7(b)): every battleship's hull
 // dims are its real length overall and beam in metres times this. The RATIOS
 // between hulls are ruled; this one number is the dial.
-const U_PER_M = 0.4585;
+export const U_PER_M = 0.4585;
 
 /**
  * THE ORDNANCE TARGET MASKS (Story 8.4, AR44). Every ordnance row declares,
@@ -872,6 +872,17 @@ export const CONFIG = {
      */
     kiteHoldFrac: 0.9,
     /**
+     * SECONDARIES HEAT DISCIPLINE (Story 10.4 review gate) — a bot holding
+     * its secondaries (sim/secondaries.ts) RELEASES them once heat reaches
+     * `secReleaseHeat` and does not press again until heat is at or below
+     * `secRepressHeat` (and any lock has cleared), so it fires in bursts and
+     * never rides the gun into a lock. Fractions of full heat, release above
+     * re-press. An ORCHESTRATOR READING for Story 10.4, not an Eric number;
+     * tuned at Story 10.12.
+     */
+    secReleaseHeat: 0.8,
+    secRepressHeat: 0.2,
+    /**
      * GUN DOCTRINE BANDS (epic-9 amendment 198, [accepted 2026-10-17]) —
      * [min, max] fractions of each gun's FULL-DAMAGE radius the bot holds
      * the target inside; the profile only nudges the band. machineGun and
@@ -1682,7 +1693,10 @@ export const CONFIG = {
    * of commission until it fully cools"): one round of `damage` every
    * `rateMs` while held; `overheatMs` of continuous fire reaches full heat;
    * full heat LOCKS the guns until heat is back to zero; full → zero takes
-   * `coolMs`; heat drains whenever not firing (sim/secondaries.ts).
+   * `coolMs`. The heat law is PER ROUND (review-gate patch): each round adds
+   * `rateMs / overheatMs`, and heat drains only for time outside a fired
+   * round's own `rateMs` window — so tapping the button buys no extra rounds
+   * (sim/secondaries.ts).
    *
    * Reach is `rangeFrac` of the hull's FOLDED main-battery reach (so RANGE
    * moves both). The round is today's machine-gun round, READING OF RECORD:
