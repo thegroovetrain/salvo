@@ -493,9 +493,11 @@ export interface OwnShip {
   /**
    * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
    * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
-   * still unspent). The server's bare banked-level COUNT — every level banks
-   * here, including a degenerate one whose draw came up empty (which surfaces
-   * `offer: []` below). Self-private by
+   * still unspent). The server's bare banked-level COUNT. A hull with NOTHING
+   * DEALABLE banks nothing (Story 10.7, Eric 2026-11-06, R3, epic-10
+   * amendment 13): when a draw comes up empty the level still counts in `lvl`
+   * but is not banked, so `pts` is 0 for such a hull and the XP strip never
+   * advertises an unspendable level. Self-private by
    * construction: it rides `you` ONLY, never a Contact or spectator payload.
    */
   pts: number;
@@ -511,6 +513,14 @@ export interface OwnShip {
    * on an unresolvable id (row k must stay server slot k).
    */
   offer: string[];
+  /**
+   * The captain's one countdown REDRAW is USED (Story 10.7, Eric 2026-11-06,
+   * R4, epic-10 amendment 13; PROTOCOL_VERSION 99) — server truth
+   * (`ShipRecord.mulliganed`), so the REDRAW pip reads right after a reconnect.
+   * It replaces the client's own inference of it. Self-private like `pts`: it
+   * rides `you` and NOTHING else.
+   */
+  rd: boolean;
   /**
    * ms — server-clock time the active speed-boost window ends (Story 1.6);
    * `0` = inactive. The boost is live while `serverNow < boostUntil`, driving
@@ -536,8 +546,9 @@ export interface OwnShip {
   /**
    * Levels COMPLETED so far this life-of-the-match (Story 2.6) — an integer,
    * starting at 0 and wiped with the build at the match boundary. Every level
-   * banks one point (see `pts`): `lvl` is the running total earned, `pts` what
-   * is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`cards` — it
+   * banks one point while the hull has something dealable (see `pts` — a hull
+   * with nothing dealable keeps counting here but banks nothing): `lvl` is the
+   * running total earned, `pts` what is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`cards` — it
    * rides `you` and NOTHING else (never a Contact, blip, ballistic event,
    * boom, spectator payload, or the roster schema). An enemy's level is
    * inferable only from what their ship does on the water.

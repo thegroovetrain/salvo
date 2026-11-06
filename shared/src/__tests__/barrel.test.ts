@@ -75,7 +75,6 @@ import {
   drawOffer,
   eligibleLines,
   lineWeight,
-  usableLines,
   hookKinematics,
   isStubLine,
   resolveCards,
@@ -228,7 +227,6 @@ describe('shared barrel', () => {
     expect(Number.isInteger(MULLIGAN_CHOICE)).toBe(true);
     expect(MULLIGAN_CHOICE).toBeLessThan(-1);
     expect(MULLIGAN_CHOICE >= 0 && MULLIGAN_CHOICE < CONFIG.offer.size).toBe(false);
-    expect(typeof usableLines).toBe('function'); // the guarantee's one shared helper
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {
@@ -657,7 +655,7 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE COMMON POOL DRAW + the offer/spend wire shape (Story 8.14)', () => {
-    for (const fn of [drawOffer, eligibleLines, lineWeight, usableLines]) {
+    for (const fn of [drawOffer, eligibleLines, lineWeight]) {
       expect(typeof fn).toBe('function');
     }
     // THE DECK AND THE MATCH POOL ARE GONE (Eric ruling 2026-09-21, epic-8
@@ -676,6 +674,9 @@ describe('shared barrel', () => {
       'rollMatchPool',
       'sanitizePool',
       'consumableLines',
+      // The level-zero guarantee's helper, retired with it (Story 10.7, epic-10
+      // amendment 13: the Equipment slot supersedes the guarantee).
+      'usableLines',
     ]) {
       expect((shared as Record<string, unknown>)[name], name).toBeUndefined();
     }

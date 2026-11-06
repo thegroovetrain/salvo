@@ -3,7 +3,17 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  98 — Story 10.6 THE CATALOG UNDER THE INDEX (Eric 2026-11-05, epic-10
+ *  99 — Story 10.7 OFFER COMPOSITION (Eric 2026-11-06, epic-10 amendment 13,
+ *  rulings R1–R4): OwnShip gains the REQUIRED `rd` (the captain's one
+ *  countdown REDRAW is used — server truth, self-private, replacing the
+ *  client's inference so the pip survives a reconnect); the offer draw law
+ *  changed — `drawOffer` deals the four-slot TYPE plan [ship, equipment,
+ *  wildcard, wildcard] (a wildcard a 50 / 50 flip), the kind-share stage
+ *  (epic-8 amendment 92) and the level-zero weapon guarantee (amendment 93)
+ *  are retired, and a hull with nothing dealable banks no level (`pts` 0).
+ *  `BoonOffer` stays line ids; no slot type rides the wire. Perception
+ *  exception count stays SIX.
+ *  98 —Story 10.6 THE CATALOG UNDER THE INDEX (Eric 2026-11-05, epic-10
  *  amendment 12): torpedoes leave deck LAUNCHERS and mines leave RACKS —
  *  OwnShip gains optional `launchers` (per launcher: angle + per-tube reload,
  *  present while the torpedo slot is filled) and `racks` (per rack: mines +
@@ -993,7 +1003,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 98;
+export const PROTOCOL_VERSION = 99;
 
 // Tunables
 export * from './constants.js';

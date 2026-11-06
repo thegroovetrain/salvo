@@ -2861,14 +2861,14 @@ export const CONFIG = {
    * (sim/draw.ts). There is no deck and no match pool any more (Eric ruling
    * 2026-09-21, epic-8 amendment 89a).
    *
-   * THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92): for each
-   * card, stage 1 picks the KIND — a weapon (copy 1 of an equipment line) or
-   * an upgrade (a tier card, a ladder rung, the mounted gun's ladder, an
-   * add-on) — with each kind's odds equal to its SHARE of the lines currently
-   * eligible for that ship; stage 2 picks WHICH line within that kind (the
-   * `consumable` kind left with the kit, 2026-11-05, Story 10.5; the two
-   * survivors keep their relative shares). So `weighting` below changes WHICH weapon is drawn and never the odds
-   * of drawing A weapon at all.
+   * THE DRAW IS A FOUR-SLOT TYPE PLAN (Story 10.7, Eric 2026-11-06, epic-10
+   * amendment 13): `[ship, equipment, wildcard, wildcard]` — a Ship card (a
+   * ladder rung), an Equipment card (a bare weapon, a tier card or an
+   * add-on), then wildcards that each flip 50 / 50 for a type while both have
+   * lines; a slot whose type is dry takes the other. It retired the two-stage
+   * kind-share draw (amendment 92) and the level-zero weapon guarantee
+   * (amendment 93). `weighting` below changes only WHICH bare weapon a line
+   * walk lands on, never a slot's type.
    *
    * THE WEIGHTING (amendment 90; named by amendment 91 — it is called
    * WEIGHTING): each OTHER participant, human or bot, who has taken COPY 1 of
@@ -2883,7 +2883,9 @@ export const CONFIG = {
    * lines, which were dealt even at their cap, and they are gone. An offer is
    * SHORTER than `size` when fewer than `size` lines are still eligible for
    * the ship, and empty once it holds every ladder and every slotted weapon at
-   * its cap (45 cards: six ladders and three slot weapons, five each).
+   * its cap (45 cards: six ladders and three slot weapons, five each). Since
+   * Story 10.7 (R3) such a hull with nothing dealable BANKS NO LEVEL: its level
+   * still counts, but nothing unspendable is ever banked.
    */
   offer: {
     size: 4, // card lines per offer — drawn from the common pool, all different
