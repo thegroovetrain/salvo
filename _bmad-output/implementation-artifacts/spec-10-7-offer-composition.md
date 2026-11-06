@@ -2,8 +2,9 @@
 title: 'Story 10.7: Offer Composition'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '75089a23'
+final_revision: '60c277e0'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -68,15 +69,15 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/draw.ts` -- replace `DrawKind` with an offer TYPE (`ship` | `equipment`) on `Eligible` plus what weighting needs to know a bare weapon; replace `pickKind` / the guarantee with the four-slot plan in `drawOffer` (see Design Notes); delete `usableLines`, `pickUsable`, the `guarantee` option; rewrite the header with a dated retirement note for amendments 92 (kind share) and 93 (guarantee) -- the composition law
-- [ ] `shared/src/types.ts`, `shared/src/index.ts` -- add own-row field `rd: boolean` ("the one countdown REDRAW is used") with doc; fix the `pts` doc; barrel follows draw.ts; `PROTOCOL_VERSION = 99` + history line -- wire contract
-- [ ] `shared/src/sim/offers.ts`, `shared/src/constants.ts`, `shared/src/sim/boons.ts` -- bring the stale comments in line (no value changes) -- docs match code
-- [ ] `shared/src/__tests__/draw.test.ts` (+ `barrel.test.ts`, `catalogUnderIndex.test.ts`) -- property tests over many seeds and generated ship states for every matrix row: plan invariants, fallback, no duplicate, short / empty, zero rng on empty, determinism (same inputs → same offer), weighting touches only bare weapons; delete kind-odds and guarantee tests -- contract coverage
-- [ ] `server/src/game/world.ts` -- drop `guarantee` plumbing; an empty draw banks nothing: after it `bankedLevels` is 0 and no `pt` is pushed (covers `grantPoint`, the next-level draw in `spendCard`, `mulligan`); comments -- R3
-- [ ] `server/src/game/frames.ts` -- `rd: ship.mulliganed` on the own row only -- R4
-- [ ] `server/src/__tests__/*`, golden snapshot, `server/scripts/openingSmoke.mjs` -- update to the new law: exhausted / all-stub hull banks 0; opening and redrawn offers hold a takeable bare weapon in the Equipment slot; `rd` false → true on redraw and still true in a frame built after reconnect; contacts never carry `rd`; regenerate the golden snapshot and READ the diff (only `rd` and drawn offers may move) -- server contract
-- [ ] `client/src/main.ts`, `client/src/ui/upgradeMenu.ts`, `client/src/render/xpStrip.ts`, client tests -- the pip reads `you.rd`; remove `g.mulliganUsed` and whatever inference existed only to feed the pip (keep the spend-latch release behavior); stale comment; tests on the pure view -- R4 client
-- [ ] records (orchestrator) -- `epic-10-context-amendments.md` amendment 13 + `epic-10-context.md`, `deferred-work.md` (close the two exhausted-hull entries and the REDRAW pip entry), both trackers, `VERSION` / `package.json` 0.19.10, `CHANGELOG.md`, dated stamp on Story 10.7 in `epics.md`
+- [x] `shared/src/sim/draw.ts` -- replace `DrawKind` with an offer TYPE (`ship` | `equipment`) on `Eligible` plus what weighting needs to know a bare weapon; replace `pickKind` / the guarantee with the four-slot plan in `drawOffer` (see Design Notes); delete `usableLines`, `pickUsable`, the `guarantee` option; rewrite the header with a dated retirement note for amendments 92 (kind share) and 93 (guarantee) -- the composition law
+- [x] `shared/src/types.ts`, `shared/src/index.ts` -- add own-row field `rd: boolean` ("the one countdown REDRAW is used") with doc; fix the `pts` doc; barrel follows draw.ts; `PROTOCOL_VERSION = 99` + history line -- wire contract
+- [x] `shared/src/sim/offers.ts`, `shared/src/constants.ts`, `shared/src/sim/boons.ts` -- bring the stale comments in line (no value changes) -- docs match code
+- [x] `shared/src/__tests__/draw.test.ts` (+ `barrel.test.ts`, `catalogUnderIndex.test.ts`) -- property tests over many seeds and generated ship states for every matrix row: plan invariants, fallback, no duplicate, short / empty, zero rng on empty, determinism (same inputs → same offer), weighting touches only bare weapons; delete kind-odds and guarantee tests -- contract coverage
+- [x] `server/src/game/world.ts` -- drop `guarantee` plumbing; an empty draw banks nothing: after it `bankedLevels` is 0 and no `pt` is pushed (covers `grantPoint`, the next-level draw in `spendCard`, `mulligan`); comments -- R3
+- [x] `server/src/game/frames.ts` -- `rd: ship.mulliganed` on the own row only -- R4
+- [x] `server/src/__tests__/*`, golden snapshot, `server/scripts/openingSmoke.mjs` -- update to the new law: exhausted / all-stub hull banks 0; opening and redrawn offers hold a takeable bare weapon in the Equipment slot; `rd` false → true on redraw and still true in a frame built after reconnect; contacts never carry `rd`; regenerate the golden snapshot and READ the diff (only `rd` and drawn offers may move) -- server contract
+- [x] `client/src/main.ts`, `client/src/ui/upgradeMenu.ts`, `client/src/render/xpStrip.ts`, client tests -- the pip reads `you.rd`; remove `g.mulliganUsed` and whatever inference existed only to feed the pip (keep the spend-latch release behavior); stale comment; tests on the pure view -- R4 client
+- [x] records (orchestrator) -- `epic-10-context-amendments.md` amendment 13 + `epic-10-context.md`, `deferred-work.md` (close the two exhausted-hull entries and the REDRAW pip entry), both trackers, `VERSION` / `package.json` 0.19.10, `CHANGELOG.md`, dated stamp on Story 10.7 in `epics.md`
 
 **Acceptance Criteria:**
 - Given any reachable ship state, when an offer is drawn, then the plan invariants of the matrix hold and no line repeats.
@@ -87,6 +88,19 @@ warnings: ['oversized']
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-11-06 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 2, low 2)
+- defer: 1: (low 1)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` Weighting moved the odds of a bare weapon against tier cards inside an Equipment draw (Blind Hunter; traced and confirmed by the orchestrator; against Eric's amendment-92 sentence). Fixed: the bare weapons' weights are rescaled to sum to their count (`walkWeights`), so weights bend only WHICH bare weapon; regression test fails without the fix.
+  - `[medium]` `[patch]` A redraw dealing the same four cards held the latch 1.5 s and pulsed "denied" beside a spent pip (Codex, Edge Case Hunter, Blind Hunter — all three). Fixed: for a redraw latch the own row's `rd` is the acknowledgement (`redrawHonored`); regression test fails without the fix.
+  - `[low]` `[patch]` Batch-sim `offer.size=1` has no Equipment slot and would never deal a weapon (Edge Case Hunter). Fixed: the harness refuses `offer.size` below 2.
+  - `[low]` `[patch]` The batch-sim "levels unspent" readout under-reads for a maxed hull (Blind Hunter). Comment in `botMetrics.ts`; ledger entry opened.
+  - defer `[low]`: a leave-and-rejoin during the countdown may grant a fresh redraw and opening — older than this story, untraced; ledger entry opened as Eric's call.
 
 ## Design Notes
 
@@ -104,3 +118,24 @@ An empty eligible set spends no rng. Exhaustion is permanent (taking a card is t
 - `npm run lint` -- expected: 0 errors (complexity ≤ 10)
 - `npm run check` -- expected: EXIT 0
 - `HC_DEV_OPTIONS=1` smokes `matchSmoke`, `weaponsSmoke`, `openingSmoke` on a scratch port against a server booted from `server/` -- expected: OK first try; kill the PID and its tsx child
+
+## Auto Run Result
+
+**Summary:** Every level-up offer is now Ship / Equipment / wildcard / wildcard (R1: 50 / 50 wildcard coin; R2: a redraw re-rolls everything). A hull with nothing dealable banks no levels (R3). The own frame row carries `rd`, and the REDRAW pip reads it (R4; PV 98 → 99). The level-zero weapon guarantee and the kind-share stage are retired. Cycle 216, 0.19.10, epic-10 amendment 13.
+
+**Files changed:**
+- `shared/src/sim/draw.ts` — the four-slot type plan, `OfferType`, `Eligible.bareWeapon`, the weighting rescale; `usableLines` and the guarantee deleted
+- `shared/src/types.ts`, `shared/src/index.ts` — `OwnShip.rd`; PROTOCOL_VERSION 99
+- `shared/src/constants.ts`, `shared/src/sim/offers.ts`, `shared/src/sim/boons.ts` — comments
+- `server/src/game/world.ts` — an empty draw zeroes the bank; guarantee plumbing removed
+- `server/src/game/frames.ts` — `rd` on the own row
+- `server/scripts/openingSmoke.mjs`, `server/scripts/batchsim/overrides.ts`, `botMetrics.ts` — smoke follows the plan; harness floor 2 on `offer.size`; comment
+- `client/src/ui/upgradeMenu.ts`, `client/src/main.ts`, `client/src/render/xpStrip.ts` — `redrawState` reads `rd`; `rd` acknowledges a redraw; inference deleted
+- tests in all three workspaces; golden frames re-recorded (`rd` + two drawn offers only)
+- records: amendment 13, epic-10 context, ledger, both trackers, VERSION / package.json, CHANGELOG, epics.md stamp
+
+**Review:** Fable Blind Hunter + Fable Edge Case Hunter + Codex gpt-5.6-sol, all "build on it". 4 patches applied, 1 deferred (plus one ledger note), 0 rejected.
+
+**Verification:** `npm run check` EXIT 0 on the final tree, run by the orchestrator (counts in the PR); `matchSmoke`, `weaponsSmoke`, `openingSmoke` OK.
+
+**Residual risks:** the wildcard coin and the stop-banking rule are untested by play (staging QA is the gate); the weighting dials are still `[DRAFT]`; `gds-workflow-status.yaml` did not parse as YAML before this run (three unescaped apostrophes on `next_expected`) — fixed here.

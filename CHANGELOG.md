@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.10] - 2026-11-06
+
+### Changed
+- **Every level-up offer is one ship upgrade, one equipment card and two wildcards.** The first card is always a ship upgrade and the second always an equipment card (a weapon, a weapon tier or a launcher / rack card). Each of the other two flips a coin between the two kinds. When one kind has nothing left to deal, its slots take the other kind. The opening offer always holds a weapon, as before.
+- **A fully upgraded ship stops banking levels.** Once nothing is left to deal, new levels no longer pile up unspent and the XP strip stops showing a level you cannot spend. Your level number keeps counting.
+- **The REDRAW marker is always right.** The server now tells your client whether your one countdown redraw is used, so the marker survives a reconnect, and a redraw that happens to deal the same four cards no longer flashes as refused.
+- **Wire:** protocol 98 → 99 (the redraw-used flag on your own ship; the offer draw).
+
 ## [0.19.9] - 2026-11-06
 
 ### Changed
