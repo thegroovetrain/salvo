@@ -68,18 +68,24 @@ warnings: ['oversized']
 
 **Noted, not part of this story:** Eric — *"at some point we'll need to take a good look at the scale of the game, maybe its too small now. But hey, for now, its fine."*
 
-## Open rulings (Eric's — asked in chat with this draft; the spec is NOT ready-for-dev until each is answered)
+## Rulings on the draft (Eric 2026-11-05, chat, on the pushed draft)
 
-- **Q1 Launcher tracking.** The turrets chase the cursor at all times. Reading: the launchers do the same (no "only while `Q` is readied" state — the server has none). 
-- **Q2 INSTANT RELOAD on racks.** It loads every tube (10.5 R10: "finishes every Q / E / R reload"). For a rack: fill the rack, or finish the running cycle (one mine per rack)? Reading: one mine per rack.
-- **Q3 HULL REPAIR's over-time window.** Reading: stays 5 s at every card count (the rate rises with the amount).
+- **R13 The launchers chase the cursor at all times, as the turrets do** (*"Sure, why not."*) — no "only while `Q` is readied" state.
+- **R14 INSTANT RELOAD loads every tube and gives ONE mine per rack** (*"One mine per rack."*).
+- **R15 HULL REPAIR's over-time half keeps its 5 s window at every card count** (*"Correct."*) — 200 over 5 s at five cards.
+- **R16 A tube fires only if its launcher CAN point at the aimed area** (veto of reading I1 as worded, verbatim: *"Just like the turrets, if the tube CANNOT POSSIBLY point at the aimed area, it doesn't fire no matter what. I don't want to accidentally waste shots that had no hope of hitting."*). A launcher whose arc does not hold the aim point never fires; with no such launcher the click is refused `out-of-arc` and nothing is spent. Among launchers whose arc DOES hold the aim point the turret rule stands (10.4's early-click rule: on-target first, else the nearest fires along its current bearing). The torpedo leaves from the launcher's station on the deck.
+- **R17 Racks alternate per drop** (veto of reading I4, verbatim: *"They alternate per drop."*). Strict A, B, A, B.
+
+## Open ruling (asked in chat)
+
+- **Q4** Under R17, when the rack whose turn it is is EMPTY and the other holds a mine: refuse the drop, or let the other rack drop? (Rare: both racks drain and restock together.)
 
 ## Implementer readings of record (Eric may veto any; none is a ruling)
 
-- **I1 Which tube fires:** `pickTurret`'s rule over all loaded tubes whose launcher bears on the aim point — on-target first, else the smallest error fires early along the launcher's current bearing. The torpedo leaves from the launcher's station on the deck, not the bow.
+- **I1** RULED — see R16.
 - **I2 Launcher stations:** FORE ahead of the forward turrets, AFT abaft the aft turrets, per hull, on the centerline — positions and art shown to Eric as a RENDERED candidate before commit, with the hotbar's tube / rack display and the one-off card faces (memory: show visual proposals first).
 - **I3 Everything arrives loaded:** a new launcher, tube, rack or expanded rack seat arrives full (today's `reconcilePools` rule).
-- **I4 Rack alternation:** the drop comes from the rack whose turn it is; if that rack is empty and the other is not, the other drops and the turn passes.
+- **I4** RULED — see R17; the empty-turn case is Q4.
 - **I5 Drones keep today's turn rates** (0.9 / 0.752 / 0.6 rad/s) as authored values on their envelopes — R2 is about captain hulls; the drone system is retiring at 10.8.
 - **I6 Smoke size and life are stamped on the cloud at the press** (the owner's cards then) and travel on `CloudView` under the cloud's existing perception gate — a bigger cloud is visible to whoever can already see the cloud. Not a seventh exception.
 - **I7 Launcher angles reach observers exactly as turret angles do** (a contact key beside `tu`, whole degrees, same gate); per-tube and per-rack reloads are self-private on the own block.
@@ -98,7 +104,7 @@ warnings: ['oversized']
 - American spelling; never "fish" for a torpedo.
 
 **Block If:**
-- Any of Q1–Q3 is unanswered, or a new gap in Eric's rulings appears (ask him in chat; never defer a design gap).
+- Q4 is unanswered, or a new gap in Eric's rulings appears (ask him in chat; never defer a design gap).
 - The rendered candidate (I2) has not had Eric's yes before the client art / hotbar / card-face work is committed.
 - A gate error persists (halt and surface; never work around).
 
@@ -115,13 +121,13 @@ warnings: ['oversized']
 | Bonus stays local | Same ship, main battery | 10 s × 100 ÷ 70 — the torpedo's bonus is not applied | — |
 | RELOAD card mid-reload | A tube 50 % through, RELOAD card taken | Remaining time rescaled new ÷ old (2026-08-04 rule), per tube and per rack | — |
 | Fore-only, aim astern | Click inside the 80° wedge astern | Refused `out-of-arc`; nothing spent; launcher holds its angle | Denied mark, as turrets |
-| Both launchers bear | Aim on the beam, 4 tubes loaded | ONE torpedo, from the tube chosen by I1 | — |
+| Both launchers bear | Aim on the beam, 4 tubes loaded | ONE torpedo, from the tube chosen by R16 | — |
 | No tube loaded | Click in arc, all tubes reloading | Refused as `cooling` | Denied mark |
 | SECOND LAUNCHER TUBE before AFT | Tube card, then launcher card | Fore gets 2 tubes; the aft launcher arrives with 2 | — |
 | One-off, slot empty | No torpedo held | AFT / TUBE cards never dealt, and refused if forced | `pickRefusal` |
 | Rack restock | Naval rack 3 → 2 by a drop | Clock starts at once; +1 mine per cycle until full; clock stops when full | — |
 | Two racks | Racks A 3, B 3; four drops | A, B, A, B; both clocks running | — |
-| One rack empty | A 0, B 2; drop | B drops (I4) | — |
+| Turn rack empty | A's turn, A 0, B 2; drop | per Q4 | — |
 | EXPANDED after SECOND | Both cards, captive | 2 racks × 2 = 4 held | — |
 | HULL REPAIR, 3 cards | Press `C` | 160 at once + 160 over time; ready again in 75 × 100 ÷ 115 = 65.2 s on EVERY hull | — |
 | SMOKE, 0 / 2 / 5 cards | Press `V` | 15 s, 124 → 248 u / 17 s, 150 → 300 u / 20 s, ~200 → ~399 u; cooldown 60 / 54.5 / 48 s | — |
@@ -163,13 +169,13 @@ Wave 1 — shared stats and catalog
 - [ ] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (reload law, bonus locality, ability laws, smoke sizes, eligibility, RANGE reach, turn-rate equality); delete pins the rulings retire.
 
 Wave 2 — shared launcher and rack models
-- [ ] `shared/src/sim/turrets.ts` (+ new `sim/launchers.ts`) -- parameterize the stepper / pick / angle codec by a mount spec; launcher mounts from held cards (fore, optional aft, ±140°, battery traverse rate, 1–2 tubes each with its own reload); `arcs.ts` torpedo sectors replaced by the launcher arc union -- R6, I1.
-- [ ] `shared/src/sim/racks.ts` (new), `loadout.ts` -- rack state (1–2 racks, capacity, one clock each restoring one mine per cycle), alternation cursor, slot summary -- R7, I4.
+- [ ] `shared/src/sim/turrets.ts` (+ new `sim/launchers.ts`) -- parameterize the stepper / pick / angle codec by a mount spec; launcher mounts from held cards (fore, optional aft, ±140°, battery traverse rate, 1–2 tubes each with its own reload); `arcs.ts` torpedo sectors replaced by the launcher arc union -- R6, R16.
+- [ ] `shared/src/sim/racks.ts` (new), `loadout.ts` -- rack state (1–2 racks, capacity, one clock each restoring one mine per cycle), alternation cursor, slot summary -- R7, R17.
 - [ ] `shared/src/types.ts`, `index.ts` -- own-block launcher / tube and rack state, contact launcher-angle key, `CloudView` size and life, barrel exports, `PROTOCOL_VERSION` 98.
 - [ ] `shared/src/__tests__/{launchers,racks}.test.ts` -- arc, hold-outside-arc, tube choice, per-tube clocks, rack restock and alternation.
 
 Wave 3 — server
-- [ ] `server/src/game/world.ts`, `equipment/{torpedoCore,torpedoes,mines,ammo,index}.ts` -- launcher state per ship, `stepLaunchers` in `STEP_ORDER`, fire from the picked tube at its station and angle; rack drops; card-driven resize (arrives loaded); rescale, INSTANT RELOAD (per Q2) and reset branches; abilities and cloud from `ship.stats`, cloud stamped at the press -- R5–R9, I1, I3, I6.
+- [ ] `server/src/game/world.ts`, `equipment/{torpedoCore,torpedoes,mines,ammo,index}.ts` -- launcher state per ship, `stepLaunchers` in `STEP_ORDER`, fire from the picked tube at its station and angle; rack drops; card-driven resize (arrives loaded); rescale, INSTANT RELOAD (R14) and reset branches; abilities and cloud from `ship.stats`, cloud stamped at the press -- R5–R9, I1, I3, I6.
 - [ ] `server/src/game/{frames,signals}.ts`, `__tests__/{perception,goldenFrames}.test.ts` -- new keys under the existing gates; invariants extended; golden frames regenerated -- I6, I7.
 - [ ] `server/src/game/ai/*` -- launcher-arc torpedo legality, new card classification, `rudder` favorite dropped -- I8, I9.
 - [ ] `server/src/__tests__/*`, `server/scripts/{weaponsSmoke,matchSmoke}.mjs`, `scripts/batchsim/*`, `scripts/rl/*` -- integration tests for the remaining matrix rows; smokes re-cut for launchers, racks and per-ship cooldowns; `rudder` pins removed.
