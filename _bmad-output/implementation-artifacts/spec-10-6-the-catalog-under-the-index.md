@@ -2,7 +2,7 @@
 title: 'Story 10.6: The Catalog Under the Index'
 type: 'feature'
 created: '2026-11-05'
-status: 'draft'
+status: 'ready-for-dev'
 baseline_revision: '95e33e47'
 review_loop_iteration: 0
 context:
@@ -75,17 +75,15 @@ warnings: ['oversized']
 - **R15 HULL REPAIR's over-time half keeps its 5 s window at every card count** (*"Correct."*) — 200 over 5 s at five cards.
 - **R16 A tube fires only if its launcher CAN point at the aimed area** (veto of reading I1 as worded, verbatim: *"Just like the turrets, if the tube CANNOT POSSIBLY point at the aimed area, it doesn't fire no matter what. I don't want to accidentally waste shots that had no hope of hitting."*). A launcher whose arc does not hold the aim point never fires; with no such launcher the click is refused `out-of-arc` and nothing is spent. Among launchers whose arc DOES hold the aim point the turret rule stands (10.4's early-click rule: on-target first, else the nearest fires along its current bearing). The torpedo leaves from the launcher's station on the deck.
 - **R17 Racks alternate per drop** (veto of reading I4, verbatim: *"They alternate per drop."*). Strict A, B, A, B.
-
-## Open ruling (asked in chat)
-
-- **Q4** Under R17, when the rack whose turn it is is EMPTY and the other holds a mine: refuse the drop, or let the other rack drop? (Rare: both racks drain and restock together.)
+- **R18 The empty-turn rack** (verbatim: *"Next rack in line with an available mine would drop to avoid that edge case."*): when the rack whose turn it is holds no mine, the next rack holding one drops, and the turn passes on from the rack that dropped.
+- **Build ordered** (Eric 2026-11-05: *"go ahead and build (don't forget /orchestrate for subagent models)"*).
 
 ## Implementer readings of record (Eric may veto any; none is a ruling)
 
 - **I1** RULED — see R16.
 - **I2 Launcher stations:** FORE ahead of the forward turrets, AFT abaft the aft turrets, per hull, on the centerline — positions and art shown to Eric as a RENDERED candidate before commit, with the hotbar's tube / rack display and the one-off card faces (memory: show visual proposals first).
 - **I3 Everything arrives loaded:** a new launcher, tube, rack or expanded rack seat arrives full (today's `reconcilePools` rule).
-- **I4** RULED — see R17; the empty-turn case is Q4.
+- **I4** RULED — see R17; the empty-turn case is R18.
 - **I5 Drones keep today's turn rates** (0.9 / 0.752 / 0.6 rad/s) as authored values on their envelopes — R2 is about captain hulls; the drone system is retiring at 10.8.
 - **I6 Smoke size and life are stamped on the cloud at the press** (the owner's cards then) and travel on `CloudView` under the cloud's existing perception gate — a bigger cloud is visible to whoever can already see the cloud. Not a seventh exception.
 - **I7 Launcher angles reach observers exactly as turret angles do** (a contact key beside `tu`, whole degrees, same gate); per-tube and per-rack reloads are self-private on the own block.
@@ -104,7 +102,7 @@ warnings: ['oversized']
 - American spelling; never "fish" for a torpedo.
 
 **Block If:**
-- Q4 is unanswered, or a new gap in Eric's rulings appears (ask him in chat; never defer a design gap).
+- A new gap in Eric's rulings appears (ask him in chat; never defer a design gap).
 - The rendered candidate (I2) has not had Eric's yes before the client art / hotbar / card-face work is committed.
 - A gate error persists (halt and surface; never work around).
 
@@ -127,7 +125,7 @@ warnings: ['oversized']
 | One-off, slot empty | No torpedo held | AFT / TUBE cards never dealt, and refused if forced | `pickRefusal` |
 | Rack restock | Naval rack 3 → 2 by a drop | Clock starts at once; +1 mine per cycle until full; clock stops when full | — |
 | Two racks | Racks A 3, B 3; four drops | A, B, A, B; both clocks running | — |
-| Turn rack empty | A's turn, A 0, B 2; drop | per Q4 | — |
+| Turn rack empty | A's turn, A 0, B 2; drop | B drops; next turn is A's (R18) | — |
 | EXPANDED after SECOND | Both cards, captive | 2 racks × 2 = 4 held | — |
 | HULL REPAIR, 3 cards | Press `C` | 160 at once + 160 over time; ready again in 75 × 100 ÷ 115 = 65.2 s on EVERY hull | — |
 | SMOKE, 0 / 2 / 5 cards | Press `V` | 15 s, 124 → 248 u / 17 s, 150 → 300 u / 20 s, ~200 → ~399 u; cooldown 60 / 54.5 / 48 s | — |
