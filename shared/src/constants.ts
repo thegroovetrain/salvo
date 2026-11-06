@@ -243,7 +243,11 @@ export const CONFIG = {
         ],
         shellDamage: 24, // hp per shell (R2)
       },
-      launchers: { fore: 0.23, aft: 0.82 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.23, deadDeg: 30, trainDeg: 130 },
+        aft: { frac: 0.82, deadDeg: 40, trainDeg: 130 },
+      },
     },
     bismarck: {
       hull: { length: 251.0 * U_PER_M, beam: 36.0 * U_PER_M }, // u — Bismarck, 1941: 251.0 m × 36.0 m (115.1 × 16.5 u)
@@ -272,7 +276,11 @@ export const CONFIG = {
         ],
         shellDamage: 27, // hp per shell (R2)
       },
-      launchers: { fore: 0.135, aft: 0.875 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.135, deadDeg: 30, trainDeg: 125 },
+        aft: { frac: 0.875, deadDeg: 30, trainDeg: 125 },
+      },
     },
     warspite: {
       hull: { length: 196.2 * U_PER_M, beam: 31.7 * U_PER_M }, // u — HMS Warspite, 1937 rebuild: 196.2 m × 31.7 m (90.0 × 14.5 u)
@@ -301,7 +309,11 @@ export const CONFIG = {
         ],
         shellDamage: 27, // hp per shell (R2)
       },
-      launchers: { fore: 0.15, aft: 0.895 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.15, deadDeg: 30, trainDeg: 135 },
+        aft: { frac: 0.895, deadDeg: 20, trainDeg: 125 },
+      },
     },
     iowa: {
       hull: { length: 270.4 * U_PER_M, beam: 33.0 * U_PER_M }, // u — USS Iowa, 1943–45: 270.4 m × 33.0 m (124.0 × 15.1 u)
@@ -329,7 +341,11 @@ export const CONFIG = {
         ],
         shellDamage: 24, // hp per shell (R2)
       },
-      launchers: { fore: 0.204, aft: 0.821 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.204, deadDeg: 35, trainDeg: 130 },
+        aft: { frac: 0.821, deadDeg: 35, trainDeg: 135 },
+      },
     },
   },
 
@@ -1678,24 +1694,6 @@ export const CONFIG = {
     burstRadius: 15, // u — today's cannon shell, reading of record
     shellRadius: 2, // u — today's cannon shell, reading of record
     barrelSpacingU: 12, // u between adjacent parallel tracks of one turret's salvo — today's cannon shell, reading of record
-  },
-
-  /**
-   * THE TORPEDO LAUNCHERS (Story 10.6, Eric 2026-11-05, R6 / R13 / R16, epic-10
-   * amendment 12) — the deck mounts every torpedo (light, heavy,
-   * supercavitating) leaves from. A ship holding a torpedo has a FORE launcher
-   * resting dead ahead, and with AFT TORPEDO LAUNCHER a second resting dead
-   * astern; each trains `trainDeg` either side of its rest bearing and chases
-   * the aim point at all times exactly as a turret does, at the MAIN BATTERY's
-   * own rate and on-target tolerance (`CONFIG.mainBattery.traverseDegPerS` /
-   * `onTargetDeg` — READ there, never copied here: R6 "traverse equal to the
-   * turrets'"). A tube fires only if its launcher's arc holds the aim point
-   * (R16). Stations are per hull: `CONFIG.shipClasses.<id>.launchers`. The
-   * launcher and tube COUNTS are per ship (`stats.torpedoLaunchers`,
-   * `stats.tubesPerLauncher`). Model: sim/launchers.ts.
-   */
-  launcher: {
-    trainDeg: 140, // ° either side of the rest bearing (R6: "140° to either side") — a fore-only hull cannot fire into the 80° wedge astern
   },
 
   /**
@@ -3203,15 +3201,29 @@ export interface HullBattery {
 }
 
 /**
- * A hull's two torpedo LAUNCHER stations (Story 10.6, Eric 2026-11-05, R6;
- * the positions are implementer reading I2): each a fraction of length
- * overall FROM THE BOW on the centerline — the `TurretMount.frac` convention.
- * `fore` sits ahead of the forward turrets and rests dead ahead; `aft` sits
- * abaft the aft turrets and rests dead astern.
+ * One torpedo LAUNCHER on a hull (Story 10.6): its station and its firing band.
+ * `frac` is a fraction of length overall FROM THE BOW on the centerline (the
+ * `TurretMount.frac` convention; implementer reading I2). The band is PER HULL
+ * and PER LAUNCHER (R30, Eric 2026-11-06), measured off the launcher's OWN end
+ * of the ship and the same on both sides: it trains `trainDeg` either side of
+ * its rest bearing (the hard stop) and FIRES only from `deadDeg` to
+ * `trainDeg` — inside `deadDeg` of rest it may swing through to change sides
+ * but never fires (R28).
+ */
+export interface HullLauncher {
+  readonly frac: number;
+  readonly deadDeg: number;
+  readonly trainDeg: number;
+}
+
+/**
+ * A hull's two torpedo launchers (Story 10.6, R6 / R28 / R30): `fore` sits
+ * ahead of the forward turrets and rests dead ahead; `aft` sits abaft the aft
+ * turrets and rests dead astern.
  */
 export interface HullLaunchers {
-  readonly fore: number;
-  readonly aft: number;
+  readonly fore: HullLauncher;
+  readonly aft: HullLauncher;
 }
 
 /**

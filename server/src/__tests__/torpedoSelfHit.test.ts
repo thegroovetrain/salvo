@@ -13,6 +13,8 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  launcherDeadRad,
+  launcherTrainRad,
   effectiveStats,
   hullSilhouette,
   pointPolygonDistance,
@@ -33,6 +35,10 @@ const SLOT_TORPEDO = 2;
 /** u — a torpedo click's aim distance (Story 10.6: any positive distance
  *  names the bearing; none names no area and is refused). */
 const TORP_DIST = 600;
+/** u — a click so far out that the bearing from the fore launcher's station
+ *  IS the click's bearing from the hull centre (the band-edge cases below
+ *  must not be pushed out of the band by station parallax). */
+const FAR_DIST = 1e7;
 import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
 function bareWorld(seed = 11, opts?: WorldOptions): World {
@@ -96,20 +102,29 @@ const dmgOf = (events: readonly GameEvent[]): DamageEvent[] =>
 // ---------- spawn geometry ---------------------------------------------------
 
 describe('torpedo spawn clearance (root-cause fix)', () => {
-  it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
+  // R28 (Eric 2026-11-06) made the dead-ahead BOW shot illegal; it was the
+  // only bearing on which the launch point cleared the silhouette by the full
+  // hitRadius + spawnClearance measured PERPENDICULARLY (the bow tip sits on
+  // the ray). On a side bearing the shared `torpedoLaunchPoint` /
+  // `muzzleSpawnFrom` construction measures its clearance ALONG the ray, and
+  // the slanted hull side leaves a perpendicular margin a few units short of
+  // spawnClearance — a pre-existing property of the shared construction (the
+  // ±140° arc allowed these shots too), reported, not re-derived here. What
+  // every legal shot does guarantee is the shared law: the spawn is outside
+  // the silhouette by at least the torpedo's hitRadius, so it can never
+  // overlap its own hull.
+  it('a fresh torpedo spawns outside the firer silhouette by at least its hitRadius', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+    for (const l of ship.launchers) l.a = Math.PI / 2; // trained on the beam (R28: never dead ahead)
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
     const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
     const dist = pointPolygonDistance({ x: torp!.x, y: torp!.y }, poly);
     const margin = dist - torp!.hitRadius;
-    // The old spawn point had margin === 0 exactly; the fix guarantees
-    // margin >= spawnClearance, with a tiny epsilon for float rounding. In the
-    // silhouette geometry the bow tip sits EXACTLY at +length/2, so a bow shot
-    // pins the offset math with no capsule slack.
-    expect(margin).toBeGreaterThanOrEqual(CONFIG.torpedo.spawnClearance - 1e-9);
+    // The old spawn point had margin === 0 exactly (inside the hit radius).
+    expect(margin).toBeGreaterThan(0);
   });
 });
 
@@ -119,7 +134,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 65, catalog-v3 R17)
    *  to max speed, fire a bow torpedo at `aim`, then run 5 more seconds and
    *  return every dmg event observed. */
-  function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
+  function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord; launched: number } {
     const w = bareWorld(11, maxSpeedStacks > 0 ? { catalog: OVERDRIVE } : undefined);
     const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
     if (maxSpeedStacks > 0) stack(w, a, 'engines', maxSpeedStacks);
@@ -129,7 +144,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     // Full ahead, aimed where the shot will go (the launchers train on it
     // while the hull accelerates — Story 10.6, R13), weapon selected but not
     // fired yet.
-    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim, fireSeq: 0, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim, fireSeq: 0, aimDist: FAR_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const accelTicks = Math.ceil(a.stats.kinematics.maxSpeed / a.stats.kinematics.accel / (CONFIG.tick.simDtMs / 1000)) + 20;
     for (let i = 0; i < accelTicks; i++) {
       w.step();
@@ -138,28 +153,36 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(a.state.speed).toBeCloseTo(a.stats.kinematics.maxSpeed, 1); // confirmed at full speed
 
     // Fire the bow torpedo (one click: fireSeq bumps).
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: FAR_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const fireTicks = 5000 / CONFIG.tick.simDtMs;
+    let launched = 0;
     for (let i = 0; i < fireTicks; i++) {
       w.step();
+      launched += w.tickEvents.filter((e) => e.k === 'torp').length;
       dmgs.push(...dmgOf(w.tickEvents));
     }
-    return { dmgs, ship: a };
+    return { dmgs, ship: a, launched };
   }
 
-  it('straight ahead: firer takes no damage, no dmg event names it as victim', () => {
-    const { dmgs, ship } = runFullThrottleShot(0);
+  /** rad — just inside the FORWARD edge of the fore launcher's firing band
+   *  (R28): the most nearly ahead a torpedo can leave, the self-overtake case. */
+  const FORWARD_EDGE = launcherDeadRad('bismarck', 0) + 0.01; // the fixture's hull, its FORE launcher (R30)
+
+  it('at the forward edge of the band: firer takes no damage, no dmg event names it as victim', () => {
+    const { dmgs, ship, launched } = runFullThrottleShot(FORWARD_EDGE);
+    expect(launched).toBe(1); // the shot really left
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
   it('aimed near the fore launcher\'s arc edge: firer takes no damage, no dmg event names it as victim', () => {
-    const { dmgs, ship } = runFullThrottleShot((CONFIG.launcher.trainDeg * Math.PI) / 180 - 0.01);
+    const { dmgs, ship, launched } = runFullThrottleShot(launcherTrainRad('bismarck', 0) - 0.01);
+    expect(launched).toBe(1);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
-  it('straight ahead with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
+  it('at the forward edge with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
     // FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, AR49; Story 8.9,
     // amendment 55). "A torpedo outruns every hull" is no longer a requirement
     // the catalog has to satisfy: a SPEED-capped Torpedo Boat with the boost
@@ -177,7 +200,8 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(
       effectiveStats(CONFIG.shipClasses.bismarck, new Array<string>(9).fill('engines'), OVERDRIVE).kinematics.maxSpeed,
     ).toBeGreaterThan(CONFIG.torpedo.speed);
-    const { dmgs, ship } = runFullThrottleShot(0, 9);
+    const { dmgs, ship, launched } = runFullThrottleShot(FORWARD_EDGE, 9);
+    expect(launched).toBe(1);
     expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);

@@ -894,8 +894,9 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
 describe('ai/tacticKit / equipment — gates read the PREDICTED position (E6, E8)', () => {
   it('the torpedo gates range on, and reports, the predicted distance', () => {
     const { rec, port } = mgShooter();
+    rec.state.heading = -Math.PI / 2; // the plots lie on the starboard beam: inside the launcher's band (R28)
     const ctxOf = (t: RememberedContact): TacticContext => mgCtx(rec, port, mkMind(), t);
-    // Last painted 200 u ahead, opening at 45 u/s for 2 s: predicted 290 u — past a 250 u reach.
+    // Last painted 200 u out, opening at 45 u/s for 2 s: predicted 290 u — past a 250 u reach.
     const opening = anon({ x: 200, y: 0, seenAt: NOW - 2000, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
     expect(solveTorpedoShot(ctxOf(opening), 60, 250)).toBeNull();
     // Last painted 300 u ahead, closing: predicted 210 u — inside, and reported as 210.

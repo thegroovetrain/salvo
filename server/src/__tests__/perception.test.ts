@@ -2812,7 +2812,7 @@ function scrambleMounts(rec: ShipRecord, side: { next(): number }): void {
     const counts = { torpedoLaunchers: side.next() < 0.5 ? 1 : 2, tubesPerLauncher: side.next() < 0.5 ? 1 : 2 };
     rec.launchers = initialLaunchers(rec.hullId, counts);
     rec.launchers.forEach((l, i) => {
-      l.a = launcherRest(i) + (side.next() * 2 - 1) * launcherTrainRad();
+      l.a = launcherRest(i) + (side.next() * 2 - 1) * launcherTrainRad(rec.hullId, i);
       for (let k = 0; k < l.tubes.length; k += 1) l.tubes[k] = side.next() < 0.5 ? 0 : side.next() * 20_000;
     });
   }

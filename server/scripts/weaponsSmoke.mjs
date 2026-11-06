@@ -14,10 +14,11 @@
 //
 // THE PHASES (each in its own room; every number READ from CONFIG or from the
 // same `effectiveStats()` fold the server uses, never typed here):
-//   1. TORPEDO KILL — an Iowa posed broadside-on to a stationary Yamato, bow
-//      on the bearing, fitted heavy torpedo + SECOND LAUNCHER TUBE (two tubes
-//      on the fore launcher, each on its own clock — Story 10.6), clicks every
-//      tick. The own block's `launchers` are checked loaded. The KILL
+//   1. TORPEDO KILL — an Iowa with a stationary Yamato on its starboard BEAM
+//      (R28: the launchers fire across the beam, never dead ahead), fitted
+//      heavy torpedo + SECOND LAUNCHER TUBE (two tubes on the fore launcher,
+//      each on its own clock — Story 10.6), trains the launcher onto the
+//      target, then clicks every tick. The own block's `launchers` are checked loaded. The KILL
 //      PLAN (torpedo count, time) is simulated below from the fitted row and
 //      the target's hp (with the R8 passive regen, Story 10.5), and printed; the budget is the plan
 //      plus one reload. Asserts a hit at the armor-curve blow, the roster
@@ -41,7 +42,7 @@
 //      mine was first sighted inside detect (the victim starts at detect + 100u,
 //      so this IS the fog-crossing pin).
 //   4. LIGHT TORPEDO — the target posed on the shooter's PORT BEAM (heading +
-//      π/2), inside the fore launcher's ±140° arc; the shooter TRAINS the
+//      π/2), inside the fore launcher's firing band (R28); the shooter TRAINS the
 //      launcher onto the beam (no click) before firing (Story 10.6, R6 / R13);
 //      kill plan as in 1.
 //   5. CAPTIVE MINE — the layer lays one captive; the victim drives straight
@@ -125,6 +126,7 @@ import {
   islandDistance,
   launcherAimPoint,
   launcherArcHolds,
+  SHIP_CLASS_IDS,
   launcherStationWorld,
   regenGain,
   settleBlow,
@@ -154,9 +156,10 @@ const NO_EVICTION_MINES = 6;
 /** u — a torpedo click's aim distance: any positive distance names the
  *  bearing (Story 10.6 — a torpedo click with none is refused out-of-arc). */
 const TORP_AIM_U = 300;
-/** ms — a launcher traverses any legal arc (≤ 280°) inside this, plus two
- *  ticks of slack (Story 10.6, R6: the turrets' traverse rate). */
-const LAUNCHER_TRAIN_MS = Math.ceil((2 * CONFIG.launcher.trainDeg * 1000) / CONFIG.mainBattery.traverseDegPerS) + 2 * DT;
+/** ms — a launcher traverses its whole train interval (2 × trainDeg) inside
+ *  this, plus two ticks of slack (Story 10.6, R6: the turrets' traverse rate). */
+const LAUNCHER_TRAIN_MS =
+  Math.ceil((2 * Math.max(...SHIP_CLASS_IDS.flatMap((id) => [CONFIG.shipClasses[id].launchers.fore.trainDeg, CONFIG.shipClasses[id].launchers.aft.trainDeg])) * 1000) / CONFIG.mainBattery.traverseDegPerS) + 2 * DT;
 
 /** THE HULLS PER ROLE (Story 10.4: the four battleships replaced the three
  *  placeholder classes, which had no 1:1 successor — a reading, by intent).
@@ -507,7 +510,9 @@ async function torpedoPhase(log) {
   log.push(`torpedo: ${fit.text}`);
   const row = fit.pick.row;
   const runU = row.homingTurnRate > 0 ? CONFIG.torpedo.homingMaxRangeU : Infinity;
-  const aPose = { x: -D, y: 0, heading: 0 };
+  // R28: the launchers fire across the beam, never dead ahead — the shooter
+  // heads −π/2 so B (bearing 0) sits on its STARBOARD beam.
+  const aPose = { x: -D, y: 0, heading: -Math.PI / 2 };
   const bPose = { x: 0, y: 0, heading: Math.PI / 2 }; // broadside to the shooter
   checkPoseWater('torpedo A', aPose);
   checkPoseWater('torpedo B', bPose);
@@ -517,13 +522,17 @@ async function torpedoPhase(log) {
   const b = await joinClient('WPN-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'torpedo');
   const brg = bearing(a.you, b.you);
-  precondition(launcherArcHolds(statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'torpedo: target outside the launcher arcs');
+  precondition(launcherArcHolds(TORP_SHOOTER, statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'torpedo: target outside the launcher arcs');
   assert(b.you.hp === fit.hp, `torpedo: target hp ${b.you.hp} != planned ${fit.hp} (shared fold vs server maxHp)`);
   const tubes = a.you.ammo[familySlotFor('heavyTorpedo')];
   assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `torpedo: shooter slot ${familySlotFor('heavyTorpedo')} holds ${tubes?.n} torpedoes, planned ${row.maxAmmo} tubes`);
   // The own block carries the launchers (Story 10.6): the fore, with every tube loaded.
   const own = (a.you.launchers ?? []).flatMap((l) => l.tubes);
   assert(own.length === row.maxAmmo && own.every((t) => t === 0), `torpedo: own launchers carry tubes ${JSON.stringify(own)}, planned ${row.maxAmmo} loaded`);
+  // TRAIN FIRST (R13 / R28): the fore launcher rests dead ahead, inside its
+  // own dead wedge, and must swing onto the beam before a click fires.
+  a.script = aimAt(brg, TORP_AIM_U);
+  await holdFor([a, b], LAUNCHER_TRAIN_MS);
   a.script = clickAt(brg, TORP_AIM_U);
   // Budget: the simulated kill time + ONE reload of slack.
   const budget = fit.pick.plan.killAtMs + row.reloadMs;
@@ -677,7 +686,7 @@ async function lightTorpedoPhase(log) {
   const tubes = a.you.ammo[familySlotFor('lightTorpedo')];
   assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `light: shooter slot ${familySlotFor('lightTorpedo')} holds ${tubes?.n} torpedoes, planned ${row.maxAmmo} tubes`);
   const brg = bearing(a.you, b.you);
-  precondition(launcherArcHolds(statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'light: target outside the launcher arcs');
+  precondition(launcherArcHolds(TORP_SHOOTER, statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'light: target outside the launcher arcs');
   // TRAIN FIRST: the fore launcher rests dead ahead and chases the cursor at
   // the turrets' rate (R6 / R13); a click before it arrives fires along its
   // current bearing and would waste a torpedo.
@@ -1083,7 +1092,10 @@ async function awaitAnswer(clients, ctx, seq, ok, label) {
  *  geometry). Returns the server time of the frame that carried the blow. */
 async function torpedoOnce(s, v, label) {
   const brg = bearing(s.you, v.you);
-  precondition(launcherArcHolds(statsOf(s.cls, s.fit).torpedoLaunchers, s.you.heading, brg), `${label}: target outside the launcher arcs`);
+  precondition(launcherArcHolds(s.cls, statsOf(s.cls, s.fit).torpedoLaunchers, s.you.heading, brg), `${label}: target outside the launcher arcs`);
+  // TRAIN FIRST (R13 / R28): the launcher swings out of its dead wedge onto the aim.
+  s.script = aimAt(brg, TORP_AIM_U);
+  await holdFor([s, v], LAUNCHER_TRAIN_MS);
   s.script = clickAt(brg, TORP_AIM_U);
   const row = statsOf(s.cls, s.fit).equipment.heavyTorpedo;
   const flightMs = (dist(s.you, v.you) / row.speed) * 1000;
@@ -1096,7 +1108,7 @@ async function torpedoOnce(s, v, label) {
 async function repairAndRegenPhase(log) {
   const D = 300;
   const aPose = { x: 0, y: 0, heading: Math.PI / 2 }; // the patient, broadside to the shooter
-  const sPose = { x: -D, y: 0, heading: 0 };
+  const sPose = { x: -D, y: 0, heading: -Math.PI / 2 }; // the patient on the shooter's beam (R28)
   checkPoseWater('repair A', aPose);
   checkPoseWater('repair S', sPose);
   checkLane('repair', sPose, aPose);

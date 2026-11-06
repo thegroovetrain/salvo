@@ -192,7 +192,7 @@ export class ContactStore {
       if (c.aggro === true) this.aggro.add(c.id);
       else this.aggro.delete(c.id);
       pushAngles(this.turretAngles, c.id, c.tu, (i, q) => decodeTurretAngle(c.cls, i, q));
-      pushAngles(this.launcherAngles, c.id, c.lu, decodeLauncherAngle);
+      pushAngles(this.launcherAngles, c.id, c.lu, (i, q) => decodeLauncherAngle(c.cls, i, q));
     }
   }
 

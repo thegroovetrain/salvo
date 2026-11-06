@@ -15,11 +15,20 @@
 //
 // AIMING IS THE TURRETS' (R6: "they work the same way in terms of aiming and
 // such"; R13: they chase the cursor at all times). The machinery is
-// sim/mountAim.ts, shared with sim/turrets.ts: a launcher trains
-// `CONFIG.launcher.trainDeg` either side of rest, traverses toward the aim
-// point at `CONFIG.mainBattery.traverseDegPerS`, HOLDS its angle when the aim
-// point leaves its arc, and is ON TARGET within
-// `CONFIG.mainBattery.onTargetDeg`. The angle `a` follows turrets.ts's
+// sim/mountAim.ts, shared with sim/turrets.ts: a launcher trains its OWN
+// `trainDeg` either side of rest, traverses toward the aim
+// point at `CONFIG.mainBattery.traverseDegPerS` — THROUGH its own dead wedge
+// when the aim crosses to the other side — HOLDS its angle when the aim point
+// leaves its train interval, and is ON TARGET within
+// `CONFIG.mainBattery.onTargetDeg`.
+//
+// SIDE-FIRING (R28, Eric 2026-11-06 — supersedes R6's "140° to either side").
+// A launcher FIRES only inside its FIRING BAND: from its `deadDeg` to its
+// `trainDeg` off its own end (fore from dead ahead, aft from dead astern), on
+// both sides. Inside `deadDeg` of rest it may swing but never fires. THE BAND
+// IS PER HULL AND PER LAUNCHER (R30, Eric 2026-11-06):
+// `CONFIG.shipClasses.<id>.launchers.{fore,aft}.{deadDeg,trainDeg}` — one
+// source, no global. The angle `a` follows turrets.ts's
 // convention: radians, hull-relative, counter-clockwise positive, UNWRAPPED in
 // `[rest − train, rest + train]`; the world bearing is `pose.heading + a`.
 //
@@ -42,19 +51,26 @@
 // `out-of-arc` (it names no area).
 //
 // THE PICK (R16, verbatim: "if the tube CANNOT POSSIBLY point at the aimed
-// area, it doesn't fire no matter what"). `pickTube` is pure:
-//   - no launcher's arc holds the aim point → `out-of-arc`, nothing spent;
-//   - among launchers whose arc holds it AND that have a loaded tube: one ON
-//     TARGET wins (fore first) and fires at the aim point exactly; otherwise
-//     the smallest angular error fires EARLY along its CURRENT bearing (the
-//     battery's early-click rule); its lowest-index loaded tube is the one;
-//   - an arc holds it but no such launcher has a loaded tube → `cooling`.
+// area, it doesn't fire no matter what"; R28). `pickTube` is pure:
+//   - no launcher's firing band holds the aim point → `out-of-arc`, nothing
+//     spent;
+//   - a launcher whose band holds it but whose CURRENT bearing is not yet in
+//     that SAME band — still in its dead wedge, or pointed into the band on the
+//     other side of its end — cannot fire yet (never an early shot across the
+//     ship);
+//   - among launchers whose band holds the aim, pointed into their band, AND
+//     with a loaded tube: one ON TARGET wins (fore first) and fires at the aim
+//     point exactly; otherwise the smallest angular error fires EARLY along
+//     its CURRENT bearing (the battery's early-click rule); its lowest-index
+//     loaded tube is the one;
+//   - a band holds it but no launcher can fire (every candidate reloading or
+//     still swinging) → `cooling` — the turrets' "cannot fire yet" denial.
 // One click, one torpedo: the caller fires the pick with `fireTube` and spawns
 // at `torpedoLaunchPoint(pick.station, pose, hullId, pick.bearing)`.
 //
 // Pure, zero I/O, no randomness.
 
-import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
+import { CONFIG, hullEnvelope, type HullId, type HullLauncher } from '../constants.js';
 import { wrapAngle } from '../math/angle.js';
 import type { Vec2 } from '../math/vec.js';
 import { muzzleSpawnFrom, type AimPose } from './aim.js';
@@ -63,7 +79,7 @@ import {
   ARC_EPS,
   decodeMountAngle,
   encodeMountAngle,
-  mountArcHolds,
+  mountBearingOffset,
   mountStationWorld,
   rankMounts,
   readMount,
@@ -93,9 +109,28 @@ export interface LauncherCounts {
   tubesPerLauncher: number;
 }
 
-/** rad — the train limit either side of a launcher's rest bearing. */
-export function launcherTrainRad(): number {
-  return CONFIG.launcher.trainDeg * RAD_PER_DEG;
+/** Launcher `i`'s CONFIG row on `hullId` (0 fore, else aft), or `undefined` on a hull with no launchers (a drone). */
+function launcherRow(hullId: HullId, i: number): HullLauncher | undefined {
+  const l = hullEnvelope(hullId).launchers;
+  if (l === undefined) return undefined;
+  return i === 0 ? l.fore : l.aft;
+}
+
+/** rad — launcher `i`'s train limit either side of its rest bearing on `hullId` (R30); 0 on a hull with no launchers. */
+export function launcherTrainRad(hullId: HullId, i: number): number {
+  return (launcherRow(hullId, i)?.trainDeg ?? 0) * RAD_PER_DEG;
+}
+
+/** rad — launcher `i`'s dead half-wedge about its rest bearing on `hullId` (R28 / R30): it may swing through it but never fires inside it. */
+export function launcherDeadRad(hullId: HullId, i: number): number {
+  return (launcherRow(hullId, i)?.deadDeg ?? 0) * RAD_PER_DEG;
+}
+
+/** True iff an offset from launcher `i`'s REST bearing lies in its firing band on `hullId` (its `deadDeg` ≤ |offset| ≤ its `trainDeg`, R28 / R30). Never on a hull with no launchers. */
+export function inFiringBand(hullId: HullId, i: number, offset: number): boolean {
+  if (launcherRow(hullId, i) === undefined) return false;
+  const m = Math.abs(offset);
+  return m >= launcherDeadRad(hullId, i) - ARC_EPS && m <= launcherTrainRad(hullId, i) + ARC_EPS;
 }
 
 /** rad — launcher `i`'s REST bearing in the hull frame: 0 (dead ahead) for the fore launcher, π for the aft. */
@@ -122,10 +157,9 @@ export function launcherCount(hullId: HullId, counts: LauncherCounts): number {
  * launcher stations.
  */
 export function launcherStation(hullId: HullId, i: number): Vec2 {
-  const env = hullEnvelope(hullId);
-  if (env.launchers === undefined) return { x: 0, y: 0 };
-  const frac = i === 0 ? env.launchers.fore : env.launchers.aft;
-  return { x: (0.5 - frac) * env.hull.length, y: 0 };
+  const row = launcherRow(hullId, i);
+  if (row === undefined) return { x: 0, y: 0 };
+  return { x: (0.5 - row.frac) * hullEnvelope(hullId).hull.length, y: 0 };
 }
 
 /** Launcher `i`'s station in WORLD space for a ship pose. */
@@ -135,7 +169,7 @@ export function launcherStationWorld(hullId: HullId, i: number, pose: AimPose): 
 
 /** Launcher `i` as a trained mount (sim/mountAim.ts). */
 function trained(hullId: HullId, i: number): TrainedMount {
-  return { x: launcherStation(hullId, i).x, rest: launcherRest(i), train: launcherTrainRad() };
+  return { x: launcherStation(hullId, i).x, rest: launcherRest(i), train: launcherTrainRad(hullId, i) };
 }
 
 // --- Lifecycle ----------------------------------------------------------------
@@ -237,14 +271,23 @@ export function launcherAimPoint(pose: AimPose, hullId: HullId, aim: number, aim
   return { x: pose.x + Math.cos(aim) * d, y: pose.y + Math.sin(aim) * d };
 }
 
-/** True iff the aim point is inside launcher `i`'s arc (rest ± train, from its own station). False for a launcher the hull cannot mount. */
+/** rad — the aim point's offset from launcher `i`'s rest, from its own station, or `null` when it lies outside its train interval or on the station. */
+function aimOffset(hullId: HullId, i: number, pose: AimPose, aim: Vec2): number | null {
+  const m = trained(hullId, i);
+  return mountBearingOffset(m, mountStationWorld(m.x, pose), pose, aim);
+}
+
+/** True iff the aim point is inside launcher `i`'s FIRING BAND (from its own station, R28). False for a launcher the hull cannot mount. */
 export function launcherBears(hullId: HullId, i: number, pose: AimPose, aim: Vec2): boolean {
-  return i >= 0 && i < stationsOn(hullId) && mountArcHolds(trained(hullId, i), pose, aim);
+  if (i < 0 || i >= stationsOn(hullId)) return false;
+  const off = aimOffset(hullId, i, pose, aim);
+  return off !== null && inFiringBand(hullId, i, off);
 }
 
 /**
  * ONE 50 ms STEP of a ship's launchers, IN PLACE: every tube's clock counts
- * down toward 0; every launcher whose arc holds the aim point traverses toward
+ * down toward 0; every launcher whose TRAIN INTERVAL holds the aim point
+ * (its dead wedge included — that is how it changes sides) traverses toward
  * it at the main battery's rate (arriving exactly, never leaving its train
  * interval); every other launcher HOLDS its angle. `aim === null` holds every
  * angle and still runs the clocks.
@@ -285,6 +328,17 @@ export type TubePick =
   | { verdict: 'out-of-arc' }
   | { verdict: 'cooling' };
 
+/**
+ * True iff a launcher whose CURRENT offset from rest is `current` points into
+ * the same firing band as an aim at offset `aimOff` — a launcher has TWO
+ * disjoint bands, one each side of its end, so same side (sign) AND inside the
+ * band (R28; orchestrator ruling 2026-11-06 under R16: never an early shot
+ * across the ship).
+ */
+function inSameBand(hullId: HullId, i: number, aimOff: number, current: number): boolean {
+  return inFiringBand(hullId, i, current) && Math.sign(current) === Math.sign(aimOff);
+}
+
 /** The lowest-index LOADED tube of a launcher, or −1. */
 function loadedTube(st: LauncherState): number {
   for (let k = 0; k < st.tubes.length; k += 1) {
@@ -304,10 +358,14 @@ export function pickTube(states: readonly LauncherState[], hullId: HullId, pose:
   const onTargetRad = CONFIG.mainBattery.onTargetDeg * RAD_PER_DEG;
   let bears = false;
   const won = rankMounts(Math.min(states.length, stationsOn(hullId)), (i) => {
-    const read = readMount(states[i].a, trained(hullId, i), pose, aim, onTargetRad);
-    if (read === null) return null; // its arc does not hold the aim: it never fires
+    const off = aimOffset(hullId, i, pose, aim);
+    if (off === null || !inFiringBand(hullId, i, off)) return null; // its band does not hold the aim: it never fires
     bears = true;
-    return loadedTube(states[i]) < 0 ? null : read;
+    // Still swinging — in its dead wedge, or pointed into the OTHER side's band:
+    // it cannot possibly put a torpedo on the aimed side yet (R16 / R28).
+    if (!inSameBand(hullId, i, off, states[i].a - launcherRest(i))) return null;
+    if (loadedTube(states[i]) < 0) return null;
+    return readMount(states[i].a, trained(hullId, i), pose, aim, onTargetRad);
   });
   if (won === null) return { verdict: bears ? 'cooling' : 'out-of-arc' };
   const { index, read } = won;
@@ -335,26 +393,33 @@ export function torpedoLaunchPoint(station: Vec2, pose: AimPose, hullId: HullId,
 // --- The arc, for drawing and planning ---------------------------------------
 
 /**
- * THE LAUNCHER ARC UNION as hull-relative sectors (`heading + offset ±
- * halfArc`), one per launcher held, fore first — what replaces the three
- * retired fixed torpedo sectors of sim/arcs.ts for the client's wedge and a
- * bot's planning. Pass `stats.torpedoLaunchers`. PARALLAX-FREE (measured from
- * the ship centre): right at any real range; the enforced verdict is
- * `pickTube`, measured from each station.
+ * THE LAUNCHER FIRING BANDS as hull-relative sectors (`heading + offset ±
+ * halfArc`): TWO per launcher held on `hullId` (counter-clockwise side first,
+ * then clockwise), fore first, each running from that launcher's `deadDeg` to
+ * its `trainDeg` off its end (R28 / R30) — what replaces the three retired
+ * fixed torpedo sectors of sim/arcs.ts for the client's wedge and a bot's
+ * planning. Pass `stats.torpedoLaunchers`. The ANGLES are each launcher's
+ * own; the client draws each from its launcher's station
+ * (`launcherStation`). `launcherArcHolds` reads them PARALLAX-FREE from the
+ * ship centre (right at any real range); the enforced verdict is `pickTube`,
+ * measured from each station. Empty on a hull with no launchers.
  */
-export function launcherSectors(launchers: number): Extract<ArcShape, { kind: 'sector' }>[] {
+export function launcherSectors(hullId: HullId, launchers: number): Extract<ArcShape, { kind: 'sector' }>[] {
   const out: Extract<ArcShape, { kind: 'sector' }>[] = [];
-  const n = wholeIn(launchers, 0, MAX_LAUNCHERS);
-  for (let i = 0; i < n; i += 1) out.push({ kind: 'sector', offset: launcherRest(i), halfArc: launcherTrainRad() });
+  const n = Math.min(stationsOn(hullId), wholeIn(launchers, 0, MAX_LAUNCHERS));
+  for (let i = 0; i < n; i += 1) {
+    const mid = (launcherTrainRad(hullId, i) + launcherDeadRad(hullId, i)) / 2;
+    const halfArc = (launcherTrainRad(hullId, i) - launcherDeadRad(hullId, i)) / 2;
+    for (const side of [1, -1]) out.push({ kind: 'sector', offset: wrapAngle(launcherRest(i) + side * mid), halfArc });
+  }
   return out;
 }
 
-/** True iff the WORLD bearing `aim` is inside the arc of any of `launchers` launchers on a ship heading `heading` (parallax-free — see `launcherSectors`). */
-export function launcherArcHolds(launchers: number, heading: number, aim: number): boolean {
-  const n = wholeIn(launchers, 0, MAX_LAUNCHERS);
-  const train = launcherTrainRad();
+/** True iff the WORLD bearing `aim` is inside the firing band of any of `launchers` launchers on a `hullId` ship heading `heading` (parallax-free, from the ship centre — a bot's PLANNING read; the enforced verdict is `pickTube`). */
+export function launcherArcHolds(hullId: HullId, launchers: number, heading: number, aim: number): boolean {
+  const n = Math.min(stationsOn(hullId), wholeIn(launchers, 0, MAX_LAUNCHERS));
   for (let i = 0; i < n; i += 1) {
-    if (Math.abs(wrapAngle(aim - heading - launcherRest(i))) <= train + ARC_EPS) return true;
+    if (inFiringBand(hullId, i, wrapAngle(aim - heading - launcherRest(i)))) return true;
   }
   return false;
 }
@@ -374,7 +439,7 @@ export function encodeLauncherAngles(states: readonly LauncherState[]): number[]
   return out;
 }
 
-/** One `Contact.lu` entry back to a hull-relative angle; a malformed entry is clamped into the train interval. */
-export function decodeLauncherAngle(i: number, q: number): number {
-  return decodeMountAngle(q, launcherRest(i), launcherTrainRad());
+/** One `Contact.lu` entry back to a hull-relative angle for launcher `i` on `hullId`; a malformed entry is clamped into THAT launcher's train interval. */
+export function decodeLauncherAngle(hullId: HullId, i: number, q: number): number {
+  return decodeMountAngle(q, launcherRest(i), launcherTrainRad(hullId, i));
 }

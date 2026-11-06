@@ -5,8 +5,8 @@
 //     countermeasure cloud and the radar paint (render/stage.ts). Nothing about the arcs
 //     changes with the lift: they rotate with the own ship and sit inside the
 //     sight bubble, where the fog was already clear. Three families draw one:
-//     the torpedo's LAUNCHER arcs (Story 10.6, R6 — the union of the deck
-//     launchers held, fore ±140° and the aft's ±140°; the retired fixed bow
+//     the torpedo's LAUNCHER arcs (Story 10.6, R6 / R28 — the union of the
+//     held launchers' side-firing bands, deadDeg–trainDeg off each end; the retired fixed bow
 //     and twin-beam sectors are gone); (Story 2.8, amendment 45) the mine's REAR PLACEMENT
 //     arc, drawn at its true CONFIG.mine.placeRange radius so the wedge IS the
 //     reachable water; and (Story 7-5 wave 2, R2.1) the BROADSIDE BARRAGE, whose
@@ -28,12 +28,12 @@
 // hull-dependent), never on a slot-index literal. Pure Pixi adapter (not unit
 // tested); the id classification + in-arc test reuse render/weaponArc.ts.
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
+  MAX_LAUNCHERS,
   arcFor,
   inArc,
-  launcherSectors,
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
@@ -41,7 +41,19 @@ import {
   type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { arcUnion, fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit, type FireArcKind } from './weaponArc.js';
+import {
+  fireArcKind,
+  isPlacedItem,
+  isTorpedoItem,
+  launcherWedgeLengthU,
+  launcherWedges,
+  sectorOutline,
+  twinSectorSide,
+  wedgeFade,
+  weaponArcHit,
+  type FireArcKind,
+  type LauncherWedge,
+} from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
@@ -60,6 +72,48 @@ const IMPACT_R = 4; // u — range-clamped impact marker ring
  *  ARE local coordinates. This is the whole reason the render can reuse the
  *  sim's geometry instead of re-deriving spacing. */
 const IDENTITY_POSE = { x: 0, y: 0, heading: 0 };
+const LW = CLIENT_CONFIG.launcherWedge;
+
+/**
+ * THE BAKED TORPEDO WEDGE TEXTURES (Story 10.6, R28 / R30): a WHITE sector of
+ * a firing band's half-angle pointing along +x, its alpha the shared
+ * `wedgeFade` of the distance from its apex. One per distinct band half-angle
+ * (the per-hull, per-launcher bands of R30 give at most a handful), built
+ * lazily the first time a wedge needs it and shared by every sprite after —
+ * each sprite only places, rotates, scales and tints it, so a frame allocates
+ * nothing. The apex sits at the texture's left edge, vertically centered
+ * (sprite anchor (0, 0.5)).
+ */
+const wedgeTextures = new Map<number, Texture>();
+function bakedWedgeTexture(half: number): Texture {
+  const cached = wedgeTextures.get(half);
+  if (cached !== undefined) return cached;
+  const w = LW.texPx;
+  const h = Math.max(2, Math.ceil(2 * w * Math.sin(Math.min(half, Math.PI / 2))));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (ctx === null) throw new Error('launcher wedge: no 2d canvas context');
+  const img = ctx.createImageData(w, h);
+  for (let j = 0; j < h; j += 1) {
+    for (let i = 0; i < w; i += 1) {
+      const x = i + 0.5;
+      const y = j + 0.5 - h / 2;
+      const inside = Math.abs(Math.atan2(y, x)) <= half;
+      const a = inside ? wedgeFade(Math.hypot(x, y) / w) : 0;
+      const k = (j * w + i) * 4;
+      img.data[k] = 255;
+      img.data[k + 1] = 255;
+      img.data[k + 2] = 255;
+      img.data[k + 3] = Math.round(a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = Texture.from(canvas);
+  wedgeTextures.set(half, tex);
+  return tex;
+}
 
 /**
  * Pure: the aim colour of one primed system — THE TORPEDO FAMILY's cool green,
@@ -187,6 +241,13 @@ export class FiringUX {
    *  `stats.torpedoLaunchers`, fed each frame by update()): the torpedo wedge
    *  and the reticle's in-arc read are their arcs' union. */
   private launchers = 1;
+  /** The hull whose launcher stations the torpedo wedges spring from (fed each frame by update()). */
+  private launcherHull: HullId | null = null;
+  /** The torpedo wedges: one sprite per firing band (two per launcher), created
+   *  once, positioned on a (hull, launcher count) change only. Hull-local, like `arcs`. */
+  private readonly wedgeLayer = new Container();
+  private readonly wedgeSprites: Sprite[] = [];
+  private wedgeKey = '';
 
   /**
    * `shipLayer` (chartRoot's `ownShip` — the own-hull layer since 2026-10-12)
@@ -195,6 +256,8 @@ export class FiringUX {
    * above the hulls so the reticle is never occluded by one.
    */
   constructor(shipLayer: Container, aimLayer: Container) {
+    this.wedgeLayer.visible = false;
+    shipLayer.addChild(this.wedgeLayer);
     shipLayer.addChild(this.arcs);
     aimLayer.addChild(this.reticle);
   }
@@ -203,6 +266,7 @@ export class FiringUX {
   hide(): void {
     this.arcs.clear();
     this.reticle.clear();
+    this.wedgeLayer.visible = false;
   }
 
   /**
@@ -226,13 +290,18 @@ export class FiringUX {
     rangeU: number = CONFIG.gun.rangeU,
     broadside: BroadsideArcs | null = null,
     torpedoLaunchers = 1,
+    launcherHull: HullId | null = null,
   ): void {
     this.rangeU = rangeU;
     this.launchers = torpedoLaunchers;
+    this.launcherHull = launcherHull;
     const kind = fireArcKind(id);
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
+    this.wedgeLayer.visible = false;
+    this.wedgeLayer.position.set(pose.x, pose.y);
+    this.wedgeLayer.rotation = pose.heading;
     // Only an AIM-GATED weapon draws a wedge — the torpedo's bow arc and the
     // mine's rear placement arc (Story 2.8), or the broadside's twin beams
     // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
@@ -253,7 +322,7 @@ export class FiringUX {
   ): void {
     if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
     if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
-    if (kind === 'launcher') this.drawLauncherArcs(id, aim, heading, ammo, denied);
+    if (kind === 'launcher') this.drawLauncherArcs(id, ammo, denied);
     // (The four buoys' 360° placement DISC left with the buoys — 2026-11-05,
     // Story 10.5, epic-10 amendment 11: the mines' wedge is the only
     // placement shape.)
@@ -304,32 +373,64 @@ export class FiringUX {
   }
 
   /**
-   * THE TORPEDO WEDGE (Story 10.6, R6): the union of the deck launchers the
-   * ship holds — `launcherSectors(n)`, the same arcs the shared pick tests —
-   * drawn as the fewest fills (`arcUnion`: one launcher is one 280° wedge, the
-   * fore and aft together the whole disc) at the indicative ARC_R, because a
-   * torpedo runs to the map edge and a radius would be a lie. Lit when some
-   * held launcher bears and a tube would fire.
+   * THE TORPEDO WEDGES (Story 10.6, R6 / R28; Eric 2026-11-06): one wedge per
+   * FIRING BAND of each held launcher (`launcherWedges` — the shared
+   * `launcherSectors` bands), each springing from ITS launcher's station (the
+   * point `pickTube` measures from), `launcherWedgeLengthU(ARC_R)` long and
+   * fading to nothing at its end (the baked texture). Each is its own fill, so
+   * the fore and aft wedges stack into a brighter patch where they cross
+   * (Eric). Lit when some held launcher bears and a tube would fire; the
+   * reload sweep-back is a small DIM wedge at each station.
    */
-  private drawLauncherArcs(id: EquipmentId, aim: number, heading: number, ammo: FiringAmmo, denied: boolean): void {
-    const lit = denied || (weaponArcHit(heading, aim, id, this.launchers) && ammo.hasAmmo);
-    const color = denied ? DENIED_RED : weaponTint(id);
-    const union = arcUnion(launcherSectors(this.launchers));
-    if (union === 'full') {
-      this.disc(color, lit, ammo.reloadFrac);
-      return;
+  private drawLauncherArcs(id: EquipmentId, ammo: FiringAmmo, denied: boolean): void {
+    if (this.launcherHull === null) return; // no hull named: no station to spring from
+    // `hasAmmo` for a torpedo IS the shared `pickTube` fire verdict (main.ts
+    // slotHasRound), measured from each launcher's station — the wedge never
+    // second-guesses it with a ship-centre read.
+    const lit = denied || ammo.hasAmmo;
+    const style = arcFillStyle(denied ? DENIED_RED : weaponTint(id), lit);
+    const wedges = this.placeWedges(this.launcherHull, this.launchers);
+    for (const sp of this.wedgeSprites) {
+      sp.tint = style.color;
+      sp.alpha = style.alpha;
     }
-    for (const span of union) {
-      this.sector((span.from + span.to) / 2, (span.to - span.from) / 2, color, lit, ammo.reloadFrac);
+    this.wedgeLayer.visible = true;
+    if (ammo.reloadFrac > 0 && ammo.reloadFrac < 1) {
+      for (const w of wedges) this.reloadHint(w, ammo.reloadFrac);
     }
   }
 
-  /** A whole-circle wedge (every bearing bears) + its reload sweep-back — the
-   *  `sector` grammar at 360°. */
-  private disc(color: number, lit: boolean, reloadFrac: number): void {
+  /** The wedge model for (hull, launcher count), re-placing the sprites only when it changes. */
+  private placeWedges(hull: HullId, launchers: number): LauncherWedge[] {
+    const wedges = launcherWedges(hull, launchers, launcherWedgeLengthU(ARC_R));
+    const key = `${hull}|${launchers}`;
+    if (key === this.wedgeKey) return wedges;
+    this.wedgeKey = key;
+    while (this.wedgeSprites.length < MAX_LAUNCHERS * 2) {
+      const sp = new Sprite();
+      sp.anchor.set(0, 0.5);
+      this.wedgeSprites.push(sp);
+      this.wedgeLayer.addChild(sp);
+    }
+    this.wedgeSprites.forEach((sp, k) => {
+      const w = wedges[k];
+      sp.visible = w !== undefined;
+      if (w === undefined) return;
+      sp.texture = bakedWedgeTexture(w.halfArc);
+      sp.position.set(w.origin.x, w.origin.y);
+      sp.rotation = w.offset;
+      sp.scale.set(w.r / LW.texPx);
+    });
+    return wedges;
+  }
+
+  /** The reload sweep-back for one torpedo wedge: a small DIM wedge at its station. */
+  private reloadHint(w: LauncherWedge, reloadFrac: number): void {
     const g = this.arcs;
-    g.circle(0, 0, ARC_R).fill(arcFillStyle(color, lit));
-    if (reloadFrac > 0 && reloadFrac < 1) g.circle(0, 0, ARC_R * 0.5).fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
+    g.moveTo(w.origin.x, w.origin.y);
+    g.arc(w.origin.x, w.origin.y, ARC_R * 0.5, w.offset - w.halfArc, w.offset + w.halfArc);
+    g.lineTo(w.origin.x, w.origin.y);
+    g.fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
   }
 
   /**
@@ -555,7 +656,10 @@ export class FiringUX {
    *  The torpedo keeps its cool-green identity; everything else (gun family, the
    *  broadside's beams, the mine's rear placement) is amber. */
   private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
-    if (!(weaponArcHit(heading, aim, id, this.launchers) && hasAmmo)) return DIM;
+    // A TORPEDO's `hasAmmo` is the shared `pickTube` fire verdict (station-
+    // measured, R16 / R28): no ship-centre arc read may disagree with it.
+    if (isTorpedoItem(id)) return hasAmmo ? weaponTint(id) : DIM;
+    if (!(weaponArcHit(heading, aim, id, this.launchers, this.launcherHull) && hasAmmo)) return DIM;
     return weaponTint(id);
   }
 }

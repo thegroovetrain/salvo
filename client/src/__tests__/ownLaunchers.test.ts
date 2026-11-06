@@ -146,11 +146,25 @@ describe('the torpedo fire verdict — the shared R16 pick', () => {
     expect(l.states[0].tubes).toEqual([0]);
   });
 
-  it('in arc with every bearing tube reloading: COOLING — in arc, not loaded', () => {
+  it('fore only, aim dead ahead: OUT OF ARC — the fore launcher\'s own dead wedge (R28)', () => {
     const l = seeded();
     settle(l, AHEAD);
+    expect(torpedoClickPrediction(l, true, POSE, AHEAD, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: false });
+    expect(predictTorpedoClick(l, POSE, AHEAD, AIM_DIST, 9000, 1)).toBeNull();
+  });
+
+  it('in arc with every bearing tube reloading: COOLING — in arc, not loaded', () => {
+    const l = seeded();
+    settle(l, BEAM);
     l.fire(0, 0, 9000, 1);
-    expect(torpedoClickPrediction(l, true, POSE, AHEAD, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: true });
+    expect(torpedoClickPrediction(l, true, POSE, BEAM, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: true });
+  });
+
+  it('in arc while the launcher still swings through its dead wedge: COOLING, nothing predicted fired (R28)', () => {
+    const l = seeded(); // at rest: pointed dead ahead, inside its own dead wedge
+    expect(torpedoClickPrediction(l, true, POSE, BEAM, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: true });
+    expect(predictTorpedoClick(l, POSE, BEAM, AIM_DIST, 9000, 1)).toBeNull();
+    expect(l.states[0].tubes).toEqual([0]);
   });
 
   it('in arc and loaded: FIRE — one click starts exactly ONE tube', () => {

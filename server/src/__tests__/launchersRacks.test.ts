@@ -4,6 +4,8 @@
 // catalogUnderIndex.test.ts); this suite pins the SERVER's wiring of them —
 // the non-pure rows of the spec's I/O matrix:
 //   * a FORE-only hull aiming astern is refused `out-of-arc`, nothing spent;
+//   * R28 side-firing: dead ahead and dead astern refused with nothing spent,
+//     the beam fires, the aft quarter fires only with the AFT launcher held;
 //   * both launchers bearing, four tubes loaded: ONE click, ONE torpedo;
 //   * no tube loaded: the `cooling` denial;
 //   * SECOND LAUNCHER TUBE before AFT: the aft launcher arrives with two;
@@ -111,11 +113,79 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     expect(a.launchers).toHaveLength(1);
     train(w, a, Math.PI / 4); // trained somewhere inside its arc
     const angle = a.launchers[0].a;
-    const seq = clickTorpedo(w, a, Math.PI); // dead astern: the 80° wedge
+    const seq = clickTorpedo(w, a, Math.PI); // dead astern: beyond the fore launcher's train
     expect(torpsOf(w, 'a')).toHaveLength(0);
     expect(tubes(a)).toEqual([0]);
     expect(a.launchers[0].a).toBe(angle);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
+  });
+
+  it('R28: dead ahead and dead astern are refused out-of-arc with BOTH launchers held, nothing spent', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    for (const id of ['heavyTorpedo', 'aftTorpedoLauncher']) w.applyCard(a, id);
+    for (const aim of [0, Math.PI]) {
+      train(w, a, aim);
+      const seq = clickTorpedo(w, a, aim);
+      expect(torpsOf(w, 'a'), `aim ${aim}`).toHaveLength(0);
+      expect(tubes(a)).toEqual([0, 0]);
+      expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
+    }
+  });
+
+  it('R28: a broadside click fires from a trained FORE-only launcher', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    w.applyCard(a, 'heavyTorpedo');
+    train(w, a, -Math.PI / 2);
+    clickTorpedo(w, a, -Math.PI / 2);
+    expect(torpsOf(w, 'a')).toHaveLength(1);
+  });
+
+  it('R28: the aft quarter (between the bands\' ends) fires only with the AFT launcher held', () => {
+    const quarter = (3 * Math.PI) / 4; // abaft the fore band, inside the aft band
+    const fore = bareWorld();
+    const f = place(fore, 'a');
+    fore.applyCard(f, 'heavyTorpedo');
+    train(fore, f, quarter);
+    const seq = clickTorpedo(fore, f, quarter);
+    expect(torpsOf(fore, 'a')).toHaveLength(0);
+    expect(buildFrame(fore, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
+
+    const both = bareWorld();
+    const b = place(both, 'a');
+    for (const id of ['heavyTorpedo', 'aftTorpedoLauncher']) both.applyCard(b, id);
+    train(both, b, quarter);
+    clickTorpedo(both, b, quarter);
+    expect(torpsOf(both, 'a')).toHaveLength(1);
+    expect(b.launchers[1].tubes[0]).toBeGreaterThan(0); // the AFT tube fired
+    expect(b.launchers[0].tubes[0]).toBe(0);
+  });
+
+  it('R28: a click while the launcher still swings through its dead wedge spends nothing (cooling)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    w.applyCard(a, 'heavyTorpedo'); // the fore launcher rests dead ahead, inside its dead wedge
+    const seq = clickTorpedo(w, a, Math.PI / 2); // one tick of swing is not enough to leave it
+    expect(torpsOf(w, 'a')).toHaveLength(0);
+    expect(tubes(a)).toEqual([0]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
+  });
+
+  it('R16 / R28: a click on the FAR side spends nothing until the launcher has swung across', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    w.applyCard(a, 'heavyTorpedo');
+    train(w, a, Math.PI / 2); // resting in one side's band
+    const seq = clickTorpedo(w, a, -Math.PI / 2); // the other side: in its band, but it points across the ship
+    expect(torpsOf(w, 'a')).toHaveLength(0);
+    expect(tubes(a)).toEqual([0]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
+    train(w, a, -Math.PI / 2); // swings across through its dead wedge
+    clickTorpedo(w, a, -Math.PI / 2);
+    const [t] = torpsOf(w, 'a');
+    expect(t).toBeDefined();
+    expect(t.vy).toBeLessThan(0); // it ran to the aimed side
   });
 
   it('a click with no aim distance names no area: refused out-of-arc', () => {
@@ -162,10 +232,10 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
-    train(w, a, 0);
-    clickTorpedo(w, a, 0);
+    train(w, a, Math.PI / 2);
+    clickTorpedo(w, a, Math.PI / 2);
     expect(torpsOf(w, 'a')).toHaveLength(1);
-    const seq = clickTorpedo(w, a, 0);
+    const seq = clickTorpedo(w, a, Math.PI / 2);
     expect(torpsOf(w, 'a')).toHaveLength(1);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
   });
@@ -187,8 +257,8 @@ describe('launchers on the world — cards resize them, everything arrives loade
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
-    train(w, a, 0);
-    clickTorpedo(w, a, 0);
+    train(w, a, Math.PI / 2);
+    clickTorpedo(w, a, Math.PI / 2);
     const running = a.launchers[0].tubes[0];
     expect(running).toBeGreaterThan(0);
     w.applyCard(a, 'secondLauncherTube');
@@ -293,8 +363,8 @@ describe('a RELOAD card mid-reload rescales every running tube and rack clock (n
     w.applyCard(a, 'secondLauncherTube');
     w.applyCard(a, 'navalMines');
     w.applyCard(a, 'secondMineRack');
-    train(w, a, 0);
-    clickTorpedo(w, a, 0);
+    train(w, a, Math.PI / 2);
+    clickTorpedo(w, a, Math.PI / 2);
     clickMine(w, a);
     for (let i = 0; i < 10; i += 1) w.step();
     const tubeLeft = a.launchers[0].tubes[0];

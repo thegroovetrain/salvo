@@ -6,7 +6,7 @@
 // sits in whichever of Q/E/R was empty first. A slot-number branch would light
 // the wrong marker. The gun family
 // (gun/starShells) is 360°; the three torpedoes share the deck LAUNCHER arcs
-// (Story 10.6, R6 — fore ±140°, plus the aft launcher's when held); the MINE
+// (Story 10.6, R6 / R28 — each launcher's side-firing band, the aft's when held); the MINE
 // has a rear placement arc; the BROADSIDE BARRAGE has TWIN mirrored beam
 // sectors.
 //
@@ -29,6 +29,7 @@ import {
   CATALOG,
   CONFIG,
   DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   EQUIPMENT_IDS,
   INDEX_IDS,
   arcFor,
@@ -37,6 +38,7 @@ import {
   launcherArcHolds,
   launcherSectors,
   launcherTrainRad,
+  launcherDeadRad,
   WEAPON_SLOTS,
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
@@ -215,10 +217,14 @@ describe('clickInArc — the click-aimed consumables are GATED by their arcs', (
     }
   });
 
-  it('GATES a torpedo by the held launchers\' arcs: fore only denies dead astern; the aft launcher opens it', () => {
-    expect(clickInArc(0, 0, 10, 'supercavTorpedo')).toBe(true); // dead ahead: the fore launcher bears
-    expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo')).toBe(false); // astern, fore only: denied
-    expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo', 2)).toBe(true); // ...the aft launcher bears
+  it('GATES a torpedo by the held launchers\' firing bands: fore only denies the aft quarter; the aft launcher opens it', () => {
+    const quarter = (3 * Math.PI) / 4;
+    const H = DEFAULT_CLASS_ID; // R30: the bands are per hull
+    expect(clickInArc(0, Math.PI / 2, 10, 'supercavTorpedo', 1, H)).toBe(true); // the beam: the fore launcher bears
+    expect(clickInArc(0, 0, 10, 'supercavTorpedo', 2, H)).toBe(false); // dead ahead: no launcher ever fires there
+    expect(clickInArc(0, quarter, 10, 'supercavTorpedo', 1, H)).toBe(false); // aft quarter, fore only: denied
+    expect(clickInArc(0, quarter, 10, 'supercavTorpedo', 2, H)).toBe(true); // ...the aft launcher bears
+    expect(clickInArc(0, Math.PI / 2, 10, 'supercavTorpedo', 1)).toBe(false); // no hull named: no band
   });
 
   it('gates EVERY mine line on the ONE shared leash, not just the naval rack', () => {
@@ -328,46 +334,74 @@ describe('weaponArcHit — mine REAR placement arc (Story 2.8, amendment 45)', (
   });
 });
 
-describe('weaponArcHit — the torpedo launcher arcs (Story 10.6, R6)', () => {
-  const train = launcherTrainRad();
+describe('weaponArcHit — the torpedo launcher arcs (Story 10.6, R6 / R28 / R30)', () => {
+  const H = DEFAULT_CLASS_ID;
+  const train = launcherTrainRad(H, 0);
 
-  it('is the shared launcherArcHolds for every torpedo, at every launcher count', () => {
-    for (const id of TORPEDO_ITEM_IDS) {
-      for (const n of [1, 2]) {
-        for (const heading of [0, 1.1, -2.4]) {
-          for (let k = 0; k < 24; k++) {
-            const aim = -Math.PI + (k * Math.PI) / 12;
-            expect(weaponArcHit(heading, aim, id, n), `${id} n${n} h${heading} a${aim}`).toBe(launcherArcHolds(n, heading, aim));
+  it('is the shared launcherArcHolds for every torpedo, at every launcher count, on every hull', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      for (const id of TORPEDO_ITEM_IDS) {
+        for (const n of [1, 2]) {
+          for (const heading of [0, 1.1, -2.4]) {
+            for (let k = 0; k < 24; k++) {
+              const aim = -Math.PI + (k * Math.PI) / 12;
+              expect(weaponArcHit(heading, aim, id, n, hull), `${hull} ${id} n${n} h${heading} a${aim}`).toBe(launcherArcHolds(hull, n, heading, aim));
+            }
           }
         }
       }
     }
   });
 
-  it('fore only: true at the train limit, false just past it and dead astern', () => {
-    expect(weaponArcHit(0, train, 'heavyTorpedo')).toBe(true);
-    expect(weaponArcHit(0, train + 0.01, 'heavyTorpedo')).toBe(false);
-    expect(weaponArcHit(0, Math.PI, 'heavyTorpedo')).toBe(false);
+  it('fore only: true at the band edges, false just past them, dead ahead and dead astern', () => {
+    const dead = launcherDeadRad(H, 0);
+    for (const side of [1, -1]) {
+      expect(weaponArcHit(0, side * train, 'heavyTorpedo', 1, H)).toBe(true);
+      expect(weaponArcHit(0, side * (train + 0.01), 'heavyTorpedo', 1, H)).toBe(false);
+      expect(weaponArcHit(0, side * dead, 'heavyTorpedo', 1, H)).toBe(true);
+      expect(weaponArcHit(0, side * (dead - 0.01), 'heavyTorpedo', 1, H)).toBe(false);
+    }
+    expect(weaponArcHit(0, 0, 'heavyTorpedo', 1, H)).toBe(false);
+    expect(weaponArcHit(0, Math.PI, 'heavyTorpedo', 1, H)).toBe(false);
   });
 
   it('rotates with heading', () => {
     const heading = Math.PI / 2; // facing +y
-    expect(weaponArcHit(heading, Math.PI / 2, 'heavyTorpedo')).toBe(true);
-    expect(weaponArcHit(heading, -Math.PI / 2, 'heavyTorpedo')).toBe(false);
+    expect(weaponArcHit(heading, heading + Math.PI / 2, 'heavyTorpedo', 1, H)).toBe(true);
+    expect(weaponArcHit(heading, heading, 'heavyTorpedo', 1, H)).toBe(false);
   });
 });
 
 describe('arcUnion — the torpedo wedge is the fewest fills', () => {
-  it('one launcher is ONE span of twice its train, centred on its rest bearing', () => {
-    const u = arcUnion(launcherSectors(1));
-    if (u === 'full') throw new Error('one launcher leaves a dead wedge');
-    expect(u).toHaveLength(1);
-    expect(u[0].to - u[0].from).toBeCloseTo(2 * launcherTrainRad(), 12);
-    expect(Math.cos((u[0].from + u[0].to) / 2)).toBeCloseTo(1, 12); // centred dead ahead
+  /** Spans as [from, to] hull-relative offsets in (−π, π], sorted — wrapped back from arcUnion's [0, 2π) frame. */
+  const H = DEFAULT_CLASS_ID;
+  const sides = (n: number): [number, number][] => {
+    const u = arcUnion(launcherSectors(H, n));
+    if (u === 'full') throw new Error('the launchers leave dead wedges ahead and astern');
+    return u
+      .map((sp): [number, number] => (sp.from >= Math.PI ? [sp.from - 2 * Math.PI, sp.to - 2 * Math.PI] : [sp.from, sp.to]))
+      .sort((a, b) => a[0] - b[0]);
+  };
+
+  it('fore only: two side wedges, each from the fore dead to the fore train off the bow', () => {
+    const dead = launcherDeadRad(H, 0);
+    const s = sides(1);
+    expect(s).toHaveLength(2);
+    expect(s[0][0]).toBeCloseTo(-launcherTrainRad(H, 0), 12);
+    expect(s[0][1]).toBeCloseTo(-dead, 12);
+    expect(s[1][0]).toBeCloseTo(dead, 12);
+    expect(s[1][1]).toBeCloseTo(launcherTrainRad(H, 0), 12);
   });
 
-  it('the fore and the aft launcher together are the whole disc', () => {
-    expect(arcUnion(launcherSectors(2))).toBe('full');
+  it('fore + aft: the union is two side wedges, each from the fore dead off the bow to the aft dead off the stern', () => {
+    const fore = launcherDeadRad(H, 0);
+    const aft = launcherDeadRad(H, 1);
+    const s = sides(2);
+    expect(s).toHaveLength(2);
+    expect(s[0][0]).toBeCloseTo(-(Math.PI - aft), 12);
+    expect(s[0][1]).toBeCloseTo(-fore, 12);
+    expect(s[1][0]).toBeCloseTo(fore, 12);
+    expect(s[1][1]).toBeCloseTo(Math.PI - aft, 12);
   });
 
   it('disjoint sectors stay apart; overlapping ones merge (across ±π too)', () => {
@@ -388,9 +422,10 @@ describe('weaponArcHit — the fitted torpedo and mine (Story 1.8)', () => {
 
   it('the fitted torpedo gates on the launcher arcs', () => {
     const torp = idAt('torpedoFit', Q);
-    expect(weaponArcHit(0, 0, torp)).toBe(true);
-    expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern, fore only
-    expect(weaponArcHit(0, Math.PI, torp, 2)).toBe(true); // ...the aft launcher held
+    const quarter = (3 * Math.PI) / 4;
+    expect(weaponArcHit(0, Math.PI / 2, torp, 1, DEFAULT_CLASS_ID)).toBe(true);
+    expect(weaponArcHit(0, quarter, torp, 1, DEFAULT_CLASS_ID)).toBe(false); // aft quarter, fore only
+    expect(weaponArcHit(0, quarter, torp, 2, DEFAULT_CLASS_ID)).toBe(true); // ...the aft launcher held
   });
 
   it('the mine is an AIMED rear-sector id', () => {
@@ -647,14 +682,16 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
     }
   });
 
-  it('the torpedo aim gate is EXACTLY the shared launcher arc (boundary-inclusive)', () => {
+  it('the torpedo aim gate is EXACTLY the shared launcher firing band (boundary-inclusive)', () => {
     expect(arcFor('heavyTorpedo').kind).toBe('launcher');
-    const train = launcherTrainRad();
-    // Heading 0, fore only: the train limit is in arc (boundary-inclusive)…
-    expect(weaponArcHit(0, train, 'heavyTorpedo')).toBe(true);
-    expect(weaponArcHit(0, -train, 'heavyTorpedo')).toBe(true);
-    // …and a hair beyond it is denied — the shared primitive, same answer.
-    expect(weaponArcHit(0, train + 0.001, 'heavyTorpedo')).toBe(false);
+    const H = DEFAULT_CLASS_ID;
+    const train = launcherTrainRad(H, 0);
+    const dead = launcherDeadRad(H, 0);
+    // Heading 0, fore only: both band edges are in arc (boundary-inclusive)…
+    for (const edge of [train, -train, dead, -dead]) expect(weaponArcHit(0, edge, 'heavyTorpedo', 1, H)).toBe(true);
+    // …and a hair beyond either is denied — the shared primitive, same answer.
+    expect(weaponArcHit(0, train + 0.001, 'heavyTorpedo', 1, H)).toBe(false);
+    expect(weaponArcHit(0, dead - 0.001, 'heavyTorpedo', 1, H)).toBe(false);
   });
 });
 

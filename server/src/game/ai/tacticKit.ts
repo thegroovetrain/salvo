@@ -30,6 +30,7 @@ import {
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
+  type HullId,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
@@ -256,12 +257,12 @@ export function distTo(sit: BotSituation, t: BotTrack): number {
 /** Is `aim` legal for this ship's torpedo LAUNCHERS (Story 10.6, Eric
  *  2026-11-05, R6 / R16, I9)? The same for every torpedo line: inside the arc
  *  of a launcher the ship holds (`stats.torpedoLaunchers` — the fore, plus the
- *  aft with AFT TORPEDO LAUNCHER), read through the shared `launcherArcHolds`
+ *  aft with AFT TORPEDO LAUNCHER) on its OWN hull's bands (R30), read through the shared `launcherArcHolds`
  *  the client draws its wedge with. Parallax-free (measured from the ship
  *  centre) — the server's `pickTube` measures from each station and is the
  *  enforced verdict; at a real torpedo range the two agree. */
-function torpedoAimLegal(stats: EffectiveStats, heading: number, aim: number): boolean {
-  return launcherArcHolds(stats.torpedoLaunchers, heading, aim);
+function torpedoAimLegal(self: { hullId: HullId; stats: EffectiveStats }, heading: number, aim: number): boolean {
+  return launcherArcHolds(self.hullId, self.stats.torpedoLaunchers, heading, aim);
 }
 
 /** One torpedo shot solve, shared by all three torpedo lines: lead at THIS weapon's speed, refuse out of the
@@ -278,7 +279,7 @@ export function solveTorpedoShot(
   if (d > reachU) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
-  if (!torpedoAimLegal(ctx.self.stats, ctx.self.state.heading, aim)) return null;
+  if (!torpedoAimLegal(ctx.self, ctx.self.state.heading, aim)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
   return { aim, aimDist: d, slot: ctx.slot };
 }

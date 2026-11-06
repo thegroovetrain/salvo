@@ -845,6 +845,25 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE TORPEDO FIRING WEDGE (Story 10.6, R28 — Eric 2026-11-06: "Each
+   * launcher's arc should be centered on the launcher itself, not the center
+   * of the ship. That includes the wedge. I also would like the wedge to
+   * extend a lot further and have the alpha gradually fade out to the end of
+   * it"). Each firing band is its own wedge from its launcher's station, drawn
+   * at the `arcFill` peak alpha and the torpedo tint, fading to nothing at its
+   * outer end; where the fore and aft wedges cross they stack into a brighter
+   * patch (Eric: "they should overlap as a brighter patch"). There is no
+   * torpedo run figure to size it by (Eric), so its length is a multiple of
+   * the indicative wedge radius (render/firing.ts ARC_R) — an orchestrator
+   * reading Eric judges on the page.
+   */
+  launcherWedge: {
+    lengthMult: 3, // × the indicative wedge radius
+    fadeStartFrac: 0.15, // full strength out to this fraction of the length, then a smooth fade to zero at the end
+    texPx: 256, // px along the radius of the baked fade texture (built once, shared by every wedge)
+  },
+
+  /**
    * THE BROADSIDE'S PER-TURRET ARC DISPLAY (render/firing.ts — Eric ruling
    * 2026-08-27, ruling 4: *"bright per-turret wedges drawn from each gun's real
    * muzzle position + the ±60° legal sector reduced to a THIN OUTLINE"*).

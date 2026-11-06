@@ -56,9 +56,10 @@ import type { MineKind } from '../types.js';
  *                   whose sector contains the click is the side that fires
  *                   (R2.2); a click in NEITHER sector — the bow and stern dead
  *                   zones — is denied out-of-arc, exactly like a `sector` miss.
- * - `launcher`    — a TORPEDO (Story 10.6, R6): the arc is the union of the
- *                   launchers the SHIP holds — fore ± train about the bow,
- *                   aft ± train about the stern — which is per-ship state, so
+ * - `launcher`    — a TORPEDO (Story 10.6, R6 / R28): the arc is the union of
+ *                   the firing bands of the launchers the SHIP holds — each
+ *                   from deadDeg to trainDeg off its own end, both sides —
+ *                   which is per-ship state, so
  *                   it is not in this descriptor: read
  *                   `launcherSectors(stats.torpedoLaunchers)` (drawing,
  *                   planning) and `pickTube` (the verdict), sim/launchers.ts.

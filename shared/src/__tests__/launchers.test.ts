@@ -3,12 +3,17 @@
 //
 //   (1) geometry: stations on the centerline inside the hull, FORE ahead of
 //       the forward turrets and AFT abaft the aft turrets; a drone has none;
-//   (2) the arc: rest ± CONFIG.launcher.trainDeg; traverse at the BATTERY's
-//       rate; HOLD outside the arc; never through the blind wedge;
-//   (3) THE PICK (R16): no launcher's arc holds the aim → `out-of-arc`,
-//       nothing spent; on-target first, else the nearest fires early along its
-//       CURRENT bearing; arc holds but no tube loaded → `cooling`; one click,
-//       one torpedo;
+//   (2) the arc: trains rest ± its OWN trainDeg (per hull, per launcher —
+//       R30, CONFIG.shipClasses.<id>.launchers); traverse at the
+//       BATTERY's rate, through its own dead wedge to change sides; HOLD
+//       outside the train interval; never through the blind wedge;
+//   (3) THE FIRING BAND (R28): deadDeg ≤ |offset from rest| ≤ trainDeg, both
+//       sides — per side from the bow: fore only, then both, then aft only;
+//   (4) THE PICK (R16 + R28): no launcher's band holds the aim → `out-of-arc`,
+//       nothing spent; a launcher still swinging through its dead wedge never
+//       fires (`cooling`); on-target first, else the nearest fires early along
+//       its CURRENT bearing; band holds but no tube loaded → `cooling`; one
+//       click, one torpedo;
 //   (4) each tube its own clock;
 //   (5) the torpedo leaves from the launcher's station along its bearing,
 //       clear of the own hull;
@@ -33,6 +38,7 @@ import {
   launcherAimPoint,
   launcherArcHolds,
   launcherBears,
+  launcherDeadRad,
   launcherRest,
   launcherSectors,
   launcherStation,
@@ -62,10 +68,21 @@ const DT = CONFIG.tick.simDtMs;
 const RATE = (CONFIG.mainBattery.traverseDegPerS * Math.PI) / 180; // rad/s — the turrets' rate, READ
 const STEP = (RATE * DT) / 1000;
 const TOL = (CONFIG.mainBattery.onTargetDeg * Math.PI) / 180;
-const TRAIN = (CONFIG.launcher.trainDeg * Math.PI) / 180;
+const DEG = Math.PI / 180;
+/** rad — launcher `i`'s band on `hull`, READ off its CONFIG row (R30: per hull, per launcher). */
+const band = (hull: ShipClassId, i: number): { dead: number; train: number } => {
+  const l = hullEnvelope(hull).launchers!;
+  const row = i === 0 ? l.fore : l.aft;
+  return { dead: row.deadDeg * DEG, train: row.trainDeg * DEG };
+};
+const BEAM = Math.PI / 2;
 const FAR = 1e6; // u — far enough that station parallax is nothing
 const HULL: ShipClassId = 'iowa';
 const POSE: AimPose = { x: 40, y: -25, heading: 0.7 };
+/** The test hull's two bands: DEAD is the FORE launcher's. */
+const FORE = band(HULL, 0);
+const AFT = band(HULL, 1);
+const DEAD = FORE.dead;
 
 const counts = (torpedoLaunchers: number, tubesPerLauncher: number) => ({ torpedoLaunchers, tubesPerLauncher });
 /** A world point at a HULL-RELATIVE bearing from the ship centre. */
@@ -114,43 +131,81 @@ describe('launcher geometry', () => {
     expect(launcherSummary(ls)).toEqual({ n: 0, reloadMsLeft: 0 });
   });
 
-  it('every torpedo id declares the launcher arc; the union is one sector per launcher held', () => {
+  it('every torpedo id declares the launcher arc; the sectors are the two firing bands of each launcher held', () => {
     for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
       expect(arcFor(id)).toEqual({ kind: 'launcher' });
     }
-    expect(launcherTrainRad()).toBeCloseTo(TRAIN, 12);
-    expect(launcherSectors(1)).toEqual([{ kind: 'sector', offset: 0, halfArc: launcherTrainRad() }]);
-    expect(launcherSectors(2)).toEqual([
-      { kind: 'sector', offset: 0, halfArc: launcherTrainRad() },
-      { kind: 'sector', offset: Math.PI, halfArc: launcherTrainRad() },
-    ]);
+    for (const hull of SHIP_CLASS_IDS) {
+      for (const i of [0, 1]) {
+        expect(launcherTrainRad(hull, i)).toBeCloseTo(band(hull, i).train, 12);
+        expect(launcherDeadRad(hull, i)).toBeCloseTo(band(hull, i).dead, 12);
+      }
+      expect(launcherSectors(hull, 0)).toEqual([]);
+      for (const n of [1, 2]) {
+        const secs = launcherSectors(hull, n);
+        expect(secs).toHaveLength(2 * n);
+        secs.forEach((sec, k) => {
+          const i = Math.floor(k / 2);
+          const off = Math.abs(wrapAngle(sec.offset - launcherRest(i)));
+          // Each sector runs from THAT launcher's dead to its train off its end, one per side.
+          expect(off - sec.halfArc, `${hull} ${k}`).toBeCloseTo(band(hull, i).dead, 12);
+          expect(off + sec.halfArc, `${hull} ${k}`).toBeCloseTo(band(hull, i).train, 12);
+        });
+        // One sector per side of the ship for each launcher.
+        expect(secs.filter((sec) => Math.sin(sec.offset) > 0)).toHaveLength(n);
+      }
+    }
+    for (const hull of DRONE_HULL_IDS) expect(launcherSectors(hull, 2)).toEqual([]);
   });
 });
 
 describe('the arc and the traverse', () => {
-  it('a launcher bears inside rest ± train and not outside it', () => {
-    const eps = 1e-3;
-    expect(launcherBears(HULL, 0, POSE, at(POSE, TRAIN - eps))).toBe(true);
-    expect(launcherBears(HULL, 0, POSE, at(POSE, -(TRAIN - eps)))).toBe(true);
-    expect(launcherBears(HULL, 0, POSE, at(POSE, TRAIN + eps))).toBe(false);
-    expect(launcherBears(HULL, 0, POSE, at(POSE, Math.PI))).toBe(false);
-    expect(launcherBears(HULL, 1, POSE, at(POSE, Math.PI))).toBe(true);
-    expect(launcherBears(HULL, 1, POSE, at(POSE, 0))).toBe(false);
+  it.each(SHIP_CLASS_IDS)('%s: each launcher fires from ITS dead to ITS train off its own end, on both sides, and nowhere else (R30)', (hull) => {
+    for (const i of [0, 1]) {
+      const { dead, train } = band(hull, i);
+      const rest = launcherRest(i);
+      for (const side of [1, -1]) {
+        const off = (d: number): Vec2 => at(POSE, rest + side * d);
+        const tag = `${hull} launcher ${i} side ${side}`;
+        expect(launcherBears(hull, i, POSE, off(dead - DEG)), `${tag} dead-1`).toBe(false);
+        expect(launcherBears(hull, i, POSE, off(dead + DEG)), `${tag} dead+1`).toBe(true);
+        expect(launcherBears(hull, i, POSE, off(train - DEG)), `${tag} train-1`).toBe(true);
+        expect(launcherBears(hull, i, POSE, off(train + DEG)), `${tag} train+1`).toBe(false);
+        expect(launcherBears(hull, i, POSE, off(0)), `${tag} end`).toBe(false);
+      }
+    }
   });
 
   it('launcherArcHolds (no parallax) agrees with the per-launcher test at long range', () => {
     const rnd = mulberry32(106);
+    const edges = [FORE.dead, FORE.train, Math.PI - AFT.train, Math.PI - AFT.dead];
     for (let k = 0; k < 400; k += 1) {
       const rel = (rnd.next() * 2 - 1) * Math.PI;
-      if (Math.abs(Math.abs(rel) - TRAIN) < 1e-3 || Math.abs(Math.abs(rel) - (Math.PI - TRAIN)) < 1e-3) continue;
+      if (edges.some((e) => Math.abs(Math.abs(rel) - e) < 1e-3)) continue;
       const aim = at(POSE, rel);
       const bearing = POSE.heading + rel;
-      expect(launcherArcHolds(1, POSE.heading, bearing)).toBe(launcherBears(HULL, 0, POSE, aim));
-      expect(launcherArcHolds(2, POSE.heading, bearing)).toBe(
+      expect(launcherArcHolds(HULL, 1, POSE.heading, bearing)).toBe(launcherBears(HULL, 0, POSE, aim));
+      expect(launcherArcHolds(HULL, 2, POSE.heading, bearing)).toBe(
         launcherBears(HULL, 0, POSE, aim) || launcherBears(HULL, 1, POSE, aim),
       );
     }
-    expect(launcherArcHolds(0, POSE.heading, POSE.heading)).toBe(false);
+    expect(launcherArcHolds(HULL, 0, POSE.heading, POSE.heading)).toBe(false);
+    expect(launcherArcHolds(DRONE_HULL_IDS[0], 2, POSE.heading, POSE.heading + BEAM)).toBe(false);
+  });
+
+  it('traverses through its own dead wedge to change sides', () => {
+    const ls = initialLaunchers(HULL, counts(2, 1));
+    settle(ls, HULL, POSE, at(POSE, BEAM));
+    expect(ls[0].a).toBeCloseTo(BEAM, 3);
+    const other = at(POSE, -BEAM);
+    let crossed = false;
+    for (let t = 0; t < 400; t += 1) {
+      stepLaunchers(ls, HULL, POSE, other, DT);
+      if (Math.abs(ls[0].a) < DEAD) crossed = true;
+    }
+    expect(crossed).toBe(true);
+    expect(ls[0].a).toBeCloseTo(-BEAM, 3);
+    expect(ls[1].a).toBeCloseTo(Math.PI + BEAM, 3); // the aft launcher crossed astern
   });
 
   it('traverses at the battery rate, arrives exactly and never overshoots', () => {
@@ -184,7 +239,7 @@ describe('the arc and the traverse', () => {
       const prev = ls.map((l) => l.a);
       stepLaunchers(ls, HULL, POSE, aim, DT);
       ls.forEach((l, i) => {
-        expect(Math.abs(l.a - launcherRest(i))).toBeLessThanOrEqual(TRAIN + 1e-9);
+        expect(Math.abs(l.a - launcherRest(i))).toBeLessThanOrEqual(band(HULL, i).train + 1e-9);
         expect(Math.abs(l.a - prev[i])).toBeLessThanOrEqual(STEP + 1e-12);
       });
     }
@@ -210,6 +265,69 @@ describe('the arc and the traverse', () => {
 });
 
 describe('the pick (R16)', () => {
+  it.each([0, Math.PI])('both launchers held, aim %f off the bow (an end): out-of-arc, nothing spent', (rel) => {
+    const ls = initialLaunchers(HULL, counts(2, 2));
+    const aim = at(POSE, rel);
+    settle(ls, HULL, POSE, aim);
+    const snapshot = JSON.stringify(ls);
+    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'out-of-arc' });
+    expect(JSON.stringify(ls)).toBe(snapshot);
+  });
+
+  it('a launcher still swinging through its dead wedge does not fire (cooling); it fires once in its band', () => {
+    const ls = initialLaunchers(HULL, counts(1, 1)); // fore only, at rest: inside its own dead wedge
+    const aim = at(POSE, BEAM);
+    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
+    let ticks = 0;
+    while (Math.abs(ls[0].a) < DEAD - 1e-9) {
+      expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
+      stepLaunchers(ls, HULL, POSE, aim, DT);
+      ticks += 1;
+      expect(ticks).toBeLessThan(1000);
+    }
+    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 0, onTarget: false });
+  });
+
+  it('a launcher pointed into its OTHER side\'s band never fires early across the ship (cooling, nothing spent); it fires once it has swung across', () => {
+    const ls = initialLaunchers(HULL, counts(1, 1));
+    settle(ls, HULL, POSE, at(POSE, BEAM)); // resting in the port band (+ side)
+    expect(launcherBears(HULL, 0, POSE, at(POSE, -BEAM))).toBe(true); // the starboard aim IS in its band
+    const aim = at(POSE, -BEAM);
+    const snapshot = JSON.stringify(ls);
+    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
+    expect(JSON.stringify(ls)).toBe(snapshot);
+    let ticks = 0;
+    while (ls[0].a > -DEAD + 1e-9) {
+      expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' }); // still on the far side or in the wedge
+      stepLaunchers(ls, HULL, POSE, aim, DT);
+      ticks += 1;
+      expect(ticks).toBeLessThan(1000);
+    }
+    const pick = pickTube(ls, HULL, POSE, aim);
+    expect(pick).toMatchObject({ verdict: 'fire', launcher: 0 });
+    if (pick.verdict === 'fire') expect(Math.sin(pick.bearing - POSE.heading)).toBeLessThan(0); // the starboard side
+  });
+
+  it('with both launchers held, a wrong-side launcher yields to a same-side one', () => {
+    const ls = initialLaunchers(HULL, counts(2, 1));
+    const aim = at(POSE, -BEAM);
+    settle(ls, HULL, POSE, aim);
+    ls[0].a = BEAM; // the fore launcher across the ship; the aft is on target
+    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 1 });
+    fireTube(ls, 1, 0, 9000); // the same-side launcher is empty: the loaded wrong-side one still never fires
+    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
+  });
+
+  it('a launcher pointed into its dead wedge never fires even when the aim sits in its band', () => {
+    const ls = initialLaunchers(HULL, counts(2, 1));
+    const aim = at(POSE, BEAM);
+    settle(ls, HULL, POSE, aim);
+    ls[0].a = DEAD / 2; // the fore launcher is mid-swing; the aft is on target
+    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 1 });
+    fireTube(ls, 1, 0, 9000);
+    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
+  });
+
   it('fore-only, aim astern: out-of-arc, nothing spent, the launcher holds', () => {
     const ls = initialLaunchers(HULL, counts(1, 2));
     const aim = at(POSE, Math.PI);
@@ -261,21 +379,21 @@ describe('the pick (R16)', () => {
 
   it('a launcher whose arc does not hold the aim NEVER fires, however ready it is', () => {
     const ls = initialLaunchers(HULL, counts(2, 2));
-    const aim = at(POSE, Math.PI); // dead astern: only the aft launcher can point there
+    const aim = at(POSE, Math.PI - AFT.dead - DEG); // the aft quarter: only the aft launcher's band holds it
     settle(ls, HULL, POSE, aim);
     for (let k = 0; k < 2; k += 1) {
       const pick = pickTube(ls, HULL, POSE, aim);
       expect(pick).toMatchObject({ verdict: 'fire', launcher: 1 });
       if (pick.verdict === 'fire') fireTube(ls, pick.launcher, pick.tube, 30000);
     }
-    // The aft tubes are spent; the fore launcher is loaded but cannot point astern.
+    // The aft tubes are spent; the fore launcher is loaded but cannot point there.
     expect(ls[0].tubes.every((t) => t <= 0)).toBe(true);
     expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
   });
 
   it('arc holds but every tube is reloading: cooling', () => {
     const ls = initialLaunchers(HULL, counts(1, 2));
-    const aim = at(POSE, 0.3);
+    const aim = at(POSE, 1.0);
     settle(ls, HULL, POSE, aim);
     fireTube(ls, 0, 0, 20000);
     fireTube(ls, 0, 1, 20000);
@@ -294,7 +412,8 @@ describe('the pick (R16)', () => {
 describe('tubes', () => {
   it('each tube has its own clock', () => {
     const ls = initialLaunchers(HULL, counts(1, 2));
-    const aim = at(POSE, 0);
+    const aim = at(POSE, BEAM);
+    settle(ls, HULL, POSE, aim);
     const first = pickTube(ls, HULL, POSE, aim);
     expect(first).toMatchObject({ verdict: 'fire', tube: 0 });
     fireTube(ls, 0, 0, 1000);
@@ -323,7 +442,7 @@ describe('the launch point', () => {
     const rnd = mulberry32(11);
     for (let k = 0; k < 60; k += 1) {
       const i = k % 2;
-      const bearing = POSE.heading + launcherRest(i) + (rnd.next() * 2 - 1) * TRAIN;
+      const bearing = POSE.heading + launcherRest(i) + (rnd.next() * 2 - 1) * band(hull, i).train;
       const station = launcherStationWorld(hull, i, POSE);
       const p = torpedoLaunchPoint(station, POSE, hull, bearing);
       expect(wrapAngle(Math.atan2(p.y - station.y, p.x - station.x) - bearing)).toBeCloseTo(0, 6);
@@ -406,14 +525,14 @@ describe('the contact codec', () => {
     const wire = encodeLauncherAngles(ls);
     expect(wire.every((q) => Number.isInteger(q))).toBe(true);
     ls.forEach((l, i) => {
-      expect(Math.abs(decodeLauncherAngle(i, wire[i]) - l.a)).toBeLessThanOrEqual(Math.PI / 360 + 1e-12);
+      expect(Math.abs(decodeLauncherAngle(HULL, i, wire[i]) - l.a)).toBeLessThanOrEqual(Math.PI / 360 + 1e-12);
     });
   });
 
   it('a malformed entry can never draw a launcher through its blind wedge', () => {
     for (const i of [0, 1]) {
       for (const q of [Number.NaN, 1e9, -1e9, Number.POSITIVE_INFINITY]) {
-        expect(Math.abs(decodeLauncherAngle(i, q) - launcherRest(i))).toBeLessThanOrEqual(TRAIN + 1e-12);
+        expect(Math.abs(decodeLauncherAngle(HULL, i, q) - launcherRest(i))).toBeLessThanOrEqual(band(HULL, i).train + 1e-12);
       }
     }
   });

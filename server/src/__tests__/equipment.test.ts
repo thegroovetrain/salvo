@@ -296,7 +296,8 @@ describe('denial reasons — derived through the gate without changing effects',
   it('torpedo with every tube reloading denies no-ammo (`cooling` on the wire)', () => {
     const w = bareWorld();
     const ship = placeTb(w, 'a');
-    setInput(ship, { aim: 0, aimDist: 300, slot: SLOT_TORPEDO }); // over the bow — in arc, but no tube loaded
+    for (const l of ship.launchers) l.a = Math.PI / 2; // trained on the beam
+    setInput(ship, { aim: ship.state.heading + Math.PI / 2, aimDist: 300, slot: SLOT_TORPEDO }); // abeam — in the band, but no tube loaded
     for (const l of ship.launchers) l.tubes.fill(ship.stats.equipment.heavyTorpedo.reloadMs); // the tubes are the truth
     expect(w.sinkingActivationGate(ship, SLOT_TORPEDO)).toEqual({
       ok: false,

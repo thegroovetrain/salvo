@@ -113,7 +113,7 @@ describe('ContactStore — `Contact.lu` decoded like `tu`, snapped, dropped with
     const store = new ContactStore();
     const lu = encodeLauncherAngles([{ a: 0.5, tubes: [] }, { a: launcherRest(1) - 0.3, tubes: [] }]);
     store.pushFrame(100, [{ ...base, lu }]);
-    expect(store.launcherAnglesOf('e1')).toEqual(lu.map((q, i) => decodeLauncherAngle(i, q)));
+    expect(store.launcherAnglesOf('e1')).toEqual(lu.map((q, i) => decodeLauncherAngle(base.cls, i, q)));
     expect(store.launcherAnglesOf('e1')![0]).toBeCloseTo(0.5, 1);
   });
 

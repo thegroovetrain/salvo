@@ -41,14 +41,18 @@ import {
   inArc,
   isMineEquipment,
   launcherArcHolds,
+  launcherSectors,
+  launcherStation,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
   type LitCircle,
   type EquipmentId,
+  type HullId,
   type Vec2,
 } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 
 /**
  * THE THREE MINE LINES (Story 8.13) — RE-EXPORTED FROM `shared/sim/arcs.ts`,
@@ -110,9 +114,10 @@ export function isTorpedoItem(id: EquipmentId | null): id is TorpedoItemId {
  *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
  *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
  *   dead zones — is denied exactly like a `sector` miss.
- * - `launcher` — a TORPEDO (Story 10.6, R6): the union of the deck launchers
- *   the ship holds (`launcherSectors(stats.torpedoLaunchers)`) — fore ± 140°,
- *   and the aft launcher's ± 140° when held.
+ * - `launcher` — a TORPEDO (Story 10.6, R6 / R28): the union of the firing
+ *   bands of the deck launchers the ship holds
+ *   (`launcherSectors(stats.torpedoLaunchers)`) — each launcher fires on both
+ *   sides from `CONFIG.launcher.deadDeg` to `trainDeg` off its own end.
  * - `none`    — the `none` descriptor (the speed boost) or an empty slot: not
  *   an aimed weapon, no marker, no reticle.
  */
@@ -149,7 +154,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
  * is denied by the server exactly like an out-of-arc one (see weaponRangeU,
  * which supplies that ring to the firing UX).
  */
-export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null, launchers = 1): boolean {
+export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null, launchers = 1, hullId: HullId | null = null): boolean {
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
@@ -157,7 +162,8 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
     return inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc);
   }
   if (arc.kind === 'twin-sector') return twinSectorSide(heading, aim, arc) !== null;
-  if (arc.kind === 'launcher') return launcherArcHolds(launchers, heading, aim);
+  // R30: the bands are per hull — no hull named, no band to hold the aim.
+  if (arc.kind === 'launcher') return hullId !== null && launcherArcHolds(hullId, launchers, heading, aim);
   return false; // ability / empty slot: not a weapon, never in arc
 }
 
@@ -320,8 +326,8 @@ export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean
  * main.ts asks the shared `pickTube` for a TORPEDO click instead, measured
  * from each launcher's station; this parallax-free read is the fallback.
  */
-export function clickInArc(heading: number, aim: number, aimDist: number, id: EquipmentId | null, launchers = 1): boolean {
-  return weaponArcHit(heading, aim, id, launchers) && weaponRangeHit(aimDist, id);
+export function clickInArc(heading: number, aim: number, aimDist: number, id: EquipmentId | null, launchers = 1, hullId: HullId | null = null): boolean {
+  return weaponArcHit(heading, aim, id, launchers, hullId) && weaponRangeHit(aimDist, id);
 }
 
 
@@ -357,6 +363,68 @@ export function sectorOutline(offset: number, halfArc: number, radius: number): 
   };
 }
 
+/**
+ * One torpedo firing wedge in the HULL-LOCAL frame (bow along +x): it springs
+ * from its launcher's `origin` (the shared `launcherStation` — the same point
+ * `pickTube` measures from), spans `offset ± halfArc` and runs `r` units.
+ */
+export interface LauncherWedge {
+  origin: Vec2;
+  offset: number;
+  halfArc: number;
+  r: number;
+}
+
+/**
+ * Pure: THE TORPEDO WEDGES (Story 10.6, R28 / R30) — one per firing band of
+ * each held launcher (two per launcher, fore first: the order of the shared
+ * `launcherSectors`), each from ITS launcher's station on `hullId`, at that
+ * launcher's own band angles, `lengthU` long.
+ */
+export function launcherWedges(hullId: HullId, launchers: number, lengthU: number): LauncherWedge[] {
+  return launcherSectors(hullId, launchers).map((s, k) => ({
+    origin: launcherStation(hullId, Math.floor(k / 2)),
+    offset: s.offset,
+    halfArc: s.halfArc,
+    r: lengthU,
+  }));
+}
+
+/** u — the wedge length: `CLIENT_CONFIG.launcherWedge.lengthMult` × the indicative radius (no torpedo run figure exists — Eric). */
+export function launcherWedgeLengthU(indicativeRadiusU: number): number {
+  return indicativeRadiusU * CLIENT_CONFIG.launcherWedge.lengthMult;
+}
+
+/** Pure: the wedge's alpha multiplier at `frac` of its length — 1 out to `fadeStartFrac`, then a smoothstep down to 0 at the end (and beyond). */
+export function wedgeFade(frac: number): number {
+  if (frac >= 1) return 0;
+  const start = CLIENT_CONFIG.launcherWedge.fadeStartFrac;
+  if (frac <= start) return 1;
+  const t = (frac - start) / (1 - start);
+  return 1 - t * t * (3 - 2 * t);
+}
+
+/** One wedge's alpha multiplier at a hull-local point (0 outside it). */
+function wedgeAlpha(w: LauncherWedge, x: number, y: number): number {
+  const dx = x - w.origin.x;
+  const dy = y - w.origin.y;
+  const d = Math.hypot(dx, dy);
+  if (d > w.r || Math.abs(wrapAngle(Math.atan2(dy, dx) - w.offset)) > w.halfArc) return 0;
+  return wedgeFade(d / w.r);
+}
+
+/**
+ * Pure: the COMPOSITE alpha multiplier of the wedges at a hull-local point,
+ * as the renderer stacks them — each wedge its own fill, normal
+ * over-compositing, so an overlap reads brighter (Eric: "they should overlap
+ * as a brighter patch").
+ */
+export function launcherWedgeAlphaAt(wedges: readonly LauncherWedge[], x: number, y: number): number {
+  let clear = 1;
+  for (const w of wedges) clear *= 1 - wedgeAlpha(w, x, y);
+  return 1 - clear;
+}
+
 /** One angular span of a wedge, hull-relative radians, `from < to`. */
 export interface ArcSpan {
   from: number;
@@ -368,10 +436,10 @@ const TAU = 2 * Math.PI;
 /**
  * Pure: the UNION of hull-relative sectors (`offset ± halfArc`) as the fewest
  * spans to fill — or `'full'` when together they cover every bearing. The
- * torpedo wedge is drawn from this (Story 10.6, R6): one launcher is one
- * 280° span; the fore and the aft launcher together (±140° about the bow and
- * about the stern) cover the whole circle, which is ONE disc, never two
- * overlapping fills double-shading their overlap.
+ * torpedo wedge is drawn from this (Story 10.6, R6 / R28): each launcher is
+ * two side bands; the fore and the aft launcher's bands overlap on each beam
+ * and merge into ONE span per side, never two overlapping fills
+ * double-shading their overlap.
  */
 export function arcUnion(sectors: readonly { offset: number; halfArc: number }[]): ArcSpan[] | 'full' {
   const spans: ArcSpan[] = [];

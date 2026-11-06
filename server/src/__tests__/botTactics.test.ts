@@ -995,20 +995,28 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due east
     const tube = slotOf(rec, 'heavyTorpedo');
-    // Dead ahead, inside credible range: the tube fires.
+    // On the BEAM, inside credible range: the tube fires (R28 — the
+    // launchers fire across the beam).
+    const beam = mkMind('duelist');
+    plot(beam, track(port.now, { x: 0, y: 150, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, beam, port).fireSlot).toBe(tube);
+    // Dead AHEAD, same range: the fore launcher's own dead wedge (R28) — the
+    // bot never plans a torpedo there.
     const ahead = mkMind('duelist');
     plot(ahead, track(port.now, { x: 150, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(rec, ahead, port).fireSlot).toBe(tube);
+    const da = COMBAT_BRAIN.decide(rec, ahead, port);
+    expect(da.fireSlot).not.toBe(tube);
+    expect(launcherArcHolds(rec.hullId, rec.stats.torpedoLaunchers, rec.state.heading, da.aim)).toBe(false);
     // Dead ASTERN, same range: the FORE launcher's arc refuses (Story 10.6,
-    // R6 — the 80° wedge astern), and the bot falls through to the main
-    // battery rather than burning a click on nothing.
+    // R6 / R28), and the bot falls through to the main battery rather than
+    // burning a click on nothing.
     const astern = mkMind('duelist');
     plot(astern, track(port.now, { x: -150, y: 0, speed: 0 }));
     const d = COMBAT_BRAIN.decide(rec, astern, port);
     expect(d.fireSlot).not.toBe(tube);
     expect(d.fireSlot).toBe(slotOf(rec, 'mainBattery'));
     // Whatever it fired, the commanded bearing is inside that weapon's arc.
-    expect(launcherArcHolds(rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(false);
+    expect(launcherArcHolds(rec.hullId, rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(false);
   });
 
   it('the tube is held beyond credible intercept range', () => {
@@ -1368,15 +1376,15 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
   it('the TUBE is never launched into a rock', () => {
     const w = islandWorld(304, circleIsland(80, 0, 30));
     const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due east
+    const rec = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2); // bow due north (−y): east is the starboard beam
     const mind = mkMind('duelist');
     plot(mind, track(port.now, { x: 160, y: 0, speed: 0 }));
-    // Dead ahead, in the bow arc, inside credible range — and behind land.
+    // On the beam, in the fore launcher's band, inside credible range — and behind land.
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
 
     const clear = openWorld(304);
     const clearPort = fakePort(clear);
-    const rec2 = mkBot(clear, 'bismarck', 0, 0, 0);
+    const rec2 = mkBot(clear, 'bismarck', 0, 0, -Math.PI / 2);
     const mind2 = mkMind('duelist');
     plot(mind2, track(clearPort.now, { x: 160, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'heavyTorpedo'));
@@ -1565,7 +1573,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const w = openWorld(421);
     const port = fakePort(w);
     // Abeam at knife range: inside the straight-runner's credible gate AND
-    // inside the FORE launcher's ±140° arc (Story 10.6 — every torpedo leaves
+    // inside the FORE launcher's firing band (Story 10.6, R28 — every torpedo leaves
     // the deck launchers; the beam sectors are gone). The light sits in the
     // torpedo family slot in the heavy's place.
     const beam = { x: 0, y: 180, heading: 0, speed: 0 };
@@ -1576,7 +1584,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const d = COMBAT_BRAIN.decide(tb, mind, port);
     expect(d.fireSlot).toBe(light);
     expect(Math.abs(d.aim - Math.PI / 2)).toBeLessThan(Math.PI / 4); // fired abeam
-    expect(launcherArcHolds(tb.stats.torpedoLaunchers, tb.state.heading, d.aim)).toBe(true);
+    expect(launcherArcHolds(tb.hullId, tb.stats.torpedoLaunchers, tb.state.heading, d.aim)).toBe(true);
   });
 
   it('torpedo homingTurnRate: the credible-range gate widens — bounded by budget minus turn room', () => {
@@ -1585,7 +1593,9 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const at600 = { x: 600, y: 0, heading: 0, speed: 0 };
     // A STRAIGHT-RUNNING fish (tier I, rate 0): 600u is fiction (credible
     // 250u) — the gun takes it instead.
-    const base = mkBot(w, 'bismarck', 0, 0, 0);
+    // Every shooter lies with the target on its starboard beam (R28).
+    const base = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
+    trainOn(base, at600.x, at600.y); // the turrets on the beam too, so the gun's own on-target gate passes
     expect(base.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
     const baseMind = mkMind('raider');
     plot(baseMind, track(port.now, at600));
@@ -1594,13 +1604,13 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // half-turn of correction room (1300 − π·130 ≈ 892u) — the tube fires.
     // The rate is written straight onto the row, exactly where the fold puts
     // it at tier V: the SUBJECT here is the gate, not the ladder.
-    const homing = mkBot(w, 'bismarck', 0, 0, 0);
+    const homing = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
     homing.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
     const homingMind = mkMind('raider');
     plot(homingMind, track(port.now, at600));
     expect(COMBAT_BRAIN.decide(homing, homingMind, port).fireSlot).toBe(slotOf(homing, 'heavyTorpedo'));
     // Still bounded: past the budget-minus-turn-room line the tube holds.
-    const far = mkBot(w, 'bismarck', 0, 0, 0);
+    const far = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
     far.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
     const farMind = mkMind('raider');
     plot(farMind, track(port.now, { x: 950, y: 0, heading: 0, speed: 0 }));
@@ -1945,12 +1955,13 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // exactly what a jamming buoy's fakes look like. The tube holds, the gun
     // does not.
     const young = { x: 150, y: 0, heading: 0, speed: 0, live: false, firstSeenAt: port.now - 1600 };
-    const tb = mkBot(w, 'bismarck', 0, 0, 0);
+    const tb = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2); // the plot on the starboard beam (R28)
+    trainOn(tb, young.x, young.y); // the turrets on the beam too, so the gun's own on-target gate passes
     const youngMind = mkMind('duelist');
     plot(youngMind, track(port.now, young));
     expect(COMBAT_BRAIN.decide(tb, youngMind, port).fireSlot).toBe(slotOf(tb, 'mainBattery'));
     // The same plot held past one sweep revolution commits the tube.
-    const held = mkBot(w, 'bismarck', 0, 0, 0);
+    const held = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
     const heldMind = mkMind('duelist');
     plot(heldMind, track(port.now, { ...young, firstSeenAt: port.now - 5000 }));
     expect(COMBAT_BRAIN.decide(held, heldMind, port).fireSlot).toBe(slotOf(held, 'heavyTorpedo'));
@@ -2715,10 +2726,10 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     expect(EQUIPMENT_TACTICS.foulingShell.reachU(rec.stats)).toBe(rec.stats.equipment.foulingShell.rangeU);
   });
 
-  it('a fitted SUPERCAV fires through the ordinary slot path at a live target dead ahead inside its credible range', () => {
+  it('a fitted SUPERCAV fires through the ordinary slot path at a live target on the beam inside its credible range', () => {
     const w = openWorld(8209);
     const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due east
+    const rec = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2); // bow due north: east is the starboard beam (R28)
     for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
     w.applyCard(rec, 'supercavTorpedo');
     const slot = slotOf(rec, 'supercavTorpedo');
@@ -2727,7 +2738,7 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     plot(mind, track(port.now, { x: CONFIG.bots.supercavCredibleU / 2, y: 0, heading: 0, speed: 5, live: true }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(slot);
-    expect(launcherArcHolds(rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(true);
+    expect(launcherArcHolds(rec.hullId, rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(true);
   });
 
   it('SHIFT_ROWS has one row per Shift — keyed by the SEAT\'s pick, never a hull (Story 10.4) — and it is the EQUIPMENT_TACTICS row', () => {

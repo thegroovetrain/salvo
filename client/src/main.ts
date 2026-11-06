@@ -3741,6 +3741,7 @@ function renderFiring(
     reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
     broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
     status.stats.torpedoLaunchers, // Story 10.6: the torpedo wedge is the held launchers' arcs
+    g.ownLaunchers.hullId, // R28: each wedge springs from its launcher's station on this hull
   );
   renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU);
 }

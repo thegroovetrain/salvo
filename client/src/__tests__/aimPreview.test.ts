@@ -40,6 +40,7 @@ import {
   torpedoLaunchPoint,
   type EffectiveStats,
   type Island,
+  type LauncherState,
   type TurretAim,
 } from '@salvo/shared';
 import {
@@ -56,6 +57,10 @@ const SHIP = { x: 0, y: 0, heading: 0, cls: DEFAULT_CLASS_ID };
 const MAP_R = 2400;
 /** The model a preview returns when there is nothing honest to draw. */
 const EMPTY_MODEL = { lines: [], bursts: [], place: null, band: null };
+/** A torpedo shooter whose BEAM looks down +x (bow toward −y): an aim of 0
+ *  lies in every launcher's firing band (R28), so the x-axis fixtures below
+ *  still read along the run. */
+const TSHIP = { ...SHIP, heading: -Math.PI / 2 };
 
 /** A test "rock" fixture built as a real Island polygon: an axis-aligned
  *  square of half-width `half` centered at (cx, cy). Every clipping test
@@ -556,18 +561,28 @@ describe('island clipping', () => {
   });
 });
 
+/** Every held launcher trained onto TSHIP's +x beam (hull-relative +π/2 — inside both launchers' train intervals). */
+function trainedOnBeam(st: EffectiveStats): LauncherState[] {
+  return initialLaunchers(DEFAULT_CLASS_ID, st).map((l) => ({ ...l, a: Math.PI / 2 }));
+}
+
+/** A torpedo input on TSHIP, aimed down its +x beam with the launchers trained there. */
+function torp(over: Partial<AimPreviewInput> = {}): AimPreviewInput {
+  const st = over.stats ?? stats();
+  return input({ id: 'heavyTorpedo', ship: TSHIP, launchers: trainedOnBeam(st), ...over });
+}
+
 describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
-  // STORY 10.6 (R6 / R16): the track leaves the DECK LAUNCHER the shared pick
-  // names — its station, pushed clear of the hull — along the bearing it fires
-  // on. (The retired bow-ring `torpedoSpawn` is gone.)
+  // STORY 10.6 (R6 / R16 / R28): the track leaves the DECK LAUNCHER the shared
+  // pick names — its station, pushed clear of the hull — along the bearing it
+  // fires on. (The retired bow-ring `torpedoSpawn` is gone.)
   it('runs from the PICKED LAUNCHER\'s station to the map edge, far past gun range', () => {
-    const inp = input({ id: 'heavyTorpedo', aimDist: 100 });
+    const inp = torp({ aimDist: 100 });
     const [l] = computeAimPreview(inp).lines;
-    const states = initialLaunchers(DEFAULT_CLASS_ID, inp.stats);
-    const pick = pickTube(states, DEFAULT_CLASS_ID, SHIP, launcherAimPoint(SHIP, DEFAULT_CLASS_ID, 0, 100));
-    if (pick.verdict !== 'fire') throw new Error('the fore launcher bears dead ahead');
-    expect(pick.station).toEqual(launcherStationWorld(DEFAULT_CLASS_ID, 0, SHIP)); // the FORE station
-    const exit = torpedoLaunchPoint(pick.station, SHIP, DEFAULT_CLASS_ID, pick.bearing);
+    const pick = pickTube(trainedOnBeam(inp.stats), DEFAULT_CLASS_ID, TSHIP, launcherAimPoint(TSHIP, DEFAULT_CLASS_ID, 0, 100));
+    if (pick.verdict !== 'fire') throw new Error('the fore launcher bears on the beam');
+    expect(pick.station).toEqual(launcherStationWorld(DEFAULT_CLASS_ID, 0, TSHIP)); // the FORE station
+    const exit = torpedoLaunchPoint(pick.station, TSHIP, DEFAULT_CLASS_ID, pick.bearing);
     expect(l.x1).toBeCloseTo(exit.x, 9);
     expect(l.y1).toBeCloseTo(exit.y, 9);
     // weaponArc.weaponRangeU would have answered stats.equipment.gun.rangeU here (a
@@ -577,26 +592,36 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(computeAimPreview(inp).bursts).toEqual([]); // contact-only: no blast
   });
 
-  it('previews NOTHING where no held launcher bears (fore only, aimed dead astern)', () => {
-    expect(computeAimPreview(input({ id: 'heavyTorpedo', aim: Math.PI }))).toEqual(EMPTY_MODEL);
+  it('previews NOTHING where no held launcher bears (fore only, aimed dead astern or dead ahead)', () => {
+    expect(computeAimPreview(torp({ ship: SHIP, aim: Math.PI }))).toEqual(EMPTY_MODEL);
+    expect(computeAimPreview(torp({ ship: SHIP, aim: 0 }))).toEqual(EMPTY_MODEL);
   });
 
-  it('with the AFT launcher held, an astern aim leaves from the AFT station', () => {
+  it('previews NOTHING while the only bearing launcher still swings through its dead wedge (R28)', () => {
+    expect(computeAimPreview(torp({ launchers: [{ a: 0, tubes: [0] }] }))).toEqual(EMPTY_MODEL);
+  });
+
+  it('with the AFT launcher held, an aft-quarter aim leaves from the AFT station', () => {
     const st = stats('heavyTorpedo', 'aftTorpedoLauncher');
-    const [l] = computeAimPreview(input({ id: 'heavyTorpedo', stats: st, aim: Math.PI })).lines;
-    expect(l.x1).toBeLessThan(launcherStationWorld(DEFAULT_CLASS_ID, 1, SHIP).x); // aft of the aft station, running astern
-    expect(l.x2).toBeLessThan(l.x1);
+    const quarter = (3 * Math.PI) / 4; // abaft the fore launcher's band, inside the aft's
+    const launchers = initialLaunchers(DEFAULT_CLASS_ID, st).map((l) => ({ ...l, a: quarter }));
+    const [l] = computeAimPreview(input({ id: 'heavyTorpedo', stats: st, aim: quarter, launchers })).lines;
+    expect(l.x1).toBeLessThan(launcherStationWorld(DEFAULT_CLASS_ID, 1, SHIP).x); // aft of the aft station, running aft
+    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(quarter, 6);
+    // Fore only, the same aim previews nothing.
+    expect(computeAimPreview(input({ id: 'heavyTorpedo', aim: quarter, launchers: [{ a: 2, tubes: [0] }] }))).toEqual(EMPTY_MODEL);
   });
 
   it('a launcher not yet on the aim previews its CURRENT bearing (the early-click rule), reloads ignored', () => {
     const st = stats('heavyTorpedo');
-    const held = [{ a: 0.5, tubes: [9_000] }]; // trained off the aim, and reloading
-    const [l] = computeAimPreview(input({ id: 'heavyTorpedo', stats: st, aim: 0, launchers: held })).lines;
-    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(0.5, 6);
+    const held = [{ a: Math.PI / 2 - 0.5, tubes: [9_000] }]; // trained off the aim (still in its band), and reloading
+    const [l] = computeAimPreview(torp({ stats: st, launchers: held })).lines;
+    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(-0.5, 6);
   });
 
   it('stops the track at the first island', () => {
-    const [l] = computeAimPreview(input({ id: 'heavyTorpedo', islands: [squareIsland(800, 0, 50)] })).lines;
+    const lane = launcherStationWorld(DEFAULT_CLASS_ID, 0, TSHIP).y; // the run's y: the fore station's
+    const [l] = computeAimPreview(torp({ islands: [squareIsland(800, lane, 50)] })).lines;
     expect(l.x2).toBeCloseTo(750, 3);
   });
 
@@ -604,7 +629,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   // deleted): the band appears from TIER II, which is the second copy of the
   // line, and the acquire/die numbers stay the FAMILY's shared ones.
   it('a TIERED torpedo adds the acquisition band along the initial track', () => {
-    const m = computeAimPreview(input({ id: 'heavyTorpedo', stats: stats('heavyTorpedo', 'heavyTorpedo') }));
+    const m = computeAimPreview(torp({ stats: stats('heavyTorpedo', 'heavyTorpedo') }));
     expect(m.band).not.toBeNull();
     expect(m.band!.halfWidth).toBe(CONFIG.torpedo.homingAcquireRange);
     expect(m.band!.x1).toBeCloseTo(m.lines[0].x1, 9);
@@ -618,12 +643,13 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   // point pins and the command half of the no-band pin are gone with the weapon
   // behavior — there is no longer a torpedo that bursts at a clicked point.
   it('no band on a TIER-I fish — a straight-runner has no acquisition to draw', () => {
-    expect(computeAimPreview(input({ id: 'heavyTorpedo' })).band).toBeNull();
-    expect(computeAimPreview(input({ id: 'lightTorpedo' })).band).toBeNull();
+    expect(computeAimPreview(torp()).band).toBeNull();
+    expect(computeAimPreview(torp({ id: 'lightTorpedo' })).lines).toHaveLength(1);
+    expect(computeAimPreview(torp({ id: 'lightTorpedo' })).band).toBeNull();
     // ...and the SUPERCAV fish never steers at ANY build (amendment 74), even
     // beside a fully tiered torpedo ladder.
     const tiered = stats('heavyTorpedo', 'heavyTorpedo', 'lightTorpedo', 'lightTorpedo');
-    expect(computeAimPreview(input({ id: 'supercavTorpedo', stats: tiered })).band).toBeNull();
+    expect(computeAimPreview(torp({ id: 'supercavTorpedo', stats: tiered })).band).toBeNull();
   });
 
   // STORY 8.13, THE FAIL-FIRST PIN: the dispatch keyed on `heavyTorpedo` alone,
@@ -632,13 +658,13 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   // whichever fish was in the water.
   it('previews a run for EVERY torpedo id, each reading its own line', () => {
     for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
-      expect(computeAimPreview(input({ id })).lines, id).toHaveLength(1);
+      expect(computeAimPreview(torp({ id })).lines, id).toHaveLength(1);
     }
     // The LIGHT line's own ladder buys the LIGHT fish's band, and leaves the
     // heavy one a straight-runner.
     const light = stats('lightTorpedo', 'lightTorpedo');
-    expect(computeAimPreview(input({ id: 'lightTorpedo', stats: light })).band).not.toBeNull();
-    expect(computeAimPreview(input({ id: 'heavyTorpedo', stats: light })).band).toBeNull();
+    expect(computeAimPreview(torp({ id: 'lightTorpedo', stats: light })).band).not.toBeNull();
+    expect(computeAimPreview(torp({ id: 'heavyTorpedo', stats: light })).band).toBeNull();
   });
 
   it('keeps the TORPEDO FAMILY tint for every fish, and amber for everything else', () => {
@@ -649,7 +675,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   });
 
   it('no torpedo previews a point burst any more — contact only', () => {
-    expect(computeAimPreview(input({ id: 'heavyTorpedo', stats: stats('heavyTorpedo', 'heavyTorpedo') })).bursts)
+    expect(computeAimPreview(torp({ stats: stats('heavyTorpedo', 'heavyTorpedo') })).bursts)
       .toEqual([]);
   });
 });
@@ -807,12 +833,12 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
   const rimShip = { ...SHIP, x: MAP_R + 5, y: 0, heading: 0 };
 
   it('previews NOTHING for a torpedo whose tube exit is past the rim', () => {
-    const m = computeAimPreview(input({ id: 'heavyTorpedo', ship: rimShip, aimDist: 300 }));
+    const m = computeAimPreview(torp({ ship: { ...TSHIP, x: MAP_R + 5 }, aimDist: 300 }));
     expect(m).toEqual({ lines: [], bursts: [], place: null, band: null });
   });
 
   it('still previews a torpedo fired from inside the rim', () => {
-    const m = computeAimPreview(input({ id: 'heavyTorpedo', ship: { ...SHIP, x: 0 } }));
+    const m = computeAimPreview(torp({ ship: { ...TSHIP, x: 0 } }));
     expect(m.lines).toHaveLength(1);
   });
 
