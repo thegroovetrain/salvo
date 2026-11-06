@@ -167,6 +167,42 @@ describe('ownStatsChanged — the seat Shift is one of its inputs', () => {
   });
 });
 
+describe('ownStatsChanged — the exhausted hull\'s bonus points are a stat input (Story 10.7, R5)', () => {
+  const own = (ib: OwnShip['ib'] | undefined): OwnShip =>
+    ({ cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, cards: [], ib }) as unknown as OwnShip;
+
+  it('fires when a point lands, and not on an equal record in a fresh object', () => {
+    expect(ownStatsChanged(own({}), own({}))).toBe(false);
+    expect(ownStatsChanged(own({ armor: 1 }), own({ armor: 1 }))).toBe(false);
+    expect(ownStatsChanged(own({ armor: 1 }), own({}))).toBe(true);
+    expect(ownStatsChanged(own({ armor: 2 }), own({ armor: 1 }))).toBe(true);
+    expect(ownStatsChanged(own({ armor: 1, intel: 1 }), own({ armor: 1 }))).toBe(true);
+  });
+
+  it('a missing `ib` reads as no points', () => {
+    expect(ownStatsChanged(own(undefined), own({}))).toBe(false);
+    expect(ownStatsChanged(own({ range: 1 }), own(undefined))).toBe(true);
+  });
+
+  it('compares the counts the fold reads: the same malformed entry twice is UNCHANGED, never a re-fold every frame (review gate P3)', () => {
+    expect(ownStatsChanged(own({ intel: Number.NaN }), own({ intel: Number.NaN }))).toBe(false);
+    expect(ownStatsChanged(own({ intel: Number.NaN }), own({}))).toBe(false);
+    expect(ownStatsChanged(own({ armor: 1e308 }), own({}))).toBe(false);
+    expect(ownStatsChanged(own(null as unknown as OwnShip['ib']), own({}))).toBe(false);
+  });
+
+  it('hands the frame\'s `ib` to onOwnStats beside the cards, and re-runs it when a point lands', () => {
+    const { sink, onOwnStats } = setup();
+    sink.handler(ownFrame(0, 0, { ib: {} }));
+    sink.handler(ownFrame(0, 0, { ib: {} }));
+    expect(onOwnStats).toHaveBeenCalledTimes(1);
+    expect(onOwnStats.mock.calls[0][3]).toEqual({});
+    sink.handler(ownFrame(0, 0, { ib: { engines: 1 } }));
+    expect(onOwnStats).toHaveBeenCalledTimes(2);
+    expect(onOwnStats.mock.calls[1][3]).toEqual({ engines: 1 });
+  });
+});
+
 describe('bindRoom reconnect signals', () => {
   it('delegates a drop to deps.onDrop (RECONNECTING banner) without touching prediction', () => {
     const { room, ownBufferClear, forceSnap, onDrop, onReconnect } = setup();

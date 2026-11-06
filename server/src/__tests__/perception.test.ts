@@ -123,6 +123,7 @@ import {
   isSinking,
   CATALOG,
   CONFIG,
+  INDEX_IDS,
   abilityCode,
   DEFAULT_CLASS_ID,
   DEFAULT_SHIFT,
@@ -2953,6 +2954,19 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // ride `offer`/`cards` as VALUES and a substring match on the JSON text
   // cannot tell a key from a value.
   expect(hasForbiddenKey(f, DECK_FORBIDDEN_KEYS)).toBe(false);
+  // THE REDRAW FLAG (Story 10.7, R4) is self-private on the `pts` / `offer`
+  // terms: the observer's OWN latch on `you`, and as a KEY nowhere else.
+  if (f.you !== undefined) expect(f.you.rd).toBe(me.mulliganed);
+  expect(hasForbiddenKey(withoutYou, ['rd'])).toBe(false);
+  // THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5) are self-private on the
+  // `cards` terms: the observer's OWN non-zero counts on `you`, and as a KEY
+  // nowhere else; the record's field name rides nothing at all.
+  if (f.you !== undefined) {
+    for (const id of INDEX_IDS) expect(f.you.ib[id] ?? 0).toBe(me.indexBonus[id]);
+    for (const n of Object.values(f.you.ib)) expect(n).toBeGreaterThan(0);
+  }
+  expect(hasForbiddenKey(withoutYou, ['ib'])).toBe(false);
+  expect(hasForbiddenKey(f, ['indexBonus'])).toBe(false);
   // THE LAUNCH POINT AND THE ATTENUATION REFERENCE (Story 9.12, epic-9
   // amendment 184(b)): a deck-gun shell carries `originX` / `originY` /
   // `attenRangeU` for the range attenuation and NEVER a frame — the muzzle
@@ -4573,11 +4587,24 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // RANGE removed the only card that could widen a per-observer RADIUS,
         // so the fuzz no longer varies radii — every observer runs the base
         // ladder and the invariant is exercised across rpm instead.
-        for (let n = rng.int(0, 5); n > 0; n--) intel.push('intel'); // toward the rpm cap
+        for (let n = rng.int(0, 5); n > 0; n--) intel.push('intel'); // up the rpm ladder (uncapped since Story 10.7, R6)
         rec.cards = intel;
         rec.cards = [...intel];
         rec.stats = effectiveStats(rec.cls, rec.cards);
         scrambleMounts(rec, side); // Story 10.6: launchers / racks off the side stream
+        // ...and ~half hold EXHAUSTED-HULL BONUS POINTS (Story 10.7, R5) off the
+        // side stream, so the `ib` self-privacy pin sees non-empty records.
+        // ARMOR / POWER / INTEL: no oracle reads the first two, and INTEL only
+        // moves the sweep RATE — which the oracles read off the World-stepped
+        // [prevSweepAngle, sweepAngle) window, never re-derive — so INTEL
+        // points (uncapped since Story 10.7, R6) are fuzzed too, past the old
+        // 30-RPM ceiling with five cards on. RANGE stays out: it moves a reach.
+        if (side.next() < 0.5) {
+          rec.indexBonus.armor = side.int(1, 4);
+          rec.indexBonus.power = side.int(0, 3);
+          rec.indexBonus.intel = side.int(0, 40);
+          rec.stats = effectiveStats(rec.cls, rec.cards, CATALOG, rec.indexBonus);
+        }
         // RADAR WAKES (Story 4.12): guarantee the wk oracle is EXERCISED, not
         // vacuous — most hulls start with a laid track ending at their stern
         // (raw ring injection, ages spread across the 12s life so all four

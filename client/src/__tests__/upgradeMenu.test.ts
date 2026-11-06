@@ -31,9 +31,9 @@ import {
   cardFoot,
   cardGreyed,
   frontOfferSignature,
-  mulliganLanded,
   offerView,
   pickableChoice,
+  redrawState,
   refitBandLayout,
   shouldAutoOpen,
   spendLatchReleased,
@@ -73,7 +73,7 @@ function ownShip(over: Partial<OwnShip> = {}): OwnShip {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
     ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
     sec: { heat: 0, locked: false }, pts: 1, offer: [...OFFER],
-    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0, rd: false, ib: {},
     ...over,
   };
 }
@@ -1190,54 +1190,20 @@ describe('shouldAutoOpen — the window opens itself once per match (amendment 5
   });
 });
 
-describe('mulliganLanded — the redraw ack rule (amendment 60)', () => {
-  const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
-    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: MULLIGAN_CHOICE, acked: false, ...over,
-  });
-  const you = (over: Partial<Pick<OwnShip, 'pts' | 'offer'>> = {}) => ({ pts: 1, offer: [...OFFER], ...over });
-  const soon = 1000 + SPEND_LATCH_TIMEOUT_MS / 2;
-  const late = 1000 + SPEND_LATCH_TIMEOUT_MS + 1;
-
-  it('lands when the FRONT OFFER changes at an unchanged bank (the redraw costs nothing)', () => {
-    expect(mulliganLanded(latch(), you({ offer: [...OFFER_B] }), soon)).toBe(true);
+describe('redrawState — the REDRAW pip reads the server flag (Story 10.7, R4)', () => {
+  it('is unspent in the countdown while the own row says the redraw is unused', () => {
+    expect(redrawState('countdown', ownShip({ rd: false }))).toBe('unspent');
   });
 
-  it('is still PENDING while the offer has not moved', () => {
-    expect(mulliganLanded(latch(), you(), soon)).toBe(false);
+  it('is spent in the countdown once the own row says it is used — reconnect included', () => {
+    expect(redrawState('countdown', ownShip({ rd: true }))).toBe('spent');
   });
 
-  it('does NOT land on the timeout — nothing moved, so the redraw was refused', () => {
-    expect(mulliganLanded(latch(), you(), late)).toBe(false);
-  });
-
-  it('is only ever about a MULLIGAN latch — a card pick never fills the pip', () => {
-    expect(mulliganLanded(latch({ choice: 2 }), you({ offer: [...OFFER_B] }), soon)).toBe(false);
-  });
-
-  // THE BANK MUST NOT MOVE (the 8.10 review, P4). `spendOutcome` calls a pts
-  // DROP a success, because for a card pick it is one. A redraw that cost a
-  // level did not land — it is a pick the server processed, or a desync — and
-  // filling the pip on it would swallow the evidence and eat the free redraw.
-  it('does NOT land when the BANK DROPPED, even though the latch released', () => {
-    // The signature is unchanged, so the only release clause is `pts <`.
-    expect(mulliganLanded(latch(), you({ pts: 0 }), soon)).toBe(false);
-  });
-
-  it('does not land on a bank drop that ALSO changed the offer', () => {
-    expect(mulliganLanded(latch(), you({ pts: 0, offer: [...OFFER_B] }), soon)).toBe(false);
-  });
-
-  it('lands on a changed SIGNATURE at an unchanged bank, the redraw\'s one real signal', () => {
-    expect(mulliganLanded(latch(), you({ pts: 1, offer: [...OFFER_B] }), soon)).toBe(true);
-  });
-
-  it('a server RECEIPT still outranks the inference, as it does for a pick', () => {
-    expect(mulliganLanded(latch({ acked: true }), you(), soon)).toBe(true);
-  });
-
-  it('a vanished own ship is never an ack', () => {
-    expect(mulliganLanded(latch(), null, soon)).toBe(false);
-    expect(mulliganLanded(latch(), undefined, late)).toBe(false);
+  it('is hidden off the countdown, whatever the flag says', () => {
+    for (const phase of ['waiting', 'active', 'finished']) {
+      expect(redrawState(phase, ownShip({ rd: false }))).toBe('hidden');
+      expect(redrawState(phase, ownShip({ rd: true }))).toBe('hidden');
+    }
   });
 });
 
@@ -1405,6 +1371,39 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
     for (const [l, y, t] of cases) {
       expect(spendOutcome(l, y, t) === 'pending').toBe(!spendLatchReleased(l, y, t));
     }
+  });
+});
+
+// STORY 10.7 REVIEW GATE (2026-11-06) — a REDRAW that deals the SAME four cards.
+// The server honors the redraw, but the fresh hand is byte-identical: pts and
+// the front signature never move, and a redraw fits nothing, so no `bn` ack
+// arrives. The own row's `rd` flag (the one redraw is used) IS the receipt —
+// the button could only be pressed while `rd` was false.
+describe('the REDRAW latch releases on the server\'s used flag (`rd`)', () => {
+  const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
+    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: MULLIGAN_CHOICE, acked: false, ...over,
+  });
+  const you = (rd: boolean) => ({ pts: 1, offer: [...OFFER], rd });
+  const soon = 1000 + SPEND_LATCH_TIMEOUT_MS / 2;
+  const late = 1000 + SPEND_LATCH_TIMEOUT_MS + 1;
+
+  it('an identical hand with `rd` true: released at once, a SUCCESS — never a denied pulse', () => {
+    expect(spendLatchReleased(latch(), you(true), soon)).toBe(true);
+    expect(spendOutcome(latch(), you(true), soon)).toBe('success');
+    expect(spendOutcome(latch(), you(true), late)).toBe('success');
+  });
+
+  it('with `rd` still false: held, then FAILED at the timeout (the server truly refused)', () => {
+    expect(spendLatchReleased(latch(), you(false), soon)).toBe(false);
+    expect(spendOutcome(latch(), you(false), soon)).toBe('pending');
+    expect(spendOutcome(latch(), you(false), late)).toBe('failed');
+  });
+
+  it('a CARD spend latch is unaffected by `rd`', () => {
+    const card = latch({ choice: 0 });
+    expect(spendLatchReleased(card, you(true), soon)).toBe(false);
+    expect(spendOutcome(card, you(true), soon)).toBe('pending');
+    expect(spendOutcome(card, you(true), late)).toBe('failed');
   });
 });
 

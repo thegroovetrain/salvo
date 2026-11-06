@@ -127,7 +127,7 @@ function refitViewFixture(): OfferView {
     ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
     sec: { heat: 0, locked: false }, pts: 1,
     offer: ['intel', 'armor', 'deckGun', 'navalMines'],
-    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0, rd: false, ib: {},
   };
   const v = offerView(you, false, false, false);
   if (!v) throw new Error('fixture produced no spendable offer');

@@ -26,12 +26,14 @@ import {
   SHIP_CLASS_IDS,
   LINE_IDS,
   eligibleLines,
+  INDEX_IDS,
   SLOT_BOOST,
   WEAPON_SLOTS,
   boonStackCount,
   familySlotFor,
   effectiveStats,
   isStubLine,
+  sunkAt,
   loadoutFor,
   pickRefusal,
   slotsWithCards,
@@ -543,10 +545,11 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
 
   // SOFT PITY IS DELETED with rarity (Story 8.1), and `levelsSinceRare` with
   // it — so the "exactly one draw per level" rule needs a different witness.
-  // The DRAW STREAM is it: a healthy draw consumes exactly TWO rng values per
-  // dealt card (Story 8.14's two-stage draw — one for the KIND, one for the
-  // LINE), so counting the stream's consumption counts draws, whatever the
-  // catalog holds.
+  // The DRAW STREAM is it: a draw consumes ONE rng value per dealt card (the
+  // line pick) plus one per wildcard slot that had BOTH types to flip between
+  // (Story 10.7). This catalog is all ladders — ship lines only — so no
+  // wildcard ever flips and every full draw costs exactly one value per card;
+  // counting the stream's consumption counts draws.
   it('exactly ONE draw per level across grant/spend/heal interleavings (the draw stream counts them)', () => {
     const line = (id: string): CatalogLine =>
       ({ id, kind: 'ladder', cap: 9, tiers: new Array(9).fill([{ kind: 'stat', path: 'armor', add: 1 }]) }) as unknown as CatalogLine;
@@ -563,7 +566,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
       float: (lo: number, hi: number) => inner.float(lo, hi),
       pick: <T>(xs: readonly T[]) => inner.pick(xs),
     };
-    const ROLLS_PER_CARD = 2; // stage 1 (kind) + stage 2 (line), amendment 92
+    const ROLLS_PER_CARD = 1; // the line pick; an all-ship catalog never flips a wildcard
     const draws = (): number => rolls / (ROLLS_PER_CARD * CONFIG.offer.size);
     let levels = 0;
     const grant = (n: number): void => { bank(w, a, n); levels += n; };
@@ -777,7 +780,10 @@ function ladderLine(id: string, cap = 1): CatalogLine {
 // were ALWAYS eligible. They are gone (Story 10.5, epic-10 amendment 11), so a
 // hull holding every ladder and all three family-slot weapons at cap has
 // NOTHING left to draw. Orchestrator ruling: an empty offer is never opened as
-// a refit window and never throws — the level banks with no hand behind it.
+// a refit window and never throws. Since Story 10.7 (R5, Eric 2026-11-06,
+// replacing R3's "banks nothing") a level that meets an EMPTY draw becomes ONE
+// bonus point on an index picked off the ship's draw stream: no bank, no
+// offer, no `pt`, while `level` keeps counting.
 
 /** Max a production captain OUT: every non-stub universal ladder, one kind
  *  per family at its cap (the first non-stub, dealable member of each) and
@@ -802,44 +808,208 @@ function exhaust(w: World, a: ShipRecord): void {
   }
 }
 
-describe('the EXHAUSTED hull — a short or empty offer never throws (Story 10.5)', () => {
-  it('every ladder + all three family weapons at cap: NOTHING is eligible, and a granted level banks with no offer and no pt', () => {
+/** The total bonus points a ship holds across every index (Story 10.7, R5). */
+const bonusTotal = (a: ShipRecord): number => INDEX_IDS.reduce((sum, id) => sum + a.indexBonus[id], 0);
+
+/** Wrap a ship's draw stream so the test can count what the World spends. */
+function countDraws(a: ShipRecord): () => number {
+  const inner = a.drawRng;
+  let n = 0;
+  a.drawRng = {
+    ...inner,
+    next: () => {
+      n += 1;
+      return inner.next();
+    },
+  };
+  return () => n;
+}
+
+describe('the EXHAUSTED hull — a short or empty offer never throws, and an empty draw is a bonus point (Stories 10.5, 10.7 R5)', () => {
+  it('every ladder + all three family weapons at cap: NOTHING is eligible, and a level crossed is ONE bonus point — no bank, no offer, no pt, level still rises', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
     expect(WEAPON_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
     expect(eligibleFor(a)).toEqual([]);
+    expect(bonusTotal(a)).toBe(0);
+    const levelBefore = a.level;
+    const cardsBefore = [...a.cards];
     expect(() => bank(w, a, 1)).not.toThrow();
     w.step();
-    expect(a.bankedLevels).toBe(1); // the level BANKS...
-    expect(a.offer).toBeNull(); // ...with no hand behind it (no refit window)
+    expect(a.level).toBe(levelBefore + 1); // the LEVEL still counts...
+    expect(a.bankedLevels).toBe(0); // ...nothing is banked...
+    expect(bonusTotal(a)).toBe(1); // ...it became exactly one bonus point (R5)...
+    expect(a.cards).toEqual(cardsBefore); // ...which is no card
+    expect(a.offer).toBeNull(); // ...no hand (no refit window)
     expect(ptsOf(w.tickEvents)).toEqual([]); // ...and no TAB cue
-    expect(buildFrame(w, 'a').you!.offer).toEqual([]);
+    // The point is IN the stats, through the one fold.
+    expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
+    const picked = INDEX_IDS.find((id) => a.indexBonus[id] > 0)!;
+    expect(a.stats[picked]).toBe(effectiveStats(a.cls, a.cards)[picked] + CONFIG.offer.exhausted.indexPoints);
+    const you = buildFrame(w, 'a').you!;
+    expect(you.pts).toBe(0);
+    expect(you.offer).toEqual([]);
+    expect(you.ib).toEqual({ [picked]: 1 });
   });
 
-  it('spendPoint against the empty hand is refused cleanly; the bank holds and keeps growing', () => {
+  it('R7: a SINKING or SUNK exhausted hull credited levels gets NO point — bank 0, no draw-stream value spent, stats untouched; the same hull afloat converts', () => {
+    for (const state of ['sinking', 'sunk'] as const) {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      exhaust(w, a);
+      if (state === 'sinking') w.sinkShip('a');
+      else a.lifecycle = sunkAt(w.now);
+      expect(isAfloat(a.lifecycle), state).toBe(false);
+      const stats = a.stats;
+      const draws = countDraws(a);
+      bank(w, a, 3);
+      expect(a.bankedLevels, state).toBe(0);
+      expect(bonusTotal(a), state).toBe(0);
+      expect(draws(), state).toBe(0);
+      expect(a.stats, state).toBe(stats);
+    }
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    exhaust(w, a);
+    bank(w, a, 3);
+    expect(bonusTotal(a)).toBe(3);
+  });
+
+  it('R6: an INTEL bonus point on a hull at its INTEL card cap makes it SWEEP faster — no ceiling', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    exhaust(w, a);
+    expect(boonStackCount(a.cards, 'intel')).toBe(CATALOG.intel.cap);
+    const before = a.stats;
+    // Steer the pick onto INTEL: the uniform slice of [0, 1) that maps to it.
+    const indices = CONFIG.offer.exhausted.indices;
+    const v = (indices.indexOf('intel') + 0.5) / indices.length;
+    a.drawRng = { ...a.drawRng, next: () => v };
+    bank(w, a, 1);
+    expect(a.indexBonus.intel).toBe(1);
+    const perPoint = (CONFIG.vision.sweepRpm * CONFIG.offer.exhausted.indexPoints) / CONFIG.index.base;
+    expect(a.stats.sweepRpm - before.sweepRpm).toBeCloseTo(perPoint, 9);
+    // ...and the World's sweep stepping reads it: one tick advances the beam
+    // by 2π·dt / the NEW (shorter) period.
+    const start = a.sweepAngle;
+    w.step();
+    const advanced = (a.sweepAngle - start + 2 * Math.PI) % (2 * Math.PI);
+    expect(advanced).toBeCloseTo((2 * Math.PI * DT) / a.stats.sweepPeriodMs, 9);
+    expect(advanced).toBeGreaterThan((2 * Math.PI * DT) / before.sweepPeriodMs);
+  });
+
+  it('K levels on an exhausted hull are K points — one draw-stream value each — and spendPoint is refused cleanly', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
     bank(w, a, 1);
     expect(w.spendPoint('a', 0)).toBe(false);
-    expect(a.bankedLevels).toBe(1);
-    bank(w, a, 1);
-    expect(a.bankedLevels).toBe(2);
+    expect(a.bankedLevels).toBe(0);
+    const levelBefore = a.level;
+    const draws = countDraws(a);
+    bank(w, a, 5);
+    expect(a.level).toBe(levelBefore + 5);
+    expect(a.bankedLevels).toBe(0);
     expect(a.offer).toBeNull();
+    expect(bonusTotal(a)).toBe(6);
+    expect(draws()).toBe(5); // an empty draw spends nothing; each pick spends one
   });
 
-  it('the countdown grant and its REDRAW tolerate an exhausted hull — no throw, no offer', () => {
+  it('PROPERTY over seeds: the points land only on the ruled indices, never on anything else', () => {
+    const allowed = new Set<string>(CONFIG.offer.exhausted.indices);
+    for (let seed = 1; seed <= 12; seed += 1) {
+      const w = bareWorld(seed);
+      const a = place(w, 'a', 0, 0);
+      exhaust(w, a);
+      const cardsBefore = [...a.cards];
+      const before = a.stats;
+      bank(w, a, 8);
+      expect(Object.keys(a.indexBonus).sort(), `seed ${seed}`).toEqual([...INDEX_IDS].sort());
+      for (const id of INDEX_IDS) if (a.indexBonus[id] > 0) expect(allowed.has(id), `seed ${seed} ${id}`).toBe(true);
+      expect(bonusTotal(a), `seed ${seed}`).toBe(8);
+      expect(a.cards, `seed ${seed}`).toEqual(cardsBefore);
+      // HULL REPAIR / SMOKE SCREEN never move: they are no index.
+      expect(a.stats.repair, `seed ${seed}`).toEqual(before.repair);
+      expect(a.stats.smoke, `seed ${seed}`).toEqual(before.smoke);
+    }
+  });
+
+  it('is deterministic: the same seed picks the same points', () => {
+    const run = (): Record<string, number> => {
+      const w = bareWorld(7);
+      const a = place(w, 'a', 0, 0);
+      exhaust(w, a);
+      bank(w, a, 10);
+      return { ...a.indexBonus };
+    };
+    expect(run()).toEqual(run());
+  });
+
+  it('a hull that spends its LAST eligible card with N levels banked behind it converts all N into points, and the bank ends at 0', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    exhaust(w, a);
+    // Give one ladder back: exactly ONE line is dealable.
+    const back = LINE_IDS.find((id) => CATALOG[id].kind === 'ladder' && !isStubLine(id) && CATALOG[id].appliesTo === undefined)!;
+    a.cards.splice(a.cards.lastIndexOf(back), 1);
+    bank(w, a, 3); // the front level draws [back]; two more queue behind it
+    expect(front(a)).toEqual([back]);
+    expect(a.bankedLevels).toBe(3);
+    expect(bonusTotal(a)).toBe(0);
+    const levelBefore = a.level;
+    w.step();
+    expect(w.spendPoint('a', 0)).toBe(true);
+    expect(eligibleFor(a)).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
+    expect(bonusTotal(a)).toBe(2); // the two queued levels, one point each (R5)
+    expect(a.offer).toBeNull();
+    expect(a.level).toBe(levelBefore); // a spend never moves the level
+    expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
+    w.step();
+    expect(ptsOf(w.tickEvents)).toEqual([]);
+    expect(buildFrame(w, 'a').you!.pts).toBe(0);
+  });
+
+  it('a hull with cards left to draw NEVER receives a bonus point, however many levels it banks and spends', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 6);
+    for (let i = 0; i < 6; i += 1) spendPlainCard(w, a);
+    expect(a.bankedLevels).toBe(0);
+    expect(bonusTotal(a)).toBe(0);
+    expect(buildFrame(w, 'a').you!.ib).toEqual({});
+  });
+
+  it('the points survive the activation redeploy and a respawn, folded into the rebuilt stats', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    exhaust(w, a);
+    bank(w, a, 4);
+    const held = { ...a.indexBonus };
+    w.resetForMatchStart();
+    expect(a.indexBonus).toEqual(held);
+    expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
+    w.sinkShip('a');
+    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
+    expect(isAfloat(a.lifecycle)).toBe(true);
+    expect(a.indexBonus).toEqual(held);
+    expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
+  });
+
+  it('the countdown grant on an exhausted hull is a bonus point too; the REDRAW has no hand and is a clean no-op', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
     w.countdownOpen = true;
     expect(() => w.grantOpening()).not.toThrow();
     expect(a.offer).toBeNull();
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(0);
+    expect(bonusTotal(a)).toBe(1);
     // A redraw needs a held hand — there is none, so it is a clean no-op.
     expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
     expect(a.offer).toBeNull();
+    expect(bonusTotal(a)).toBe(1);
   });
 
   it('a hand ONE line short of exhaustion is SHORT, never padded and never repeated', () => {
@@ -938,7 +1108,7 @@ describe('one kind per family slot — through the real spend path (Story 10.5)'
     expect([...w.takes.keys()].sort()).toEqual(['heavyTorpedo', 'navalMines', 'starShells']);
   });
 
-  it("the level-zero guarantee never hands a full-row hull a weapon it cannot fit", () => {
+  it("a full-row hull's opening never offers a weapon it cannot fit", () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT,
       ['heavyTorpedo', 'navalMines', 'starShells']);
@@ -950,15 +1120,17 @@ describe('one kind per family slot — through the real spend path (Story 10.5)'
     }
   });
 
-  it('an ALL-STUB catalog is an empty draw too: the level banks in silence, no latch anywhere', () => {
+  it('an ALL-STUB catalog is an empty draw too: the level counts, nothing banks, no latch anywhere', () => {
     const catalog: Catalog = { ghost: { ...ladderLine('ghost', 9), stub: true } as CatalogLine };
     const w = bareWorld(1, { catalog });
     const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
+    const levelBefore = a.level;
     w.grantXp(a, 1);
     w.step();
-    expect(a.bankedLevels).toBe(1);
-    expect(buildFrame(w, 'a').you!.pts).toBe(1);
+    expect(a.level).toBe(levelBefore + 1);
+    expect(a.bankedLevels).toBe(0);
+    expect(buildFrame(w, 'a').you!.pts).toBe(0);
     expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
     expect(Object.hasOwn(a, 'deckExhausted')).toBe(false);
@@ -1109,7 +1281,7 @@ describe('wire privacy — banked levels, the ledger and the weights never leak'
     for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(text).not.toContain(key);
   });
 
-  it("another ship's frame carries no pt/bn events, and its contacts carry no pts/offer/deck", () => {
+  it("another ship's frame carries no pt/bn events, and its contacts carry no pts/offer/rd/deck", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0); // inside mutual sight
@@ -1121,7 +1293,7 @@ describe('wire privacy — banked levels, the ledger and the weights never leak'
     expect(bnsOf(fb.events)).toEqual([]);
     const contact = fb.contacts.find((c) => c.id === 'a')!;
     expect(contact).toBeDefined();
-    for (const key of ['pts', 'offer', 'deck', 'boons', 'lvl', 'xp']) {
+    for (const key of ['pts', 'offer', 'rd', 'deck', 'boons', 'lvl', 'xp']) {
       expect(key in contact).toBe(false);
     }
   });

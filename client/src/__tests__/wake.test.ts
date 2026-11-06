@@ -331,28 +331,19 @@ describe('hull-side displaced water rides the Kelvin half-angle', () => {
   });
 });
 
-describe('phosphor covers the water clock at every sweep rate', () => {
+describe('phosphor covers the water clock at the base sweep rate', () => {
   // The phosphor window is three REVOLUTIONS, not a fixed span, so a stretch of
   // water painted a revolution after it was laid must still be lit when it
-  // dissipates — at the base sweep rate and at `sweepRpmMax` alike (cycle-69
-  // review gate P4; epic-4 amendment 213's shorter clock closed the maxed-sweep gap).
-  // These mirror the ruled pin pair in shared zone.test.ts, read here against
-  // the live client `persistSweeps`.
+  // dissipates (cycle-69 review gate P4; epic-4 amendment 213). The maxed-sweep
+  // pin is gone with the sweep ceiling (Story 10.7, R6, 2026-11-06 — no INTEL
+  // cap any more). This mirrors the pin in shared zone.test.ts, read here
+  // against the live client `persistSweeps`.
   it('phosphor exactly covers the water clock AT THE BASE SWEEP RATE', () => {
     const sweepMs = 60_000 / CONFIG.vision.sweepRpm;
     const phosphorMs = CLIENT_CONFIG.blip.persistSweeps * sweepMs;
     // Worst case: a stretch is painted a full revolution after it was laid, and
     // must still be lit when the water finally dissipates.
     expect(phosphorMs).toBeGreaterThanOrEqual(LIFE_MS);
-  });
-
-  it('and AT sweepRpmMax TOO — cycle 69\'s accepted shortfall is resolved by the 5.5s clock (epic-4 amendment 213)', () => {
-    // Was `=== LIFE_MS / 2`, documenting a hole: 6s of phosphor against 12s of
-    // water on a maxed intelSweep build. The shorter clock closes it, so the
-    // handover guarantee now holds at EVERY sweep rate rather than only the
-    // base one, and this asserts the covering instead of the shortfall.
-    const sweepMs = 60_000 / CONFIG.vision.sweepRpmMax;
-    expect(CLIENT_CONFIG.blip.persistSweeps * sweepMs).toBeGreaterThanOrEqual(LIFE_MS);
   });
 });
 

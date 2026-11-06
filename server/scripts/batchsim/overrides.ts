@@ -383,15 +383,29 @@ export function validateTunableKey(key: string): void {
 }
 
 /** Per-key numeric FLOOR. A dial the sim divides by, or loops until it consumes,
- *  cannot legally be <= 0: `offer.size` 0 makes drawOffer return an empty offer
- *  forever (every level would bank with nothing to spend it on),
- *  `xp.levelMs` 0 makes passive accrual a divide-by-zero,
+ *  cannot legally be <= 0: `xp.levelMs` 0 makes passive accrual a divide-by-zero,
  *  `zone.beatMs` 0 collapses zoneClosedAtMs to 0 (a zero tick budget — the
  *  shared timeline fails closed, but every match would report as unresolved
  *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may
  *  legitimately be 0 — `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
  *  (a hold-at-map-radius ring) are real evidence values. */
-const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius', 'terrain.regionWavelength']);
+const MIN_ONE_KEYS = new Set(['xp.levelMs', 'zone.beatMs', 'map.baseRadius', 'terrain.regionWavelength']);
+
+/** Keys whose floor is ABOVE 1. `offer.size` floors at 2 (Story 10.7 review
+ *  gate, 2026-11-06): the four-slot plan deals slot 0 a Ship card, slot 1 an
+ *  Equipment card and every later slot a wildcard, so a size of 1 has NO
+ *  Equipment slot — it would deal only ladder rungs until every ladder is
+ *  capped, and a bare hull would never be offered a weapon (the retired
+ *  level-zero guarantee used to cover that). 0 deals nothing at all. */
+const KEY_FLOORS: ReadonlyMap<string, number> = new Map([['offer.size', 2]]);
+
+/** The numeric floor of a --set/--sweep key: its own entry, else 1 for the
+ *  divide-by / loop-until dials, else 0. */
+function floorOf(key: string): number {
+  const own = KEY_FLOORS.get(key);
+  if (own !== undefined) return own;
+  return MIN_ONE_KEYS.has(key) || MIN_ONE_PATTERNS.some((p) => p.test(key)) ? 1 : 0;
+}
 
 /** A ring radius of 0 is the collapse ring's job (synthesized, never a dial);
  *  the geometric ladder floors at 1 u structurally, so the dial does too. */
@@ -410,7 +424,7 @@ export function validateTunableValue(key: string, value: number): void {
     }
     return;
   }
-  const floor = MIN_ONE_KEYS.has(key) || MIN_ONE_PATTERNS.some((p) => p.test(key)) ? 1 : 0;
+  const floor = floorOf(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
   }

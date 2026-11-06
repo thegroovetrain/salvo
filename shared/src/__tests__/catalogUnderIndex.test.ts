@@ -219,7 +219,7 @@ describe('R6 / R7 / R10 — the four one-off WEAPON cards', () => {
     }
   });
 
-  it('are never eligible while their family slot is EMPTY, are UPGRADES once it is filled, and leave once held', () => {
+  it('are never eligible while their family slot is EMPTY, are EQUIPMENT cards (never a bare weapon) once it is filled, and leave once held', () => {
     for (const [id, family] of ONE_OFFS) {
       expect(eligibleLines(shipOf([])).some((e) => e.id === id), `${id} on an empty hull`).toBe(false);
       // Filling ANOTHER family's slot never opens it.
@@ -228,7 +228,7 @@ describe('R6 / R7 / R10 — the four one-off WEAPON cards', () => {
       }
       for (const eq of familyMembers(family)) {
         const hand = [lineOf(eq)];
-        expect(eligibleLines(shipOf(hand)), `${id} with ${eq}`).toContainEqual({ id, kind: 'upgrade' });
+        expect(eligibleLines(shipOf(hand)), `${id} with ${eq}`).toContainEqual({ id, type: 'equipment', bareWeapon: false });
         expect(eligibleLines(shipOf([...hand, id])).some((e) => e.id === id), `${id} held`).toBe(false);
       }
     }

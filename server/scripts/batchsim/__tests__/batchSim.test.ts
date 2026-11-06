@@ -207,8 +207,8 @@ describe('args — value hygiene (review gate 2026-07-31)', () => {
 describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
   it('rejects non-positive offer.size / xp.levelMs at parse time AND at apply time', () => {
     expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(/'offer\.size'.*>= 1/);
-    expect(() => parseArgs(['--sweep', 'offer.size=3,0'])).toThrow(/'offer\.size'.*>= 1/);
+    expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(/'offer\.size'.*>= 2/);
+    expect(() => parseArgs(['--sweep', 'offer.size=3,0'])).toThrow(/'offer\.size'.*>= 2/);
     expect(() => parseArgs(['--set', 'xp.levelMs=0'])).toThrow(/'xp\.levelMs'.*>= 1/);
     expect(() => parseArgs(['--set', 'zone.stormDps=-1'])).toThrow(/'zone\.stormDps'.*>= 0/);
     // Phased-timeline floors (Story 3.1): a 0-beat rhythm and a 0-radius board
@@ -216,6 +216,18 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
     expect(() => parseArgs(['--set', 'zone.beatMs=0'])).toThrow(/'zone\.beatMs'.*>= 1/);
     expect(() => parseArgs(['--set', 'map.baseRadius=0'])).toThrow(/'map\.baseRadius'.*>= 1/);
     expect(() => applyOverrides({ 'offer.size': 0 })).toThrow(TunableError);
+  });
+
+  it('refuses offer.size 1 — the four-slot plan has NO Equipment slot below 2 (Story 10.7 review gate)', () => {
+    // Slot 0 is the Ship card and slot 1 the Equipment card, so a size of 1
+    // would never offer a bare hull a weapon. 2 is the smallest legal arm.
+    expect(() => parseArgs(['--set', 'offer.size=1'])).toThrow(/'offer\.size'.*>= 2/);
+    expect(() => parseArgs(['--sweep', 'offer.size=4,1'])).toThrow(/'offer\.size'.*>= 2/);
+    expect(() => applyOverrides({ 'offer.size': 1 })).toThrow(TunableError);
+    expect(parseArgs(['--set', 'offer.size=2']).set).toEqual({ 'offer.size': 2 });
+    const restore = applyOverrides({ 'offer.size': 2 });
+    expect(CONFIG.offer.size).toBe(2);
+    restore();
   });
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
@@ -488,7 +500,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // Both weighting numbers are `[DRAFT]` and Eric expects the harness to
     // move them, so they sit on the --tune surface (a combat-shape dial, like
     // hullRepair) with the family prefix `offer.weighting.` — which leaves
-    // `offer.size` on the --set whitelist with its floor of 1.
+    // `offer.size` on the --set whitelist with its floor of 2 (Story 10.7).
     for (const key of ['offer.weighting.factor', 'offer.weighting.floor']) {
       expect(isTunableKey(key), key).toBe(false); // NOT on the --set surface...
       expect(() => parseArgs(['--tune', `${key}=0.5`]), key).not.toThrow(); // ...and IS on --tune

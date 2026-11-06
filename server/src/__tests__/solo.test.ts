@@ -310,6 +310,21 @@ describe('the solo room — the human joins', () => {
     expect(r.match?.phase).toBe('countdown');
   });
 
+  it('a captain leaving mid-countdown never unlocks the room (no captain re-enters a countdown, Story 10.7)', () => {
+    // The room is locked at birth (above) and must STAY locked through the
+    // countdown's fall-back to waiting: an unlocked room would let a leaver
+    // rejoin as a fresh record with a fresh opening and redraw. The Match half
+    // is swept per cohort in match.test.ts; this is the room's own wiring.
+    const r = soloRoom();
+    const alice = join(r, 'alice');
+    expect(r.match?.phase).toBe('countdown');
+    (r as unknown as { onLeave(c: FakeClient, code?: number): void }).onLeave(alice);
+    expect(r.match?.phase).not.toBe('countdown');
+    expect(r.world.ships.has('alice')).toBe(false);
+    expect(r.lock).toHaveBeenCalled();
+    expect((r as unknown as { unlock: ReturnType<typeof vi.fn> }).unlock).not.toHaveBeenCalled();
+  });
+
   it('reads the full cap AFLOAT: a full roster of participants, never 1', () => {
     const r = soloRoom();
     join(r, 'alice');

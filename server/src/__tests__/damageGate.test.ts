@@ -729,9 +729,10 @@ describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () =>
       'ship.hp = ship.stats.maxHp;',
       // sinkShip — the wreck is zeroed.
       'ship.hp = 0;',
-      // applyCard — the post-fold clamp to the new maxHp (its heal-on-grant
-      // line left with HULL POINTS, Story 10.3, Eric 2026-11-04, epic-10
-      // amendment 7).
+      // refoldCards — the post-fold clamp to the new maxHp, shared by
+      // applyCard and the exhausted hull's convertBank (Story 10.7, R5; the
+      // heal-on-grant line left with HULL POINTS, Story 10.3, Eric
+      // 2026-11-04, epic-10 amendment 7).
       'ship.hp = Math.min(ship.hp, ship.stats.maxHp);',
       // tickRepairs — the R8 PASSIVE REGEN (Story 10.5, epic-10 amendment
       // 11): the shared `regenGain` law (2 % of missing per second, the last

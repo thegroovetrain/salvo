@@ -10,7 +10,7 @@
 // perception invariant's forbidden-key walk). ZERO Colyseus imports: this is
 // game/, and the builder is pure over plain snapshots.
 
-import { PROTOCOL_VERSION, type HullId, type ShiftId, type LineId } from '@salvo/shared';
+import { PROTOCOL_VERSION, type HullId, type IndexId, type ShiftId, type LineId } from '@salvo/shared';
 import type { Match, MatchEndCause, MatchOutcome, Participant } from './match.js';
 import { isParticipant, type ShipRole } from './participants.js';
 
@@ -52,6 +52,9 @@ export interface ParticipantRecord {
   hands: readonly HandRecord[];
   /** Levels banked and never spent at the end (an open hand counts). */
   bankedLevels: number;
+  /** The exhausted hull's bonus points per index (Story 10.7, R5): the levels
+   *  that met an empty draw and became +1 on that index — part of the build. */
+  indexBonus: Record<IndexId, number>;
 }
 
 export interface MatchRecord {
@@ -104,6 +107,7 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>, p
     cards: [...p.cards],
     hands: p.hands.map((h) => toTPlus(h, match.activatedAt)),
     bankedLevels: p.bankedLevels,
+    indexBonus: { ...p.indexBonus },
   };
 }
 

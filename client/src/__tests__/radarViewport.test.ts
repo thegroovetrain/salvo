@@ -868,7 +868,7 @@ describe('the scope never blinks out for a frame', () => {
 //   • 236ms → 0.371 rad/frame — the NEAR-MISS band, inside the bound but past the
 //     7 quanta the old clamp allowed
 // Both are reachable: 0.4 rad is only ~125ms of sweep at the boon-scaled
-// `sweepRpmMax` of 30, so this is a live-session regime, not a pathology.
+// 30rpm INTEL build, so this is a live-session regime, not a pathology.
 
 describe('the scope keeps painting at every frame rate (catch-up, at the adapter)', () => {
   const SWEEP_MS = 60_000 / CONFIG.vision.sweepRpm; // 4000ms at 15rpm
