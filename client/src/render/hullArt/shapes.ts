@@ -238,6 +238,20 @@ export function hullArt(id: ShipClassId): HullArt {
 }
 
 /**
+ * Pure: the order the main turrets PAINT in, first (lowest) to last (on top):
+ * farthest from amidships first, so a SUPERFIRING turret — the one nearer
+ * amidships, raised to fire over its neighbour — draws above the turret it
+ * fires over (Eric 2026-11-06: "on the 4x2 ships it looks like the third gun
+ * (from the front) barrels are rendered under the fourth gun turrets. Fix
+ * that."). A rule off each turret's shared station (`|x|`, the distance from
+ * amidships), never a per-hull table; ties keep the bow-first index order.
+ */
+export function turretDrawOrder(id: ShipClassId): number[] {
+  const away = turretMounts(id).map((_, i) => Math.abs(turretStation(id, i).x));
+  return away.map((_, i) => i).sort((a, b) => away[b] - away[a] || a - b);
+}
+
+/**
  * Pure: main turret `i`'s art in its own frame — `guns` barrels (the shared
  * mount's count) from just behind the gun face out to the barrel length, then
  * the gunhouse polygon over them (skin fill, inner relation line).

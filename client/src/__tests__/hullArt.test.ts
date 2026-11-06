@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import type { Graphics } from 'pixi.js';
 import { SHIP_CLASS_IDS, U_PER_M, hullSilhouette, turretMounts, turretStation, type Vec2 } from '@salvo/shared';
 import { FEATURES, HOUSES } from '../render/hullArt/data.js';
-import { barbetteRadiusU, hullArt, turretArt, type Prim } from '../render/hullArt/shapes.js';
+import { barbetteRadiusU, hullArt, turretArt, turretDrawOrder, type Prim } from '../render/hullArt/shapes.js';
 import { artCacheSize, lineWidthU } from '../render/hullArt/pixiArt.js';
 import { artBox, hullArtSvg, restingPrims, sharedFitPxPerU, svgLineWidth } from '../render/hullArt/svgArt.js';
 import { ShipView } from '../render/ships.js';
@@ -149,8 +149,49 @@ describe('ShipView with the battleship art — built once, never redrawn per fra
       const kids = v.gfx.children;
       expect(kids[0]).toBe(v.hull);
       expect(kids[kids.length - 1]).toBe(v.outline);
-      for (let i = 0; i < v.turretCount; i++) expect(kids[1 + i]).toBe(v.turretView(i));
+      // Stacked in DRAW order (nearer amidships on top), right above the deck.
+      turretDrawOrder(id).forEach((t, k) => expect(kids[1 + k], `${id} ${t}`).toBe(v.turretView(t)));
       v.destroy();
+    }
+  });
+
+  // Eric 2026-11-06: "on the 4x2 ships it looks like the third gun (from the
+  // front) barrels are rendered under the fourth gun turrets. Fix that." A
+  // SUPERFIRING turret draws above the one it fires over: the one nearer
+  // amidships is on top — a rule off each turret's station, not a hull table.
+  it('turretDrawOrder: nearer amidships draws LATER (higher z), every hull', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const order = turretDrawOrder(id);
+      expect([...order].sort((a, b) => a - b), id).toEqual(turretMounts(id).map((_, i) => i));
+      const d = (i: number): number => Math.abs(turretStation(id, i).x);
+      for (let k = 1; k < order.length; k++) expect(d(order[k]), `${id} ${order}`).toBeLessThanOrEqual(d(order[k - 1]));
+    }
+  });
+
+  it('on the four-turret hulls the THIRD turret from the bow sits above the FOURTH, the second above the first', () => {
+    for (const id of SHIP_CLASS_IDS.filter((c) => turretMounts(c).length === 4)) {
+      const v = new ShipView(relationStyle('own'), id);
+      const z = (i: number): number => v.gfx.children.indexOf(v.turretView(i)!);
+      expect(z(2), id).toBeGreaterThan(z(3));
+      expect(z(1), id).toBeGreaterThan(z(0));
+      v.setLaunchers([0, Math.PI], 2); // launchers stay under every turret
+      for (let i = 0; i < v.turretCount; i++) expect(v.gfx.children.indexOf(v.launcherView(0)!)).toBeLessThan(z(i));
+      v.destroy();
+    }
+  });
+
+  it('the static (SVG) art stacks the turrets in the same draw order', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const prims = restingPrims(id);
+      const deck = hullArt(id).deck.length;
+      const per = turretMounts(id).map((_, i) => turretArt(id, i).prims.length);
+      let at = deck;
+      for (const t of turretDrawOrder(id)) {
+        // the gunhouse (each turret's LAST prim) of turret t lands at this run's end
+        at += per[t];
+        expect(prims[at - 1].fill, `${id} ${t}`).toBe('turret');
+      }
+      expect(at).toBe(prims.length - hullArt(id).outline.length);
     }
   });
 

@@ -53,6 +53,7 @@ import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
 import { relationStyle, type Relation, type ShipStyle } from './relationColor.js';
 import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
+import { turretDrawOrder } from './hullArt/shapes.js';
 import { LauncherMounts } from './launcherViews.js';
 
 export type { ShipStyle } from './relationColor.js';
@@ -488,7 +489,10 @@ export class ShipView {
   }
 
   /** One turret Graphics per mount, borrowing its shared art context, seated
-   *  at its shared station between the deck and the outline. */
+   *  at its shared station between the deck and the outline — stacked in
+   *  `turretDrawOrder` (a superfiring turret over the one it fires over; Eric
+   *  2026-11-06), each just under the outline, so every launcher (seated on
+   *  the deck) stays below them all. `turrets[i]` stays turret `i`. */
   private buildTurrets(): void {
     for (const t of this.turrets) t.destroy();
     this.turrets = [];
@@ -500,9 +504,9 @@ export class ShipView {
       const p = turretStation(cls, i);
       g.position.set(p.x, p.y);
       g.rotation = turretRest(mounts[i]);
-      this.gfx.addChildAt(g, 1 + i);
       this.turrets.push(g);
     }
+    for (const i of turretDrawOrder(cls)) this.gfx.addChildAt(this.turrets[i], this.gfx.getChildIndex(this.outline));
   }
 
   /**

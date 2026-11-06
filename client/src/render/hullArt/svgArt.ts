@@ -20,7 +20,7 @@ import { CLIENT_CONFIG } from '../../config.js';
 import { cssHex } from '../../util/color.js';
 import { relationStroke, type Relation } from '../relationColor.js';
 import { skinFill } from './palette.js';
-import { hullArt, turretArt, type LineKey, type Prim } from './shapes.js';
+import { hullArt, turretArt, turretDrawOrder, type LineKey, type Prim } from './shapes.js';
 
 const A = CLIENT_CONFIG.ship.art;
 
@@ -54,11 +54,12 @@ function placed(id: ShipClassId, i: number): Prim[] {
   });
 }
 
-/** Pure: every primitive of the hull at rest, in paint order — deck, turrets,
+/** Pure: every primitive of the hull at rest, in paint order — deck, turrets
+ *  (in `turretDrawOrder`: a superfiring turret over the one it fires over),
  *  then the outline over everything. */
 export function restingPrims(id: ShipClassId): Prim[] {
   const art = hullArt(id);
-  const turrets = turretMounts(id).flatMap((_, i) => placed(id, i));
+  const turrets = turretDrawOrder(id).flatMap((i) => placed(id, i));
   return [...art.deck, ...turrets, ...art.outline];
 }
 
