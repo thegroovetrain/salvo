@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-11-06'
 status: 'done'
 baseline_revision: '75089a23'
-final_revision: '60c277e0'
+final_revision: '9894a31a'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -87,6 +87,12 @@ warnings: ['oversized']
 
 ## Spec Change Log
 
+### 2026-11-06 — Eric re-ruled R3 on the PR report (human intent change, not a review loopback)
+- **Trigger:** Eric, on the PR #324 report: short offers stay; once nothing is left each level grants +1 to a random stat among ARMOR, POWER, ENGINES, RELOAD, RANGE, INTEL; and "fix the potential redraw loophole".
+- **Amended:** R3 ("nothing, stop banking") in the intent contract is SUPERSEDED by **R5** (+1 INDEX POINT per level on a random one of the six stats, through `effectiveStats`, own-row `ib`), **R6** (there is no INTEL sweep cap any more, for cards or bonus points — Eric widened it mid-run) and **R7** (no bonus while sinking). The matrix rows "Nothing eligible" and "Maxed mid-queue" now read: every banked level converts to a bonus point; `pts` 0; no `pt` event. The contract text above is left as first written; epic-10 amendment 13 (c)–(c3) is the durable record.
+- **Loophole:** traced as NOT reachable in production; pinned with regression tests, no behavior change (amendment 13 (h2)).
+- **KEEP:** the four-slot plan, R1, R2, R4, the weighting rescale, short offers.
+
 ## Review Triage Log
 
 ### 2026-11-06 — Review pass
@@ -101,6 +107,20 @@ warnings: ['oversized']
   - `[low]` `[patch]` Batch-sim `offer.size=1` has no Equipment slot and would never deal a weapon (Edge Case Hunter). Fixed: the harness refuses `offer.size` below 2.
   - `[low]` `[patch]` The batch-sim "levels unspent" readout under-reads for a maxed hull (Blind Hunter). Comment in `botMetrics.ts`; ledger entry opened.
   - defer `[low]`: a leave-and-rejoin during the countdown may grant a fresh redraw and opening — older than this story, untraced; ledger entry opened as Eric's call.
+
+### 2026-11-06 — Review pass 2 (R5, the maxed-hull bonus points)
+- intent_gap: 2: (medium 1, low 1) — raised to Eric interactively and RULED in the same sitting (R6 INTEL passes the sweep cap; R7 no bonus while sinking), so no halt
+- bad_spec: 0
+- patch: 4: (medium 0, low 4)
+- defer: 0
+- reject: 1
+- addressed_findings:
+  - `[medium]` `[patch]` An INTEL bonus point did nothing on a maxed hull — the sweep cap (Edge Case Hunter). Ruled R6 and built.
+  - `[low]` `[patch]` The bonus applied to a sinking hull, where a card spend is refused (Codex, Blind Hunter, Edge Case Hunter). Ruled R7 and built.
+  - `[low]` `[patch]` A null `ib` threw in the refit card rows; a NaN entry re-fired the own-stats recompute every frame; a huge finite count folded (Codex, both hunters). One shared acceptance rule, applied on both sides.
+  - `[low]` `[patch]` `drawBonusIndex` could hand `convertBank` a junk key under a misconfigured list or a bad rng (both hunters). Guarded.
+  - `[low]` `[patch]` A stats re-fold now runs inside damage resolution (both hunters; no failure found). Documented at `convertBank`.
+  - reject: an upper bound on bonus points (Eric gave none; +1 a level cannot matter in a real match).
 
 ## Design Notes
 
@@ -121,7 +141,7 @@ An empty eligible set spends no rng. Exhaustion is permanent (taking a card is t
 
 ## Auto Run Result
 
-**Summary:** Every level-up offer is now Ship / Equipment / wildcard / wildcard (R1: 50 / 50 wildcard coin; R2: a redraw re-rolls everything). A hull with nothing dealable banks no levels (R3). The own frame row carries `rd`, and the REDRAW pip reads it (R4; PV 98 → 99). The level-zero weapon guarantee and the kind-share stage are retired. Cycle 216, 0.19.10, epic-10 amendment 13.
+**Summary:** Every level-up offer is now Ship / Equipment / wildcard / wildcard (R1: 50 / 50 wildcard coin; R2: a redraw re-rolls everything). A hull with nothing dealable turns each level into +1 index point on a random one of six stats (R5, replacing R3; R6 no INTEL sweep cap at all; R7 none while sinking). The countdown rejoin-redraw loophole was traced as unreachable in production and pinned with regression tests. The own frame row carries `rd`, and the REDRAW pip reads it (R4; PV 98 → 99). The level-zero weapon guarantee and the kind-share stage are retired. Cycle 216, 0.19.10, epic-10 amendment 13.
 
 **Files changed:**
 - `shared/src/sim/draw.ts` — the four-slot type plan, `OfferType`, `Eligible.bareWeapon`, the weighting rescale; `usableLines` and the guarantee deleted

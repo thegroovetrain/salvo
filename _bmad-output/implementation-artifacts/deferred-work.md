@@ -3648,7 +3648,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 ## 2026-11-05 - Story 10.5 The Kit Retire and the Three Equipment Slots (cycle 214, 0.19.8, PV 97) - owed work and leftovers
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
-  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - Eric ruled R3: nothing is granted, no random stats; an empty draw banks nothing (`server/src/game/world.ts` `materializeOffer`) - was: open - owned by Story 10.7 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (k))
+  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - Eric ruled R5 (replacing his first R3 "nothing"): short offers, then every level with nothing left to deal becomes +1 index point on a random one of ARMOR / POWER / ENGINES / RELOAD / RANGE / INTEL (`server/src/game/world.ts` `convertBank`) - was: open - owned by Story 10.7 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (k))
   summary: AN EXHAUSTED HULL DRAWS AN EMPTY OFFER - a hull holding every ladder and three capped slot weapons gets no cards; the built behavior is that an empty offer never opens the refit window and never throws, a short offer shows fewer cards. Eric: "Empty offer is fine, I think what should happen is you get some random stats. But I don't think ships reaching that level will be overly common. We'll address in 10.7". Story 10.7 owes random stats for an exhausted hull.
   evidence: Story 10.5 wave 1 finding; epic-10 amendment 11 (k).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
@@ -3664,7 +3664,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: CLIENT LEFTOVERS - the `interaction` model field in `client/src/ui/refitTooltip.ts` is unused, and the tint primitives in `equipmentIcons` are unused.
   evidence: Story 10.5 client follow-ups.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
-  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - R3: an empty draw zeroes the bank, so `you.pts` is 0 and the chip stays blank while `lvl` keeps counting - was: open - owned by Story 10.7 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - R5: an empty draw converts the bank into bonus index points, so `you.pts` is 0 and the chip stays blank while `lvl` keeps counting - was: open - owned by Story 10.7 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
   summary: AN EXHAUSTED HULL KEEPS BANKING LEVELS - with every eligible line at cap (45 cards) a hull still banks levels: `you.pts` stays above 0 with an empty offer, and the XP strip's banked-level chip and its pulse keep advertising levels that cannot be spent. Rides with Eric's 2026-11-05 ruling "Empty offer is fine … We'll address in 10.7" (random stats for an exhausted hull).
   evidence: both Fable hunters (probe: 80 levels → 45 picks, 35 banked, offer null); `server/src/game/world.ts` `grantPoint` / `materializeOffer`, `server/src/game/frames.ts` `pts`, `client/src/render/xpStrip.ts` `chipLabel` / `nextChipState`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
@@ -3707,10 +3707,14 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 ## 2026-11-06 - Story 10.7 Offer Composition (cycle 216, 0.19.10, PV 99) - review-gate defers
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-7-offer-composition.md`
-  status: open - Eric's call, untraced - 2026-11-06 (Story 10.7 review gate, Blind Hunter, epic-10 amendment 13 (h))
+  status: RESOLVED 2026-11-06 (Story 10.7, epic-10 amendment 13 (h2)) - traced: NOT reachable in production (rooms locked at birth, a countdown drop is torn down, a resume reuses its record); the walls are pinned by regression tests, no behavior change; dev-door only - was: open - Eric's call, untraced - 2026-11-06 (Story 10.7 review gate, Blind Hunter, epic-10 amendment 13 (h))
   summary: A LEAVE AND REJOIN DURING THE COUNTDOWN MAY GRANT A FRESH REDRAW AND A FRESH OPENING - `mulliganed` and `openingGranted` live on the ship record; if a consented leave plus a new join mid-countdown reaches `addShip`, the new record starts with both false. Older than this story (the `rd` flag is right per record, so the pip is not wrong). The `ArenaRoom` leave path was NOT traced to confirm a countdown rejoin gets through.
   evidence: `server/src/game/world.ts` `addShip` (the `mulliganed` / `openingGranted` initializers and the returning-captain comment above them).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-7-offer-composition.md`
   status: open - harness note, owned by the next balance-sim run - 2026-11-06 (Story 10.7 review gate, Blind Hunter, epic-10 amendment 13 (h))
-  summary: THE BATCH-SIM "LEVELS UNSPENT" READOUT UNDER-READS FOR A MAXED HULL - `levelsEarned` reads `ship.level` (still counting) while `levelsUnspent` reads `ship.bankedLevels` (zeroed on an empty draw since R3), so levels a maxed hull earns count as spent and the spent rate over-reads. Only a hull holding every dealable card is affected; a comment marks it in the code.
+  summary: THE BATCH-SIM "LEVELS UNSPENT" READOUT UNDER-READS FOR A MAXED HULL - `levelsEarned` reads `ship.level` (still counting) while `levelsUnspent` reads `ship.bankedLevels` (emptied on an empty draw - the levels become bonus index points, R5), so levels a maxed hull earns count as spent and the spent rate over-reads. Only a hull holding every dealable card is affected; a comment marks it in the code.
   evidence: `server/scripts/batchsim/botMetrics.ts` (`levelsUnspent`), `botReport.ts`, `poolReadouts.ts`; `server/src/game/match.ts` `Participant.bankedLevels`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-7-offer-composition.md`
+  status: open - Eric's call, visual only - 2026-11-06 (Story 10.7, R6, epic-10 amendment 13 (c2))
+  summary: WITH NO INTEL CAP A RADAR WAKE BLIP CAN FADE BEFORE ITS WATER DOES ABOVE INTEL ~218 - the phosphor is three sweep periods long and the wake lives `CONFIG.vision.wakeLifeMs`; the cover holds only up to about 32.7 RPM. The fastest cards-only build (Iowa, INTEL 215, 32.25 RPM) still covers by 81 ms; about four bonus INTEL points on it break the cover. Same shape as the cycle-69 shortfall that was accepted. The two "at the sweep maximum" phosphor pins were deleted with the cap; the base-rate pins remain.
+  evidence: `shared/src/constants.ts` (`vision.wakeLifeMs` comment), `shared/src/sim/indexStats.ts` (`sweepRpm`), `shared/src/__tests__/zone.test.ts`, `client/src/__tests__/wake.test.ts`.
