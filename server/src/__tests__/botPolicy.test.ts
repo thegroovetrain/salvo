@@ -915,7 +915,8 @@ function countingRng(seed: number): { rng: Rng; calls: () => number } {
 }
 
 const P = CONFIG.bots.cardPoints;
-const SHIP_LADDERS = ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'] as const; // the six since Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
+// The eight SHIP ladders since Story 10.6 (Eric 2026-11-05, R1 / R2: RUDDER gone; RANGE, HULL REPAIR, SMOKE SCREEN new).
+const SHIP_LADDERS = ['armor', 'power', 'engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen'] as const;
 /** Every DEALABLE weapon line (copy 1 = a new weapon into its family slot),
  *  read off the catalog — a line with no family slot (the BROADSIDE, which
  *  left the deal in Story 10.5, R6) is refused by `pickRefusal`. */
@@ -966,7 +967,7 @@ describe('ai/spending — the card policy', () => {
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['rudder', 'intel'] }));
+    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['armor', 'intel'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
   });
@@ -1137,9 +1138,27 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     // difference between power and a non-favorite ladder is the
     // favorite bonus — matched by isFavoriteUpgrade on the line's own id.
     const s = spendState();
-    expect(cardScore(profileOf('raider'), s, 'power')).toBe(cardScore(profileOf('raider'), s, 'rudder')! + P.favorite);
+    expect(cardScore(profileOf('raider'), s, 'power')).toBe(cardScore(profileOf('raider'), s, 'armor')! + P.favorite);
     expect(cardScore(profileOf('duelist'), s, 'power')).toBe(cardScore(profileOf('duelist'), s, 'engines')! + P.favorite);
     expect(cardScore(profileOf('bulwark'), s, 'power')).toBe(cardScore(profileOf('bulwark'), s, 'engines'));
+  });
+
+  it('a one-off ADD-ON is an upgrade of its family (Story 10.6, I8): `weapons` favorite, refused with no host', () => {
+    const raider = profileOf('raider'); // favorite upgrades include 'weapons'
+    const bulwark = profileOf('bulwark'); // ...and this one's do not
+    expect(raider.taste.favoriteUpgrades).toContain('weapons');
+    expect(bulwark.taste.favoriteUpgrades).not.toContain('weapons');
+    const unhosted = spendState({ cards: [], slotIds: slotsOf() });
+    expect(cardScore(raider, unhosted, 'secondLauncherTube')).toBeNull(); // no torpedo held: `noHost`
+    const hosted = spendState({ cards: ['heavyTorpedo'], slotIds: slotsOf(['heavyTorpedo'], 'mainBattery') });
+    const fav = cardScore(raider, hosted, 'secondLauncherTube')!;
+    const plain = cardScore(bulwark, hosted, 'secondLauncherTube')!;
+    expect(fav).not.toBeNull();
+    expect(plain).not.toBeNull();
+    // Same build, same style standing: the only difference is the favorite bonus
+    // (both tastes' style rules leave the 0-copy add-on where they leave it).
+    expect(fav - P.favorite).toBeGreaterThanOrEqual(P.base);
+    expect(plain).toBeGreaterThanOrEqual(P.base);
   });
 
   it('Flat build (R11): bulwark at level 0 → armor 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {

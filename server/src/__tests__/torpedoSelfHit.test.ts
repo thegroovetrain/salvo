@@ -30,6 +30,9 @@ import { fitClassWeapons } from './classWeapons.js';
 /** Torpedo slot index: the FIRST weapon slot (Q), where the Torpedo Boat's
  *  spawn seed lands `heavyTorpedo` since Story 8.5's nine-slot loadout. */
 const SLOT_TORPEDO = 2;
+/** u — a torpedo click's aim distance (Story 10.6: any positive distance
+ *  names the bearing; none names no area and is refused). */
+const TORP_DIST = 600;
 import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
 function bareWorld(seed = 11, opts?: WorldOptions): World {
@@ -96,7 +99,7 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
   it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
     const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
@@ -123,8 +126,10 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
 
     const dmgs: DamageEvent[] = [];
 
-    // Full ahead, aimed at the bow, weapon selected but not fired yet.
-    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+    // Full ahead, aimed where the shot will go (the launchers train on it
+    // while the hull accelerates — Story 10.6, R13), weapon selected but not
+    // fired yet.
+    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim, fireSeq: 0, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const accelTicks = Math.ceil(a.stats.kinematics.maxSpeed / a.stats.kinematics.accel / (CONFIG.tick.simDtMs / 1000)) + 20;
     for (let i = 0; i < accelTicks; i++) {
       w.step();
@@ -133,7 +138,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(a.state.speed).toBeCloseTo(a.stats.kinematics.maxSpeed, 1); // confirmed at full speed
 
     // Fire the bow torpedo (one click: fireSeq bumps).
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const fireTicks = 5000 / CONFIG.tick.simDtMs;
     for (let i = 0; i < fireTicks; i++) {
       w.step();
@@ -148,8 +153,8 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
-  it('aimed at the +30° arc edge: firer takes no damage, no dmg event names it as victim', () => {
-    const { dmgs, ship } = runFullThrottleShot(CONFIG.torpedo.halfArc);
+  it('aimed near the fore launcher\'s arc edge: firer takes no damage, no dmg event names it as victim', () => {
+    const { dmgs, ship } = runFullThrottleShot((CONFIG.launcher.trainDeg * Math.PI) / 180 - 0.01);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });

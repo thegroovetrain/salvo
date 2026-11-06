@@ -167,7 +167,10 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
         // ...and BROADSIDE left the deal (Story 10.5, R6): it has no family
         // slot, so no copy of it is ever a candidate.
         const familyless = line.kind === 'equipment' && familySlotFor(tierTargetOf(line)!) === null;
-        const want = !isStubLine(id) && !gunLadder && !familyless;
+        // ...and the four ONE-OFF add-ons (Story 10.6, R10 / I8) are dealt only
+        // once their family slot is filled — a fresh hull fills none.
+        const unhosted = line.kind === 'addon';
+        const want = !isStubLine(id) && !gunLadder && !familyless && !unhosted;
         expect(eligible.has(id), `${hull}/${id}`).toBe(want);
       }
       // ...and it is IDENTICAL across hulls: class identity is the envelope and
@@ -769,8 +772,9 @@ function ladderLine(id: string, cap = 1): CatalogLine {
 // NOTHING left to draw. Orchestrator ruling: an empty offer is never opened as
 // a refit window and never throws — the level banks with no hand behind it.
 
-/** Max a production captain OUT: every non-stub universal ladder and one kind
- *  per family at its cap (the first non-stub, dealable member of each). */
+/** Max a production captain OUT: every non-stub universal ladder, one kind
+ *  per family at its cap (the first non-stub, dealable member of each) and
+ *  every one-off add-on (Story 10.6). */
 function exhaust(w: World, a: ShipRecord): void {
   for (const id of LINE_IDS) {
     const line = CATALOG[id];
@@ -784,6 +788,10 @@ function exhaust(w: World, a: ShipRecord): void {
       return line.kind === 'equipment' && !isStubLine(l) && eq !== undefined && familySlotFor(eq) === slot;
     })!;
     stack(w, a, id, CATALOG[id].cap);
+  }
+  // ...and every one-off ADD-ON its now-filled family slot hosts (Story 10.6).
+  for (const id of LINE_IDS) {
+    if (CATALOG[id].kind === 'addon' && !isStubLine(id)) stack(w, a, id, CATALOG[id].cap);
   }
 }
 
@@ -1187,8 +1195,10 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length - 1, reloadMsLeft: R });
 
     // ...and so does the TORPEDO's — the SAME stack, a different weapon.
-    fire(a, 2, SLOT_TORPEDO, 0);
+    // (A positive aimDist names the area — Story 10.6; the fired TUBE starts T.)
+    fire(a, 2, SLOT_TORPEDO, 300);
     w.step();
+    expect(a.launchers[0].tubes).toEqual([T]);
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(T);
   });
@@ -1438,7 +1448,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const a = place(w, 'a', 0, 0);
     fitClassWeapons(w, a); // the tubes are a card (Story 8.10)
     w.step(); // flush the join spawn
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     w.step();
     const ev = w.tickEvents.find((e): e is BallisticEvent => e.k === 'torp');
     expect(ev).toBeDefined();
@@ -1461,7 +1471,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       expect('maxLive' in a.stats.equipment.navalMines).toBe(false);
       w.step();
       for (let i = 0; i < drops; i++) {
-        a.loadout[SLOT_MINE_ML].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
+        Object.assign(a.racks.racks[0], { n: 1, reloadMsLeft: 0 }); // skip the reload wait (the racks are the truth — Story 10.6)
         // Mines are an aimed WEAPON (Story 2.8): each placement is one rear-arc click.
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: Math.PI,

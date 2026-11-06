@@ -35,6 +35,7 @@ import {
   nearestCoastPoint,
   polygonMaxRadius,
   sectorArcFor,
+  launcherArcHolds,
   EQUIPMENT_IDS,
   SHIFT_IDS,
   WEAPON_SLOTS,
@@ -70,7 +71,6 @@ import type {
   RememberedContact,
 } from '../game/ai/types.js';
 
-const BOW_SECTOR = sectorArcFor('heavyTorpedo');
 const REAR_SECTOR = sectorArcFor('navalMines');
 
 /** A mutable stand-in for the narrow world port: the clock and the live ring
@@ -999,15 +999,16 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const ahead = mkMind('duelist');
     plot(ahead, track(port.now, { x: 150, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, ahead, port).fireSlot).toBe(tube);
-    // Dead ASTERN, same range: the bow sector refuses, and the bot falls
-    // through to the 360-degree gun rather than burning a click on nothing.
+    // Dead ASTERN, same range: the FORE launcher's arc refuses (Story 10.6,
+    // R6 — the 80° wedge astern), and the bot falls through to the main
+    // battery rather than burning a click on nothing.
     const astern = mkMind('duelist');
     plot(astern, track(port.now, { x: -150, y: 0, speed: 0 }));
     const d = COMBAT_BRAIN.decide(rec, astern, port);
     expect(d.fireSlot).not.toBe(tube);
     expect(d.fireSlot).toBe(slotOf(rec, 'mainBattery'));
     // Whatever it fired, the commanded bearing is inside that weapon's arc.
-    expect(inArc(d.aim, wrapAngle(rec.state.heading + BOW_SECTOR.offset), BOW_SECTOR.halfArc)).toBe(false);
+    expect(launcherArcHolds(rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(false);
   });
 
   it('the tube is held beyond credible intercept range', () => {
@@ -1222,7 +1223,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(hurt.hp / hurt.stats.maxHp).toBeGreaterThan(profileOf('duelist').disengageHpFrac);
     expect(COMBAT_BRAIN.decide(hurt, mkMind('duelist'), port).act).toBe(abilityCode('repair'));
     // Inside the cooldown: the press would be refused 'cooling', so it is never made.
-    hurt.repairReadyAt = abilityReadyAt(port.now, 'repair');
+    hurt.repairReadyAt = abilityReadyAt(port.now, hurt.stats, 'repair');
     expect(COMBAT_BRAIN.decide(hurt, mkMind('duelist'), port).act).toBeNull();
     // ...and ready again at the instant the cooldown ends.
     hurt.repairReadyAt = port.now;
@@ -1238,8 +1239,8 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(214);
     const port = fakePort(w);
     const bot = mkBot(w, 'yamato', 0, 0, 0);
-    bot.hp = bot.stats.maxHp * profileOf('bulwark').healHpFrac - CONFIG.hullRepair.regenHp / 2;
-    bot.repairHp = CONFIG.hullRepair.regenHp;
+    bot.hp = bot.stats.maxHp * profileOf('bulwark').healHpFrac - bot.stats.repair.regenHp / 2;
+    bot.repairHp = bot.stats.repair.regenHp;
     expect(bot.hp / bot.stats.maxHp).toBeLessThan(profileOf('bulwark').healHpFrac); // the bare read still says "heal"
     expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).act).toBeNull();
     // THE CONTROL: the same hull with nothing draining in does press.
@@ -1564,16 +1565,18 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const w = openWorld(421);
     const port = fakePort(w);
     // Abeam at knife range: inside the straight-runner's credible gate AND
-    // inside the light torpedo's beam sector (the heavy's bow cone would
-    // refuse this bearing outright).
+    // inside the FORE launcher's ±140° arc (Story 10.6 — every torpedo leaves
+    // the deck launchers; the beam sectors are gone). The light sits in the
+    // torpedo family slot in the heavy's place.
     const beam = { x: 0, y: 180, heading: 0, speed: 0 };
     const tb = mkBot(w, 'bismarck', 0, 0, 0);
-    const light = fitExtra(tb, 'lightTorpedo', 4);
+    const light = fitExtra(tb, 'lightTorpedo', familySlotFor('lightTorpedo')!);
     const mind = mkMind('raider');
     plot(mind, track(port.now, beam));
     const d = COMBAT_BRAIN.decide(tb, mind, port);
-    expect(d.fireSlot).toBe(light); // the HEAVY in slot 2 cannot bear; the light can
+    expect(d.fireSlot).toBe(light);
     expect(Math.abs(d.aim - Math.PI / 2)).toBeLessThan(Math.PI / 4); // fired abeam
+    expect(launcherArcHolds(tb.stats.torpedoLaunchers, tb.state.heading, d.aim)).toBe(true);
   });
 
   it('torpedo homingTurnRate: the credible-range gate widens — bounded by budget minus turn room', () => {
@@ -2456,7 +2459,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
         bs.hp = bs.stats.maxHp * 0.1;
         // HULL REPAIR is cooling (Story 10.5): a hurt hull would otherwise
         // press it, and this suite is about the Shift alone.
-        bs.repairReadyAt = abilityReadyAt(port.now, 'repair');
+        bs.repairReadyAt = abilityReadyAt(port.now, bs.stats, 'repair');
       }
       const shift = slotOf(bs, 'hunker');
       expect(shift).toBe(1);
@@ -2621,7 +2624,7 @@ describe('SMOKE (`V`) — the cooldown ability on the countermeasure occasion (S
         const d = COMBAT_BRAIN.decide(rec, mind, port);
         if (d.act === abilityCode('smoke')) {
           presses += 1;
-          rec.smokeReadyAt = abilityReadyAt(port.now, 'smoke');
+          rec.smokeReadyAt = abilityReadyAt(port.now, rec.stats, 'smoke');
           mind.cloudUntil = port.now + LIFE;
         }
         port.now += TICK;
@@ -2664,7 +2667,7 @@ describe('SMOKE (`V`) — the cooldown ability on the countermeasure occasion (S
     mind.cloudUntil = port.now; // expired this very tick: pressed
     expect(ABILITY_WANTS.smoke(ctx())).toBe(true);
     // Cooling holds it whatever the cloud says.
-    rec.smokeReadyAt = abilityReadyAt(port.now, 'smoke');
+    rec.smokeReadyAt = abilityReadyAt(port.now, rec.stats, 'smoke');
     expect(ABILITY_WANTS.smoke(ctx())).toBe(false);
     // A sinking hull wants nothing.
     rec.smokeReadyAt = 0;
@@ -2724,7 +2727,7 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     plot(mind, track(port.now, { x: CONFIG.bots.supercavCredibleU / 2, y: 0, heading: 0, speed: 5, live: true }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(slot);
-    expect(inArc(d.aim, rec.state.heading, sectorArcFor('supercavTorpedo').halfArc)).toBe(true);
+    expect(launcherArcHolds(rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(true);
   });
 
   it('SHIFT_ROWS has one row per Shift — keyed by the SEAT\'s pick, never a hull (Story 10.4) — and it is the EQUIPMENT_TACTICS row', () => {

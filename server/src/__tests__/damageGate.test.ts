@@ -765,6 +765,7 @@ describe('tickRepairs stays UN-gated on damageEnabled (Story 8.4 decision, ledge
     const a = place(w, 'a');
     a.hp = a.stats.maxHp - 20;
     a.repairHp = 20;
+    a.repairRate = a.stats.repair.regenHp / a.stats.repair.regenMs; // the rate a press stamps (Story 10.6)
     w.step(CONFIG.tick.simDtMs);
     // It heals. That is the pinned decision, not an oversight: nothing can
     // damage a hull while damageEnabled is false (the gate's own step (b)), so

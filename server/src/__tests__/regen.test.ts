@@ -133,13 +133,16 @@ describe('passive regen BESIDE the HULL REPAIR pool (neither resets the other)',
     const a = place(w, 'a');
     hurt(w, a);
     a.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2;
-    a.repairHp = CONFIG.hullRepair.regenHp;
+    // A directed open pool: the amount and the rate a press would stamp from
+    // the ship's own `stats.repair` (Story 10.6, R8 / R15).
+    a.repairHp = a.stats.repair.regenHp;
+    a.repairRate = a.stats.repair.regenHp / a.stats.repair.regenMs;
     const before = a.hp;
-    const paid = (CONFIG.hullRepair.regenHp / CONFIG.hullRepair.regenMs) * DT;
+    const paid = (a.stats.repair.regenHp / a.stats.repair.regenMs) * DT;
     w.step();
     const afterPool = before + paid;
     expect(a.hp).toBeCloseTo(afterPool + regenGain(afterPool, a.stats.maxHp, DT / 1000), 9);
-    expect(a.repairHp).toBeCloseTo(CONFIG.hullRepair.regenHp - paid, 9);
+    expect(a.repairHp).toBeCloseTo(a.stats.repair.regenHp - paid, 9);
   });
 
   it('a HULL REPAIR press does not reset the regen clock', () => {

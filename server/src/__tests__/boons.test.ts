@@ -21,7 +21,6 @@ import {
   isAfloat,
   CONFIG,
   SLOT_GUN,
-  WEAPON_SLOTS,
   effectiveStats,
   familySlotFor,
   equipmentMaxAmmo,
@@ -45,8 +44,12 @@ const DT = CONFIG.tick.simDtMs;
 // the same way before, for a different reason (TEST_CATALOG, injected below,
 // is deliberately content-free and carried none of the shipped weapon lines),
 // which is exactly the content-independence these pins are built on.
-/** Where this suite's hand-fit torpedo sits (the torpedo family slot). */
-const SLOT_FILL = WEAPON_SLOTS[0];
+/** Where this suite's hand-fit pool weapon sits: the SPECIAL-SHELL family
+ *  slot. (It was the torpedo slot until Story 10.6, when the torpedo's pool
+ *  became the summary of its LAUNCHERS — the generic pool clamp / top-up
+ *  under test no longer runs on it.) */
+const POOL_WEAPON = 'starShells' as const;
+const SLOT_FILL = familySlotFor(POOL_WEAPON)!;
 /** Where the `bolterRack` slotFill (naval mines) lands: the MINE family slot
  *  (Story 10.5 — a slotFill goes to its family's slot, not the first empty). */
 const MINE_SLOT = familySlotFor('navalMines')!;
@@ -98,8 +101,8 @@ const OMNI_CARD = line('omni', [
 /** Pool-cap movers: a raiser (+3 tubes) and, applied AFTER it, a shrinker
  *  (-2) — the only way to LOWER a cap below a live pool, since every shipped
  *  pool is 1. */
-const WIDE_TUBES = line('deepMagazine', [{ kind: 'stat', path: 'equipment.heavyTorpedo.maxAmmo', add: 3 }]);
-const NARROW_TUBES = line('crampedMagazine', [{ kind: 'stat', path: 'equipment.heavyTorpedo.maxAmmo', add: -2 }]);
+const WIDE_TUBES = line('deepMagazine', [{ kind: 'stat', path: 'equipment.starShells.maxAmmo', add: 3 }]);
+const NARROW_TUBES = line('crampedMagazine', [{ kind: 'stat', path: 'equipment.starShells.maxAmmo', add: -2 }]);
 /** A maxHp-LOWERING card (the hp invariant's only trigger). */
 const FRAIL_HULL = line('strippedArmor', [{ kind: 'stat', path: 'maxHp', mult: 0.5 }]);
 
@@ -144,7 +147,7 @@ function place(w: World, id: string, x: number, y: number, hull: ShipClassId = '
  *  either, so the pool-cap cases (which address `equipment.heavyTorpedo`)
  *  write the slot directly — exactly what `applySlotEffect` would write. What
  *  they pin is the CLAMP/TOP-UP on a fitted pool, not how it got fitted. */
-function fitWeapon(ship: ShipRecord, id: 'heavyTorpedo'): void {
+function fitWeapon(ship: ShipRecord, id: typeof POOL_WEAPON): void {
   ship.loadout[SLOT_FILL] = {
     equipmentId: id,
     state: { n: equipmentMaxAmmo(ship.stats, id), reloadMsLeft: 0 },
@@ -339,13 +342,14 @@ describe('World.applyCard — two homes, nothing else', () => {
   it('a cap-LOWERING stat card clamps the live pool DOWN to the new cap', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, boost, empty x7]
-    fitWeapon(a, 'heavyTorpedo');
-    w.applyCard(a, 'deepMagazine'); // torpedo cap 1 -> 4
-    expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
-    a.loadout[SLOT_FILL].state!.n = 4; // a full, widened pool
-    w.applyCard(a, 'crampedMagazine'); // cap 4 -> 2
-    expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 1);
-    expect(a.loadout[SLOT_FILL].state!.n).toBe(2); // clamped, never above the cap
+    fitWeapon(a, POOL_WEAPON);
+    const base = a.stats.equipment.starShells.maxAmmo;
+    w.applyCard(a, 'deepMagazine'); // cap base -> base + 3
+    expect(a.stats.equipment.starShells.maxAmmo).toBe(base + 3);
+    a.loadout[SLOT_FILL].state!.n = base + 3; // a full, widened pool
+    w.applyCard(a, 'crampedMagazine'); // cap -> base + 1
+    expect(a.stats.equipment.starShells.maxAmmo).toBe(base + 1);
+    expect(a.loadout[SLOT_FILL].state!.n).toBe(base + 1); // clamped, never above the cap
     // The invariant holds for EVERY fitted slot, not just the moved one.
     for (const slot of a.loadout) {
       if (slot.equipmentId === null) continue;
@@ -356,14 +360,15 @@ describe('World.applyCard — two homes, nothing else', () => {
   it('a cap-RAISING stat card fills the pool to the new cap (amendment 41 — everything arrives loaded; FLIPS the 2.5 no-top-up pin)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    fitWeapon(a, 'heavyTorpedo');
+    fitWeapon(a, POOL_WEAPON);
+    const base = a.stats.equipment.starShells.maxAmmo;
     a.loadout[SLOT_FILL].state!.n = 0;
-    a.loadout[SLOT_FILL].state!.reloadMsLeft = 900; // mid-reload, empty tubes
-    w.applyCard(a, 'deepMagazine'); // cap 1 -> 4
-    expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
+    a.loadout[SLOT_FILL].state!.reloadMsLeft = 900; // mid-reload, empty pool
+    w.applyCard(a, 'deepMagazine'); // cap base -> base + 3
+    expect(a.stats.equipment.starShells.maxAmmo).toBe(base + 3);
     // The raise arrives loaded: the pool fills to the NEW cap immediately
     // (the reload timer keeps running toward nothing — it settles at full).
-    expect(a.loadout[SLOT_FILL].state!.n).toBe(CONFIG.torpedo.maxAmmo + 3);
+    expect(a.loadout[SLOT_FILL].state!.n).toBe(base + 3);
   });
 
   it('a maxHp-LOWERING stat card clamps hp to the new cap; a RAISING one still does not heal', () => {

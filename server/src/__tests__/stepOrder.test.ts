@@ -75,6 +75,9 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // turret arriving on the aim point (or finishing its reload) this tick
       // fires this tick. See the row comment in world.ts.
       'stepTurrets',
+      // Story 10.6's LAUNCHER STEP — the turret step's twin, beside it and
+      // before the click channel for the same reason. See world.ts.
+      'stepLaunchers',
       'fireControl',
       // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
       // a deliberate insertion right after the click channel (the reloads

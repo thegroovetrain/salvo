@@ -31,6 +31,7 @@ import {
   addMine,
   checkMineTriggers,
   fireTorpedo,
+  stepShipLaunchers,
   mineBlastVictims,
   slotAmmo,
   type MineState,
@@ -45,6 +46,11 @@ const SLOT_TORPEDO = familySlotFor('heavyTorpedo')!;
 const SLOT_MINE_ML = familySlotFor('navalMines')!;
 
 const HALF_PI = Math.PI / 2;
+/** u — a torpedo click's aim distance: any positive distance names the
+ *  bearing (Story 10.6 — a click with no aim distance names no area). */
+const TORP_DIST = 600;
+/** rad — the launcher's train limit either side of its rest (R6). */
+const TRAIN = (CONFIG.launcher.trainDeg * Math.PI) / 180;
 let idSeq = 0;
 const mkId = (): string => `t${++idSeq}`;
 
@@ -73,9 +79,18 @@ function torpShip(w: World, id: string, x: number, y: number, heading: number): 
   // applyCard path a real pick takes. Every case below keeps its subject.
   fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
   rec.input = input;
   return rec;
+}
+
+/** Train a ship's launchers onto its CURRENT input aim through the shared
+ *  stepper the World's `stepLaunchers` row runs (Story 10.6, R13) — a full
+ *  traverse's worth of ticks, so they arrive anywhere inside their arcs. The
+ *  tube clocks run too, so call it before emptying a tube. */
+function trainLaunchers(rec: ShipRecord): void {
+  const ticks = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * CONFIG.tick.simDtMs) / 1000)) + 1;
+  for (let i = 0; i < ticks; i += 1) stepShipLaunchers(rec, CONFIG.tick.simDtMs);
 }
 
 const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
@@ -85,45 +100,48 @@ const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
 // Radar paints — the identity-free coverage footprint (the one grammar).
 const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 
-describe('torpedoes — single-round pool reload', () => {
-  it('one launch drains the pool; a second is denied until it reloads', () => {
+describe('torpedoes — one tube, its own reload (Story 10.6, R6)', () => {
+  it('one launch empties the tube; a second is refused until it reloads', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0); // aim over the bow (heading 0)
     const t1 = fireTorpedo(ship, 0, mkId);
     const t2 = fireTorpedo(ship, 0, mkId);
     expect(t1).not.toBeNull();
-    expect(t2).toBeNull(); // pool empty, now reloading
+    expect(t2).toBeNull(); // the one tube is reloading
     expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'heavyTorpedo') });
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
     expect(t1!.distLeft).toBe(Number.POSITIVE_INFINITY); // A3: runs until impact
-    // Fish leaves the bow at torpedo speed straight ahead (+x).
+    // It leaves the fore launcher at torpedo speed straight ahead (+x).
     expect(t1!.vx).toBeCloseTo(CONFIG.torpedo.speed, 6);
   });
 
-  it('the pool refills once its reload elapses', () => {
+  it('the tube fires again once its reload elapses', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0);
-    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: 200 }; // almost ready, empty
-    expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still empty
-    ship.loadout[SLOT_TORPEDO].state = { n: 1, reloadMsLeft: 0 }; // reloaded
+    ship.launchers[0].tubes[0] = 200; // almost loaded
+    expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still reloading
+    ship.launchers[0].tubes[0] = 0; // loaded
     expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // now fires
     expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'heavyTorpedo') });
   });
 });
 
-describe('torpedoes — bow arc gating', () => {
-  it('launches within the ±30° bow arc and refuses outside it', () => {
+describe('torpedoes — the FORE launcher\'s arc (Story 10.6, R6 / R16)', () => {
+  it('launches inside the launcher\'s arc (abeam included) and refuses the wedge astern, nothing spent', () => {
     const w = bareWorld();
-    const inArcShip = torpShip(w, 'a', 0, 0, 0);
-    inArcShip.input = { ...inArcShip.input, aim: CONFIG.torpedo.halfArc - 0.01 };
-    expect(fireTorpedo(inArcShip, 0, mkId)).not.toBeNull();
+    const abeam = torpShip(w, 'a', 0, 0, 0);
+    abeam.input = { ...abeam.input, aim: HALF_PI }; // 90° off the bow: inside ±140°
+    trainLaunchers(abeam);
+    expect(fireTorpedo(abeam, 0, mkId)).not.toBeNull();
 
-    const abeam = torpShip(w, 'b', 0, 0, 0);
-    abeam.input = { ...abeam.input, aim: HALF_PI }; // 90° off the bow
-    expect(fireTorpedo(abeam, 0, mkId)).toBeNull();
-    expect(abeam.loadout[SLOT_TORPEDO].state).toEqual({ n: 1, reloadMsLeft: 0 }); // pool not drained
+    const astern = torpShip(w, 'b', 0, 0, 0);
+    astern.input = { ...astern.input, aim: Math.PI }; // dead astern: outside ±140°
+    expect(Math.PI).toBeGreaterThan(TRAIN); // premise
+    expect(fireTorpedo(astern, 0, mkId)).toBeNull();
+    expect(astern.launchers[0].tubes).toEqual([0]); // nothing spent
+    expect(astern.loadout[SLOT_TORPEDO].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 });
 
@@ -584,7 +602,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     fitClassWeapons(w, a); // the tubes are a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     let torps = 0;
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -708,7 +726,8 @@ function carrier(w: World, id: string, line: string, n: number, aim: number, slo
   const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   for (let i = 0; i < n; i += 1) w.applyCard(rec, line);
-  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: TORP_DIST, slot, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+  trainLaunchers(rec); // the launchers chase the aim (R13) before the click
   return rec;
 }
 
@@ -716,27 +735,26 @@ const SLOT_WEAPON_1 = familySlotFor('lightTorpedo')!;
 /** The SUPERCAV's slot: the TORPEDO family slot (Story 10.5). */
 const SLOT_SUPERCAV = familySlotFor('supercavTorpedo')!;
 
-describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)', () => {
-  // THE ARC IS THE WHOLE POINT OF THIS LINE. The heavy fires into a ±30° bow
-  // cone; the light fires into ±45° about EITHER BEAM, which leaves 90°-wide
-  // DEAD ZONES dead ahead and dead astern. Those dead zones are what a fixture
-  // written against the heavy would never catch.
-  it('fires ABEAM (90°) and is denied dead ahead (0°) and dead astern (180°) — nothing spent on the denial', () => {
+describe('LIGHT TORPEDO — the launcher, not a sector (Story 10.6, R6)', () => {
+  // THE FIXED BEAM SECTORS ARE GONE: every torpedo leaves the deck launchers,
+  // so the light fires wherever its FORE launcher can point (±140° of dead
+  // ahead) and is refused only in the wedge astern.
+  it('fires abeam and dead ahead toward the click; refused dead astern with nothing spent', () => {
     const w = bareWorld(31);
     const abeam = carrier(w, 'a', 'lightTorpedo', 1, Math.PI / 2, SLOT_WEAPON_1);
     const fish = fireTorpedo(abeam, 0, mkId, 'lightTorpedo');
     expect(fish).not.toBeNull();
     expect(fish!.kind).toBe('torp');
     expect(fish!.damage).toBe(CONFIG.lightTorpedo.damage);
-    // It heads toward the CLICK, not at some fixed side-mount bearing.
-    expect(fish!.vy).toBeCloseTo(CONFIG.lightTorpedo.speed, 6);
-    expect(fish!.vx).toBeCloseTo(0, 6);
+    expect(Math.hypot(fish!.vx, fish!.vy)).toBeCloseTo(CONFIG.lightTorpedo.speed, 6);
+    expect(fish!.vy).toBeGreaterThan(0); // toward the click, abeam to port
 
-    for (const deadZone of [0, Math.PI]) {
-      const denied = carrier(w, `d${deadZone}`, 'lightTorpedo', 1, deadZone, SLOT_WEAPON_1);
-      expect(fireTorpedo(denied, 0, mkId, 'lightTorpedo')).toBeNull();
-      expect(denied.loadout[SLOT_WEAPON_1].state).toEqual({ n: 1, reloadMsLeft: 0 }); // pool untouched
-    }
+    const ahead = carrier(w, 'b', 'lightTorpedo', 1, 0, SLOT_WEAPON_1);
+    expect(fireTorpedo(ahead, 0, mkId, 'lightTorpedo')).not.toBeNull();
+
+    const astern = carrier(w, 'c', 'lightTorpedo', 1, Math.PI, SLOT_WEAPON_1);
+    expect(fireTorpedo(astern, 0, mkId, 'lightTorpedo')).toBeNull();
+    expect(astern.loadout[SLOT_WEAPON_1].state).toEqual({ n: 1, reloadMsLeft: 0 }); // tube untouched
   });
 
   // A STRAIGHT-RUNNER AT TIER I, A HOMER FROM TIER II (epic-8 amendment 80).
@@ -758,11 +776,12 @@ describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)',
     expect(t2.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);
   });
 
-  it('tubes step with the tier: 1 at I and II, 2 at III (the +0.5 step, floored once)', () => {
+  it('tier copies never add a tube (Story 10.6, R4: capacity left the tiers)', () => {
     const w = bareWorld(33);
-    expect(carrier(w, 'a', 'lightTorpedo', 1, 0, SLOT_WEAPON_1).stats.equipment.lightTorpedo.maxAmmo).toBe(1);
-    expect(carrier(w, 'b', 'lightTorpedo', 2, 0, SLOT_WEAPON_1).stats.equipment.lightTorpedo.maxAmmo).toBe(1);
-    expect(carrier(w, 'c', 'lightTorpedo', 3, 0, SLOT_WEAPON_1).stats.equipment.lightTorpedo.maxAmmo).toBe(2);
+    for (let n = 1; n <= 3; n += 1) {
+      const rec = carrier(w, `t${n}`, 'lightTorpedo', n, 0, SLOT_WEAPON_1);
+      expect(rec.launchers.map((l) => l.tubes.length)).toEqual([1]);
+    }
   });
 
   it('the LIGHT line reads ITS OWN row — the heavy\'s numbers never leak into it', () => {
@@ -787,7 +806,7 @@ describe('SUPERCAV TORPEDO — a torpedo-slot weapon on the reload pool (Story 1
     });
   });
 
-  it('a click inside the bow sector fires ONE fish off its effective row and starts the row\'s reload; the card stays', () => {
+  it('a click inside the launcher\'s arc fires ONE torpedo off its effective row and starts the row\'s reload; the card stays', () => {
     const w = bareWorld(35);
     const ship = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_SUPERCAV);
     const row = ship.stats.equipment.supercavTorpedo;
@@ -802,9 +821,9 @@ describe('SUPERCAV TORPEDO — a torpedo-slot weapon on the reload pool (Story 1
     expect(ship.cards).toEqual(['supercavTorpedo']);
   });
 
-  it('a click OUTSIDE the bow sector is denied out-of-arc and spends nothing', () => {
+  it('a click OUTSIDE the launcher\'s arc is denied out-of-arc and spends nothing', () => {
     const w = bareWorld(36);
-    const ship = carrier(w, 'a', 'supercavTorpedo', 1, Math.PI / 2, SLOT_SUPERCAV); // 90° abeam
+    const ship = carrier(w, 'a', 'supercavTorpedo', 1, Math.PI, SLOT_SUPERCAV); // dead astern
     expect(w.sinkingActivationGate(ship, SLOT_SUPERCAV)).toEqual({ ok: false, reason: 'out-of-arc' });
     expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false);
     expect(ship.loadout[SLOT_SUPERCAV].state).toEqual({ n: ship.stats.equipment.supercavTorpedo.maxAmmo, reloadMsLeft: 0 });

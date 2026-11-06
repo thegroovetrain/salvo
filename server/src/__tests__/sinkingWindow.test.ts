@@ -22,6 +22,7 @@ import {
   DEFAULT_SHIFT,
   SLOT_BOOST,
   encodeTurretAngles,
+  encodeLauncherAngles,
   turretMounts,
   founderDeadline,
   isAfloat,
@@ -432,7 +433,11 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     expect(f.contacts).toEqual([
       // ...turret angles included (Story 10.4 `tu`, the live-hull shape — a
       // sinking hull's turrets hold their angles; nothing names the window).
-      { id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: b.hullId, tu: encodeTurretAngles(b.turrets, b.hullId) },
+      // ...and its launcher angles (Story 10.6 `lu`) when it holds a torpedo.
+      {
+        id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: b.hullId, tu: encodeTurretAngles(b.turrets, b.hullId),
+        ...(b.launchers.length > 0 ? { lu: encodeLauncherAngles(b.launchers) } : {}),
+      },
     ]);
     // NOTHING anywhere in the observer's frame names the window (amendment 16
     // — the `sunk` event is the ruled-public register and carries no window

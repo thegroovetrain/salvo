@@ -39,9 +39,9 @@
 // THE TORPEDO IS PRE-FITTED by the DEV-ONLY `fitOverride` join option (Story
 // 8.10, EPIC-8 amendment 65): every hull spawns with only its main battery
 // (Story 10.4) and the seat's Shift, so A asks for `heavyTorpedo` explicitly; it lands in its
-// FAMILY slot, the torpedo slot Q (Story 10.5). The line is stacked to the tier that gives TWO
-// tubes (Eric ruling 2026-10-22, Story 9.15 question 4 — a salvo lands inside
-// the regen wait; the R8 passive regen is back since Story 10.5 and the plan
+// FAMILY slot, the torpedo slot Q (Story 10.5). TWO tubes (Eric ruling 2026-10-22, Story
+// 9.15 question 4 — a salvo lands inside the regen wait) come from the SECOND
+// LAUNCHER TUBE one-off since Story 10.6 (R4 / R6: capacity left the tiers); the R8 passive regen is back since Story 10.5 and the plan
 // replays it).
 // The fit survives the activation redeploy (redeployEconomy re-applies it).
 //
@@ -65,7 +65,7 @@ import path from 'node:path';
 import { Client } from '@colyseus/sdk';
 import {
   CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
-  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, familySlotFor, regenGain, zoneRingRadii,
+  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, familySlotFor, launcherArcHolds, regenGain, zoneRingRadii,
 } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -94,18 +94,12 @@ const TORP_SLOT = familySlotFor(TORP); // the torpedo FAMILY slot, Q (Story 10.5
 const CENTER_FRACTION = 0.15;
 
 /**
- * THE FIT: the fewest `heavyTorpedo` cards whose fold carries TWO tubes (the
- * line's +0.5 maxAmmo rungs — tubes 1,1,2,2,2 — reach two at tier III today).
- * Derived from the same effectiveStats fold the server runs, never typed.
+ * THE FIT: the torpedo, then the SECOND LAUNCHER TUBE one-off (Story 10.6, R6:
+ * the fore launcher then holds TWO tubes, each on its own reload clock). The
+ * tube count is read back from the same effectiveStats fold the server runs.
  */
-function twoTubeFit() {
-  for (let k = 1; k <= 10; k += 1) {
-    const fit = Array(k).fill(TORP);
-    if (equipmentMaxAmmo(effectiveStats(TB, fit), TORP) >= 2) return fit;
-  }
-  throw new Error(`PRECONDITION: no ${TORP} stack reaches two tubes`);
-}
-const FIT = twoTubeFit();
+const FIT = [TORP, 'secondLauncherTube'];
+if (equipmentMaxAmmo(effectiveStats(TB, FIT), TORP) !== 2) throw new Error(`PRECONDITION: ${JSON.stringify(FIT)} does not fold to two tubes`);
 const SHOOTER = effectiveStats(TB, FIT);
 const TARGET = effectiveStats(TB, []); // B carries no fit: it only has to float
 const FISH = {
@@ -130,7 +124,8 @@ const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGE
 const D = 3 * HULL_L;
 const B_POSE = { x: 0, y: 0, heading: 0 };
 const A_POSE = { x: -D, y: 0, heading: 0 };
-/** Fish run from spawn (A's bow + clearance) to B's stern, and its flight. */
+/** Fish run from spawn (clear of A's bow by the launch clearance — the fore
+ *  launcher's launch point, Story 10.6) to B's stern, and its flight. */
 const FISH_RUN = D - HULL_L - CONFIG.torpedo.spawnClearance - 2 * CONFIG.torpedo.hitRadius;
 const FLIGHT_MS = (FISH_RUN / FISH.speed) * 1000;
 /** Socket + tick slack on every wait (join round-trips, frame delivery). */
@@ -139,8 +134,8 @@ const SLACK_MS = 5000;
 /**
  * THE KILL PLAN (Eric ruling 2026-10-22, Story 9.15 question 4: derived from
  * CONFIG). A tick-stepped replay of the fight the server will run: A clicks
- * every tick, a tube fires whenever one is loaded, the pool reloads one round
- * per reloadMs (World.finishReloads) and each fish lands FLIGHT_MS later for
+ * every tick, ONE loaded tube fires per click (the lowest), each tube reloads
+ * on its own clock (Story 10.6, sim/launchers.ts) and each fish lands FLIGHT_MS later for
  * FISH_BLOW. 2026-11-05 (Story 10.5, R8): the PASSIVE REGEN is back — B,
  * unhurt for CONFIG.regen.outOfCombatMs, heals the shared regenGain every tick
  * (the heavy fish's reload outlasts the wait), so the replay heals it too.
@@ -150,8 +145,8 @@ const SLACK_MS = 5000;
 function killPlan() {
   const dt = CONFIG.tick.simDtMs;
   let hp = TARGET.maxHp;
-  let loaded = FISH.tubes;
-  let reloadLeft = 0;
+  // ONE CLOCK PER TUBE (Story 10.6, R6): a fired tube reloads on its own.
+  const tubes = new Array(FISH.tubes).fill(0);
   let lastFireAt = -Infinity;
   let salvos = 0;
   let fish = 0;
@@ -159,16 +154,10 @@ function killPlan() {
   const inFlight = [];
   for (let t = 0; t < 3600000; t += dt) {
     if (t - lastHit >= CONFIG.regen.outOfCombatMs) hp += regenGain(hp, TARGET.maxHp, dt / 1000);
-    if (reloadLeft > 0) {
-      reloadLeft -= dt;
-      if (reloadLeft <= 0) {
-        loaded += 1;
-        reloadLeft = loaded < FISH.tubes ? FISH.reloadMs : 0;
-      }
-    }
-    if (loaded > 0) {
-      loaded -= 1;
-      if (reloadLeft <= 0) reloadLeft = FISH.reloadMs;
+    for (let k = 0; k < tubes.length; k += 1) tubes[k] = Math.max(0, tubes[k] - dt);
+    const k = tubes.findIndex((c) => c <= 0);
+    if (k >= 0) {
+      tubes[k] = FISH.reloadMs; // one click, one torpedo
       if (t - lastFireAt > dt) salvos += 1;
       lastFireAt = t;
       inFlight.push(t + FLIGHT_MS);
@@ -371,7 +360,9 @@ function idle(ctx) {
  *  the pose), a fresh fireSeq edge every tick; the tube reload paces launches. */
 function fire(ctx) {
   ctx.fireSeq += 1;
-  ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE) });
+  // A positive aim distance names the area (Story 10.6: a torpedo click with
+  // none is refused out-of-arc).
+  ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE), aimDist: D });
 }
 
 function phase(ctx) {
@@ -429,14 +420,17 @@ function assertPoses(a, b) {
   }
   assert(a.firstYou.hp === SHOOTER.maxHp && b.firstYou.hp === TARGET.maxHp, `spawn hp A ${a.firstYou.hp} / B ${b.firstYou.hp}, expected ${SHOOTER.maxHp} / ${TARGET.maxHp} (shared fold vs server maxHp)`);
   const off = Math.abs(angleDiff(a.firstYou.heading, bearing(a.firstYou, B_POSE)));
-  precondition(off < CONFIG.torpedo.halfArc, `bearing to B is ${off.toFixed(3)} rad off A's bow (halfArc ${CONFIG.torpedo.halfArc.toFixed(3)})`);
+  precondition(launcherArcHolds(SHOOTER.torpedoLaunchers, a.firstYou.heading, bearing(a.firstYou, B_POSE)), `bearing to B is ${off.toFixed(3)} rad off A's bow — outside the fore launcher's arc`);
   assert(JSON.stringify(a.firstYou.cards) === JSON.stringify(FIT), `A fitted ${JSON.stringify(a.firstYou.cards)}, expected ${JSON.stringify(FIT)}`);
   const pool = a.firstYou.ammo[TORP_SLOT];
-  assert(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} fish, expected ${FISH.tubes} tubes`);
+  assert(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} torpedoes, expected ${FISH.tubes} tubes`);
+  // The launchers ride the own block (Story 10.6): one fore launcher, every tube loaded.
+  const tubes = (a.firstYou.launchers ?? []).flatMap((l) => l.tubes);
+  assert(tubes.length === FISH.tubes && tubes.every((t) => t === 0), `A's own launchers carry tubes ${JSON.stringify(tubes)}, expected ${FISH.tubes} loaded`);
 }
 
 function planLine(stormFree) {
-  return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${FIT.length}x${TORP} -> ${FISH.tubes} tubes, ` +
+  return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${JSON.stringify(FIT)} -> ${FISH.tubes} tubes, ` +
     `${FISH_BLOW} dmg/fish (${FISH.damage} x armor curve), reload ${FISH.reloadMs}ms, flight ~${FLIGHT_MS.toFixed(0)}ms; ` +
     `B ${TARGET.maxHp}hp, with regen -> ` +
     `${PLAN.fish} fish in ${PLAN.salvos} salvos (sim sink at ${(PLAN.sinkMs / 1000).toFixed(1)}s); ` +

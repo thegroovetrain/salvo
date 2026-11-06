@@ -260,11 +260,23 @@ export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
 export { mainBatteryEquipment, syncBatterySlot } from './mainBattery.js';
+export {
+  emptyRackBank,
+  heldMine,
+  heldTorpedo,
+  instantReloadMounts,
+  isMountBacked,
+  refitMounts,
+  resetMounts,
+  stepShipLaunchers,
+  syncMineSlot,
+  syncTorpedoSlot,
+  type TorpedoMountId,
+} from './mounts.js';
 export { fireSecondaryRound } from './secondaries.js';
 export { torpedoEquipment, lightTorpedoEquipment, supercavTorpedoEquipment, fireTorpedo, type TorpedoLineId } from './torpedoes.js';
 export {
   launchTorpedo,
-  torpedoBearing,
   type TorpedoLaunchContext,
   type TorpedoLaunchOptions,
   type TorpedoRow,

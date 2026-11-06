@@ -170,7 +170,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
   it('a torpedo launch emits NO mz — the ratified quiet weapon (amendment 20)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    fire(w, 'a', 2, 0, 0); // TB weapon slot 2: the seeded bow torpedo, dead ahead
+    fire(w, 'a', 2, 0, 300); // TB weapon slot 2: the fitted torpedo, dead ahead (a positive aimDist names the area — Story 10.6)
     w.step();
     expect([...w.shells.values()][0]?.kind).toBe('torp'); // the launch really happened
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(0);

@@ -283,33 +283,35 @@ describe('denial reasons — derived through the gate without changing effects',
     expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
-  it('torpedo out-of-arc denies and keeps the fish', () => {
+  it('torpedo out-of-arc denies and keeps the tube (Story 10.6: astern of a FORE-only hull)', () => {
     const w = bareWorld();
     const ship = placeTb(w, 'a');
-    setInput(ship, { aim: Math.PI / 2, slot: SLOT_TORPEDO }); // abeam — outside the bow arc
+    setInput(ship, { aim: Math.PI, aimDist: 300, slot: SLOT_TORPEDO }); // dead astern — outside the fore launcher's arc
     const res = w.sinkingActivationGate(ship, SLOT_TORPEDO);
     expect(res).toEqual({ ok: false, reason: 'out-of-arc' });
-    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 });
+    expect(ship.launchers.flatMap((l) => l.tubes)).toEqual([0]);
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
-  it('torpedo empty pool denies no-ammo', () => {
+  it('torpedo with every tube reloading denies no-ammo (`cooling` on the wire)', () => {
     const w = bareWorld();
     const ship = placeTb(w, 'a');
-    setInput(ship, { aim: 0, slot: SLOT_TORPEDO }); // over the bow — in arc, but empty
-    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
+    setInput(ship, { aim: 0, aimDist: 300, slot: SLOT_TORPEDO }); // over the bow — in arc, but no tube loaded
+    for (const l of ship.launchers) l.tubes.fill(ship.stats.equipment.heavyTorpedo.reloadMs); // the tubes are the truth
     expect(w.sinkingActivationGate(ship, SLOT_TORPEDO)).toEqual({
       ok: false,
       reason: 'no-ammo',
     });
   });
 
-  it('mine empty pool denies no-ammo (in-arc, in-range aim — Story 2.8 aimed placement)', () => {
+  it('mine with every rack empty denies no-ammo (in-arc, in-range aim — Story 2.8 aimed placement)', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     // Heading 0 ⇒ the rear placement sector centers on π; aim astern, in range.
     setInput(ship, { aim: Math.PI, aimDist: CONFIG.mine.placeRange / 2, slot: SLOT_MINE });
-    ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
+    for (const r of ship.racks.racks) Object.assign(r, { n: 0, reloadMsLeft: ship.stats.equipment.navalMines.reloadMs }); // the racks are the truth
     expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'no-ammo' });
+    expect(w.mines.size).toBe(0);
   });
 
   it('mine out-of-arc (bow click) and out-of-RANGE both deny out-of-arc, keeping the drop (Story 2.8)', () => {
@@ -323,7 +325,7 @@ describe('denial reasons — derived through the gate without changing effects',
     setInput(ship, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_MINE });
     expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'out-of-arc' });
     // Nothing consumed either way.
-    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
+    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: ship.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
     expect(w.mines.size).toBe(0);
   });
 
@@ -341,15 +343,16 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     expect(w.mines.size).toBe(1);
     const [mine] = [...w.mines.values()];
     expect(mine.x).toBeCloseTo(ship.state.x - 50, 0); // AT the click (astern 50u; hull barely moved)
-    // PRESS (ability channel) with a reloaded pool: a press names an ABILITY
+    // PRESS (ability channel) with a reloaded rack: a press names an ABILITY
     // (Story 10.5 — `act`), never a slot, so it can never reach the rack.
-    // A FULL rack (2-deep at base since the 2026-08-04 balance pass) with an
-    // idle timer — so the only thing that could move the pool is the press.
-    ship.loadout[SLOT_MINE].state = { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 };
+    // A FULL rack with an idle clock (Story 10.6: the racks are the truth) —
+    // so the only thing that could move it is the press.
+    const full = ship.stats.equipment.navalMines.maxAmmo;
+    Object.assign(ship.racks.racks[0], { n: full, reloadMsLeft: 0 });
     w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
-    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charges intact
+    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: full, reloadMsLeft: 0 }); // charges intact
   });
 });
 
@@ -398,12 +401,14 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
   it('with the gun selected, the reloading MINE and SECOND-weapon slots both advance', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    fitSecond(ship); // hand-fitted light torpedo (the deleted buoy's seat)
+    w.applyCard(ship, 'lightTorpedo'); // a second reloading weapon (Story 10.6: its tubes are the truth)
     setInput(ship, { slot: SLOT_GUN }); // gun slot named; fireSeq 0 => no activation
-    ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    ship.loadout[SLOT_SECOND].state = { n: 0, reloadMsLeft: secondReloadMs(ship) };
+    const mineMs = ship.stats.equipment.navalMines.reloadMs;
+    Object.assign(ship.racks.racks[0], { n: 0, reloadMsLeft: mineMs });
+    ship.launchers[0].tubes[0] = secondReloadMs(ship);
     w.step();
-    expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - DT);
+    expect(ship.racks.racks[0].reloadMsLeft).toBe(mineMs - DT);
+    expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(mineMs - DT);
     expect(ship.loadout[SLOT_SECOND].state!.reloadMsLeft).toBe(secondReloadMs(ship) - DT);
   });
 
@@ -411,9 +416,11 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
     const w = bareWorld();
     const ship = placeTb(w, 'a');
     setInput(ship, { slot: SLOT_GUN });
-    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
+    const ms = ship.stats.equipment.heavyTorpedo.reloadMs;
+    ship.launchers[0].tubes[0] = ms;
     w.step();
-    expect(ship.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs - DT);
+    expect(ship.launchers[0].tubes[0]).toBe(ms - DT);
+    expect(ship.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(ms - DT);
   });
 });
 
@@ -423,14 +430,15 @@ describe('the empty slots are never ticked', () => {
   it('behavioral: a ship steps many ticks with an empty slot, world stays healthy while the fitted ones reload', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    fitSecond(ship); // a fitted torpedo slot, so the loop has more than the seed to do
+    w.applyCard(ship, 'lightTorpedo'); // a fitted torpedo slot, so the loop has more than the seed to do
     setInput(ship, { slot: SLOT_GUN }); // no click (fireSeq 0)
     // Drain the fitted slots so their reload timers must tick down.
     // Slot 0's pair is DERIVED from the turrets (Story 10.4): drain them.
     const batteryMs = ship.stats.equipment.mainBattery.reloadMs;
     for (const t of ship.turrets) t.reloadMsLeft = batteryMs;
-    ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    ship.loadout[SLOT_SECOND].state = { n: 0, reloadMsLeft: secondReloadMs(ship) };
+    const mineMs = ship.stats.equipment.navalMines.reloadMs;
+    Object.assign(ship.racks.racks[0], { n: 0, reloadMsLeft: mineMs });
+    ship.launchers[0].tubes[0] = secondReloadMs(ship);
     const N = 5;
     expect(() => {
       for (let i = 0; i < N; i++) w.step();
@@ -441,7 +449,7 @@ describe('the empty slots are never ticked', () => {
     }
     // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
     expect(ship.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(batteryMs - N * DT);
-    expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
+    expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(mineMs - N * DT);
     expect(ship.loadout[SLOT_SECOND].state!.reloadMsLeft).toBe(secondReloadMs(ship) - N * DT);
   });
 

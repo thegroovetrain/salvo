@@ -62,6 +62,26 @@
 // 10.5 (2026-11-05): the snapshot is the story's frames with the arc-only-fire
 // changes laid on top, token-diffed against both parents; see the Story 10.5
 // notes on the R6 battery below.
+//
+// RE-RECORDED 2026-11-05 (Story 10.6, the catalog under the index — torpedo
+// LAUNCHERS, mine RACKS, per-ship ability numbers; PV 98). Structurally
+// diffed frame by frame (168 frames before and after, none added or removed):
+//   * NEW KEYS, no other key moved: every contact row of a hull holding a
+//     torpedo ends in `lu` (after `tu` — 225 rows); the own block of a hull
+//     holding a torpedo / mine appends `launchers` (138) / `racks` (23);
+//   * the mine slot's `ammo` summary reads the rack's new base of three (23
+//     values, e.g. 1 → 2 after one drop);
+//   * HULL REPAIR's cooldown is the 75 s base (two `repairReadyAt`, 90050 →
+//     75050); the draw deals the new catalog (five `offer` entries);
+//   * the scenarios' three torpedo clicks now carry a positive `aimDist` (a
+//     torpedo click with none names no area and is refused out-of-arc, R16):
+//     in the gunnery scenario the turrets therefore chase that aim (four
+//     `you.turrets[].a`, two contact `tu`), and its torpedo leaves the FORE
+//     launcher's station along the launcher's CURRENT bearing — the early-
+//     click rule, the launcher not yet on the aim (two ballistic events'
+//     x / y / vx / vy).
+// No event kind, frame, channel or proof was added or removed; the declared
+// exceptions are still six.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -750,7 +770,7 @@ function scnDenied(g: Golden): void {
   // block the drop but m would now PAINT on a's radar through it.
   w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
   // Tick 1: a clicks the torpedo dead astern; m clicks a MINE into the rock.
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: FAMILY_SLOT.mine, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   const fa1 = cap(g, w, 'a');
@@ -826,7 +846,7 @@ function scnHoming(g: Golden): void {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
   }
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   let cReveals = 0;
   let cUpdates = 0;
   let dBytes = 0;
@@ -939,7 +959,7 @@ function scnGunnery(g: Golden): void {
       !fo1Miss.events.some((e) => e.k === 'sp'),
   );
   // The torpedo launch — the ratified quiet weapon: no mz for anyone.
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   cap(g, w, 'a'); // own torp reveal, no mz
   const fo1Torp = cap(g, w, 'o1');

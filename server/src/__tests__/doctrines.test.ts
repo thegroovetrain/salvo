@@ -160,7 +160,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1); // copy 1 came from the class fit
     expect(a.stats.equipment.heavyTorpedo.homingTurnRate).toBeCloseTo(CONFIG.torpedo.homingTurnRate, 9);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
-    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     return { w, a, b };
   }
 
@@ -173,7 +173,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     const w = bareWorld();
     const one = place(w, 'a', 0, 0); // the class fit alone = tier I
     expect(one.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
-    setInput(one, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(one, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
     const straight = [...w.shells.values()][0];
     expect(straight.homing).toBeUndefined();
@@ -185,7 +185,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     const rate = two.stats.equipment.heavyTorpedo.homingTurnRate;
     expect(rate).toBeGreaterThan(0); // steering starts at tier II
     expect(rate).toBeLessThan(CONFIG.torpedo.homingTurnRate); // NOT the tier-V reference
-    setInput(two, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(two, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w2.step();
     const homer = [...w2.shells.values()][0];
     expect(homer.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
@@ -205,7 +205,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     const control = bareWorld();
     const ca = place(control, 'a', 0, 0); // NO doctrine
     place(control, 'b', 320, 80);
-    setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(ca, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     let controlVy = 0;
     for (let i = 0; i < 200; i++) {
       control.step();
@@ -228,7 +228,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
     const prey = place(w, 'b', 300, 110); // acquired, but inside the fish's turn radius
     prey.hp = 1e9; // survive any glancing contact — this is about the FISH dying
-    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
 
     let travelled = 0;
     let prev: { x: number; y: number } | null = null;
@@ -256,13 +256,13 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
-    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
     expect([...w.shells.values()][0].distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
 
     const control = bareWorld();
     const ca = place(control, 'a', 0, 0); // tier I — a straight runner
-    setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(ca, { aim: 0, aimDist: 300, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     control.step();
     expect([...control.shells.values()][0].distLeft).toBe(Number.POSITIVE_INFINITY);
   });

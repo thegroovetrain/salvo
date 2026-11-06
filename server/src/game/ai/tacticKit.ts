@@ -26,10 +26,7 @@ import {
   CONFIG,
   bearing,
   blockedWater,
-  inArc,
-  sectorArcFor,
-  twinSectorArcFor,
-  twinSectorSide,
+  launcherArcHolds,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
@@ -54,14 +51,6 @@ const TAU = Math.PI * 2;
  * that is not a real line id.
  */
 export type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
-
-/** The HEAVY torpedo's bow sector, the LIGHT torpedo's TWIN beam sectors and
- *  the SUPERCAV's narrow bow cone — resolved ONCE at module load
- *  from the single shared arc source the server rows enforce with, so a bot
- *  never solves a shot its own weapon refuses. */
-const BOW_SECTOR = sectorArcFor('heavyTorpedo');
-const LIGHT_BEAMS = twinSectorArcFor('lightTorpedo');
-const SUPERCAV_SECTOR = sectorArcFor('supercavTorpedo');
 
 /** u — the range inside which a STANDARD torpedo intercept is CREDIBLE. A 60
  *  u/s fish against a 45 u/s hull needs the target inside knife range or the
@@ -264,21 +253,21 @@ export function distTo(sit: BotSituation, t: BotTrack): number {
 // THE TORPEDO SHOT — both torpedo lines and the SUPERCAV belt fish.
 // ---------------------------------------------------------------------------
 
-/** Is `aim` legal for this torpedo line? The HEAVY (and the supercav belt
- *  fish) fire into a bow SECTOR; the LIGHT fires into either BEAM and refuses
- *  the fore/aft dead zones — the server's own arc law (equipment/
- *  torpedoCore.ts `torpedoBearing`), read from the same shared descriptors. */
-function torpedoAimLegal(id: TorpedoLineId | 'supercavTorpedo', heading: number, aim: number): boolean {
-  if (id === 'lightTorpedo') return twinSectorSide(heading, aim, LIGHT_BEAMS) !== null;
-  const sector = id === 'supercavTorpedo' ? SUPERCAV_SECTOR : BOW_SECTOR;
-  return inArc(aim, wrapAngle(heading + sector.offset), sector.halfArc);
+/** Is `aim` legal for this ship's torpedo LAUNCHERS (Story 10.6, Eric
+ *  2026-11-05, R6 / R16, I9)? The same for every torpedo line: inside the arc
+ *  of a launcher the ship holds (`stats.torpedoLaunchers` — the fore, plus the
+ *  aft with AFT TORPEDO LAUNCHER), read through the shared `launcherArcHolds`
+ *  the client draws its wedge with. Parallax-free (measured from the ship
+ *  centre) — the server's `pickTube` measures from each station and is the
+ *  enforced verdict; at a real torpedo range the two agree. */
+function torpedoAimLegal(stats: EffectiveStats, heading: number, aim: number): boolean {
+  return launcherArcHolds(stats.torpedoLaunchers, heading, aim);
 }
 
-/** One torpedo shot solve, shared by all three torpedo lines: lead at THIS weapon's speed, refuse out of THIS weapon's arc
- *  (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
+/** One torpedo shot solve, shared by all three torpedo lines: lead at THIS weapon's speed, refuse out of the
+ *  ship's launcher arcs (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
 export function solveTorpedoShot(
   ctx: TacticContext,
-  id: TorpedoLineId | 'supercavTorpedo',
   speed: number,
   reachU: number,
 ): Shot | null {
@@ -289,7 +278,7 @@ export function solveTorpedoShot(
   if (d > reachU) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
-  if (!torpedoAimLegal(id, ctx.self.state.heading, aim)) return null;
+  if (!torpedoAimLegal(ctx.self.stats, ctx.self.state.heading, aim)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
   return { aim, aimDist: d, slot: ctx.slot };
 }

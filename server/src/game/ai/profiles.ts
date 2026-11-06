@@ -82,9 +82,11 @@ export interface BotTargetWeights {
 }
 
 /**
- * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The six ship
- * ladders (ARMOR, POWER, ENGINES, RUDDER, INTEL, RELOAD) are named by their
- * line id. Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) DELETED
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The ship
+ * ladders (ARMOR, POWER, ENGINES, INTEL, RELOAD) are named by their line id —
+ * RUDDER left the catalog in Story 10.6 (Eric 2026-11-05, R2) and its favorite
+ * with it; the three Story 10.6 ladders (RANGE, HULL REPAIR, SMOKE SCREEN) are
+ * ship ladders too but no taste favors them (no new dial, I8). Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) DELETED
  * `hullPoints` and `passiveHealing` and RENAMED `armorPiercing` -> `power`
  * (joined in 9.9, epic-9 amendment 157), `speed` -> `engines`, `turning` ->
  * `rudder`, `radarSweep` -> `intel`; `gun` = any gun-ladder line (deckGun —
@@ -96,7 +98,6 @@ export type UpgradeFavorite =
   | 'armor'
   | 'power'
   | 'engines'
-  | 'rudder'
   | 'intel'
   | 'reload'
   | 'gun'
@@ -230,11 +231,12 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       style: 'specialist',
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
       // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
-      favoriteUpgrades: ['gun', 'rudder', 'reload', 'power'],
+      // 'rudder' dropped with the RUDDER ladder (Story 10.6, Eric 2026-11-05, R2 / I8).
+      favoriteUpgrades: ['gun', 'reload', 'power'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
     },
     // Knife range: inside 0.3 of gun reach the rear-quarter turn-fight is decided by
-    // rudder and gun cooldown, which is exactly where this profile wins.
+    // turning and gun cooldown, which is exactly where this profile wins.
     // (9.8 fractions retired by amendment 198: were 0.08–0.3)
     bandNudge: -0.1,
     oddsThreshold: 0.7,

@@ -125,10 +125,11 @@ const TUNE_FAMILIES = [
   'phosphorShells.',
   'boost.',
   // THE HULL CLASSES. Since Story 10.3 each class carries its seven INDICES
-  // (`shipClasses.<cls>.index.<armor|power|reload|engines|rudder|intel|range>`
-  // — the fold derives speed / turn rate / sweep / cooldown / reach from them),
-  // its hp (1000) and the four pass-through kinematics; `maxSpeed` / `turnRate`
-  // are no longer leaves (derived from ENGINES / RUDDER).
+  // (`shipClasses.<cls>.index.<armor|power|reload|engines|intel|range>` — the
+  // fold derives speed / sweep / cooldown / reach from them; RUDDER left in
+  // Story 10.6, R2 — every captain turns at `CONFIG.index.turnRate`), its hp
+  // (1000) and the four pass-through kinematics; `maxSpeed` / `turnRate` are
+  // no longer leaves (derived from ENGINES / the baseline).
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
   // "should a drone be worth, through damage, what its kill tier already says
@@ -426,10 +427,11 @@ export function validateTuneKey(key: string): void {
  *    steerageSpeed — shared/src/sim/ship.ts:69 `clampUnit(s.speed /
  *      cfg.steerageSpeed)`; at rest that is 0/0 = NaN, which propagates
  *      straight into heading and then position.
- *    reload / engines / rudder / intel / range — THE INDICES the fold
- *      derives from (Story 10.3, sim/indexStats.ts): the RELOAD haste law
- *      divides by `1 + (RELOAD − 100) / 100`, ENGINES / RUDDER become the
- *      speed and turn rate the bots divide by (ai/navigate.ts, ai/utility.ts —
+ *    reload / engines / intel / range — THE INDICES the fold
+ *      derives from (Story 10.3, sim/indexStats.ts; RUDDER left in Story
+ *      10.6): the RELOAD haste law
+ *      divides by `1 + (RELOAD − 100) / 100`, ENGINES becomes the
+ *      speed the bots divide by (ai/navigate.ts, ai/utility.ts —
  *      a 0 turn rate was the old `turnRate` floor's NaN-steer hazard) and
  *      INTEL the sweep period's divisor. clampStats floors each at 1, so a 0
  *      arm would print as 0 while the sim ran 1 — false evidence; refused
@@ -467,7 +469,6 @@ const TUNE_MIN_ONE_LEAVES = new Set([
   'steerageSpeed',
   'reload',
   'engines',
-  'rudder',
   'intel',
   'range',
   'shellSpeed',

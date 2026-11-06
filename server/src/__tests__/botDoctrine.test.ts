@@ -398,7 +398,7 @@ describe('special / ability triggers (amendment 199)', () => {
       mind.cloudUntil = port.now + 1000; // its own cloud is up
       expect(cm.want(ctxOf(tb, mind, port, posture, t)), posture).toBe(false);
       mind.cloudUntil = 0;
-      tb.smokeReadyAt = abilityReadyAt(port.now, 'smoke'); // just pressed: cooling
+      tb.smokeReadyAt = abilityReadyAt(port.now, tb.stats, 'smoke'); // just pressed: cooling
       expect(cm.want(ctxOf(tb, mind, port, posture, t)), posture).toBe(false);
       tb.smokeReadyAt = 0;
     }
