@@ -47,7 +47,7 @@ function statsFor(hull: ShipClass, boons: Record<string, number> = {}) {
 function ownShip(cls: OwnShip['cls'], cards: string[] = [], shift: OwnShip['shift'] = DEFAULT_SHIFT): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    ammo: [], sweep: 0, cls, shift, turrets: initialTurrets(cls), sec: { heat: 0, locked: false }, pts: 0, offer: [], boostUntil: 0, cards, lvl: 0, xp: 0, repairHp: 0,
+    ammo: [], sweep: 0, cls, shift, turrets: initialTurrets(cls), sec: { heat: 0, locked: false }, pts: 0, offer: [], boostUntil: 0, cards, lvl: 0, xp: 0, repairHp: 0, rd: false, ib: {},
   };
 }
 

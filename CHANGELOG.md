@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.10] - 2026-11-06
+
+### Changed
+- **Every level-up offer is one ship upgrade, one equipment card and two wildcards.** The first card is always a ship upgrade and the second always an equipment card (a weapon, a weapon tier or a launcher / rack card). Each of the other two flips a coin between the two kinds. When one kind has nothing left to deal, its slots take the other kind. The opening offer always holds a weapon, as before.
+- **A fully upgraded ship turns levels into stat points.** As the cards run out the offer shows only what is left (three cards, then two, then one). Once nothing is left, each new level automatically adds +1 to one of ARMOR, POWER, ENGINES, RELOAD, RANGE or INTEL, picked at random; nothing piles up unspent. A ship that is already sinking gets no point.
+- **No more INTEL cap.** The radar sweep used to stop speeding up at 30 turns a minute; now every point of INTEL makes it faster, with no limit.
+- **The REDRAW marker is always right.** The server now tells your client whether your one countdown redraw is used, so the marker survives a reconnect, and a redraw that happens to deal the same four cards no longer flashes as refused.
+- **Wire:** protocol 98 → 99 (the redraw-used flag and the bonus stat points on your own ship; the offer draw).
+
 ## [0.19.9] - 2026-11-06
 
 ### Changed

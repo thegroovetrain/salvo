@@ -410,7 +410,7 @@ describe('the belt-and-braces clip (NOT the fix — the pins above are)', () => 
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
       cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID), sec: { heat: 0, locked: false }, pts: 1, offer: ['captiveMines', 'intel'], boostUntil: 0,
-      cards: [], lvl: 0, xp: 0, repairHp: 0,
+      cards: [], lvl: 0, xp: 0, repairHp: 0, rd: false, ib: {},
     };
     menu.toggle(offerView(you, false, false, false, [])!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;

@@ -40,6 +40,7 @@ import {
   type EffectiveStats,
   type EquipmentId,
   type ShiftId,
+  type IndexBonus,
   type GameMap,
   type HullId,
   type OwnShip,
@@ -106,13 +107,12 @@ import {
   UpgradeMenu,
   canLatchSpend,
   frontOfferSignature,
-  mulliganLanded,
   offerView,
   pickableChoice,
+  redrawState,
   shouldAutoOpen,
   spendOutcome,
   type OfferView,
-  type RedrawState,
   type SpendLatch,
 } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
@@ -678,7 +678,7 @@ interface Game {
    * Cached effectiveStats(ownClass, own fitted boons) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
    * firing-arc gun range). Starts at the guessed class with zero boons;
-   * applyOwnStats() swaps it whenever you.cls or you.cards changes.
+   * applyOwnStats() swaps it whenever you.cls, you.cards or you.ib changes.
    */
   ownStats: EffectiveStats;
   /** THE OWN BATTERY (Story 10.4): the predicted turrets + secondaries heat,
@@ -701,15 +701,6 @@ interface Game {
    *  the one watcher that owns its open edge (`watchRefitWindow`). (The close
    *  stamp and the digits' grace left with the kit keys — Story 10.5.) */
   refitWasOpen: boolean;
-  /**
-   * THE ONE FREE REDRAW, already spent this match (Story 8.10, amendment 60).
-   * Set when the mulligan in flight is acked (the front offer changed at an
-   * unchanged bank — `mulliganLanded`), cleared on every match-phase edge and
-   * fresh at every join. The server is the authority; this is only what the
-   * button's pip draws, and a client that guessed wrong self-corrects at the
-   * next phase edge.
-   */
-  mulliganUsed: boolean;
   /**
    * The refit window has already opened ITSELF this match epoch (amendment 59)
    * — a latch, never a numeric rise, so a reconnect mid-countdown still opens
@@ -880,7 +871,7 @@ function sendLatchedSpend(g: Game, choice: number): void {
  * back and draw another, once, while the match is in countdown.
  *
  * Gated on the VIEW's own `unspent` — which already carries the phase, the
- * offer's existence and the spent latch — and then on the very same spend latch
+ * offer's existence and the server's used flag (`you.rd`) — and then on the spend latch
  * a card pick uses, because the server processes both through `spendPoint` and
  * two in flight at once would race each other's offer. The sentinel travels as
  * `SpendMsg.choice`, the one negative the wire carries again (PV 55).
@@ -907,7 +898,9 @@ function markSpendAcked(g: Game): void {
 /**
  * Clear the spend latch once spendOutcome() says it is no longer 'pending' —
  * the server ACKED it (markSpendAcked) or the bank shrank / the offer queue
- * shifted ('success'), or the own ship is gone / the fallback timeout elapsed
+ * shifted, or — for a REDRAW — the own row's `rd` reads used (Story 10.7 review
+ * gate: the receipt even for an identical hand) ('success'), or the own ship is
+ * gone / the fallback timeout elapsed
  * ('failed'). A pts INCREASE with an unchanged
  * front offer HOLDS the latch: Story 2.6's passive banking makes that routine
  * mid-flight, and the old "changed in ANY way" check released on it — re-opening
@@ -930,14 +923,8 @@ function markSpendAcked(g: Game): void {
 function updateSpendLatch(g: Game): number | null {
   const inFlight = g.spendInFlight;
   if (!inFlight) return null;
-  const now = performance.now();
-  const outcome = spendOutcome(inFlight, g.state.net.you, now);
+  const outcome = spendOutcome(inFlight, g.state.net.you, performance.now());
   if (outcome === 'pending') return null;
-  // A MULLIGAN's ack is the front offer changing at an unchanged bank (Story
-  // 8.10 — the server queues `pt`, never `bn`), which is exactly what
-  // `mulliganLanded` reads off the same classification: the pip fills here and
-  // nowhere else, so it can never contradict the latch.
-  if (mulliganLanded(inFlight, g.state.net.you, now)) g.mulliganUsed = true;
   g.spendInFlight = null;
   return outcome === 'failed' ? inFlight.choice : null;
 }
@@ -1022,18 +1009,11 @@ function watchRefitWindow(g: Game): void {
  */
 function currentOfferView(g: Game): OfferView | null {
   const view = baseOfferView(g);
-  return view === null ? view : { ...view, redraw: redrawState(g) };
-}
-
-/**
- * The REDRAW button's state this frame (Story 8.10, amendment 60) — the one
- * seam where the MATCH PLANE reaches the refit view. `offerView()` is a pure
- * projection of `you` and must stay phase-agnostic, so the countdown-only rule
- * lives here beside every other read of the polled schema.
- */
-function redrawState(g: Game): RedrawState {
-  if ((publicState(g).matchPhase ?? 'waiting') !== 'countdown') return 'hidden';
-  return g.mulliganUsed ? 'spent' : 'unspent';
+  if (view === null) return view;
+  // The one seam where the MATCH PLANE reaches the refit view (Story 8.10,
+  // amendment 60): `offerView()` stays phase-agnostic, so the countdown-only
+  // rule is applied here; the pip reads the server's `you.rd` (Story 10.7, R4).
+  return { ...view, redraw: redrawState(publicState(g).matchPhase ?? 'waiting', g.state.net.you) };
 }
 
 /** The phase-free half of `currentOfferView` — everything that is a fact about
@@ -1278,17 +1258,17 @@ function updateMatchEpoch(g: Game): void {
   if (!epochLatchReset(prev, phase)) return;
   g.score = freshScore();
   resetOwnOrders(g);
-  // THE OPENING'S TWO LATCHES (Story 8.10, amendments 59-60; the 8.10 review,
-  // P3) reset HERE, on the same edge as the score — not on every phase edge.
-  // The window's one auto-open and the one free redraw are per MATCH, and a
-  // new match's countdown can only ever follow the previous match's live edge
-  // (active → finished → waiting → countdown), so this arms both in time for
-  // the next start line; a fresh `Game` per join arms them at join. Resetting
-  // on every edge re-armed the auto-open on the `countdown → waiting` edge of
-  // a CANCELLED countdown, and the window flung itself open again at the
-  // re-arm. See ui/phase.ts `epochLatchReset`.
+  // THE OPENING'S LATCH (Story 8.10, amendment 59; the 8.10 review, P3)
+  // resets HERE, on the same edge as the score — not on every phase edge. The
+  // window's one auto-open is per MATCH, and a new match's countdown can only
+  // ever follow the previous match's live edge (active → finished → waiting →
+  // countdown), so this arms it in time for the next start line; a fresh `Game`
+  // per join arms it at join. Resetting on every edge re-armed the auto-open on
+  // the `countdown → waiting` edge of a CANCELLED countdown, and the window
+  // flung itself open again at the re-arm. See ui/phase.ts `epochLatchReset`.
+  // (The one free redraw's pip is no latch here since Story 10.7 — it reads
+  // the server's `you.rd`.)
   g.autoOpenedEpoch = false;
-  g.mulliganUsed = false;
 }
 
 /** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a
@@ -2903,10 +2883,9 @@ function buildGame(
     // with the seat's own (Story 10.1 — the wire, never localStorage).
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
     refitWasOpen: false,
-    // Story 8.10: both are per-MATCH latches, and a fresh Game is built per
-    // join — so a join is already a reset, and `updateMatchEpoch` owns every
-    // later one.
-    mulliganUsed: false, autoOpenedEpoch: false,
+    // Story 8.10: a per-MATCH latch, and a fresh Game is built per join — so
+    // a join is already a reset, and `updateMatchEpoch` owns every later one.
+    autoOpenedEpoch: false,
   };
   gRef = g;
   armWorldFlashBudget(g, camera, flashBudget);
@@ -2982,7 +2961,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId, bonus: IndexBonus): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -3002,7 +2981,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shif
   // take the client down. Cards are the ONLY stat modifier, and this is the same
   // call the server caches; since 8.1 the fold counts copies per line and walks
   // the CATALOG's order, so the wire list's order cannot move a number.
-  const stats = effectiveStats(spec, cards);
+  // The exhausted hull's BONUS POINTS (`you.ib`, Story 10.7 R5) ride the same
+  // call, exactly as the server folds `ShipRecord.indexBonus`.
+  const stats = effectiveStats(spec, cards, undefined, bonus);
   g.ownStats = stats;
   // Own loadout follows the authoritative class + cards + SEAT SHIFT (Story
   // 1.6 / 2.5, slot 1 since 10.4):
@@ -3106,7 +3087,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, cards, shift) => applyOwnStats(g, cls, cards, shift),
+    onOwnStats: (cls, cards, shift, bonus) => applyOwnStats(g, cls, cards, shift, bonus),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),

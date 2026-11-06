@@ -1,16 +1,20 @@
 // CARD OFFERS — the wire-facing shape of the spend economy. Offers are DRAWN
 // FROM THE COMMON POOL (sim/draw.ts drawOffer: up to CONFIG.offer.size
-// DIFFERENT card lines, by the two-stage kind-then-line draw). Only the offer
+// DIFFERENT card lines, by the four-slot TYPE plan [ship, equipment, wildcard,
+// wildcard] — Story 10.7, Eric 2026-11-06, epic-10 amendment 13; it retired
+// the two-stage kind-then-line draw and the level-zero guarantee). Only the offer
 // TYPE lives here: the FRONT level's drawn line ids, materialized once and held
 // server-side (ShipRecord.offer) so reopening the refit window can NEVER reroll
 // (FR19).
 //
 // AN OFFER NEVER SHOWS A LINE THE SHIP IS ALREADY AT CAP ON, nor a second kind
-// of a filled family slot: the draw's eligibility law drops both before either
-// stage, so a dead pick can never reach this shape. (The consumable exception
-// of epic-8 amendment 94 — dealt even at cap, which made the offer never
-// empty — left with the kit, 2026-11-05, Story 10.5: an offer may now be
-// short, or empty once nothing is eligible.)
+// of a filled family slot: the draw's eligibility law drops both before any
+// slot is dealt, so a dead pick can never reach this shape. (The consumable
+// exception of epic-8 amendment 94 — dealt even at cap, which made the offer
+// never empty — left with the kit, 2026-11-05, Story 10.5: an offer may now be
+// short, or empty once nothing is eligible. Since Story 10.7 (R5, Eric
+// 2026-11-06) a level that meets an empty draw becomes a +1 bonus point on a
+// random index instead, so an empty draw never sits banked.)
 //
 // THE DRAW IS STATELESS: there is no pool object to thin, so a line passed over
 // at one level is back at full weight the next — that IS "reshuffle after every

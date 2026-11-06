@@ -42,6 +42,9 @@ import {
   polyInBlast,
   burstVictims,
   drawOffer,
+  drawBonusIndex,
+  INDEX_IDS,
+  type IndexId,
   lineWeight,
   DEFAULT_CLASS_ID,
   DEFAULT_SHIFT,
@@ -678,13 +681,28 @@ export interface ShipRecord {
    * SINGLE SOURCE OF TRUTH for the level bank (OwnShip.pts mirrors it). Levels
    * behind the front one carry NO cards — a level is drawn for only when it
    * reaches the front (`offer` below), so banking costs nothing.
+   * A HULL WITH NOTHING DEALABLE BANKS NOTHING (Story 10.7, R5, Eric
+   * 2026-11-06): an EMPTY draw converts every banked level into a bonus point
+   * (`indexBonus`) and sets this to 0 (`materializeOffer`), so `pts` never
+   * advertises a level that can never be spent. `level` keeps counting.
    * PRESERVED by redeployShip since Story 8.10 — the level the countdown
    * granted is the one the captain spends on live water.
    */
   bankedLevels: number;
   /**
+   * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5, Eric 2026-11-06,
+   * epic-10 amendment 13): per index, how many levels met an EMPTY draw and
+   * became `CONFIG.offer.exhausted.indexPoints` on that index (picked by the
+   * shared `drawBonusIndex` off `drawRng`). All six keys, zero at addShip.
+   * Folded ONLY through `effectiveStats()` (`refoldCards`, `redeployEconomy`)
+   * and mirrored self-private onto `OwnShip.ib`. PER MATCH, like `cards`:
+   * PRESERVED by redeployShip and respawn (the build persists).
+   */
+  indexBonus: Record<IndexId, number>;
+  /**
    * THE FRONT OFFER — the one hand the player is about to pick from, or null
-   * (no banked level; a draw can no longer come back empty — amendment 94).
+   * (no banked level — an empty draw banks nothing, Story 10.7 R5: its levels
+   * become bonus points instead).
    * Materialized ONCE, from THE COMMON POOL at the moment the level reaches the
    * front (materializeOffer → sim/draw.drawOffer over this ship's state, its
    * weights and its stream), then FROZEN until it is spent: reopening the refit
@@ -2385,7 +2403,7 @@ export class World {
       // is a pure read of this record's own state (materializeOffer). The
       // turrets come up at rest and loaded, the secondaries cold (Story 10.4).
       shift: World.shiftFor(role, shift), turrets: initialTurrets(hullId), launchers: [], racks: emptyRackBank(), sec: initialSecondaries(), devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
-      bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
+      bankedLevels: 0, indexBonus: World.noBonus(), offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
       cardBehaviors: NO_BEHAVIORS,
@@ -2458,9 +2476,16 @@ export class World {
     this.pending.push({ k: 'spawn', id: rec.id, x: p.x, y: p.y });
     // A HULL THAT ARRIVES MID-COUNTDOWN STILL GETS THE OPENING (Story 8.10;
     // the 8.10 review, P2). `grantOpening()` fired at startCountdown, before
-    // this record existed, so without this line a captain who reconnects — or
-    // a bot the room tops up with — would stand on the start line at LV 0 with
-    // an empty bank and no hand while everyone else refits. AFTER the spawn
+    // this record existed, so without this line a late boarder — a captain
+    // consuming the seat reserved for them, aboard after the countdown armed —
+    // would stand on the start line at LV 0 with an empty bank and no hand
+    // while everyone else refits. This is NOT a re-entry path: a production
+    // room is locked
+    // from birth and never unlocked, and a countdown drop is torn down at once
+    // (dropPolicy holds a seat only while the match is active), so no captain
+    // ever re-enters a countdown to collect a second opening; a resumed
+    // reconnect reuses its existing record and never reaches addShip
+    // (match.test / reconnect.test pin all three walls). AFTER the spawn
     // event, so the `pt` never precedes the hull it belongs to; guarded by the
     // same per-ship latch, so it can never double with the sweep.
     if (this.countdownOpen) this.grantOpeningTo(rec);
@@ -2860,7 +2885,7 @@ export class World {
     // XP progress dies with the build (Story 2.6), on every path.
     ship.xpMs = 0;
     ship.level = 0;
-    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog, ship.indexBonus);
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
     // replayed over it through the SHARED fill rule. The fleet flag is
     // load-bearing (without it a drone would grow a boost in slot 1).
@@ -3278,16 +3303,18 @@ export class World {
    * at all: its hand is drawn when it reaches the front.
    *
    * The self-private `pt` event fires whenever there IS a front offer after
-   * materializing. Since Story 10.5 an EXHAUSTED hull (every ladder and all
-   * three slot weapons at cap — the consumables that kept a hand non-empty are
-   * gone) draws an EMPTY offer: the level banks, no offer opens, no `pt`
-   * fires and nothing throws (orchestrator ruling).
+   * materializing. An EXHAUSTED hull (nothing eligible: every ladder and all
+   * three slot weapons at cap, or an all-stub catalog) draws an EMPTY offer,
+   * and since Story 10.7 (R5, Eric 2026-11-06) the level becomes a BONUS
+   * POINT: `materializeOffer` converts it to +1 on a random index and zeroes
+   * `bankedLevels`, no offer opens, no `pt` fires and nothing throws. `level`
+   * still rose (the XP loop owns that).
    * Reopening the refit window can never reroll — the front offer is drawn once
    * and frozen (FR19).
    */
-  private grantPoint(killer: ShipRecord, guarantee = false): void {
+  private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
-    this.materializeOffer(killer, guarantee);
+    this.materializeOffer(killer);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
   }
 
@@ -3295,8 +3322,11 @@ export class World {
    * THE LEVEL-ZERO GRANT — THE OPENING (Story 8.10, FR48, epic-8 amendments
    * 59-63). Called by `Match.startCountdown()` and by nothing else: every
    * PARTICIPANT (a human captain or an AI captain — `role !== 'fleet'`) banks
-   * ONE level and draws its hand with the USABLE-CARD GUARANTEE, so the first
-   * offer of a match can never be four ladders on a hull with no weapon.
+   * ONE level and draws its hand through the ordinary draw. The offer's
+   * EQUIPMENT slot (Story 10.7, card 1) is what keeps the first offer from
+   * being four ladders on a hull with no weapon: on a bare hull every eligible
+   * equipment line is a bare weapon. The level-zero guarantee (amendment 93)
+   * is retired.
    *
    * `level` does NOT move. The captain is at LV 0 with one banked level and a
    * full hand — which is exactly what the HUD bar already renders (`LV 0`,
@@ -3330,14 +3360,15 @@ export class World {
   private grantOpeningTo(ship: ShipRecord): void {
     if (!roleIsParticipant(ship) || ship.openingGranted) return;
     ship.openingGranted = true;
-    this.grantPoint(ship, true);
+    this.grantPoint(ship);
   }
 
   /**
    * THE ONE FREE COUNTDOWN REDRAW (Story 8.10, FR48, epic-8 amendment 60):
-   * throw the level-zero hand back and draw another, with the same guarantee,
-   * off the SAME common pool — a draw consumes nothing, so there is nothing to
-   * give back and the thrown hand's lines are drawable again immediately.
+   * throw the level-zero hand back and draw another — simply the draw run
+   * again (Story 10.7, R2: the wildcards flip afresh) — off the SAME common
+   * pool. A draw consumes nothing, so there is nothing to give back and the
+   * thrown hand's lines are drawable again immediately.
    *
    * HONOURED IFF all five hold: the countdown is open (`Match` owns the
    * flag), the hull is a HUMAN CAPTAIN (a bot never sends the sentinel — its
@@ -3364,7 +3395,7 @@ export class World {
     ship.mulliganed = true;
     ship.offer = null; // dropped, NOT spent: bankedLevels does not move
     World.markRedrawn(ship); // the thrown hand stays in the log (Story 8.21)
-    this.materializeOffer(ship, true);
+    this.materializeOffer(ship);
     if (ship.offer !== null) this.pending.push({ k: 'pt', id: ship.id });
     return true;
   }
@@ -3386,24 +3417,70 @@ export class World {
    *
    * A SHORT OR EMPTY OFFER IS LEGAL (Story 10.5): with the consumables gone a
    * hull can run out of eligible lines. A short hand is stored as drawn; an
-   * EMPTY one is never materialized — `offer` stays null and the level stays
-   * banked (no refit window opens, nothing throws); there is no latch, no log,
-   * no counter and no silent-bank branch.
+   * EMPTY one is never materialized — `offer` stays null, no refit window
+   * opens, nothing throws, nothing is logged.
    *
-   * `guarantee` (Story 8.10, narrowed by amendment 93) is passed by the
-   * LEVEL-ZERO paths ONLY — grantOpening and mulligan — and rides straight
-   * through to `drawOffer`, where it makes card 0 a line this hull can actually
-   * USE. Every ordinary level leaves it false: the guarantee is the opening's
-   * promise, not the economy's.
+   * AN EMPTY DRAW CONVERTS EVERY BANKED LEVEL INTO A BONUS POINT (Story 10.7,
+   * R5, Eric 2026-11-06 — replacing R3's "banks nothing"): `convertBank`.
+   * Exhaustion is permanent — only taking a card can make a new line
+   * eligible, and an exhausted hull has no card to take — so every level
+   * queued behind the empty one converts too. This one branch covers all
+   * three callers: a level earned by an exhausted hull (`grantPoint`), the
+   * next-level draw after a hull spends its LAST eligible card with levels
+   * queued (`spendCard`), and the redraw (`mulligan`). `level` is untouched.
+   *
+   * There is no level-zero guarantee any more (amendment 93, retired by Story
+   * 10.7): the opening, its redraw and every ordinary level all run the same
+   * four-slot draw, whose Equipment slot deals a bare weapon on a bare hull.
    */
-  private materializeOffer(ship: ShipRecord, guarantee = false): void {
+  private materializeOffer(ship: ShipRecord): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
-    const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog, { guarantee });
-    if (offer.length === 0) return;
+    const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog);
+    if (offer.length === 0) {
+      this.convertBank(ship);
+      return;
+    }
     ship.offer = offer;
     // THE HAND LOG (Story 8.21, R1): a dealt hand is logged the moment it is
     // drawn — this is the single place a hand is ever drawn.
     ship.hands.push({ dealtAtMs: this.now, offered: [...offer], taken: null, takenAtMs: null, redrawn: false });
+  }
+
+  /**
+   * THE EXHAUSTED HULL'S CONVERSION (Story 10.7, R5, Eric 2026-11-06, epic-10
+   * amendment 13): every level still banked becomes ONE bonus point on an
+   * index picked by `drawBonusIndex` (one `drawRng.next()` per level), the
+   * bank drops to 0, and the stats re-fold through `effectiveStats()` with
+   * the same settle a card gets (pools, reload clocks, mounts, wake). No
+   * offer, no hand log, no `pt` — the own row's `ib` is the whole signal.
+   * A pick that is not one of the six indices (`drawBonusIndex` answers
+   * undefined — a misconfigured list or a bad rng, review gate P4) is that
+   * level's point skipped: no junk key is ever written.
+   *
+   * NO BONUS WHILE SINKING (Story 10.7, R7, Eric 2026-11-06, epic-10
+   * amendment 13 — "once sinking, you're done", the rule `spendPoint` refuses
+   * a card pick by): on a SINKING or SUNK hull every banked level is simply
+   * dropped — no point, bank 0, no `drawRng` value spent, no re-fold. Levels
+   * earned while sinking / sunk are gone even if the hull is later redeployed.
+   *
+   * RE-ENTRANCY (review gate P5): since R5 this re-fold can run INSIDE damage
+   * resolution — kill credit → grantXp → grantPoint → materializeOffer → here
+   * — replacing `ship.stats`, rescaling its reload clocks and possibly
+   * swapping `ship.wake` mid-step. No step may hold a ship's `stats` / `wake`
+   * reference across a call that can award a kill.
+   */
+  private convertBank(ship: ShipRecord): void {
+    if (isSinking(ship.lifecycle) || isSunk(ship.lifecycle)) {
+      ship.bankedLevels = 0;
+      return;
+    }
+    for (let n = ship.bankedLevels; n > 0; n -= 1) {
+      const id = drawBonusIndex(ship.drawRng);
+      if (id !== undefined) ship.indexBonus[id] += 1;
+    }
+    ship.bankedLevels = 0;
+    const prevStats = this.refoldCards(ship);
+    this.settleRefold(ship, prevStats);
   }
 
   /** The hand currently open in the log — the last entry, while it is neither
@@ -3431,9 +3508,8 @@ export class World {
    *   - `slotIds`: the five slot contents, the same array `pickRefusal`
    *     takes. `sim/draw.ts` derives which FAMILY slots are still empty from
    *     it — what makes copy 1 of a weapon eligible at all (a bare weapon
-   *     needs its family's slot empty, Story 10.5) — and the level-zero
-   *     guarantee runs the full `pickRefusal` over it
-   *     so it can never hand out a card this hull could not take (review F2).
+   *     needs its family's slot empty, Story 10.5) — and which add-on hosts
+   *     are aboard (Story 10.6).
    *   - `mountedGun`: the MODULE slot 0 carries by `loadoutFor`'s
    *     construction — `'mainBattery'` on every captain / bot hull since
    *     Story 10.4 (no ladder is hosted on it, so the three deck-gun ladders
@@ -3557,12 +3633,23 @@ export class World {
     // THE TAKE (amendment 90), before anything else can throw: copy 1 of an
     // equipment line steps every OTHER captain's weight for it down.
     if (World.isTake(line, copiesBefore)) this.recordTake(ship.id, lineId as LineId);
-    const prevStats = this.refoldCards(ship);
     // The heal-on-grant branch (HULL POINTS' `healOnGrant`) sat here until
-    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 8).
-    // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
-    ship.hp = Math.min(ship.hp, ship.stats.maxHp);
+    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 8); the hp
+    // clamp to the new maxHp lives in refoldCards.
+    const prevStats = this.refoldCards(ship);
     if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
+    this.settleRefold(ship, prevStats);
+  }
+
+  /**
+   * Everything that follows a stats re-fold once the slots are settled —
+   * shared by `applyCard` and the exhausted hull's `convertBank` (Story 10.7,
+   * R5), so a bonus point moves pools, clocks, mounts and the wake exactly as
+   * a card of the same index would. Via `convertBank` this can run INSIDE
+   * damage resolution (a kill's level) — see the re-entrancy note there
+   * (review gate P5): never hold a ship's `stats` / `wake` across a kill.
+   */
+  private settleRefold(ship: ShipRecord, prevStats: EffectiveStats): void {
     this.reconcilePools(ship, prevStats);
     this.rescaleReloadTimers(ship, prevStats);
     // THE LAUNCHERS AND RACKS (Story 10.6, I3): resize to the folded counts —
@@ -3610,13 +3697,17 @@ export class World {
    * RE-DERIVE EVERYTHING THAT HANGS OFF `ship.cards`, and answer with the stats
    * that were live before. The ONE place the held-card fold is re-run (the
    * only edit that moves the card multiset is `applyCard`'s push since the
-   * consumable spend left with Story 10.5); `prevStats` is what the pool/timer
-   * reconciliation compares against.
+   * consumable spend left with Story 10.5) — and, since Story 10.7 (R5), the
+   * exhausted hull's bonus points beside them (`convertBank`); `prevStats` is
+   * what the pool/timer reconciliation compares against. Clamps hp to the
+   * new maxHp.
    */
   private refoldCards(ship: ShipRecord): EffectiveStats {
     ship.cardBehaviors = cardBehaviors(ship.cards, this.catalog);
     const prevStats = ship.stats;
-    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog, ship.indexBonus);
+    // hp invariant: a maxHp-LOWERING fold may not leave hp above the cap.
+    ship.hp = Math.min(ship.hp, ship.stats.maxHp);
     return prevStats;
   }
 
@@ -3768,7 +3859,9 @@ export class World {
    * first (drop the offer, decrement the bank), then settle the fit, and
    * materialize the NEXT offer LAST — so the next hand is drawn against the
    * build this pick just produced (its new copy counts, its now-fuller weapon
-   * row, and its own take already in the ledger).
+   * row, and its own take already in the ledger). If that pick was the hull's
+   * LAST eligible card, the next draw comes back empty and `materializeOffer`
+   * converts every level still queued into a bonus point (Story 10.7, R5).
    */
   private spendCard(ship: ShipRecord, choice: number): boolean {
     const front = ship.offer;
@@ -7045,6 +7138,11 @@ export class World {
     const maxAmmo = equipmentMaxAmmo(ship.stats, id);
     slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
     slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
+  }
+
+  /** A fresh all-zero bonus record (Story 10.7, R5) — one per ship. */
+  private static noBonus(): Record<IndexId, number> {
+    return Object.fromEntries(INDEX_IDS.map((id) => [id, 0])) as Record<IndexId, number>;
   }
 
   /** The Shift slot 1 fits for a hull (Story 10.4 — the SEAT's pick, no

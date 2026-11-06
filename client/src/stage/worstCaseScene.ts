@@ -600,6 +600,7 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     lvl: 4 + Math.floor(tick / s.pointEveryTicks),
     xp: (tick % s.pointEveryTicks) / s.pointEveryTicks,
     repairHp: 0,
+    rd: false, ib: {},
   };
 }
 

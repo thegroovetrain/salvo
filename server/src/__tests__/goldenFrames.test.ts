@@ -89,7 +89,7 @@
 // moved (93 lines, same count; every proof unchanged):
 //   * scnHoming: the shooter lies with +x on its starboard beam (heading
 //     −π/2, launcher trained there), so c's contact row for it reads the new
-//     heading, `lu` and `tu` (its turrets chase the same aim); the fish leaves
+//     heading, `lu` and `tu` (its turrets chase the same aim); the torpedo leaves
 //     the fore launcher's side instead of the bow, so its reveal x / y / vx /
 //     vy, and the tick of every `torpU` and torpedo-wake `wk` c sees, moved;
 //   * scnGunnery: the torpedo click aims along shot 1's bearing (π/4) instead
@@ -98,6 +98,15 @@
 //     fires at it (0.89 rad from its station): the reveal's x / y / vx / vy,
 //     the shooter's turret and launcher angles (they chase the new aim) and
 //     o1's `tu` / `lu` for it.
+//
+// RE-RECORDED 2026-11-06 (Story 10.7, offer composition — the four-slot type
+// plan and the own-row REDRAW flag; PV 98 → 99). Structurally diffed line by
+// line (174 lines before and after, none added or removed):
+//   * NEW KEY, no other key moved: every `you` row carries `rd` right after
+//     `offer` (164 rows, all `false` — no scenario redraws);
+//   * the draw's new plan moved two drawn `offer` values (the rng stream is
+//     spent differently).
+// Nothing else moved: no event, contact, salvo, proof or exception.
 
 import { describe, it, expect } from 'vitest';
 import {

@@ -55,6 +55,7 @@ import {
   isSinking,
   type ShiftId,
   type HullId,
+  type IndexId,
   type LineId,
   type MatchPhase,
   type ResultsMsg,
@@ -352,6 +353,9 @@ export interface Participant {
   cards: LineId[];
   hands: HandRecord[];
   bankedLevels: number;
+  /** The exhausted hull's bonus points per index (Story 10.7, R5) — part of
+   *  the build, snapshotted beside `cards`. */
+  indexBonus: Record<IndexId, number>;
 }
 
 /** A fresh participant snapshot of `ship` — every field COPIED, never aliased
@@ -369,6 +373,7 @@ function participantOf(ship: ShipRecord): Participant {
     cards: [...ship.cards] as LineId[],
     hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
     bankedLevels: ship.bankedLevels,
+    indexBonus: { ...ship.indexBonus },
   };
 }
 
@@ -1164,6 +1169,7 @@ export class Match {
     p.cards = fresh.cards;
     p.hands = fresh.hands;
     p.bankedLevels = fresh.bankedLevels;
+    p.indexBonus = fresh.indexBonus;
   }
 
   /**

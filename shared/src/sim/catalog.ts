@@ -663,7 +663,7 @@ function stubLine(id: LineId): CatalogLine {
  *                  SMOKE SCREEN (R9) on the two abilities. RUDDER is DELETED
  *                  (R2). What an index BUYS is derived in sim/indexStats.ts:
  *                  ENGINES 30 u/s × /100 (ruling 15), INTEL 15 RPM × /100
- *                  (the 30 rpm clamp stays), RELOAD the haste law
+ *                  (uncapped since Story 10.7 R6), RELOAD the haste law
  *                  1 / (1 + (RELOAD − 100) / 100) (ruling 14), RANGE the
  *                  main-gun reach × /100 (the secondaries follow).
  *   THE FOUR ONE-OFFS (Story 10.6, R6 / R7) — AFT TORPEDO LAUNCHER, SECOND
@@ -729,9 +729,9 @@ export const CATALOG: Catalog = deepFreezeRows({
   // RUDDER (was TURNING) sat here until Story 10.6 DELETED it (Eric
   // 2026-11-05, R2): every captain hull turns at CONFIG.index.turnRate.
   // INTEL (was RADAR SWEEP, +3 rpm, R11 — already exactly +20): +20 INTEL per
-  // tier; sweep = 15 RPM × INTEL / 100 (ruling 14), 15 → 30 rpm at the cap.
-  // The ratified 30 rpm ceiling stays inside the derivation and is what makes
-  // a 6th copy impossible to exploit even if one existed.
+  // tier; sweep = 15 RPM × INTEL / 100 (ruling 14), +15 rpm over the five
+  // copies. UNCAPPED since Story 10.7, R6 (2026-11-06, epic-10 amendment 13 —
+  // Eric: there is no INTEL cap any more, for any reason).
   intel: ladder('intel', 5, [statEffect('intel', { add: 20 })]),
   // RELOAD (R12, re-cut by ruling 14 — "the standard ability haste formula"):
   // +10 RELOAD per tier since Story 10.6 (Eric 2026-11-05, R1 — was +20);

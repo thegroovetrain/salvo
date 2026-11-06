@@ -243,8 +243,9 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  * engine: `World.refusesCard` (and therefore `applyCard`, the dev spawn fit and
  * every directed grant), `World.spendCard` (which returns BEFORE consuming the
  * level, so a refused pick leaves the offer byte-identical), the client's
- * greyed refit card, the bot spend scorer, the level-zero guarantee
- * (sim/draw.ts `usableLines`) and the batch-sim spend instrument.
+ * greyed refit card, the bot spend scorer and the batch-sim spend instrument.
+ * (The level-zero guarantee's `usableLines` that also ran it was retired with
+ * the guarantee — Story 10.7, 2026-11-06, epic-10 amendment 13.)
  *
  * The four refusals, in the order they are decided:
  *   - `stub` — the line's mechanism is not built (amendment 11), or the id is

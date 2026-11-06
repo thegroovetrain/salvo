@@ -75,7 +75,6 @@ import {
   drawOffer,
   eligibleLines,
   lineWeight,
-  usableLines,
   hookKinematics,
   isStubLine,
   resolveCards,
@@ -146,8 +145,9 @@ describe('shared barrel', () => {
     for (const gone of ['UPGRADE_IDS', 'UPGRADE_CATEGORY_IDS', 'UPGRADE_CATEGORIES', 'zeroUpgrades', 'rollBoonOffer']) {
       expect(ns[gone], gone).toBeUndefined();
     }
-    // The sweep ceiling SURVIVES the strip at its new home.
-    expect(CONFIG.vision.sweepRpm).toBeLessThanOrEqual(CONFIG.vision.sweepRpmMax);
+    // The sweep ceiling that survived the strip is itself gone (Story 10.7,
+    // R6 — no INTEL cap any more, for any reason): no dead constant remains.
+    expect('sweepRpmMax' in CONFIG.vision).toBe(false);
   });
 
   it('carries the XP economy block (Story 2.6) — the shape, tiers included', () => {
@@ -228,7 +228,6 @@ describe('shared barrel', () => {
     expect(Number.isInteger(MULLIGAN_CHOICE)).toBe(true);
     expect(MULLIGAN_CHOICE).toBeLessThan(-1);
     expect(MULLIGAN_CHOICE >= 0 && MULLIGAN_CHOICE < CONFIG.offer.size).toBe(false);
-    expect(typeof usableLines).toBe('function'); // the guarantee's one shared helper
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {
@@ -657,7 +656,7 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE COMMON POOL DRAW + the offer/spend wire shape (Story 8.14)', () => {
-    for (const fn of [drawOffer, eligibleLines, lineWeight, usableLines]) {
+    for (const fn of [drawOffer, eligibleLines, lineWeight]) {
       expect(typeof fn).toBe('function');
     }
     // THE DECK AND THE MATCH POOL ARE GONE (Eric ruling 2026-09-21, epic-8
@@ -676,6 +675,9 @@ describe('shared barrel', () => {
       'rollMatchPool',
       'sanitizePool',
       'consumableLines',
+      // The level-zero guarantee's helper, retired with it (Story 10.7, epic-10
+      // amendment 13: the Equipment slot supersedes the guarantee).
+      'usableLines',
     ]) {
       expect((shared as Record<string, unknown>)[name], name).toBeUndefined();
     }
@@ -699,8 +701,9 @@ describe('shared barrel', () => {
     expect((CONFIG as Record<string, unknown>).pool).toBeUndefined();
     expect(Object.keys(CONFIG.catalog)).toEqual(['reloadBonusPerTier']);
     // THE WEIGHTING (amendments 90/91): the offer size and the factor/floor
-    // pair are the draw's only dials.
-    expect(Object.keys(CONFIG.offer).sort()).toEqual(['size', 'weighting']);
+    // pair are the draw's only dials; `exhausted` (Story 10.7, R5) is what an
+    // EMPTY draw turns a level into, not a draw dial.
+    expect(Object.keys(CONFIG.offer).sort()).toEqual(['exhausted', 'size', 'weighting']);
     expect(Object.keys(CONFIG.offer.weighting).sort()).toEqual(['factor', 'floor']);
     expect(MSG.spend).toBe('u');
     expect('upgradePoints' in CONFIG).toBe(false);

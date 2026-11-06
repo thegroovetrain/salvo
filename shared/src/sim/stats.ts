@@ -23,7 +23,7 @@
 // fields of this tree; the ship ladders of the same names step them. What
 // they buy is DERIVED, in sim/indexStats.ts, from BOTH re-pin homes:
 // `kinematics.maxSpeed` (30 u/s × ENGINES / 100), `sweepRpm` +
-// `sweepPeriodMs` (15 RPM × INTEL / 100, capped at sweepRpmMax),
+// `sweepPeriodMs` (15 RPM × INTEL / 100, uncapped since Story 10.7 R6),
 // `cooldownScale` (1 / (1 + (RELOAD − 100) / 100) — the haste law), and in
 // clampStats alone the ONE-SHOT multiply of the deck-gun rows' `rangeU` by
 // RANGE / 100. `kinematics.turnRate` is the ONE baseline
@@ -69,8 +69,9 @@
 //     rule), `reload` / `engines` / `intel` / `range` ≥ 1 so no
 //     derivation divides by or multiplies to zero; then the index derivations
 //     (sim/indexStats.ts deriveIndexStats) re-run over the floored values;
-//   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
-//     applied inside the INTEL derivation);
+//   - NO sweepRpm ceiling: the 30-RPM `sweepRpmMax` is DELETED (Story 10.7,
+//     R6, Eric 2026-11-06, epic-10 amendment 13 — there is no INTEL cap any
+//     more, for any reason); the INTEL floor of 1 keeps the period finite;
 //   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
 //     from its folded blastRadius, the CAPTIVE's from its TIER;
 //   - gun.barrels clamped to 1..3 integer — barrels are a fixed 2 since
@@ -104,7 +105,7 @@
 // `RELOAD_UNSCALED_ROWS` (Story 10.5, R10 / R11) — the three Shifts reload
 // on their own number.
 
-import { CONFIG, type ShipClass } from '../constants.js';
+import { CONFIG, INDEX_IDS, type IndexId, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
 import { applyCardStats } from './boons.js';
 import { CATALOG, type Catalog } from './catalog.js';
@@ -409,7 +410,7 @@ export interface EffectiveStats {
   kinematics: ShipConfig;
   maxHp: number; // 1000 on every hull since Story 10.3 (shown as a percent, never raw)
   radarRange: number; // u
-  sweepRpm: number; // rev/min — DERIVED: CONFIG.vision.sweepRpm × intel / 100, capped at sweepRpmMax
+  sweepRpm: number; // rev/min — DERIVED: CONFIG.vision.sweepRpm × intel / 100, UNCAPPED (Story 10.7, R6)
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
   sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 3 (the 4/12 rung)
   /**
@@ -984,8 +985,8 @@ function guardRateMs(rateMs: number): number {
 function clampStats(stats: EffectiveStats): void {
   const eq = stats.equipment;
   // THE INDICES FIRST (Story 10.3): floor every index whole, then re-run the
-  // index derivations over the floored values — speed, the sweep (its
-  // ceiling is inside the INTEL derivation) and the cooldown scale. The
+  // index derivations over the floored values — speed, the sweep (uncapped
+  // since Story 10.7, R6) and the cooldown scale. The
   // fold's rePinDerived already derived them, but the firewall's OUTPUT is
   // the contract — derive unconditionally. The ability scores / rung and the
   // mount counts (Story 10.6) are floored the same way, then derived.
@@ -1085,16 +1086,69 @@ const RELOAD_UNSCALED: ReadonlySet<EquipmentId> = new Set(RELOAD_UNSCALED_ROWS);
  * this function byte-identical under any permutation of the same multiset, and
  * it is why there is no exported "resolve then fold" two-step to get wrong.
  * Unknown ids fail closed (ignored). `catalog` is the test seam.
+ *
+ * `bonus` is the exhausted hull's per-index BONUS POINTS (Story 10.7, R5 —
+ * `IndexBonus` below): a real ship passes its own; a caller with no ship
+ * passes nothing (or null), which is byte-identical to the fold before R5.
  */
 export function effectiveStats(
   cls: ShipClass,
   cards: readonly string[] = [],
   catalog: Catalog = CATALOG,
+  bonus: IndexBonus | null = NO_INDEX_BONUS,
 ): EffectiveStats {
+  const points = bonus ?? NO_INDEX_BONUS;
   const stats = baseStats(cls);
   if (cards.length > 0) applyCardStats(stats, cards, catalog);
+  applyIndexBonus(stats, points);
   clampStats(stats);
   return stats;
+}
+
+/**
+ * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5, Eric 2026-11-06,
+ * epic-10 amendment 13): per index, how many levels this ship converted
+ * into that index because its draw had nothing left to deal. A missing key
+ * is zero. The server holds all six (`ShipRecord.indexBonus`); the own row
+ * carries the non-zero ones (`OwnShip.ib`).
+ */
+export type IndexBonus = Readonly<Partial<Record<IndexId, number>>>;
+
+/** No bonus points — the default every ship-less caller folds with. */
+export const NO_INDEX_BONUS: IndexBonus = Object.freeze({});
+
+/**
+ * THE COUNT A BONUS ENTRY FOLDS AS — the one acceptance rule for a bonus
+ * entry, shared by the fold below and the client's change detector
+ * (net/roomBindings.ts `sameBonus`) so the two can never disagree. A value is
+ * floored, then accepted only if it is a non-negative SAFE INTEGER; anything
+ * else — absent, not a number, NaN, ±Infinity, negative, or past
+ * `Number.MAX_SAFE_INTEGER` (1e308 included) — counts as 0 (fail-closed on a
+ * malformed wire value).
+ */
+export function bonusCount(n: unknown): number {
+  if (typeof n !== 'number') return 0;
+  const whole = Math.floor(n);
+  return Number.isSafeInteger(whole) && whole >= 0 ? whole : 0;
+}
+
+/** The INDEX POINTS the bonus adds to one index: its accepted count ×
+ *  `CONFIG.offer.exhausted.indexPoints`. */
+function bonusIndexPoints(bonus: IndexBonus, id: IndexId): number {
+  return bonusCount(bonus[id]) * CONFIG.offer.exhausted.indexPoints;
+}
+
+/**
+ * Fold the bonus points into the indices — AFTER the cards, BEFORE the clamps,
+ * so every derivation an index feeds (speed, sweep, haste, reach, the damage
+ * multiplier) re-runs over it in `clampStats` exactly as it does for a card.
+ * Each point adds `CONFIG.offer.exhausted.indexPoints`; no card cap reaches
+ * it (a cap bounds card COPIES, never an index). A count is read through
+ * `bonusCount` (malformed → 0). With no points this touches nothing, so the
+ * output is byte-identical to a fold without the argument.
+ */
+function applyIndexBonus(stats: EffectiveStats, bonus: IndexBonus): void {
+  for (const id of INDEX_IDS) stats[id] += bonusIndexPoints(bonus, id);
 }
 
 // The per-equipment pool/reload lookups (equipmentMaxAmmo / equipmentReloadMs)

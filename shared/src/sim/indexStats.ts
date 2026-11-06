@@ -23,8 +23,9 @@
 //     turns at the one baseline `CONFIG.index.turnRate`, seeded in sim/stats.ts
 //     baseStats (a PvE drone envelope authors its own — I5). Nothing derives it.
 //   INTEL (ruling 14) — "Radar sweep = 15 RPM × INTEL / 100; INTEL 200 = 30
-//     RPM" — the base IS `CONFIG.vision.sweepRpm` (not restated), capped at
-//     the ratified `sweepRpmMax` ceiling.
+//     RPM" — the base IS `CONFIG.vision.sweepRpm` (not restated), UNCAPPED
+//     since Story 10.7, R6 (Eric 2026-11-06, epic-10 amendment 13: there is
+//     no INTEL cap any more, for any reason — `sweepRpmMax` is deleted).
 //   RELOAD (ruling 14, verbatim) — "Final Cooldown = Base Cooldown / (1 +
 //     ((RELOAD − INDEX)/K), where INDEX and K are both 100." Both are
 //     `CONFIG.index.base`; algebraically `base × 100 / RELOAD` (120 = ×0.833,
@@ -96,15 +97,21 @@ export function reloadCooldownScale(reload: number): number {
 /**
  * Write every index-DERIVED field from the AUTHORED indices on `stats`, in
  * place: `kinematics.maxSpeed` (ENGINES),
- * `sweepRpm` + `sweepPeriodMs` (INTEL, capped at `sweepRpmMax`) and
+ * `sweepRpm` + `sweepPeriodMs` (INTEL, uncapped) and
  * `cooldownScale` (RELOAD). Idempotent — safe in both re-pin homes. The
  * indices themselves are floored whole by clampStats before its call; the
  * mid-fold call in rePinDerived may see a fractional index and that is fine,
  * because clampStats re-derives from the floored value afterwards.
+ *
+ * NO SWEEP CEILING (Story 10.7, R6, Eric 2026-11-06, epic-10 amendment 13 —
+ * "There shouldn't be an intel cap anymore anyway, like for any reason."):
+ * the sweep is the plain linear INTEL law for cards and the exhausted hull's
+ * bonus points alike; the old `sweepRpmMax` (30 RPM) is deleted. The INTEL
+ * floor of 1 (clampStats) still keeps the period finite.
  */
 export function deriveIndexStats(stats: EffectiveStats): void {
   stats.kinematics.maxSpeed = scaled(CONFIG.index.engines, stats.engines);
-  stats.sweepRpm = Math.min(scaled(CONFIG.vision.sweepRpm, stats.intel), CONFIG.vision.sweepRpmMax);
+  stats.sweepRpm = scaled(CONFIG.vision.sweepRpm, stats.intel);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
   stats.cooldownScale = reloadCooldownScale(stats.reload);
 }

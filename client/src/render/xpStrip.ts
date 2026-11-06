@@ -116,13 +116,13 @@ export interface XpView {
    * `offerView` uses to decide the band may open, AND the hull is not inside its
    * sinking window (the refit is inert from sink-entry, and the SERVER does not
    * clear `you.offer` there — the offer is still on the wire all the way down).
-   * Since the lazy-draw bugfix a level always banks, so `pts > 0` with an EMPTY
-   * offer must still be survivable here and the cue must not promise a TAB that
-   * opens nothing — though since Story 8.14 nothing can EXHAUST (epic-8
-   * amendment 94: the common pool always has a consumable line to deal, so a
-   * real offer is never empty, only greyed). The CHIP still shows the bank — the
-   * level is genuinely earned — but the instruction is withheld until it is
-   * actionable.
+   * Since Story 10.7 (R5) a hull with nothing dealable banks NOTHING — its
+   * levels become bonus index points and the server sends `pts` 0 for it — so
+   * a real `pts > 0` always arrives with a
+   * dealt offer. `pts > 0` with an EMPTY offer is still handled defensively
+   * here (a frame seam, a desync): the cue must not promise a TAB that opens
+   * nothing. The CHIP still shows the bank, but the instruction is withheld
+   * until it is actionable.
    */
   refitable: boolean;
 }

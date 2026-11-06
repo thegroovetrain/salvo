@@ -311,8 +311,9 @@ export function sliceCount(from: number, to: number, o: MarchOpts): number {
  *     live beam. Resuming at the live beam is what the adapter did, and it meant
  *     a frame advancing past the bound emitted NOTHING AT ALL: the cursor jumped
  *     to `rot`, `owed` computed to 0, and if EVERY frame did that — sustained
- *     below ~3.9fps at base 15rpm, or ~7.9fps at the boon-scaled `sweepRpmMax`
- *     of 30 — no slice was ever created again, the existing ones decayed out in
+ *     below ~3.9fps at base 15rpm, or ~7.9fps at a 30rpm INTEL build
+ *     (the threshold scales with rpm; the sweep is uncapped since Story 10.7,
+ *     R6) — no slice was ever created again, the existing ones decayed out in
  *     ~12s, and the player watched a bare sweep line rotate over an empty scope.
  *     Backing off by exactly the arc the frame is allowed to paint keeps the
  *     trailing wedge painting at ANY frame rate; only the arc BEYOND the bound is

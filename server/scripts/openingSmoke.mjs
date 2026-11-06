@@ -9,18 +9,19 @@
 // preserve-the-economy path a queue-formed match does.
 //
 //   PHASE 1 — the honoured wire path, driven by this client.
-//     1. On the first COUNTDOWN frame: `pts 1`, `lvl 0`, `xp 0`, a four-card
-//        offer, and offer[0] is a WEAPON that fills an EMPTY family slot
-//        (Story 10.5: torpedo Q / mine E / special shell R) — the level-zero
-//        guarantee.
+//     1. On the first COUNTDOWN frame: `pts 1`, `lvl 0`, `xp 0`, `rd` false, a
+//        four-card offer in the four-slot plan (Story 10.7): offer[0] a SHIP
+//        line (a ladder) and offer[1] an EQUIPMENT line that is a bare WEAPON
+//        filling an EMPTY family slot (torpedo Q / mine E / special shell R).
 //     2. Send `{choice: -2}` (MULLIGAN_CHOICE): the offer changes, a `pt`
-//        event arrives, and the bank still reads 1 (a redraw spends nothing).
+//        event arrives, the bank still reads 1 (a redraw spends nothing), the
+//        redrawn hand holds the same plan, and `rd` reads true (Story 10.7, R4).
 //     3. Send it AGAIN: nothing moves. The offer stays byte-identical for at
 //        least five consecutive frames.
 //     4. The water goes live: the held offer SURVIVES activation (`pts` still
-//        1, the same four ids), the three family slots are still empty (no spawn seed),
-//        and the sentinel is now refused.
-//     5. Take card 0: `pts` drops to 0 and the line is in `cards`.
+//        1, the same four ids, `rd` still true), the three family slots are
+//        still empty (no spawn seed), and the sentinel is now refused.
+//     5. Take card 1 (the weapon): `pts` drops to 0 and the line is in `cards`.
 //
 //   PHASE 2 — the dev arm (`matchOverride.mulligan`), in a second room on the
 //     same server. The room performs the redraw itself on the first tick after
@@ -148,10 +149,11 @@ async function nextFrames(ctx, n, timeoutMs, label) {
 
 // --- assertions ---------------------------------------------------------------
 
-/** The level-zero guarantee (Story 10.5): a WEAPON whose FAMILY slot (the
- *  shared `familySlotFor`) is still EMPTY — no held card fills that slot. The
- *  shared catalog is the same table the server drew from. */
-function isUsable(lineId, cards) {
+/** A takeable BARE WEAPON (the Equipment slot at level zero, Story 10.7): an
+ *  equipment line whose FAMILY slot (the shared `familySlotFor`) is still
+ *  EMPTY — no held card fills that slot. The shared catalog is the same table
+ *  the server drew from. */
+function isTakeableWeapon(lineId, cards) {
   const line = CATALOG[lineId];
   assert(line !== undefined, `offer carried an id the catalog does not know: ${lineId}`);
   if (line.kind !== 'equipment') return false;
@@ -168,9 +170,18 @@ function proveOpening(you) {
     `offer is ${JSON.stringify(you.offer)}, expected ${CONFIG.offer.size} cards`);
   assert(new Set(you.offer).size === you.offer.length, `offer repeats a line: ${you.offer.join(',')}`);
   assert(you.cards.length === 0, `hull spawned holding ${JSON.stringify(you.cards)} — the spawn seed is deleted`);
-  assert(isUsable(you.offer[0], you.cards),
-    `offer[0] (${you.offer[0]}) is not a usable line — the level-zero guarantee did not hold`);
-  return `opening: LV 0, bank 1, offer [${you.offer.join(', ')}], guaranteed card ${you.offer[0]}`;
+  provePlan(you, 'the opening');
+  return `opening: LV 0, bank 1, offer [${you.offer.join(', ')}], ship ${you.offer[0]}, weapon ${you.offer[1]}`;
+}
+
+/** The four-slot plan at level zero (Story 10.7): a ship line, then a bare
+ *  weapon this hull can take. */
+function provePlan(you, what) {
+  const ship = CATALOG[you.offer[0]];
+  assert(ship !== undefined && ship.kind === 'ladder',
+    `${what}: offer[0] (${you.offer[0]}) is not a SHIP line (a ladder)`);
+  assert(isTakeableWeapon(you.offer[1], you.cards),
+    `${what}: offer[1] (${you.offer[1]}) is not a bare weapon the hull can take — the Equipment slot did not hold`);
 }
 
 /** Assert the offer signature does not move across `n` consecutive frames. */
@@ -189,6 +200,7 @@ async function runPhase1(log) {
   await waitFor(() => phase(ctx) === 'countdown' && ctx.you !== null, 15000, 'countdown with an own-ship frame');
   const first = ctx.frames.filter((f) => f.phase === 'countdown')[0] ?? { you: ctx.you };
   log.push(proveOpening(first.you));
+  assert(first.you.rd === false, `the first countdown frame reads rd ${first.you.rd}, expected false`);
   const handA = sig(first.you);
 
   // (2) ONE redraw, through the spend channel the client uses.
@@ -198,10 +210,10 @@ async function runPhase1(log) {
   const handB = sig(ctx.you);
   assert(ctx.you.pts === 1, `the redraw spent a level (pts ${ctx.you.pts})`);
   assert(ctx.you.offer.length === CONFIG.offer.size, `redrawn offer is ${ctx.you.offer.length} cards`);
-  assert(isUsable(ctx.you.offer[0], ctx.you.cards),
-    `the REDRAWN offer[0] (${ctx.you.offer[0]}) is not usable — the guarantee did not ride the redraw`);
+  provePlan(ctx.you, 'the REDRAWN hand');
+  assert(ctx.you.rd === true, `the frame after the redraw reads rd ${ctx.you.rd}, expected true`);
   await waitFor(() => ctx.pts > ptsBefore, 3000, 'a `pt` event for the redraw');
-  log.push(`redraw honoured: [${handA}] -> [${handB}], pt delivered, bank still 1`);
+  log.push(`redraw honoured: [${handA}] -> [${handB}], pt delivered, bank still 1, rd true`);
 
   // (3) The SECOND press is a no-op: same hand, frame after frame.
   ctx.room.send(MSG.spend, { choice: MULLIGAN_CHOICE });
@@ -214,18 +226,19 @@ async function runPhase1(log) {
   const you = live[live.length - 1].you;
   assert(you.pts === 1, `the held level did not survive activation (pts ${you.pts})`);
   assert(sig(you) === handB, `the held offer changed at activation: [${sig(you)}] vs [${handB}]`);
+  assert(you.rd === true, `rd reads ${you.rd} after activation — the spent redraw came back`);
   assert(you.cards.length === 0, `cards is ${JSON.stringify(you.cards)} at 0:00 — nothing was taken`);
   for (const slot of WEAPON_SLOTS) assert(you.ammo[slot] === null, `family slot ${slot} is not empty at 0:00 — something fitted itself`);
-  log.push(`activation: bank 1, the same hand [${handB}], empty family slots`);
+  log.push(`activation: bank 1, the same hand [${handB}], rd true, empty family slots`);
 
   // ...and the redraw is GONE on live water.
   ctx.room.send(MSG.spend, { choice: MULLIGAN_CHOICE });
   log.push(proveSteady(await nextFrames(ctx, STEADY_FRAMES, 5000, 'frames after the live-phase redraw'),
     handB, 'live-phase redraw refused'));
 
-  // (5) Take card 0 — the ordinary spend, through the same channel.
-  const picked = you.offer[0];
-  ctx.room.send(MSG.spend, { choice: 0 });
+  // (5) Take card 1 (the weapon) — the ordinary spend, through the same channel.
+  const picked = you.offer[1];
+  ctx.room.send(MSG.spend, { choice: 1 });
   await waitFor(() => ctx.you.pts === 0, 5000, 'the bank to empty after the pick');
   await waitFor(() => ctx.you.cards.includes(picked), 5000, `the picked line ${picked} to appear in cards`);
   assert(ctx.you.offer.length === 0, `a spent bank still carries an offer: ${JSON.stringify(ctx.you.offer)}`);
@@ -249,6 +262,7 @@ async function runPhase2(log) {
   ctx.room.send(MSG.spend, { choice: MULLIGAN_CHOICE });
   log.push(proveSteady(await nextFrames(ctx, STEADY_FRAMES, 5000, 'frames after the armed room\'s refused redraw'),
     hand, 'auto-armed redraw already spent'));
+  assert(ctx.you.rd === true, `the armed room reads rd ${ctx.you.rd} after its auto-redraw, expected true`);
   await ctx.room.leave();
 }
 

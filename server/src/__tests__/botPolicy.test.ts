@@ -1233,8 +1233,8 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
 
 // --- THE PROPERTY: NO PERSONALITY SAILS TEN LEVELS WEAPONLESS ------------------
 // Through the REAL draw: each level's hand is `drawOffer` over the ship's own
-// state (neutral weights; the level-zero guarantee on the first offer only, as
-// World.materializeOffer passes it), the pick is `chooseSpend`, and the pick is
+// state (neutral weights, exactly as World.materializeOffer calls it — every
+// level runs the same four-slot plan since Story 10.7), the pick is `chooseSpend`, and the pick is
 // applied by replaying the cards through `slotsWithCards` — the one slot fold
 // the World and the client share. The distribution is logged per personality
 // as a reading, not a threshold.
@@ -1260,7 +1260,7 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
     for (let level = 0; level < LEVELS; level += 1) {
       const ids = slotIds();
       const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: 'mainBattery' as const };
-      const offer = drawOffer(ship, new Map(), drawRng, CATALOG, { guarantee: level === 0 });
+      const offer = drawOffer(ship, new Map(), drawRng, CATALOG);
       const choice = chooseSpend(profile, spendState({ offer, cards, slotIds: ids }), CATALOG, spendRng);
       if (choice === null) wasted += 1;
       else cards.push(offer[choice]);

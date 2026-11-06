@@ -443,20 +443,31 @@ export interface OfferView {
    * THE ONE FREE REDRAW (Story 8.10, epic-8 amendment 60) — `hidden` off the
    * start line (the button is not in the DOM at all), `unspent` while the
    * countdown's level-zero offer may still be thrown back, `spent` once the
-   * server acked the mulligan (the button stays, inert, with its pip filled:
+   * server says it is used (`you.rd`) (the button stays, inert, pip filled:
    * the answer to "can I redraw again?" must be on screen, not absent).
    *
    * PHASE IS THE CALLER'S FACT, not this function's: `offerView()` is a pure
    * projection of `you` and knows nothing about the match plane, so it always
    * returns `hidden` and main.ts's `currentOfferView()` sets the real state
-   * from the polled `matchPhase` + its own `mulliganUsed` latch — the same
-   * shape `locked` already has.
+   * through `redrawState()` from the polled `matchPhase` + the own row's `rd`
+   * — the same shape `locked` already has.
    */
   redraw: RedrawState;
 }
 
 /** The REDRAW button's three states (see OfferView.redraw). */
 export type RedrawState = 'hidden' | 'unspent' | 'spent';
+
+/**
+ * Pure: the REDRAW button's state this frame (Story 8.10, amendment 60; Story
+ * 10.7, R4). Countdown-only — `hidden` in every other phase. Inside the
+ * countdown the pip reads the SERVER's flag (`you.rd`, the one redraw is used),
+ * never a client guess, so it is right after a reconnect.
+ */
+export function redrawState(phase: string, you: { rd: boolean } | null | undefined): RedrawState {
+  if (phase !== 'countdown') return 'hidden';
+  return you?.rd ? 'spent' : 'unspent';
+}
 
 /**
  * Pure: the current spend view, or null when there is nothing to show — no own
@@ -628,6 +639,16 @@ export function frontOfferSignature(you: { offer: string[] } | null | undefined)
   return you ? you.offer.join(',') : '';
 }
 
+/** What the latch reads off the own row: the bank, the front offer and the
+ *  server's redraw-used flag (`rd`, Story 10.7 R4 — absent reads as false). */
+export type LatchYou = { pts: number; offer: string[]; rd?: boolean };
+
+/** Pure: the latch is a REDRAW and the own row says the one redraw is used —
+ *  the server's own acknowledgement of it (clause (a3) below). */
+function redrawHonored(latch: SpendLatch, you: LatchYou): boolean {
+  return latch.choice === MULLIGAN_CHOICE && you.rd === true;
+}
+
 /**
  * Pure: may the FINDING A spend latch be released this frame? Released when
  *
@@ -657,14 +678,23 @@ export function frontOfferSignature(you: { offer: string[] } | null | undefined)
  * With `acked: false` the predicate is byte-for-byte the Story 2.6 rule (its
  * hold-through-passive-bank pins are load-bearing and stay green untouched);
  * Story 2.7 only ADDS the acked release.
+ *
+ *   (a3) a REDRAW latch (`choice === MULLIGAN_CHOICE`) whose own row reports
+ *       `rd === true` (2026-11-06, Story 10.7 review gate): the server's used
+ *       flag IS the redraw's receipt. The button can only be pressed while
+ *       `rd` is false, so `rd` true proves the server honored it — even when
+ *       the fresh draw deals the SAME cards (pts and signature unchanged),
+ *       which used to sit to the timeout and pulse "denied" under a pip that
+ *       already read spent. A card spend never reads `rd`.
  */
 export function spendLatchReleased(
   latch: SpendLatch,
-  you: { pts: number; offer: string[] } | null | undefined,
+  you: LatchYou | null | undefined,
   nowMs: number,
 ): boolean {
   if (!you) return true;
   if (latch.acked) return true;
+  if (redrawHonored(latch, you)) return true;
   if (nowMs - latch.at > SPEND_LATCH_TIMEOUT_MS) return true;
   if (you.pts < latch.pts) return true;
   return frontOfferSignature(you) !== latch.offerSig;
@@ -709,52 +739,20 @@ export type SpendOutcome = 'pending' | 'success' | 'failed';
  *
  * The ack outranks every inference, including the vanished own ship: a `bn` for
  * this spend is proof it landed, and a denied pulse would then contradict the
- * fitted toast the player already saw.
+ * fitted toast the player already saw. A REDRAW latch whose own row reads
+ * `rd === true` is likewise a 'success' (clause (a3) of spendLatchReleased —
+ * the server's used flag is the redraw's receipt, even for an identical hand).
  */
 export function spendOutcome(
   latch: SpendLatch,
-  you: { pts: number; offer: string[] } | null | undefined,
+  you: LatchYou | null | undefined,
   nowMs: number,
 ): SpendOutcome {
   if (!spendLatchReleased(latch, you, nowMs)) return 'pending';
   if (latch.acked) return 'success';
   if (!you) return 'failed';
+  if (redrawHonored(latch, you)) return 'success';
   return you.pts < latch.pts || frontOfferSignature(you) !== latch.offerSig ? 'success' : 'failed';
-}
-
-/**
- * Pure: did the MULLIGAN in flight LAND (Story 8.10, amendment 60)?
- *
- * A redraw is acked by the FRONT OFFER CHANGING at an UNCHANGED bank: the
- * server queues `pt` for it, never `bn`, and `pts` does not move (the level is
- * still banked — the redraw costs nothing). Both halves are asserted here.
- *
- * WHY THIS IS STRICTER THAN `spendOutcome` (the 8.10 review, P4). That
- * function calls a `pts` DROP a success, because for a card pick it is one. A
- * redraw that cost the player a level did not land — it is something else
- * entirely (a pick the server processed, a desync) — and reporting it as an
- * ack would fill the pip and swallow the evidence. So the pip fills only on
- * the signal a redraw actually produces, and anything else runs out the latch
- * and fires the denied pulse. It still shares `spendLatchReleased`, so the two
- * can never disagree about WHEN the latch clears — only about why.
- *
- * `latch.acked` (a `bn` receipt) is kept as an accepting clause: an explicit
- * server receipt outranks every inference, exactly as it does in
- * `spendOutcome`.
- *
- * A redraw that rolls a BYTE-IDENTICAL offer is invisible and times out as
- * 'failed' (the denied pulse on the button, the pip still hollow) — the same
- * accepted corner every other spend has when nothing observable moves.
- */
-export function mulliganLanded(
-  latch: SpendLatch,
-  you: { pts: number; offer: string[] } | null | undefined,
-  nowMs: number,
-): boolean {
-  if (latch.choice !== MULLIGAN_CHOICE) return false;
-  if (!spendLatchReleased(latch, you, nowMs) || !you) return false;
-  if (you.pts !== latch.pts) return false; // a redraw NEVER moves the bank
-  return latch.acked || frontOfferSignature(you) !== latch.offerSig;
 }
 
 // --- DOM ------------------------------------------------------------------------
