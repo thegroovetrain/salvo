@@ -1,8 +1,8 @@
 // THE INDEX FLOORS (Story 10.3, 2026-11-04 — replaces the `turnRate` 0.05
 // floor, whose leaf left CONFIG when the turn rate became DERIVED from the
 // RUDDER index). Every `shipClasses.<cls>.index.<id>` is a --tune leaf; the
-// five indices the fold divides by or scales through (reload / engines /
-// rudder / intel / range) are floored at 1 — clampStats floors them there, so
+// four indices the fold divides by or scales through (reload / engines /
+// intel / range) are floored at 1 — clampStats floors them there, so
 // a 0 arm would print as moved while the sim ran 1 — and ARMOR / POWER keep
 // floor 0.
 
@@ -10,9 +10,9 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, INDEX_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
 import { applyOverrides, validateTuneKey, validateTuneValue, TunableError } from '../overrides.js';
 
-const FLOOR_ONE = ['reload', 'engines', 'rudder', 'intel', 'range'] as const;
+const FLOOR_ONE = ['reload', 'engines', 'intel', 'range'] as const;
 
-describe('--tune floors — the seven indices', () => {
+describe('--tune floors — the class indices', () => {
   it('every class index is a --tune key and accepts its SHIPPED value', () => {
     for (const cls of SHIP_CLASS_IDS) {
       for (const id of INDEX_IDS) {

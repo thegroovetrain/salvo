@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.9] - 2026-11-06
+
+### Changed
+- **The card catalog is re-cut.** There are eight ship upgrade lines: ARMOR and POWER (ARMOR cuts the damage you take from all five weapons, POWER raises the damage all five deal), INTEL, RELOAD, ENGINES, the new RANGE (main gun and secondaries), and two new lines for your abilities, HULL REPAIR and SMOKE SCREEN. RELOAD, ENGINES and RANGE give +10 a card (RELOAD and ENGINES were +20). RUDDER is gone: every ship turns at the same rate.
+- **HULL REPAIR and SMOKE SCREEN cards.** Each HULL REPAIR card heals 20 more at once and 20 more over time (200 + 200 at five cards) and shortens the `C` cooldown from 75 s toward 60 s. Each SMOKE SCREEN card shortens the `V` cooldown from 60 s toward 48 s, lengthens the cloud's life from 15 s toward 20 s and makes it about 10 % larger; a cloud keeps the size it had when you pressed `V`. Your RELOAD never touches either cooldown.
+- **Weapon tiers no longer hand out extra shots.** Higher tiers of a torpedo, mine or special shell make that one weapon reload faster (+10 to its own reload score a tier) and nothing else; they no longer add tubes, mines or shots. Naval and fouling mines start with 3 (was 2).
+- **Torpedo launchers.** Your torpedo is fired from a deck launcher that turns toward your cursor like a turret, holds its angle when the cursor leaves its arc, and fires only into its own firing band on either side of the ship. The first torpedo card gives a fore launcher with one tube. Four new one-off cards: AFT LAUNCHER, SECOND TUBE (a second tube on every launcher), SECOND MINE RACK and EXPANDED MINE RACKS. A click the launchers cannot reach fires nothing and spends nothing. The firing bands differ by ship, and the aiming wedge now fans from each launcher, three times longer and fading, brighter where the fore and aft wedges overlap.
+- **Mine racks.** Mines drop from racks at the stern, one clock per rack that restocks a mine each cycle; with two racks they drop in turn.
+- **Cards.** Card color now shows the tier the card grants (green, blue, purple, red, gold; the launcher and rack cards are gold) and the card under your cursor glows in its own color. The kind words are gone from the faces. The hotbar shows a pip for every turret, tube and rack, and the results screen shows your ship's final numbers. On the four-by-two battleships the turret nearer the middle of the ship now draws over the one nearer the end.
+- **Wire:** protocol 97 → 98 (the catalog content, the launcher and rack state, and the smoke cloud's size).
+
 ## [0.19.4] - 2026-10-29
 
 ### Changed

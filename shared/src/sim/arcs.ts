@@ -23,6 +23,15 @@
 // FOULING SHELL and FLASH SHELLS at 360° — and `arcFor` takes an `EquipmentId`
 // again.
 //
+// STORY 10.6 (Eric 2026-11-05, R6, epic-10 amendment 12): THE THREE FIXED
+// TORPEDO SECTORS ARE RETIRED — the light torpedo's twin beams, the heavy's
+// bow ±30° and the supercav's bow ±15° (and their CONFIG `offset` / `halfArc`).
+// A torpedo leaves a deck LAUNCHER that trains like a turret, so all three
+// ids declare the new `launcher` shape and the geometry is sim/launchers.ts's:
+// `launcherSectors(launchers)` (the union to draw / plan by) and
+// `pickTube` (the enforced verdict). `sectorArcFor` / `twinSectorArcFor` now
+// THROW on a torpedo id.
+//
 // Both sides consume THIS function — the server's launch checks and the
 // client's arc classification (render/weaponArc.ts) — so the enforced arc and
 // the rendered arc can never diverge. Pure over CONFIG: zero I/O,
@@ -47,6 +56,13 @@ import type { MineKind } from '../types.js';
  *                   whose sector contains the click is the side that fires
  *                   (R2.2); a click in NEITHER sector — the bow and stern dead
  *                   zones — is denied out-of-arc, exactly like a `sector` miss.
+ * - `launcher`    — a TORPEDO (Story 10.6, R6 / R28): the arc is the union of
+ *                   the firing bands of the launchers the SHIP holds — each
+ *                   from deadDeg to trainDeg off its own end, both sides —
+ *                   which is per-ship state, so
+ *                   it is not in this descriptor: read
+ *                   `launcherSectors(stats.torpedoLaunchers)` (drawing,
+ *                   planning) and `pickTube` (the verdict), sim/launchers.ts.
  * - `none`        — nothing spatial is aimed or placed (the three Shifts).
  *
  * THE `stern-drop` SHAPE IS DELETED (Story 7-5 wave 2) with its only user: an
@@ -57,10 +73,11 @@ export type ArcShape =
   | { kind: 'full' }
   | { kind: 'sector'; offset: number; halfArc: number }
   | { kind: 'twin-sector'; offset: number; halfArc: number }
+  | { kind: 'launcher' }
   | { kind: 'none' };
 
 /** deg -> rad (CONFIG.mine.placeHalfArcDeg and CONFIG.broadside's two arc
- *  fields are authored in degrees; the torpedo blocks already hold radians). */
+ *  fields are authored in degrees). */
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
@@ -137,10 +154,8 @@ export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
  * A piece of EQUIPMENT's arc: the three guns (gun/machineGun/flak),
  * starShells and phosphorShells (Story 8.17, amendment 131) declare
  * `arc: 'full'` in CONFIG (amendment 106 for the guns);
- * the LIGHT torpedo fires into TWO mirrored beam sectors
- * (CONFIG.lightTorpedo.offset/halfArc — ±45° about both beams, 90° dead zones
- * fore and aft, catalog-v3 R18); the HEAVY torpedo keeps its bow sector
- * (CONFIG.torpedo.offset/halfArc); the three MINE kinds share the rear
+ * the three TORPEDOES declare `launcher` (Story 10.6, R6 — their fixed
+ * sectors are retired); the three MINE kinds share the rear
  * placement sector (CONFIG.mine.offset/placeHalfArcDeg — `isMineEquipment` is
  * a type guard, so the switch still narrows its `default` down to the ids that
  * genuinely declare no arc); the
@@ -172,11 +187,9 @@ function equipmentArc(id: EquipmentId): ArcShape {
   if (isConfigArcRow(id)) return { kind: CONFIG[id].arc };
   switch (id) {
     case 'lightTorpedo':
-      return { kind: 'twin-sector', offset: CONFIG.lightTorpedo.offset, halfArc: CONFIG.lightTorpedo.halfArc };
     case 'heavyTorpedo':
-      return { kind: 'sector', offset: CONFIG.torpedo.offset, halfArc: CONFIG.torpedo.halfArc };
-    case 'supercavTorpedo': // the bow ±15° sector (amendment 74's arc, kept by Story 10.5)
-      return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
+    case 'supercavTorpedo': // one arc for all three: the held launchers' (Story 10.6, R6)
+      return { kind: 'launcher' };
     case 'dazzleShells': // FLASH SHELLS: 360°, its arc lives on `CONFIG.flashShells` (the id and the block differ)
       return { kind: CONFIG.flashShells.arc };
     case 'broadside':
@@ -210,8 +223,8 @@ function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): ArcShape {
 }
 
 /**
- * The narrowed `sector` descriptor for an id DECLARED a sector (the heavy
- * torpedo's bow arc; the supercav's; the three mines' rear placement arc). Throws on any other shape — a CONFIG/arcs authoring
+ * The narrowed `sector` descriptor for an id DECLARED a sector (the three
+ * mines' rear placement arc — no torpedo since Story 10.6). Throws on any other shape — a CONFIG/arcs authoring
  * error, failed loudly at module load rather than mid-tick. Pure (a throw,
  * never I/O).
  */
@@ -223,7 +236,7 @@ export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector
 
 /**
  * The narrowed `twin-sector` descriptor for an id DECLARED twin sectors (the
- * BROADSIDE BARRAGE's two beams; the LIGHT TORPEDO's two beam tubes). Throws
+ * BROADSIDE BARRAGE's two beams — no torpedo since Story 10.6). Throws
  * on any other shape — same authoring-error law as sectorArcFor.
  */
 export function twinSectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'twin-sector' }> {

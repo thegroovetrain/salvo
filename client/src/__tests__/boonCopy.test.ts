@@ -2,7 +2,7 @@
 // sheet, §1, verbatim), the four KIND words, and the "name is flavor, rules text
 // is the contract" law. Three properties carry the whole module:
 //
-//   1. COVERAGE — every one of the 26 shipped lines has a real display name and
+//   1. COVERAGE — every shipped line has a real display name and
 //      a real kind label. A missing entry would print the humanized id
 //      mid-match, or an unlabelled meta row.
 //   2. THE MINIMAL FACE (R2.17) — a line that moves a NUMBER prints its live
@@ -28,10 +28,10 @@ import {
   boonFitToastLine,
   boonKindLabel,
   boonName,
-  KIND_WORDS,
   cardHoverRows,
-  cardKind,
-  cardKindLabel,
+  cardColorTier,
+  cardTierSteps as tierStepsOf,
+  ONE_OFF_COLOR_TIER,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
@@ -40,7 +40,6 @@ import {
   equipmentStatRows,
   shipStatRows,
   statValueText,
-  type CardKind,
 } from '../ui/boonCopy.js';
 
 const TB = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
@@ -217,13 +216,23 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 
   // Story 10.5: HULL REPAIR and SMOKE SCREEN are cooldown abilities; their
-  // former card rows print on the `C` / `V` tooltip, every number off CONFIG.
-  it('abilityStatRows reads the two abilities\' rows off CONFIG', () => {
-    const h = CONFIG.hullRepair;
-    expect(abilityStatRows('repair')).toHaveLength(3);
-    expect(text(abilityStatRows('repair'))[1]).toContain(String(h.regenMs / 1000));
-    const k = CONFIG.countermeasure;
-    expect(text(abilityStatRows('smoke')).slice(0, 2)).toEqual([`${k.lifeMs / 1000} S`, `${k.r0} → ${k.r1} U`]);
+  // former card rows print on the `C` / `V` tooltip. Since Story 10.6 (R8 /
+  // R9) every number is the SHIP'S OWN — `stats.repair` / `stats.smoke` —
+  // never CONFIG (the ladders move them; catalogUnderIndexCards.test.ts).
+  it('abilityStatRows reads the two abilities\' rows off the ship\'s own stats', () => {
+    expect(abilityStatRows('repair', bare)).toHaveLength(3);
+    // Eric 2026-11-05: the pool's window sits ONCE, in the row's label,
+    // generated off the ship's own `stats.repair.regenMs`.
+    const over = abilityStatRows('repair', bare)[1];
+    expect(over.label).toContain(String(bare.repair.regenMs / 1000));
+    expect(over.next).not.toContain(String(bare.repair.regenMs / 1000));
+    const longer = { ...bare, repair: { ...bare.repair, regenMs: 7_000 } };
+    expect(abilityStatRows('repair', longer)[1].label).toContain('7');
+    const k = bare.smoke;
+    expect(text(abilityStatRows('smoke', bare)).slice(0, 2)).toEqual([
+      `${k.lifeMs / 1000} S`,
+      `${Math.round(k.r0)} → ${Math.round(k.r1)} U`,
+    ]);
     expect(abilityName('repair')).not.toBe(abilityName('smoke'));
   });
 
@@ -233,25 +242,25 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   it('abilityStatRows ends on the cooldown row, valued off abilityCooldownMs, in the Shift reload grammar', () => {
     const shiftReload = equipmentStatRows('instantReload', effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [])).at(-1)!;
     for (const id of ['repair', 'smoke'] as const) {
-      const row = abilityStatRows(id).at(-1)!;
+      const row = abilityStatRows(id, bare).at(-1)!;
       expect(row.label).toBe(shiftReload.label);
       expect(row.cur).toBeNull();
-      expect(row.next).toContain((abilityCooldownMs(id) / 1000).toFixed(1));
+      expect(row.next).toContain((abilityCooldownMs(bare, id) / 1000).toFixed(1));
     }
   });
 
   // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): the SHIP panel is the
-  // SEVEN indices in amendment 6(c)'s order (`INDEX_IDS`) — RANGE included,
-  // though no card moves it — each printed bare off its own index path. The
-  // HULL (maxHp) and PASSIVE HEALING (regen) rows left with their lines.
-  it('shipStatRows: the seven indices in INDEX_IDS order, each its own index', () => {
+  // indices in amendment 6(c)'s order (`INDEX_IDS`; RUDDER left in Story
+  // 10.6, R2), each printed bare off its own index path. The HULL (maxHp) and
+  // PASSIVE HEALING (regen) rows left with their lines.
+  it('shipStatRows: the indices in INDEX_IDS order, each its own index', () => {
     expect(shipStatRows(bare)).toHaveLength(INDEX_IDS.length);
     expect(text(shipStatRows(bare))).toEqual(INDEX_IDS.map((id) => String(bare[id])));
     // A row reads ITS index: moving one index moves exactly one row.
     const armored = effectiveStats(NEUTRAL_HULL, ['armor']);
     const moved = text(shipStatRows(armored)).map((v, i) => v !== text(shipStatRows(bare))[i]);
     expect(moved).toEqual(INDEX_IDS.map((id) => id === 'armor'));
-    // Every label is distinct (seven rows, seven words).
+    // Every label is distinct (one word per row).
     expect(new Set(shipStatRows(bare).map((r) => r.label)).size).toBe(INDEX_IDS.length);
   });
 
@@ -274,47 +283,31 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 });
 
-// --- THE CARD KIND (cycle 158, Eric ruling 2026-09-30, amendment 188) -----------
-describe('cardKind — what the card does for the player', () => {
-  it('has one distinct, non-empty kind word per card kind', () => {
-    const kinds: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'addon'];
-    expect(KIND_WORDS).toHaveLength(kinds.length);
-    expect(new Set(kinds.map(cardKindLabel))).toEqual(new Set(KIND_WORDS));
-    for (const w of KIND_WORDS) expect(w.trim()).not.toBe('');
-  });
-
-  it('copy 1 of an equipment line is a WEAPON; every later copy a WEAPON UPGRADE', () => {
-    for (const id of ['heavyTorpedo', 'lightTorpedo', 'navalMines', 'broadside', 'starShells', 'phosphorShells']) {
-      expect(cardKind(CATALOG[id], 0), id).toBe('weapon');
-      expect(cardKind(CATALOG[id], 1), id).toBe('weaponUpgrade');
-      expect(cardKind(CATALOG[id], 3), id).toBe('weaponUpgrade');
-    }
-    expect(cardKind(CATALOG.heavyTorpedo, Number.NaN)).toBe('weapon'); // fail-open to copy 1
-  });
-
-  it('every gun ladder is a WEAPON UPGRADE, every ship ladder a SHIP UPGRADE, whatever the copies', () => {
-    for (const n of [0, 1, 3]) {
-      for (const id of ['deckGun', 'machineGun', 'flak']) {
-        expect(cardKind(CATALOG[id], n), id).toBe('weaponUpgrade');
-      }
-      // ARMOR PIERCING joined in Story 9.9 (epic-9 amendment 159).
-      for (const id of ['armor', 'power', 'engines', 'rudder', 'intel', 'reload']) {
-        expect(cardKind(CATALOG[id], n), id).toBe('shipUpgrade');
-      }
-    }
-  });
-
-  it('an add-on is an ADD-ON, and the three Story 10.5 slot weapons are WEAPONs', () => {
-    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell']) {
-      expect(cardKind(CATALOG[id], 0), id).toBe('weapon');
-      expect(cardKind(CATALOG[id], 1), id).toBe('weaponUpgrade');
-    }
-    expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
-  });
-
-  it('every shipped line resolves to a kind at every copy count', () => {
+// --- THE CARD COLOUR (Eric 2026-11-05, supersedes the kind colours of
+// amendment 188): "Tier I should be Green, Tier II should be Blue, Tier III
+// should be Purple, Tier IV should be Red, and Tier V should be Gold. The
+// Launcher/Mine Rack upgrades should be Gold. Otherwise it doesn't matter what
+// kind of card it is."
+describe('cardColorTier — the tier this card GRANTS, whatever the kind', () => {
+  it('copy k of any laddered line is the tier the line stands at after taking it', () => {
     for (const id of LINE_IDS) {
-      for (let n = 0; n <= CATALOG[id].cap; n += 1) expect(KIND_WORDS, id).toContain(cardKindLabel(cardKind(CATALOG[id], n)));
+      const line = CATALOG[id];
+      if (line.kind === 'addon') continue;
+      for (let n = 0; n < line.cap; n += 1) {
+        const step = tierStepsOf(line, n)!;
+        expect(cardColorTier(line, n), `${id}@${n}`).toBe(step.next ?? step.cur);
+      }
+    }
+  });
+
+  it('a five-card ladder walks I → V, and a weapon line and a ship ladder agree at every copy', () => {
+    expect([0, 1, 2, 3, 4].map((n) => cardColorTier(CATALOG.armor, n))).toEqual([1, 2, 3, 4, 5]);
+    for (let n = 0; n < 5; n += 1) expect(cardColorTier(CATALOG.heavyTorpedo, n)).toBe(cardColorTier(CATALOG.armor, n));
+  });
+
+  it('every add-on (the one-offs) is the top rung — gold', () => {
+    for (const id of LINE_IDS) {
+      if (CATALOG[id].kind === 'addon') expect(cardColorTier(CATALOG[id], 0), id).toBe(ONE_OFF_COLOR_TIER);
     }
   });
 });
@@ -335,7 +328,7 @@ describe('cardTierLabel — the step, not the position', () => {
     // amendment 94): five cards each, 0 → V, like PASSIVE HEALING — and ARMOR
     // (Story 9.7, epic-9 amendments 110–117) and ARMOR PIERCING (Story 9.9,
     // epic-9 amendment 159: out of the base-tier set, Tier 0 → V like ARMOR).
-    for (const id of ['armor', 'power', 'engines', 'rudder']) {
+    for (const id of ['armor', 'power', 'engines', 'range', 'hullRepair', 'smokeScreen']) {
       expect(cardTierLabel(CATALOG[id], 0), id).toBe('I');
       expect(cardTierLabel(CATALOG[id], 1), id).toBe('I → II');
       expect(cardTierLabel(CATALOG[id], 4), id).toBe('IV → V'); // the fifth card
@@ -384,7 +377,7 @@ describe('cardTierLabel — the step, not the position', () => {
     // (epic-9 amendment 94), so they top out at the cap, as RADAR SWEEP does.
     expect(cardTierLabel(CATALOG.armor, 5)).toBe('V');
     expect(cardTierLabel(CATALOG.engines, 5)).toBe('V');
-    expect(cardTierLabel(CATALOG.rudder, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.range, 5)).toBe('V');
     expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
     expect(cardTierLabel(CATALOG.intel, 5)).toBe('V');
     // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
@@ -466,7 +459,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('armor', bare)).toContain(`${bare.armor}`);
     expect(boonEffectLine('armor', bare)).not.toContain('→');
     // Story 10.3: every ship ladder reports its bare INDEX.
-    for (const id of ['power', 'reload', 'engines', 'rudder', 'intel'] as const) {
+    for (const id of ['power', 'reload', 'engines', 'intel', 'range'] as const) {
       expect(boonEffectLine(id, bare), id).toContain(`${bare[id]}`);
     }
   });

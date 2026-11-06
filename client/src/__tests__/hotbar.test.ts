@@ -1088,8 +1088,10 @@ describe('the tooltip memo keys on target, id, stats and cards', () => {
 
 describe('the C / V squares — two cooldown abilities in the Shift square\'s family', () => {
   const [REPAIR_SQ, SMOKE_SQ] = ABILITY_SQUARES.map(abilitySquare);
+  /** The suite hull's own folded stats — every cooldown is THE SHIP'S (Story 10.6). */
+  const ST = statsFor(TORPEDO_HULL);
   /** A clock far enough past the epoch for any stamp in either direction. */
-  const NOW = 10 * abilityCooldownMs('repair');
+  const NOW = 10 * abilityCooldownMs(ST, 'repair');
 
   it('sit right after R, keyed C and V, carrying their ability as the square\'s id', () => {
     expect(ABILITY_SQUARES.map(abilitySquare)).toEqual([SLOT_COUNT, SLOT_COUNT + 1]);
@@ -1109,25 +1111,25 @@ describe('the C / V squares — two cooldown abilities in the Shift square\'s fa
   });
 
   it('COOL off the own block\'s stamps: the shared fraction drives the wipe, the ms left the numeral', () => {
-    const left = abilityCooldownMs('repair') / 4;
+    const left = abilityCooldownMs(ST, 'repair') / 4;
     const view = viewFor(TORPEDO_HULL, { serverNowMs: NOW, abilityReadyAt: { repair: NOW + left } });
     const rows = slotViewModels(view);
     const repair = rows[REPAIR_SQ];
     expect(repair.state).toBe('cooling');
     expect(repair.reloadMsLeft).toBe(left);
-    expect(repair.coolFrac).toBeCloseTo(1 - left / abilityCooldownMs('repair'));
+    expect(repair.coolFrac).toBeCloseTo(1 - left / abilityCooldownMs(ST, 'repair'));
     expect(slotNumeral(repair)).toBe(wipeLabel(left));
     expect(rows[SMOKE_SQ].state).toBe('readyAbility'); // the other square keeps its own clock
   });
 
   it('abilityCooldownView: ready at and past the stamp, ready with no clock or no stamp', () => {
-    expect(abilityCooldownView('smoke', NOW, NOW)).toEqual({ coolFrac: 0, msLeft: 0 });
-    expect(abilityCooldownView('smoke', NOW, NOW - 1)).toEqual({ coolFrac: 0, msLeft: 0 });
-    expect(abilityCooldownView('smoke', undefined, NOW + 1)).toEqual({ coolFrac: 0, msLeft: 0 });
-    expect(abilityCooldownView('smoke', NOW, undefined)).toEqual({ coolFrac: 0, msLeft: 0 });
-    const full = abilityCooldownView('smoke', NOW, NOW + abilityCooldownMs('smoke'));
+    expect(abilityCooldownView('smoke', ST, NOW, NOW)).toEqual({ coolFrac: 0, msLeft: 0 });
+    expect(abilityCooldownView('smoke', ST, NOW, NOW - 1)).toEqual({ coolFrac: 0, msLeft: 0 });
+    expect(abilityCooldownView('smoke', ST, undefined, NOW + 1)).toEqual({ coolFrac: 0, msLeft: 0 });
+    expect(abilityCooldownView('smoke', ST, NOW, undefined)).toEqual({ coolFrac: 0, msLeft: 0 });
+    const full = abilityCooldownView('smoke', ST, NOW, NOW + abilityCooldownMs(ST, 'smoke'));
     expect(full.coolFrac).toBe(0); // the press instant: nothing has elapsed yet…
-    expect(full.msLeft).toBe(abilityCooldownMs('smoke')); // …and the whole cooldown is left
+    expect(full.msLeft).toBe(abilityCooldownMs(ST, 'smoke')); // …and the whole cooldown is left
   });
 
   // Review gate (Edge Case Hunter 3): the view agrees with the shared law and
@@ -1136,8 +1138,8 @@ describe('the C / V squares — two cooldown abilities in the Shift square\'s fa
   // than the whole cooldown.
   it('abilityCooldownView: an unreadable clock or stamp reads COOLING (full wipe, no numeral), as the key refuses it', () => {
     for (const [now, readyAt] of [[Number.NaN, NOW], [NOW, Number.NaN], [Number.NaN, Number.NaN]]) {
-      const cd = abilityCooldownView('repair', now, readyAt);
-      expect(cd.coolFrac).toBe(1 - abilityCooldownFraction(now, readyAt, 'repair'));
+      const cd = abilityCooldownView('repair', ST, now, readyAt);
+      expect(cd.coolFrac).toBe(1 - abilityCooldownFraction(now, readyAt, ST, 'repair'));
       expect(cd.msLeft).toBeGreaterThan(0); // the square is cooling…
       expect(wipeLabel(cd.msLeft)).toBe(''); // …with no invented seconds on it
       expect(smokeRefusal(now, readyAt)).not.toBeNull(); // the key's own read of the same stamp
@@ -1149,9 +1151,23 @@ describe('the C / V squares — two cooldown abilities in the Shift square\'s fa
   });
 
   it('abilityCooldownView: a client clock far behind the stamp never reads more than the whole cooldown', () => {
-    const cd = abilityCooldownView('smoke', NOW, NOW + 10 * abilityCooldownMs('smoke'));
-    expect(cd.msLeft).toBe(abilityCooldownMs('smoke'));
+    const cd = abilityCooldownView('smoke', ST, NOW, NOW + 10 * abilityCooldownMs(ST, 'smoke'));
+    expect(cd.msLeft).toBe(abilityCooldownMs(ST, 'smoke'));
     expect(cd.coolFrac).toBe(0);
+  });
+
+  it('measure the wipe against THE SHIP\'S OWN cooldown: HULL REPAIR / SMOKE SCREEN cards shorten it (Story 10.6, R8 / R9)', () => {
+    const carded = statsFor(TORPEDO_HULL, { hullRepair: 5, smokeScreen: 5 });
+    for (const id of ['repair', 'smoke'] as const) {
+      expect(abilityCooldownMs(carded, id), id).toBeLessThan(abilityCooldownMs(ST, id));
+      const readyAt = NOW + abilityCooldownMs(carded, id) / 2;
+      // the same stamp is half-way on the carded ship and further from done on the bare one
+      expect(abilityCooldownView(id, carded, NOW, readyAt).coolFrac).toBeCloseTo(0.5);
+      expect(abilityCooldownView(id, ST, NOW, readyAt).coolFrac).toBeGreaterThan(0.5);
+      const sq = id === 'repair' ? REPAIR_SQ : SMOKE_SQ;
+      const view = viewFor(TORPEDO_HULL, { stats: carded, serverNowMs: NOW, abilityReadyAt: { [id]: readyAt } });
+      expect(slotViewModels(view)[sq].coolFrac).toBeCloseTo(0.5);
+    }
   });
 
   it('take the denied and activated one-shots like every square', () => {

@@ -129,6 +129,10 @@ import {
   SHIFT_IDS,
   SHIP_CLASS_IDS,
   encodeTurretAngles,
+  encodeLauncherAngles,
+  initialLaunchers,
+  launcherRest,
+  launcherTrainRad,
   turretMounts,
   turretRest,
   turretTrainRad,
@@ -236,17 +240,18 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 //
 // A cloud HIDES NOTHING (Story 9.3 session 2, Eric 2026-10-12): it is a
 // client overlay. The only rule the oracle needs is its DELIVERY gate, over
-// the cloud's spray DISC — centre fixed, radius the literal curve
-// `200 × (1 + 1.5 × min(1, age / 15000))` (deliberately NOT
+// the cloud's spray DISC — centre fixed, radius LINEAR from the cloud's own
+// STAMPED `r0` at birth to its stamped `r1` at its stamped `lifeMs` (Story
+// 10.6, I6 — the owner's SMOKE SCREEN cards at the press; deliberately NOT
 // CONFIG.countermeasure and NEVER the shared `cloudOutlineRadius`). Only LIVE
-// clouds count (`until` in the future).
+// clouds count (`until` in the future). The test-injected clouds carry the
+// literal two-card disc (150 → 300 u, amendment 141) over a 15 s life.
 const CLOUD_LIFE_MS = 15_000;
+const CLOUD_STAMP = Object.freeze({ lifeMs: CLOUD_LIFE_MS, r0: 150, r1: 300 });
 
-function cloudOutlineOracle(bornAt: number, now: number): number {
-  const age = Math.max(0, now - bornAt);
-  // 150 → 300 u over the life (Story 9.8 staging, Eric 2026-10-14, amendment 141;
-  // was 200 → 500). The oracle keeps the ruled literals, never CONFIG.
-  return 150 * (1 + 1.0 * Math.min(1, age / CLOUD_LIFE_MS));
+function cloudOutlineOracle(cloud: { bornAt: number; lifeMs: number; r0: number; r1: number }, now: number): number {
+  const age = Math.max(0, now - cloud.bornAt);
+  return cloud.r0 + (cloud.r1 - cloud.r0) * Math.min(1, age / cloud.lifeMs);
 }
 
 function segPointDistOracle(a: { x: number; y: number }, b: { x: number; y: number }, p: { x: number; y: number }): number {
@@ -425,6 +430,10 @@ const CLOUD_SIGHT_THROUGH = { n: 0 };
 const CLOUD_DELIVERED_BY_SIGHT = { n: 0 };
 /** Story 10.4 non-vacuity: contact rows the fuzz saw carrying turret angles. */
 const TU_SEEN = { n: 0 };
+/** Story 10.6 non-vacuity: contact rows the fuzz saw carrying LAUNCHER
+ *  angles, and own frames carrying `launchers` / `racks`. */
+const LU_SEEN = { n: 0 };
+const OWN_MOUNTS_SEEN = { n: 0 };
 const CLOUD_DELIVERED_BY_RADAR = { n: 0 };
 /** Story 8.19: how many frames carried a POSITIVE `you.draft` (the drafting
  *  arm of the self-private clause ran against a real lift, not only the
@@ -805,7 +814,7 @@ function injectFoulZone(
  *  is the literal 15 s life; the cached base is the shared generator's (the
  *  store's own memo, exactly as production caches it at the press). */
 function injectCloud(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now): void {
-  w.clouds.set(id, { id, ownerId, x, y, bornAt, until: bornAt + CLOUD_LIFE_MS });
+  w.clouds.set(id, { id, ownerId, x, y, bornAt, until: bornAt + CLOUD_LIFE_MS, ...CLOUD_STAMP });
 }
 
 /** Push a raw world-emitted event onto the world's tick-event list — the exact
@@ -2793,6 +2802,26 @@ function scrambleTurrets(rec: ShipRecord, side: { next(): number }): void {
   });
 }
 
+/** Story 10.6 fuzz helper: about half the hulls mount torpedo LAUNCHERS (one
+ *  or two, one or two tubes each — angles scrambled inside each arc, tube
+ *  clocks random) and about half carry mine RACKS — raw state writes off the
+ *  SIDE stream (the scrambleTurrets posture), so `lu` and the self-private
+ *  `launchers` / `racks` pins see varied, non-rest state. */
+function scrambleMounts(rec: ShipRecord, side: { next(): number }): void {
+  if (side.next() < 0.5) {
+    const counts = { torpedoLaunchers: side.next() < 0.5 ? 1 : 2, tubesPerLauncher: side.next() < 0.5 ? 1 : 2 };
+    rec.launchers = initialLaunchers(rec.hullId, counts);
+    rec.launchers.forEach((l, i) => {
+      l.a = launcherRest(i) + (side.next() * 2 - 1) * launcherTrainRad(rec.hullId, i);
+      for (let k = 0; k < l.tubes.length; k += 1) l.tubes[k] = side.next() < 0.5 ? 0 : side.next() * 20_000;
+    });
+  }
+  if (side.next() < 0.5) {
+    const n = side.next() < 0.5 ? 1 : 2;
+    rec.racks = { racks: Array.from({ length: n }, () => ({ n: Math.floor(side.next() * 4), reloadMsLeft: side.next() * 10_000 })), next: 0 };
+  }
+}
+
 /** One random level drives BOTH held inputs (Story 10.4) — no extra draw. */
 function bothLevels(level: boolean): { held: boolean; sec: boolean } {
   return { held: level, sec: level };
@@ -2820,14 +2849,32 @@ function verifyBatteryPrivacy(w: World, me: ShipRecord, f: FrameMsg, withoutYou:
       expect(c.tu).toEqual(encodeTurretAngles(ship.turrets, ship.hullId));
       TU_SEEN.n += 1;
     }
+    // Story 10.6 (I7): `lu` — the launcher ANGLES — on exactly `tu`'s terms:
+    // only on a contact row, the shared encoding of THAT hull's launchers,
+    // absent on a hull with none, appended directly after `tu`.
+    if (ship.launchers.length === 0) expect('lu' in c).toBe(false);
+    else {
+      expect(c.lu).toEqual(encodeLauncherAngles(ship.launchers));
+      const keys = Object.keys(c);
+      expect(keys[keys.length - 1]).toBe('lu');
+      if ('tu' in c) expect(keys.indexOf('lu')).toBe(keys.indexOf('tu') + 1);
+      LU_SEEN.n += 1;
+    }
   }
   const withoutContacts = { ...withoutYou, contacts: undefined };
-  expect(hasForbiddenKey(withoutContacts, ['tu'])).toBe(false);
-  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'locked', 'untilRoundMs', 'shift'])).toBe(false);
+  expect(hasForbiddenKey(withoutContacts, ['tu', 'lu'])).toBe(false);
+  // Tube and rack clocks (Story 10.6) ride `you` and nothing else.
+  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'locked', 'untilRoundMs', 'shift', 'launchers', 'tubes', 'racks'])).toBe(false);
   expect(JSON.stringify(f)).not.toContain('untilRoundMs');
   if (f.you === undefined) return;
   expect(f.you.turrets).toEqual(me.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })));
   expect(f.you.sec).toEqual({ heat: me.sec.heat, locked: me.sec.locked });
+  // ...and on `you` they are exactly the observer's own, present iff it holds any.
+  expect('launchers' in f.you).toBe(me.launchers.length > 0);
+  if (me.launchers.length > 0) expect(f.you.launchers).toEqual(me.launchers);
+  expect('racks' in f.you).toBe(me.racks.racks.length > 0);
+  if (me.racks.racks.length > 0) expect(f.you.racks).toEqual(me.racks.racks);
+  if ('launchers' in f.you || 'racks' in f.you) OWN_MOUNTS_SEEN.n += 1;
 }
 
 /** Assert one frame leaks nothing beyond the observer's vision. */
@@ -2927,7 +2974,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     const inSight = sighted(w, me, other.state, 'strict');
     if (!inSight) continue;
     const throughCloud = [...w.clouds.values()].some(
-      (c) => w.now < c.until && segPointDistOracle(me.state, other.state, c) <= cloudOutlineOracle(c.bornAt, w.now),
+      (c) => w.now < c.until && segPointDistOracle(me.state, other.state, c) <= cloudOutlineOracle(c, w.now),
     );
     if (!throughCloud) continue;
     CLOUD_SIGHT_THROUGH.n += 1;
@@ -3244,15 +3291,17 @@ function verifyMine(w: World, me: ShipRecord, m: MineView): void {
   expect(m.c).toBe(mine.kind);
 }
 
-/** A delivered COUNTERMEASURE cloud's wire shape: exactly {id,x,y,t0} in that
- *  key order — no owner, no own-flag, no radius — `t0` the store's birth
- *  stamp; the cloud must be live. */
-function verifyCloudShape(w: World, v: { id: string; x: number; y: number; t0: number }): void {
+/** A delivered COUNTERMEASURE cloud's wire shape: exactly
+ *  {id,x,y,t0,lifeMs,r0,r1} in that key order — no owner, no own-flag, no
+ *  `until` — `t0` the store's birth stamp and the last three the cloud's own
+ *  STAMPED life and disc (Story 10.6, I6: under this channel's gate, never a
+ *  seventh exception); the cloud must be live. */
+function verifyCloudShape(w: World, v: { id: string; x: number; y: number; t0: number; lifeMs: number; r0: number; r1: number }): void {
   const cloud = w.clouds.get(v.id)!;
   expect(cloud).toBeDefined();
   expect(w.now).toBeLessThan(cloud.until); // an expired cloud never materializes
-  expect(Object.keys(v)).toEqual(['id', 'x', 'y', 't0']);
-  expect(v).toEqual({ id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt });
+  expect(Object.keys(v)).toEqual(['id', 'x', 'y', 't0', 'lifeMs', 'r0', 'r1']);
+  expect(v).toEqual({ id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt, lifeMs: cloud.lifeMs, r0: cloud.r0, r1: cloud.r1 });
 }
 
 /** The point of the disc nearest the observer, re-derived as a WALK: from the
@@ -3303,9 +3352,14 @@ function discPassRevOracle(me: ShipRecord, c: { x: number; y: number }, r: numbe
  *  path. The two ledgers count deliveries ONE sensor alone explains. Since
  *  Story 9.10 the sight arm is fog-tolled (`bound` picks the dead band's
  *  side); the radar arm is fog-blind. */
-function cloudGateOracle(w: World, me: ShipRecord, cloud: { id: string; ownerId: string; x: number; y: number; bornAt: number }, bound: Bound = 'strict'): boolean {
+function cloudGateOracle(
+  w: World,
+  me: ShipRecord,
+  cloud: { id: string; ownerId: string; x: number; y: number; bornAt: number; lifeMs: number; r0: number; r1: number },
+  bound: Bound = 'strict',
+): boolean {
   if (cloud.ownerId === me.id) return true;
-  const r = cloudOutlineOracle(cloud.bornAt, w.now);
+  const r = cloudOutlineOracle(cloud, w.now);
   const near = dist(me.state, cloud) - r;
   // Story 9.10: the sight arm pays the fog toll on the segment to the nearest
   // disc point, at the caller's side of the dead band (verifyFrame asks
@@ -4460,6 +4514,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     CLOUD_SIGHT_THROUGH.n = 0;
     CLOUD_DELIVERED_BY_SIGHT.n = 0;
     TU_SEEN.n = 0;
+    LU_SEEN.n = 0;
+    OWN_MOUNTS_SEEN.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
     DRAFT_SEEN.n = 0;
     FOUL_ZONE_DELIVERED.n = 0;
@@ -4521,6 +4577,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         rec.cards = intel;
         rec.cards = [...intel];
         rec.stats = effectiveStats(rec.cls, rec.cards);
+        scrambleMounts(rec, side); // Story 10.6: launchers / racks off the side stream
         // RADAR WAKES (Story 4.12): guarantee the wk oracle is EXERCISED, not
         // vacuous — most hulls start with a laid track ending at their stern
         // (raw ring injection, ages spread across the 12s life so all four
@@ -4910,6 +4967,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(CLOUD_SIGHT_THROUGH.n).toBeGreaterThan(0);
     expect(CLOUD_DELIVERED_BY_SIGHT.n).toBeGreaterThan(0);
     expect(TU_SEEN.n).toBeGreaterThan(0); // Story 10.4: the `tu` pin was exercised
+    expect(LU_SEEN.n).toBeGreaterThan(0); // Story 10.6: the `lu` pin was exercised
+    expect(OWN_MOUNTS_SEEN.n).toBeGreaterThan(0); // ...and the own launchers / racks pin
     expect(CLOUD_DELIVERED_BY_RADAR.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
     // (Story 8.19 — the value is PLANTED on ids[0] on odd ticks, above), so
@@ -5034,7 +5093,7 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
       if (swept(far.state)) note(ledger.far, rev, blips.some((e) => covers(e, far.state)));
       if (swept(near.state)) note(ledger.near, rev, blips.some((e) => covers(e, near.state)));
       if (swept(wakeMid)) note(ledger.wake, rev, wks.some((e) => covers(e, wakeMid)));
-      if (beamCrossesDiscOracle(a, cp, cloudOutlineOracle(w.clouds.get('ck')!.bornAt, w.now))) {
+      if (beamCrossesDiscOracle(a, cp, cloudOutlineOracle(w.clouds.get('ck')!, w.now))) {
         note(ledger.cloud, rev, (f.clouds ?? []).some((c) => c.id === 'ck'));
       }
       if ((f.foulZones ?? []).some((z) => z.id === 'fk')) foulTicks++;
@@ -5090,7 +5149,7 @@ describe('perception — a cloud pass across the sweep wrap is one dropout decis
     const a = place(w, 'a', 0, 0);
     const D = 1_400;
     expect(D).toBeGreaterThan(CONFIG.vision.dropout.startU);
-    expect(D - cloudOutlineOracle(0, CLOUD_LIFE_MS)).toBeGreaterThan(SIGHT); // radar-only: never sighted
+    expect(D - cloudOutlineOracle({ bornAt: 0, ...CLOUD_STAMP }, CLOUD_LIFE_MS)).toBeGreaterThan(SIGHT); // radar-only: never sighted
     injectCloud(w, 'ck', 'z', D, 0);
     w.clouds.set('ck', { ...w.clouds.get('ck')!, until: 1e12 });
     const passes: boolean[][] = [];
@@ -5101,7 +5160,7 @@ describe('perception — a cloud pass across the sweep wrap is one dropout decis
       w.step();
       const f = buildFrame(w, 'a');
       verifyFrame(w, 'a', f);
-      const r = cloudOutlineOracle(w.clouds.get('ck')!.bornAt, w.now);
+      const r = cloudOutlineOracle(w.clouds.get('ck')!, w.now);
       if (beamCrossesDiscOracle(a, w.clouds.get('ck')!, r)) {
         cur ??= [];
         cur.push((f.clouds ?? []).some((c) => c.id === 'ck'));

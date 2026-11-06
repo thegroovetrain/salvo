@@ -424,11 +424,10 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // is 0/0 = NaN straight into heading and position.
     expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
-    // THE INDICES the fold derives from (Story 10.3): RUDDER becomes the turn
-    // rate the AI divides by (a 0 there was the old `turnRate` NaN-steer
-    // hazard), and clampStats floors reload / engines / rudder / intel /
-    // range at 1 — so a 0 arm would print as moved while the sim ran 1.
-    for (const id of ['reload', 'engines', 'rudder', 'intel', 'range']) {
+    // THE INDICES the fold derives from (Story 10.3; RUDDER left in Story
+    // 10.6): clampStats floors reload / engines / intel / range at 1 — so a 0
+    // arm would print as moved while the sim ran 1.
+    for (const id of ['reload', 'engines', 'intel', 'range']) {
       expect(() => parseArgs(['--tune', `shipClasses.bismarck.index.${id}=0`])).toThrow(/>= 1/);
     }
     // ...while ARMOR / POWER keep floor 0 (the fold floors them at 0).
@@ -440,12 +439,12 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // hp seeds EffectiveStats.maxHp, which world.ts divides by unguarded.
     expect(() => parseArgs(['--tune', 'shipClasses.iowa.hp=0'])).toThrow(/>= 1/);
     // Apply-time too, and a legitimate low value still passes.
-    expect(() => applyOverrides({}, { 'shipClasses.bismarck.index.rudder': 0 })).toThrow(TunableError);
-    const shipped = CONFIG.shipClasses.bismarck.index.rudder;
-    const restore = applyOverrides({}, { 'shipClasses.bismarck.index.rudder': shipped + 1 });
-    expect(CONFIG.shipClasses.bismarck.index.rudder).toBe(shipped + 1);
+    expect(() => applyOverrides({}, { 'shipClasses.bismarck.index.engines': 0 })).toThrow(TunableError);
+    const shipped = CONFIG.shipClasses.bismarck.index.engines;
+    const restore = applyOverrides({}, { 'shipClasses.bismarck.index.engines': shipped + 1 });
+    expect(CONFIG.shipClasses.bismarck.index.engines).toBe(shipped + 1);
     restore();
-    expect(CONFIG.shipClasses.bismarck.index.rudder).toBe(shipped);
+    expect(CONFIG.shipClasses.bismarck.index.engines).toBe(shipped);
   });
 
   it('refuses a DERIVED path that the stats firewall re-pins post-fold', () => {

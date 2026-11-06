@@ -41,7 +41,6 @@ export const supercavTorpedoTactic: EquipmentTactic = {
       'supercavTorpedo',
       solveTorpedoShot(
         ctx,
-        'supercavTorpedo',
         ctx.sit.stats.equipment.supercavTorpedo.speed,
         CONFIG.bots.supercavCredibleU,
       ),

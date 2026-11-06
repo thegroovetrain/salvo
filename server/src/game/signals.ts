@@ -72,6 +72,7 @@ import {
   CONFIG,
   bearing,
   encodeTurretAngles,
+  encodeLauncherAngles,
   isAfloat,
   isSinking,
   islandBlocksSegment,
@@ -767,8 +768,16 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // row, which only runs once contactSignal.visible has passed, so it
     // widens no disclosure (the `aggro` shape). Spectators get it through the
     // same row.
-    if (ship.turrets.length === 0) return marked;
-    return { ...marked, tu: encodeTurretAngles(ship.turrets, ship.hullId) };
+    const turreted = ship.turrets.length === 0 ? marked : { ...marked, tu: encodeTurretAngles(ship.turrets, ship.hullId) };
+    // THE LAUNCHER ANGLES (Story 10.6, I7): `lu` appended directly after
+    // `tu`, the same whole-degree codec (`encodeLauncherAngles`), PRESENT
+    // ONLY while the hull holds a torpedo (it then mounts one or two
+    // launchers) — OMITTED otherwise, never `[]`. ANGLES ONLY: never a tube,
+    // a reload or a readiness bit. Under EXACTLY `tu`'s gate — this row,
+    // which only runs once contactSignal.visible has passed — so not a
+    // seventh exception.
+    if (ship.launchers.length === 0) return turreted;
+    return { ...turreted, lu: encodeLauncherAngles(ship.launchers) };
   },
 };
 
@@ -937,8 +946,8 @@ const foulZoneSignal: SignalSpec<FoulZone, FoulZoneView> = {
  * (Story 9.3 session 2, Eric ruling 2026-10-12: "just draw it on top of
  * ships") — it hides nothing on the server; this row is only how each client
  * learns there is one to paint. THE DELIVERY GATE senses the cloud's SPRAY
- * DISC (centre, radius `cloudOutlineRadius(age)` — 200 → 500 u over its
- * life), sensor-based as amendment 51 ruled ("If I can see smoke particles
+ * DISC (centre, radius `cloudOutlineRadius(age, cloud)` — the cloud's own
+ * STAMPED r0 → r1 over its stamped life, Story 10.6), sensor-based as amendment 51 ruled ("If I can see smoke particles
  * in my sight range, I want them composited … If it's detected by my radar,
  * I want my radar to paint it"): SPECTATORS always; the OWNER always (you
  * made it); otherwise iff the disc is
@@ -952,7 +961,7 @@ const foulZoneSignal: SignalSpec<FoulZone, FoulZoneView> = {
  * NO lit-zone term (a flare lights hulls, not weather). Radar delivery is
  * per-sweep, so the channel is intermittent by design — the client HOLDS a
  * cloud once received until its life ends (a cloud is stationary and fully
- * derived from {id,x,y,t0}, so holding discloses nothing new).
+ * derived from {id,x,y,t0,lifeMs,r0,r1}, so holding discloses nothing new).
  *
  * THIS IS A CHANNEL WITH ITS OWN ORACLE, NOT A DECLARED PERCEPTION EXCEPTION
  * (the litzone / burnzone / foulzone precedent): its gate is a per-row
@@ -962,8 +971,8 @@ const foulZoneSignal: SignalSpec<FoulZone, FoulZoneView> = {
  * beyond every gate (Story 9.10's fog is a TOLL on the sight predicates,
  * never a channel: the field is public weather derived on both sides from
  * the welcome seed and the schema cut). materialize() emits
- * `{id, x, y, t0}` and NOTHING
- * else: no radius (both sides derive it from `t0`), no owner (a cloud tells
+ * `{id, x, y, t0, lifeMs, r0, r1}` and NOTHING else (the disc's size and life
+ * are the cloud's stamped own — Story 10.6, I6), no owner (a cloud tells
  * you nothing about who made it — the mz/sm anonymity posture), no `until`.
  */
 
@@ -1007,7 +1016,7 @@ function discRadarDetected(ctx: FoggedSignalContext, cloud: StoredCloud, d: numb
 
 /** The fogged half of the cloud gate: the disc sighted or radar-detected. */
 function cloudSensed(ctx: FoggedSignalContext, cloud: StoredCloud): boolean {
-  const r = cloudOutlineRadius(ctx.now - cloud.bornAt);
+  const r = cloudOutlineRadius(ctx.now - cloud.bornAt, cloud); // the cloud's STAMPED disc (Story 10.6, I6)
   const d = Math.hypot(cloud.x - ctx.me.state.x, cloud.y - ctx.me.state.y);
   return discSighted(ctx, cloud, d, r) || discRadarDetected(ctx, cloud, d, r);
 }
@@ -1020,11 +1029,13 @@ const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
     return cloudSensed(ctx, cloud);
   },
   materialize(_ctx, cloud) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,t0 — the shared CloudView
-    // declaration order. ALWAYS a fresh bare object: `ownerId` and `until`
-    // live on the store record and may never ride along by accident — and NO
-    // own-flag either.
-    return { id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,t0,lifeMs,r0,r1 — the
+    // shared CloudView declaration order (the three Story 10.6 keys, the
+    // cloud's STAMPED life and disc, APPENDED — I6: under this row's own
+    // gate, a bigger cloud is visible to whoever can already see the cloud).
+    // ALWAYS a fresh bare object: `ownerId` and `until` live on the store
+    // record and may never ride along by accident — and NO own-flag either.
+    return { id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt, lifeMs: cloud.lifeMs, r0: cloud.r0, r1: cloud.r1 };
   },
 };
 

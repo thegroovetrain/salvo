@@ -145,7 +145,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(a.repairReadyAt).toBe(0); // the cooldown is NOT started
     expect(buildFrame(w, 'a').you!.repairReadyAt).toBeUndefined();
     // ...and hurt, the same press succeeds silently.
-    a.hp = a.stats.maxHp - CONFIG.hullRepair.instantHp - CONFIG.hullRepair.regenHp;
+    a.hp = a.stats.maxHp - a.stats.repair.instantHp - a.stats.repair.regenHp;
     repair(w, 2);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
     expect(a.repairHp).toBeGreaterThan(0);
@@ -168,16 +168,16 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it('a hurt press heals instantHp now, pools regenHp, stamps the cooldown and cues `heal`', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.hp = a.stats.maxHp - CONFIG.hullRepair.instantHp - CONFIG.hullRepair.regenHp;
+    a.hp = a.stats.maxHp - a.stats.repair.instantHp - a.stats.repair.regenHp;
     a.lastDamagedAt = w.now; // keep the passive regen out of this case
     const before = a.hp;
     repair(w, 1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
     // The press lands after tickRepairs in the step, so this tick's hp is the
-    // instant heal and the pool is whole.
-    expect(a.hp).toBe(before + CONFIG.hullRepair.instantHp);
-    expect(a.repairHp).toBe(CONFIG.hullRepair.regenHp);
-    expect(a.repairReadyAt).toBe(abilityReadyAt(w.now, 'repair'));
+    // instant heal and the pool is whole — the ship's OWN numbers (Story 10.6).
+    expect(a.hp).toBe(before + a.stats.repair.instantHp);
+    expect(a.repairHp).toBe(a.stats.repair.regenHp);
+    expect(a.repairReadyAt).toBe(abilityReadyAt(w.now, a.stats, 'repair'));
     expect(w.tickEvents.some((e) => e.k === 'heal' && e.id === 'a')).toBe(true);
     expect(buildFrame(w, 'a').you!.repairReadyAt).toBe(a.repairReadyAt);
   });
@@ -219,10 +219,9 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'blocked', seq: 1 }]);
-    // Charge AND reload untouched — the previously wasted charge is kept. The
-    // rack is 2-deep at base since the 2026-08-04 balance pass, so "untouched"
-    // means BOTH drops still aboard.
-    expect(a.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    // Charge AND reload untouched — the previously wasted charge is kept: the
+    // rack is still FULL (Story 10.6: the racks are the truth).
+    expect(a.loadout[SLOT_MINE].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
     expect(w.mines.size).toBe(0);
   });
 
@@ -241,7 +240,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'blocked', seq: 1 }]);
-    expect(a.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
+    expect(a.loadout[SLOT_MINE].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 }); // the full rack, untouched
   });
 
   it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
@@ -253,7 +252,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_MINE, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'out-of-arc', seq: 2 }]);
-    expect(a.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
+    expect(a.loadout[SLOT_MINE].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 }); // the full rack, untouched
     expect(w.mines.size).toBe(0);
   });
 });

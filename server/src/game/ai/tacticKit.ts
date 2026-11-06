@@ -26,10 +26,6 @@ import {
   CONFIG,
   bearing,
   blockedWater,
-  inArc,
-  sectorArcFor,
-  twinSectorArcFor,
-  twinSectorSide,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
@@ -42,6 +38,7 @@ import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
 import { TRACK_PERSIST_MS, trackVelocity } from './plot.js';
 import { mountedReachOf } from './doctrine.js';
+import { noteTorpedoHold, torpedoCanBear, torpedoReadyOnTarget } from './torpedoMount.js';
 
 const TAU = Math.PI * 2;
 
@@ -54,14 +51,6 @@ const TAU = Math.PI * 2;
  * that is not a real line id.
  */
 export type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
-
-/** The HEAVY torpedo's bow sector, the LIGHT torpedo's TWIN beam sectors and
- *  the SUPERCAV's narrow bow cone — resolved ONCE at module load
- *  from the single shared arc source the server rows enforce with, so a bot
- *  never solves a shot its own weapon refuses. */
-const BOW_SECTOR = sectorArcFor('heavyTorpedo');
-const LIGHT_BEAMS = twinSectorArcFor('lightTorpedo');
-const SUPERCAV_SECTOR = sectorArcFor('supercavTorpedo');
 
 /** u — the range inside which a STANDARD torpedo intercept is CREDIBLE. A 60
  *  u/s fish against a 45 u/s hull needs the target inside knife range or the
@@ -264,21 +253,14 @@ export function distTo(sit: BotSituation, t: BotTrack): number {
 // THE TORPEDO SHOT — both torpedo lines and the SUPERCAV belt fish.
 // ---------------------------------------------------------------------------
 
-/** Is `aim` legal for this torpedo line? The HEAVY (and the supercav belt
- *  fish) fire into a bow SECTOR; the LIGHT fires into either BEAM and refuses
- *  the fore/aft dead zones — the server's own arc law (equipment/
- *  torpedoCore.ts `torpedoBearing`), read from the same shared descriptors. */
-function torpedoAimLegal(id: TorpedoLineId | 'supercavTorpedo', heading: number, aim: number): boolean {
-  if (id === 'lightTorpedo') return twinSectorSide(heading, aim, LIGHT_BEAMS) !== null;
-  const sector = id === 'supercavTorpedo' ? SUPERCAV_SECTOR : BOW_SECTOR;
-  return inArc(aim, wrapAngle(heading + sector.offset), sector.halfArc);
-}
-
-/** One torpedo shot solve, shared by all three torpedo lines: lead at THIS weapon's speed, refuse out of THIS weapon's arc
- *  (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
+/** One torpedo shot solve, shared by all three torpedo lines: lead at THIS
+ *  weapon's speed, refuse a blocked line, then CLICK ONLY when the shared
+ *  launcher law says a tube fires ON TARGET after this tick's step (Story 10.6
+ *  review gate, ai/torpedoMount.ts) — otherwise no shot this tick, so the
+ *  next slot (the main battery) gets it; a launcher that could make the shot
+ *  once it swings there has the aim HELD for it (`noteTorpedoHold`). */
 export function solveTorpedoShot(
   ctx: TacticContext,
-  id: TorpedoLineId | 'supercavTorpedo',
   speed: number,
   reachU: number,
 ): Shot | null {
@@ -289,9 +271,11 @@ export function solveTorpedoShot(
   if (d > reachU) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
-  if (!torpedoAimLegal(id, ctx.self.state.heading, aim)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  return { aim, aimDist: d, slot: ctx.slot };
+  const a = { aim, aimDist: d };
+  if (torpedoReadyOnTarget(ctx.self, a)) return { aim, aimDist: d, slot: ctx.slot };
+  if (torpedoCanBear(ctx.self, a)) noteTorpedoHold(ctx.mind, ctx.sit.now, a);
+  return null;
 }
 
 // ---------------------------------------------------------------------------

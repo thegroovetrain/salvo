@@ -69,7 +69,6 @@ describe('cardViewModel — pips, keys, loadout', () => {
       const vm = cardViewModel(cls);
       const idx = vm.pips.map((p) => p.index);
       expect(idx, cls).toEqual(INDEX_IDS.filter((id) => (idx as readonly string[]).includes(id)));
-      expect(idx, cls).not.toContain('rudder'); // the same on all four hulls: it tells the player nothing
       for (const pip of vm.pips) expect(pip.label).toBe(indexWord(pip.index));
       for (const pip of vm.pips) {
         expect(pip.filled, `${cls} ${pip.index}`).toBe(pipFill(CONFIG.shipClasses[cls].index[pip.index], anchors[pip.index]));

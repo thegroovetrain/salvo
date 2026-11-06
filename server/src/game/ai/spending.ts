@@ -47,6 +47,7 @@ import {
   CONFIG,
   SLOT_COUNT,
   SLOT_GUN,
+  addonHosted,
   boonStackCount,
   ladderHost,
   pickRefusal,
@@ -121,10 +122,17 @@ function mountedGunOf(s: BotSpendState): EquipmentId {
 }
 
 /** Does this line belong to the bot's UPGRADEABLE SET — a ship ladder, a
- *  ladder of the mounted gun, or a weapon already held? (Cap is checked by
- *  the caller.) */
-function inUpgradeableSet(line: CatalogLine, copies: number, mounted: EquipmentId): boolean {
+ *  ladder of the mounted gun, a weapon already held, or (Story 10.6, I8) a
+ *  one-off ADD-ON of a family whose weapon is held — an upgrade of that
+ *  family? (Cap is checked by the caller.) */
+function inUpgradeableSet(
+  line: CatalogLine,
+  copies: number,
+  mounted: EquipmentId,
+  slotIds: readonly (EquipmentId | null)[],
+): boolean {
   if (line.kind === 'equipment') return copies > 0;
+  if (line.kind === 'addon') return addonHosted(line, slotIds);
   if (line.kind !== 'ladder') return false;
   const host = ladderHost(line);
   return host === undefined || host === mounted;
@@ -138,12 +146,13 @@ function inUpgradeableSet(line: CatalogLine, copies: number, mounted: EquipmentI
  */
 function upgradeableSet(s: BotSpendState, catalog: Catalog): Map<string, number> {
   const mounted = mountedGunOf(s);
+  const slotIds = slotIdsOf(s);
   const out = new Map<string, number>();
   for (const key of Object.keys(catalog)) {
     const line = catalog[key];
     if (line === undefined || line.stub === true) continue;
     const copies = boonStackCount(s.cards, key);
-    if (copies < line.cap && inUpgradeableSet(line, copies, mounted)) out.set(key, copies);
+    if (copies < line.cap && inUpgradeableSet(line, copies, mounted, slotIds)) out.set(key, copies);
   }
   return out;
 }
@@ -163,11 +172,12 @@ function styleMatches(taste: BotTaste, s: BotSpendState, line: CatalogLine, cata
 }
 
 /** Does this upgrade card match one of the taste's favorite upgrades? A tier
- *  copy of a held weapon is `weapons`; a ladder with a host row is `gun`; a
- *  ship ladder is named by its own line id. */
+ *  copy of a held weapon — or one of its family's one-off ADD-ONS (Story
+ *  10.6, I8) — is `weapons`; a ladder with a host row is `gun`; a ship ladder
+ *  is named by its own line id. */
 function isFavoriteUpgrade(taste: BotTaste, line: CatalogLine): boolean {
   const favs: readonly string[] = taste.favoriteUpgrades;
-  if (line.kind === 'equipment') return favs.includes('weapons');
+  if (line.kind === 'equipment' || line.kind === 'addon') return favs.includes('weapons');
   if (line.kind !== 'ladder') return false;
   return ladderHost(line) === undefined ? favs.includes(line.id) : favs.includes('gun');
 }

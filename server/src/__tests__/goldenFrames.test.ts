@@ -62,6 +62,42 @@
 // 10.5 (2026-11-05): the snapshot is the story's frames with the arc-only-fire
 // changes laid on top, token-diffed against both parents; see the Story 10.5
 // notes on the R6 battery below.
+//
+// RE-RECORDED 2026-11-05 (Story 10.6, the catalog under the index — torpedo
+// LAUNCHERS, mine RACKS, per-ship ability numbers; PV 98). Structurally
+// diffed frame by frame (168 frames before and after, none added or removed):
+//   * NEW KEYS, no other key moved: every contact row of a hull holding a
+//     torpedo ends in `lu` (after `tu` — 225 rows); the own block of a hull
+//     holding a torpedo / mine appends `launchers` (138) / `racks` (23);
+//   * the mine slot's `ammo` summary reads the rack's new base of three (23
+//     values, e.g. 1 → 2 after one drop);
+//   * HULL REPAIR's cooldown is the 75 s base (two `repairReadyAt`, 90050 →
+//     75050); the draw deals the new catalog (five `offer` entries);
+//   * the scenarios' three torpedo clicks now carry a positive `aimDist` (a
+//     torpedo click with none names no area and is refused out-of-arc, R16):
+//     in the gunnery scenario the turrets therefore chase that aim (four
+//     `you.turrets[].a`, two contact `tu`), and its torpedo leaves the FORE
+//     launcher's station along the launcher's CURRENT bearing — the early-
+//     click rule, the launcher not yet on the aim (two ballistic events'
+//     x / y / vx / vy).
+// No event kind, frame, channel or proof was added or removed; the declared
+// exceptions are still six.
+//
+// RE-RECORDED 2026-11-06 (Story 10.6, R28 — the launchers fire across the
+// beam, 30°–120° off their own end; dead ahead is refused). The two scenarios
+// that fired a torpedo dead ahead now fire a legal shot, and ONLY their frames
+// moved (93 lines, same count; every proof unchanged):
+//   * scnHoming: the shooter lies with +x on its starboard beam (heading
+//     −π/2, launcher trained there), so c's contact row for it reads the new
+//     heading, `lu` and `tu` (its turrets chase the same aim); the fish leaves
+//     the fore launcher's side instead of the bow, so its reveal x / y / vx /
+//     vy, and the tick of every `torpU` and torpedo-wake `wk` c sees, moved;
+//   * scnGunnery: the torpedo click aims along shot 1's bearing (π/4) instead
+//     of dead ahead — before R28 that click fired EARLY along the launcher's
+//     current bearing (0.74 rad); now the trained launcher is on the aim and
+//     fires at it (0.89 rad from its station): the reveal's x / y / vx / vy,
+//     the shooter's turret and launcher angles (they chase the new aim) and
+//     o1's `tu` / `lu` for it.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -750,7 +786,7 @@ function scnDenied(g: Golden): void {
   // block the drop but m would now PAINT on a's radar through it.
   w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
   // Tick 1: a clicks the torpedo dead astern; m clicks a MINE into the rock.
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: FAMILY_SLOT.mine, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   const fa1 = cap(g, w, 'a');
@@ -817,8 +853,12 @@ function scnDenied(g: Golden): void {
  */
 function scnHoming(g: Golden): void {
   const w = bareWorld(1017);
-  const a = place(w, 'a', 0, 0);
+  // R28 (Eric 2026-11-06): the launchers fire across the beam, never dead
+  // ahead — the shooter lies with +x on its STARBOARD beam (heading −π/2), its
+  // fore launcher already trained there.
+  const a = place(w, 'a', 0, 0, -Math.PI / 2);
   w.applyCard(a, 'heavyTorpedo'); // the second copy: tier II — the fish homes
+  for (const l of a.launchers) l.a = Math.PI / 2;
   place(w, 'b', 200, 60); // the fish acquires and steers toward this hull mid-flight
   const c = place(w, 'c', 250, -60); // detect covers the turning stretch
   const d = place(w, 'd', -BEYOND_RADAR, 0); // beyond sight AND radar of everything (Story 9.8: no dropout roll pinned)
@@ -826,7 +866,7 @@ function scnHoming(g: Golden): void {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
   }
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   let cReveals = 0;
   let cUpdates = 0;
   let dBytes = 0;
@@ -938,8 +978,10 @@ function scnGunnery(g: Golden): void {
     faMiss.events.some((e) => e.k === 'sp' && e.id === 'a') &&
       !fo1Miss.events.some((e) => e.k === 'sp'),
   );
-  // The torpedo launch — the ratified quiet weapon: no mz for anyone.
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  // The torpedo launch — the ratified quiet weapon: no mz for anyone. R28: it
+  // fires along shot 1's bearing (π/4, inside the fore launcher's band, the
+  // launcher already trained there by the held aim) — dead ahead is refused.
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 2, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   cap(g, w, 'a'); // own torp reveal, no mz
   const fo1Torp = cap(g, w, 'o1');

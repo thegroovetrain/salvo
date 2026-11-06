@@ -405,7 +405,7 @@ function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
     // a radar paint, fake or decoy, never is).
     want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
     solve: (ctx) =>
-      stamped(ctx, id, solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id))),
+      stamped(ctx, id, solveTorpedoShot(ctx, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id))),
   };
 }
 

@@ -86,7 +86,7 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('prints ONE row for each ship ladder, and the CANNON\'s damage step plus its reach', () => {
-    for (const id of ['engines', 'rudder', 'intel', 'reload'] as const) {
+    for (const id of ['engines', 'intel', 'reload', 'range'] as const) {
       expect(cardStatRows(CATALOG[id], 0, TB), id).toHaveLength(1);
     }
     // rung to II: the damage step (the barrels are FIXED since Story 9.12) and
@@ -94,12 +94,13 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(pairs(cardStatRows(CATALOG.deckGun, 0, TB))).toEqual([dmgPair('deckGun', 'gun', 0), rangePair('deckGun', 'gun', 0)]);
   });
 
-  // Story 10.3 (Eric's ruling 4): all six ship ladders are index cards — each
+  // Story 10.3 (Eric's ruling 4): the six index ladders (RANGE in for RUDDER
+  // since Story 10.6) are index cards — each
   // prints its OWN INDEX bare, before → after (`ARMOR 100 → 120`), every rung
   // moves the number, and the row reads the line's own index path (never a
   // derived speed / turn / RPM / cooldown).
   it('every ship ladder prints its own index, before → after, at every rung', () => {
-    for (const id of ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const) {
+    for (const id of ['armor', 'power', 'reload', 'engines', 'intel', 'range'] as const) {
       const at = (n: number): string => String(foldOf(id, n)[id]);
       for (let k = 0; k < 4; k += 1) {
         expect(pairs(cardStatRows(CATALOG[id], k, held(id, k))), `${id}@${k}`).toEqual([[at(k), at(k + 1)]]);
@@ -200,13 +201,17 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // STAR SHELLS and PHOSPHOR SHELLS cards to III and to V author SIX printed
   // steps once the reach step joins them — the fullest faces in the catalog —
   // and the grid holds every one of them, RANGE last, nothing cut.
-  it('STAR SHELLS and PHOSPHOR SHELLS to III and V print all six rows, RANGE last', () => {
+  // Since Story 10.6 (R4: "Special shells are ONE shot for good") STAR
+  // SHELLS' tiers author no flare step, so the face is the reload row plus one
+  // row per AUTHORED stat step — generated from the catalog, never counted.
+  it('STAR SHELLS and PHOSPHOR SHELLS to III and V print reload + every authored step, RANGE last', () => {
     for (const [id, w] of [['starShells', 'starShells'], ['phosphorShells', 'phosphorShells']] as const) {
       for (const k of [2, 4]) {
         const rows = cardStatRows(CATALOG[id], k, held(id, k));
-        expect(rows, `${id}@${k}`).toHaveLength(6);
-        expect(rows.length, `${id}@${k}`).toBeLessThanOrEqual(CARD_STAT_ROWS);
-        expect([rows[5]!.cur, rows[5]!.next], `${id}@${k}`).toEqual(rangePair(id, w, k));
+        const steps = CATALOG[id].tiers[k]!.filter((e) => e.kind === 'stat').length;
+        expect(rows, `${id}@${k}`).toHaveLength(Math.min(CARD_STAT_ROWS, 1 + steps));
+        const last = rows.at(-1)!;
+        expect([last.cur, last.next], `${id}@${k}`).toEqual(rangePair(id, w, k));
       }
     }
   });
@@ -381,11 +386,11 @@ describe('cardStatRows — the three slot weapons Story 10.5 moved off the kit',
 });
 
 describe('cardStatRows — the lines that legitimately print NOTHING', () => {
-  it('gives an ADD-ON no rows: a verb moves no number', () => {
-    // NO add-on survives in the catalog since Story 8.17 (amendment 134): the
-    // last two became an equipment line and the FLASH SHELLS consumable, and
-    // both print real rows (pinned above and below). The `addon` kind stays in
-    // place, unused, so the claim is made on an INJECTED add-on line.
+  it('gives an ADD-ON whose tier steps no mount no rows: a verb moves no number', () => {
+    // The live add-ons since Story 10.6 (the four one-off cards) each step a
+    // MOUNT count and print it (catalogUnderIndexCards.test.ts). An add-on
+    // that bolts on a pure VERB still prints nothing — claimed on an INJECTED
+    // line.
     const addon: CatalogLine = {
       id: 'injectedAddon' as CatalogLine['id'],
       kind: 'addon',
@@ -425,10 +430,11 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
     expect(over).toEqual([]);
   });
 
-  it('gives every LADDER and every WEAPON at least one row, at every rung', () => {
+  // Since Story 10.6 the four one-off add-ons print their mount row too, so
+  // no live line is silent.
+  it('gives every LADDER, every WEAPON and every live ADD-ON at least one row, at every rung', () => {
     const silent: string[] = [];
     for (const line of NON_STUB) {
-      if (line.kind === 'addon') continue;
       for (let k = 0; k < line.cap; k += 1) {
         const rows = cardStatRows(line, k, held(line.id, k));
         if (rows.length === 0) silent.push(`${line.id}@${k}`);

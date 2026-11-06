@@ -138,6 +138,8 @@ import {
   type MineKind,
   type EquipmentId,
   type Rng,
+  type LauncherState,
+  type RackBank,
   type ShellOutcome,
   type ShellState,
   type CloudRecord,
@@ -170,6 +172,7 @@ import {
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
+import { emptyRackBank, instantReloadMounts, isMountBacked, refitMounts, resetMounts, stepShipLaunchers } from './equipment/mounts.js';
 import type { BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
@@ -625,6 +628,33 @@ export interface ShipRecord {
    */
   turrets: TurretState[];
   /**
+   * THE TORPEDO LAUNCHERS (Story 10.6, Eric 2026-11-05, R6 / R13 / R16): one
+   * `{a, tubes}` per launcher, fore first — the TRUTH the torpedo slot's
+   * `{n, reloadMsLeft}` pair is derived from (`launcherSummary`). EMPTY until
+   * the torpedo family slot fills; then `initialLaunchers` (everything
+   * loaded, I3), resized by cards (`refitMounts`), reset at every fresh life
+   * beside the turrets (`resetMounts`). Stepped in place by the
+   * `stepLaunchers` STEP_ORDER row. The ANGLES ride a sighted contact's
+   * `Contact.lu` (the `tu` gate); the tubes ride the own-ship frame only
+   * (`OwnShip.launchers`). Lifecycle: equipment/mounts.ts.
+   */
+  launchers: LauncherState[];
+  /**
+   * THE MINE RACKS (Story 10.6, R7 / R17 / R18): one `{n, reloadMsLeft}` per
+   * rack plus the drop-turn cursor — the TRUTH the mine slot's pair is
+   * derived from (`rackSummary`). No rack until the mine family slot fills.
+   * Ticked by the mine row (`tickRacks`); the racks ride the own-ship frame
+   * only (`OwnShip.racks`); the cursor never leaves the server.
+   */
+  racks: RackBank;
+  /**
+   * hp/ms — the RATE the running HULL REPAIR pool pays out at, stamped at the
+   * press from the ship's OWN `stats.repair` (`regenHp / regenMs` — Story
+   * 10.6, R8 / R15: the pool always drains over its fixed window, so a card
+   * taken mid-drain never changes a pool already running). Server-private.
+   */
+  repairRate: number;
+  /**
    * THE SECONDARIES' HEAT (Story 10.4, R3): the shared stepper's state,
    * stepped in place by the `secondariesControl` STEP_ORDER row off the
    * latest input's `sec` level. `{heat, locked}` ride the own-ship frame only
@@ -910,9 +940,9 @@ export interface ShipRecord {
    * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; a
    * cooldown ABILITY on `C` since Story 10.5, epic-10 amendment 11); 0 =
    * nothing draining. Written ONLY by World.applyRepair (the repair press —
-   * `repairHp = CONFIG.hullRepair.regenHp`, a re-press REPLACES the pool,
+   * `repairHp = stats.repair.regenHp` — the ship's own, Story 10.6 — a re-press REPLACES the pool,
    * amendment 141; the rate never changes) and drained by tickRepairs at the
-   * fixed regenHp/regenMs WALL-CLOCK rate; mirrored onto OwnShip.repairHp
+   * rate stamped at the press (`repairRate`, regenHp/regenMs) on the WALL CLOCK; mirrored onto OwnShip.repairHp
    * (owner-only) by frames.ts. RESET to 0 on spawn/sink/respawn/redeploy
    * exactly where boostUntil resets — a pool must never survive the death gap.
    * The R8 passive regen (Story 10.5) runs BESIDE it, never through it.
@@ -921,7 +951,7 @@ export interface ShipRecord {
   /**
    * ms — server time HULL REPAIR (`C`) is ready again (Story 10.5, Eric
    * 2026-11-05, epic-10 amendment 11, R1/R3); 0 = ready. Stamped ONLY on a
-   * successful press (`abilityReadyAt(now, 'repair')` — fixed, never scaled by
+   * successful press (`abilityReadyAt(now, stats, 'repair')` — the ship's own cooldown, never scaled by
    * RELOAD, never touched by INSTANT RELOAD). Mirrored onto the SELF-PRIVATE
    * `OwnShip.repairReadyAt` by frames.ts while in the future. Reset to 0 at
    * every life boundary (spawn, respawn, redeploy) — ready at spawn.
@@ -1049,7 +1079,7 @@ export interface ShipRecord {
   nextSmokeAt: number;
   /**
    * ms — server time this hull's MOST RECENT own MULTI-SPECTRAL COUNTERMEASURE
-   * cloud expires (Story 9.3): stamped `now + CONFIG.countermeasure.lifeMs`
+   * cloud expires (Story 9.3): stamped `now + stats.smoke.lifeMs` (the owner's, Story 10.6)
    * by World.makeCloud at every successful SMOKE press; 0 = none this
    * life. SERVER-PRIVATE, never on the wire; mirrored to the bot's own
    * BotTickEntry.cloudUntil (a self-read — the bot's "one of mine is still
@@ -2354,7 +2384,7 @@ export class World {
       // there is no deck to deal any more — the pool is the catalog and a draw
       // is a pure read of this record's own state (materializeOffer). The
       // turrets come up at rest and loaded, the secondaries cold (Story 10.4).
-      shift: World.shiftFor(role, shift), turrets: initialTurrets(hullId), sec: initialSecondaries(), devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
+      shift: World.shiftFor(role, shift), turrets: initialTurrets(hullId), launchers: [], racks: emptyRackBank(), sec: initialSecondaries(), devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
@@ -2381,7 +2411,7 @@ export class World {
       // boundary (founderSinking / respawn / redeployShip / match start).
       // ...and a fresh combat clock (amendment 47): `lastDamagedAt` is `now`,
       // never 0. Both cooldown abilities READY (Story 10.5).
-      boostUntil: 0, repairHp: 0, repairReadyAt: 0, smokeReadyAt: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0,
+      boostUntil: 0, repairHp: 0, repairRate: 0, repairReadyAt: 0, smokeReadyAt: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0,
       // Story 8.15: no HUNKER window, and the machine gun's stream clock
       // at the epoch (fire on the first held tick), no stream live. No dazzle.
       hunkerUntil: 0, streamNextAt: 0, streamLive: false, dazzledUntil: 0,
@@ -3535,6 +3565,12 @@ export class World {
     if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
     this.reconcilePools(ship, prevStats);
     this.rescaleReloadTimers(ship, prevStats);
+    // THE LAUNCHERS AND RACKS (Story 10.6, I3): resize to the folded counts —
+    // a new launcher, tube, rack or expanded seat arrives loaded — and rescale
+    // every running tube / rack clock by the held weapon's new ÷ old reload
+    // (a RELOAD card and the weapon's own tier card alike). Re-derives the
+    // torpedo / mine slot summaries, so it runs after the two pool passes.
+    refitMounts(ship, prevStats);
     // A speed card raises the true attainable top speed the wake ring was
     // provisioned for (Story 4.12) — upsize in place, live samples preserved.
     this.reprovisionWake(ship);
@@ -3608,7 +3644,9 @@ export class World {
   private reconcilePools(ship: ShipRecord, prevStats: EffectiveStats): void {
     for (const slot of ship.loadout) {
       const id = slot.equipmentId;
-      if (id === null || slot.state === null) continue;
+      // A torpedo / mine pool is a SUMMARY of the launchers / racks (Story
+      // 10.6) — refitMounts owns it, so it is never filled here.
+      if (id === null || slot.state === null || isMountBacked(id)) continue;
       const cap = equipmentMaxAmmo(ship.stats, id);
       if (cap > equipmentMaxAmmo(prevStats, id)) slot.state.n = cap;
       slot.state.n = Math.min(slot.state.n, cap);
@@ -3647,7 +3685,8 @@ export class World {
   private rescaleReloadTimers(ship: ShipRecord, prevStats: EffectiveStats): void {
     for (const slot of ship.loadout) {
       const id = slot.equipmentId;
-      if (id === null || slot.state === null) continue;
+      // Tube and rack clocks are rescaled per unit by refitMounts (Story 10.6).
+      if (id === null || slot.state === null || isMountBacked(id)) continue;
       const oldMs = equipmentReloadMs(prevStats, id);
       const newMs = equipmentReloadMs(ship.stats, id);
       if (!Number.isFinite(oldMs) || oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
@@ -3941,6 +3980,16 @@ export class World {
     // reloadMs / dt), and so the mainBattery row's per-tick hotbar sync reads
     // the stepped reloads.
     { name: 'stepTurrets', run: (w, ctx) => w.stepTurrets(ctx.dtMs) },
+    // THE LAUNCHER STEP (Story 10.6, Eric 2026-11-05, R6 / R13) — the
+    // turret step's twin, seated directly beside it and for the same reasons:
+    // every torpedo launcher traverses toward the SAME latest-input aim the
+    // turrets chase (the shared `stepLaunchers` over `launcherAimPoint`, the
+    // very calls the client predicts with) and its tube clocks count down;
+    // a sinking / dead hull holds its angles. BEFORE fireControl so a launcher
+    // that arrives on the aim point — or a tube that finishes reloading —
+    // this tick may fire this tick, and the torpedo row's hotbar sync reads
+    // the stepped tubes.
+    { name: 'stepLaunchers', run: (w, ctx) => w.stepLaunchers(ctx.dtMs) },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
     // resolved right after the click channel — the reloads have ticked (a
@@ -4945,11 +4994,10 @@ export class World {
    * window" (amendment 10).
    */
   private tickRepairs(dtMs: number): void {
-    const hr = CONFIG.hullRepair;
-    const budget = (hr.regenHp / hr.regenMs) * dtMs;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
-      if (ship.repairHp > 0) World.payRepair(ship, budget);
+      // The pool's OWN stamped rate (Story 10.6, R8 / R15), never CONFIG's.
+      if (ship.repairHp > 0) World.payRepair(ship, ship.repairRate * dtMs);
       if (World.regenerates(ship, this.now)) ship.hp += regenGain(ship.hp, ship.stats.maxHp, dtMs / 1000);
     }
   }
@@ -6617,6 +6665,12 @@ export class World {
    * still fire whatever is ready (amendment 10). A fleet hull has no turrets
    * (the stepper degrades to nothing).
    */
+  /** THE LAUNCHER STEP (Story 10.6; see the STEP_ORDER row): every hull
+   *  holding a torpedo steps its launchers (equipment/mounts.ts). */
+  private stepLaunchers(dtMs: number): void {
+    for (const ship of this.ships.values()) stepShipLaunchers(ship, dtMs);
+  }
+
   private stepTurrets(dtMs: number): void {
     for (const ship of this.ships.values()) {
       if (ship.turrets.length === 0) continue;
@@ -6786,7 +6840,7 @@ export class World {
    * wire); a SINKING hull is refused 'blocked' (no hp comes back in the
    * window, and the 9.3 cloud refused a sinking press the same way), nothing
    * started. The effects themselves are unchanged: the paid repair
-   * (applyRepair — CONFIG.hullRepair's instant + pooled hp and the `heal`
+   * (applyRepair — the ship's own `stats.repair` instant + pooled hp and the `heal`
    * cue) and ONE countermeasure cloud at the hull's centre (makeCloud).
    */
   private pressCooldownAbility(ship: ShipRecord, seq: number, ability: CooldownAbilityId): void {
@@ -6796,11 +6850,14 @@ export class World {
       this.queueDenial(ship, { slot: abilitySlot(ability), reason, seq, act: abilityCode(ability) });
       return;
     }
+    // THE SHIP'S OWN NUMBERS (Story 10.6, R8 / R9): the cooldown and the
+    // effect read the folded `stats.repair` / `stats.smoke` — never CONFIG,
+    // never the ship's RELOAD.
     if (ability === 'repair') {
-      ship.repairReadyAt = abilityReadyAt(this.now, 'repair');
-      this.applyRepair(ship, CONFIG.hullRepair.instantHp, CONFIG.hullRepair.regenHp);
+      ship.repairReadyAt = abilityReadyAt(this.now, ship.stats, 'repair');
+      this.applyRepair(ship);
     } else {
-      ship.smokeReadyAt = abilityReadyAt(this.now, 'smoke');
+      ship.smokeReadyAt = abilityReadyAt(this.now, ship.stats, 'smoke');
       this.makeCloud(ship);
     }
   }
@@ -6976,12 +7033,15 @@ export class World {
         World.finishOneReload(ship, slot);
       }
     }
+    // THE LAUNCHERS AND RACKS (Story 10.6, R14): every tube loaded, ONE mine
+    // per rack that is short; the two slot summaries re-derived.
+    instantReloadMounts(ship);
   }
 
   /** `finishReloads` for one ordinary per-round (or magazine) slot. */
   private static finishOneReload(ship: ShipRecord, slot: LoadoutSlot): void {
     const id = slot.equipmentId;
-    if (id === null || slot.state === null || slot.state.reloadMsLeft <= 0) return;
+    if (id === null || slot.state === null || slot.state.reloadMsLeft <= 0 || isMountBacked(id)) return;
     const maxAmmo = equipmentMaxAmmo(ship.stats, id);
     slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
     slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
@@ -7010,6 +7070,9 @@ export class World {
   private static resetBattery(ship: ShipRecord): void {
     ship.turrets = initialTurrets(ship.hullId);
     ship.sec = initialSecondaries();
+    // ...and the torpedo launchers at rest with every tube loaded, every mine
+    // rack full, for whatever the family slots hold (Story 10.6, I3).
+    resetMounts(ship);
   }
 
   private static clearShiftClocks(ship: ShipRecord): void {
@@ -7028,7 +7091,7 @@ export class World {
    * amendment 141 — the shield / smoke "replaces" posture applied to
    * the heal): whatever was still owed from an earlier copy is DISCARDED, and
    * a fresh pool pays out over a fresh `regenMs` at the unchanged rate
-   * (tickRepairs' fixed regenHp/regenMs rate — there is still no rate field to
+   * (the rate stamped at the press, `repairRate` = regenHp/regenMs — there is still no rate a card can
    * recompute, so the anti-flask half of the old rule holds: a re-press can
    * never make the drain run FASTER, it can only restart it). The instant
    * half lands as before. This supersedes the "pools ADD, the drain runs
@@ -7041,9 +7104,13 @@ export class World {
    * accident. It is SELF-PRIVATE (signals.ts) and carries no amount — an
    * observer can never learn that a hull is repairing.
    */
-  private applyRepair(ship: ShipRecord, instantHp: number, regenHp: number): void {
+  private applyRepair(ship: ShipRecord): void {
+    const { instantHp, regenHp, regenMs } = ship.stats.repair; // the ship's own (Story 10.6, R8)
     ship.hp = Math.min(ship.hp + instantHp, ship.stats.maxHp);
     ship.repairHp = regenHp; // REPLACE (amendment 141), never `+=`
+    // The pool's payout rate, STAMPED: it always drains over the fixed window
+    // (R15), whatever card is taken mid-drain.
+    ship.repairRate = regenMs > 0 ? regenHp / regenMs : 0;
     this.pending.push({ k: 'heal', id: ship.id });
   }
 
@@ -7309,8 +7376,12 @@ export class World {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     this.cloudSeq += 1;
     const id = `cl${this.cloudSeq}`;
-    const until = this.now + CONFIG.countermeasure.lifeMs;
-    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until });
+    // STAMPED (Story 10.6, R9 / I6): the owner's SMOKE SCREEN cards NOW set
+    // this cloud's life and disc for good — a card taken later never touches
+    // a live cloud.
+    const { lifeMs, r0, r1 } = ship.stats.smoke;
+    const until = this.now + lifeMs;
+    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until, lifeMs, r0, r1 });
     ship.cloudUntil = until;
   }
 

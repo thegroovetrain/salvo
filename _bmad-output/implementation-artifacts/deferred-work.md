@@ -3672,7 +3672,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: INSTANT RELOAD IS NOT PREDICTED ON THE CLIENT - after the press the turrets and the secondaries heat show the old state until the next own frame. Turret reloads behaved this way before this story; the heat vent is new with R10. Recorded reading: the own frame corrects.
   evidence: Codex, confirmed; `client/src/main.ts` `handleShiftPress` predicts only Speed Boost.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
-  status: open - owned by Story 10.6 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  status: RESOLVED by Story 10.6, 2026-11-06 (cycle 215, epic-10 amendment 12 (r) I8) - the four one-off cards are eligible only while their family slot is FILLED and the card unheld (`shared/src/sim/draw.ts`, `boons.ts`); was: open - owned by Story 10.6 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
   summary: ADD-ON ELIGIBILITY STILL ASKS "ANY WEAPON SLOT OPEN", NOT "THE HOST'S FAMILY SLOT" - under one kind per slot an add-on whose hosts all sit in a family held by another kind could be dealt though its host can never be fitted. Latent: the only add-on line is the undealable `depthCharge` stub.
   evidence: Edge Case Hunter; `shared/src/sim/draw.ts` `addonKind` / `weaponRowOpen`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
@@ -3683,3 +3683,23 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - owned by Story 10.14 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (s))
   summary: HOW-TO-PLAY MUST TEACH RIGHT MOUSE AS THE SECONDARIES ONLY - right mouse fires the secondaries whether or not a weapon is readied and never cancels anything; a readied Q / E / R weapon is un-readied by pressing its key again (or by firing it). Eric: "actually, lets just make RMB secondaries no matter what, and get rid of the "right click to cancel" mechanic. Its complex for no reason. Pressing the key a second time already unreadies."
   evidence: epic-10 amendment 11 (s); `client/src/input/mouse.ts`; the settings `RIGHT CLICK` row in `client/src/ui/settings.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - cleanup, no owner story - 2026-11-06 (Story 10.6, cycle 215, epic-10 amendment 12 (s))
+  summary: A SIDE-FIRED TORPEDO'S LAUNCH POINT CAN SIT UP TO ABOUT 3.4 u SHORT OF THE FULL SPAWN CLEARANCE - it is always outside the hull, and owner immunity makes it harmless, but the clearance the muzzle helper promises is not exact on a side shot from a launcher station. Pre-existing in the shared muzzle helper; the side-firing bands (R28-R30) make the case common.
+  evidence: Story 10.6 server wave; `shared/src/sim/aim.ts` `muzzleSpawn`; epic-10 amendment 12 (s).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: RESOLVED by Story 10.6's review gate, 2026-11-06 (epic-10 amendment 12 (t): the bot's torpedo row decides with the shared `pickTube` over its own launchers; `torpedoAimLegal` deleted) - was: open - owned by Story 10.12 - 2026-11-06 (Story 10.6, cycle 215, epic-10 amendment 12 (r) I9 and (s))
+  summary: BOT TORPEDO PLANNING USES CENTER-MEASURED ARCS - a bot checks whether a torpedo shot is legal with the launcher arcs measured from the ship's center (heading and aim), while the server decides from each launcher's own station, so the two can disagree near the edge of a band. Tuning and the bot pass are 10.12's.
+  evidence: `server/src/game/ai/tacticKit.ts` (the launcher-arc check, `launcherArcHolds(hullId, torpedoLaunchers, heading, aim)`); `shared/src/sim/launchers.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - cleanup, no owner story - 2026-11-06 (Story 10.6, cycle 215)
+  summary: `arcUnion` IS EXPORTED BUT USED BY NO PRODUCTION CODE - the union-of-sectors helper in `client/src/render/weaponArc.ts` built the torpedo wedge's fewest fills before the wedge became the per-launcher side bands (R29, R30); only `client/src/__tests__/weaponArc.test.ts` calls it now.
+  evidence: grep over `shared/src`, `server/src`, `client/src` at the Story 10.6 HEAD.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - cleanup, no owner story - 2026-11-06 (Story 10.6, cycle 215)
+  summary: THE CLIENT'S `weaponArcHit` / `clickInArc` KEEP A CENTER-MEASURED TORPEDO BRANCH THAT PRODUCTION NO LONGER REACHES - torpedo clicks now go through the launcher verdict (the launcher's own station, the shared R16 pick); the center-measured torpedo branch in `client/src/render/weaponArc.ts` is unreached by production and can be removed with its tests.
+  evidence: Story 10.6 client wave; `client/src/render/weaponArc.ts` `weaponArcHit` / `clickInArc`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - no owner story - 2026-11-06 (Story 10.6 review gate, Edge Case Hunter, epic-10 amendment 12 (t))
+  summary: THE CLIENT'S CLOUD GRID IS SIZED FROM ITS OWN CATALOG - `CLOUD_CELLS` is sized once from the largest smoke disc the client's bundled catalog can produce (five SMOKE SCREEN cards); a server running a tuned or injected catalog with a larger stamped disc would have its cloud clipped square at the grid edge. No production path today: only a tuning run changes the catalog, and it has no client.
+  evidence: `client/src/render/cloudPaint.ts` (`CLOUD_CELLS`, `largestCloudR1`).

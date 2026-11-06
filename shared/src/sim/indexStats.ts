@@ -1,9 +1,10 @@
 // THE INDEX DERIVATIONS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8) —
 // the one home for "what does an index BUY". Every ship stat is a plain
-// number around 100 (ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL, RANGE —
-// `INDEX_IDS` in constants.ts): the hull envelope seeds them, the six ship
-// ladders step them +20 a card, and NOTHING else is authored. The speed, the
-// turn rate, the radar sweep, the cooldown scale and the deck-gun reach are
+// number around 100 (ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE —
+// `INDEX_IDS` in constants.ts): the hull envelope seeds them, the ship
+// ladders step them (+20 ARMOR / POWER / INTEL, +10 RELOAD / ENGINES / RANGE
+// since Story 10.6, R1), and NOTHING else is authored. The speed, the radar
+// sweep, the cooldown scale and the deck-gun reach are
 // DERIVED from them here and ONLY here, called from the fold's two re-pin
 // homes (sim/boons.ts `rePinDerived` and sim/stats.ts `clampStats`) exactly as
 // `damageMultiplierFor` and `deriveMineRings` are. No tick, no predictor, no
@@ -18,17 +19,20 @@
 // THE LAWS, Eric's words (story 10-3 § Eric's rulings):
 //   ENGINES (ruling 15) — "Top speed = 30 u/s * (ENGINES / 100)" — LINEAR,
 //     "+100 will be +100% more distance covered per minute".
-//   RUDDER (ruling 3 / 14) — the same shape on the battleship's base:
-//     turn rate = CONFIG.index.rudder × RUDDER / 100 (100 = 0.4 rad/s).
+//   RUDDER is DELETED (Story 10.6, Eric 2026-11-05, R2): every captain hull
+//     turns at the one baseline `CONFIG.index.turnRate`, seeded in sim/stats.ts
+//     baseStats (a PvE drone envelope authors its own — I5). Nothing derives it.
 //   INTEL (ruling 14) — "Radar sweep = 15 RPM × INTEL / 100; INTEL 200 = 30
 //     RPM" — the base IS `CONFIG.vision.sweepRpm` (not restated), capped at
 //     the ratified `sweepRpmMax` ceiling.
 //   RELOAD (ruling 14, verbatim) — "Final Cooldown = Base Cooldown / (1 +
 //     ((RELOAD − INDEX)/K), where INDEX and K are both 100." Both are
 //     `CONFIG.index.base`; algebraically `base × 100 / RELOAD` (120 = ×0.833,
-//     200 = half). The scalar lands on `cooldownScale`, which clampStats
-//     multiplies into EVERY row's reloadMs exactly as before — one scalar, one
-//     multiply site — after the equipment's own −5 %/tier step.
+//     200 = half). `cooldownScale` publishes it for the ship's own RELOAD;
+//     clampStats runs the SAME law once per row on RELOAD + that weapon's
+//     tier bonus (Story 10.6, R5 — the −5 %/tier step is gone), and the
+//     HULL REPAIR / SMOKE SCREEN cooldowns run it on their own fixed score
+//     (R8 / R9, sim/abilityStats.ts).
 //   RANGE (ruling 14) — "reach × index / 100 on the battleship's base": the
 //     four deck-gun rows' folded `rangeU` (Tier I CONFIG + ladder steps) × RANGE
 //     / 100. A ONE-SHOT multiply, so it lives in clampStats alone (see
@@ -91,7 +95,7 @@ export function reloadCooldownScale(reload: number): number {
 
 /**
  * Write every index-DERIVED field from the AUTHORED indices on `stats`, in
- * place: `kinematics.maxSpeed` (ENGINES), `kinematics.turnRate` (RUDDER),
+ * place: `kinematics.maxSpeed` (ENGINES),
  * `sweepRpm` + `sweepPeriodMs` (INTEL, capped at `sweepRpmMax`) and
  * `cooldownScale` (RELOAD). Idempotent — safe in both re-pin homes. The
  * indices themselves are floored whole by clampStats before its call; the
@@ -100,7 +104,6 @@ export function reloadCooldownScale(reload: number): number {
  */
 export function deriveIndexStats(stats: EffectiveStats): void {
   stats.kinematics.maxSpeed = scaled(CONFIG.index.engines, stats.engines);
-  stats.kinematics.turnRate = scaled(CONFIG.index.rudder, stats.rudder);
   stats.sweepRpm = Math.min(scaled(CONFIG.vision.sweepRpm, stats.intel), CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
   stats.cooldownScale = reloadCooldownScale(stats.reload);
@@ -108,7 +111,7 @@ export function deriveIndexStats(stats: EffectiveStats): void {
 
 /**
  * THE ONE-SHOT RANGE MULTIPLY: each deck-gun row's folded reach × RANGE / base.
- * Called from clampStats ONLY (the `reloadMs × tierScale × cd` precedent) —
+ * Called from clampStats ONLY (the reload multiply's precedent) —
  * it consumes the value it overwrites, so a second pass would compound it.
  * At the base index the scale is exactly 1, so a zero-card fold is
  * byte-identical to its CONFIG dials (here the RATIO is taken first, on

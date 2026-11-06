@@ -66,9 +66,9 @@ describe('cooldown abilities — ready at spawn, the stamp is the fixed law', ()
     a.hp = a.stats.maxHp / 2;
     a.lastDamagedAt = w.now;
     press(w, a, abilityCode('repair'));
-    expect(a.repairReadyAt).toBe(abilityReadyAt(w.now, 'repair'));
+    expect(a.repairReadyAt).toBe(abilityReadyAt(w.now, a.stats, 'repair'));
     press(w, a, abilityCode('smoke'));
-    expect(a.smokeReadyAt).toBe(abilityReadyAt(w.now, 'smoke'));
+    expect(a.smokeReadyAt).toBe(abilityReadyAt(w.now, a.stats, 'smoke'));
   });
 });
 
@@ -93,7 +93,7 @@ describe('RELOAD never shortens HULL REPAIR or SMOKE (R3)', () => {
     for (const id of ['repair', 'smoke'] as const satisfies readonly CooldownAbilityId[]) {
       press(w, a, abilityCode(id));
       const readyAt = id === 'repair' ? a.repairReadyAt : a.smokeReadyAt;
-      expect(readyAt - w.now).toBe(abilityCooldownMs(id));
+      expect(readyAt - w.now).toBe(abilityCooldownMs(a.stats, id));
     }
   });
 });

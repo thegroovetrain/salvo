@@ -114,11 +114,12 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0);
     w.step(); // flush joins
+    for (const l of a.launchers) l.a = Math.PI / 2; // trained on the beam (R28: never dead ahead)
     // Two clicks race into the same tick: click 1 fires the gun (slot 0),
-    // click 2 fires the torpedo (slot 1, dead ahead). Pre-2.1 latest-wins
+    // click 2 fires the torpedo (slot 1, abeam). Pre-2.1 latest-wins
     // swallowed click 1 entirely — no shell, no denial.
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 200 }));
-    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: 0 }));
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: Math.PI / 2, aimDist: 300 }));
     w.step();
     const kinds = [...w.shells.values()].map((s) => s.kind).sort();
     expect(kinds).toEqual([...volleyOf(a), 'torp']); // BOTH pressed weapons launched this tick
@@ -128,20 +129,25 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
 
   it('each click keeps its OWN aim: two same-tick torpedo clicks launch on their own bearings', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0);
+    const a = place(w, 'a', 0, 0, 0);
     w.step();
-    const aim1 = 0.2; // both inside the ±30° bow arc
-    const aim2 = -0.3;
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: aim1 }));
-    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: aim2 }));
+    // Story 10.6 / R28: the FORE launcher is trained on the beam. aim1 is the
+    // beam (inside its firing band); aim2 is dead astern — outside it, so the
+    // latest input's aim cannot fire anything.
+    for (const l of a.launchers) l.a = Math.PI / 2;
+    const aim1 = Math.PI / 2;
+    const aim2 = Math.PI;
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: aim1, aimDist: 300 }));
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: aim2, aimDist: 300 }));
     w.step();
-    // Only ONE torpedo can launch (1-fish pool) — the FIRST click in seq order
-    // gets the round at ITS aim; the second gets a cooling denial.
+    // The FIRST click in seq order is judged at ITS aim and fires; the second
+    // is judged at its own aim and refused out-of-arc. Read with the latest
+    // input's aim, click 1 would have been refused too.
     const torps = [...w.shells.values()].filter((s) => s.kind === 'torp');
     expect(torps).toHaveLength(1);
     const dir = Math.atan2(torps[0].vy, torps[0].vx);
     expect(dir).toBeCloseTo(aim1, 6); // the OLDER press's aim, not the latest input's
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'cooling', seq: 2 }]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 2 }]);
   });
 
   it('an older press that cannot fire gets its OWN wire denial while the newer press fires', () => {

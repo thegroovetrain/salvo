@@ -28,9 +28,12 @@
 import {
   CATALOG,
   SLOT_BOOST,
+  abilityCooldownMs,
   boonStackCount,
   type CooldownAbilityId,
+  type EffectiveStats,
   type EquipmentId,
+  type IndexId,
   type LineId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -79,33 +82,28 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The six ship ladders, in the ratified line order. Story 10.3 (Eric
- *  2026-11-04, epic-10 amendment 8) deleted HULL (`hullPoints`) and PASSIVE
- *  HEALING (`passiveHealing`), made the six +20 index cards and set the line
- *  in the INDEX order (amendment 6(c), the SHIP panel's own — RANGE has no
- *  card): ARMOR · POWER · RELOAD over ENGINES · RUDDER · INTEL. */
+/** The eight ship ladders, in Eric's sheet order (Story 10.6, 2026-11-05,
+ *  R1): ARMOR · POWER · INTEL · RELOAD over ENGINES · RANGE · HULL REPAIR ·
+ *  SMOKE SCREEN. RUDDER is gone (R2); RANGE, HULL REPAIR and SMOKE SCREEN
+ *  are the three new SHIP ladders. (Story 10.3 had six in the INDEX order.) */
 const LADDER_LINES: readonly LineId[] = [
   'armor',
   'power',
+  'intel',
   'reload',
   'engines',
-  'rudder',
-  'intel',
+  'range',
+  'hullRepair',
+  'smokeScreen',
 ];
 
-/** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
- *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
+/** Eric R2 (2026-09-30): ladders that start from nothing read as UNTAKEN at
+ *  ZERO copies (tier null) — since Story 10.6 that is the ship's number in the
+ *  muted colour, no longer a `—` (Eric 2026-11-05, the ship numbers). Since Story 9.6 (Eric 2026-10-13, epic-9
  *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
  *  sail at Tier I; ARMOR (Story 9.7) and ARMOR PIERCING (Story 9.9,
- *  amendment 159) too. The six since Story 10.3 (epic-10 amendment 8). */
-const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
-  'armor',
-  'power',
-  'engines',
-  'rudder',
-  'intel',
-  'reload',
-]);
+ *  amendment 159) too — all eight since Story 10.6. */
+const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>(LADDER_LINES);
 
 /** The chip a keyless gun column carries (mock `.kc.ghost`) — laid out, never seen. */
 const GHOST_CHIP = '·';
@@ -132,20 +130,37 @@ const EMPTY_BORDER = `1px dashed ${cssRgba(C.textMuted, 0.45)}`;
 
 // --- pure core -------------------------------------------------------------------
 
-/** One ladder entry of the line under the row: its label and its tier, or null
- *  for R2's untaken dash. */
+/** One ladder entry of the line under the row: its label, its tier (null =
+ *  no card taken — R2), and the SHIP'S FINAL NUMBER on that ladder. */
 export interface LadderEntry {
   label: string;
   tier: number | null;
+  /** Eric 2026-11-05 ("For the results screen also I want to see my ship
+   *  numbers"): the index as the ship ended (hull + cards) for the six index
+   *  ladders; the ability's final cooldown in seconds for HULL REPAIR and
+   *  SMOKE SCREEN — read off the fold, never re-derived. */
+  value: string;
 }
 
-/** Pure: the six ladder entries for a build (`cards` with repeats intact). */
-export function ladderEntries(cards: readonly string[]): LadderEntry[] {
+/** The two ladders whose number is an ability's cooldown, not an index. */
+const ABILITY_OF: Readonly<Partial<Record<LineId, CooldownAbilityId>>> = { hullRepair: 'repair', smokeScreen: 'smoke' };
+
+/** Pure: the ship's final number on a ladder, off its folded stats. */
+export function ladderValue(id: LineId, stats: EffectiveStats): string {
+  const ability = ABILITY_OF[id];
+  if (ability !== undefined) return `${(abilityCooldownMs(stats, ability) / 1000).toFixed(1)}s`;
+  return String(Math.round(stats[id as IndexId]));
+}
+
+/** Pure: the eight ladder entries for a build (`cards` with repeats intact)
+ *  on the ship's folded `stats`. */
+export function ladderEntries(cards: readonly string[], stats: EffectiveStats): LadderEntry[] {
   return LADDER_LINES.map((id) => {
     const copies = boonStackCount(cards, id);
     const label = boonName(id);
-    if (copies === 0 && DASH_AT_ZERO.has(id)) return { label, tier: null };
-    return { label, tier: cardTierSteps(CATALOG[id], copies)?.cur ?? null };
+    const value = ladderValue(id, stats);
+    if (copies === 0 && DASH_AT_ZERO.has(id)) return { label, tier: null, value };
+    return { label, tier: cardTierSteps(CATALOG[id], copies)?.cur ?? null, value };
   });
 }
 
@@ -323,21 +338,28 @@ export const LADDER_LINE_PX = Object.freeze({
   separatorMarginPx: 12,
 });
 
-/** One ladder entry: the muted label, then its ramp numeral or R2's muted dash. */
+/**
+ * One ladder entry: the muted label, then the SHIP'S NUMBER (Eric 2026-11-05)
+ * in the numeral register, tinted on the absolute tier ramp by the copies
+ * held — muted at zero copies (R2). The ship's number REPLACES the roman tier
+ * mark: both do not fit four to a row in the 530 px column, so the tier
+ * survives as the numeral's ramp color.
+ */
 function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   const el = span('', entry.label);
-  const mark = entry.tier === null ? '—' : romanTier(entry.tier);
   const tint = entry.tier === null ? 'var(--hc-text-muted)' : tierTint(entry.tier);
-  el.appendChild(span(`font-weight:600;font-size:${LADDER_LINE_PX.numeralPx}px;margin-left:${LADDER_LINE_PX.numeralGapPx}px;letter-spacing:${LADDER_LINE_PX.numeralTrackingEm}em;color:${tint}`, mark));
+  el.appendChild(span(`font-weight:600;font-size:${LADDER_LINE_PX.numeralPx}px;margin-left:${LADDER_LINE_PX.numeralGapPx}px;letter-spacing:${LADDER_LINE_PX.numeralTrackingEm}em;text-transform:none;color:${tint}`, entry.value));
   return el;
 }
 
 /** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99; four
  *  since Story 9.7, Eric 2026-10-13, epic-9 amendment 114 — seven read 4 + 3;
  *  kept at four in Story 9.9, Eric's pick on the rendered page, epic-9
- *  amendment 160 — eight read 4 + 4). THREE again since Story 10.3: the six
- *  index ladders read 3 + 3 (amendment 99's two rows of three return). */
-const LADDERS_PER_ROW = 3;
+ *  amendment 160 — eight read 4 + 4; three in Story 10.3 for six). FOUR again
+ *  since Story 10.6: the eight ship ladders read 4 + 4 (amendment 160's
+ *  layout returns — still two rows at the same type, so the strip keeps its
+ *  height; each row stays inside the 530 px column). */
+const LADDERS_PER_ROW = 4;
 
 /** One row of the ladder line: its entries with a muted `·` between them. */
 function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
@@ -351,14 +373,14 @@ function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
 }
 
 /**
- * The six ship ladders as TWO ROWS, THREE OVER THREE (mock `.lo-lad`, re-cut
+ * The eight ship ladders as TWO ROWS, FOUR OVER FOUR (mock `.lo-lad`, re-cut
  * at Story 9.6 — Eric 2026-10-13, epic-9 amendment 99 — again at Story 9.7,
- * amendment 114, at Story 9.9, amendment 160, and at Story 10.3): ARMOR ·
- * POWER · RELOAD sit over ENGINES · RUDDER · INTEL at the same type, tracking
- * and separators (a single line of six would run past the panel's 530 px
- * content column at its widest numerals).
+ * amendment 114, at Story 9.9, amendment 160, at Story 10.3 and at Story
+ * 10.6): ARMOR · POWER · INTEL · RELOAD sit over ENGINES · RANGE · HULL
+ * REPAIR · SMOKE SCREEN at the same type, tracking and separators (a single
+ * line of eight would run past the panel's 530 px content column).
  */
-function makeLadderLine(cards: readonly string[]): HTMLDivElement {
+function makeLadderLine(cards: readonly string[], stats: EffectiveStats): HTMLDivElement {
   const line = document.createElement('div');
   line.style.cssText = [
     'margin-top:12px',
@@ -373,7 +395,7 @@ function makeLadderLine(cards: readonly string[]): HTMLDivElement {
     'white-space:nowrap',
   ].join(';');
   line.dataset.loadoutLadder = '';
-  const entries = ladderEntries(cards);
+  const entries = ladderEntries(cards, stats);
   for (let i = 0; i < entries.length; i += LADDERS_PER_ROW) {
     line.appendChild(makeLadderRow(entries.slice(i, i + LADDERS_PER_ROW)));
   }
@@ -387,6 +409,6 @@ export function makeLoadoutBlock(own: ResultsOwn): HTMLElement {
   const head = document.createElement('div');
   head.textContent = 'LOADOUT';
   head.style.cssText = SECTION_HEAD_CSS;
-  block.append(head, makeRow(own), makeLadderLine(own.cards));
+  block.append(head, makeRow(own), makeLadderLine(own.cards, own.stats));
   return block;
 }

@@ -13,7 +13,7 @@
 // wall, a 60 Hz render, 60 s, the contact in every frame.
 
 import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_CLASS_ID, type Contact } from '@salvo/shared';
+import { DEFAULT_CLASS_ID, baseSmokeStats, type Contact } from '@salvo/shared';
 import type { Relation } from '../render/relationColor.js';
 
 vi.mock('pixi.js', async (importOriginal) => {
@@ -198,7 +198,8 @@ describe('ServerClock.frameNow', () => {
 });
 
 describe('the far-cloud radar hold ages by the same staleness clock', () => {
-  const cloud = { x: 5000, y: 0, t0: 0, deliveredAt: 10_000 };
+  const { lifeMs, r0, r1 } = baseSmokeStats(); // the cloud's stamped size (Story 10.6, I6)
+  const cloud = { x: 5000, y: 0, t0: 0, lifeMs, r0, r1, deliveredAt: 10_000 };
   const gate = { own: { x: 0, y: 0 }, sightU: 500, sweepPeriodMs: 4000, holdRevs: 1.5 };
 
   it('without staleNow the hold reads serverNow (unchanged on an on-time server)', () => {

@@ -193,9 +193,10 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  // The six universal ladders (Story 10.3, Eric 2026-11-04, epic-10 amendment 8:
-  // HULL POINTS and PASSIVE HEALING deleted; four ids renamed).
-  const universal = ['armor', 'power', 'engines', 'rudder', 'reload', 'intel'];
+  // The universal stat ladders (Story 10.3, Eric 2026-11-04, epic-10 amendment 8:
+  // HULL POINTS and PASSIVE HEALING deleted; four ids renamed; Story 10.6, Eric
+  // 2026-11-05: RUDDER deleted (R2), RANGE added (R1)).
+  const universal = ['armor', 'power', 'engines', 'reload', 'intel', 'range'];
   const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept

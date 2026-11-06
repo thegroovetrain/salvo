@@ -481,10 +481,6 @@ export function gunReachU(
   return pointInLitZone(far, ownLitZones) ? aimDist : baseRangeU;
 }
 
-/** Where a TORPEDO leaves the tube: the bow-clear offset along its launch
- *  bearing (the makeBallistic spawn rule for a projectile with no explicit
- *  `origin` — hullClearOffset with hitRadius + spawnClearance). */
-export function torpedoSpawn(pose: AimPose, hullLength: number, dir: number): Vec2 {
-  const off = hullClearOffset(hullLength, CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance);
-  return { x: pose.x + Math.cos(dir) * off, y: pose.y + Math.sin(dir) * off };
-}
+// `torpedoSpawn` (the bow-clear ring origin) is RETIRED by Story 10.6 (Eric
+// 2026-11-05, R6 / R16): a torpedo leaves its LAUNCHER's station on the deck
+// along the launcher's bearing — sim/launchers.ts `torpedoLaunchPoint`.

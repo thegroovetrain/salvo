@@ -27,8 +27,8 @@
 //     remaining hazard by refusing a stat path that takes `add` from one line
 //     and `mult` from another.
 //   - TIERS ARE DERIVED, NOT EFFECTS. `equipment[id].tier` is written from the
-//     copy count (see applyLineTier), which is what lets the −5 %/tier reload
-//     step live in ONE place (sim/stats.ts clampStats) instead of being
+//     copy count (see applyLineTier), which is what lets the per-weapon RELOAD
+//     bonus (Story 10.6, R5) live in ONE place (sim/stats.ts clampStats) instead of being
 //     restated as an effect on every tier of every equipment line.
 //
 // THE TWO RE-PIN HOMES stay exactly two: this fold's tail (rePinDerived, which
@@ -36,6 +36,7 @@
 // firewall's unconditional output pass). Nothing else re-derives.
 
 import type { EquipmentId, LoadoutSlot, ShiftId } from './loadout.js';
+import { deriveAbilityStats } from './abilityStats.js';
 import { DEFAULT_SHIFT, equipmentMaxAmmo, familySlotFor, loadoutFor } from './loadout.js';
 import {
   BOON_STAT_PATH_SET,
@@ -110,8 +111,8 @@ function applyDoctrineEffect(stats: EffectiveStats, e: BoonDoctrineEffect): void
  * Write the LADDER RUNG a line's copies bought onto its target equipment row.
  * An `equipment` line's tier IS its copies held (copy 1 is the bare weapon);
  * the slotless DECK GUN ladder's is `1 + copies`, because its tier I ships
- * equipped. An add-on moves no tier (it bolts a verb on). See sim/stats.ts reloadTierScale for what the
- * number then buys.
+ * equipped. An add-on moves no tier (it bolts a verb or a mount on). See
+ * sim/stats.ts applyReloadLaw for what the number then buys.
  */
 function applyLineTier(stats: EffectiveStats, line: CatalogLine, copies: number): void {
   // A LINE NOBODY HOLDS WRITES NOTHING. Every row is already seeded at tier 1
@@ -156,12 +157,16 @@ function forEachHeldEffect(
 function rePinDerived(stats: EffectiveStats): void {
   const eq = stats.equipment;
   // THE INDEX DERIVATIONS (Story 10.3, sim/indexStats.ts): speed from ENGINES,
-  // turn rate from RUDDER, sweep (and its period, capped) from INTEL, the
-  // cooldown scale from RELOAD — idempotent in the authored indices, so a
-  // mid-fold index write can never leave a derived number stale. The ONE-SHOT
-  // RANGE multiply on the deck-gun rows is NOT here (it would double-apply);
-  // it lives in clampStats alone, beside the reload multiply.
+  // sweep (and its period, capped) from INTEL, the cooldown scale from RELOAD
+  // (the turn rate is the one baseline since Story 10.6 — R2) — idempotent in
+  // the authored indices, so a mid-fold index write can never leave a derived
+  // number stale. The ONE-SHOT RANGE, RELOAD-LAW and MOUNT-CAPACITY multiplies
+  // are NOT here (they would double-apply); they live in clampStats alone.
   deriveIndexStats(stats);
+  // THE TWO ABILITIES' DERIVED NUMBERS (Story 10.6, sim/abilityStats.ts):
+  // each cooldown from its own score, the smoke disc from its rung —
+  // idempotent, so a mid-fold score write never leaves them stale.
+  deriveAbilityStats(stats);
   // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is a
   // stat-addressable dial the cards step, so it is folded, never derived.
   // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders
@@ -241,7 +246,7 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  * greyed refit card, the bot spend scorer, the level-zero guarantee
  * (sim/draw.ts `usableLines`) and the batch-sim spend instrument.
  *
- * The three refusals, in the order they are decided:
+ * The four refusals, in the order they are decided:
  *   - `stub` — the line's mechanism is not built (amendment 11), or the id is
  *     not an OWN PROPERTY of the catalog at all (fail closed: an unknown id and
  *     a prototype key are both refusals, never a grant).
@@ -254,6 +259,11 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  *     the deal — R6), or the slot is missing from a malformed array. Before
  *     10.5 it meant "all three of Q/E/R occupied". The draw never offers such
  *     a line (sim/draw.ts), so this is the forced-pick gate.
+ *   - `noHost` — an ADD-ON (since Story 10.6: the four one-off WEAPON cards,
+ *     AFT TORPEDO LAUNCHER, SECOND LAUNCHER TUBE, SECOND MINE RACK and
+ *     EXPANDED MINE RACKS) whose FAMILY SLOT holds none of the equipment it
+ *     names (Eric 2026-11-05, R10: "dealt only once their family slot is
+ *     filled"). The draw never offers one either (`addonHosted`).
  *
  * A TIER-UP IS NEVER A SLOT QUESTION: copies 2..cap of a held line are legal
  * whatever the row holds — the weapon is already aboard.
@@ -265,7 +275,7 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  *
  * This enum is a reason for the ENGINE, not player-facing text.
  */
-export type PickRefusal = 'stub' | 'atCap' | 'noWeaponSlot';
+export type PickRefusal = 'stub' | 'atCap' | 'noWeaponSlot' | 'noHost';
 
 export function pickRefusal(
   held: readonly string[],
@@ -278,7 +288,26 @@ export function pickRefusal(
   const copies = boonStackCount(held, lineId);
   if (copies >= line.cap) return 'atCap';
   if (line.kind === 'equipment' && copies === 0) return familySlotRefusal(line, slotIds);
+  if (line.kind === 'addon' && !addonHosted(line, slotIds)) return 'noHost';
   return null;
+}
+
+/**
+ * IS AN ADD-ON'S HOST ABOARD? True iff some equipment the line names in
+ * `appliesTo` sits in its own FAMILY SLOT (Story 10.6, Eric 2026-11-05, R10 /
+ * I8): the torpedo one-offs name every torpedo, so any torpedo in `Q` hosts
+ * them; the mine one-offs, any mine in `E`. Read off the SLOT IDS — the
+ * replayed loadout — so the draw, the pick and the client's greyed card ask
+ * the one question over one set of facts. Fail-closed: no `appliesTo`, a
+ * slotless target or a short array is "not hosted". It REPLACES the add-on
+ * rule "a host held OR any weapon slot still open" (amendment 89b), which
+ * let an add-on be dealt ahead of its host.
+ */
+export function addonHosted(line: CatalogLine, slotIds: readonly (EquipmentId | null)[]): boolean {
+  return (line.appliesTo ?? []).some((eq) => {
+    const slot = familySlotFor(eq);
+    return slot !== null && slotIds[slot] === eq;
+  });
 }
 
 /** The slot half of `pickRefusal`: copy 1 needs its weapon's FAMILY slot

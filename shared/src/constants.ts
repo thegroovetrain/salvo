@@ -162,13 +162,19 @@ export const CONFIG = {
    *       number then; for 10.3 the +20 of ruling 4 stands as scaffold.)
    *
    * The indices are AUTHORED on each hull envelope below (`index`) and
-   * stepped by the six ship ladders (sim/catalog.ts); the three bases here are
-   * harness dials like any other CONFIG number.
+   * stepped by the ship ladders (sim/catalog.ts); the bases here are harness
+   * dials like any other CONFIG number.
+   *
+   * RUDDER IS GONE (Story 10.6, Eric 2026-11-05, R2: *"lets remove rudder,
+   * and just give everyone the same turn rate"*; *"Rudder can be whatever the
+   * 'Baseline' is."*): no RUDDER index, no card. `turnRate` is the baseline —
+   * today's RUDDER 100 — and every captain hull turns at it; a PvE drone
+   * envelope authors its own `kinematics.turnRate` (I5).
    */
   index: {
     base: 100, // the index that means "the average ship" — INDEX and K of ruling 14, the 100 of every linear law
     engines: 30, // u/s — top speed at ENGINES 100 (ruling 15)
-    rudder: 0.4, // rad/s — turn rate at RUDDER 100 (ruling 3: the battleship's)
+    turnRate: 0.4, // rad/s — EVERY captain hull's turn rate (Story 10.6, R2: the retired RUDDER 100)
   },
 
   /**
@@ -185,11 +191,13 @@ export const CONFIG = {
    *     (sim/silhouette.ts) is normalized to EXACTLY these dims — the
    *     silhouette IS the hitbox.
    *   - `hp` — 1000 on every hull (Story 10.3, ruling 3).
-   *   - `index` — Eric's R1 table (RUDDER 100 on all four).
+   *   - `index` — Eric's R1 table (RUDDER 100 on all four until Story 10.6
+   *     deleted the index — R2: every captain turns at `CONFIG.index.turnRate`).
    *   - `kinematics` — accel / decel / reverse / steerage are UNRULED per
    *     hull: all four take the retired `battleship` row (implementer reading
-   *     of record). `maxSpeed` / `turnRate` are derived by the fold from
-   *     ENGINES / RUDDER (sim/indexStats.ts), never authored.
+   *     of record). `maxSpeed` is derived by the fold from ENGINES
+   *     (sim/indexStats.ts) and `turnRate` is the shared baseline
+   *     (`CONFIG.index.turnRate`, Story 10.6 R2) — neither is authored.
    *   - `battery` — the MAIN BATTERY's per-hull half (the shared half is
    *     `CONFIG.mainBattery`): the train limit either side of each turret's
    *     rest bearing (±150°, Bismarck ±145° — amendment 7(d)); each turret's
@@ -217,7 +225,6 @@ export const CONFIG = {
         power: 140,
         reload: 70,
         engines: 85,
-        rudder: 100,
         intel: 90,
         range: 100,
       },
@@ -236,6 +243,11 @@ export const CONFIG = {
         ],
         shellDamage: 24, // hp per shell (R2)
       },
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.23, deadDeg: 30, trainDeg: 130 },
+        aft: { frac: 0.82, deadDeg: 40, trainDeg: 130 },
+      },
     },
     bismarck: {
       hull: { length: 251.0 * U_PER_M, beam: 36.0 * U_PER_M }, // u — Bismarck, 1941: 251.0 m × 36.0 m (115.1 × 16.5 u)
@@ -245,7 +257,6 @@ export const CONFIG = {
         power: 95,
         reload: 105,
         engines: 95,
-        rudder: 100,
         intel: 100,
         range: 95,
       },
@@ -265,6 +276,11 @@ export const CONFIG = {
         ],
         shellDamage: 27, // hp per shell (R2)
       },
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.135, deadDeg: 30, trainDeg: 125 },
+        aft: { frac: 0.875, deadDeg: 30, trainDeg: 125 },
+      },
     },
     warspite: {
       hull: { length: 196.2 * U_PER_M, beam: 31.7 * U_PER_M }, // u — HMS Warspite, 1937 rebuild: 196.2 m × 31.7 m (90.0 × 14.5 u)
@@ -274,7 +290,6 @@ export const CONFIG = {
         power: 100,
         reload: 100,
         engines: 80,
-        rudder: 100,
         intel: 90,
         range: 125,
       },
@@ -294,6 +309,11 @@ export const CONFIG = {
         ],
         shellDamage: 27, // hp per shell (R2)
       },
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.15, deadDeg: 30, trainDeg: 135 },
+        aft: { frac: 0.895, deadDeg: 20, trainDeg: 125 },
+      },
     },
     iowa: {
       hull: { length: 270.4 * U_PER_M, beam: 33.0 * U_PER_M }, // u — USS Iowa, 1943–45: 270.4 m × 33.0 m (124.0 × 15.1 u)
@@ -303,7 +323,6 @@ export const CONFIG = {
         power: 105,
         reload: 95,
         engines: 120,
-        rudder: 100,
         intel: 115,
         range: 100,
       },
@@ -321,6 +340,11 @@ export const CONFIG = {
           { frac: 0.741, facing: 'aft', guns: 3 },
         ],
         shellDamage: 24, // hp per shell (R2)
+      },
+      // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets); // firing bands, ° off each launcher's own end, both sides: deadDeg = the no-fire half-wedge about rest, trainDeg = the hard stop (R30, Eric 2026-11-06)
+      launchers: {
+        fore: { frac: 0.204, deadDeg: 35, trainDeg: 130 },
+        aft: { frac: 0.821, deadDeg: 35, trainDeg: 135 },
       },
     },
   },
@@ -371,6 +395,8 @@ export const CONFIG = {
    * so every shots-to-kill and exchange-rate relation above holds unchanged.
    * The envelopes carry the seven INDICES like a class: ARMOR / POWER / RELOAD
    * / INTEL / RANGE 100, ENGINES 133 / 117 / 100 and RUDDER 225 / 188 / 150 —
+   * (RUDDER is DELETED by Story 10.6, R2: the drones now AUTHOR the turn rate
+   * those indices gave them, `kinematics.turnRate` 0.9 / 0.752 / 0.6 — I5)
    * the nearest whole indices to the retired 40 / 35 / 30 u/s and 0.9 / 0.75 /
    * 0.6 rad/s (the fold reads 39.9 / 35.1 / 30 u/s and 0.9 / 0.752 / 0.6
    * rad/s: the medium drone turns 0.002 rad/s faster, the small and medium
@@ -405,7 +431,6 @@ export const CONFIG = {
         power: 100,
         reload: 100,
         engines: 133, // 39.9 u/s — was 40 (Eric ruling 2026-08-14; 46 before, the fastest hull afloat)
-        rudder: 225, // 0.9 rad/s (UNCHANGED: agility is a size property)
         intel: 100,
         range: 100,
       },
@@ -414,6 +439,7 @@ export const CONFIG = {
         accel: 9.5, // u/s^2 — throttling up, scaled 11 × 40/46
         decel: 14.8, // u/s^2 — throttling down / braking, scaled 17 × 40/46
         steerageSpeed: 12, // u/s — speed at which rudder reaches full authority (UNCHANGED)
+        turnRate: 0.9, // rad/s — AUTHORED since Story 10.6 (I5): the 0.4 × 225 / 100 the retired RUDDER index gave it (agility is a size property)
       },
     },
     medium: {
@@ -425,7 +451,6 @@ export const CONFIG = {
         power: 100,
         reload: 100,
         engines: 117, // 35.1 u/s — was 35 (Eric ruling 2026-08-14; 38 before) — ties the Battleship
-        rudder: 188, // 0.752 rad/s — was 0.75 (UNCHANGED in spirit: the nearest whole index)
         intel: 100,
         range: 100,
       },
@@ -434,6 +459,7 @@ export const CONFIG = {
         accel: 8.3, // u/s^2 — throttling up, scaled 9 × 35/38
         decel: 12.9, // u/s^2 — throttling down / braking, scaled 14 × 35/38
         steerageSpeed: 10, // u/s — speed at which rudder reaches full authority (UNCHANGED)
+        turnRate: 0.752, // rad/s — AUTHORED since Story 10.6 (I5): the 0.4 × 188 / 100 the retired RUDDER index gave it
       },
     },
     large: {
@@ -445,7 +471,6 @@ export const CONFIG = {
         power: 100,
         reload: 100,
         engines: 100, // 30 u/s — the ENGINES base exactly (Eric ruling 2026-08-14; unchanged, so the block below is too)
-        rudder: 150, // 0.6 rad/s
         intel: 100,
         range: 100,
       },
@@ -454,6 +479,7 @@ export const CONFIG = {
         accel: 7, // u/s^2 — throttling up
         decel: 11, // u/s^2 — throttling down / braking
         steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
+        turnRate: 0.6, // rad/s — AUTHORED since Story 10.6 (I5): the 0.4 × 150 / 100 the retired RUDDER index gave it
       },
     },
   },
@@ -1716,11 +1742,12 @@ export const CONFIG = {
    * commitment-spike feel). The bow tube is now just the pool.
    */
   torpedo: {
-    offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
+    // NO LAUNCH SECTOR (Story 10.6, Eric 2026-11-05, R6): `offset` / `halfArc`
+    // are DELETED on all three torpedo blocks — a torpedo leaves a deck
+    // LAUNCHER that trains like a turret (`CONFIG.launcher`, sim/launchers.ts).
     // AR44: a torpedo hits hulls — it runs UNDER a minefield and
     // never sets one off.
     hits: HITS_HULL,
-    halfArc: deg(30), // +/-30deg launch arc
     // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
     // amendment 55): nothing requires a torpedo to outrun every hull any more.
     // What 65 buys today is a FACT, not a requirement — the base fish still
@@ -1754,7 +1781,7 @@ export const CONFIG = {
     // epic-10 amendment 8, ruling 5: "HEAVY 300 → 600"): the line authors
     // +75 a rung → 300/375/450/525/600 — Tier V is 60 % of a hull.
     damage: 300,
-    maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
+    maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4) — AFT TORPEDO LAUNCHER and SECOND LAUNCHER TUBE multiply it
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
     // longer commitment cycle. A max RELOAD build (cooldownScale 0.5) lands
@@ -1817,11 +1844,9 @@ export const CONFIG = {
    * +0.125 rad/s each, so there is no `homingTurnRate` base to author here.
    */
   lightTorpedo: {
-    offset: deg(90), // the twin sector's CENTER bearing — ±90° = both beams
-    halfArc: deg(45), // ±45° about each beam (90° dead zones fore and aft, R18)
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
     damage: 200, // hp per contact hit — tier I; +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
-    maxAmmo: 1, // tubes — tier I (R18); +0.5 on the rungs to II and III only, FLOORED → 1,1,2,2,2 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 1,1,2,2,3)
+    maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls — it runs UNDER a minefield.
     hits: HITS_HULL,
@@ -1831,7 +1856,8 @@ export const CONFIG = {
    * SUPERCAVITATING TORPEDO — a TORPEDO-SLOT weapon (`Q`) since Story 10.5
    * (Eric 2026-11-05, epic-10 amendment 11, R4: "SUPERCAV 45"): one torpedo
    * in the tube on a 45 s reload, scaled by RELOAD and the −5 %/tier step like
-   * every slot weapon; ready it, click inside the bow ±15° sector, one torpedo.
+   * every slot weapon; ready it, click inside a launcher's arc, one torpedo (Story 10.6, R6 —
+   * the bow ±15° sector is retired).
    * From Story 8.13 to 10.5 it was a prime-and-click CONSUMABLE with no reload
    * and no tiers (Eric 2026-09-19, epic-8 amendment 74); the kit is retired.
    *
@@ -1844,8 +1870,6 @@ export const CONFIG = {
    * family's `hitRadius` / `spawnClearance` from `CONFIG.torpedo`.
    */
   supercavTorpedo: {
-    offset: deg(0), // bow-centered
-    halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
     speed: 195, // u/s (amendment 74, R19's speed kept)
     damage: 400, // hp per contact hit — tier I; +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
     maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
@@ -1920,7 +1944,11 @@ export const CONFIG = {
     // machinery — the same shared pool path torpedoTube already exercises for a
     // 2-deep pool — and deliberately NOT a new catalog card. Since Story 8.4
     // the drop pool is the ONLY mine bound: no live-board cap exists (below).
-    maxAmmo: 2,
+    // PER RACK since Story 10.6 (Eric 2026-11-05, R7: "The Tier I card gives
+    // ONE rack holding 3 naval"): 2 → 3. A second rack (SECOND MINE RACK) and
+    // +1 a rack (EXPANDED MINE RACKS) are the one-off cards' — no tier steps
+    // it (R4); the fold reads the row as racks × (this + bonus).
+    maxAmmo: 3,
     // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
     // weapon balance pass): the rack got deeper, so each round costs more.
     // A max RELOAD build (cooldownScale 0.5) lands it at 7.5 s (Story 10.5, R11).
@@ -2011,7 +2039,7 @@ export const CONFIG = {
    */
   captiveMines: {
     reloadMs: 20000, // ms — tier I (amendment 77); −5 %/tier → 16 s at V
-    maxAmmo: 1, // held mines — tier I (amendment 77); +0.5 on the rungs to II and III only, FLOORED → 1,1,2,2,2 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 1,1,2,2,3)
+    maxAmmo: 1, // held mines PER RACK (Story 10.6, R7: "1 captive"); no tier steps it since 10.6 (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
     // 144 → 120 (Story 9.1 session 3, Eric 2026-10-08, off the mine experiments:
     // the captive mine "can upgrade to having a range where they will fire before
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
@@ -2055,7 +2083,7 @@ export const CONFIG = {
     blastRadius: 72, // u — tier I; ×1.1/tier → 105.4 u at V [DRAFT]
     slowFactor: 0.75, // × maxSpeed AND reverseSpeed; −0.05/tier → 0.55 at V [DRAFT]
     slowDurationMs: 5000, // ms — FIXED at every tier (refresh, don't stack) [DRAFT]
-    maxAmmo: 2, // held mines — tier I; +1/tier → 6 at V [DRAFT]
+    maxAmmo: 3, // held mines PER RACK (Story 10.6, R7: "3 fouling"; was 2 +1/tier → 6 at V) — no tier steps it (R4)
     reloadMs: 15000, // ms — tier I; −5 %/tier → 12 s at V [DRAFT]
     // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged).
     hits: HITS_HULL,
@@ -2568,14 +2596,16 @@ export const CONFIG = {
    * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric rulings 2026-10-11, epic-9
    * amendments 40–47; re-cut by Story 9.3 session 2, Eric 2026-10-12) — the
    * SMOKE ability on `V` since Story 10.5 (Eric 2026-11-05, epic-10 amendment
-   * 11, R2/R3): every ship carries it, ready at spawn, on a FIXED
-   * `cooldownMs` counted from the press that no RELOAD index or card shortens
-   * (sim/abilities.ts). It was a key-fired consumable until then. In plain
-   * words:
+   * 11, R2/R3): every ship carries it, ready at spawn, on a `cooldownMs`
+   * counted from the press that the ship's RELOAD index never shortens
+   * (sim/abilities.ts) — only the SMOKE SCREEN cards do, since Story 10.6
+   * (R9, below). It was a key-fired consumable until then. In plain words:
    * - ONE press makes ONE stationary cloud centered on the hull; every press
    *   makes a new cloud (nothing restarts, nothing refuses while one lives).
-   * - The cloud lives `lifeMs`. Its spray disc grows from `r0` at birth to
-   *   `r1` at the end of its life (sim/cloud.ts `cloudOutlineRadius`).
+   * - The cloud lives its life. Its spray disc grows from its r0 at birth to
+   *   its r1 at the end of its life (sim/cloud.ts `cloudOutlineRadius`); all
+   *   three are the OWNER's `EffectiveStats.smoke` at the press, stamped on
+   *   the cloud (Story 10.6, I6).
    * - It is a picture, not a wall (Eric 2026-10-12: "rather than fucking with
    *   whether I can see something, just draw it on top of ships"): the
    *   server hides NOTHING behind or inside it — no sight, no radar. Each
@@ -2585,8 +2615,8 @@ export const CONFIG = {
    *   not gameplay.
    * - A client is sent the cloud if it is the owner, or its sight or its
    *   radar reaches the disc; it keeps a cloud it was sent until it dies.
-   * Every number here is a dial, read straight from CONFIG (an ability has no
-   * `EffectiveStats` row).
+   * Every number here is a BASE dial: the per-ship values are folded from it
+   * and the ship's SMOKE SCREEN cards (`EffectiveStats.smoke`, Story 10.6).
    *
    * NOT `CONFIG.smoke` above: that block is WOUNDED smoke (the damage-band
    * plume, 250 ms emission cadence, no occlusion) — never conflate the two.
@@ -2599,7 +2629,22 @@ export const CONFIG = {
     // amendment 141). At 500 the full-grown cloud equalled the whole sight bubble.
     r0: 150, // u — the spray disc's radius at birth
     r1: 300, // u — the spray disc's radius at the end of life
-    cooldownMs: 60000, // ms — Eric 2026-11-05, Story 10.5, R2: 60 s from the press; R3: fixed, RELOAD never shortens it
+    cooldownMs: 60000, // ms — with no card (Eric 2026-11-05, Story 10.5, R2: 60 s from the press); the ship's RELOAD never shortens it
+    // THE SMOKE SCREEN LADDER (Story 10.6, Eric 2026-11-05, R9 — a SHIP card,
+    // five copies). Per card: +`reloadPerCard` to a FIXED score of 100 through
+    // the one haste law (60 s → 57.1 / 54.5 / 52.2 / 50 / 48 s — Eric: *"Make
+    // it +5 Reload for both Hull Repair and Smoke"*); +`lifeMsPerCard` of life
+    // (`lifeMs` above is the NO-card life: 15 → 20 s); and the disc
+    // ×`sizeStepPerCard` — anchored so `r0` / `r1` above are the size at
+    // `sizeAnchorCards` (TODAY's 150 → 300 u is the TWO-card size: about
+    // 124 → 248 u with none, 200 → 399 u at five). Derived per ship in the
+    // fold (`EffectiveStats.smoke`, sim/abilityStats.ts) by repeated
+    // multiply / divide — no transcendental — and STAMPED on the cloud at the
+    // press (I6), so a card taken later never changes a live cloud.
+    reloadPerCard: 5, // points per card on the ability's fixed score of 100 (R9)
+    lifeMsPerCard: 1000, // ms of cloud life per card (R9: 15 s + 1 s a card)
+    sizeStepPerCard: 1.1, // × disc radius (r0 AND r1) per card (R9: "each card about 10 % larger")
+    sizeAnchorCards: 2, // the card count at which the disc is exactly r0 → r1 (R9)
   },
 
   /**
@@ -2688,15 +2733,20 @@ export const CONFIG = {
   },
 
   /**
-   * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
-   * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
-   * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →
-   * 80 %), composed BEFORE the global RELOAD ladder — so a maxed weapon under a
-   * maxed Reload runs at 0.80 × 0.75 = 60 % of base. Applied in ONE place
-   * (sim/stats.ts clampStats), never restated as a per-tier effect.
+   * THE CATALOG's engine dials (Story 8.1).
+   *
+   * `reloadBonusPerTier` — THE PER-WEAPON RELOAD BONUS (Story 10.6, Eric
+   * 2026-11-05, R5, verbatim: *"The cooldown should be set at its base
+   * number, but then adjusted at each tier through adding a bonus to the
+   * total RELOAD score applied only to that ability."*): +0 at Tier I, +10 a
+   * tier, +40 at Tier V, ADDED to the ship's RELOAD index for that weapon's
+   * row alone, then the one haste law — cooldown = base × 100 ÷ (RELOAD +
+   * bonus). Applied in ONE place (sim/stats.ts clampStats), never restated
+   * as a per-tier effect. It REPLACES catalog-v3's −5 %-per-tier
+   * `reloadStepPerTier`, which is deleted.
    */
   catalog: {
-    reloadStepPerTier: 0.05, // −5 % of base reload per tier (catalog-v3 §3 standing rule, §4 conventions)
+    reloadBonusPerTier: 10, // RELOAD points per tier above I, that weapon only (R5)
   },
 
   /**
@@ -2893,6 +2943,12 @@ export const CONFIG = {
    * (sim/abilities.ts). A press on a full hull is refused and starts no
    * cooldown. The heal itself is unchanged. It is no longer the one heal: the
    * passive regen is back (R8, `CONFIG.regen` below).
+   *
+   * STORY 10.6 (Eric 2026-11-05, R8): the HULL REPAIR CARD LADDER builds
+   * ruling 7's tier track — the numbers below are the NO-card base and the
+   * per-card steps; each ship's own amounts and cooldown are folded into
+   * `EffectiveStats.repair` (sim/abilityStats.ts). Still no stock: the
+   * ability is every ship's, the cards only improve it.
    */
   hullRepair: {
     // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
@@ -2913,8 +2969,17 @@ export const CONFIG = {
     // The old stacking law (pools ADD, the rate never changes) is SUPERSEDED
     // (Eric 2026-09-29, amendment 141): a re-press REPLACES the pool
     // (`repairHp = regenHp`, remainder discarded) — see hullRepair.test.ts.
-    regenMs: 5000,
-    cooldownMs: 90000, // ms — Eric 2026-11-05, Story 10.5, R1: 90 s (60 / 120 / 180 rejected); R3: fixed, RELOAD never shortens it
+    regenMs: 5000, // FIXED at every card count (Story 10.6, R15: "Correct." — 200 over 5 s at five cards)
+    // THE HULL REPAIR LADDER (Story 10.6, Eric 2026-11-05, R8 — a SHIP card,
+    // five copies): each card +`hpPerCard` at once AND +`hpPerCard` over time
+    // (100 + 100 with no card → 200 + 200 at five), and +`reloadPerCard` to a
+    // FIXED score of 100 run through the one haste law: cooldown = 75 s × 100
+    // ÷ (100 + 5 × cards) → 71.4 / 68.2 / 65.2 / 62.5 / 60 s. The ship's
+    // RELOAD index is NEVER applied. Derived per ship in the fold
+    // (`EffectiveStats.repair`, sim/abilityStats.ts).
+    cooldownMs: 75000, // ms — with no card (R8: 90 → 75 s; Story 10.5's 90 s superseded)
+    hpPerCard: 20, // hp added to BOTH instantHp and regenHp per HULL REPAIR card (R8)
+    reloadPerCard: 5, // points per card on the ability's fixed score of 100 (R8)
   },
 
   /**
@@ -3136,20 +3201,48 @@ export interface HullBattery {
 }
 
 /**
- * THE SEVEN INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8), in
+ * One torpedo LAUNCHER on a hull (Story 10.6): its station and its firing band.
+ * `frac` is a fraction of length overall FROM THE BOW on the centerline (the
+ * `TurretMount.frac` convention; implementer reading I2). The band is PER HULL
+ * and PER LAUNCHER (R30, Eric 2026-11-06), measured off the launcher's OWN end
+ * of the ship and the same on both sides: it trains `trainDeg` either side of
+ * its rest bearing (the hard stop) and FIRES only from `deadDeg` to
+ * `trainDeg` — inside `deadDeg` of rest it may swing through to change sides
+ * but never fires (R28).
+ */
+export interface HullLauncher {
+  readonly frac: number;
+  readonly deadDeg: number;
+  readonly trainDeg: number;
+}
+
+/**
+ * A hull's two torpedo launchers (Story 10.6, R6 / R28 / R30): `fore` sits
+ * ahead of the forward turrets and rests dead ahead; `aft` sits abaft the aft
+ * turrets and rests dead astern.
+ */
+export interface HullLaunchers {
+  readonly fore: HullLauncher;
+  readonly aft: HullLauncher;
+}
+
+/**
+ * THE SIX INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8), in
  * the order the SHIP tooltip and the harness print them (amendment 6(c)):
- * ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL, RANGE. Each is a whole number
+ * ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE (RUDDER, the seventh, is
+ * DELETED by Story 10.6 — Eric 2026-11-05, R2). Each is a whole number
  * around 100 (`CONFIG.index.base`), authored on every hull envelope and
- * stepped by the six ship ladders (RANGE has no card yet — a SHIP stat, 10.6
- * may deal one). The fold derives everything else from them
+ * stepped by the ship ladders of the same names (+20 ARMOR / POWER / INTEL,
+ * +10 RELOAD / ENGINES / RANGE since Story 10.6, R1). The fold derives
+ * everything else from them
  * (sim/indexStats.ts).
  */
-export const INDEX_IDS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel', 'range'] as const;
+export const INDEX_IDS = ['armor', 'power', 'reload', 'engines', 'intel', 'range'] as const;
 
-/** One of the seven indices. */
+/** One of the six indices. */
 export type IndexId = (typeof INDEX_IDS)[number];
 
-/** A hull's seven authored indices — the envelope's half of the fold's seed. */
+/** A hull's six authored indices — the envelope's half of the fold's seed. */
 export type HullIndex = Record<IndexId, number>;
 
 /**
@@ -3158,10 +3251,13 @@ export type HullIndex = Record<IndexId, number>;
  * effectiveStats() accepts either (drones are ordinary ships whose envelope
  * merely comes from a different table).
  *
- * `maxSpeed` and `turnRate` LEFT `kinematics` with Story 10.3: they are
- * DERIVED from ENGINES and RUDDER in the fold (sim/indexStats.ts), and the
- * runtime `ShipConfig` (sim/ship.ts — what stepShip and the predictor read)
- * is what carries them. An envelope never authors a speed.
+ * `maxSpeed` and `turnRate` LEFT `kinematics` with Story 10.3: the speed is
+ * DERIVED from ENGINES in the fold (sim/indexStats.ts), and the runtime
+ * `ShipConfig` (sim/ship.ts — what stepShip and the predictor read) is what
+ * carries both. An envelope never authors a speed. SINCE STORY 10.6 (R2, I5)
+ * a captain's turn rate is the shared `CONFIG.index.turnRate`, and a PvE
+ * drone envelope AUTHORS its own `kinematics.turnRate` (the rate the retired
+ * RUDDER index gave it) — the one optional kinematic.
  */
 export interface HullEnvelope {
   hull: Hull;
@@ -3182,13 +3278,22 @@ export interface HullEnvelope {
    * "is a captain's hull" in the fold (sim/stats.ts) and in sim/turrets.ts.
    */
   battery?: HullBattery;
-  /** The seven authored indices (Story 10.3). */
+  /**
+   * The TORPEDO LAUNCHER stations (Story 10.6, R6 / I2). Present on every
+   * battleship, ABSENT on every PvE drone envelope (a drone mounts no
+   * launcher) — sim/launchers.ts.
+   */
+  launchers?: HullLaunchers;
+  /** The six authored indices (Story 10.3; RUDDER deleted by 10.6). */
   index: HullIndex;
   kinematics: {
     reverseSpeed: number; // u/s (magnitude)
     accel: number; // u/s^2
     decel: number; // u/s^2
     steerageSpeed: number; // u/s
+    /** rad/s — a PvE drone's AUTHORED turn rate (Story 10.6, I5); absent on
+     *  every captain hull, which turns at `CONFIG.index.turnRate` (R2). */
+    turnRate?: number;
   };
 }
 

@@ -63,25 +63,27 @@ import { CONFIG, hullEnvelope, type HullId, type TurretMount } from '../constant
 import { wrapAngle } from '../math/angle.js';
 import type { Vec2 } from '../math/vec.js';
 import { burstPointAlong, muzzleSpawnFrom, type AimPose } from './aim.js';
+import {
+  ARC_EPS,
+  decodeMountAngle,
+  encodeMountAngle,
+  mountArcHolds,
+  mountWant,
+  mountWantFrom,
+  rankMounts,
+  readMount,
+  traverseMount,
+  traverseStepRad,
+  type TrainedMount,
+} from './mountAim.js';
 import { parallelOffsets } from './spread.js';
 
+// The aiming machinery itself lives in sim/mountAim.ts since Story 10.6 (the
+// torpedo launchers share it); this file is the battery's hull-keyed face of
+// it, byte-identical in behavior.
+export { AIM_STATION_EPS_U } from './mountAim.js';
+
 const RAD_PER_DEG = Math.PI / 180;
-
-/**
- * Float slack on an arc-edge comparison (rad, ~6e-8°): a bearing that is
- * mathematically ON a train limit must read as bearing whatever the last ulp
- * of an atan2 / wrap says.
- */
-const ARC_EPS = 1e-9;
-
-/**
- * u — an aim point nearer than this to a turret's own station has NO BEARING
- * from that turret (the bearing would be `atan2(0, 0)`, or float noise). A
- * documented module constant, not a gameplay dial: a millionth of a unit is
- * "the same point", far below any real aim (the gunhouse itself is units
- * across).
- */
-export const AIM_STATION_EPS_U = 1e-6;
 
 /** One turret's runtime state. */
 export interface TurretState {
@@ -167,52 +169,20 @@ export function batteryAimPoint(pose: AimPose, aim: number, aimDist: number): Ve
 }
 
 /**
- * rad in [−π, π) — where the aim point lies relative to turret `i`'s REST
- * bearing, measured from the turret's own station; NOT clamped. `|offset| ≤
- * train` is "the aim point is inside this turret's arc".
- *
- * An aim point exactly on the station has no bearing; atan2(0, 0) = 0 makes
- * that read as "due +x in world axes", deterministic on both sides. The
- * stepper and the pick never get that far — they use `aimOffsetOrNull`.
+ * Turret `i` as a TRAINED MOUNT (sim/mountAim.ts): its station, rest bearing
+ * and the hull's train limit — or `undefined` for an index the hull does not
+ * mount.
  */
-function aimOffset(mount: TurretMount, station: Vec2, pose: AimPose, aim: Vec2): number {
-  const brg = Math.atan2(aim.y - station.y, aim.x - station.x);
-  return wrapAngle(brg - pose.heading - turretRest(mount));
-}
-
-/**
- * `aimOffset`, or `null` when the aim point has NO BEARING from this station:
- * nearer than `AIM_STATION_EPS_U`, or not a finite point at all.
- */
-function aimOffsetOrNull(mount: TurretMount, station: Vec2, pose: AimPose, aim: Vec2): number | null {
-  if (!(Math.hypot(aim.x - station.x, aim.y - station.y) > AIM_STATION_EPS_U)) return null;
-  return aimOffset(mount, station, pose, aim);
-}
-
-/** Clamp an offset-from-rest to the train limits (an offset in the blind sector lands on the NEARER stop). */
-function clampOffset(offset: number, train: number): number {
-  return Math.max(-train, Math.min(train, offset));
-}
-
-/**
- * The offset-from-rest the turret goes to for this aim, or `null` when it does
- * NOT BEAR and so holds (hold-outside-arc / arc-only fire, epic-10 amendment
- * 10): the aim point has no bearing from its station, or lies in its blind
- * sector. Inside the arc it is the aim offset itself, UNCLAMPED (a bearing on
- * a train limit may sit up to `ARC_EPS` outside it — clamp before moving).
- */
-function bearingOffset(mount: TurretMount, station: Vec2, pose: AimPose, aim: Vec2, train: number): number | null {
-  const off = aimOffsetOrNull(mount, station, pose, aim);
-  if (off === null || Math.abs(off) > train + ARC_EPS) return null;
-  return off;
+function trained(hullId: HullId, i: number): TrainedMount | undefined {
+  const mount = turretMounts(hullId)[i];
+  if (mount === undefined) return undefined;
+  return { x: turretStation(hullId, i).x, rest: turretRest(mount), train: turretTrainRad(hullId) };
 }
 
 /** True iff the aim point is inside turret `i`'s arc (rest ± train, from its own station). */
 export function turretBears(hullId: HullId, i: number, pose: AimPose, aim: Vec2): boolean {
-  const mount = turretMounts(hullId)[i];
-  if (mount === undefined) return false;
-  const off = aimOffset(mount, turretStationWorld(hullId, i, pose), pose, aim);
-  return Math.abs(off) <= turretTrainRad(hullId) + ARC_EPS;
+  const m = trained(hullId, i);
+  return m !== undefined && mountArcHolds(m, pose, aim);
 }
 
 /**
@@ -224,10 +194,8 @@ export function turretBears(hullId: HullId, i: number, pose: AimPose, aim: Vec2)
  * place the stepper never goes (the turret holds — `desiredTurretAngleFrom`).
  */
 export function desiredTurretAngle(hullId: HullId, i: number, pose: AimPose, aim: Vec2): number {
-  const mount = turretMounts(hullId)[i];
-  if (mount === undefined) return 0;
-  const off = aimOffset(mount, turretStationWorld(hullId, i, pose), pose, aim);
-  return turretRest(mount) + clampOffset(off, turretTrainRad(hullId));
+  const m = trained(hullId, i);
+  return m === undefined ? 0 : mountWant(m, pose, aim);
 }
 
 /**
@@ -244,25 +212,8 @@ export function desiredTurretAngleFrom(
   aim: Vec2,
   currentA: number,
 ): number {
-  const mount = turretMounts(hullId)[i];
-  if (mount === undefined) return 0;
-  const want = bearingOffset(mount, turretStationWorld(hullId, i, pose), pose, aim, turretTrainRad(hullId));
-  return want === null ? currentA : turretRest(mount) + clampOffset(want, turretTrainRad(hullId));
-}
-
-/** One turret's traverse for a step toward the aim point (`maxStep` rad); a turret that does not bear holds. */
-function traverseTurret(st: TurretState, hullId: HullId, i: number, pose: AimPose, aim: Vec2, maxStep: number): void {
-  const mount = turretMounts(hullId)[i];
-  const train = turretTrainRad(hullId);
-  const want = bearingOffset(mount, turretStationWorld(hullId, i, pose), pose, aim, train);
-  if (want === null) return;
-  const rest = turretRest(mount);
-  // A state outside its interval (never produced here; a corrupt write) is
-  // pulled back to the nearer stop before it moves.
-  const from = rest + clampOffset(st.a - rest, train);
-  const to = rest + clampOffset(want, train);
-  const d = to - from;
-  st.a = Math.abs(d) <= maxStep ? to : from + Math.sign(d) * maxStep;
+  const m = trained(hullId, i);
+  return m === undefined ? 0 : mountWantFrom(m, pose, aim, currentA);
 }
 
 /**
@@ -286,12 +237,13 @@ export function stepTurrets(
   aim: Vec2 | null,
   dtMs: number,
 ): void {
-  const maxStep = (CONFIG.mainBattery.traverseDegPerS * RAD_PER_DEG * dtMs) / 1000;
+  const maxStep = traverseStepRad(CONFIG.mainBattery.traverseDegPerS, dtMs);
   const n = Math.min(states.length, turretMounts(hullId).length);
   for (let i = 0; i < n; i += 1) {
     const st = states[i];
     st.reloadMsLeft = Math.max(0, st.reloadMsLeft - dtMs);
-    if (aim !== null) traverseTurret(st, hullId, i, pose, aim, maxStep);
+    const m = aim === null ? undefined : trained(hullId, i);
+    if (aim !== null && m !== undefined) traverseMount(st, m, pose, aim, maxStep);
   }
 }
 
@@ -338,37 +290,6 @@ export interface TurretPick {
   guns: number;
 }
 
-/** One ready turret's read against the aim point — only ever built for a turret that BEARS. */
-interface TurretRead {
-  on: boolean;
-  /** rad — the FALLBACK rank: the turret's travel to the bearing of the aim point. */
-  err: number;
-  station: Vec2;
-  exactBearing: number;
-  /** u — station → aim point. */
-  aimDistU: number;
-}
-
-/**
- * One ready turret against the aim point, or `null` when it does NOT BEAR
- * (arc-only fire, Eric 2026-11-05, epic-10 amendment 10): the aim point is in
- * its blind sector, or has no bearing from it at all (on its own station,
- * closer than `AIM_STATION_EPS_U`). A turret that bears has an error = its
- * travel to the aim bearing (unwrapped — it can only get there inside its
- * interval), and is ON TARGET within `onTargetDeg` of it.
- */
-function readTurret(st: TurretState, mount: TurretMount, hullId: HullId, i: number, pose: AimPose, aim: Vec2): TurretRead | null {
-  const train = turretTrainRad(hullId);
-  const station = turretStationWorld(hullId, i, pose);
-  const off = bearingOffset(mount, station, pose, aim, train);
-  if (off === null) return null;
-  const rest = turretRest(mount);
-  const aimDistU = Math.hypot(aim.x - station.x, aim.y - station.y);
-  const err = Math.abs(rest + clampOffset(off, train) - st.a);
-  const on = err <= CONFIG.mainBattery.onTargetDeg * RAD_PER_DEG + ARC_EPS;
-  return { on, err, station, exactBearing: pose.heading + rest + off, aimDistU };
-}
-
 /**
  * THE PICK — ARC-ONLY FIRE (Eric 2026-11-05, epic-10 amendment 10: "If my
  * cursor is not within the arc of one of my turrets, it should *not* fire
@@ -402,31 +323,22 @@ export function pickTurret(
   aim: Vec2,
 ): TurretPick | null {
   const mounts = turretMounts(hullId);
-  let best = -1;
-  let bestRead: TurretRead | null = null;
   const n = Math.min(states.length, mounts.length);
-  for (let i = 0; i < n; i += 1) {
-    if (states[i].reloadMsLeft > 0) continue;
-    const read = readTurret(states[i], mounts[i], hullId, i, pose, aim);
-    if (read === null) continue;
-    if (read.on) {
-      best = i;
-      bestRead = read;
-      break;
-    }
-    if (bestRead === null || read.err < bestRead.err) {
-      best = i;
-      bestRead = read;
-    }
-  }
-  if (bestRead === null) return null;
+  const onTargetRad = CONFIG.mainBattery.onTargetDeg * RAD_PER_DEG;
+  const won = rankMounts(n, (i) => {
+    if (states[i].reloadMsLeft > 0) return null;
+    const m = trained(hullId, i);
+    return m === undefined ? null : readMount(states[i].a, m, pose, aim, onTargetRad);
+  });
+  if (won === null) return null;
+  const { index, read } = won;
   return {
-    index: best,
-    onTarget: bestRead.on,
-    station: bestRead.station,
-    bearing: bestRead.on ? bestRead.exactBearing : pose.heading + states[best].a,
-    aimDistU: bestRead.aimDistU,
-    guns: mounts[best].guns,
+    index,
+    onTarget: read.on,
+    station: read.station,
+    bearing: read.on ? read.exactBearing : pose.heading + states[index].a,
+    aimDistU: read.aimDistU,
+    guns: mounts[index].guns,
   };
 }
 
@@ -518,7 +430,7 @@ export function encodeTurretAngles(states: readonly TurretState[], hullId: HullI
   const mounts = turretMounts(hullId);
   const out: number[] = [];
   const n = Math.min(states.length, mounts.length);
-  for (let i = 0; i < n; i += 1) out.push(Math.round((states[i].a - turretRest(mounts[i])) / RAD_PER_DEG));
+  for (let i = 0; i < n; i += 1) out.push(encodeMountAngle(states[i].a, turretRest(mounts[i])));
   return out;
 }
 
@@ -531,6 +443,5 @@ export function encodeTurretAngles(states: readonly TurretState[], hullId: HullI
 export function decodeTurretAngle(hullId: HullId, i: number, q: number): number {
   const mount = turretMounts(hullId)[i];
   if (mount === undefined) return 0;
-  const off = Number.isFinite(q) ? q * RAD_PER_DEG : 0;
-  return turretRest(mount) + clampOffset(off, turretTrainRad(hullId));
+  return decodeMountAngle(q, turretRest(mount), turretTrainRad(hullId));
 }

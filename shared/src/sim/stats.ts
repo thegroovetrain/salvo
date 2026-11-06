@@ -18,15 +18,24 @@
 //
 // THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Every
 // ship stat is an INDEX — a whole number around 100 — and the hull envelope
-// seeds SEVEN of them (`INDEX_IDS`: armor, power, reload, engines, rudder,
-// intel, range) as the AUTHORED top-level fields of this tree; the six ship
-// ladders step six of them +20 a card and nothing else is authored. What they
-// buy is DERIVED, in sim/indexStats.ts, from BOTH re-pin homes:
-// `kinematics.maxSpeed` (30 u/s × ENGINES / 100), `kinematics.turnRate`
-// (0.4 rad/s × RUDDER / 100), `sweepRpm` + `sweepPeriodMs` (15 RPM × INTEL /
-// 100, capped at sweepRpmMax), `cooldownScale` (1 / (1 + (RELOAD − 100) /
-// 100) — the haste law), and in clampStats alone the ONE-SHOT multiply of the
-// four deck-gun rows' `rangeU` by RANGE / 100. `maxHp` is 1000 on every hull
+// seeds SIX of them (`INDEX_IDS`: armor, power, reload, engines, intel,
+// range — RUDDER is DELETED by Story 10.6, R2) as the AUTHORED top-level
+// fields of this tree; the ship ladders of the same names step them. What
+// they buy is DERIVED, in sim/indexStats.ts, from BOTH re-pin homes:
+// `kinematics.maxSpeed` (30 u/s × ENGINES / 100), `sweepRpm` +
+// `sweepPeriodMs` (15 RPM × INTEL / 100, capped at sweepRpmMax),
+// `cooldownScale` (1 / (1 + (RELOAD − 100) / 100) — the haste law), and in
+// clampStats alone the ONE-SHOT multiply of the deck-gun rows' `rangeU` by
+// RANGE / 100. `kinematics.turnRate` is the ONE baseline
+// `CONFIG.index.turnRate` on every captain hull (R2; a PvE drone envelope
+// authors its own — I5).
+//
+// STORY 10.6 (Eric 2026-11-05) ADDED THREE PER-SHIP GROUPS the new cards
+// write: `repair` / `smoke` — the two cooldown abilities' numbers, improved by
+// the HULL REPAIR and SMOKE SCREEN ladders (sim/abilityStats.ts, R8 / R9) —
+// and the four MOUNT counts the one-off WEAPON cards buy (`torpedoLaunchers`,
+// `tubesPerLauncher`, `mineRacks`, `rackBonus` — sim/mountStats.ts, R6 / R7),
+// which become the torpedo and mine rows' capacity in clampStats. `maxHp` is 1000 on every hull
 // (HULL POINTS is deleted), ARMOR is also the ramming MASS (sim/contact.ts
 // callers pass `stats.armor`), and `damageMultiplier` is published against an
 // AVERAGE attacker (POWER = base) so a base hull reads ×1. The `regen` pair is
@@ -57,7 +66,7 @@
 //
 // Defensive clamps + derivations (all inside this firewall, nowhere else):
 //   - EVERY INDEX floored whole (Story 10.3): `armor` / `power` ≥ 0 (the 9.7
-//     rule), `reload` / `engines` / `rudder` / `intel` / `range` ≥ 1 so no
+//     rule), `reload` / `engines` / `intel` / `range` ≥ 1 so no
 //     derivation divides by or multiplies to zero; then the index derivations
 //     (sim/indexStats.ts deriveIndexStats) re-run over the floored values;
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
@@ -70,8 +79,11 @@
 //   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
 //     standing rule (a +0.5 tube step shows nothing until it completes a whole);
-//   - THE EQUIPMENT RELOAD STEP, catalog-v3 §3/§4: −5 % per tier, additive
-//     five-point steps, composed BEFORE the global Reload ladder;
+//   - THE PER-WEAPON RELOAD BONUS (Story 10.6, R5 — it REPLACED catalog-v3's
+//     −5 %-per-tier step): a row's reload is base × the haste law over the
+//     ship's RELOAD + `reloadBonusPerTier` × (tier − 1), that row only;
+//   - THE MOUNT CAPACITY (Story 10.6, R6 / R7): the torpedo and mine rows'
+//     `maxAmmo` × the launchers / tubes / racks the one-offs bought;
 //   - ARMOR (Story 9.7, epic-9 amendments 86–88): `armor` floored to a whole
 //     number ≥ 0, and `damageMultiplier = damageMultiplierFor(armor − base)`
 //     (K = CONFIG.armor.k, base = CONFIG.index.base) derived from it — the ONE
@@ -84,12 +96,13 @@
 //     derives nothing here — it enters only at the server's gate.
 //
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12, re-cut
-// as the RELOAD haste law by Story 10.3 ruling 14) is the ONE global cooldown
-// lever: a base-1.0 scalar DERIVED from the RELOAD index (1 / (1 + (RELOAD −
-// 100) / 100): 120 = ×0.833, 200 = ×0.5), applied post-fold in clampStats.
-// One scalar, one multiply site. SINCE 2026-11-05 (Story 10.5, R10 / R11,
-// epic-10 amendment 11) it reaches every row EXCEPT `RELOAD_UNSCALED_ROWS` —
-// the three Shifts reload on their own number and tier step.
+// as the RELOAD haste law by Story 10.3 ruling 14) PUBLISHES the ship's own
+// RELOAD haste: a base-1.0 scalar (1 / (1 + (RELOAD − 100) / 100): 120 =
+// ×0.833, 200 = ×0.5). SINCE STORY 10.6 (R5) the rows do not multiply it in:
+// each row runs the same law ONCE on RELOAD + its own tier bonus, which is
+// exactly `cooldownScale` at tier I. It reaches every row EXCEPT
+// `RELOAD_UNSCALED_ROWS` (Story 10.5, R10 / R11) — the three Shifts reload
+// on their own number.
 
 import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
@@ -97,8 +110,17 @@ import { applyCardStats } from './boons.js';
 import { CATALOG, type Catalog } from './catalog.js';
 import { EQUIPMENT_INT_FIELDS } from './effects.js';
 import { EQUIPMENT_IDS, type EquipmentId } from './loadout.js';
-import { deriveIndexStats, round3, scaleDeckGunRange } from './indexStats.js';
+import { deriveIndexStats, reloadCooldownScale, scaleDeckGunRange } from './indexStats.js';
 import { secondaryReachU } from './secondaries.js';
+import {
+  baseRepairStats,
+  baseSmokeStats,
+  clampAbilityStats,
+  deriveAbilityStats,
+  type RepairStats,
+  type SmokeStats,
+} from './abilityStats.js';
+import { BASE_MOUNTS, applyMountCapacity, clampMounts } from './mountStats.js';
 
 /**
  * What EVERY equipment row carries (Story 8.1).
@@ -107,12 +129,12 @@ import { secondaryReachU } from './secondaries.js';
  * the COPIES HELD (copy 1 IS the weapon, catalog-v3 §4), for the slotless deck
  * gun it is `1 + copies` because its tier I is already equipped. It is DERIVED
  * from the card counts in the fold, never writable by an effect, and it is what
- * the reload step below reads.
+ * the per-weapon RELOAD bonus reads (Story 10.6, R5).
  */
 export interface EquipmentRowCommon {
   tier: number; // 1-based ladder rung (1 = the bare weapon / the base fit)
-  reloadMs: number; // ms per shot/charge — post-tier-step; post-cooldownScale on every row but RELOAD_UNSCALED_ROWS (the Shifts)
-  maxAmmo: number; // pool size (charges/rounds ready)
+  reloadMs: number; // ms per shot/charge — base × haste(RELOAD + tier bonus) on every row but RELOAD_UNSCALED_ROWS (the Shifts)
+  maxAmmo: number; // pool size (charges/rounds ready) — a torpedo / mine row's is the hull's TOTAL since Story 10.6 (sim/mountStats.ts)
 }
 
 /** The universal standard gun's effective numbers. */
@@ -366,20 +388,24 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
 /**
  * Everything (class, cards) resolves to. See effectiveStats().
  *
- * THE INDEX MODEL (Story 10.3): the seven AUTHORED fields are the indices —
- * `armor`, `power`, `reload`, `engines`, `rudder`, `intel`, `range` — seeded
- * from the hull envelope's `index` block and stepped by the ship ladders.
- * `maxHp` and `radarRange` are authored pass-throughs no card writes today.
- * EVERYTHING ELSE AT THE TOP LEVEL IS DERIVED and never stat-addressable:
- * `kinematics.maxSpeed` / `kinematics.turnRate` (sim/indexStats.ts; the other
- * four kinematics are per-class pass-throughs), `sweepRpm`, `sweepPeriodMs`,
- * `cooldownScale`, `sightRange`, `damageMultiplier`.
+ * THE INDEX MODEL (Story 10.3): the six AUTHORED index fields — `armor`,
+ * `power`, `reload`, `engines`, `intel`, `range` (`rudder` DELETED by Story
+ * 10.6, R2) — are seeded from the hull envelope's `index` block and stepped
+ * by the ship ladders. `maxHp` and `radarRange` are authored pass-throughs no
+ * card writes today. Story 10.6 adds the card-written `repair.*` / `smoke.*`
+ * scores and amounts and the four mount counts (see below). EVERYTHING ELSE
+ * AT THE TOP LEVEL IS DERIVED and never stat-addressable:
+ * `kinematics.maxSpeed` (sim/indexStats.ts), `kinematics.turnRate` (the
+ * baseline), `sweepRpm`, `sweepPeriodMs`, `cooldownScale`, `sightRange`,
+ * `damageMultiplier`, `repair.cooldownMs` / `regenMs`, `smoke.cooldownMs` /
+ * `r0` / `r1`.
  */
 export interface EffectiveStats {
-  // The runtime kinematics stepShip and the predictor read. `maxSpeed` and
-  // `turnRate` are DERIVED (CONFIG.index.engines × engines / 100, CONFIG.index
-  // .rudder × rudder / 100); reverse / accel / decel / steerage are the
-  // envelope's own.
+  // The runtime kinematics stepShip and the predictor read. `maxSpeed` is
+  // DERIVED (CONFIG.index.engines × engines / 100); `turnRate` is the
+  // baseline CONFIG.index.turnRate on every captain hull (Story 10.6, R2) or
+  // a drone envelope's authored rate (I5); reverse / accel / decel /
+  // steerage are the envelope's own.
   kinematics: ShipConfig;
   maxHp: number; // 1000 on every hull since Story 10.3 (shown as a percent, never raw)
   radarRange: number; // u
@@ -394,9 +420,10 @@ export interface EffectiveStats {
    * are `CONFIG.secondaries` constants that no index touches.
    */
   secondaryRangeU: number;
-  // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
-  // (clampStats). DERIVED from the RELOAD index by the haste law (ruling 14):
-  // 1 / (1 + (reload − 100) / 100), round3'd — 1 at base, 0.5 at RELOAD 200.
+  // The ship's RELOAD haste, PUBLISHED (ruling 14): 1 / (1 + (reload − 100) /
+  // 100), round3'd — 1 at base, 0.5 at RELOAD 200. Since Story 10.6 (R5) it
+  // is the tier-free number: each scaled row runs the same law on RELOAD +
+  // its own tier bonus in clampStats, which equals this at tier I.
   cooldownScale: number;
   // ARMOR (Story 9.7, epic-9 amendments 86–88; +20 per card since Story 9.9,
   // amendment 144): an INDEX since Story 10.3 — 100 at base on every scaffold
@@ -418,13 +445,24 @@ export interface EffectiveStats {
   reload: number;
   // ENGINES (ruling 15): top speed = CONFIG.index.engines × engines / 100.
   engines: number;
-  // RUDDER (ruling 3): turn rate = CONFIG.index.rudder × rudder / 100.
-  rudder: number;
+  // (RUDDER sat here until Story 10.6 deleted it — R2.)
   // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × intel / 100.
   intel: number;
   // RANGE (ruling 14): the deck-gun rows' folded reach × range / 100 (the
-  // one-shot multiply in clampStats). No card writes it after 10.3.
+  // one-shot multiply in clampStats). The RANGE card (+10, Story 10.6 R1)
+  // writes it — so it reaches the main battery and the secondaries only.
   range: number;
+  // HULL REPAIR (`C`) and SMOKE (`V`) — per ship since Story 10.6 (R8 / R9):
+  // improved by their ladders, never by the ship's RELOAD. A press reads
+  // these; a smoke press STAMPS its cloud with `smoke.lifeMs` / `r0` / `r1`.
+  repair: RepairStats;
+  smoke: SmokeStats;
+  // THE MOUNTS the one-off WEAPON cards buy (Story 10.6, R6 / R7 / R10) —
+  // family-wide, applied to whichever torpedo / mine is held:
+  torpedoLaunchers: number; // 1 (fore) | 2 (+ AFT TORPEDO LAUNCHER)
+  tubesPerLauncher: number; // 1 | 2 (+ SECOND LAUNCHER TUBE, on every launcher)
+  mineRacks: number; // 1 | 2 (+ SECOND MINE RACK)
+  rackBonus: number; // 0 | 1 (+ EXPANDED MINE RACKS, on each rack)
   equipment: EquipmentRows;
 }
 
@@ -643,7 +681,7 @@ function gunRow(cls: ShipClass): EffectiveGun {
 /** The broadside, star-shell and phosphor rows — pure CONFIG pass-throughs,
  *  split out so baseEquipment stays lean. (The radar-buoy row left with the
  *  buoy, Story 8.16.) Every row starts at tier 1; its ladder's copies raise
- *  the tier in the fold and the −5 %/tier reload is derived in clampStats,
+ *  the tier in the fold and the per-weapon RELOAD bonus is derived in clampStats,
  *  exactly as for the torpedoes (Story 8.17). */
 function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' | 'phosphorShells'> {
   return {
@@ -687,7 +725,7 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
  * `CONFIG.supercavTorpedo`, R4's 45 s), FLASH SHELLS (`dazzleShells` —
  * `CONFIG.flashShells`, 30 s) and the FOULING SHELL (`CONFIG.foulingShell`,
  * 30 s). Each row starts at tier 1; its line's copies raise the tier in the
- * fold, the −5 %/tier reload and RELOAD's scale are applied in clampStats like
+ * fold, the per-weapon RELOAD bonus (Story 10.6, R5) is applied in clampStats like
  * every row, and the catalog steps the supercav's `damage` and the two
  * shells' `radius`. The flash reads the FOULING SHELL's reach — one dial for
  * both (epic-10 amendment 4, ruling 2).
@@ -786,9 +824,10 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
  *  (sim/indexStats.ts), so a zero-card tree is already fully derived. */
 function baseStats(cls: ShipClass): EffectiveStats {
   const stats: EffectiveStats = {
-    // maxSpeed / turnRate are DERIVED below from ENGINES / RUDDER; the four
-    // pass-through kinematics are the envelope's own.
-    kinematics: { ...cls.kinematics, maxSpeed: 0, turnRate: 0 },
+    // maxSpeed is DERIVED below from ENGINES; the turn rate is the ONE
+    // baseline (Story 10.6, R2) unless the envelope authors its own (a PvE
+    // drone — I5); the four pass-through kinematics are the envelope's own.
+    kinematics: { ...cls.kinematics, maxSpeed: 0, turnRate: cls.kinematics.turnRate ?? CONFIG.index.turnRate },
     maxHp: cls.hp,
     radarRange: CONFIG.vision.radar,
     sweepRpm: 0, // DERIVED below (INTEL)
@@ -801,9 +840,11 @@ function baseStats(cls: ShipClass): EffectiveStats {
     power: cls.index.power,
     reload: cls.index.reload,
     engines: cls.index.engines,
-    rudder: cls.index.rudder,
     intel: cls.index.intel,
     range: cls.index.range,
+    repair: baseRepairStats(),
+    smoke: baseSmokeStats(),
+    ...BASE_MOUNTS,
     equipment: baseEquipment(cls),
   };
   deriveIndexStats(stats);
@@ -873,9 +914,9 @@ const wholeAtLeast = (v: number, floor: number): number => (Number.isFinite(v) ?
 /**
  * THE INDEX FLOOR (Story 10.3): every index is authored in whole numbers, so
  * each is floored to an integer — `armor` and `power` at 0 (the 9.7 / 9.9
- * rule: E may be negative only through the gate's subtraction), the five that
- * feed a derivation at 1, so the speed, turn rate, sweep period and cooldown
- * scale are always finite and non-zero whatever a fold hands them. Then the
+ * rule: E may be negative only through the gate's subtraction), the four that
+ * feed a derivation at 1, so the speed, sweep period, cooldown scale and
+ * reach are always finite and non-zero whatever a fold hands them. Then the
  * victim-only multiplier is derived from ARMOR alone (amendment 120(e)).
  */
 function clampIndices(stats: EffectiveStats): void {
@@ -883,39 +924,9 @@ function clampIndices(stats: EffectiveStats): void {
   stats.power = wholeAtLeast(stats.power, 0);
   stats.reload = wholeAtLeast(stats.reload, 1);
   stats.engines = wholeAtLeast(stats.engines, 1);
-  stats.rudder = wholeAtLeast(stats.rudder, 1);
   stats.intel = wholeAtLeast(stats.intel, 1);
   stats.range = wholeAtLeast(stats.range, 1);
   stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
-}
-
-/**
- * THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule, §4 conventions):
- * **−5 % of base reload per tier, in ADDITIVE five-point steps** —
- * 100 → 95 → 90 → 85 → 80 % — composed BEFORE the global RELOAD ladder, so a
- * maxed weapon under a maxed Reload runs at 0.80 × 0.75 = 60 % of base.
- *
- * THE READING PINNED HERE, and it is ONE formula for every equipment including
- * the deck gun. §3's standing rule writes `1 − 0.05 × equipmentTier` where its
- * `equipmentTier` counts UPGRADE STEPS TAKEN, not the 1-based rung: §4's deck
- * gun row states "at cap (4 copies): 80 %", and its equipment rows state
- * "tier I = the bare weapon at 100 %, tier V = 80 %". Both are
- * `1 − 0.05 × (tier − 1)` on our 1-based `tier`, because `equipment.gun.tier`
- * is `1 + deckGun copies` (tier I equipped at zero cards) while an equipment
- * line's tier is its copies held (copy 1 IS tier I). So the deck gun reads
- * ×1.00 at zero copies and ×0.80 at four, and a weapon reads ×1.00 at copy 1
- * and ×0.80 at copy 5 — no special case, no off-by-one.
- */
-function reloadTierScale(tier: number): number {
-  const steps = Math.max(0, tier - 1);
-  // FLOORED AT 0.1, exactly like cooldownScale below. By CONSTRUCTION the
-  // deepest reachable tier is V (x0.80) — but this multiplier is applied to
-  // EVERY equipment row unconditionally, and an injected or future line with
-  // a cap past 20 would drive it to zero (unlimited fire — and
-  // rescaleReloadTimers multiplying an in-flight timer by 0) and then
-  // negative (a reload that never completes). Defence against malformed data,
-  // not a reachable configuration.
-  return Math.max(0.1, round3(1 - CONFIG.catalog.reloadStepPerTier * steps));
 }
 
 /** Floor every INTEGER equipment field once, after a fold that accumulated it
@@ -958,7 +969,7 @@ export function deriveMineRings(eq: EquipmentRows): void {
  *  ladder-stepped (−50 ms × 4, 300 → 100 ms at V, Eric 2026-10-02) and the server's
  *  stream reads it as the gap between shells, so a non-finite or ≤ 0 value
  *  would fire a shell every tick (or stall the clock on NaN). A PLUMBING
- *  guard like reloadTierScale's 0.1 floor — NOT a balance ceiling: every
+ *  guard like reloadCooldownScale's 0.1 floor — NOT a balance ceiling: every
  *  reachable tier passes through untouched; only malformed data falls back
  *  to the CONFIG base. Today the fold's own sanity gate (sim/boons.ts
  *  applyStatEffect skips any ≤ 0 / non-finite result) already stops a bad
@@ -973,12 +984,16 @@ function guardRateMs(rateMs: number): number {
 function clampStats(stats: EffectiveStats): void {
   const eq = stats.equipment;
   // THE INDICES FIRST (Story 10.3): floor every index whole, then re-run the
-  // index derivations over the floored values — speed, turn rate, the sweep
-  // (its ceiling is inside the INTEL derivation) and the cooldown scale. The
+  // index derivations over the floored values — speed, the sweep (its
+  // ceiling is inside the INTEL derivation) and the cooldown scale. The
   // fold's rePinDerived already derived them, but the firewall's OUTPUT is
-  // the contract — derive unconditionally.
+  // the contract — derive unconditionally. The ability scores / rung and the
+  // mount counts (Story 10.6) are floored the same way, then derived.
   clampIndices(stats);
   deriveIndexStats(stats);
+  clampAbilityStats(stats);
+  deriveAbilityStats(stats);
+  clampMounts(stats);
   // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is its own
   // CONFIG dial plus its ladder's folded steps — never the radar rung. The
   // RANGE index then scales the four deck-gun rows ONCE, below, beside the
@@ -995,19 +1010,15 @@ function clampStats(stats: EffectiveStats): void {
   stats.sightRange = stats.radarRange / 3;
   deriveMineRings(eq);
   floorIntegerFields(eq);
+  // THE MOUNT CAPACITY (Story 10.6, R6 / R7): the one-shot multiply of the
+  // torpedo and mine rows' pools by the launchers / tubes / racks the one-off
+  // cards bought — after the floor, so it multiplies whole numbers.
+  applyMountCapacity(stats);
   // Barrels are a fixed 2 since Story 9.12 (CONFIG.gun.barrels; no rung
   // authors them); the clamp guards malformed data (a hostile --tune, a test
   // catalog).
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
   eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
-  // THE global cooldown scale, applied ONCE, post-fold, to every equipment.
-  // Since Story 10.3 it is DERIVED from the RELOAD index by the haste law
-  // (sim/indexStats.ts reloadCooldownScale — round3'd there, because ammo.ts
-  // ticks reloads down in 50ms steps and only refills at <= 0, so un-rounded
-  // dust would silently cost a whole extra tick; floored at 0.1 there as the
-  // malformed-data guard — RELOAD ≥ 1 above makes the law finite, and five
-  // +20 cards land on exactly 0.5).
-  const cd = stats.cooldownScale;
   // THE RANGE INDEX, applied ONCE, post-fold, to the four deck-gun rows (the
   // one-shot sibling of the reload multiply — never in rePinDerived).
   scaleDeckGunRange(stats);
@@ -1015,14 +1026,37 @@ function clampStats(stats: EffectiveStats): void {
   // reach — derived here, after the one-shot RANGE multiply, and nowhere
   // else. Not a stat path: no card addresses it.
   stats.secondaryRangeU = secondaryReachU(eq.mainBattery.rangeU);
-  // THE EQUIPMENT RELOAD STEP for EVERY row (see reloadTierScale), then the
-  // RELOAD scale on every row but RELOAD_UNSCALED_ROWS (2026-11-05, Story
-  // 10.5, R10 / R11, epic-10 amendment 11): the Shifts reload on their own
-  // number and tier step alone.
+  applyReloadLaw(stats);
+}
+
+/**
+ * THE PER-WEAPON RELOAD BONUS (Story 10.6, Eric 2026-11-05, R5 — verbatim:
+ * *"The cooldown should be set at its base number, but then adjusted at each
+ * tier through adding a bonus to the total RELOAD score applied only to that
+ * ability."*). Applied ONCE, post-fold, to every row RELOAD reaches:
+ *
+ *   reloadMs = base × reloadCooldownScale(RELOAD + reloadBonusPerTier × (tier − 1))
+ *
+ * — +0 at Tier I, +10 a tier, +40 at Tier V, and the bonus reaches THAT row
+ * only (the main battery's tier is always I, so a torpedo's bonus never
+ * touches the guns). ONE call of the one haste law (sim/indexStats.ts —
+ * round3'd there, because ammo.ts ticks reloads down in 50 ms steps and only
+ * refills at ≤ 0, so un-rounded dust would cost a whole extra tick; floored
+ * at 0.1 there as the malformed-data guard). It REPLACES catalog-v3's
+ * −5 %-per-tier step, which composed BEFORE the global RELOAD multiply.
+ *
+ * `RELOAD_UNSCALED_ROWS` (the three Shifts — Story 10.5, R10) keep their base:
+ * no tier reaches them (no card addresses a Shift), so they take no bonus
+ * either. The legacy gun-ladder rows (cannon, machine gun, flak, broadside)
+ * follow the same law mechanically; a PvE drone holds no card, so its gun
+ * stays at tier I and its reload is untouched.
+ */
+function applyReloadLaw(stats: EffectiveStats): void {
+  const bonus = CONFIG.catalog.reloadBonusPerTier;
   for (const id of EQUIPMENT_IDS) {
-    const row = eq[id];
-    const scale = RELOAD_UNSCALED.has(id) ? 1 : cd;
-    row.reloadMs = row.reloadMs * reloadTierScale(row.tier) * scale;
+    if (RELOAD_UNSCALED.has(id)) continue;
+    const row = stats.equipment[id];
+    row.reloadMs = row.reloadMs * reloadCooldownScale(stats.reload + bonus * Math.max(0, row.tier - 1));
   }
 }
 
@@ -1031,8 +1065,9 @@ function clampStats(stats: EffectiveStats): void {
  * amendment 11). RELOAD scales the main battery, every Q / E / R weapon
  * (torpedo, mine and special-shell families), BROADSIDE and the legacy
  * deck-gun rows; it skips the three Shifts (R10: "Shift abilities also should
- * not be affected by RELOAD"). The secondaries carry no reload row and the
- * `C` / `V` cooldowns live outside the stat record, so RELOAD reaches neither.
+ * not be affected by RELOAD"). The secondaries carry no reload row, and the
+ * `C` / `V` cooldowns run the haste law on their OWN fixed score (Story 10.6,
+ * R8 / R9 — sim/abilityStats.ts), so RELOAD reaches neither.
  * R9 (RELOAD skips the Q / E / R weapons) was built and reversed the same day
  * by R11.
  */

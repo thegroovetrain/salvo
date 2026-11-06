@@ -9,7 +9,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, TextureSource } from 'pixi.js';
-import { CONFIG, buildHeightRaster, cloudOutlineRadius, mulberry32, wrapPositive, type HeightField, type HeightRaster } from '@salvo/shared';
+import { CONFIG, baseSmokeStats, buildHeightRaster, cloudOutlineRadius, mulberry32, wrapPositive, type HeightField, type HeightRaster } from '@salvo/shared';
+
+/** A bare ship's stamped cloud life and disc (Story 10.6, I6 — they ride the wire). */
+const SIZE = (({ lifeMs, r0, r1 }) => ({ lifeMs, r0, r1 }))(baseSmokeStats());
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
 import { Radar, type CloudReturnSource } from '../render/radar.js';
@@ -88,7 +91,7 @@ describe('the cloud paints the HEAT grid where the beam sweeps hazy cells, and n
   it('a real held cloud on the scope: the swept, hazy cells gain heat over a scope with no cloud source; nothing else differs', () => {
     // STEP-1 regression: on HEAD the cloud never reached the heat grid at all.
     const cm = new Countermeasure(new Container(), mulberry32(3).next);
-    cm.sync([{ id: 'c', x: 220, y: 140, t0: 0 }]);
+    cm.sync([{ id: 'c', x: 220, y: 140, t0: 0, ...SIZE }]);
     cm.render(T0); // a built body, frozen for the sweep
     const withCloud = radarWith(cm);
     const control = radarWith(null);
@@ -243,8 +246,8 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
   const crossing = (k: number): number => T0 + k * PERIOD + (B / (2 * Math.PI)) * PERIOD;
   const HALF_WIN = PERIOD / 8; // well clear of the cloud's bearing span either side
 
-  function setup(dist: number): { cm: Countermeasure; radar: Radar; cells: { x: number; y: number }[]; cloud: { id: string; x: number; y: number; t0: number } } {
-    const cloud = { id: 'c', x: dist * Math.cos(B), y: dist * Math.sin(B), t0: T0 - 1000 };
+  function setup(dist: number): { cm: Countermeasure; radar: Radar; cells: { x: number; y: number }[]; cloud: { id: string; x: number; y: number; t0: number; lifeMs: number; r0: number; r1: number } } {
+    const cloud = { id: 'c', x: dist * Math.cos(B), y: dist * Math.sin(B), t0: T0 - 1000, ...SIZE };
     const cm = new Countermeasure(new Container(), mulberry32(5).next);
     cm.sync([{ ...cloud, deliveredAt: T0 }]); // first delivery: paints at once
     cm.render(T0); // a built body, frozen for the test
@@ -278,7 +281,7 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
     const { cm, radar, cells, cloud } = setup(1300);
     expect(cells.length, 'the premise: hazy cells in radar range').toBeGreaterThan(0);
     expect(
-      Math.hypot(cloud.x, cloud.y) - cloudOutlineRadius(crossing(4) - cloud.t0),
+      Math.hypot(cloud.x, cloud.y) - cloudOutlineRadius(crossing(4) - cloud.t0, SIZE),
       'the premise: the cloud\'s nearest rim stays beyond sight all test long',
     ).toBeGreaterThan(radar.sightHoleU);
     let t = T0;
@@ -299,7 +302,7 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
   it('a cloud INSIDE sight (delivered by eye, no roll) never stops returning', () => {
     const { radar, cells, cloud } = setup(300);
     expect(cells.length).toBeGreaterThan(0);
-    expect(Math.hypot(cloud.x, cloud.y) - cloudOutlineRadius(0), 'the premise: inside sight').toBeLessThanOrEqual(radar.sightHoleU);
+    expect(Math.hypot(cloud.x, cloud.y) - cloudOutlineRadius(0, SIZE), 'the premise: inside sight').toBeLessThanOrEqual(radar.sightHoleU);
     let to = T0;
     for (let k = 0; k < 4; k++) {
       const r = repainted(radar, cells, k, to);

@@ -7,6 +7,19 @@
 // normalized) stays on the re-export in `upgradeMenu.ts`. The Pixi bar's twin is
 // `TIER_COLORS` in `render/hotbar.ts` — the same five tokens as numbers.
 
+import { CLIENT_CONFIG } from '../config.js';
+
+/** THE TIER PALETTE as numbers — the ONE source of the five colours (the Pixi
+ *  bar's tier numeral, the refit card's edge). `LINEAGE_TIERS` below is the
+ *  same five tokens as CSS variables. */
+export const TIER_RAMP_COLORS: readonly number[] = [
+  CLIENT_CONFIG.colors.phosphor,
+  CLIENT_CONFIG.colors.info,
+  CLIENT_CONFIG.colors.stormReadout,
+  CLIENT_CONFIG.colors.denied,
+  CLIENT_CONFIG.colors.amber,
+];
+
 /** Tier I..V on the absolute ramp: green / blue / purple / red / gold. */
 export const LINEAGE_TIERS: readonly string[] = [
   'var(--hc-phosphor)', // I   — green
@@ -27,6 +40,11 @@ function clampTier(n: number): number {
 /** Pure: the Roman numeral for a tier, clamped to I..V. */
 export function romanTier(n: number): string {
   return ROMAN[clampTier(n) - 1];
+}
+
+/** Pure: the ramp colour (a number) for a tier, clamped to I..V. */
+export function tierRampColor(n: number): number {
+  return TIER_RAMP_COLORS[clampTier(n) - 1];
 }
 
 /** Pure: the ramp colour for a tier, clamped to I..V. */

@@ -21,6 +21,7 @@ import {
   type BurstEvent,
   type DeniedView,
   type FoghornEvent,
+  type CloudView,
   type FrameMsg,
   type GameEvent,
   type HealEvent,
@@ -277,6 +278,10 @@ export interface RoomBindingDeps {
    * so headless harnesses with no battery behave as before.
    */
   ownBattery?: { correct(you: OwnShip, ackSeq: number): void };
+  /** THE OWN TORPEDO LAUNCHERS (Story 10.6, sim/ownLaunchers.ts): corrected
+   *  from every own frame's `you.launchers`, exactly like the battery.
+   *  Optional, like ownBattery. */
+  ownLaunchers?: { correct(you: OwnShip, ackSeq: number): void };
   /** Every own frame's block, after the mirror advanced (Story 10.5 review
    *  gate — the C / V press latch, sim/abilityLatch.ts). Optional, like
    *  ownBattery. */
@@ -747,7 +752,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     net.you = f.you;
     if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift);
     // Story 10.4: the own turrets + secondaries heat snap to the server's.
-    deps.ownBattery?.correct(f.you, f.ackSeq);
+    correctOwnMounts(deps, f.you, f.ackSeq);
     deps.onOwnFrame?.(f.you);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
@@ -802,7 +807,7 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
   // by my radar, I want my radar to paint it"; nothing new is disclosed by
   // holding what was already sent, a cloud being stationary and fully derived
-  // from {id,x,y,t0}), and the held, unexpired list is what the renderer
+  // from {id,x,y,t0,lifeMs,r0,r1}), and the held, unexpired list is what the renderer
   // sees (a held cloud's sprite then outlives the list until its paint fades —
   // render/countermeasure.ts). The held set lives on `net` (state.ts) so the
   // match-start edge in main.ts can clear it with the renderer.
@@ -817,6 +822,18 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   net.clouds = clouds; // the HELD list (the match-start edge clears it)
 }
 
+/** Story 10.4 / 10.6: the own turrets + secondaries heat, and the own torpedo
+ *  launchers, snap to the server's on every own frame. */
+function correctOwnMounts(deps: RoomBindingDeps, you: OwnShip, ackSeq: number): void {
+  deps.ownBattery?.correct(you, ackSeq);
+  deps.ownLaunchers?.correct(you, ackSeq);
+}
+
+/** Pure: a cloud row is usable only when its stamped life and both radii are finite and positive — else it is dropped at ingest. */
+export function cloudRowValid(c: Pick<CloudView, 'lifeMs' | 'r0' | 'r1'>): boolean {
+  return [c.lifeMs, c.r0, c.r1].every((v) => Number.isFinite(v) && v > 0);
+}
+
 /**
  * Merge this frame's clouds into the held set and drop every held cloud whose
  * life has ended on the FRAME's server time (never a local clock reading).
@@ -828,8 +845,10 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
  * first-seen order).
  */
 function holdClouds(f: FrameMsg, held: Map<string, HeldCloud>): HeldCloud[] {
-  for (const c of f.clouds ?? []) held.set(c.id, { ...c, deliveredAt: f.t });
-  for (const [id, c] of held) if (f.t - c.t0 >= CONFIG.countermeasure.lifeMs) held.delete(id);
+  for (const c of f.clouds ?? []) if (cloudRowValid(c)) held.set(c.id, { ...c, deliveredAt: f.t });
+  // Each cloud's OWN stamped life (Story 10.6, I6 — the owner's SMOKE SCREEN
+  // cards at the press), never a CONFIG read.
+  for (const [id, c] of held) if (f.t - c.t0 >= c.lifeMs) held.delete(id);
   return [...held.values()];
 }
 

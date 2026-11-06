@@ -54,6 +54,7 @@ import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   blockedWater,
+  dropMine as dropFromRack,
   mineTriggerRadius,
   burstVictims,
   hullSilhouette,
@@ -73,7 +74,7 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { Equipment } from './index.js';
-import { consume, tickReload } from './ammo.js';
+import { syncMineSlot, tickShipRacks } from './mounts.js';
 
 /** A dropped mine. Server-owned; synced to clients as contact-like MineView. */
 export interface MineState {
@@ -424,8 +425,16 @@ export function hullFor(ship: ShipRecord): Target {
  * REAR sector (heading + offset ± placeHalfArcDeg) AND within
  * CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
  * channel, per the amendment ruling); a clicked point inside a rock / off the
- * water is 'blocked' (Story 1.10); an empty pool is 'no-ammo'. The drop ammo
- * pool is the ONLY mine bound since Story 8.4 deleted the live-board cap.
+ * water is 'blocked' (Story 1.10); no mine in any rack is 'no-ammo' (the
+ * wire's `cooling`). The racks are the ONLY mine bound since Story 8.4
+ * deleted the live-board cap.
+ *
+ * THE RACKS (Story 10.6, Eric 2026-11-05, R7 / R17 / R18): the mines live in
+ * the ship's stern RACKS (`ship.racks`, shared sim/racks.ts) — one or two,
+ * each with ONE reload clock that restores a mine per cycle. A drop comes from
+ * the rack whose turn it is (strict alternation), or the next one holding a
+ * mine. The slot pool is the racks' SUMMARY (`rackSummary`), re-derived every
+ * tick and after every drop.
  *
  * EVERY CHASSIS FIELD IS SHARED AND READ FROM `CONFIG.mine` — the rear sector,
  * the 150 u leash and the 3 s arm delay are the naval rack's, deliberately not
@@ -437,11 +446,11 @@ function mineLine(id: MineLineId): Equipment {
   return {
     id,
     isWeapon: EQUIPMENT_IS_WEAPON[id], // shared weapon/ability split — single source
-    tick(ship, slot, dtMs): void {
-      const row = ship.stats.equipment[id];
-      tickReload(slot.state!, row.maxAmmo, row.reloadMs, dtMs);
+    tick(ship, _slot, dtMs): void {
+      tickShipRacks(ship, id, dtMs);
+      syncMineSlot(ship);
     },
-    activate(ctx, slot) {
+    activate(ctx) {
       const ship = ctx.ship;
       const center = wrapAngle(ship.state.heading + REAR_SECTOR.offset); // astern-centered
       if (!inArc(ship.input.aim, center, REAR_SECTOR.halfArc)) return { ok: false, reason: 'out-of-arc' };
@@ -450,7 +459,11 @@ function mineLine(id: MineLineId): Equipment {
       if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
       const p = minePlacePoint(ship);
       if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
-      if (!consume(slot.state!, ship.stats.equipment[id].reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
+      // R17 / R18: the rack whose turn it is drops (else the next one holding
+      // a mine); no rack holds one → refused, nothing changed.
+      const rack = dropFromRack(ship.racks, ship.stats.equipment[id].reloadMs);
+      if (rack === null) return { ok: false, reason: 'no-ammo' };
+      syncMineSlot(ship);
       ctx.dropMine(p.x, p.y, kind);
       return { ok: true };
     },

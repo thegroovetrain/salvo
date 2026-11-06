@@ -107,12 +107,18 @@ const diff = (a: EffectiveStats, b: EffectiveStats): string[] => {
 describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)', () => {
   it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
     const expected: string[] = [
-      // THE SEVEN INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 8)
-      // after `maxHp`, then radarRange and the four pass-through kinematics.
-      // `kinematics.maxSpeed` / `turnRate`, `sweepRpm`, `cooldownScale` and
-      // the `regen.*` pair are GONE from the whitelist: derived or deleted.
-      'maxHp', 'armor', 'power', 'reload', 'engines', 'rudder', 'intel', 'range', 'radarRange',
+      // THE INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 8; RUDDER
+      // deleted by Story 10.6, R2) after `maxHp`, then radarRange and the four
+      // pass-through kinematics. `kinematics.maxSpeed` / `turnRate`,
+      // `sweepRpm`, `cooldownScale` and the `regen.*` pair are GONE from the
+      // whitelist: derived or deleted.
+      'maxHp', 'armor', 'power', 'reload', 'engines', 'intel', 'range', 'radarRange',
       'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
+      // Story 10.6: the two abilities' card-written halves (R8 / R9), then the
+      // four mount counts of the one-off WEAPON cards (R6 / R7).
+      'repair.reload', 'repair.instantHp', 'repair.regenHp',
+      'smoke.reload', 'smoke.lifeMs', 'smoke.sizeRung',
+      'torpedoLaunchers', 'tubesPerLauncher', 'mineRacks', 'rackBonus',
     ];
     for (const id of EQUIPMENT_IDS) {
       for (const f of EQUIPMENT_STAT_FIELDS[id] as readonly string[]) expected.push(`equipment.${id}.${f}`);
@@ -188,26 +194,33 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // Eric 2026-09-29, amendments 130/131/133), and ARMOR (Story 9.7, epic-9
     // amendments 86–88 / 110–117), and POWER (Story 9.9's ARMOR PIERCING,
     // epic-9 amendments 144–145). Story 10.3 (Eric 2026-11-04, epic-10
-    // amendment 7): the six ship ladders write THEIR OWN INDICES (`reload`,
-    // `engines`, `rudder`, `intel` replace `cooldownScale`, `kinematics.*`,
-    // `sweepRpm`), FOULING MINES gains a damage step, and `maxHp` / `range` /
-    // the four pass-through kinematics are whitelisted, unwritten.
+    // amendment 7): the ship ladders write THEIR OWN INDICES (`reload`,
+    // `engines`, `intel` replace `cooldownScale`, `kinematics.*`,
+    // `sweepRpm`), FOULING MINES gains a damage step, and `maxHp` / the four
+    // pass-through kinematics are whitelisted, unwritten. Story 10.6 (Eric
+    // 2026-11-05): RUDDER is gone (R2); RANGE, HULL REPAIR and SMOKE SCREEN
+    // write theirs (R1 / R8 / R9); the four one-offs write the mount counts
+    // (R6 / R7); and NO weapon tier writes a capacity (`maxAmmo`) any more —
+    // only the undealt legacy gun ladders still do (R4).
     expect([...written].sort()).toEqual([
-      'armor', 'power', 'reload', 'engines', 'rudder', 'intel',
+      'armor', 'power', 'reload', 'engines', 'intel', 'range',
+      'repair.reload', 'repair.instantHp', 'repair.regenHp',
+      'smoke.reload', 'smoke.lifeMs', 'smoke.sizeRung',
+      'torpedoLaunchers', 'tubesPerLauncher', 'mineRacks', 'rackBonus',
       'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'equipment.lightTorpedo.damage', 'equipment.lightTorpedo.speed',
-      'equipment.lightTorpedo.maxAmmo', 'equipment.lightTorpedo.homingTurnRate',
+      'equipment.lightTorpedo.homingTurnRate',
       'equipment.heavyTorpedo.damage', 'equipment.heavyTorpedo.speed',
-      'equipment.heavyTorpedo.maxAmmo', 'equipment.heavyTorpedo.homingTurnRate',
-      'equipment.navalMines.damage', 'equipment.navalMines.blastRadius', 'equipment.navalMines.maxAmmo',
-      'equipment.captiveMines.damage', 'equipment.captiveMines.maxAmmo',
+      'equipment.heavyTorpedo.homingTurnRate',
+      'equipment.navalMines.damage', 'equipment.navalMines.blastRadius',
+      'equipment.captiveMines.damage',
       'equipment.captiveMines.homingTurnRate',
-      'equipment.foulingMines.damage', 'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
+      'equipment.foulingMines.damage', 'equipment.foulingMines.blastRadius',
       'equipment.foulingMines.slowFactor',
       'equipment.machineGun.maxAmmo', 'equipment.machineGun.rateMs',
       'equipment.flak.damage', 'equipment.flak.maxAmmo',
       'equipment.starShells.litDurationMs', 'equipment.starShells.litRadius',
-      'equipment.starShells.maxAmmo', 'equipment.starShells.damage',
+      'equipment.starShells.damage',
       'equipment.broadside.spreadRung', 'equipment.broadside.turrets',
       'equipment.phosphorShells.damage', 'equipment.phosphorShells.dps',
       'equipment.phosphorShells.zoneRadius', 'equipment.phosphorShells.zoneDurationMs',
@@ -221,12 +234,15 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // BROADSIDE's damage is fixed by ruling (amendment 133), radarRange has no
     // card at all, since Story 9.12 (Eric 2026-10-16) the cannon's barrels are
     // a fixed CONFIG.gun.barrels and the machine gun's damage is flat, and
-    // since Story 10.3 `maxHp` (HULL POINTS deleted), `range` (no card yet)
-    // and the four pass-through kinematics have no writer.
+    // since Story 10.3 `maxHp` (HULL POINTS deleted) and the four
+    // pass-through kinematics have no writer; since Story 10.6 (R4) neither
+    // has any torpedo, mine or star-shell capacity.
     for (const path of [
       'radarRange', 'equipment.broadside.damage',
       'equipment.gun.barrels', 'equipment.machineGun.damage',
-      'maxHp', 'range', 'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
+      'maxHp', 'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
+      'equipment.lightTorpedo.maxAmmo', 'equipment.heavyTorpedo.maxAmmo', 'equipment.navalMines.maxAmmo',
+      'equipment.captiveMines.maxAmmo', 'equipment.foulingMines.maxAmmo', 'equipment.starShells.maxAmmo',
       // The two burst shells' reach is FIXED (Story 10.5, R7 tiers the radius).
       'equipment.dazzleShells.rangeU', 'equipment.foulingShell.rangeU',
     ]) {
@@ -663,15 +679,32 @@ describe('pickRefusal — every branch', () => {
     slotsWithCards(effectiveStats(TB, held), held).map((s) => s.equipmentId);
   const EMPTY = loadoutFor(stats).map((s) => s.equipmentId);
 
+  /** The fresh-hull answer for a line: a stub is `stub`, BROADSIDE has no
+   *  slot, an add-on (the Story 10.6 one-offs) has no host aboard yet. */
+  const freshRefusal = (id: LineId): string | null => {
+    if (CATALOG[id].stub === true) return 'stub';
+    if (id === 'broadside') return 'noWeaponSlot';
+    return CATALOG[id].kind === 'addon' ? 'noHost' : null;
+  };
+
   it('null — the ordinary legal pick: every dealable line with a home, on a fresh hull', () => {
+    for (const id of LINE_IDS) expect(pickRefusal([], EMPTY, id), id).toBe(freshRefusal(id));
+  });
+
+  it("'noHost' — an add-on (a one-off WEAPON card, Story 10.6 R10) is refused until a weapon it names holds its family slot", () => {
     for (const id of LINE_IDS) {
-      const want = CATALOG[id].stub === true ? 'stub' : id === 'broadside' ? 'noWeaponSlot' : null;
-      expect(pickRefusal([], EMPTY, id), id).toBe(want);
+      const line = CATALOG[id];
+      if (line.kind !== 'addon' || line.stub === true) continue;
+      expect(pickRefusal([], EMPTY, id), id).toBe('noHost');
+      for (const eq of line.appliesTo ?? []) {
+        const host = LINE_IDS.find((l) => CATALOG[l].kind === 'equipment' && tierTargetOf(CATALOG[l]) === eq)!;
+        expect(pickRefusal([host], idsFor([host]), id), `${id} with ${host}`).toBeNull();
+      }
     }
   });
 
   it("'stub' — an unbuilt line, an unknown id, a deleted line and a prototype key (fail closed)", () => {
-    for (const id of ['depthCharge', 'nope', 'hullRepair', 'healingBuoy', 'constructor', 'toString', '']) {
+    for (const id of ['depthCharge', 'nope', 'shieldBlock', 'healingBuoy', 'rudder', 'constructor', 'toString', '']) {
       expect(pickRefusal([], EMPTY, id), id).toBe('stub');
     }
   });
@@ -679,10 +712,15 @@ describe('pickRefusal — every branch', () => {
   it("'atCap' — at the line's cap, for every dealable line, and one under it is still legal", () => {
     for (const id of LINE_IDS) {
       if (CATALOG[id].stub === true || id === 'broadside') continue;
+      // An add-on is asked with its host aboard (the first weapon it names).
+      const hostEq = CATALOG[id].kind === 'addon' ? CATALOG[id].appliesTo![0] : undefined;
+      const host: LineId[] = hostEq === undefined
+        ? []
+        : [LINE_IDS.find((l) => CATALOG[l].kind === 'equipment' && tierTargetOf(CATALOG[l]) === hostEq)!];
       const cap = CATALOG[id].cap;
-      const full = new Array<LineId>(cap).fill(id);
+      const full = [...host, ...new Array<LineId>(cap).fill(id)];
       expect(pickRefusal(full, idsFor(full), id), id).toBe('atCap');
-      const under = new Array<LineId>(cap - 1).fill(id);
+      const under = [...host, ...new Array<LineId>(cap - 1).fill(id)];
       expect(pickRefusal(under, idsFor(under), id), id).toBeNull();
     }
   });

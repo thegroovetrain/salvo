@@ -34,6 +34,21 @@ function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
   return ship.draft > 0 ? { draft: ship.draft } : {};
 }
 
+/** The own-ship launcher / rack keys (Story 10.6, R6 / R7, I7): full
+ *  precision, FRESH copies (no array shared with the record), each PRESENT
+ *  ONLY while its family slot holds the weapon (the record's array / bank is
+ *  empty otherwise) — so the key is absent, never `[]`. SELF-PRIVATE on the
+ *  `turrets` terms: the tube and rack clocks ride `you` and NOTHING else; an
+ *  enemy sees a sighted hull's launcher ANGLES only (`Contact.lu`). */
+function ownMounts(ship: ShipRecord): Pick<OwnShip, 'launchers' | 'racks'> {
+  return {
+    ...(ship.launchers.length > 0 ? { launchers: ship.launchers.map((l) => ({ a: l.a, tubes: [...l.tubes] })) } : {}),
+    ...(ship.racks.racks.length > 0
+      ? { racks: ship.racks.racks.map((r) => ({ n: r.n, reloadMsLeft: r.reloadMsLeft })) }
+      : {}),
+  };
+}
+
 /** The own-ship cooldown keys (Story 10.5): each ability's ready time while
  *  it is still cooling, else absent. */
 function ownCooldowns(ship: ShipRecord, now: number): Pick<OwnShip, 'repairReadyAt' | 'smokeReadyAt'> {
@@ -203,6 +218,9 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // `you` at all) — so no observer can learn another captain's cooldowns
     // and the perception exception count stays SIX.
     ...ownCooldowns(ship, now),
+    // THE LAUNCHERS AND RACKS (Story 10.6) — APPENDED LAST (msgpack key
+    // order: ..., launchers, racks), self-private (see ownMounts).
+    ...ownMounts(ship),
   };
 }
 

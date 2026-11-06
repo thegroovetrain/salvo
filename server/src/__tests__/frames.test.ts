@@ -255,7 +255,7 @@ describe('buildFrame — events (fogged via perception)', () => {
 });
 
 describe('buildFrame — the `clouds` channel (Story 9.3)', () => {
-  it('is OMITTED (not []) when the observer sees no cloud, and carries {id,x,y,t0} — nothing else — when it does', () => {
+  it('is OMITTED (not []) when the observer sees no cloud, and carries {id,x,y,t0,lifeMs,r0,r1} — nothing else — when it does', () => {
     const w = makeWorld();
     w.step();
     const quiet = buildFrame(w, 'a');
@@ -264,16 +264,18 @@ describe('buildFrame — the `clouds` channel (Story 9.3)', () => {
     // A cloud made by `b` (a raw store write — the injectMine posture) 56.6 u
     // off `a` — well inside `a`'s radar range, no island (delivered; this
     // test pins the wire shape, not the gate).
-    w.clouds.set('cl1', { id: 'cl1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.countermeasure.lifeMs });
+    // Story 10.6 (I6): the cloud carries its STAMPED life and disc.
+    const stamp = { lifeMs: 17_000, r0: 150, r1: 300 };
+    w.clouds.set('cl1', { id: 'cl1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + stamp.lifeMs, ...stamp });
     const f = buildFrame(w, 'a');
-    expect(f.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now }]);
-    expect(Object.keys(f.clouds![0])).toEqual(['id', 'x', 'y', 't0']); // key order is the wire order
+    expect(f.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now, ...stamp }]);
+    expect(Object.keys(f.clouds![0])).toEqual(['id', 'x', 'y', 't0', 'lifeMs', 'r0', 'r1']); // key order is the wire order
     expect(JSON.stringify(f)).not.toContain('ownerId');
     expect(JSON.stringify(f)).not.toContain('until'); // no zone in this frame, so the store's `until` may appear nowhere
     // The spectator path carries the same optional channel on the same rule.
     const spec = buildFrame(w, 'a', 'finished');
     expect(spec.spec).toBe(true);
-    expect(spec.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now }]);
+    expect(spec.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now, ...stamp }]);
   });
 });
 
@@ -305,8 +307,8 @@ describe('buildFrame — the self-private own windows (dazzledUntil; the Story 1
     for (const k of KEYS) expect(k in idle, k).toBe(false); // ready at spawn: no key
     w.now = 100_000;
     a.dazzledUntil = w.now + FLASH_WINDOW_MS;
-    a.repairReadyAt = abilityReadyAt(w.now, 'repair');
-    a.smokeReadyAt = abilityReadyAt(w.now, 'smoke');
+    a.repairReadyAt = abilityReadyAt(w.now, a.stats, 'repair');
+    a.smokeReadyAt = abilityReadyAt(w.now, a.stats, 'smoke');
     const you = buildFrame(w, 'a').you!;
     expect(you.dazzledUntil).toBe(a.dazzledUntil);
     expect(you.repairReadyAt).toBe(a.repairReadyAt);

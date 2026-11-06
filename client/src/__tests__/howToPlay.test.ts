@@ -53,6 +53,15 @@ const AWAITING_COPY: ReadonlySet<string> = new Set([
   'healingBuoy',
   'shieldBuoy',
   'speedBuoy',
+  // Story 10.6 (Eric 2026-11-05): three new SHIP ladders and four one-off
+  // WEAPON cards; the page's copy is FROZEN until Story 10.14.
+  'range',
+  'hullRepair',
+  'smokeScreen',
+  'aftTorpedoLauncher',
+  'secondLauncherTube',
+  'secondMineRack',
+  'expandedMineRacks',
 ]);
 
 describe('how-to-play copy', () => {

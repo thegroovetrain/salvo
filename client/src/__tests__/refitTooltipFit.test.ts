@@ -35,11 +35,9 @@ import { CATALOG, CONFIG, DEFAULT_CLASS_ID, type CatalogLine, type ShipClassId }
 import {
   boonName,
   cardHoverRows,
-  cardKind,
-  cardKindLabel,
+  cardColorTier,
   cardTierLabel,
   statValueText,
-  type CardKind,
 } from '../ui/boonCopy.js';
 import {
   REFIT_TIP,
@@ -53,8 +51,8 @@ import {
   type RefitTooltipModel,
 } from '../ui/refitTooltip.js';
 import {
-  KIND_COLORS,
-  KIND_EDGES,
+  cardArmedColor,
+  cardEdge,
   LINEAGE_TIERS,
   UpgradeMenu,
   lineageTint,
@@ -308,8 +306,9 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     const { menu, cards } = open();
     cards[0].dispatchEvent(new FocusEvent('focus'));
     expect(tip().style.display).toBe('none');
-    // ...and focus still ARMS the card, so the keyboard has lost nothing else.
-    expect(cards[0].style.borderColor).toBe('var(--hc-amber)');
+    // ...and focus still ARMS the card (its own tier colour since 2026-11-06),
+    // so the keyboard has lost nothing else.
+    expect(cards[0].style.borderColor).toBe(cardArmedColor(cardColorTier(CATALOG[OFFER[0]], 0)));
     menu.hide();
     document.body.replaceChildren();
   });
@@ -439,41 +438,25 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
     }
   });
 
-  // THE KIND (Eric ruling 2026-09-30, epic-8 amendment 188 — supersedes
-  // amendment 8's neutral word): WEAPON phosphor · WEAPON UPGRADE info · SHIP
-  // UPGRADE storm-readout · CONSUMABLE silver, on the word and the resting
-  // edge. DUAL-CODED: strip the colour and the WORD still names the kind — every
-  // kind has its own distinct word, so the text alone partitions the cards.
-  it('states the kind in TEXT as well as colour — four distinct words, four distinct colours', () => {
-    // (CONSUMABLE left with the kit — Story 10.5, 2026-11-05.)
-    const KINDS: readonly CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'addon'];
-    expect(new Set(KINDS.map(cardKindLabel)).size).toBe(KINDS.length);
-    expect(new Set(KINDS.map((k) => KIND_COLORS[k])).size).toBe(KINDS.length);
-    expect(KIND_COLORS).toEqual({
-      weapon: 'var(--hc-phosphor)',
-      weaponUpgrade: 'var(--hc-info)',
-      shipUpgrade: 'var(--hc-storm-readout)',
-      addon: 'var(--hc-text-secondary)',
-    });
-    // Eric's picks keep clear of the two state colours this surface already uses.
-    for (const k of KINDS) {
-      expect(KIND_COLORS[k], k).not.toBe('var(--hc-amber)');
-      expect(KIND_COLORS[k], k).not.toBe('var(--hc-denied)');
-    }
+  // THE CARD COLOUR (Eric 2026-11-05): the resting edge is the TIER the card
+  // grants, on the one tier palette — five tiers, five distinct edges.
+  it('five tiers, five distinct resting edges on the one tier palette', () => {
+    expect(new Set([1, 2, 3, 4, 5].map(cardEdge)).size).toBe(5);
   });
 
-  it('renders the KIND word on the card (the copy count left with the interim face)', () => {
+  it('the face carries NO kind word: its body is exactly icon · name · ladder · rows · foot', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['deckGun', 'heavyTorpedo', 'armor'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    expect(cards[0].textContent).toContain(cardKindLabel(cardKind(CATALOG.deckGun, 0))); // a gun ladder
-    expect(cards[1].textContent).toContain(cardKindLabel(cardKind(CATALOG.heavyTorpedo, 0))); // copy 1 — the fit
-    expect(cards[1].textContent).not.toContain(cardKindLabel('weaponUpgrade'));
+    for (const card of cards) {
+      const body = card.lastElementChild as HTMLElement; // the clipped body (the key chip is the first child)
+      expect(body.children).toHaveLength(5);
+    }
     // The "n/cap" count stays DELETED (Story 8.7): a number over a number.
     const COUNT = /\d\s*\/\s*\d/;
     expect(cards[0].textContent).not.toMatch(COUNT);
@@ -482,36 +465,33 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
     document.body.replaceChildren();
   });
 
-  it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
+  it('paints the resting edge in the colour of the tier the card GRANTS; armed GLOWS in that colour, then rests', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor'],
-      boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
+      cls: DEFAULT_CLASS_ID, pts: 1, offer: ['heavyTorpedo', 'armor', 'aftTorpedoLauncher'],
+      boostUntil: 0, cards: ['armor', 'armor', 'heavyTorpedo'], lvl: 0, xp: 0, repairHp: 0,
     };
+    const held = ['heavyTorpedo', 'navalMines', null] as const;
     const menu = new UpgradeMenu(() => {});
-    menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
+    menu.toggle(offerView(you as never, false, false, false, [null, null, ...held]) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    const expected: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade'];
-    expected.forEach((kind, i) => {
-      const line = CATALOG[you.offer[i]];
-      expect(cardKind(line, 0), line.id).toBe(kind);
-      const word = cardKindLabel(kind);
-      const spans = [...cards[i].querySelectorAll('span')] as HTMLElement[];
-      const meta = spans.filter((el) => el.textContent === word);
-      expect(meta, `${line.id} kind word`).toHaveLength(1);
-      expect(meta[0].style.color, line.id).toBe(KIND_COLORS[kind]);
-      // jsdom normalises the rgba() string; compare through a probe element.
+    const copies = [1, 2, 0];
+    you.offer.forEach((id, i) => {
       const probe = document.createElement('div');
-      probe.style.borderColor = KIND_EDGES[kind];
-      expect(cards[i].style.borderColor, line.id).toBe(probe.style.borderColor);
+      probe.style.borderColor = cardEdge(cardColorTier(CATALOG[id], copies[i]));
+      expect(cards[i].style.borderColor, id).toBe(probe.style.borderColor);
     });
-    // ARMED: the edge flips to amber and the kind word KEEPS its colour.
-    cards[0].dispatchEvent(new MouseEvent('mouseenter'));
-    expect(cards[0].style.borderColor).toBe('var(--hc-amber)');
-    const word = ([...cards[0].querySelectorAll('span')] as HTMLElement[]).find((el) => el.textContent === cardKindLabel('weapon'));
-    expect(word?.style.color).toBe(KIND_COLORS.weapon);
-    cards[0].dispatchEvent(new MouseEvent('mouseleave'));
-    expect(cards[0].style.borderColor).not.toBe('var(--hc-amber)');
+    // Eric 2026-11-06: "just make the 'selected' one glow in whatever color it
+    // is" — every card arms in ITS OWN tier colour, never a constant.
+    you.offer.forEach((id, i) => {
+      const own = cardArmedColor(cardColorTier(CATALOG[id], copies[i]));
+      cards[i].dispatchEvent(new MouseEvent('mouseenter'));
+      expect(cards[i].style.borderColor, id).toBe(own);
+      expect(cards[i].style.boxShadow, id).toContain(own);
+      cards[i].dispatchEvent(new MouseEvent('mouseleave'));
+      expect(cards[i].style.boxShadow, id).toBe('none');
+    });
+    expect(new Set(you.offer.map((id, i) => cardArmedColor(cardColorTier(CATALOG[id], copies[i])))).size).toBe(3);
     menu.hide();
     document.body.replaceChildren();
   });

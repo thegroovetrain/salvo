@@ -28,9 +28,11 @@
 //     stat path — is a GUN ladder and is eligible only while that row is the
 //     mounted gun (amendment 89d — each gun's ladder is offered only while it
 //     is mounted). See `ladderHost`;
-//   - an `addon` (cap 1, so eligible only unheld) is an `upgrade` iff a host
-//     it names is already held OR a weapon slot is still open — holding an
-//     add-on ahead of its host is allowed while the ship can still fit one;
+//   - an `addon` (cap 1, so eligible only unheld) is an `upgrade` iff its
+//     host is ABOARD — some equipment it names sits in its family slot (Story
+//     10.6, Eric 2026-11-05, R10 / I8: the four one-off WEAPON cards are
+//     "dealt only once their family slot is filled"). The old "or any weapon
+//     slot still open" held-ahead rule (amendment 89b) is retired;
 //
 // THE `consumable` KIND IS GONE (2026-11-05, Story 10.5): the kit is retired,
 // so there are two kinds — `weapon` and `upgrade` — whose stage-1 odds are
@@ -74,14 +76,13 @@ import type { Rng } from '../math/rng.js';
 import {
   boonStackCount,
   CATALOG,
-  lineForEquipment,
   tierTargetOf,
   type Catalog,
   type CatalogLine,
   type LineId,
 } from './catalog.js';
-import { WEAPON_SLOTS, familySlotFor, type EquipmentId } from './loadout.js';
-import { pickRefusal } from './boons.js';
+import { familySlotFor, type EquipmentId } from './loadout.js';
+import { addonHosted, pickRefusal } from './boons.js';
 
 /**
  * The two KINDS a dealt card can be (amendment 92's stage 1):
@@ -117,13 +118,6 @@ export interface DrawShip {
   readonly mountedGun: EquipmentId;
 }
 
-/** Is ANY of Q/E/R still empty — an ADD-ON's "a host could still be fitted"
- *  test, fail-closed on a short array (a missing slot is never "empty"). A
- *  bare WEAPON asks the narrower question, `familySlotOpen`. */
-function weaponRowOpen(ship: DrawShip): boolean {
-  return WEAPON_SLOTS.some((i) => ship.slotIds[i] === null);
-}
-
 /** One line the ship could be dealt right now, with the kind it would be. */
 export interface Eligible {
   readonly id: LineId;
@@ -153,12 +147,6 @@ function isDealable(id: string, catalog: Catalog): boolean {
   if (!Object.hasOwn(catalog, id)) return false;
   const line = catalog[id];
   return line !== undefined && line.stub !== true;
-}
-
-/** Does the ship hold at least one copy of the line that FITS `eq`? */
-function holdsHost(held: readonly LineId[], eq: EquipmentId, catalog: Catalog): boolean {
-  const host = lineForEquipment(eq, catalog);
-  return host !== undefined && boonStackCount(held, host.id) > 0;
 }
 
 /**
@@ -196,9 +184,10 @@ const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
  *      an `equipment.gun.*` path -> `gun`. No production line reaches this
  *      source since the one-off DECK GUN TURRET and DECK GUN BARREL cards were
  *      deleted (Eric 2026-09-30); it stays as the guard for an injected
- *      catalog. The six universal ladders (ARMOR, POWER, ENGINES, RUDDER,
- *      INTEL, RELOAD — Story 10.3) each write their own top-level INDEX
- *      path, none of which is an `equipment.` path, so they stay universal.
+ *      catalog. The eight universal ship ladders (ARMOR, POWER, ENGINES,
+ *      INTEL, RELOAD, RANGE, HULL REPAIR, SMOKE SCREEN — Story 10.6, R1) each
+ *      write top-level paths, none of which is an `equipment.` path, so they
+ *      stay universal.
  *
  * Without this, a seat that mounts the flak gun would be dealt CANNON cards
  * that step a module it is not carrying, and vice versa.
@@ -225,23 +214,24 @@ function ladderKind(line: CatalogLine, ship: DrawShip): DrawKind | undefined {
   return host === ship.mountedGun ? 'upgrade' : undefined;
 }
 
-/** An ADD-ON's kind: it bolts a verb onto equipment it names, so held-ahead is
- *  allowed while a weapon slot is still open (amendment 89b); with the row full
- *  and no host aboard the card would be dead, so it is not dealt. */
-function addonKind(line: CatalogLine, ship: DrawShip, catalog: Catalog): DrawKind | undefined {
-  const hosted = (line.appliesTo ?? []).some((eq) => holdsHost(ship.held, eq, catalog));
-  return hosted || weaponRowOpen(ship) ? 'upgrade' : undefined;
+/** An ADD-ON's kind (Story 10.6, R10 / I8): an `upgrade` while its host is
+ *  ABOARD — some equipment it names sits in its family slot (sim/boons.ts
+ *  `addonHosted`, the same predicate `pickRefusal` runs) — and not dealt
+ *  otherwise. The four one-offs are WEAPON upgrades for Story 10.7's law (R11);
+ *  the draw's own two kinds are unchanged. */
+function addonKind(line: CatalogLine, ship: DrawShip): DrawKind | undefined {
+  return addonHosted(line, ship.slotIds) ? 'upgrade' : undefined;
 }
 
 /**
  * The kind an ELIGIBLE line would be dealt as, or undefined if the ship cannot
  * be dealt it at all. One clause per catalog kind, above.
  */
-function kindOf(line: CatalogLine, copies: number, ship: DrawShip, catalog: Catalog): DrawKind | undefined {
+function kindOf(line: CatalogLine, copies: number, ship: DrawShip): DrawKind | undefined {
   if (copies >= line.cap) return undefined; // at cap: a further copy is not a card
   if (line.kind === 'equipment') return equipmentKind(line, copies, ship);
   if (line.kind === 'ladder') return ladderKind(line, ship);
-  return addonKind(line, ship, catalog);
+  return addonKind(line, ship);
 }
 
 /**
@@ -260,7 +250,7 @@ export function eligibleLines(ship: DrawShip, catalog: Catalog = CATALOG): Eligi
     const line = catalog[key];
     if (line === undefined) continue;
     const id = key as LineId;
-    const kind = kindOf(line, boonStackCount(ship.held, id), ship, catalog);
+    const kind = kindOf(line, boonStackCount(ship.held, id), ship);
     if (kind !== undefined) out.push({ id, kind });
   }
   return out;

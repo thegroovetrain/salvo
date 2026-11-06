@@ -162,11 +162,15 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
     }
   });
 
-  it('prints a C / V square\'s ability name over its rows, with no tier word (Story 10.5)', () => {
+  // Story 10.6 (R8 / R9): the rows are the SHIP'S OWN — the stats handed in.
+  it('prints a C / V square\'s ability name over its rows off the ship\'s stats, with no tier word (Story 10.5)', () => {
     const repair = tooltipModel(REPAIR_SQ, 'repair', STATS)!;
-    expect(repair).toEqual({ name: abilityName('repair'), interaction: '', stats: abilityStatRows('repair') });
+    expect(repair).toEqual({ name: abilityName('repair'), interaction: '', stats: abilityStatRows('repair', STATS) });
     const smoke = tooltipModel(SMOKE_SQ, 'smoke', STATS)!;
-    expect(smoke).toEqual({ name: abilityName('smoke'), interaction: '', stats: abilityStatRows('smoke') });
+    expect(smoke).toEqual({ name: abilityName('smoke'), interaction: '', stats: abilityStatRows('smoke', STATS) });
+    const carded = statsFor(SHIP_CLASS_IDS[0], { smokeScreen: 2 });
+    expect(tooltipModel(SMOKE_SQ, 'smoke', carded)!.stats).toEqual(abilityStatRows('smoke', carded));
+    expect(abilityStatRows('smoke', carded)).not.toEqual(abilityStatRows('smoke', statsFor(SHIP_CLASS_IDS[0])));
   });
 
   it('has nothing to describe for an unfitted slot', () => {

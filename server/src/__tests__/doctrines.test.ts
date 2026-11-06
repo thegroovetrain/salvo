@@ -27,7 +27,7 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, FLASH_WINDOW_MS, familySlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, FLASH_WINDOW_MS, familySlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, launcherStation, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -113,6 +113,27 @@ function placeBare(w: World, id: string, x: number, y: number, heading = 0, hull
   return rec;
 }
 
+/**
+ * A torpedo shooter whose FORE LAUNCHER sits at (x, y), lying BROADSIDE to a
+ * run along +x (heading −π/2: +x is its starboard beam — R28, the launchers
+ * fire across the beam, never dead ahead), every launcher already trained onto
+ * that beam. Pair with `clickAt` so the run leaves the launcher exactly along
+ * the clicked point's bearing.
+ */
+function torpShooter(w: World, id: string, x: number, y: number): ShipRecord {
+  const heading = -Math.PI / 2;
+  const rec = place(w, id, 0, 0, heading);
+  const off = launcherStation(rec.hullId, 0).x;
+  rec.state = { x: x - Math.cos(heading) * off, y: y - Math.sin(heading) * off, heading, speed: 0 };
+  for (const l of rec.launchers) l.a = Math.PI / 2;
+  return rec;
+}
+
+/** The aim / aimDist that click the world point (px, py) from `ship`'s centre. */
+function clickAt(ship: ShipRecord, px: number, py: number): { aim: number; aimDist: number } {
+  return { aim: Math.atan2(py - ship.state.y, px - ship.state.x), aimDist: Math.hypot(px - ship.state.x, py - ship.state.y) };
+}
+
 /** Set a full, valid InputMsg on a ship (fireSeq 0 ⇒ no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
   ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
@@ -156,11 +177,11 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
    *  range of the flight path; extra observers per test. */
   function homingBoard(): { w: World; a: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
+    const a = torpShooter(w, 'a', 0, 0);
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1); // copy 1 came from the class fit
     expect(a.stats.equipment.heavyTorpedo.homingTurnRate).toBeCloseTo(CONFIG.torpedo.homingTurnRate, 9);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
-    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     return { w, a, b };
   }
 
@@ -171,21 +192,21 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
   // family's tier-V reference value.
   it('tier I carries NO homing tag and no die-distance; tier II carries the ROW\'s rate and the family budget', () => {
     const w = bareWorld();
-    const one = place(w, 'a', 0, 0); // the class fit alone = tier I
+    const one = torpShooter(w, 'a', 0, 0); // the class fit alone = tier I
     expect(one.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
-    setInput(one, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(one, { ...clickAt(one, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
     const straight = [...w.shells.values()][0];
     expect(straight.homing).toBeUndefined();
     expect(straight.distLeft).toBe(Number.POSITIVE_INFINITY);
 
     const w2 = bareWorld(4);
-    const two = place(w2, 'a', 0, 0);
+    const two = torpShooter(w2, 'a', 0, 0);
     fitTier(w2, two, 'heavyTorpedo', 1); // tier II
     const rate = two.stats.equipment.heavyTorpedo.homingTurnRate;
     expect(rate).toBeGreaterThan(0); // steering starts at tier II
     expect(rate).toBeLessThan(CONFIG.torpedo.homingTurnRate); // NOT the tier-V reference
-    setInput(two, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(two, { ...clickAt(two, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w2.step();
     const homer = [...w2.shells.values()][0];
     expect(homer.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
@@ -203,9 +224,9 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     expect(maxVy).toBeGreaterThan(1); // it turned
 
     const control = bareWorld();
-    const ca = place(control, 'a', 0, 0); // NO doctrine
+    const ca = torpShooter(control, 'a', 0, 0); // NO doctrine
     place(control, 'b', 320, 80);
-    setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(ca, { ...clickAt(ca, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     let controlVy = 0;
     for (let i = 0; i < 200; i++) {
       control.step();
@@ -224,11 +245,11 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
   // RULING: homing fish carry a finite total-travel budget.
   it('an ORBITING homing fish expires after its travel budget instead of circling forever', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
+    const a = torpShooter(w, 'a', 0, 0);
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
     const prey = place(w, 'b', 300, 110); // acquired, but inside the fish's turn radius
     prey.hp = 1e9; // survive any glancing contact — this is about the FISH dying
-    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
 
     let travelled = 0;
     let prev: { x: number; y: number } | null = null;
@@ -254,15 +275,15 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
 
   it('a STRAIGHT-RUNNING fish keeps its unbounded range — the budget rides the turn rate alone', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
+    const a = torpShooter(w, 'a', 0, 0);
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
-    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
     expect([...w.shells.values()][0].distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
 
     const control = bareWorld();
-    const ca = place(control, 'a', 0, 0); // tier I — a straight runner
-    setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    const ca = torpShooter(control, 'a', 0, 0); // tier I — a straight runner
+    setInput(ca, { ...clickAt(ca, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     control.step();
     expect([...control.shells.values()][0].distLeft).toBe(Number.POSITIVE_INFINITY);
   });
@@ -338,9 +359,9 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
   it('a fish carries no target point and no burst radius, homing or not', () => {
     for (const extraCopies of [0, TORPEDO_CAP - 1]) {
       const w = bareWorld();
-      const a = place(w, 'a', 0, 0);
+      const a = torpShooter(w, 'a', 0, 0);
       fitTier(w, a, 'heavyTorpedo', extraCopies);
-      setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+      setInput(a, { ...clickAt(a, 400, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
       w.step();
       const [torp] = [...w.shells.values()];
       expect(torp.kind).toBe('torp');
@@ -352,10 +373,10 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
 
   it('a clicked point far short of a hull never detonates early — the fish runs on to contact', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
+    const a = torpShooter(w, 'a', 0, 0);
     const bystander = place(w, 'by', 200, 50); // would have been inside the old 60u command blast
     const blocker = place(w, 'blocker', 500, 0); // dead on the track, past the click
-    setInput(a, { aim: 0, aimDist: 200, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { ...clickAt(a, 200, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     const seen: GameEvent[] = [];
     for (let i = 0; i < 200 && blocker.hp === blocker.stats.maxHp; i++) {
       w.step();

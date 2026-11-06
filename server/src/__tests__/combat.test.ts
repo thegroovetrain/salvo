@@ -949,7 +949,8 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
       const { w, a } = armed(7);
       w.setRtt('a', 80);
       a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-      w.submitInput('a', slotInput(SLOT_TORPEDO, 1, 1, fireT));
+      for (const l of a.launchers) l.a = Math.PI / 2; // trained on the beam (R28: never dead ahead)
+      w.submitInput('a', { ...slotInput(SLOT_TORPEDO, 1, 1, fireT), aim: Math.PI / 2, aimDist: 300 }); // a torpedo click names its area (Story 10.6)
       w.step();
       return { w, a, torp: [...w.shells.values()][0] };
     };

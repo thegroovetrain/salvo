@@ -14,8 +14,11 @@
 //
 // THE PHASES (each in its own room; every number READ from CONFIG or from the
 // same `effectiveStats()` fold the server uses, never typed here):
-//   1. TORPEDO KILL — an Iowa posed broadside-on to a stationary Yamato, bow
-//      on the bearing, clicks the heavy tube every tick. The KILL
+//   1. TORPEDO KILL — an Iowa with a stationary Yamato on its starboard BEAM
+//      (R28: the launchers fire across the beam, never dead ahead), fitted
+//      heavy torpedo + SECOND LAUNCHER TUBE (two tubes on the fore launcher,
+//      each on its own clock — Story 10.6), trains the launcher onto the
+//      target, then clicks every tick. The own block's `launchers` are checked loaded. The KILL
 //      PLAN (torpedo count, time) is simulated below from the fitted row and
 //      the target's hp (with the R8 passive regen, Story 10.5), and printed; the budget is the plan
 //      plus one reload. Asserts a hit at the armor-curve blow, the roster
@@ -24,7 +27,10 @@
 //      lives in server/src/__tests__/perception.test.ts, not here.
 //   2. MINE VISIBILITY + NO EVICTION — a stationary layer (Warspite) clicks naval
 //      mines astern (inside `placeRange`, spread over the rear sector) while a
-//      stationary observer sits at a FIXED point inside detect. Asserts SIX own
+//      stationary observer sits at a FIXED point inside detect. Fit: naval
+//      mines + SECOND MINE RACK (Story 10.6, R7) — the own block's two racks
+//      are checked full at spawn and one-short-each after two drops (R17
+//      alternation). Asserts SIX own
 //      mines live at once (Story 8.4 deleted every mine cap) and that the
 //      observer DOES see enemy mines inside detect. (The fog crossing itself
 //      is proven by phase 3, the AMBUSH: the observer here is posed inside
@@ -36,7 +42,9 @@
 //      mine was first sighted inside detect (the victim starts at detect + 100u,
 //      so this IS the fog-crossing pin).
 //   4. LIGHT TORPEDO — the target posed on the shooter's PORT BEAM (heading +
-//      π/2), inside the twin beam sector by construction; kill plan as in 1.
+//      π/2), inside the fore launcher's firing band (R28); the shooter TRAINS the
+//      launcher onto the beam (no click) before firing (Story 10.6, R6 / R13);
+//      kill plan as in 1.
 //   5. CAPTIVE MINE — the layer lays one captive; the victim drives straight
 //      through its trip ring. Asserts the captive row's gated damage, a boom, and
 //      that the mine was expended.
@@ -62,7 +70,9 @@
 //  10. HULL REPAIR (Story 10.5, R1) — a full hull's `C` press is denied
 //      'blocked' and starts no cooldown; a torpedo hurts it; the next press
 //      lands the instant heal (+ the first pool tick at most) and the own
-//      block shows `repairReadyAt` ≈ the frame's server time + the cooldown;
+//      block shows `repairReadyAt` ≈ the frame's server time + the cooldown —
+//      the patient holds a HULL REPAIR card, so heal and cooldown are its own
+//      folded `stats.repair` (Story 10.6, R8);
 //      a press inside the cooldown is denied 'cooling' (carrying `act`) and
 //      heals nothing new.
 //  11. PASSIVE REGEN (R8) — the same hull, left unhurt, holds its hp after
@@ -72,6 +82,8 @@
 //      and no dev override shortens it.)
 //  12. SMOKE (R2) — `V` puts a cloud in the presser's own frame at its
 //      position and shows `smokeReadyAt`; a second press is denied 'cooling'.
+//      The presser holds a SMOKE SCREEN card: the cooldown and the cloud's
+//      STAMPED life and disc are its folded `stats.smoke` (Story 10.6, R9 / I6).
 //  13. ONE KIND PER SLOT — a dev fit of LIGHT + HEAVY torpedo + naval mines +
 //      FLASH SHELLS: the heavy is refused (a second torpedo kind), the light
 //      holds Q (slot 2), the mine E (slot 3), the flash shells R (slot 4) —
@@ -101,7 +113,6 @@ import {
   PROTOCOL_VERSION,
   aimPointOf,
   angleDiff,
-  arcFor,
   abilityCode,
   bearing,
   damageMultiplierFor,
@@ -113,13 +124,16 @@ import {
   initialSecondaries,
   islandBlocksSegment,
   islandDistance,
+  launcherAimPoint,
+  launcherArcHolds,
+  SHIP_CLASS_IDS,
+  launcherStationWorld,
   regenGain,
   settleBlow,
   slotsWithCards,
   stepSecondaries,
   turretBears,
   turretMounts,
-  twinSectorSide,
 } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
@@ -139,8 +153,13 @@ const POSE_CLEARANCE_U = 60;
  *  to bite: one past the per-player cap of 5 that Story 8.4 deleted. */
 const NO_EVICTION_MINES = 6;
 
-/** Eric's ruling 4 (2026-10-22): a smoke may stack a torpedo line to TIER III. */
-const MAX_SMOKE_CARDS = 3;
+/** u — a torpedo click's aim distance: any positive distance names the
+ *  bearing (Story 10.6 — a torpedo click with none is refused out-of-arc). */
+const TORP_AIM_U = 300;
+/** ms — a launcher traverses its whole train interval (2 × trainDeg) inside
+ *  this, plus two ticks of slack (Story 10.6, R6: the turrets' traverse rate). */
+const LAUNCHER_TRAIN_MS =
+  Math.ceil((2 * Math.max(...SHIP_CLASS_IDS.flatMap((id) => [CONFIG.shipClasses[id].launchers.fore.trainDeg, CONFIG.shipClasses[id].launchers.aft.trainDeg])) * 1000) / CONFIG.mainBattery.traverseDegPerS) + 2 * DT;
 
 /** THE HULLS PER ROLE (Story 10.4: the four battleships replaced the three
  *  placeholder classes, which had no 1:1 successor — a reading, by intent).
@@ -330,6 +349,15 @@ const clickAt = (aim, aimDist = 0) => (ctx, inp) => {
   inp.aimDist = aimDist;
   inp.fireSeq = ++ctx.fireSeq;
 };
+/** Hold the fitted weapon's aim on a bearing WITHOUT clicking — the
+ *  launchers chase the cursor at all times (Story 10.6, R13), so a torpedo
+ *  shooter trains before its first click (an early click fires along the
+ *  launcher's CURRENT bearing — the battery's rule). */
+const aimAt = (aim, aimDist) => (ctx, inp) => {
+  inp.slot = weaponSlotOf(ctx);
+  inp.aim = aim;
+  inp.aimDist = aimDist;
+};
 /** Sail straight ahead on the posed heading. */
 function sailAhead(_ctx, inp) {
   inp.throttle = 1;
@@ -400,37 +428,31 @@ async function leaveAll(clients) {
 
 /**
  * THE KILL PLAN, simulated from CONFIG/the fold (Eric ruling 4, 2026-10-22):
- * a shooter clicking every tick from a FULL pool of `maxAmmo` (one launch per
- * tick at most; the pool refills ONE round per `reloadMs` — equipment/ammo.ts),
- * each fish landing `flightMs` after launch for `damage`, against a target of
- * `hp`. 2026-11-05 (Story 10.5, R8): the PASSIVE REGEN is back — a target
- * left unhurt for `CONFIG.regen.outOfCombatMs` heals the shared `regenGain`
- * every tick (the heavy torpedo's reload outlasts the wait), so the plan
- * replays it between hits as the server does. Returns the fish needed and the
- * kill time, or null when the regen outheals the stack inside an hour.
+ * a shooter clicking every tick from `tubes` LOADED tubes — one click, one
+ * torpedo, from the lowest loaded tube, which then reloads on ITS OWN clock
+ * for `reloadMs` (Story 10.6, R6, sim/launchers.ts) — each torpedo landing
+ * `flightMs` after launch for `damage`, against a target of `hp`. 2026-11-05
+ * (Story 10.5, R8): the PASSIVE REGEN is back — a target left unhurt for
+ * `CONFIG.regen.outOfCombatMs` heals the shared `regenGain` every tick, so
+ * the plan replays it between hits as the server does. Returns the torpedoes
+ * needed and the kill time, or null when the regen outheals the fit inside an
+ * hour.
  */
-function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs }) {
+function killPlan({ hp, damage, tubes, reloadMs, flightMs }) {
   let t = 0;
-  let n = maxAmmo;
-  let left = 0;
+  const clocks = new Array(tubes).fill(0);
   let cur = hp;
   let hits = 0;
   let lastHit = 0;
   const pending = [];
   while (t < 3_600_000) {
-    if (n > 0) {
-      n -= 1;
-      if (left <= 0) left = reloadMs;
+    const k = clocks.findIndex((c) => c <= 0);
+    if (k >= 0) {
+      clocks[k] = reloadMs;
       pending.push(t + flightMs);
     }
     t += DT;
-    if (n < maxAmmo) {
-      left -= DT;
-      if (left <= 0) {
-        n += 1;
-        left = n < maxAmmo ? left + reloadMs : 0;
-      }
-    } else left = 0;
+    for (let i = 0; i < clocks.length; i += 1) clocks[i] = Math.max(0, clocks[i] - DT);
     if (t - lastHit >= CONFIG.regen.outOfCombatMs) cur += regenGain(cur, hp, DT / 1000);
     while (pending.length > 0 && pending[0] <= t) {
       pending.shift();
@@ -446,37 +468,32 @@ function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs }) {
 }
 
 /**
- * Pick the torpedo fit: ALWAYS the smallest card stack (≤ tier III) that gives
- * TWO tubes (a tiered fit is allowed — Eric 2026-10-22). The tier-I plan and
- * the chosen plan both go to the trace.
+ * Pick the torpedo fit: the line plus the SECOND LAUNCHER TUBE one-off — TWO
+ * tubes on the fore launcher (Story 10.6, R4 / R6: tubes come only from the
+ * one-off cards now, never a tier). The bare-line plan and the chosen plan
+ * both go to the trace.
  */
 function torpedoFit(line, shooterCls, target, rangeU) {
   const tgt = effectiveStats(CONFIG.shipClasses[target.cls], target.fit);
   const planFor = (cards) => {
-    const row = effectiveStats(CONFIG.shipClasses[shooterCls], Array(cards).fill(line)).equipment[line];
+    const shooter = effectiveStats(CONFIG.shipClasses[shooterCls], cards);
+    const row = shooter.equipment[line];
     const flightMs = (rangeU / row.speed) * 1000;
-    const shooter = effectiveStats(CONFIG.shipClasses[shooterCls], Array(cards).fill(line));
     // The blow the target's hull takes: the server's armor curve over its ARMOR
     // minus the shooter's POWER (Story 10.3 indices), floored (World.floorBlow)
     // — as matchSmoke.
     const blow = Math.max(1, Math.floor(row.damage * damageMultiplierFor(tgt.armor - shooter.power)));
-    return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, maxAmmo: row.maxAmmo, reloadMs: row.reloadMs, flightMs }) };
+    return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, tubes: row.maxAmmo, reloadMs: row.reloadMs, flightMs }) };
   };
-  const one = planFor(1);
-  let two = null;
-  for (let k = 1; k <= MAX_SMOKE_CARDS && two === null; k++) {
-    const p = planFor(k);
-    if (p.row.maxAmmo >= 2) two = p;
-    precondition(two === null || two.plan !== null, `${line}: the two-tube tier never kills inside an hour against the regen`);
-  }
-  precondition(two !== null, `${line}: no two-tube tier within ${MAX_SMOKE_CARDS} cards`);
-  const pick = two;
-  const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan === null ? 'NO KILL inside an hour (the regen outheals it)' : `${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}`}`;
+  const one = planFor([line]);
+  const pick = planFor([line, 'secondLauncherTube']);
+  precondition(pick.row.maxAmmo === 2, `${line}: the SECOND LAUNCHER TUBE fit folds to ${pick.row.maxAmmo} tubes, not 2`);
+  precondition(pick.plan !== null, `${line}: the two-tube fit never kills inside an hour against the regen`);
+  const fmt = (p) => `${JSON.stringify(p.cards)} tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan === null ? 'NO KILL inside an hour (the regen outheals it)' : `${p.plan.fish} torpedoes, kill at ${secs(p.plan.killAtMs)}`}`;
   return {
     pick,
     hp: tgt.maxHp,
-    text: `plan vs ${tgt.maxHp} hp, with regen: ` +
-      `[${fmt(one)}]` + (two ? ` [${fmt(two)}]` : ' [no two-tube tier <= III]') + ` => fitting ${pick.cards} card(s)`,
+    text: `plan vs ${tgt.maxHp} hp, with regen: [${fmt(one)}] [${fmt(pick)}] => fitting ${JSON.stringify(pick.cards)}`,
   };
 }
 
@@ -493,21 +510,30 @@ async function torpedoPhase(log) {
   log.push(`torpedo: ${fit.text}`);
   const row = fit.pick.row;
   const runU = row.homingTurnRate > 0 ? CONFIG.torpedo.homingMaxRangeU : Infinity;
-  const aPose = { x: -D, y: 0, heading: 0 };
+  // R28: the launchers fire across the beam, never dead ahead — the shooter
+  // heads −π/2 so B (bearing 0) sits on its STARBOARD beam.
+  const aPose = { x: -D, y: 0, heading: -Math.PI / 2 };
   const bPose = { x: 0, y: 0, heading: Math.PI / 2 }; // broadside to the shooter
   checkPoseWater('torpedo A', aPose);
   checkPoseWater('torpedo B', bPose);
   checkLane('torpedo', aPose, bPose);
   precondition(D < runU && D < CONFIG.vision.sight, `torpedo: range ${D}u outside the run (${runU}) or sight`);
-  const a = await joinClient('WPN-A', TORP_SHOOTER, { fit: Array(fit.pick.cards).fill('heavyTorpedo'), pose: aPose });
+  const a = await joinClient('WPN-A', TORP_SHOOTER, { fit: fit.pick.cards, pose: aPose });
   const b = await joinClient('WPN-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'torpedo');
   const brg = bearing(a.you, b.you);
-  precondition(Math.abs(angleDiff(a.you.heading, brg)) < CONFIG.torpedo.halfArc, 'torpedo: target outside the bow arc');
+  precondition(launcherArcHolds(TORP_SHOOTER, statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'torpedo: target outside the launcher arcs');
   assert(b.you.hp === fit.hp, `torpedo: target hp ${b.you.hp} != planned ${fit.hp} (shared fold vs server maxHp)`);
   const tubes = a.you.ammo[familySlotFor('heavyTorpedo')];
-  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `torpedo: shooter slot ${familySlotFor('heavyTorpedo')} holds ${tubes?.n} fish, planned ${row.maxAmmo} tubes`);
-  a.script = clickAt(brg);
+  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `torpedo: shooter slot ${familySlotFor('heavyTorpedo')} holds ${tubes?.n} torpedoes, planned ${row.maxAmmo} tubes`);
+  // The own block carries the launchers (Story 10.6): the fore, with every tube loaded.
+  const own = (a.you.launchers ?? []).flatMap((l) => l.tubes);
+  assert(own.length === row.maxAmmo && own.every((t) => t === 0), `torpedo: own launchers carry tubes ${JSON.stringify(own)}, planned ${row.maxAmmo} loaded`);
+  // TRAIN FIRST (R13 / R28): the fore launcher rests dead ahead, inside its
+  // own dead wedge, and must swing onto the beam before a click fires.
+  a.script = aimAt(brg, TORP_AIM_U);
+  await holdFor([a, b], LAUNCHER_TRAIN_MS);
+  a.script = clickAt(brg, TORP_AIM_U);
   // Budget: the simulated kill time + ONE reload of slack.
   const budget = fit.pick.plan.killAtMs + row.reloadMs;
   const took = await pilotUntil([a, b], () => roster(a.room, b.room.sessionId)?.deaths >= 1, budget, 'torpedo kill');
@@ -538,17 +564,31 @@ async function minePhase(log) {
   checkPoseWater('mine layer', layerPose);
   checkPoseWater('mine observer', obsPose);
   precondition(dist(layerPose, obsPose) + CONFIG.mine.placeRange < DETECT, 'mine: observer cannot see the whole drop zone inside detect');
-  const rack = statsOf(LAYER, ['navalMines']).equipment.navalMines;
+  // TWO RACKS (Story 10.6, R7): the naval line plus SECOND MINE RACK — each
+  // rack holds the row's per-rack base and has its own clock.
+  const MINE_FIT = ['navalMines', 'secondMineRack'];
+  const layerStats = statsOf(LAYER, MINE_FIT);
+  const rack = layerStats.equipment.navalMines;
   precondition(dist(layerPose, obsPose) - CONFIG.mine.placeRange > rack.triggerRadius + 50, 'mine: observer inside a trip ring');
-  const a = await joinClient('MINE-A', LAYER, { fit: ['navalMines'], pose: layerPose });
+  const a = await joinClient('MINE-A', LAYER, { fit: MINE_FIT, pose: layerPose });
   const b = await joinClient('MINE-B', VICTIM, { fit: [], pose: obsPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'mine');
+  const perRack = rack.maxAmmo / layerStats.mineRacks;
+  const racks0 = JSON.stringify(a.you.racks);
+  assert(racks0 === JSON.stringify(Array(layerStats.mineRacks).fill({ n: perRack, reloadMsLeft: 0 })), `mine: own racks ${racks0}, expected ${layerStats.mineRacks} full racks of ${perRack}`);
+  let racksSeen = '';
   a.script = (ctx, inp) => clickAt(astern(ctx.pose.heading, ctx.distinctOwn.size), DROP_U)(ctx, inp);
   // Budget: NO_EVICTION_MINES drops at one per CONFIG.mine.reloadMs is an upper
   // bound on the rack's cadence (it starts full, so it is faster), + armDelay,
   // + ONE reload of slack.
   const budget = NO_EVICTION_MINES * rack.reloadMs + CONFIG.mine.armDelay + rack.reloadMs;
-  const took = await pilotUntil([a, b], () => a.maxConcurrentOwn >= NO_EVICTION_MINES, budget, `A hold ${NO_EVICTION_MINES} mines live at once`);
+  const took = await pilotUntil([a, b], () => {
+    // THE ALTERNATION (R17): after the first two drops each rack is one short.
+    if (racksSeen === '' && a.distinctOwn.size === 2) racksSeen = JSON.stringify((a.you.racks ?? []).map((r) => r.n));
+    return a.maxConcurrentOwn >= NO_EVICTION_MINES;
+  }, budget, `A hold ${NO_EVICTION_MINES} mines live at once`);
+  log.push(`mines: racks at spawn ${racks0}; mines per rack after two drops ${racksSeen} (alternating — R17)`);
+  assert(racksSeen === '' || racksSeen === JSON.stringify(Array(layerStats.mineRacks).fill(perRack - 1)), `mine: after two drops the racks hold ${racksSeen}, expected one drop from each`);
   log.push(
     `mines: A held ${a.maxConcurrentOwn} own mines live at once (${a.distinctOwn.size} laid) in ${secs(took)} (budget ${secs(budget)}, rack ${rack.maxAmmo} / ${secs(rack.reloadMs)}); ` +
       `B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once`,
@@ -627,7 +667,8 @@ async function ambushPhase(log) {
   await leaveAll([a, b]);
 }
 
-/** PHASE 4 — the light torpedo (twin beam sectors). */
+/** PHASE 4 — the light torpedo, fired ABEAM from the trained fore launcher
+ *  (Story 10.6: the twin beam sectors are gone). */
 async function lightTorpedoPhase(log) {
   const D = 250; // u — inside sight; a tier-I light fish is a straight-runner with no max range
   const target = { cls: VICTIM, fit: [] };
@@ -639,16 +680,27 @@ async function lightTorpedoPhase(log) {
   checkPoseWater('light A', aPose);
   checkPoseWater('light B', bPose);
   checkLane('light', aPose, bPose);
-  const a = await joinClient('LT-A', TORP_SHOOTER, { fit: Array(fit.pick.cards).fill('lightTorpedo'), pose: aPose });
+  const a = await joinClient('LT-A', TORP_SHOOTER, { fit: fit.pick.cards, pose: aPose });
   const b = await joinClient('LT-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'light');
   const tubes = a.you.ammo[familySlotFor('lightTorpedo')];
-  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `light: shooter slot ${familySlotFor('lightTorpedo')} holds ${tubes?.n} fish, planned ${row.maxAmmo} tubes`);
+  assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `light: shooter slot ${familySlotFor('lightTorpedo')} holds ${tubes?.n} torpedoes, planned ${row.maxAmmo} tubes`);
   const brg = bearing(a.you, b.you);
-  const off = Math.abs(angleDiff(a.you.heading, brg));
-  precondition(Math.abs(off - Math.PI / 2) < CONFIG.lightTorpedo.halfArc, 'light: target outside the beam sector');
-  precondition(twinSectorSide(a.you.heading, brg, arcFor('lightTorpedo')) !== null, 'light: twinSectorSide refuses the bearing');
-  a.script = clickAt(brg);
+  precondition(launcherArcHolds(TORP_SHOOTER, statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'light: target outside the launcher arcs');
+  // TRAIN FIRST: the fore launcher rests dead ahead and chases the cursor at
+  // the turrets' rate (R6 / R13); a click before it arrives fires along its
+  // current bearing and would waste a torpedo.
+  a.script = aimAt(brg, TORP_AIM_U);
+  await holdFor([a, b], LAUNCHER_TRAIN_MS);
+  // ON the aim point as seen FROM ITS OWN STATION (the shared geometry the
+  // server's pick measures with — a launcher forward of the centre sees the
+  // beam point a little abaft the beam).
+  const ang = a.you.launchers?.[0]?.a;
+  const st = launcherStationWorld(TORP_SHOOTER, 0, a.you);
+  const ap = launcherAimPoint(a.you, TORP_SHOOTER, brg, TORP_AIM_U);
+  const want = Math.atan2(ap.y - st.y, ap.x - st.x);
+  assert(ang !== undefined && Math.abs(angleDiff(a.you.heading + ang, want)) < 0.05, `light: the fore launcher sits at ${ang} rad after training, not on the aim (${want.toFixed(3)} rad from its station)`);
+  a.script = clickAt(brg, TORP_AIM_U);
   const budget = fit.pick.plan.killAtMs + row.reloadMs; // the simulated kill + ONE reload of slack
   const took = await pilotUntil([a, b], () => roster(a.room, b.room.sessionId)?.deaths >= 1, budget, 'light torpedo kill');
   const blow = fit.pick.blow;
@@ -1040,8 +1092,11 @@ async function awaitAnswer(clients, ctx, seq, ok, label) {
  *  geometry). Returns the server time of the frame that carried the blow. */
 async function torpedoOnce(s, v, label) {
   const brg = bearing(s.you, v.you);
-  precondition(Math.abs(angleDiff(s.you.heading, brg)) < CONFIG.torpedo.halfArc, `${label}: target outside the bow arc`);
-  s.script = clickAt(brg);
+  precondition(launcherArcHolds(s.cls, statsOf(s.cls, s.fit).torpedoLaunchers, s.you.heading, brg), `${label}: target outside the launcher arcs`);
+  // TRAIN FIRST (R13 / R28): the launcher swings out of its dead wedge onto the aim.
+  s.script = aimAt(brg, TORP_AIM_U);
+  await holdFor([s, v], LAUNCHER_TRAIN_MS);
+  s.script = clickAt(brg, TORP_AIM_U);
   const row = statsOf(s.cls, s.fit).equipment.heavyTorpedo;
   const flightMs = (dist(s.you, v.you) / row.speed) * 1000;
   await pilotUntil([s, v], () => v.dmg.length > 0, flightMs + 2000, `${label}: the torpedo lands`);
@@ -1053,15 +1108,21 @@ async function torpedoOnce(s, v, label) {
 async function repairAndRegenPhase(log) {
   const D = 300;
   const aPose = { x: 0, y: 0, heading: Math.PI / 2 }; // the patient, broadside to the shooter
-  const sPose = { x: -D, y: 0, heading: 0 };
+  const sPose = { x: -D, y: 0, heading: -Math.PI / 2 }; // the patient on the shooter's beam (R28)
   checkPoseWater('repair A', aPose);
   checkPoseWater('repair S', sPose);
   checkLane('repair', sPose, aPose);
-  const a = await joinClient('REP-A', VICTIM, { fit: [], pose: aPose });
+  // PER-SHIP NUMBERS (Story 10.6, R8): the patient holds a HULL REPAIR card,
+  // so its heal and cooldown are its own folded `stats.repair`, not CONFIG's
+  // no-card base (one card, so one heavy torpedo still leaves room to see the
+  // heal unclamped).
+  const PATIENT_FIT = ['hullRepair'];
+  const a = await joinClient('REP-A', VICTIM, { fit: PATIENT_FIT, pose: aPose });
   const s = await joinClient('REP-S', TORP_SHOOTER, { fit: ['heavyTorpedo'], pose: sPose, roomId: a.room.roomId });
   await awaitPosed([a, s], 'repair');
-  const hr = CONFIG.hullRepair;
-  const maxHp = statsOf(VICTIM).maxHp;
+  const hr = statsOf(VICTIM, PATIENT_FIT).repair;
+  precondition(hr.instantHp > CONFIG.hullRepair.instantHp && hr.cooldownMs < CONFIG.hullRepair.cooldownMs, `repair: the two cards fold to ${JSON.stringify(hr)} — not above the no-card base`);
+  const maxHp = statsOf(VICTIM, PATIENT_FIT).maxHp;
   // (a) FULL HULL: denied 'blocked', no heal, no cooldown.
   assert(a.you.hp === maxHp && a.you.repairReadyAt === undefined, `repair: a fresh hull shows hp ${a.you.hp}/${maxHp}, repairReadyAt ${a.you.repairReadyAt}`);
   const fullSeq = press(a, 'repair');
@@ -1086,7 +1147,7 @@ async function repairAndRegenPhase(log) {
   // The pool's first tick may ride the same frame as the instant half.
   const poolPerTick = (hr.regenHp * DT) / hr.regenMs;
   assert(healed >= hr.instantHp - 1e-6 && healed <= hr.instantHp + 2 * poolPerTick + 1e-6, `repair: hp ${hurt}->${healFrame.hp} (+${healed}), expected the instant ${hr.instantHp} (+ at most two pool ticks of ${poolPerTick})`);
-  assert(Number.isFinite(readyIn) && Math.abs(readyIn - hr.cooldownMs) <= 3 * DT, `repair: repairReadyAt is ${readyIn} ms past the frame, expected ~${hr.cooldownMs} (CONFIG.hullRepair.cooldownMs)`);
+  assert(Number.isFinite(readyIn) && Math.abs(readyIn - hr.cooldownMs) <= 3 * DT, `repair: repairReadyAt is ${readyIn} ms past the frame, expected ~${hr.cooldownMs} (the ship's folded stats.repair.cooldownMs)`);
   // (c) A SECOND press inside the cooldown: 'cooling', no new heal cue, the stamp unmoved.
   const readyAt = a.you.repairReadyAt;
   const heals0 = heals(a).length;
@@ -1122,7 +1183,13 @@ async function repairAndRegenPhase(log) {
 async function smokePhase(log) {
   const pose = { x: 0, y: 0, heading: 0 };
   checkPoseWater('smoke', pose);
-  const a = await joinClient('SMK-A', VICTIM, { fit: [], pose });
+  // PER-SHIP NUMBERS (Story 10.6, R9 / I6): one SMOKE SCREEN card — the
+  // cooldown and the cloud's STAMPED life and disc are the presser's folded
+  // `stats.smoke`.
+  const SMOKE_FIT = ['smokeScreen'];
+  const sm = statsOf(VICTIM, SMOKE_FIT).smoke;
+  precondition(sm.cooldownMs < CONFIG.countermeasure.cooldownMs && sm.lifeMs > CONFIG.countermeasure.lifeMs, `smoke: one card folds to ${JSON.stringify(sm)} — not past the no-card base`);
+  const a = await joinClient('SMK-A', VICTIM, { fit: SMOKE_FIT, pose });
   await awaitPosed([a], 'smoke');
   assert(a.you.smokeReadyAt === undefined && a.clouds.length === 0, `smoke: a fresh hull shows smokeReadyAt ${a.you.smokeReadyAt}, ${a.clouds.length} clouds`);
   const seq = press(a, 'smoke');
@@ -1131,14 +1198,15 @@ async function smokePhase(log) {
   const cloud = a.clouds[0];
   const readyIn = a.you.smokeReadyAt - a.lastT;
   assert(dist(cloud, a.you) <= 1, `smoke: the cloud sits ${dist(cloud, a.you).toFixed(1)} u from the presser`);
-  assert(Number.isFinite(readyIn) && Math.abs(readyIn - CONFIG.countermeasure.cooldownMs) <= 3 * DT, `smoke: smokeReadyAt is ${readyIn} ms past the frame, expected ~${CONFIG.countermeasure.cooldownMs} (CONFIG.countermeasure.cooldownMs)`);
+  assert(Number.isFinite(readyIn) && Math.abs(readyIn - sm.cooldownMs) <= 3 * DT, `smoke: smokeReadyAt is ${readyIn} ms past the frame, expected ~${sm.cooldownMs} (the ship's folded stats.smoke.cooldownMs)`);
+  assert(cloud.lifeMs === sm.lifeMs && Math.abs(cloud.r0 - sm.r0) < 1e-9 && Math.abs(cloud.r1 - sm.r1) < 1e-9, `smoke: the cloud carries ${JSON.stringify({ lifeMs: cloud.lifeMs, r0: cloud.r0, r1: cloud.r1 })}, the presser's stats say ${JSON.stringify({ lifeMs: sm.lifeMs, r0: sm.r0, r1: sm.r1 })}`);
   const clouds0 = a.clouds.length;
   const seq2 = press(a, 'smoke');
   const cooling = await awaitAnswer([a], a, seq2, () => a.clouds.length > clouds0, 'smoke: the second press is answered');
   await holdFor([a], 4 * DT);
   assert(cooling?.reason === 'cooling' && cooling.act === abilityCode('smoke'), `smoke: the second press answered ${JSON.stringify(cooling)}, expected 'cooling' with act ${abilityCode('smoke')}`);
   assert(a.clouds.length === clouds0, `smoke: the cooling press made a cloud (${a.clouds.length} vs ${clouds0})`);
-  log.push(`smoke: press -> cloud ${cloud.id} at (${cloud.x.toFixed(0)},${cloud.y.toFixed(0)}) on the presser, smokeReadyAt = t + ${readyIn} ms (cooldown ${CONFIG.countermeasure.cooldownMs}); second press -> denied '${cooling.reason}' (act ${cooling.act})`);
+  log.push(`smoke: press -> cloud ${cloud.id} at (${cloud.x.toFixed(0)},${cloud.y.toFixed(0)}) on the presser, smokeReadyAt = t + ${readyIn} ms (cooldown ${sm.cooldownMs.toFixed(0)}), stamped life ${cloud.lifeMs} ms, disc ${cloud.r0.toFixed(1)} -> ${cloud.r1.toFixed(1)} u; second press -> denied '${cooling.reason}' (act ${cooling.act})`);
   await leaveAll([a]);
 }
 

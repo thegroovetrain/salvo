@@ -53,7 +53,8 @@ export type BoonId = string;
  *   - `captiveMines.blastRadius`: FIXED at 32 u by ruling (amendment 84d) —
  *     the captive's tier steps the TRIP RING, never the fish's burst;
  *   - every row's `tier`: it counts COPIES HELD (sim/boons.ts), never an
- *     effect — a card writing it would break the reload step's arithmetic;
+ *     effect — a card writing it would break the per-weapon RELOAD bonus's
+ *     arithmetic (Story 10.6, R5);
  *   - every doctrine VERB boolean: `doctrine` effects are their only home.
  *
  * A field that merely has no card behind it today STAYS here (the established
@@ -88,7 +89,7 @@ export const EQUIPMENT_STAT_FIELDS = {
   // the bodyblock is a CONFIG constant, and this table is the authoring
   // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
   // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
-  // The −5 %/tier reload is the tier step in clampStats, never an effect.
+  // The per-tier RELOAD bonus (Story 10.6, R5) is derived in clampStats, never an effect.
   machineGun: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'rateMs'],
   flak: ['reloadMs', 'maxAmmo', 'rangeU', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
@@ -100,7 +101,7 @@ export const EQUIPMENT_STAT_FIELDS = {
   phosphorShells: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
   // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
   // rows: no card addresses them today; `reloadMs` is a row field so the
-  // tier step reads it (RELOAD no longer scales a Shift — Story 10.5, R10).
+  // reload law reads it (RELOAD no longer scales a Shift — Story 10.5, R10).
   instantReload: ['reloadMs', 'maxAmmo'],
   hunker: ['reloadMs', 'maxAmmo', 'durationMs'],
   // THE MAIN BATTERY (Story 10.4) — the cannon row's shape less `barrels`
@@ -138,14 +139,21 @@ export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 't
 
 /**
  * The top-level (non-equipment) stat paths — THE INDEX MODEL's authored
- * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). The SEVEN
- * INDICES are what a ship card may write; everything they buy is DERIVED
- * post-fold in sim/indexStats.ts and is DELIBERATELY ABSENT here, pinned
- * absent in barrel.test.ts: `kinematics.maxSpeed` (ENGINES), `kinematics
- * .turnRate` (RUDDER), `sweepRpm` + `sweepPeriodMs` (INTEL), `cooldownScale`
- * (RELOAD), `damageMultiplier` (ARMOR), `sightRange` (radarRange / 3). The
- * `regen.*` pair LEFT with PASSIVE HEALING and the out-of-combat regen (both
- * deleted); `armorPiercing` is `power`.
+ * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). The SIX
+ * INDICES are what a ship ladder may write (RUDDER, the seventh, is DELETED
+ * by Story 10.6 — R2); everything they buy is DERIVED post-fold in
+ * sim/indexStats.ts and is DELIBERATELY ABSENT here, pinned absent in
+ * barrel.test.ts: `kinematics.maxSpeed` (ENGINES), `kinematics.turnRate` (the
+ * one baseline since 10.6), `sweepRpm` + `sweepPeriodMs` (INTEL),
+ * `cooldownScale` (RELOAD), `damageMultiplier` (ARMOR), `sightRange`
+ * (radarRange / 3). The `regen.*` pair LEFT with PASSIVE HEALING and the
+ * out-of-combat regen (both deleted); `armorPiercing` is `power`.
+ *
+ * STORY 10.6 (Eric 2026-11-05) ADDS the card-written halves of the two
+ * cooldown abilities (R8 / R9 — sim/abilityStats.ts) and the four MOUNT
+ * counts of the one-off WEAPON cards (R6 / R7 — sim/mountStats.ts). Their
+ * derived halves — `repair.cooldownMs` / `regenMs`, `smoke.cooldownMs` /
+ * `r0` / `r1` — are DELIBERATELY ABSENT, like every derived number.
  */
 export const TOP_LEVEL_STAT_PATHS = [
   // `maxHp` keeps its seat with no writer: HULL POINTS is deleted (Story 10.3)
@@ -167,12 +175,12 @@ export const TOP_LEVEL_STAT_PATHS = [
   'reload',
   // ENGINES (ruling 15): top speed = CONFIG.index.engines × this / 100.
   'engines',
-  // RUDDER (ruling 3): turn rate = CONFIG.index.rudder × this / 100.
-  'rudder',
+  // (`rudder` sat here until Story 10.6 deleted RUDDER — R2.)
   // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × this / 100.
   'intel',
-  // RANGE (ruling 14): the four deck-gun rows' reach × this / 100. A SHIP stat
-  // with no card after 10.3 — whitelisted-but-unwritten, like `maxHp`.
+  // RANGE (ruling 14): the deck-gun rows' reach × this / 100 — the main
+  // battery and, through it, the secondaries. The RANGE card writes it
+  // (+10, Story 10.6, R1).
   'range',
   'radarRange',
   // The four kinematics that stay per-class pass-throughs (ruling 3: "accel /
@@ -182,6 +190,26 @@ export const TOP_LEVEL_STAT_PATHS = [
   'kinematics.accel',
   'kinematics.decel',
   'kinematics.steerageSpeed',
+  // HULL REPAIR (Story 10.6, R8): the ability's own haste score (CONFIG.index
+  // .base + 5 a card) and its two heal amounts (+20 each a card).
+  'repair.reload',
+  'repair.instantHp',
+  'repair.regenHp',
+  // SMOKE SCREEN (Story 10.6, R9): the ability's own haste score (+5 a card),
+  // the cloud's life (+1 s a card) and the 1-based SIZE rung the disc is
+  // derived from (the `spreadRung` precedent — every whitelisted stat stays
+  // strictly positive).
+  'smoke.reload',
+  'smoke.lifeMs',
+  'smoke.sizeRung',
+  // THE MOUNTS (Story 10.6, R6 / R7): one `add: 1` each, from the four cap-1
+  // one-off WEAPON cards — family-wide, read in clampStats as the torpedo and
+  // mine rows' capacity. `rackBonus` is the one that seeds at 0 (EXPANDED
+  // MINE RACKS adds a seat to a rack that has no bonus).
+  'torpedoLaunchers',
+  'tubesPerLauncher',
+  'mineRacks',
+  'rackBonus',
 ] as const;
 
 /** Every `equipment.<id>.<field>` path the table above generates. */

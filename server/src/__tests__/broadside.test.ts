@@ -485,7 +485,8 @@ describe('broadside — denials + cross-hull parity', () => {
     const w = bareWorld();
     const tb = place(w, 'tb', 'bismarck', 0, 0);
     expect(tb.loadout[SLOT_BROADSIDE].equipmentId).toBe('heavyTorpedo'); // same slot index, other hull
-    setInput(tb, { aim: tb.state.heading, slot: SLOT_BROADSIDE }); // over the bow — in arc
+    for (const l of tb.launchers) l.a = Math.PI / 2; // trained on the starboard beam
+    setInput(tb, { aim: tb.state.heading + Math.PI / 2, aimDist: 300, slot: SLOT_BROADSIDE }); // abeam — in the fore launcher's firing band (R28)
     expect(w.sinkingActivationGate(tb, SLOT_BROADSIDE)).toEqual({ ok: true });
     expect([...w.shells.values()].map((s) => s.kind)).toEqual(['torp']);
     const ml = place(w, 'ml', 'warspite', 0, 300);

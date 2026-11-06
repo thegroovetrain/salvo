@@ -5,7 +5,7 @@ import {
   MAX_EXTRAPOLATION_MS,
   RETENTION_MS,
 } from '../net/snapshots.js';
-import { DEFAULT_CLASS_ID, decodeTurretAngle, turretMounts, wrapAngle } from '@salvo/shared';
+import { DEFAULT_CLASS_ID, decodeTurretAngle, turretMounts, wrapAngle, type Contact } from '@salvo/shared';
 
 function snap(t: number, x: number, y = 0, heading = 0, speed = 0) {
   return { t, x, y, heading, speed };
@@ -113,6 +113,15 @@ describe('ContactStore lifecycle', () => {
     expect(store.classOf('a')).toBe(DEFAULT_CLASS_ID);
     store.prune(1000, 100); // a is now stale
     expect(store.classOf('a')).toBeUndefined();
+  });
+
+  it('an unknown hull id yields no launcher/turret angles and does not drop the rest of the frame', () => {
+    const store = new ContactStore();
+    const bad = { id: 'x', x: 0, y: 0, heading: 0, speed: 0, cls: 'nope', lu: [0], tu: [0] } as unknown as Contact;
+    expect(() => store.pushFrame(100, [bad, contact('ok', 3)])).not.toThrow();
+    expect(store.launcherAnglesOf('x')).toBeUndefined();
+    expect(store.turretAnglesOf('x')).toBeUndefined();
+    expect(store.get('ok')!.sampleAt(100)!.x).toBe(3);
   });
 
   it('preserves a drone hull id (HullId, not narrowed to a ship class)', () => {

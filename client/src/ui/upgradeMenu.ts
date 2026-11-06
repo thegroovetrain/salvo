@@ -65,7 +65,7 @@ import {
   domMicroScale,
 } from './refitCardFit.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { LINEAGE_TIERS } from './tierRamp.js';
+import { LINEAGE_TIERS, tierRampColor, tierTint } from './tierRamp.js';
 import {
   REFIT_TIP,
   refitTooltipLeft,
@@ -78,13 +78,11 @@ import {
   TIER_ARROW,
   boonName,
   cardHoverRows,
-  cardKind,
-  cardKindLabel,
+  cardColorTier,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
   statValueText,
-  type CardKind,
   type CardStatRow,
   type CardTierStep,
 } from './boonCopy.js';
@@ -116,38 +114,23 @@ const SILVER = 'var(--hc-silver)';
 /** The shipped secondary-text token — the key chip at rest, the row labels. */
 const META = 'var(--hc-text-secondary)';
 
-/**
- * THE KIND COLORS (Eric ruling 2026-09-30, epic-8 amendment 188 — supersedes
- * amendment 8's neutral kind word). The refit card is color-coded by what it
- * does for the player: WEAPON phosphor · WEAPON UPGRADE info · SHIP UPGRADE
- * storm-readout · CONSUMABLE silver (ADD-ON, the unused kind, keeps the
- * secondary text it always had). Eric's picks avoid amber and the denied red,
- * which already mean ARMED and REFUSED on this surface.
- *
- * DUAL-CODED: the KIND WORD carries the kind with the color stripped. The color
- * rides the word at full strength and the card's RESTING edge at `KIND_EDGE_ALPHA`
- * (`cssRgba` off the numeric token, never a literal); the armed amber edge and
- * glow and the greyed `.55` face are unchanged.
- */
-export const KIND_COLORS: Readonly<Record<CardKind, string>> = {
-  weapon: 'var(--hc-phosphor)',
-  weaponUpgrade: 'var(--hc-info)',
-  shipUpgrade: 'var(--hc-storm-readout)',
-  addon: 'var(--hc-text-secondary)',
-};
-
-/** The resting edge's alpha on the kind token (an orchestrator reading of
+/** The resting edge's alpha on its tier colour (an orchestrator reading of
  *  amendment 188's "reduced alpha"). */
-export const KIND_EDGE_ALPHA = 0.55;
+export const CARD_EDGE_ALPHA = 0.55;
 
-const KC = CLIENT_CONFIG.colors;
-/** The kind's resting 1px edge — the same tokens as KIND_COLORS, at reduced alpha. */
-export const KIND_EDGES: Readonly<Record<CardKind, string>> = {
-  weapon: cssRgba(KC.phosphor, KIND_EDGE_ALPHA),
-  weaponUpgrade: cssRgba(KC.info, KIND_EDGE_ALPHA),
-  shipUpgrade: cssRgba(KC.stormReadout, KIND_EDGE_ALPHA),
-  addon: cssRgba(KC.textSecondary, KIND_EDGE_ALPHA),
-};
+/**
+ * THE CARD'S RESTING EDGE (Eric 2026-11-05: "Tier I should be Green, Tier II
+ * should be Blue, Tier III should be Purple, Tier IV should be Red, and Tier V
+ * should be Gold. The Launcher/Mine Rack upgrades should be Gold. Otherwise it
+ * doesn't matter what kind of card it is."): the tier the card GRANTS
+ * (`cardColorTier`) on the ONE tier palette (ui/tierRamp.ts), at
+ * `CARD_EDGE_ALPHA`; the ARMED card glows in the same colour at full strength
+ * (`cardArmedColor`, Eric 2026-11-06). The greyed `.55` face is unchanged.
+ * Supersedes the kind colours of amendment 188.
+ */
+export function cardEdge(tier: number): string {
+  return cssRgba(tierRampColor(tier), CARD_EDGE_ALPHA);
+}
 /** The slot tooltip's ratified surface, reused verbatim for the refit card's
  *  hover panel (DESIGN.md `components.slot-tooltip`): the `panel` bed at .97 and
  *  a `silver` edge at .4. Composed from the TOKENS through `cssRgba` rather than
@@ -398,11 +381,9 @@ export function refitTooltipPlacement(model: RefitTooltipModel, band: RefitBox):
  */
 export interface OfferCard {
   id: string;
-  /** The KIND word (WEAPON / WEAPON UPGRADE / SHIP UPGRADE / CONSUMABLE /
-   *  ADD-ON) — the mock's `.ck`, and the non-color channel of the kind. */
-  kind: string;
-  /** The kind itself (amendment 188) — what colors the word and the edge. */
-  kindTone: CardKind;
+  /** The tier this card GRANTS (`cardColorTier`, 1..5; gold for a one-off) —
+   *  what colours its resting edge (Eric 2026-11-05). */
+  tone: number;
   /** The line's name, uppercase (the face's one display-face mark). */
   name: string;
   /** The `cur → next` tier numerals, or null for a line with no ladder (a
@@ -600,8 +581,7 @@ function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (EquipmentId
   const stack = boonStackCount(you.cards, line.id);
   return {
     id: line.id,
-    kind: cardKindLabel(cardKind(line, stack)),
-    kindTone: cardKind(line, stack),
+    tone: cardColorTier(line, stack),
     name: boonName(line.id, stack),
     tier: cardTierLabel(line, stack),
     tierStep: cardTierSteps(line, stack),
@@ -1107,8 +1087,6 @@ const KEY_CHIP_CSS = [
  *  silver at .4 for the key chip's. */
 const ICON_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.28);
 const CHIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
-/** The armed icon box's edge — mock `.rc.armed .ci`, the `amber` token at .6. */
-const ICON_EDGE_ARMED = cssRgba(CLIENT_CONFIG.colors.amber, 0.6);
 /** A row's bottom hairline — the EXISTING `hairline` token, which IS the colour
  *  the mock writes there, at full weight. No new token (ruling 11). */
 const ROW_RULE = cssRgba(CLIENT_CONFIG.colors.hairline, 0.95);
@@ -1150,16 +1128,6 @@ const NAME_CSS = [
   'text-transform:uppercase',
   'white-space:nowrap',
   `margin-top:${T.nameGap}px`,
-].join(';');
-
-/** The KIND word — mock `.ck { font: 10px var(--mono); letter-spacing:.2em }`. */
-const KIND_CSS = [
-  `font:400 ${R.kindSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.kindLetterSpacing}px`,
-  `line-height:${T.lineHeight}`,
-  'text-transform:uppercase',
-  'white-space:nowrap',
-  `margin-top:${T.kindGap}px`,
 ].join(';');
 
 /** The LADDER row — mock `.ladder`: a fixed 16px row of `cap` rungs with the
@@ -1281,22 +1249,40 @@ const FOOT_CSS = [
 ].join(';');
 
 /**
- * The armed (hover/focus) treatment — mock `.rc.armed`: amber edge + glow, amber
- * key chip on the void bed, amber name and amber icon box. The KIND word (in its
- * kind color — amendment 188), the rows and the ladder stay put through the
+ * The armed (hover/focus) treatment — mock `.rc.armed`'s edge + glow, key chip,
+ * name and icon box, in the card's OWN tier colour (Eric 2026-11-06: "Instead
+ * of highlighting in amber, just make the 'selected' one glow in whatever
+ * color it is"; it was amber). The rows and the ladder stay put through the
  * arm: they are facts about the card, not states of the pointer. At REST the
- * edge is the kind token at reduced alpha.
+ * edge is that tier colour at reduced alpha (`cardEdge`).
  */
 function paintCard(card: RefitCardEls, armed: boolean): void {
-  const c = armed ? AMBER : REST;
-  card.root.style.borderColor = armed ? AMBER : KIND_EDGES[card.tone];
-  card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
+  const hi = cardArmedColor(card.tone);
+  const c = armed ? hi : REST;
+  card.root.style.borderColor = armed ? hi : cardEdge(card.tone);
+  card.root.style.boxShadow = armed ? `0 0 8px ${hi}` : 'none';
   card.name.style.color = c;
   card.icon.style.color = c;
-  card.icon.style.borderColor = armed ? ICON_EDGE_ARMED : ICON_EDGE;
-  card.chip.style.borderColor = armed ? AMBER : card.greyed ? MUTED : CHIP_EDGE;
-  card.chip.style.color = armed ? AMBER : card.greyed ? MUTED : META;
-  card.kind.style.color = KIND_COLORS[card.tone];
+  card.icon.style.borderColor = armed ? cardArmedIconEdge(card.tone) : ICON_EDGE;
+  card.chip.style.borderColor = armed ? hi : card.greyed ? MUTED : CHIP_EDGE;
+  card.chip.style.color = armed ? hi : card.greyed ? MUTED : META;
+}
+
+/**
+ * THE ARMED (hovered / focused) CARD'S COLOUR (Eric 2026-11-06: "Instead of
+ * highlighting in amber, just make the 'selected' one glow in whatever color
+ * it is."): the card's OWN tier colour at full strength — the edge, the glow
+ * (the amber state's own `0 0 8px` bloom, re-tinted), the name, the glyph and
+ * the key chip. Was the constant amber.
+ */
+export function cardArmedColor(tier: number): string {
+  return tierTint(tier);
+}
+
+/** The armed icon box's edge — the card's own tier colour at the .6 the amber
+ *  edge used (mock `.rc.armed .ci`). */
+function cardArmedIconEdge(tier: number): string {
+  return cssRgba(tierRampColor(tier), 0.6);
 }
 
 /** One plain text line at a prepared style. */
@@ -1446,7 +1432,7 @@ function footEl(foot: string): HTMLDivElement {
 function cardSignature(card: OfferCard): string {
   const rows = card.rows.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
   const hover = card.hover.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
-  return [card.id, card.kind, card.kindTone, card.name, card.tier ?? '', card.stack, card.cap, rows, hover, card.greyed ? 'g' : '', card.foot].join('~');
+  return [card.id, card.tone, card.name, card.tier ?? '', card.stack, card.cap, rows, hover, card.greyed ? 'g' : '', card.foot].join('~');
 }
 
 /** The DOM handles of one built card — the marks `paintCard` repaints on arm. */
@@ -1454,10 +1440,9 @@ interface RefitCardEls {
   root: HTMLButtonElement;
   chip: HTMLSpanElement;
   icon: HTMLDivElement;
-  kind: HTMLSpanElement;
   name: HTMLSpanElement;
-  /** The card's kind — its word color and resting edge (amendment 188). */
-  tone: CardKind;
+  /** The tier the card grants — its resting edge (Eric 2026-11-05). */
+  tone: number;
   /** Carried so the arm/rest repaint can restore a GREYED chip's own colours
    *  rather than the resting ones (the refusal outlives a hover). */
   greyed: boolean;
@@ -1762,16 +1747,15 @@ export class UpgradeMenu {
     btn.appendChild(chip); // FIRST child, always — pinned DOM order
     const icon = iconBoxEl(card.id);
     const name = nameEl(card.name);
-    const kind = lineEl(KIND_CSS, card.kind);
     // Every mark hangs off the CLIPPED body, never off the button itself: the
     // button has to keep `overflow` visible for the overhanging key chip, so
     // the amendment-47 clip lives exactly one level in (CARD_BODY_CSS). The
     // chip stays the button's FIRST child — the pinned digit-to-slot mapping.
     const body = document.createElement('div');
     body.style.cssText = CARD_BODY_CSS;
-    body.append(icon, name, ladderEl(card), kind, rowsEl(card.rows), footEl(card.foot));
+    body.append(icon, name, ladderEl(card), rowsEl(card.rows), footEl(card.foot));
     btn.appendChild(body);
-    const els: RefitCardEls = { root: btn, chip, icon, kind, name, tone: card.kindTone, greyed: card.greyed };
+    const els: RefitCardEls = { root: btn, chip, icon, name, tone: card.tone, greyed: card.greyed };
     if (card.greyed) {
       // The DASHED chip is the refusal's glyph channel and rides through
       // everything. The DIM is only applied while the card is otherwise live:

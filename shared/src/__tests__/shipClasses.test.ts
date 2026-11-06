@@ -40,9 +40,11 @@ describe('every hull envelope is finite and positive (a NaN or zero stat would f
   });
 
   // THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8): every
-  // envelope carries the seven indices and NO authored top speed or turn rate
-  // — those are DERIVED in the fold from ENGINES and RUDDER.
-  it('every envelope carries exactly the seven indices, each a whole number ≥ 1, and no maxSpeed / turnRate of its own', () => {
+  // envelope carries the indices and NO authored top speed — it is DERIVED in
+  // the fold from ENGINES. RUDDER is DELETED (Story 10.6, R2): a captain hull
+  // authors no turn rate (it turns at CONFIG.index.turnRate) and a drone
+  // envelope authors its own (I5).
+  it('every envelope carries exactly the indices, each a whole number ≥ 1, and no maxSpeed of its own; only a drone authors a turn rate', () => {
     for (const id of HULL_IDS) {
       const e = hullEnvelope(id);
       expect(Object.keys(e.index).sort(), id).toEqual([...INDEX_IDS].sort());
@@ -51,7 +53,7 @@ describe('every hull envelope is finite and positive (a NaN or zero stat would f
         expect(e.index[k], `${id} ${k}`).toBeGreaterThanOrEqual(1);
       }
       expect('maxSpeed' in e.kinematics, id).toBe(false);
-      expect('turnRate' in e.kinematics, id).toBe(false);
+      expect('turnRate' in e.kinematics, id).toBe((DRONE_HULL_IDS as readonly string[]).includes(id));
     }
   });
 });
@@ -119,12 +121,10 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     expect(m.hull.beam).toBeLessThan(l.hull.beam);
   });
 
-  it('agility is a size property: ENGINES and RUDDER both fall small → medium → large (and so do the derived speed and turn rate)', () => {
+  it('agility is a size property: ENGINES and the authored turn rate both fall small → medium → large (and so do the folded speed and turn rate)', () => {
     const [s, m, l] = DRONE_SIZE_IDS.map((size) => CONFIG.drones[size].index);
     expect(s.engines).toBeGreaterThan(m.engines);
     expect(m.engines).toBeGreaterThan(l.engines);
-    expect(s.rudder).toBeGreaterThan(m.rudder);
-    expect(m.rudder).toBeGreaterThan(l.rudder);
     const [ks, km, kl] = DRONE_SIZE_IDS.map((size) => effectiveStats(CONFIG.drones[size]).kinematics);
     expect(ks.maxSpeed).toBeGreaterThan(km.maxSpeed);
     expect(km.maxSpeed).toBeGreaterThan(kl.maxSpeed);
@@ -136,8 +136,9 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     for (const size of DRONE_SIZE_IDS) {
       const d = CONFIG.drones[size];
       expect(Object.keys(d).sort()).toEqual(['gun', 'hp', 'hull', 'index', 'kinematics']);
+      // ...plus the authored turn rate (Story 10.6, I5) a captain hull never carries.
       expect(Object.keys(d.kinematics).sort()).toEqual(
-        Object.keys(CONFIG.shipClasses.iowa.kinematics).sort(),
+        [...Object.keys(CONFIG.shipClasses.iowa.kinematics), 'turnRate'].sort(),
       );
       expect(Object.keys(d.gun!).sort()).toEqual(['damage', 'reloadMs']);
     }

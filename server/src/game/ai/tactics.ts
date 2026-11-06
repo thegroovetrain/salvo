@@ -120,7 +120,8 @@ import { slotAppetite, tacticFor } from './tacticRegistry.js';
 import { chooseCooldownAbility } from './abilities.js';
 import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
-import { batteryAim, secondariesHeld } from './battery.js';
+import { secondariesHeld } from './battery.js';
+import { heldAimOf } from './torpedoMount.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
@@ -843,7 +844,10 @@ function triggerOf(
     const held = shot.held === true;
     return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held, sec };
   }
-  const hold = target === null ? null : batteryAim(self, mind, sit, target);
+  // The HELD aim: the battery's — or, while the battery has nothing loaded,
+  // the torpedo aim the tactic is waiting on a launcher for (Story 10.6
+  // review gate, ai/torpedoMount.ts).
+  const hold = target === null ? null : heldAimOf(self, mind, sit, target);
   if (hold !== null) return { aim: hold.aim, aimDist: hold.aimDist, fireSlot: null, held: false, sec };
   return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false, sec };
 }

@@ -159,9 +159,8 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     const a = place(w, 'a', 'warspite', 'instantReload');
     w.applyCard(a, 'heavyTorpedo');
     w.applyCard(a, 'navalMines');
-    for (let i = 0; i < 3; i++) w.applyCard(a, 'navalMines'); // tier IV: a deeper rack
-    expect(a.stats.equipment.navalMines.maxAmmo).toBeGreaterThanOrEqual(3);
-    a.loadout[WEAPON_SLOTS[1]].state = { n: 0, reloadMsLeft: 3000 }; // the whole rack short
+    expect(a.stats.equipment.navalMines.maxAmmo).toBeGreaterThanOrEqual(3); // a rack of several (Story 10.6, R7)
+    Object.assign(a.racks.racks[0], { n: 0, reloadMsLeft: 3000 }); // the whole rack short (the racks are the truth)
     const idleTorp = { ...a.loadout[WEAPON_SLOTS[0]].state! };
     pressShift(w, 'a', 1);
     expect(a.loadout[WEAPON_SLOTS[0]].state).toEqual(idleTorp); // full and idle: untouched
