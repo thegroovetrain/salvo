@@ -21,6 +21,7 @@ import {
   type BurstEvent,
   type DeniedView,
   type FoghornEvent,
+  type CloudView,
   type FrameMsg,
   type GameEvent,
   type HealEvent,
@@ -828,6 +829,11 @@ function correctOwnMounts(deps: RoomBindingDeps, you: OwnShip, ackSeq: number): 
   deps.ownLaunchers?.correct(you, ackSeq);
 }
 
+/** Pure: a cloud row is usable only when its stamped life and both radii are finite and positive — else it is dropped at ingest. */
+export function cloudRowValid(c: Pick<CloudView, 'lifeMs' | 'r0' | 'r1'>): boolean {
+  return [c.lifeMs, c.r0, c.r1].every((v) => Number.isFinite(v) && v > 0);
+}
+
 /**
  * Merge this frame's clouds into the held set and drop every held cloud whose
  * life has ended on the FRAME's server time (never a local clock reading).
@@ -839,7 +845,7 @@ function correctOwnMounts(deps: RoomBindingDeps, you: OwnShip, ackSeq: number): 
  * first-seen order).
  */
 function holdClouds(f: FrameMsg, held: Map<string, HeldCloud>): HeldCloud[] {
-  for (const c of f.clouds ?? []) held.set(c.id, { ...c, deliveredAt: f.t });
+  for (const c of f.clouds ?? []) if (cloudRowValid(c)) held.set(c.id, { ...c, deliveredAt: f.t });
   // Each cloud's OWN stamped life (Story 10.6, I6 — the owner's SMOKE SCREEN
   // cards at the press), never a CONFIG read.
   for (const [id, c] of held) if (f.t - c.t0 >= c.lifeMs) held.delete(id);

@@ -17,6 +17,8 @@ import {
   WAKE_AGE_BUCKETS,
   hullEnvelope,
   mulberry32,
+  launcherAimPoint,
+  stepLaunchers,
   type GameEvent,
   type HullId,
   type Rng,
@@ -893,15 +895,24 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
 
 describe('ai/tacticKit / equipment — gates read the PREDICTED position (E6, E8)', () => {
   it('the torpedo gates range on, and reports, the predicted distance', () => {
-    const { rec, port } = mgShooter();
+    const { w, rec, port } = mgShooter();
     rec.state.heading = -Math.PI / 2; // the plots lie on the starboard beam: inside the launcher's band (R28)
-    const ctxOf = (t: RememberedContact): TacticContext => mgCtx(rec, port, mkMind(), t);
+    w.applyCard(rec, 'heavyTorpedo'); // a torpedo aboard: the launcher law decides the click (Story 10.6 review gate)
+    // A scatter-free mind, so the solved aim is the same on every call.
+    const still: Rng = { next: () => 0.5, float: (min, max) => (min + max) / 2, int: (min) => min, pick: (arr) => arr[0]! };
+    const ctxOf = (t: RememberedContact): TacticContext => mgCtx(rec, port, { ...mkMind(), rng: still }, t);
     // Last painted 200 u out, opening at 45 u/s for 2 s: predicted 290 u — past a 250 u reach.
     const opening = anon({ x: 200, y: 0, seenAt: NOW - 2000, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
     expect(solveTorpedoShot(ctxOf(opening), 60, 250)).toBeNull();
     // Last painted 300 u ahead, closing: predicted 210 u — inside, and reported as 210.
     const closing = anon({ x: 300, y: 0, seenAt: NOW - 2000, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
-    const shot = solveTorpedoShot(ctxOf(closing), 60, 250)!;
+    // Train the launcher ON what the bot will write — the solved lead's
+    // bearing at the predicted distance — first: a bot clicks only on target.
+    const c = ctxOf(closing);
+    const lead = aimPoint(c.mind, c.sit, closing, 60);
+    const aimPt = launcherAimPoint(rec.state, rec.hullId, Math.atan2(lead.y, lead.x), 210)!;
+    for (let i = 0; i < 200; i += 1) stepLaunchers(rec.launchers, rec.hullId, rec.state, aimPt, CONFIG.tick.simDtMs);
+    const shot = solveTorpedoShot(c, 60, 250)!;
     expect(shot.aimDist).toBeCloseTo(210, 9);
   });
 });

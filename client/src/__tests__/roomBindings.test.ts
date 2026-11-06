@@ -18,6 +18,7 @@ import {
   ownStatsChanged,
   readsAsBurn,
   windowRunning,
+  cloudRowValid,
   type RoomBindingDeps,
 } from '../net/roomBindings';
 import type { Connection } from '../net/connection';
@@ -2336,6 +2337,16 @@ describe('victim tells (Story 2.9) — SLOWED cue edges, both slow sources (Stor
     expect(play).not.toHaveBeenCalled();
     sink.handler(victimFrame([], { dazzledUntil: 12_000 })); // flashed again after it ended
     expect(play).toHaveBeenCalledWith('dazzled');
+  });
+
+  it('cloudRowValid accepts only a row whose lifeMs, r0 and r1 are all finite and positive', () => {
+    const ok = { id: 'c', x: 0, y: 0, t0: 0, lifeMs: 5000, r0: 10, r1: 90 };
+    expect(cloudRowValid(ok)).toBe(true);
+    expect(cloudRowValid({ ...ok, lifeMs: 0 })).toBe(false);
+    expect(cloudRowValid({ ...ok, r0: -1 })).toBe(false);
+    expect(cloudRowValid({ ...ok, r1: Number.NaN })).toBe(false);
+    expect(cloudRowValid({ ...ok, r1: Infinity })).toBe(false);
+    expect(cloudRowValid({ ...ok, lifeMs: undefined as unknown as number })).toBe(false);
   });
 
   it('windowRunning measures against the FRAME\'s own server time', () => {

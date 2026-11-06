@@ -52,6 +52,7 @@ import {
   type ShipClassId,
   type EquipmentId,
 } from '@salvo/shared';
+import { batteryAimPoint, fireTube, launcherAimPoint, launcherSummary, pickTube, stepLaunchers, stepTurrets } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
@@ -143,6 +144,13 @@ const FIXTURE_SHIFT: Readonly<Record<ShipClassId, ShiftId>> = {
  *  battery clicks only when one is on the aim it holds. */
 function trainOn(rec: ShipRecord, x: number, y: number): void {
   rec.turrets.forEach((t, i) => (t.a = desiredTurretAngle(rec.hullId, i, rec.state, { x, y })));
+}
+
+/** Swing the hull's torpedo LAUNCHERS onto a world point through the shared
+ *  stepper (Story 10.6 review gate: a bot clicks a torpedo only when a
+ *  launcher is ON TARGET — a fixture that wants the click trains first). */
+function trainLaunchersOn(rec: ShipRecord, x: number, y: number): void {
+  for (let i = 0; i < 200; i += 1) stepLaunchers(rec.launchers, rec.hullId, rec.state, { x, y }, CONFIG.tick.simDtMs);
 }
 
 function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0): ShipRecord {
@@ -999,6 +1007,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     // launchers fire across the beam).
     const beam = mkMind('duelist');
     plot(beam, track(port.now, { x: 0, y: 150, speed: 0 }));
+    trainLaunchersOn(rec, 0, 150); // ...once the launcher is ON it (review gate)
     expect(COMBAT_BRAIN.decide(rec, beam, port).fireSlot).toBe(tube);
     // Dead AHEAD, same range: the fore launcher's own dead wedge (R28) — the
     // bot never plans a torpedo there.
@@ -1387,6 +1396,7 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
     const rec2 = mkBot(clear, 'bismarck', 0, 0, -Math.PI / 2);
     const mind2 = mkMind('duelist');
     plot(mind2, track(clearPort.now, { x: 160, y: 0, speed: 0 }));
+    trainLaunchersOn(rec2, 160, 0); // the launcher ON the target (review gate)
     expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'heavyTorpedo'));
   });
 
@@ -1581,6 +1591,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const light = fitExtra(tb, 'lightTorpedo', familySlotFor('lightTorpedo')!);
     const mind = mkMind('raider');
     plot(mind, track(port.now, beam));
+    trainLaunchersOn(tb, beam.x, beam.y); // the launcher ON the target (review gate)
     const d = COMBAT_BRAIN.decide(tb, mind, port);
     expect(d.fireSlot).toBe(light);
     expect(Math.abs(d.aim - Math.PI / 2)).toBeLessThan(Math.PI / 4); // fired abeam
@@ -1608,6 +1619,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     homing.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
     const homingMind = mkMind('raider');
     plot(homingMind, track(port.now, at600));
+    trainLaunchersOn(homing, at600.x, at600.y); // the launcher ON the target (review gate)
     expect(COMBAT_BRAIN.decide(homing, homingMind, port).fireSlot).toBe(slotOf(homing, 'heavyTorpedo'));
     // Still bounded: past the budget-minus-turn-room line the tube holds.
     const far = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
@@ -1964,6 +1976,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const held = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
     const heldMind = mkMind('duelist');
     plot(heldMind, track(port.now, { ...young, firstSeenAt: port.now - 5000 }));
+    trainLaunchersOn(held, young.x, young.y); // the launcher ON the target (review gate)
     expect(COMBAT_BRAIN.decide(held, heldMind, port).fireSlot).toBe(slotOf(held, 'heavyTorpedo'));
   });
 
@@ -2735,7 +2748,9 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     const slot = slotOf(rec, 'supercavTorpedo');
     expect(slot).toBe(familySlotFor('supercavTorpedo'));
     const mind = mkMind('raider');
-    plot(mind, track(port.now, { x: CONFIG.bots.supercavCredibleU / 2, y: 0, heading: 0, speed: 5, live: true }));
+    // Parked (speed 0), so the solved aim is the plot and the launcher can be trained onto it first (review gate).
+    plot(mind, track(port.now, { x: CONFIG.bots.supercavCredibleU / 2, y: 0, heading: 0, speed: 0, live: true }));
+    trainLaunchersOn(rec, CONFIG.bots.supercavCredibleU / 2, 0);
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(slot);
     expect(launcherArcHolds(rec.hullId, rec.stats.torpedoLaunchers, rec.state.heading, d.aim)).toBe(true);
@@ -2966,5 +2981,120 @@ describe('THE SECONDARIES — held on a live hull in reach, with a burst discipl
     rec.sec.heat = 0;
     rec.sec.locked = true;
     expect(decide()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 10.6 review gate: the torpedo tactic decides with the SHARED launcher
+// law (`pickTube` over the bot's own launchers, stepped one tick ahead) — it
+// clicks only when a launcher is ON TARGET, and a torpedo it cannot fire never
+// takes the main battery's tick.
+// ---------------------------------------------------------------------------
+
+describe('TORPEDO LAUNCHERS — the bot clicks only ON TARGET and never blocks the battery (Story 10.6 review gate)', () => {
+  const DT = CONFIG.tick.simDtMs;
+  const ON_TARGET = (CONFIG.mainBattery.onTargetDeg * Math.PI) / 180;
+
+  /** The server's half of one tick for the bot's own mounts: the latest aim
+   *  steps the turrets and the launchers (the World's two STEP_ORDER rows). */
+  function serverStep(rec: ShipRecord, d: BotDecision): void {
+    stepLaunchers(rec.launchers, rec.hullId, rec.state, launcherAimPoint(rec.state, rec.hullId, d.aim, d.aimDist), DT);
+    stepTurrets(rec.turrets, rec.hullId, rec.state, batteryAimPoint(rec.state, d.aim, d.aimDist), DT);
+  }
+
+  /** The server's verdict on a torpedo click (after its launcher step). */
+  function serverPick(rec: ShipRecord, d: BotDecision): ReturnType<typeof pickTube> {
+    return pickTube(rec.launchers, rec.hullId, rec.state, launcherAimPoint(rec.state, rec.hullId, d.aim, d.aimDist));
+  }
+
+  function syncTorpSlot(rec: ShipRecord, slot: number): void {
+    rec.loadout[slot].state = launcherSummary(rec.launchers);
+  }
+
+  it('(a) a crossing target: every launched torpedo runs within the on-target tolerance of the solved aim', () => {
+    const w = openWorld(10601);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'bismarck', 0, 0, 0);
+    rec.state.speed = 0;
+    const slot = slotOf(rec, 'heavyTorpedo');
+    // The battery reloads the whole run: the torpedo is the only shot.
+    for (const t of rec.turrets) t.reloadMsLeft = 1e9;
+    rec.loadout[0].state = { n: 0, reloadMsLeft: 1e9 };
+    const mind = mkMind('raider');
+    let fired = 0;
+    for (let i = 0; i < 200; i += 1) {
+      port.now += DT;
+      // A target crossing the beam at knife range (inside the straight-runner's credible gate).
+      plot(mind, track(port.now, { x: -60 + i * 0.5, y: 180, heading: 0, speed: 10, live: true }));
+      const d = COMBAT_BRAIN.decide(rec, mind, port, i === 0);
+      serverStep(rec, d);
+      if (d.fireSlot !== slot) continue;
+      const pick = serverPick(rec, d);
+      if (pick.verdict !== 'fire') continue;
+      const pt = launcherAimPoint(rec.state, rec.hullId, d.aim, d.aimDist)!;
+      const solved = Math.atan2(pt.y - pick.station.y, pt.x - pick.station.x);
+      expect(Math.abs(angleDiff(pick.bearing, solved))).toBeLessThanOrEqual(ON_TARGET + 1e-9);
+      fireTube(rec.launchers, pick.launcher, pick.tube, rec.stats.equipment.heavyTorpedo.reloadMs);
+      syncTorpSlot(rec, slot);
+      fired += 1;
+    }
+    expect(fired).toBeGreaterThan(0); // non-vacuity: the launcher got there and fired
+  });
+
+  it('(b) Yamato, fore tube reloading, aft loaded, target 40° off the bow: no torpedo click — the main battery fires', () => {
+    const w = openWorld(10602);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
+    rec.state.speed = 0;
+    for (const i of WEAPON_SLOTS) rec.loadout[i] = { equipmentId: null, state: null }; // only the torpedo aboard
+    w.applyCard(rec, 'heavyTorpedo');
+    w.applyCard(rec, 'aftTorpedoLauncher');
+    const slot = slotOf(rec, 'heavyTorpedo');
+    rec.launchers[0].tubes[0] = 1e9; // fore reloading
+    rec.launchers[1].tubes[0] = 0; // aft loaded
+    syncTorpSlot(rec, slot);
+    expect(rec.loadout[slot].state!.n).toBe(1); // the summary says "one loaded"
+    const brg = (40 * Math.PI) / 180;
+    expect(launcherArcHolds(rec.hullId, rec.stats.torpedoLaunchers, 0, brg)).toBe(true); // ...and a band holds the bearing
+    const mind = mkMind('raider');
+    plot(mind, track(port.now, { x: Math.cos(brg) * 200, y: Math.sin(brg) * 200, heading: 0, speed: 0, live: true }));
+    let torpClicks = 0;
+    let batteryShots = 0;
+    for (let i = 0; i < 80; i += 1) {
+      port.now += DT;
+      const d = COMBAT_BRAIN.decide(rec, mind, port, i === 0);
+      serverStep(rec, d);
+      if (d.fireSlot === slot) torpClicks += 1;
+      if (d.fireSlot === 0) batteryShots += 1;
+    }
+    expect(torpClicks).toBe(0);
+    expect(batteryShots).toBeGreaterThan(0);
+  });
+
+  it('(c) a torpedo the launcher cannot fire on target YET never takes the tick from a ready battery', () => {
+    const w = openWorld(10603);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'bismarck', 0, 0, 0);
+    rec.state.speed = 0;
+    const slot = slotOf(rec, 'heavyTorpedo');
+    const mind = mkMind('raider');
+    // On the beam: inside the fore launcher's band, but the launcher rests dead ahead.
+    plot(mind, track(port.now, { x: 0, y: 200, heading: 0, speed: 0, live: true }));
+    let run = 0;
+    let worst = 0;
+    let batteryShots = 0;
+    for (let i = 0; i < 60; i += 1) {
+      port.now += DT;
+      const d = COMBAT_BRAIN.decide(rec, mind, port, i === 0);
+      serverStep(rec, d);
+      if (d.fireSlot === 0) batteryShots += 1;
+      // A torpedo click the server refuses, or fires off its aim, is a tick taken from the battery.
+      const pick = d.fireSlot === slot ? serverPick(rec, d) : null;
+      const wasted = pick !== null && (pick.verdict !== 'fire' || !pick.onTarget);
+      run = wasted ? run + 1 : 0;
+      worst = Math.max(worst, run);
+    }
+    expect(worst).toBe(0);
+    expect(batteryShots).toBeGreaterThan(0);
   });
 });

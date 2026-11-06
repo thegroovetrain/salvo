@@ -93,6 +93,9 @@ const RAD_PER_DEG = Math.PI / 180;
 /** The most launchers a hull can mount: the fore and the aft station. */
 export const MAX_LAUNCHERS = 2;
 
+/** The most tubes one launcher can hold (a count above it is clamped, never looped to). */
+export const MAX_TUBES_PER_LAUNCHER = 2;
+
 /** One launcher's runtime state (also the `OwnShip.launchers` wire entry). */
 export interface LauncherState {
   /** rad — hull-relative, unwrapped, inside the launcher's train interval (see the header). */
@@ -187,7 +190,7 @@ export function initialLaunchers(hullId: HullId, counts: LauncherCounts): Launch
  */
 export function resizeLaunchers(states: LauncherState[], hullId: HullId, counts: LauncherCounts): LauncherState[] {
   const n = launcherCount(hullId, counts);
-  const tubes = wholeIn(counts.tubesPerLauncher, 1, Number.MAX_SAFE_INTEGER);
+  const tubes = wholeIn(counts.tubesPerLauncher, 1, MAX_TUBES_PER_LAUNCHER);
   states.length = Math.min(states.length, n);
   for (let i = 0; i < n; i += 1) {
     const st = states[i] ?? (states[i] = { a: launcherRest(i), tubes: [] });

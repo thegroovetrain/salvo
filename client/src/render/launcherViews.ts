@@ -15,7 +15,7 @@
 // (`tubes` null). A drone mounts none.
 
 import { Graphics, type Container } from 'pixi.js';
-import { launcherRest, launcherStation, type ShipClassId } from '@salvo/shared';
+import { MAX_LAUNCHERS, launcherRest, launcherStation, type ShipClassId } from '@salvo/shared';
 import { launcherContext } from './hullArt/pixiArt.js';
 
 export class LauncherMounts {
@@ -48,7 +48,7 @@ export class LauncherMounts {
    * `tubes` tubes each (null = the generic enemy housing), lined in `stroke`.
    */
   set(cls: ShipClassId | null, angles: readonly number[], tubes: number | null, stroke: number): void {
-    const n = cls === null ? 0 : angles.length;
+    const n = cls === null ? 0 : Math.min(angles.length, MAX_LAUNCHERS);
     const b = this.builtFor;
     if (b === null || b.cls !== cls || b.n !== n || b.tubes !== tubes || b.stroke !== stroke) this.rebuild(cls, n, tubes, stroke);
     for (let i = 0; i < this.views.length; i++) this.views[i].rotation = angles[i] ?? launcherRest(i);

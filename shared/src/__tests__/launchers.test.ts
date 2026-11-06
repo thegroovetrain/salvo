@@ -35,6 +35,7 @@ import {
   hullEnvelope,
   hullSilhouette,
   initialLaunchers,
+  MAX_TUBES_PER_LAUNCHER,
   launcherAimPoint,
   launcherArcHolds,
   launcherBears,
@@ -406,6 +407,15 @@ describe('the pick (R16)', () => {
     settle(ls, HULL, POSE, aim);
     fireTube(ls, 0, 0, 20000);
     expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 1, tube: 0 });
+  });
+});
+
+describe('tube count is bounded', () => {
+  it('a huge tubesPerLauncher clamps to MAX_TUBES_PER_LAUNCHER on every launcher', () => {
+    const ls = initialLaunchers(HULL, counts(2, 1e12));
+    expect(ls.map((l) => l.tubes.length)).toEqual([MAX_TUBES_PER_LAUNCHER, MAX_TUBES_PER_LAUNCHER]);
+    expect(MAX_TUBES_PER_LAUNCHER).toBe(2);
+    expect(resizeLaunchers(ls, HULL, counts(2, Infinity)).every((l) => l.tubes.length === 1)).toBe(true); // non-finite -> the floor of 1
   });
 });
 

@@ -37,6 +37,8 @@ import {
   parallelOffsets,
   initialLaunchers,
   launcherAimPoint,
+  launcherBears,
+  launcherStationWorld,
   pickTube,
   torpedoLaunchPoint,
   turretAimPoints,
@@ -612,14 +614,25 @@ function loaded(states: readonly LauncherState[]): LauncherState[] {
   return states.map((s) => ({ a: s.a, tubes: s.tubes.map(() => 0) }));
 }
 
-/** Where and along what bearing the next torpedo enters the water — the
- *  shared R16 pick's launcher (null when no held launcher's arc holds the aim). */
+/** Where and along what bearing the next torpedo enters the water: the shared
+ *  R16 pick's launcher when one fires; while a launcher whose band holds the aim
+ *  is still swinging (`cooling`), the first such launcher's station along the
+ *  aim bearing from it — where the torpedo runs once it arrives. Null when no
+ *  held launcher's arc holds the aim. */
 function torpedoLaunch(inp: AimPreviewInput): { origin: Vec2; dir: number } | null {
   const cls = inp.ship.cls;
   const states = loaded(inp.launchers ?? initialLaunchers(cls, inp.stats));
-  const pick = pickTube(states, cls, inp.ship, launcherAimPoint(inp.ship, cls, inp.aim, inp.aimDist));
-  if (pick.verdict !== 'fire') return null;
-  return { origin: torpedoLaunchPoint(pick.station, inp.ship, cls, pick.bearing), dir: pick.bearing };
+  const aimPoint = launcherAimPoint(inp.ship, cls, inp.aim, inp.aimDist);
+  const pick = pickTube(states, cls, inp.ship, aimPoint);
+  if (pick.verdict === 'fire') return { origin: torpedoLaunchPoint(pick.station, inp.ship, cls, pick.bearing), dir: pick.bearing };
+  if (pick.verdict !== 'cooling' || aimPoint === null) return null;
+  for (let i = 0; i < states.length; i += 1) {
+    if (!launcherBears(cls, i, inp.ship, aimPoint)) continue;
+    const station = launcherStationWorld(cls, i, inp.ship);
+    const dir = Math.atan2(aimPoint.y - station.y, aimPoint.x - station.x);
+    return { origin: torpedoLaunchPoint(station, inp.ship, cls, dir), dir };
+  }
+  return null;
 }
 
 /** Mine placement: the rings at the clicked drop point (the server places the

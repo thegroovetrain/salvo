@@ -597,8 +597,16 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(computeAimPreview(torp({ ship: SHIP, aim: 0 }))).toEqual(EMPTY_MODEL);
   });
 
-  it('previews NOTHING while the only bearing launcher still swings through its dead wedge (R28)', () => {
-    expect(computeAimPreview(torp({ launchers: [{ a: 0, tubes: [0] }] }))).toEqual(EMPTY_MODEL);
+  it('while the bearing launcher still swings through its dead wedge (R28) the preview runs from its station along the aim', () => {
+    const inp = torp({ aimDist: 100, launchers: [{ a: 0, tubes: [0] }] });
+    const [l] = computeAimPreview(inp).lines;
+    const station = launcherStationWorld(DEFAULT_CLASS_ID, 0, TSHIP);
+    const aimPt = launcherAimPoint(TSHIP, DEFAULT_CLASS_ID, 0, 100)!;
+    const bearing = Math.atan2(aimPt.y - station.y, aimPt.x - station.x);
+    const exit = torpedoLaunchPoint(station, TSHIP, DEFAULT_CLASS_ID, bearing);
+    expect(l.x1).toBeCloseTo(exit.x, 9);
+    expect(l.y1).toBeCloseTo(exit.y, 9);
+    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(bearing, 6);
   });
 
   it('with the AFT launcher held, an aft-quarter aim leaves from the AFT station', () => {

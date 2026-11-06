@@ -61,7 +61,8 @@ export interface RackBank {
  * the racks back out, so nothing is re-derived from CONFIG or the cards.
  */
 export function rackCapacity(stats: RackStats, id: MineEquipmentId): number {
-  return Math.floor(stats.equipment[id].maxAmmo / rackCount(stats));
+  const per = Math.floor(stats.equipment[id].maxAmmo / rackCount(stats));
+  return Number.isFinite(per) ? Math.max(1, per) : 1; // fail closed: a whole number, never NaN
 }
 
 /** How many racks these stats mount (at least one). */
@@ -133,10 +134,13 @@ export function tickRacks(bank: RackBank, capacity: number, reloadMs: number, dt
       continue;
     }
     r.reloadMsLeft -= dtMs;
-    if (r.reloadMsLeft <= 0) {
+    const stuck = !(reloadMs > 0) || !Number.isFinite(reloadMs); // a non-positive / non-finite reload would never carry
+    while (r.reloadMsLeft <= 0 && r.n < capacity) {
       r.n += 1;
-      r.reloadMsLeft = r.n < capacity ? r.reloadMsLeft + reloadMs : 0;
+      if (stuck) r.n = capacity;
+      else r.reloadMsLeft += reloadMs;
     }
+    if (r.n >= capacity) r.reloadMsLeft = 0;
   }
 }
 

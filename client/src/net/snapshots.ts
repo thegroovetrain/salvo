@@ -4,7 +4,7 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { decodeLauncherAngle, decodeTurretAngle, lerpAngle, type Contact, type HullId } from '@salvo/shared';
+import { decodeLauncherAngle, decodeTurretAngle, hullEnvelope, lerpAngle, type Contact, type HullId } from '@salvo/shared';
 import { lerp } from '../util/math.js';
 
 /** One timestamped kinematic sample. `t` is server time (ms). */
@@ -191,8 +191,10 @@ export class ContactStore {
       this.everSeenClasses.set(c.id, c.cls);
       if (c.aggro === true) this.aggro.add(c.id);
       else this.aggro.delete(c.id);
-      pushAngles(this.turretAngles, c.id, c.tu, (i, q) => decodeTurretAngle(c.cls, i, q));
-      pushAngles(this.launcherAngles, c.id, c.lu, (i, q) => decodeLauncherAngle(c.cls, i, q));
+      // An unknown hull id (a malformed row) decodes to no mount angles — never a throw that drops the frame's other contacts.
+      const known = (hullEnvelope(c.cls) as unknown) !== undefined;
+      pushAngles(this.turretAngles, c.id, known ? c.tu : undefined, (i, q) => decodeTurretAngle(c.cls, i, q));
+      pushAngles(this.launcherAngles, c.id, known ? c.lu : undefined, (i, q) => decodeLauncherAngle(c.cls, i, q));
     }
   }
 

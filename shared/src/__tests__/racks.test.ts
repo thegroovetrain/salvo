@@ -44,6 +44,37 @@ const tick = (b: RackBank, cap: number, ticks: number): void => {
   for (let i = 0; i < ticks; i += 1) tickRacks(b, cap, RELOAD, DT);
 };
 
+describe('rack edge inputs', () => {
+  it('a step longer than the reload restores every mine it covers and carries the remainder', () => {
+    const b = bank([0], 0, [RELOAD]);
+    tickRacks(b, 5, RELOAD, 3.5 * RELOAD);
+    expect(counts(b)).toEqual([3]);
+    expect(clocks(b)[0]).toBeCloseTo(0.5 * RELOAD, 9);
+  });
+
+  it('a step that fills the rack pins its clock at 0', () => {
+    const b = bank([0], 0, [RELOAD]);
+    tickRacks(b, 2, RELOAD, 10 * RELOAD);
+    expect(b.racks[0]).toEqual({ n: 2, reloadMsLeft: 0 });
+  });
+
+  it('a non-positive or non-finite reloadMs fills the rack and terminates', () => {
+    for (const ms of [0, -5, Number.NaN]) {
+      const b = bank([0], 0, [0]);
+      tickRacks(b, 3, ms, DT);
+      expect(b.racks[0]).toEqual({ n: 3, reloadMsLeft: 0 });
+    }
+  });
+
+  it('a non-finite folded maxAmmo gives a whole capacity of at least 1', () => {
+    const id = MINE_EQUIPMENT_IDS[0];
+    for (const bad of [Number.NaN, Infinity, -Infinity]) {
+      const stats = { mineRacks: 1, equipment: { [id]: { maxAmmo: bad } } } as unknown as Parameters<typeof rackCapacity>[0];
+      expect(rackCapacity(stats, id)).toBe(1);
+    }
+  });
+});
+
 describe('rack capacity', () => {
   it.each(MINE_EQUIPMENT_IDS)('%s: racks × per-rack capacity IS the folded pool, at every card mix', (id) => {
     const base = rackCapacity(effectiveStats(CLS, [id]), id);
