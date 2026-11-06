@@ -3,6 +3,26 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  98 — Story 10.6 THE CATALOG UNDER THE INDEX (Eric 2026-11-05, epic-10
+ *  amendment 12): torpedoes leave deck LAUNCHERS and mines leave RACKS —
+ *  OwnShip gains optional `launchers` (per launcher: angle + per-tube reload,
+ *  present while the torpedo slot is filled) and `racks` (per rack: mines +
+ *  its one clock, present while the mine slot is filled), both self-private
+ *  and appended LAST; the torpedo and mine entries of `OwnShip.ammo` become
+ *  SUMMARIES of them (`launcherSummary` / `rackSummary`); Contact gains
+ *  optional `lu` (a sighted hull's launcher angles in whole degrees off rest —
+ *  appended AFTER `tu`, angles only, under the contact row's own gate);
+ *  `CloudView` gains `lifeMs` / `r0` / `r1` (the cloud's stamped life and
+ *  size); the three fixed torpedo launch sectors are RETIRED (`ArcShape` gains
+ *  `launcher`; CONFIG `torpedo` / `lightTorpedo` / `supercavTorpedo` lose
+ *  `offset` / `halfArc`; `torpedoSpawn` is gone for `torpedoLaunchPoint`);
+ *  CONFIG the client reads changed (`launcher` new, `shipClasses.*.launchers`
+ *  stations, `index.rudder` and every hull's `rudder` deleted, the R8 / R9
+ *  ability bases); EffectiveStats loses `rudder` and gains the four mount
+ *  counts and the per-ship `repair` / `smoke` blocks; catalog CONTENT changed
+ *  (eight SHIP ladders, ten WEAPON lines on the per-weapon RELOAD bonus, four
+ *  one-off WEAPON cards; no tier steps a capacity). Perception exception
+ *  count stays SIX.
  *  97 — Story 10.5 THE KIT RETIRE AND THE THREE EQUIPMENT SLOTS (Eric
  *  2026-11-05, epic-10 amendment 11): the consumable kit is GONE — join option
  *  `kit`, `OwnShip.kit`, `ConsumableKit` / `ConsumableId`, the `stock` effect
@@ -973,7 +993,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 97;
+export const PROTOCOL_VERSION = 98;
 
 // Tunables
 export * from './constants.js';
@@ -997,6 +1017,8 @@ export * from './sim/indexStats.js';
 export * from './sim/abilityStats.js';
 export * from './sim/mountStats.js';
 export * from './sim/turrets.js';
+export * from './sim/launchers.js';
+export * from './sim/racks.js';
 export * from './sim/secondaries.js';
 export * from './sim/hullOutlines.js';
 export * from './sim/effects.js';

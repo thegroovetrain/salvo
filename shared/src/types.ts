@@ -9,6 +9,8 @@ import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
 import type { ShiftId } from './sim/loadout.js';
 import type { SecondariesHeat } from './sim/secondaries.js';
 import type { TurretState } from './sim/turrets.js';
+import type { LauncherState } from './sim/launchers.js';
+import type { RackState } from './sim/racks.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -688,6 +690,32 @@ export interface OwnShip {
    * prediction needs the exact double, and the exception count is unaffected.
    */
   draft?: number;
+  /**
+   * THE OWN TORPEDO LAUNCHERS (Story 10.6, Eric 2026-11-05, R6 / R13, epic-10
+   * amendment 12): one entry per launcher, fore first — its hull-relative
+   * angle `a` (rad, unwrapped, the convention in sim/launchers.ts) and
+   * `tubes`, the ms until each tube is loaded again (0 = loaded). The client
+   * steps its own copy with the shared `stepLaunchers` and overwrites it from
+   * this (`copyLaunchers`). The torpedo slot's `ammo` entry is only the hotbar
+   * SUMMARY of it (`launcherSummary`: tubes loaded + the soonest reload).
+   *
+   * PRESENT ONLY WHILE THE TORPEDO SLOT IS FILLED; omitted otherwise.
+   * SELF-PRIVATE: tube reloads ride `you` and nothing else. A sighted enemy's
+   * launcher ANGLES ride its `Contact.lu`; its tubes never do.
+   * APPENDED LAST (msgpack key order): ..., launchers, racks.
+   */
+  launchers?: LauncherState[];
+  /**
+   * THE OWN MINE RACKS (Story 10.6, R7): one entry per rack — mines held
+   * (`n`) and the rack's ONE clock (`reloadMsLeft`, ms until it restores a
+   * mine; 0 = idle). The mine slot's `ammo` entry is only the hotbar SUMMARY
+   * (`rackSummary`: every mine held + the soonest running clock). Which rack
+   * drops next is the server's cursor and does not travel.
+   *
+   * PRESENT ONLY WHILE THE MINE SLOT IS FILLED; omitted otherwise.
+   * SELF-PRIVATE and non-spatial: `you` only.
+   */
+  racks?: RackState[];
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -741,6 +769,23 @@ export interface Contact {
    * the `aggro` precedent above is the shape.
    */
   tu?: number[];
+  /**
+   * THE HULL'S TORPEDO LAUNCHER ANGLES (Story 10.6, Eric 2026-11-05, I7,
+   * epic-10 amendment 12: "Launcher angles reach observers exactly as turret
+   * angles do"). One whole number per launcher, fore first: its offset from
+   * its rest bearing in WHOLE DEGREES, counter-clockwise positive — the `tu`
+   * codec (`encodeLauncherAngles` / `decodeLauncherAngle`, sim/launchers.ts).
+   *
+   * Present ONLY while the hull holds a torpedo (it then has one or two
+   * launchers); absent otherwise. ANGLES ONLY — never a tube count beyond the
+   * array's length, a reload or a readiness bit. It rides the contact row and
+   * therefore that row's own visibility gate, exactly as `tu` does; nothing
+   * about a hull outside sight ∪ this-tick radar may carry it (extend the
+   * invariant tests). Not a seventh exception.
+   *
+   * APPENDED AFTER `tu`, AND OPTIONAL (msgpack key order).
+   */
+  lu?: number[];
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------

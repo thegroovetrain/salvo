@@ -147,7 +147,7 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // id keeps its place in `EQUIPMENT_IDS`.
   mainBattery: true,
   // THE THREE MOVED WEAPONS (Story 10.5): ready the slot, click fires — the
-  // supercav into its bow sector, the flash and fouling shells at any bearing.
+  // supercav from its launchers (Story 10.6), the flash and fouling shells at any bearing.
   supercavTorpedo: true,
   dazzleShells: true,
   foulingShell: true,

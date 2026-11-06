@@ -17,7 +17,6 @@ import {
   muzzleOrTarget,
   muzzleSpawn,
   pointInLitZone,
-  torpedoSpawn,
   turretAimPoints,
   turretMountBearings,
   turretMuzzles,
@@ -333,20 +332,9 @@ describe('muzzleOrTarget — no INNER dead ring either', () => {
   });
 });
 
-describe('torpedo geometry', () => {
-  it('torpedoSpawn is the bow-clear offset along the launch bearing', () => {
-    const p = torpedoSpawn({ x: 0, y: 0, heading: 0 }, len('iowa'), 0);
-    const want = hullClearOffset(
-      len('iowa'),
-      CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance,
-    );
-    expect(p.x).toBeCloseTo(want, 6);
-  });
-
-  // The `minCommandDistance` pin is RETIRED with COMMAND DETONATION (Story
-  // 7-5): the commanded burst point no longer exists, so there is no "ahead of
-  // the spawn point" invariant left to hold.
-});
+// TORPEDO GEOMETRY left this file with Story 10.6: `torpedoSpawn` (the bow
+// ring origin) is retired for the launcher station — launchers.test.ts. (The
+// `minCommandDistance` pin went earlier, with COMMAND DETONATION, Story 7-5.)
 
 // RETIRED (Story 7-5 wave 2, R2.16): 'BARREL_FAN_STEP_RAD is the ratified 3°
 // fan step both sides fan a salvo by'. BARREL's extra shells fly on PARALLEL

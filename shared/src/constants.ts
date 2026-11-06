@@ -243,6 +243,7 @@ export const CONFIG = {
         ],
         shellDamage: 24, // hp per shell (R2)
       },
+      launchers: { fore: 0.23, aft: 0.82 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
     },
     bismarck: {
       hull: { length: 251.0 * U_PER_M, beam: 36.0 * U_PER_M }, // u — Bismarck, 1941: 251.0 m × 36.0 m (115.1 × 16.5 u)
@@ -271,6 +272,7 @@ export const CONFIG = {
         ],
         shellDamage: 27, // hp per shell (R2)
       },
+      launchers: { fore: 0.135, aft: 0.875 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
     },
     warspite: {
       hull: { length: 196.2 * U_PER_M, beam: 31.7 * U_PER_M }, // u — HMS Warspite, 1937 rebuild: 196.2 m × 31.7 m (90.0 × 14.5 u)
@@ -299,6 +301,7 @@ export const CONFIG = {
         ],
         shellDamage: 27, // hp per shell (R2)
       },
+      launchers: { fore: 0.15, aft: 0.895 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
     },
     iowa: {
       hull: { length: 270.4 * U_PER_M, beam: 33.0 * U_PER_M }, // u — USS Iowa, 1943–45: 270.4 m × 33.0 m (124.0 × 15.1 u)
@@ -326,6 +329,7 @@ export const CONFIG = {
         ],
         shellDamage: 24, // hp per shell (R2)
       },
+      launchers: { fore: 0.204, aft: 0.821 }, // torpedo launcher stations, fraction of length FROM THE BOW (Story 10.6, I2 — a reading: one turret pitch outboard of the end turrets)
     },
   },
 
@@ -1677,6 +1681,24 @@ export const CONFIG = {
   },
 
   /**
+   * THE TORPEDO LAUNCHERS (Story 10.6, Eric 2026-11-05, R6 / R13 / R16, epic-10
+   * amendment 12) — the deck mounts every torpedo (light, heavy,
+   * supercavitating) leaves from. A ship holding a torpedo has a FORE launcher
+   * resting dead ahead, and with AFT TORPEDO LAUNCHER a second resting dead
+   * astern; each trains `trainDeg` either side of its rest bearing and chases
+   * the aim point at all times exactly as a turret does, at the MAIN BATTERY's
+   * own rate and on-target tolerance (`CONFIG.mainBattery.traverseDegPerS` /
+   * `onTargetDeg` — READ there, never copied here: R6 "traverse equal to the
+   * turrets'"). A tube fires only if its launcher's arc holds the aim point
+   * (R16). Stations are per hull: `CONFIG.shipClasses.<id>.launchers`. The
+   * launcher and tube COUNTS are per ship (`stats.torpedoLaunchers`,
+   * `stats.tubesPerLauncher`). Model: sim/launchers.ts.
+   */
+  launcher: {
+    trainDeg: 140, // ° either side of the rest bearing (R6: "140° to either side") — a fore-only hull cannot fire into the 80° wedge astern
+  },
+
+  /**
    * THE SECONDARIES (Story 10.4, R3, Eric 2026-11-04, epic-10 amendment 9) —
    * a uniform, slotless, 360° stream on RIGHT MOUSE HELD, identical on every
    * hull, and the ONLY weapon that damages a mine. HEAT, NOT AMMO (Eric: "it
@@ -1722,11 +1744,12 @@ export const CONFIG = {
    * commitment-spike feel). The bow tube is now just the pool.
    */
   torpedo: {
-    offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
+    // NO LAUNCH SECTOR (Story 10.6, Eric 2026-11-05, R6): `offset` / `halfArc`
+    // are DELETED on all three torpedo blocks — a torpedo leaves a deck
+    // LAUNCHER that trains like a turret (`CONFIG.launcher`, sim/launchers.ts).
     // AR44: a torpedo hits hulls — it runs UNDER a minefield and
     // never sets one off.
     hits: HITS_HULL,
-    halfArc: deg(30), // +/-30deg launch arc
     // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
     // amendment 55): nothing requires a torpedo to outrun every hull any more.
     // What 65 buys today is a FACT, not a requirement — the base fish still
@@ -1823,8 +1846,6 @@ export const CONFIG = {
    * +0.125 rad/s each, so there is no `homingTurnRate` base to author here.
    */
   lightTorpedo: {
-    offset: deg(90), // the twin sector's CENTER bearing — ±90° = both beams
-    halfArc: deg(45), // ±45° about each beam (90° dead zones fore and aft, R18)
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
     damage: 200, // hp per contact hit — tier I; +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
     maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
@@ -1837,7 +1858,8 @@ export const CONFIG = {
    * SUPERCAVITATING TORPEDO — a TORPEDO-SLOT weapon (`Q`) since Story 10.5
    * (Eric 2026-11-05, epic-10 amendment 11, R4: "SUPERCAV 45"): one torpedo
    * in the tube on a 45 s reload, scaled by RELOAD and the −5 %/tier step like
-   * every slot weapon; ready it, click inside the bow ±15° sector, one torpedo.
+   * every slot weapon; ready it, click inside a launcher's arc, one torpedo (Story 10.6, R6 —
+   * the bow ±15° sector is retired).
    * From Story 8.13 to 10.5 it was a prime-and-click CONSUMABLE with no reload
    * and no tiers (Eric 2026-09-19, epic-8 amendment 74); the kit is retired.
    *
@@ -1850,8 +1872,6 @@ export const CONFIG = {
    * family's `hitRadius` / `spawnClearance` from `CONFIG.torpedo`.
    */
   supercavTorpedo: {
-    offset: deg(0), // bow-centered
-    halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
     speed: 195, // u/s (amendment 74, R19's speed kept)
     damage: 400, // hp per contact hit — tier I; +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
     maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
@@ -3183,6 +3203,18 @@ export interface HullBattery {
 }
 
 /**
+ * A hull's two torpedo LAUNCHER stations (Story 10.6, Eric 2026-11-05, R6;
+ * the positions are implementer reading I2): each a fraction of length
+ * overall FROM THE BOW on the centerline — the `TurretMount.frac` convention.
+ * `fore` sits ahead of the forward turrets and rests dead ahead; `aft` sits
+ * abaft the aft turrets and rests dead astern.
+ */
+export interface HullLaunchers {
+  readonly fore: number;
+  readonly aft: number;
+}
+
+/**
  * THE SIX INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8), in
  * the order the SHIP tooltip and the harness print them (amendment 6(c)):
  * ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE (RUDDER, the seventh, is
@@ -3234,6 +3266,12 @@ export interface HullEnvelope {
    * "is a captain's hull" in the fold (sim/stats.ts) and in sim/turrets.ts.
    */
   battery?: HullBattery;
+  /**
+   * The TORPEDO LAUNCHER stations (Story 10.6, R6 / I2). Present on every
+   * battleship, ABSENT on every PvE drone envelope (a drone mounts no
+   * launcher) — sim/launchers.ts.
+   */
+  launchers?: HullLaunchers;
   /** The six authored indices (Story 10.3; RUDDER deleted by 10.6). */
   index: HullIndex;
   kinematics: {

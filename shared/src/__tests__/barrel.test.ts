@@ -411,8 +411,7 @@ describe('shared barrel', () => {
     expect(CONFIG.torpedo.homingMaxRangeU).toBeGreaterThan(0);
   });
 
-  it('CONFIG.lightTorpedo (R18): a beam-centred twin-sector fish that runs under mines and carries no chassis duplicate', () => {
-    expect(CONFIG.lightTorpedo.offset).toBe(deg(90)); // the twin sector's centre: BOTH beams
+  it('CONFIG.lightTorpedo (R18): runs under mines and carries no chassis duplicate', () => {
     expect(CONFIG.lightTorpedo.hits).toEqual(['hull']); // AR44 — it runs UNDER a minefield
     // NO MAX RANGE, and no chassis duplication: hit radius, spawn clearance
     // and the homing acquire/die/update thresholds are the FAMILY's, read from
@@ -422,8 +421,7 @@ describe('shared barrel', () => {
     }
   });
 
-  it('CONFIG.supercavTorpedo: a bow-sector slot weapon with a pool and a reload — and no homing dial (amendment 74; Story 10.5)', () => {
-    expect(CONFIG.supercavTorpedo.offset).toBe(deg(0)); // bow-centered
+  it('CONFIG.supercavTorpedo: a slot weapon with a pool and a reload — and no homing dial (amendment 74; Story 10.5)', () => {
     expect(CONFIG.supercavTorpedo.hits).toEqual(['hull']);
     expect(CONFIG.supercavTorpedo.reloadMs).toBeGreaterThan(0);
     expect(CONFIG.supercavTorpedo.maxAmmo).toBeGreaterThan(0);

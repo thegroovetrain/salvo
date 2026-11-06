@@ -15,13 +15,13 @@
 // They apply to whichever torpedo or mine the ship holds (R10), in either
 // card order.
 //
-// THE SINGLE-POOL READING (Story 10.6, Wave 1): until the launcher and rack
-// models land, a weapon row's `maxAmmo` is the TOTAL the hull carries —
-// launchers × tubes (× the row's own Tier I tube count, 1) for a torpedo,
-// racks × (per-rack base + bonus) for a mine — so every pool reader keeps
-// working and the total is already right: at most 4 tubes, 8 naval / fouling
-// mines, 4 captive. The per-unit truth (one clock per tube, one per rack)
-// will read the four counts directly.
+// THE ROW'S `maxAmmo` IS THE HULL'S TOTAL — launchers × tubes (× the row's
+// own Tier I tube count, 1) for a torpedo, racks × (per-rack base + bonus) for
+// a mine — so every pool reader (the hotbar summary, a bot's "how many do I
+// hold") reads the right total: at most 4 tubes, 8 naval / fouling mines, 4
+// captive. THE PER-UNIT TRUTH lives in the two models that read these counts
+// (Wave 2): sim/launchers.ts (one clock per tube) and sim/racks.ts (one clock
+// per rack; `rackCapacity` divides the racks back out of the total).
 //
 // A ONE-SHOT MULTIPLY that consumes the value it overwrites, so it runs in
 // sim/stats.ts clampStats ONLY (the RANGE multiply's precedent), after the
