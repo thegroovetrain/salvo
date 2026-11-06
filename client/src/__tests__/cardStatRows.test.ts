@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
-import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
+import { CARD_STAT_ROWS, cardHoverRows, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 import { hullPercent } from '../util/hullPercent.js';
 
 
@@ -74,6 +74,25 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     const armorAt = (n: number): string => String(foldOf('armor', n).armor);
     expect(pairs(cardStatRows(CATALOG.armor, 0, TB))).toEqual([[armorAt(0), armorAt(1)]]);
     expect(pairs(cardStatRows(CATALOG.armor, 4, held('armor', 4)))).toEqual([[armorAt(4), armorAt(5)]]);
+  });
+
+  // THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5): `you.ib` is folded
+  // beside the cards, so the face reads the hull's REAL index.
+  it('folds the own bonus points (`ib`) into both sides of the row', () => {
+    const ib = { armor: 3 };
+    const armorAt = (n: number): string =>
+      String(effectiveStats(CONFIG.shipClasses[TB.cls], Array<string>(n).fill('armor'), undefined, ib).armor);
+    expect(pairs(cardStatRows(CATALOG.armor, 0, { ...TB, ib }))).toEqual([[armorAt(0), armorAt(1)]]);
+    expect(armorAt(0)).not.toBe(String(foldOf('armor', 0).armor));
+  });
+
+  it('a null or absent `ib` never throws and reads as no points — face and hover alike (review gate P2)', () => {
+    for (const ib of [null, undefined]) {
+      for (const line of [CATALOG.armor, CATALOG.intel, CATALOG.deckGun]) {
+        expect(cardStatRows(line, 0, { ...TB, ib }), String(ib)).toEqual(cardStatRows(line, 0, TB));
+        expect(cardHoverRows(line, 0, { ...TB, ib }), String(ib)).toEqual(cardHoverRows(line, 0, TB));
+      }
+    }
   });
 
   // ARMOR PIERCING (Story 9.9, epic-9 amendments 145, 159 — mirrors ARMOR): ONE

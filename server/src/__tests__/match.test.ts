@@ -276,6 +276,49 @@ describe('match — countdown', () => {
   });
 });
 
+// NO CAPTAIN RE-ENTERS A COUNTDOWN (Story 10.7 review). A ship record carries
+// its own opening and redraw latches (`openingGranted`, `mulliganed`), and
+// addShip builds a fresh record with both clear — so a leave + rejoin into the
+// SAME countdown would hand out a second opening and a second redraw. Two
+// walls make that unreachable in production, and this suite pins the Match
+// half of both for every boarding-room shape (queue / lobby cohorts, and the
+// solo room's one-captain cohort): the room is NEVER unlocked, however many
+// captains leave mid-countdown (the room locks itself at birth — ArenaRoom,
+// which this unit cannot observe), and a countdown leaver's record is gone
+// at once. boarding.test.ts's 'a queue-formed cohort is sealed' pins the
+// exact hook order of each collapse; this sweeps every leave of every cohort
+// for the one property. The third wall (a resume reuses its record) and the
+// drop policy live in reconnect.test.ts.
+describe('match — a boarding room never re-opens a countdown', () => {
+  const COHORTS: { name: string; ids: string[]; timings: MatchTimings }[] = [
+    { name: 'solo', ids: ['a'], timings: { ...TIMINGS, minHumans: 1, expectedCaptains: 1 } },
+    ...[2, 3, 4].map((n) => {
+      const ids = ['a', 'b', 'c', 'd'].slice(0, n);
+      return { name: `${n}-captain cohort`, ids, timings: { ...TIMINGS, expectedCaptains: n } };
+    }),
+  ];
+
+  for (const { name, ids, timings } of COHORTS) {
+    it(`${name}: every countdown leave removes the leaver's record and never unlocks`, () => {
+      const w = new World(1);
+      w.map.islands.length = 0;
+      const rec = recorder();
+      const m = new Match(w, timings, rec.hooks);
+      for (const id of ids) {
+        w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
+        m.notifyRosterChanged();
+      }
+      expect(m.phase).toBe('countdown');
+      expect(rec.calls).toEqual(['lock']);
+      for (const id of [...ids].reverse()) {
+        m.onPlayerLeave(id);
+        expect(w.ships.has(id)).toBe(false);
+        expect(rec.calls).not.toContain('unlock');
+      }
+    });
+  }
+});
+
 // THE OPENING (Story 8.10, FR48, epic-8 amendments 59-63). The countdown is
 // where the card economy now starts: arming it grants every participant one
 // banked level and a hand (the four-slot plan, Story 10.7 — its Equipment

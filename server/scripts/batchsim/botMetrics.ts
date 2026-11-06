@@ -530,9 +530,10 @@ function contactEnd(victim: ShipRecord, by: string | undefined): BotEnd | null {
 /** The last-afloat economy reading (see BotTrack.levelsEarned). */
 function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.levelsEarned = ship.level;
-  // Since Story 10.7 (R3) a hull with nothing dealable banks nothing: levels it
-  // earns after exhaustion count in levelsEarned (ship.level keeps counting) but
-  // never in levelsUnspent — so the spent rate over-reads for a maxed hull.
+  // Since Story 10.7 (R5) a hull with nothing dealable banks nothing: each level
+  // it earns after exhaustion becomes a bonus index point (ship.indexBonus) —
+  // counted in levelsEarned (ship.level keeps counting), never in
+  // levelsUnspent, and never in boonsFitted (it is no card).
   track.levelsUnspent = ship.bankedLevels;
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;

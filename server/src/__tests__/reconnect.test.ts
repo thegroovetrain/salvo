@@ -445,6 +445,89 @@ describe('ArenaRoom.onDrop wiring', () => {
   });
 });
 
+// --- no captain re-enters a countdown (Story 10.7 review) ---------------------
+// The opening and the one redraw are latched on the SHIP RECORD
+// (`openingGranted`, `mulliganed`), and addShip builds a fresh record with both
+// clear — so the walls that keep a captain from collecting a second opening are
+// about records, not sessions. This suite drives the REAL World + Match through
+// the real ArenaRoom onDrop -> onLeave / onDrop -> resume -> onReconnect paths
+// (core calls onLeave right after an onDrop that held nothing, and onReconnect
+// instead of onJoin on a resume) and pins the two walls that live here:
+//   - a COUNTDOWN drop holds no seat and the leaver's record is gone at once,
+//     so there is no pending reconnection to come back through;
+//   - an ACTIVE resume keeps the SAME record — its redraw latch and its offer
+//     ride through untouched, and no fresh record (with fresh latches) exists.
+// The third wall (a boarding room is never unlocked) is match.test.ts's.
+
+interface DropRoom {
+  world: World;
+  match: Match;
+  state: { players: Map<string, unknown>; mapSeed: number; mapRadius: number };
+  allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
+  onDrop(client: { sessionId: string }, code?: number): void;
+  onLeave(client: { sessionId: string }, code?: number): void;
+  onReconnect(client: ResumeClientLike): void;
+}
+
+interface ResumeClientLike {
+  sessionId: string;
+  state: ClientState;
+  send: ReturnType<typeof vi.fn>;
+  leave: ReturnType<typeof vi.fn>;
+}
+
+/** The setup() harness's World + Match, behind a bare ArenaRoom whose
+ *  allowReconnection is a spy resolving to `resumed` (or never settling). */
+function dropRoom(ids: string[], resumed?: ResumeClientLike): { h: Harness; room: DropRoom; allow: ReturnType<typeof vi.fn> } {
+  const h = setup(ids);
+  const allow = vi.fn(() => (resumed ? Promise.resolve(resumed) : new Promise<unknown>(() => undefined)));
+  const room = new ArenaRoom() as unknown as DropRoom;
+  room.world = h.w;
+  room.match = h.m;
+  room.state = { players: h.players, mapSeed: 1, mapRadius: h.w.map.radius };
+  room.allowReconnection = allow as unknown as DropRoom['allowReconnection'];
+  return { h, room, allow };
+}
+
+describe('no captain re-enters a countdown', () => {
+  it('a countdown drop holds no seat and removes the leaver’s record at once', () => {
+    // Three captains, so one drop leaves the countdown standing (>= minHumans).
+    const { h, room, allow } = dropRoom(['a', 'b', 'c']);
+    expect(h.m.phase).toBe('countdown');
+    expect(h.w.ships.get('c')!.openingGranted).toBe(true);
+    room.onDrop({ sessionId: 'c' }, RESUMABLE);
+    expect(allow).not.toHaveBeenCalled(); // no reconnection is pending
+    room.onLeave({ sessionId: 'c' }, RESUMABLE); // core's follow-up to a held-nothing drop
+    expect(h.m.phase).toBe('countdown');
+    expect(h.w.ships.has('c')).toBe(false);
+    expect(h.players.has('c')).toBe(false);
+  });
+
+  it('an active resume keeps the SAME record, its redraw latch and its offer', async () => {
+    const resumed: ResumeClientLike = { sessionId: 'a', state: ClientState.JOINING, send: vi.fn(), leave: vi.fn() };
+    const { h, room, allow } = dropRoom(['a', 'b'], resumed);
+    const record = h.w.ships.get('a')!;
+    expect(h.w.mulligan(record)).toBe(true); // the one redraw, spent in the countdown
+    activate(h);
+    const shipsBefore = h.w.ships.size;
+    const offer = record.offer;
+    expect(offer).not.toBeNull(); // the redrawn hand rode activation onto live water
+    expect(record.mulliganed).toBe(true);
+
+    room.onDrop({ sessionId: 'a' }, RESUMABLE);
+    expect(allow).toHaveBeenCalledTimes(1); // the seat is held
+    await Promise.resolve(); // flush the resume's .then
+    await Promise.resolve();
+    room.onReconnect(resumed);
+
+    expect(h.w.ships.size).toBe(shipsBefore);
+    expect(h.w.ships.get('a')).toBe(record);
+    expect(record.mulliganed).toBe(true);
+    expect(record.openingGranted).toBe(true);
+    expect(record.offer).toBe(offer);
+  });
+});
+
 // --- config ------------------------------------------------------------------
 
 describe('CONFIG.net.reconnectGraceSeconds', () => {

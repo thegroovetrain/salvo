@@ -145,8 +145,9 @@ describe('shared barrel', () => {
     for (const gone of ['UPGRADE_IDS', 'UPGRADE_CATEGORY_IDS', 'UPGRADE_CATEGORIES', 'zeroUpgrades', 'rollBoonOffer']) {
       expect(ns[gone], gone).toBeUndefined();
     }
-    // The sweep ceiling SURVIVES the strip at its new home.
-    expect(CONFIG.vision.sweepRpm).toBeLessThanOrEqual(CONFIG.vision.sweepRpmMax);
+    // The sweep ceiling that survived the strip is itself gone (Story 10.7,
+    // R6 — no INTEL cap any more, for any reason): no dead constant remains.
+    expect('sweepRpmMax' in CONFIG.vision).toBe(false);
   });
 
   it('carries the XP economy block (Story 2.6) — the shape, tiers included', () => {
@@ -700,8 +701,9 @@ describe('shared barrel', () => {
     expect((CONFIG as Record<string, unknown>).pool).toBeUndefined();
     expect(Object.keys(CONFIG.catalog)).toEqual(['reloadBonusPerTier']);
     // THE WEIGHTING (amendments 90/91): the offer size and the factor/floor
-    // pair are the draw's only dials.
-    expect(Object.keys(CONFIG.offer).sort()).toEqual(['size', 'weighting']);
+    // pair are the draw's only dials; `exhausted` (Story 10.7, R5) is what an
+    // EMPTY draw turns a level into, not a draw dial.
+    expect(Object.keys(CONFIG.offer).sort()).toEqual(['exhausted', 'size', 'weighting']);
     expect(Object.keys(CONFIG.offer.weighting).sort()).toEqual(['factor', 'floor']);
     expect(MSG.spend).toBe('u');
     expect('upgradePoints' in CONFIG).toBe(false);

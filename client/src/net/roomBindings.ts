@@ -11,7 +11,10 @@ import {
   CATALOG,
   CONFIG,
   HULL_IDS,
+  INDEX_IDS,
   MSG,
+  NO_INDEX_BONUS,
+  bonusCount,
   boonStackCount,
   hullEnvelope,
   type BallisticEvent,
@@ -27,6 +30,7 @@ import {
   type HealEvent,
   type HitCallEvent,
   type HullId,
+  type IndexBonus,
   type MuzzleEvent,
   type OwnShip,
   type PointEvent,
@@ -215,8 +219,11 @@ export interface RoomBindingDeps {
    * `shift` is the seat's Shift (Story 10.4): slot 1's module is replayed from it,
    * so the loadout derivation needs it alongside the cards. (The consumable
    * KIT argument left with the kit — Story 10.5.)
+   *
+   * `bonus` is the exhausted hull's per-index bonus points (`you.ib`, Story
+   * 10.7, R5) — folded into the same effectiveStats() call beside the cards.
    */
-  onOwnStats: (cls: ShipClassId, boons: readonly string[], shift: ShiftId) => void;
+  onOwnStats: (cls: ShipClassId, boons: readonly string[], shift: ShiftId, bonus: IndexBonus) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -750,7 +757,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // never reads state.net.you.
     const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
-    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift);
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift, f.you.ib ?? NO_INDEX_BONUS);
     // Story 10.4: the own turrets + secondaries heat snap to the server's.
     correctOwnMounts(deps, f.you, f.ackSeq);
     deps.onOwnFrame?.(f.you);
@@ -914,8 +921,8 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure: did the own class, the seat Shift or the fitted-boon list change between
- * frames? Cheap array-equality over the boon ids (Story 2.8: the legacy
+ * Pure: did the own class, the seat Shift, the fitted-boon list or the bonus
+ * points (`ib`, Story 10.7 R5) change between frames? Cheap array-equality over the boon ids (Story 2.8: the legacy
  * 14-number `upg` vector died with the strip, so boons are the whole stat
  * input) — this gates the (heavier) effective-stats recompute in
  * deps.onOwnStats, so it runs on change only, not per frame. Two identical
@@ -931,7 +938,19 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
   if (!prev || next.cls !== prev.cls || next.shift !== prev.shift) return true;
-  return !sameList(next.cards, prev.cards);
+  return !sameList(next.cards, prev.cards) || !sameBonus(next.ib, prev.ib);
+}
+
+/** Did the exhausted hull's bonus points (Story 10.7, R5 — `you.ib`, a stat
+ *  input beside the cards) stay the same? Compared as the counts the fold
+ *  actually reads (`bonusCount`, the shared acceptance rule — review gate P3),
+ *  so a missing `ib` or a malformed entry (NaN ≠ NaN) reads as no points and
+ *  can never make every frame look changed. */
+function sameBonus(a: IndexBonus | null | undefined, b: IndexBonus | null | undefined): boolean {
+  for (const id of INDEX_IDS) {
+    if (bonusCount(a?.[id]) !== bonusCount(b?.[id])) return false;
+  }
+  return true;
 }
 
 /** Element-wise equality of two flat lists (numbers or strings). */

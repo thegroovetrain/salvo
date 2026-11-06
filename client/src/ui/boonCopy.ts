@@ -73,6 +73,7 @@ import {
   type CooldownAbilityId,
   type EffectiveStats,
   type EquipmentId,
+  type IndexBonus,
   type IndexId,
   type LineId,
   type LineKind,
@@ -444,6 +445,10 @@ const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
 export interface BoonPreviewShip {
   cls: ShipClassId;
   cards: readonly string[];
+  /** The exhausted hull's bonus points (`OwnShip.ib`, Story 10.7 R5) — folded
+   *  beside the cards so a preview reads the hull's real indices. Absent or
+   *  null reads as no points (`effectiveStats` tolerates both). */
+  ib?: IndexBonus | null;
 }
 
 /**
@@ -1154,8 +1159,8 @@ export function cardStatRows(
   if (isStubLine(line.id)) return [];
   if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
   const spec = CONFIG.shipClasses[you.cls];
-  const before = effectiveStats(spec, you.cards);
-  const after = effectiveStats(spec, [...you.cards, line.id]);
+  const before = effectiveStats(spec, you.cards, undefined, you.ib);
+  const after = effectiveStats(spec, [...you.cards, line.id], undefined, you.ib);
   return faceRows(line, copiesHeld, you.cards, before, after).slice(0, CARD_STAT_ROWS);
 }
 
@@ -1277,7 +1282,7 @@ export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
 export function cardHoverRows(line: CatalogLine, _copiesHeld: number, you: BoonPreviewShip): readonly CardStatRow[] {
   if (isStubLine(line.id)) return [];
   if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
-  const after = effectiveStats(CONFIG.shipClasses[you.cls], [...you.cards, line.id]);
+  const after = effectiveStats(CONFIG.shipClasses[you.cls], [...you.cards, line.id], undefined, you.ib);
   const ability = ABILITY_LADDERS[line.id];
   if (ability !== undefined) return abilityStatRows(ability, after);
   const target = hoverTarget(line, you.cards);

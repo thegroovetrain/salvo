@@ -148,7 +148,8 @@ export const CONFIG = {
    *   14 — RELOAD is the "standard ability haste" formula, verbatim: "Final
    *       Cooldown = Base Cooldown / (1 + ((RELOAD − INDEX)/K), where INDEX
    *       and K are both 100." (120 = ×0.833, 200 = half.) "Radar sweep = 15
-   *       RPM × INTEL / 100; INTEL 200 = 30 RPM" — today's `sweepRpmMax`.
+   *       RPM × INTEL / 100; INTEL 200 = 30 RPM" — the old `sweepRpmMax`,
+   *       deleted by Story 10.7, R6 (2026-11-06): the law is uncapped.
    *       RUDDER and RANGE take the same shape (turn rate, reach × index / 100
    *       on the battleship's base); ENGINES has its own base — ruling 15.
    *   15 — "Top speed = 30 u/s * (ENGINES / 100), lets set numbers based on
@@ -1196,11 +1197,11 @@ export const CONFIG = {
       kneeP: 0.9, // paint probability at the knee
       rimP: 0.1, // paint probability at the radar rim (12/12)
     },
-    sweepRpm: 15, // rev/min — radar rotation rate at INTEL 100 (15 rpm = one 4 s revolution; the fold reads sweepRpm × INTEL / 100 — Story 10.3, ruling 14); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
-    // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
-    // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
-    // effectiveStats firewall (base + boon fold) — nothing else may re-clamp it.
-    sweepRpmMax: 30,
+    sweepRpm: 15, // rev/min — radar rotation rate at INTEL 100 (15 rpm = one 4 s revolution; the fold reads sweepRpm × INTEL / 100 — Story 10.3, ruling 14)
+    // NO SWEEP CEILING: `sweepRpmMax` (30 RPM) is DELETED (Story 10.7, R6,
+    // 2026-11-06, epic-10 amendment 13 — Eric: there is no INTEL cap any
+    // more, for any reason). The sweep is the plain linear INTEL law for
+    // cards and the exhausted hull's bonus points alike.
     // u — THE RADAR GRID RESOLUTION (cycle 63, amendment 152). World units per
     // radar cell, shared because it is now gameplay-authoritative: the server
     // rasterizes a fogged hull's true silhouette onto THIS lattice and sends
@@ -1307,12 +1308,16 @@ export const CONFIG = {
     //
     // AND THE MAXED-SWEEP SHORTFALL IS RESOLVED BY THIS CUT (it was cycle
     // 69's review-gate P4, an accepted-not-repaired hole): the phosphor
-    // window is three REVOLUTIONS, so a maxed intelSweep build (sweepRpmMax
-    // 30, 2s revolutions) holds paints for 6s — which was short of the old
-    // 12s water clock and now COVERS the 5.5s one with margin. The agreement
-    // holds at EVERY sweep rate, not just the base one. Pinned in
-    // zone.test.ts, where the assertion changed from documenting a shortfall
-    // to enforcing a guarantee.
+    // window is three REVOLUTIONS, so a maxed intelSweep build (then the
+    // sweepRpmMax of 30, 2s revolutions) holds paints for 6s — which was short
+    // of the old 12s water clock and now COVERS the 5.5s one with margin.
+    // SINCE STORY 10.7, R6 (2026-11-06, epic-10 amendment 13) THE SWEEP IS
+    // UNCAPPED, so "every sweep rate" no longer holds: the covering lasts only
+    // while 3 × 60000 / rpm ≥ wakeLifeMs (≈ 32.7 rpm, INTEL ≈ 218 today).
+    // The fastest CARD-only build (INTEL 215, 32.25 rpm) still covers; a few
+    // exhausted-hull bonus INTEL points on top of it do not — the cycle-69
+    // shape of shortfall, back, and a question for Eric, not a fixed cap.
+    // Only the base-rate covering is pinned (zone.test.ts).
     wakeLifeMs: 5500,
     // u — the wake pose-history SAMPLE CADENCE (Story 4.12): a source records
     // a new wake sample only after travelling this far since its last one, so
@@ -2885,15 +2890,28 @@ export const CONFIG = {
    * lines, which were dealt even at their cap, and they are gone. An offer is
    * SHORTER than `size` when fewer than `size` lines are still eligible for
    * the ship, and empty once it holds every ladder, its three slotted weapons
-   * at cap and every add-on it can host. Since
-   * Story 10.7 (R3) such a hull with nothing dealable BANKS NO LEVEL: its level
-   * still counts, but nothing unspendable is ever banked.
+   * at cap and every add-on it can host.
+   *
+   * A LEVEL THAT MEETS AN EMPTY DRAW IS A BONUS POINT (Story 10.7, R5, Eric
+   * 2026-11-06, epic-10 amendment 13 — it replaces R3's "banks nothing"):
+   * the hull with nothing dealable gets no offer, no `pt` and no bank; each
+   * such level instead adds `exhausted.indexPoints` to ONE of the
+   * `exhausted.indices`, picked uniformly at random off the ship's own draw
+   * stream. Every level still banked when the draw runs dry (the queue behind
+   * a hull's last card) converts the same way, one pick each. The points are
+   * index points (a card is +20 or +10; this is +1), folded by
+   * `effectiveStats()` after the cards and beyond any card cap.
    */
   offer: {
     size: 4, // card lines per offer — drawn from the common pool, all different
     weighting: {
       factor: 0.75, // [DRAFT] weight multiplier per OTHER captain who took copy 1 (amendment 90)
       floor: 0.25, // [DRAFT] the weight never falls below this — less likely, never impossible
+    },
+    exhausted: {
+      indexPoints: 1, // index points per level converted on an exhausted hull (Eric 2026-11-06, R5: "+1 to a random stat")
+      // the stats a converted level may land on, picked uniformly (Eric 2026-11-06, R5) — never HULL REPAIR / SMOKE SCREEN
+      indices: ['armor', 'power', 'engines', 'reload', 'range', 'intel'],
     },
   },
 
@@ -3469,8 +3487,8 @@ export function sanitizeHornId(raw: unknown): HornId {
 // The 14-entry legacy upgrade system (UPGRADE_IDS / UpgradeId /
 // UPGRADE_CATEGORY_IDS / UPGRADE_CATEGORIES / CONFIG.upgrades) died wholesale
 // in Story 2.8 (FR20): the boon catalog + THE DECK MODEL are the only
-// progression vocabulary. The sweep ceiling survives as
-// CONFIG.vision.sweepRpmMax.
+// progression vocabulary. The sweep ceiling that survived it as
+// CONFIG.vision.sweepRpmMax is itself gone since Story 10.7, R6 (2026-11-06).
 
 /** Map radius for a given player cap: base * sqrt(cap / capRef). */
 export function mapRadius(playerCap: number): number {

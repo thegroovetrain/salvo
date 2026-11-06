@@ -10,9 +10,12 @@ import {
   CONFIG,
   DRONE_HULL_IDS,
   founderDeadline,
+  INDEX_IDS,
   isAfloat,
   isSunk,
   type FrameMsg,
+  type IndexBonus,
+  type IndexId,
   type MatchPhase,
   type OwnShip,
   type ShipClassId,
@@ -47,6 +50,15 @@ function ownMounts(ship: ShipRecord): Pick<OwnShip, 'launchers' | 'racks'> {
       ? { racks: ship.racks.racks.map((r) => ({ n: r.n, reloadMsLeft: r.reloadMsLeft })) }
       : {}),
   };
+}
+
+/** The own-ship `ib` (Story 10.7, R5): a FRESH object holding only the
+ *  indices with at least one bonus point — `{}` on every hull still drawing
+ *  cards, so the common frame pays two bytes for it. */
+function bonusOf(bonus: Readonly<Record<IndexId, number>>): IndexBonus {
+  const out: Partial<Record<IndexId, number>> = {};
+  for (const id of INDEX_IDS) if (bonus[id] > 0) out[id] = bonus[id];
+  return out;
 }
 
 /** The own-ship cooldown keys (Story 10.5): each ability's ready time while
@@ -110,8 +122,9 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // Only the FRONT offer exists at all — materialized lazily server-side and
     // surfaced here as BOON IDS (Story 2.7; deck-drawn as of 2.8), defensively
     // copied; `[]` when no hand is materialized. An EMPTY draw banks nothing
-    // (Story 10.7, R3): the World zeroes the bank, so an exhausted hull reads
-    // pts 0 — the strip never advertises a level that cannot be spent. The
+    // (Story 10.7, R5): the World converts the bank into bonus points (`ib`
+    // below) and zeroes it, so an exhausted hull reads pts 0 — the strip
+    // never advertises a level that cannot be spent. The
     // DECK never leaves the server at all. Self-private (own ship only), like
     // boons.
     pts: ship.bankedLevels,
@@ -121,6 +134,11 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // instead of guessing. SELF-PRIVATE on the pts/offer terms — it rides `you`
     // and NOTHING else, never a Contact or another client's data.
     rd: ship.mulliganed,
+    // THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5, PV 99): the non-zero
+    // per-index counts, `{}` for every hull still drawing cards. The client
+    // folds them through its own effectiveStats() so prediction matches.
+    // SELF-PRIVATE on the cards terms — `you` and NOTHING else.
+    ib: bonusOf(ship.indexBonus),
     // ms — active speed-boost window end (0 = inactive). OWNER-ONLY by
     // construction (Story 1.6): boostUntil rides `you` and NOTHING else — never
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy

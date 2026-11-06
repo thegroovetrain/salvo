@@ -40,6 +40,7 @@ import {
   type EffectiveStats,
   type EquipmentId,
   type ShiftId,
+  type IndexBonus,
   type GameMap,
   type HullId,
   type OwnShip,
@@ -677,7 +678,7 @@ interface Game {
    * Cached effectiveStats(ownClass, own fitted boons) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
    * firing-arc gun range). Starts at the guessed class with zero boons;
-   * applyOwnStats() swaps it whenever you.cls or you.cards changes.
+   * applyOwnStats() swaps it whenever you.cls, you.cards or you.ib changes.
    */
   ownStats: EffectiveStats;
   /** THE OWN BATTERY (Story 10.4): the predicted turrets + secondaries heat,
@@ -2960,7 +2961,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId, bonus: IndexBonus): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -2980,7 +2981,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shif
   // take the client down. Cards are the ONLY stat modifier, and this is the same
   // call the server caches; since 8.1 the fold counts copies per line and walks
   // the CATALOG's order, so the wire list's order cannot move a number.
-  const stats = effectiveStats(spec, cards);
+  // The exhausted hull's BONUS POINTS (`you.ib`, Story 10.7 R5) ride the same
+  // call, exactly as the server folds `ShipRecord.indexBonus`.
+  const stats = effectiveStats(spec, cards, undefined, bonus);
   g.ownStats = stats;
   // Own loadout follows the authoritative class + cards + SEAT SHIFT (Story
   // 1.6 / 2.5, slot 1 since 10.4):
@@ -3084,7 +3087,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, cards, shift) => applyOwnStats(g, cls, cards, shift),
+    onOwnStats: (cls, cards, shift, bonus) => applyOwnStats(g, cls, cards, shift, bonus),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),

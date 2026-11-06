@@ -223,22 +223,18 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   // AND at a maxed intelSweep build. That is why these two assertions are `>=`
   // rather than the old exact equalities: the relationship being defended is a
   // COVERING, and pinning it to equality would fail the build on a change that
-  // made it safer. The worst case is asserted explicitly below so the margin
-  // can never quietly evaporate either.
+  // made it safer.
+  //
+  // THE MAXED-SWEEP PIN IS GONE (Story 10.7, R6, 2026-11-06): the sweep has
+  // no ceiling any more ("there is no INTEL cap any more, for any reason"), so
+  // there is no worst case to assert — see the wakeLifeMs comment in
+  // constants.ts for where the covering now stops.
   //
   // The `3` is CLIENT_CONFIG.blip.persistSweeps written as a LITERAL (the
   // oracle discipline: shared may not import client config); its own pin lives
   // in client/src/__tests__/wake.test.ts beside the handover suite.
   it('the three clocks agree AT THE BASE SWEEP RATE: three paints cover the water clock (amendments 195/205)', () => {
     expect(3 * (60_000 / CONFIG.vision.sweepRpm)).toBeGreaterThanOrEqual(CONFIG.vision.wakeLifeMs);
-  });
-
-  it('and AT sweepRpmMax TOO — the cycle-69 P4 shortfall is resolved by the 5.5s clock, not merely accepted (amendment 213)', () => {
-    const worst = 3 * (60_000 / CONFIG.vision.sweepRpmMax);
-    expect(worst).toBeGreaterThanOrEqual(CONFIG.vision.wakeLifeMs);
-    // ...and the margin is real rather than a hairline: half a second of
-    // phosphor outlives the water even on the fastest sweep money can buy.
-    expect(worst - CONFIG.vision.wakeLifeMs).toBeGreaterThanOrEqual(500);
   });
 });
 

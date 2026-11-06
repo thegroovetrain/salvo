@@ -43,6 +43,7 @@ import {
   SLOT_FAMILIES,
   WEAPON_SLOTS,
   boonStackCount,
+  drawBonusIndex,
   drawOffer,
   effectiveStats,
   eligibleLines,
@@ -795,5 +796,46 @@ describe('ONE KIND PER SLOT — the draw never offers a second kind of a filled 
         expect(eligibleLines(ship).some((e) => e.id === second), `${second} after ${first}`).toBe(false);
       }
     }
+  });
+});
+
+describe('drawBonusIndex — the exhausted hull\'s pick (Story 10.7, R5)', () => {
+  const BONUS_IDS = CONFIG.offer.exhausted.indices;
+
+  it('spends exactly ONE rng value and answers a listed index', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const { rng, calls } = countingRng(seed);
+      expect(BONUS_IDS).toContain(drawBonusIndex(rng));
+      expect(calls()).toBe(1);
+    }
+  });
+
+  it('is uniform: each equal slice of [0, 1) maps to its own index, and every index is reachable', () => {
+    const n = BONUS_IDS.length;
+    const fixed = (v: number): Rng => ({ next: () => v, float: () => v, int: () => 0, pick: <T>(arr: readonly T[]): T => arr[0] });
+    for (let i = 0; i < n; i += 1) {
+      expect(drawBonusIndex(fixed(i / n))).toBe(BONUS_IDS[i]);
+      expect(drawBonusIndex(fixed((i + 0.999) / n))).toBe(BONUS_IDS[i]);
+    }
+    expect(drawBonusIndex(fixed(1))).toBe(BONUS_IDS[n - 1]); // a stub rng's 1 stays in range
+  });
+
+  it('fails closed (undefined, no junk key) on an empty or misconfigured list and on a NaN / negative rng — the rng value still spent', () => {
+    const fixed = (v: number): Rng => ({ next: () => v, float: () => v, int: () => 0, pick: <T>(arr: readonly T[]): T => arr[0] });
+    expect(drawBonusIndex(fixed(0.5), [])).toBeUndefined();
+    expect(drawBonusIndex(fixed(0.1), ['hullRepair', 'nope'])).toBeUndefined();
+    expect(drawBonusIndex(fixed(Number.NaN))).toBeUndefined();
+    expect(drawBonusIndex(fixed(-0.5))).toBeUndefined();
+    const { rng, calls } = countingRng(7);
+    expect(drawBonusIndex(rng, [])).toBeUndefined();
+    expect(calls()).toBe(1);
+  });
+
+  it('is deterministic off the stream: the same seed picks the same sequence', () => {
+    const seq = (seed: number): (string | undefined)[] => {
+      const rng = mulberry32(seed);
+      return Array.from({ length: 24 }, () => drawBonusIndex(rng));
+    };
+    expect(seq(0x10_7_5)).toEqual(seq(0x10_7_5));
   });
 });

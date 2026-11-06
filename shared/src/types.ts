@@ -11,6 +11,7 @@ import type { SecondariesHeat } from './sim/secondaries.js';
 import type { TurretState } from './sim/turrets.js';
 import type { LauncherState } from './sim/launchers.js';
 import type { RackState } from './sim/racks.js';
+import type { IndexBonus } from './sim/stats.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -494,10 +495,11 @@ export interface OwnShip {
    * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
    * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
    * still unspent). The server's bare banked-level COUNT. A hull with NOTHING
-   * DEALABLE banks nothing (Story 10.7, Eric 2026-11-06, R3, epic-10
+   * DEALABLE banks nothing (Story 10.7, Eric 2026-11-06, R5, epic-10
    * amendment 13): when a draw comes up empty the level still counts in `lvl`
-   * but is not banked, so `pts` is 0 for such a hull and the XP strip never
-   * advertises an unspendable level. Self-private by
+   * but becomes a +1 bonus point on a random index (`ib`) instead of a bank,
+   * so `pts` is 0 for such a hull and the XP strip never advertises an
+   * unspendable level. Self-private by
    * construction: it rides `you` ONLY, never a Contact or spectator payload.
    */
   pts: number;
@@ -521,6 +523,17 @@ export interface OwnShip {
    * rides `you` and NOTHING else.
    */
   rd: boolean;
+  /**
+   * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, Eric 2026-11-06, R5,
+   * epic-10 amendment 13; PROTOCOL_VERSION 99): per index, the levels this
+   * hull converted into that index because its draw had nothing left to deal
+   * (`ShipRecord.indexBonus`), NON-ZERO entries only — `{}` for every hull
+   * that still has cards to draw. The client folds it into its own
+   * `effectiveStats()` call beside `cards`, so its prediction and HUD read
+   * the server's numbers. Self-private like `pts` / `cards`: it rides `you`
+   * and NOTHING else (a build, like the cards).
+   */
+  ib: IndexBonus;
   /**
    * ms — server-clock time the active speed-boost window ends (Story 1.6);
    * `0` = inactive. The boost is live while `serverNow < boostUntil`, driving
@@ -547,7 +560,8 @@ export interface OwnShip {
    * Levels COMPLETED so far this life-of-the-match (Story 2.6) — an integer,
    * starting at 0 and wiped with the build at the match boundary. Every level
    * banks one point while the hull has something dealable (see `pts` — a hull
-   * with nothing dealable keeps counting here but banks nothing): `lvl` is the
+   * with nothing dealable keeps counting here, and each such level becomes a
+   * bonus point in `ib` instead of a bank): `lvl` is the
    * running total earned, `pts` what is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`cards` — it
    * rides `you` and NOTHING else (never a Contact, blip, ballistic event,
    * boom, spectator payload, or the roster schema). An enemy's level is

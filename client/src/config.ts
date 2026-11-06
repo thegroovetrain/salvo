@@ -2953,7 +2953,8 @@ export const CLIENT_CONFIG = {
         sliceRad: 0.0505,
         /**
          * The most beam (rad, ~23°) one frame may catch up on — about 250ms of
-         * sweep at 15rpm, or 125ms at the boon-scaled `sweepRpmMax` of 30. Past
+         * sweep at 15rpm, or 125ms at a 30rpm INTEL build (uncapped since Story
+         * 10.7, R6 — a faster sweep only shortens that span). Past
          * it the arc is SKIPPED: a backgrounded tab that resumes after a minute
          * must not stamp fifteen revolutions of slices into one frame, and every
          * paint it would have made is older than the phosphor life anyway.

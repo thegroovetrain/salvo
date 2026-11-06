@@ -12,8 +12,9 @@
 // slot is dealt, so a dead pick can never reach this shape. (The consumable
 // exception of epic-8 amendment 94 — dealt even at cap, which made the offer
 // never empty — left with the kit, 2026-11-05, Story 10.5: an offer may now be
-// short, or empty once nothing is eligible. Since Story 10.7 (R3) a hull with
-// nothing dealable banks no level, so an empty draw never sits banked.)
+// short, or empty once nothing is eligible. Since Story 10.7 (R5, Eric
+// 2026-11-06) a level that meets an empty draw becomes a +1 bonus point on a
+// random index instead, so an empty draw never sits banked.)
 //
 // THE DRAW IS STATELESS: there is no pool object to thin, so a line passed over
 // at one level is back at full weight the next — that IS "reshuffle after every

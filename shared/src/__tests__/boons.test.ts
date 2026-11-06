@@ -306,14 +306,14 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
     expect(s.equipment.lightTorpedo.speed).toBe(CONFIG.lightTorpedo.speed);
   });
 
-  it('an INTEL card re-derives sweepRpm and sweepPeriodMs, and the CEILING is re-applied over the fold', () => {
+  it('an INTEL card re-derives sweepRpm and sweepPeriodMs, with NO ceiling over the fold (Story 10.7, R6)', () => {
     const s = foldOne(TB, line('r', { kind: 'stat', path: 'intel', add: 5 }));
     expect(s.intel).toBe(TB.index.intel + 5);
     expect(s.sweepRpm).toBe((CONFIG.vision.sweepRpm * s.intel) / CONFIG.index.base);
     expect(s.sweepPeriodMs).toBeCloseTo(60000 / s.sweepRpm, 9);
     const over = foldOne(TB, line('o', { kind: 'stat', path: 'intel', add: 100000 }));
-    expect(over.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
-    expect(over.sweepPeriodMs).toBe(60000 / CONFIG.vision.sweepRpmMax);
+    expect(over.sweepRpm).toBe((CONFIG.vision.sweepRpm * over.intel) / CONFIG.index.base);
+    expect(over.sweepPeriodMs).toBeCloseTo(60000 / over.sweepRpm, 9);
   });
 
   it('an off-whitelist or malformed path is a fail-closed no-op (runtime guard)', () => {

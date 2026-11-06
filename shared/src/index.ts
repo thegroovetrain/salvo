@@ -10,9 +10,15 @@
  *  changed — `drawOffer` deals the four-slot TYPE plan [ship, equipment,
  *  wildcard, wildcard] (a wildcard a 50 / 50 flip), the kind-share stage
  *  (epic-8 amendment 92) and the level-zero weapon guarantee (amendment 93)
- *  are retired, and a hull with nothing dealable banks no level (`pts` 0).
+ *  are retired, and a hull with nothing dealable banks no level (`pts` 0):
+ *  each level it earns becomes a +1 BONUS POINT on a random index (R5), which
+ *  OwnShip carries as the REQUIRED `ib` (self-private, the non-zero counts per
+ *  index) and the client folds through `effectiveStats()` for prediction.
  *  `BoonOffer` stays line ids; no slot type rides the wire. Perception
- *  exception count stays SIX.
+ *  exception count stays SIX. R6 (2026-11-06): the INTEL sweep cap is gone —
+ *  `CONFIG.vision.sweepRpmMax` is deleted and the sweep is the plain linear
+ *  INTEL law for cards and bonus points alike (a derived-stat change both
+ *  sides fold); R7: a sinking / sunk hull's exhausted levels are dropped.
  *  98 —Story 10.6 THE CATALOG UNDER THE INDEX (Eric 2026-11-05, epic-10
  *  amendment 12): torpedoes leave deck LAUNCHERS and mines leave RACKS —
  *  OwnShip gains optional `launchers` (per launcher: angle + per-tube reload,

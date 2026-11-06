@@ -86,6 +86,7 @@ describe('buildFrame — shape and clock', () => {
       pts: 0, // no points banked
       offer: [], // no offer while pts is 0
       rd: false, // the countdown REDRAW is unused (Story 10.7, R4)
+      ib: {}, // no exhausted-hull bonus points (Story 10.7, R5)
       boostUntil: 0, // owner-only speed-boost window end; inactive
       // DAMAGE CONTROL (2026-08-04): the remaining regen pool in hp, owner-only
       // on the boostUntil terms. REQUIRED (never omitted), so a pool-less hull

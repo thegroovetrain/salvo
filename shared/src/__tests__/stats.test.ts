@@ -12,7 +12,8 @@
 //       then the post-fold clamps (no per-rung value tables — Story 9.14);
 //   (3) doctrine add-ons folded into per-equipment verb booleans — NONE is
 //       left since Story 8.17 (amendment 134), and no row carries a verb;
-//   (4) the clamps: sweepRpm ≤ sweepRpmMax, the mine ring derivations,
+//   (4) the clamps: the mine ring derivations (the sweep is UNCAPPED since
+//       Story 10.7, R6),
 //       gun.barrels 1..3, the spread-rung ladder;
 //   (5) THE PER-WEAPON RELOAD BONUS (Story 10.6, R5 — it replaced the
 //       −5 %/tier step) — base × haste(RELOAD + bonus × (tier − 1)) — as a
@@ -33,6 +34,7 @@ import {
   LINE_IDS,
   RANGE_ROWS,
   SHIP_CLASS_IDS,
+  bonusCount,
   deriveIndexStats,
   reloadCooldownScale,
   smokeSizeScale,
@@ -112,8 +114,8 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
       },
       maxHp: cls.hp,
       radarRange: CONFIG.vision.radar,
-      sweepRpm: Math.min((CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base, CONFIG.vision.sweepRpmMax),
-      sweepPeriodMs: 60000 / Math.min((CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base, CONFIG.vision.sweepRpmMax),
+      sweepRpm: (CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base,
+      sweepPeriodMs: 60000 / ((CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base),
       sightRange: CONFIG.vision.sight,
       // THE SECONDARIES' REACH (Story 10.4, R3): a fraction of the main reach.
       secondaryRangeU: CONFIG.mainBattery.rangeU * CONFIG.secondaries.rangeFrac,
@@ -633,12 +635,24 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
   // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) — see THE INDEX MODEL
   // describe below for the `regen`-is-gone pin.
 
-  it('INTEL never passes the sweepRpmMax clamp at any copy count, an over-stack included, and its period is 60000 / rpm', () => {
-    const max = CONFIG.vision.sweepRpmMax;
-    for (const n of [0, 1, 2, 3, 4, 5, 20]) {
-      const s = effectiveStats(BASE, stack('intel', n));
-      expect(s.sweepRpm, `${n} copies`).toBeLessThanOrEqual(max);
-      expect(s.sweepPeriodMs, `${n} copies`).toBe(60000 / s.sweepRpm);
+  it('INTEL has NO sweep ceiling (Story 10.7, R6): on every hull, one more INTEL index point — card-folded or bonus — raises sweepRpm by the same linear increment, at the card cap and past it', () => {
+    const perPoint = CONFIG.vision.sweepRpm / CONFIG.index.base; // rpm per INTEL index point — the linear law
+    const POINTS = CONFIG.offer.exhausted.indexPoints;
+    const step = (CATALOG.intel.tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
+    for (const clsId of SHIP_CLASS_IDS) {
+      const cls = CONFIG.shipClasses[clsId];
+      for (let n = 0; n <= CATALOG.intel.cap; n += 1) {
+        for (const b of [0, 1, 7]) {
+          const s = effectiveStats(cls, stack('intel', n), CATALOG, { intel: b });
+          const more = effectiveStats(cls, stack('intel', n), CATALOG, { intel: b + 1 });
+          expect(more.sweepRpm - s.sweepRpm, `${clsId} x${n} +${b}`).toBeCloseTo(perPoint * POINTS, 9);
+          expect(s.sweepPeriodMs, `${clsId} x${n} +${b}`).toBe(60000 / s.sweepRpm);
+          if (n < CATALOG.intel.cap) {
+            const card = effectiveStats(cls, stack('intel', n + 1), CATALOG, { intel: b });
+            expect(card.sweepRpm - s.sweepRpm, `${clsId} card x${n + 1} +${b}`).toBeCloseTo(perPoint * step, 9);
+          }
+        }
+      }
     }
   });
 
@@ -736,15 +750,12 @@ describe('THE INDEX MODEL — the authored indices and what the fold derives fro
     }
   });
 
-  it('INTEL: sweep RPM = CONFIG.vision.sweepRpm × intel / base, capped at sweepRpmMax, and the period follows', () => {
+  it('INTEL: sweep RPM = CONFIG.vision.sweepRpm × intel / base, uncapped (Story 10.7, R6), and the period follows', () => {
     for (let n = 0; n <= CATALOG.intel.cap + 2; n += 1) {
       const s = effectiveStats(BASE, stack('intel', n));
-      const law = (CONFIG.vision.sweepRpm * s.intel) / CONFIG.index.base;
-      expect(s.sweepRpm, `x${n}`).toBe(Math.min(law, CONFIG.vision.sweepRpmMax));
+      expect(s.sweepRpm, `x${n}`).toBe((CONFIG.vision.sweepRpm * s.intel) / CONFIG.index.base);
       expect(s.sweepPeriodMs, `x${n}`).toBe(60000 / s.sweepRpm);
     }
-    // INTEL at the cap reaches the ratified ceiling (ruling 14: 200 = 30 RPM).
-    expect(effectiveStats(BASE, stack('intel', CATALOG.intel.cap)).sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
   });
 
   it('RELOAD is the haste law (ruling 14): cooldownScale = round3(1 / (1 + (reload − base) / base)) — half at double the index — through every scaled row', () => {
@@ -1520,5 +1531,98 @@ describe('deriveMineRings — the mine rings re-pinned from the folded row', () 
     const once = structuredClone(eq);
     deriveMineRings(eq);
     expect(eq).toEqual(once);
+  });
+});
+
+describe('THE EXHAUSTED HULL\'S BONUS POINTS — folded after the cards, beyond the cap (Story 10.7, R5)', () => {
+  const POINTS = CONFIG.offer.exhausted.indexPoints;
+  const BONUS_IDS = CONFIG.offer.exhausted.indices;
+  /** The index step one card of `id`'s ladder authors. */
+  const cardStep = (id: LineId): number => (CATALOG[id].tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
+  /** Every numeric path that moved from `a` to `b`, with the sign of the move. */
+  const moves = (a: EffectiveStats, b: EffectiveStats): Map<string, number> => {
+    const fa = flatten(a);
+    const fb = flatten(b);
+    const out = new Map<string, number>();
+    for (const path of changed(a, b)) {
+      const va = fa.get(path);
+      const vb = fb.get(path);
+      if (typeof va === 'number' && typeof vb === 'number') out.set(path, Math.sign(vb - va));
+    }
+    return out;
+  };
+
+  it('the stats a level may land on are six distinct indices — nothing else (no HULL REPAIR, no SMOKE SCREEN)', () => {
+    expect(new Set(BONUS_IDS).size).toBe(BONUS_IDS.length);
+    expect([...BONUS_IDS].sort()).toEqual([...INDEX_IDS].sort());
+  });
+
+  it('no bonus — absent, empty, or all zeros — is byte-identical to the fold without the argument', () => {
+    const zeros = Object.fromEntries(INDEX_IDS.map((id) => [id, 0]));
+    const builds: LineId[][] = [[], stack('armor', 2), ['engines', 'reload', 'range', 'intel', 'power']];
+    for (const clsId of SHIP_CLASS_IDS) {
+      const cls = CONFIG.shipClasses[clsId];
+      for (const cards of builds) {
+        const plain = effectiveStats(cls, cards);
+        expect(effectiveStats(cls, cards, CATALOG, {}), clsId).toEqual(plain);
+        expect(effectiveStats(cls, cards, CATALOG, zeros), clsId).toEqual(plain);
+      }
+    }
+  });
+
+  it.each(BONUS_IDS)('%s: one point raises exactly that index by the CONFIG amount, and moves only what a card of it moves, the same way', (id) => {
+    const base = effectiveStats(BASE);
+    const bonus = effectiveStats(BASE, [], CATALOG, { [id]: 1 });
+    expect(bonus[id]).toBe(base[id] + POINTS);
+    for (const other of INDEX_IDS) if (other !== id) expect(bonus[other], other).toBe(base[other]);
+    const byCard = moves(base, effectiveStats(BASE, [id]));
+    const byBonus = moves(base, bonus);
+    expect(byBonus.get(id)).toBe(1);
+    for (const [path, sign] of byBonus) expect(byCard.get(path), path).toBe(sign);
+    // AT THE CARD CAP TOO (Story 10.7, R6): a point on a capped ladder still
+    // moves what a card of it moves — INTEL's sweep included, now uncapped.
+    const capped = stack(id, CATALOG[id].cap);
+    const atCap = moves(effectiveStats(BASE, capped), effectiveStats(BASE, capped, CATALOG, { [id]: 1 }));
+    expect(atCap.get(id)).toBe(1);
+    for (const [path, sign] of atCap) expect(byCard.get(path), `at cap: ${path}`).toBe(sign);
+    if (id === 'intel') for (const path of ['sweepRpm', 'sweepPeriodMs']) expect(atCap.get(path), `at cap: ${path}`).toBe(byCard.get(path));
+  });
+
+  it.each(BONUS_IDS)('%s: as many points as one card\'s step fold to exactly that card', (id) => {
+    const k = cardStep(id) / POINTS;
+    expect(Number.isInteger(k)).toBe(true);
+    expect(effectiveStats(BASE, [], CATALOG, { [id]: k })).toEqual(effectiveStats(BASE, [id]));
+  });
+
+  it.each(BONUS_IDS)('%s: points ADD past the ladder\'s card cap', (id) => {
+    const capped = stack(id, CATALOG[id].cap);
+    const atCap = effectiveStats(BASE, capped);
+    expect(effectiveStats(BASE, capped, CATALOG, { [id]: 3 })[id]).toBe(atCap[id] + 3 * POINTS);
+  });
+
+  it('a malformed count (negative, fractional, non-finite, not a number) is ignored or floored — fail-closed', () => {
+    const plain = effectiveStats(BASE);
+    const junk = { armor: -4, power: Number.NaN, engines: Number.POSITIVE_INFINITY, reload: 0.5, intel: 'x' as unknown as number };
+    expect(effectiveStats(BASE, [], CATALOG, junk)).toEqual(plain);
+    expect(effectiveStats(BASE, [], CATALOG, { range: 2.9 }).range).toBe(plain.range + 2 * POINTS);
+  });
+
+  it('a count past the safe-integer range (1e308, MAX_SAFE_INTEGER + 2) is ignored, not folded; a null bonus is no bonus', () => {
+    const plain = effectiveStats(BASE);
+    for (const n of [1e308, Number.MAX_SAFE_INTEGER + 2, -Number.MAX_VALUE]) {
+      expect(effectiveStats(BASE, [], CATALOG, { intel: n, armor: n }), String(n)).toEqual(plain);
+    }
+    expect(effectiveStats(BASE, [], CATALOG, null)).toEqual(plain);
+    expect(effectiveStats(BASE, ['intel'], CATALOG, null)).toEqual(effectiveStats(BASE, ['intel']));
+  });
+
+  it('bonusCount is the one acceptance rule: a floored non-negative safe integer, else 0', () => {
+    expect(bonusCount(3)).toBe(3);
+    expect(bonusCount(2.9)).toBe(2);
+    expect(bonusCount(0)).toBe(0);
+    expect(bonusCount(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+    for (const bad of [undefined, null, 'x', Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, -0.5, 1e308, Number.MAX_SAFE_INTEGER + 2]) {
+      expect(bonusCount(bad), String(bad)).toBe(0);
+    }
   });
 });
