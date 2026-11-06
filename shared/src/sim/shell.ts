@@ -231,12 +231,19 @@ export interface ShellState {
  *                 mask names it (Story 8.15, AR44; a side effect, amendment
  *                 105), and like `mine` it is BURST-ONLY: the World strips it
  *                 from the sweep mask, so nothing in flight collides with it.
- * The fourth kind, `decoy` (a dropped buoy's body, Story 8.16 / 10.9), is
+ *   - `beacon`  — a surfaced RADIO BEACON's body (Story 10.8, Eric 2026-11-06,
+ *                 R8/R12): struck like a hull — swept against, a burst victim
+ *                 and a legal homing lock — by every weapon row (the mine TRIP
+ *                 masks excepted: a mine never trips on one). The World lists
+ *                 it only while it is HITTABLE (afloat — `beaconHittable`), so
+ *                 a charted or sinking beacon is never a subject. It has no
+ *                 owner, so no friendly-fire case applies to it.
+ * The old fourth kind, `decoy` (a dropped buoy's body, Story 8.16 / 10.9), is
  * DELETED with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
  * Pure geometry: shared knows nothing about owners' doctrine, drones or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */
-export type TargetKind = 'hull' | 'mine' | 'ordnance';
+export type TargetKind = 'hull' | 'mine' | 'ordnance' | 'beacon';
 
 /**
  * Something to test ordnance against: a world-space polygon plus the id the
@@ -324,6 +331,7 @@ function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext
   for (const t of ctx.targets) {
     if (t.kind === 'mine') continue; // never in flight — landing-only (amendments 20, 200)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
+    // A beacon is NOT skipped: a shell stops on a surfaced beacon like a hull (R8).
     // Target polygon dilated by this projectile's own radius.
     const frac = segPolygonHit(p0, p1, t.poly, shell.hitRadius);
     if (frac === null) continue;
@@ -446,6 +454,8 @@ function acquireNearest(
   for (const t of ctx.targets) {
     if (t.kind === 'mine') continue; // a torpedo never locks a mine (amendment 20)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
+    // A RADIO BEACON IS A LEGAL LOCK — deliberately NOT skipped (Story 10.8,
+    // Eric 2026-11-06, R12: "Homing torpedoes MAY lock onto a beacon").
     const c = polyCentroid(t.poly);
     const d = Math.hypot(c.x - shell.x, c.y - shell.y);
     if (d <= bestD) {
@@ -567,6 +577,7 @@ export function burstVictims(
   for (const t of targets) {
     if (t.kind === 'mine') continue; // a burst never touches a mine — landing only (amendment 200)
     if (t.kind === 'hull' && t.id === ownerId) continue; // own weapon never damages the OWNER'S HULL
+    // A beacon IS a burst victim, like a hull (Story 10.8, R8 — a mine blast damages it).
     if (polyInBlast(center, radius, t.poly)) victims.push(t);
   }
   return victims;

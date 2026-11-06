@@ -109,7 +109,7 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
       maxAmmo: FLAK.maxAmmo, reloadMs: FLAK.reloadMs, damage: FLAK.damage, burstRadius: FLAK.burstRadius, contactDamage: FLAK.contactDamage,
     });
     expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
-    expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance']); // the decoy kind left with Story 10.5
+    expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']); // the decoy kind left with Story 10.5; the beacon joined with Story 10.8
   });
 
   it('a click at 300 u: the shell bursts AT the click, the falloff hit to a hull 30 u off the point, one `hc`, `w: flak`', () => {

@@ -63,9 +63,18 @@ export const U_PER_M = 0.4585;
 // THE `decoy` KIND IS GONE (2026-11-05, Story 10.5, epic-10 amendment 11): the
 // four buoys and their sponge body are deleted, so every mask that named it
 // reads hulls (plus its own mine / ordnance bits) alone.
-const HITS_HULL_MINE_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'ordnance'];
-const HITS_HULL_MINE: readonly TargetKind[] = ['hull', 'mine'];
-const HITS_HULL: readonly TargetKind[] = ['hull'];
+//
+// `beacon` IN A MASK MEANS "THIS ORDNANCE STRIKES A RADIO BEACON AS IT WOULD A
+// SHIP WITH ITS ARMOR" (Story 10.8, Eric 2026-11-06, R8: every weapon damages
+// it — main battery, secondaries, torpedoes, mines, special shells). So EVERY
+// weapon row carries it — EXCEPT the two mine TRIP masks (`mine.hits`,
+// `foulingMines.hits`), which keep `HITS_TRIP`: a mine does NOT trip on a
+// beacon (R12); a blast set off by a hull still damages one (server-side).
+const HITS_HULL_MINE_ORDNANCE_BEACON: readonly TargetKind[] = ['hull', 'mine', 'ordnance', 'beacon'];
+const HITS_HULL_MINE_BEACON: readonly TargetKind[] = ['hull', 'mine', 'beacon'];
+const HITS_HULL_BEACON: readonly TargetKind[] = ['hull', 'beacon'];
+/** A MINE'S TRIP MASK — hulls only (AR44; R12: never a beacon). */
+const HITS_TRIP: readonly TargetKind[] = ['hull'];
 
 export const CONFIG = {
   /**
@@ -1442,7 +1451,7 @@ export const CONFIG = {
     // Story 9.12, epic-9 amendment 184(i): the cursor clause and amendment
     // 200's "a burst that merely covers a mine does nothing" are RETIRED). A
     // shell in flight never touches a mine.
-    hits: HITS_HULL_MINE,
+    hits: HITS_HULL_MINE_BEACON,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
     // CANNON ladder's tier-III rung (catalog `deckGun`, Eric 2026-09-30) raises
@@ -1543,7 +1552,7 @@ export const CONFIG = {
    */
   machineGun: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_MINE, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
+    hits: HITS_HULL_MINE_BEACON, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
     rangeU: RUNG * 6, // u — Tier I reach, ruling 125, the ruler's rung × 6 (6/12)
     rangeUAtV: RUNG * 7, // u — Tier V reach, ruling 125, the ruler's rung × 7 (7/12)
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
@@ -1583,7 +1592,7 @@ export const CONFIG = {
    */
   flak: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_MINE_ORDNANCE, // AR44 / amendment 96(f)
+    hits: HITS_HULL_MINE_ORDNANCE_BEACON, // AR44 / amendment 96(f)
     rangeU: RUNG * 5, // u — Tier I reach, ruling 125, the ruler's rung × 5 (5/12)
     rangeUAtV: RUNG * 6, // u — Tier V reach, ruling 125, the ruler's rung × 6 (6/12)
     shellSpeed: 500, // u/s (amendment 105)
@@ -1684,7 +1693,7 @@ export const CONFIG = {
    */
   mainBattery: {
     arc: 'full', // every bearing is inside SOME turret's arc on every hull (which turrets may fire: sim/turrets.ts pickTurret)
-    hits: HITS_HULL, // hulls only; NO mine bit (R3)
+    hits: HITS_HULL_BEACON, // hulls (+ radio beacons, Story 10.8 R8); NO mine bit (R3)
     rangeU: RUNG * 8, // u — the cannon's Tier I reach at RANGE 100 (R2)
     reloadMs: 10000, // ms per turret, before RELOAD (R2)
     traverseDegPerS: 90, // °/s — one rate for all four hulls (amendment 7(j))
@@ -1717,7 +1726,7 @@ export const CONFIG = {
    */
   secondaries: {
     arc: 'full', // 360°
-    hits: HITS_HULL_MINE, // the machine gun's mask: hulls + mines
+    hits: HITS_HULL_MINE_BEACON, // the machine gun's mask: hulls + mines
     damage: 3, // hp per round (R3: Eric's "3 per round" after the DPS math)
     rateMs: 120, // ms — one round per 0.12 s while held (R3)
     overheatMs: 4000, // ms of continuous fire from cold to full heat (R3)
@@ -1747,7 +1756,7 @@ export const CONFIG = {
     // LAUNCHER that trains like a turret (`CONFIG.launcher`, sim/launchers.ts).
     // AR44: a torpedo hits hulls — it runs UNDER a minefield and
     // never sets one off.
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
     // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
     // amendment 55): nothing requires a torpedo to outrun every hull any more.
     // What 65 buys today is a FACT, not a requirement — the base fish still
@@ -1849,7 +1858,7 @@ export const CONFIG = {
     maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls — it runs UNDER a minefield.
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
   },
 
   /**
@@ -1875,7 +1884,7 @@ export const CONFIG = {
     maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
     reloadMs: 45000, // ms — Eric 2026-11-05, Story 10.5, R4 ("SUPERCAV 45")
     // AR44: hulls only, never a mine — it runs UNDER a minefield.
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
   },
 
   /**
@@ -1965,7 +1974,8 @@ export const CONFIG = {
     // sailing into its ring is not a hull and must not set it off (remote
     // minefield clearing is a mechanic nobody ruled on; LANDING a deck-gun
     // shell on it is the sanctioned way — amendment 200, as widened by 184(i)).
-    hits: HITS_HULL,
+    // Nor does a radio beacon trip it (Story 10.8, R12).
+    hits: HITS_TRIP,
     // hp — EVERY mine (naval, captive, fouling) carries this many hit points,
     // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
     // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS takes them
@@ -2085,8 +2095,9 @@ export const CONFIG = {
     slowDurationMs: 5000, // ms — FIXED at every tier (refresh, don't stack) [DRAFT]
     maxAmmo: 3, // held mines PER RACK (Story 10.6, R7: "3 fouling"; was 2 +1/tier → 6 at V) — no tier steps it (R4)
     reloadMs: 15000, // ms — tier I; −5 %/tier → 12 s at V [DRAFT]
-    // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged).
-    hits: HITS_HULL,
+    // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged) —
+    // never on a radio beacon (Story 10.8, R12).
+    hits: HITS_TRIP,
   },
 
   /**
@@ -2219,7 +2230,7 @@ export const CONFIG = {
     arcOffsetDeg: 90,
     // AR44: hulls. NEVER a mine (amendment 200, Eric 2026-10-01):
     // only a deck gun's shell landing on a mine damages one.
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -2363,7 +2374,7 @@ export const CONFIG = {
     // can never double as remote minefield clearing. (Before Story 8.4 a flare
     // burst DID set off the firer's own armed mines, through the owner-only
     // self-detonation path that amendment 16 replaced.)
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
     rangeU: RUNG * 11, // u — Tier I reach, ruling 125, the ruler's rung × 11 (11/12)
     rangeUAtV: RUNG * 12, // u — Tier V reach, ruling 125, the ruler's rung × 12 (12/12)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
@@ -2415,7 +2426,7 @@ export const CONFIG = {
     // AR44: hulls. NEVER a mine (amendment 200, Eric 2026-10-01,
     // superseding amendment 135(c)): only a deck gun's shell landing on a mine
     // damages one.
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
     rangeU: RUNG * 8, // u — Tier I reach, ruling 125, the ruler's rung × 8 (8/12)
     rangeUAtV: RUNG * 10, // u — Tier V reach, ruling 125, the ruler's rung × 10 (10/12)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -2464,7 +2475,7 @@ export const CONFIG = {
     arc: 'full', // 360° (sim/arcs.ts)
     // The star shell's mask: interception by a hull bursts the shell at the
     // stop point; it never detonates a mine.
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
     // u — the burst reach, ruling 125, the ruler's rung × 8 (8/12). FIXED at
     // every tier: R7 steps the radius, never the reach.
     rangeU: RUNG * 8,
@@ -2578,7 +2589,7 @@ export const CONFIG = {
     arc: 'full', // 360° (sim/arcs.ts)
     // The star shell's mask: interception by a hull flashes at the stop
     // point; a flash never detonates a mine (amendment 135(d)).
-    hits: HITS_HULL,
+    hits: HITS_HULL_BEACON,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
     maxAmmo: 1, // one round in the pool (2026-11-05, Story 10.5)
@@ -3076,6 +3087,62 @@ export const CONFIG = {
     // (1–5 %/s)" — 100 s to sink in the first ring, 20 s in the last. The
     // 5 / 10 / 15 / 20 / 25 and flat ×3 alternatives were rejected.
     stormDps: [10, 20, 30, 40, 50],
+  },
+
+  /**
+   * THE RADIO BEACONS (Story 10.8, Eric rulings R1–R13, 2026-11-06, epic-10
+   * amendment 14 — supersedes the story's "2 levels/min falling linearly from
+   * 1:00 to 3:00"). Global world objects that replace the drone fleet as the
+   * first-minute objective. The ONE lifecycle/rate model is
+   * `shared/src/sim/beacons.ts`; every number below is read through it.
+   *
+   * TIMELINE, per ring cycle (a cycle is one zone ring group,
+   * `ZONE_BEATS_PER_GROUP × zone.beatMs`, starting at the zone clock):
+   *   cycle start   CHARTED — on every chart at once (the schema), nothing in
+   *                 the water: not solid, not hittable, pays nothing;
+   *   + surfaceMs   SURFACES and FLOATS for `floatMs` paying the FULL rate;
+   *   + floatMs     SINKS over `sinkMs`, the rate falling LINEARLY to 0 (R3);
+   *   + sinkMs      gone.
+   * Destroyed afloat (0 hp) the sink minute starts at once (R6) — the early
+   * sink time is public (R9).
+   *
+   * COUNTS (R2): `counts[c]` beacons in ring cycle c — *"8 / 4 / 2"* for the
+   * cycles starting 0:00 / 4:00 / 8:00; a cycle past the list (the 12:00
+   * sudden-death cycle) gets NONE.
+   *
+   * RATE (R4): *"lets actually say it transmits 3 levels worth of XP per minute
+   * for the first minute, which then scales down to 0 over the minute that it
+   * sinks"* — `levelsPerMin` × `xp.levelMs` per minute, split evenly (integer
+   * ms, carried remainder) among afloat hulls whose centre is within `rangeU`.
+   *
+   * BODY (R5, R7, R12): *"Give it a full 1000 HP and 100 ARMOR and lets see how
+   * it goes."* Solid afloat AND sinking (the wreck law), hittable afloat only;
+   * contact is the ramming law with the beacon immovable and mass = `armor`.
+   * Destroying it pays `killLevels` levels split as a ship kill (R13: *"worth,
+   * say, 2 levels worth of XP to kill it, which would be divided among
+   * participants like ship kills would be"*).
+   *
+   * PLACEMENT (R10): the whole `rangeU` circle inside the live ring —
+   * `edgeMarginU` from the ring edge. The captain keep-out disc of the
+   * fleet-anchor placement rule is NOT a new number: it is the existing
+   * `vision.dropout.startU` (1000 u), read there, never duplicated here.
+   */
+  beacons: {
+    counts: [8, 4, 2], // beacons per ring cycle, cycle 0 first; past the list = 0 (R2)
+    rangeU: 500, // u — a hull's CENTRE within this of the beacon's centre is paid (inclusive)
+    surfaceMs: 60000, // ms — cycle start → surfaces (R3: charted 0:00, surfaces 1:00)
+    floatMs: 60000, // ms — afloat at the full rate (R3)
+    sinkMs: 60000, // ms — the sink, rate linear 1 → 0 (R3)
+    levelsPerMin: 3, // levels of XP per minute at the full rate, the whole pot (R4)
+    hp: 1000, // hit points (R5)
+    armor: 100, // ARMOR index — the damage gate AND the ram mass (R5, R7)
+    killLevels: 2, // levels paid for destroying it, split as a ship kill (R13)
+    edgeMarginU: 500, // u — placement: at least this far inside the live ring edge (R10)
+    // u — circumradius of the regular-octagon body. PROVISIONAL — NOT RULED BY
+    // ERIC: pending his yes on the RENDERED candidate (the spec's Block-If).
+    // Picked at ~one battleship half-beam (Yamato 17.8 / Bismarck 16.5 /
+    // Warspite 14.5 / Iowa 15.1 u beam → half-beams 8.9 / 8.25 / 7.25 / 7.55 u).
+    bodyRadiusU: 8,
   },
 
   /** Match lifecycle. */

@@ -1055,3 +1055,4 @@ export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';
 export * from './sim/zone.js';
+export * from './sim/beacons.js';

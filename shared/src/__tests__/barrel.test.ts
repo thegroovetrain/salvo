@@ -282,7 +282,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.broadside never hits a mine, carries its own range dial and no arc field, and both arc ladders are cap-long', () => {
-    expect(CONFIG.broadside.hits).toEqual(['hull']); // AR44 — never a mine since amendment 200 (only deck guns, by landing)
+    expect(CONFIG.broadside.hits).toEqual(['hull', 'beacon']); // AR44 — never a mine since amendment 200 (only deck guns, by landing)
     // A range field of its own since Story 9.8 (ruling 125) — and still NO
     // arc field: the beams are a twin-sector descriptor, not 'full'.
     expect('rangeU' in CONFIG.broadside).toBe(true);
@@ -317,7 +317,7 @@ describe('shared barrel', () => {
     // `incendiaryRadiusFactor`, `incendiaryDps` and `dazzleSightFactor` are
     // DELETED with the star-shell verbs.
     // AR44 (Story 8.4): NO 'mine' bit — illumination detonates nothing.
-    expect(CONFIG.starShells.hits).toEqual(['hull']);
+    expect(CONFIG.starShells.hits).toEqual(['hull', 'beacon']);
     expect(CONFIG.starShells.arc).toBe('full');
     expect(CONFIG.starShells.damage).toBeGreaterThan(0);
     for (const gone of ['incendiaryRadiusFactor', 'incendiaryDps', 'dazzleSightFactor']) {
@@ -332,7 +332,7 @@ describe('shared barrel', () => {
     expect(CONFIG.phosphorShells.arc).toBe('full');
     // Never a mine (amendment 200, superseding 135(c)): only a deck gun's
     // shell landing on a mine damages one.
-    expect(CONFIG.phosphorShells.hits).toEqual(['hull']);
+    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'beacon']);
     expect('rangeU' in CONFIG.phosphorShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
   });
 
@@ -343,7 +343,7 @@ describe('shared barrel', () => {
     // radius, never the reach.
     expect(fs.rangeU).toBe(TWELFTH * 8);
     expect('rangeUAtV' in fs).toBe(false);
-    expect(fs.hits).toEqual(['hull']); // never a mine
+    expect(fs.hits).toEqual(['hull', 'beacon']); // never a mine
     expect(fs.radiusStepPerTier).toBeGreaterThan(0);
     expect(fs.reloadMs).toBeGreaterThan(0);
     expect(fs.slowFactor).toBeGreaterThan(0); // never a full stop
@@ -387,7 +387,7 @@ describe('shared barrel', () => {
     // ONE reach for the two click shells (ruling 2): the flash has NO rangeU
     // of its own — its row is seeded from CONFIG.foulingShell.rangeU.
     expect('rangeU' in fl).toBe(false);
-    expect(fl.hits).toEqual(['hull']); // never a mine
+    expect(fl.hits).toEqual(['hull', 'beacon']); // never a mine
     expect(fl.arc).toBe('full');
     expect(fl.radius).toBeGreaterThan(0);
     expect(fl.radiusStepPerTier).toBeGreaterThan(0);
@@ -412,7 +412,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.lightTorpedo (R18): runs under mines and carries no chassis duplicate', () => {
-    expect(CONFIG.lightTorpedo.hits).toEqual(['hull']); // AR44 — it runs UNDER a minefield
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'beacon']); // AR44 — it runs UNDER a minefield
     // NO MAX RANGE, and no chassis duplication: hit radius, spawn clearance
     // and the homing acquire/die/update thresholds are the FAMILY's, read from
     // CONFIG.torpedo (epic-8 amendments 84e/84f).
@@ -422,7 +422,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.supercavTorpedo: a slot weapon with a pool and a reload — and no homing dial (amendment 74; Story 10.5)', () => {
-    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'beacon']);
     expect(CONFIG.supercavTorpedo.reloadMs).toBeGreaterThan(0);
     expect(CONFIG.supercavTorpedo.maxAmmo).toBeGreaterThan(0);
     // IT NEVER HOMES: no turn-rate dial exists to give it one.
@@ -710,8 +710,8 @@ describe('shared barrel', () => {
     expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'hunker']);
     expect(DEFAULT_SHIFT).toBe('boost');
     expect(SHELL_FAMILIES).toEqual(['cannon', 'mg', 'flak']);
-    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine']);
-    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance']);
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'beacon']);
+    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']);
     expect([CONFIG.machineGun.arc, CONFIG.flak.arc]).toEqual(['full', 'full']);
     // The retired flat D − 10 dial never comes back under its old name.
     expect('edgeFalloff' in CONFIG.flak).toBe(false);
