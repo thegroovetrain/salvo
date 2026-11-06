@@ -109,11 +109,18 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // Banked levels = the bare unspent-level count (single source of truth).
     // Only the FRONT offer exists at all — materialized lazily server-side and
     // surfaced here as BOON IDS (Story 2.7; deck-drawn as of 2.8), defensively
-    // copied; `[]` when no hand is materialized (no bank, or a degenerate empty
-    // draw — so pts can legitimately exceed 0 with an empty offer). The DECK
-    // never leaves the server at all. Self-private (own ship only), like boons.
+    // copied; `[]` when no hand is materialized. An EMPTY draw banks nothing
+    // (Story 10.7, R3): the World zeroes the bank, so an exhausted hull reads
+    // pts 0 — the strip never advertises a level that cannot be spent. The
+    // DECK never leaves the server at all. Self-private (own ship only), like
+    // boons.
     pts: ship.bankedLevels,
     offer: ship.offer !== null ? [...ship.offer] : [],
+    // THE ONE COUNTDOWN REDRAW IS USED (Story 10.7, R4, PV 99): server truth
+    // for the REDRAW pip, so a reconnecting client reads it off its next frame
+    // instead of guessing. SELF-PRIVATE on the pts/offer terms — it rides `you`
+    // and NOTHING else, never a Contact or another client's data.
+    rd: ship.mulliganed,
     // ms — active speed-boost window end (0 = inactive). OWNER-ONLY by
     // construction (Story 1.6): boostUntil rides `you` and NOTHING else — never
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy

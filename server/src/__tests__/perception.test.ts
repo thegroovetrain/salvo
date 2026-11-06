@@ -2953,6 +2953,10 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // ride `offer`/`cards` as VALUES and a substring match on the JSON text
   // cannot tell a key from a value.
   expect(hasForbiddenKey(f, DECK_FORBIDDEN_KEYS)).toBe(false);
+  // THE REDRAW FLAG (Story 10.7, R4) is self-private on the `pts` / `offer`
+  // terms: the observer's OWN latch on `you`, and as a KEY nowhere else.
+  if (f.you !== undefined) expect(f.you.rd).toBe(me.mulliganed);
+  expect(hasForbiddenKey(withoutYou, ['rd'])).toBe(false);
   // THE LAUNCH POINT AND THE ATTENUATION REFERENCE (Story 9.12, epic-9
   // amendment 184(b)): a deck-gun shell carries `originX` / `originY` /
   // `attenRangeU` for the range attenuation and NEVER a frame — the muzzle

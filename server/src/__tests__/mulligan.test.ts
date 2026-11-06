@@ -5,8 +5,10 @@
 //
 //   grantOpening()  — `Match.startCountdown()` calls it once per match. Every
 //                     PARTICIPANT (human captain or AI captain, never a PvE
-//                     fleet hull) banks ONE level and draws a hand with the
-//                     usable-card guarantee. `level` does not move: the HUD
+//                     fleet hull) banks ONE level and draws its hand through
+//                     the ordinary four-slot draw (Story 10.7 — the Equipment
+//                     slot deals a bare weapon on a bare hull; the level-zero
+//                     guarantee is retired). `level` does not move: the HUD
 //                     reads LV 0, bank chip 1, an empty strip.
 //   mulligan()      — `SpendMsg.choice === MULLIGAN_CHOICE` (-2), the ONE legal
 //                     negative on a channel Story 8.8 had closed. Honoured iff
@@ -24,7 +26,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, CATALOG, MULLIGAN_CHOICE, SLOT_COUNT, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
 import { DEFAULT_SHIFT, familySlotFor } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { expectLevelZeroPlan } from './offerPlanFixture.js';
 
 /** Islands cleared and the raster flattened — no terrain in an economy test. */
 function bareWorld(seed = 4, opts = {}): World {
@@ -61,7 +65,7 @@ function openCountdown(w: World): void {
 
 // ---------- the level-zero grant ---------------------------------------------
 
-describe('grantOpening — one banked level and a guaranteed hand, participants only', () => {
+describe('grantOpening — one banked level and a hand, participants only', () => {
   it('captains and bots bank LV 0 / pts 1 / xp 0 / offer[4]; fleet hulls get NOTHING', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
@@ -85,19 +89,16 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
     expect(drone.offer).toBeNull();
   });
 
-  it('the hand carries at least one USABLE card (the level-zero guarantee)', () => {
+  it('the hand is the four-slot plan: a ship line, then a bare weapon the hull can take', () => {
     // The first offer must never be four ladders on a hull with no weapon —
-    // card 0 is drawn uniformly over the usable lines (amendment 93: level
-    // zero and its redraw only).
+    // the Equipment slot (card 1, Story 10.7) is that promise now: on a bare
+    // hull every eligible equipment line is a bare weapon.
     for (const hull of ['bismarck', 'yamato', 'warspite'] as const) {
       for (let seed = 1; seed <= 12; seed += 1) {
         const w = bareWorld(seed);
         const a = captain(w, 'a', hull);
         w.grantOpening();
-        const first = a.offer![0];
-        const line = CATALOG[first];
-        const usable = line.kind === 'equipment' && !a.cards.includes(first);
-        expect(usable, `${hull}/${seed}: ${first}`).toBe(true);
+        expectLevelZeroPlan(a, `${hull}/${seed}`);
       }
     }
   });
@@ -123,15 +124,13 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
     expect(a.bankedLevels).toBe(1);
   });
 
-  // THE OFFER IS NEVER EMPTY (amendment 94): a consumable line is always
-  // eligible, so there is no exhausted state left to test. The only way to an
-  // empty draw is an injected catalog with fewer than one dealable line, which
-  // is not a state production can reach.
-  it('an all-stub catalog is the ONLY empty draw, and it banks the level in silence', () => {
+  // AN EMPTY DRAW BANKS NOTHING (Story 10.7, R3): an all-stub catalog has no
+  // dealable line, so the opening grant draws empty and the bank drops to 0.
+  it('an all-stub catalog draws empty at the opening: nothing banked, no offer, no pt', () => {
     const w = bareWorld(4, { catalog: { ghost: { id: 'ghost', kind: 'consumable', cap: 5, stub: true, tiers: [] } } });
     const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.grantOpening();
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(0);
     expect(a.offer).toBeNull(); // an offer-less level advertises no refit
     w.step();
     expect(ptIds(w)).toEqual([]);
@@ -171,13 +170,12 @@ describe('mulligan — the one free redraw at the start line', () => {
     expect(ptIds(w)).toEqual(['a']);
   });
 
-  it('the redrawn hand carries the guarantee too', () => {
+  it('the redrawn hand is the same plan: a ship line, then a bare weapon the hull can take', () => {
+    // A redraw is the draw run again (R2), so the plan holds for it too.
     for (let seed = 1; seed <= 12; seed += 1) {
       const { w, a } = atTheStartLine(seed);
       expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
-      const first = a.offer![0];
-      const line = CATALOG[first];
-      expect(line.kind === 'equipment' && !a.cards.includes(first), first).toBe(true);
+      expectLevelZeroPlan(a, `redraw/${seed}`);
     }
   });
 
@@ -321,6 +319,68 @@ describe('mulligan — the one free redraw at the start line', () => {
   });
 });
 
+// ---------- the REDRAW flag on the own frame (Story 10.7, R4) -----------------
+//
+// `you.rd` is server truth for the REDRAW pip. A reconnecting client is the
+// SAME session on the SAME ship record (ArenaRoom's reconnection branch never
+// re-runs onJoin) and simply receives the next `buildFrame` — so "the pip reads
+// used after a reconnect" is "every later frame built for that ship says true".
+
+describe('the own frame says whether the REDRAW is used (`rd`)', () => {
+  it('false before the redraw, true after it, and still true in every later frame', () => {
+    const w = bareWorld();
+    captain(w, 'a');
+    captain(w, 'b');
+    openCountdown(w);
+    w.grantOpening();
+    w.step();
+    expect(buildFrame(w, 'a').you!.rd).toBe(false);
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    expect(buildFrame(w, 'a').you!.rd).toBe(true);
+    w.step();
+    w.step();
+    expect(buildFrame(w, 'a').you!.rd).toBe(true); // the frame a reconnect gets
+    expect(buildFrame(w, 'b').you!.rd).toBe(false); // per ship, not per room
+  });
+
+  it('a refused redraw leaves it false', () => {
+    const w = bareWorld();
+    captain(w, 'a');
+    w.grantOpening(); // the countdown is NOT open: the press is refused
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
+    expect(buildFrame(w, 'a').you!.rd).toBe(false);
+  });
+
+  it('it survives the activation redeploy along with `mulliganed`', () => {
+    const w = bareWorld();
+    captain(w, 'a');
+    openCountdown(w);
+    w.grantOpening();
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    w.resetForMatchStart(true);
+    w.countdownOpen = false;
+    expect(buildFrame(w, 'a').you!.rd).toBe(true);
+  });
+
+  it('no contact row ever carries `rd` — it is self-private', () => {
+    const w = bareWorld();
+    const a = captain(w, 'a');
+    const b = captain(w, 'b');
+    a.state.x = 0;
+    a.state.y = 0;
+    b.state.x = 0;
+    b.state.y = -150; // inside mutual sight, clear of a's hull
+    openCountdown(w);
+    w.grantOpening();
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    w.step();
+    const fb = buildFrame(w, 'b');
+    const contact = fb.contacts.find((c) => c.id === 'a');
+    expect(contact).toBeDefined();
+    expect('rd' in contact!).toBe(false);
+  });
+});
+
 // ---------- the economy survives the start line ------------------------------
 
 describe('the countdown economy through the activation redeploy (amendment 63b)', () => {
@@ -335,10 +395,10 @@ describe('the countdown economy through the activation redeploy (amendment 63b)'
 
   it('a card taken during the countdown is ABOARD when the water goes live', () => {
     const { w, a } = heldStartLine();
-    // Take the guaranteed first card — on a default deck that is a weapon or a
-    // consumable, i.e. something that actually occupies a slot.
-    const picked = a.offer![0] as LineId;
-    expect(w.spendPoint('a', 0)).toBe(true);
+    // Take the Equipment card (slot 1, Story 10.7) — at level zero a bare
+    // weapon, i.e. something that actually occupies a slot.
+    const picked = a.offer![1] as LineId;
+    expect(w.spendPoint('a', 1)).toBe(true);
     const fittedSlots = a.loadout.filter((s) => s.equipmentId !== null).length;
     a.hp = 3;
     a.state.x = 123;

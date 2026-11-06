@@ -678,13 +678,16 @@ export interface ShipRecord {
    * SINGLE SOURCE OF TRUTH for the level bank (OwnShip.pts mirrors it). Levels
    * behind the front one carry NO cards — a level is drawn for only when it
    * reaches the front (`offer` below), so banking costs nothing.
+   * A HULL WITH NOTHING DEALABLE BANKS NOTHING (Story 10.7, R3, Eric
+   * 2026-11-06): an EMPTY draw sets this to 0 (`materializeOffer`), so `pts`
+   * never advertises a level that can never be spent. `level` keeps counting.
    * PRESERVED by redeployShip since Story 8.10 — the level the countdown
    * granted is the one the captain spends on live water.
    */
   bankedLevels: number;
   /**
    * THE FRONT OFFER — the one hand the player is about to pick from, or null
-   * (no banked level; a draw can no longer come back empty — amendment 94).
+   * (no banked level — an empty draw banks nothing, Story 10.7 R3).
    * Materialized ONCE, from THE COMMON POOL at the moment the level reaches the
    * front (materializeOffer → sim/draw.drawOffer over this ship's state, its
    * weights and its stream), then FROZEN until it is spent: reopening the refit
@@ -3278,16 +3281,17 @@ export class World {
    * at all: its hand is drawn when it reaches the front.
    *
    * The self-private `pt` event fires whenever there IS a front offer after
-   * materializing. Since Story 10.5 an EXHAUSTED hull (every ladder and all
-   * three slot weapons at cap — the consumables that kept a hand non-empty are
-   * gone) draws an EMPTY offer: the level banks, no offer opens, no `pt`
-   * fires and nothing throws (orchestrator ruling).
+   * materializing. An EXHAUSTED hull (nothing eligible: every ladder and all
+   * three slot weapons at cap, or an all-stub catalog) draws an EMPTY offer,
+   * and since Story 10.7 (R3, Eric 2026-11-06) it BANKS NOTHING:
+   * `materializeOffer` zeroes `bankedLevels`, no offer opens, no `pt` fires
+   * and nothing throws. `level` still rose (the XP loop owns that).
    * Reopening the refit window can never reroll — the front offer is drawn once
    * and frozen (FR19).
    */
-  private grantPoint(killer: ShipRecord, guarantee = false): void {
+  private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
-    this.materializeOffer(killer, guarantee);
+    this.materializeOffer(killer);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
   }
 
@@ -3295,8 +3299,11 @@ export class World {
    * THE LEVEL-ZERO GRANT — THE OPENING (Story 8.10, FR48, epic-8 amendments
    * 59-63). Called by `Match.startCountdown()` and by nothing else: every
    * PARTICIPANT (a human captain or an AI captain — `role !== 'fleet'`) banks
-   * ONE level and draws its hand with the USABLE-CARD GUARANTEE, so the first
-   * offer of a match can never be four ladders on a hull with no weapon.
+   * ONE level and draws its hand through the ordinary draw. The offer's
+   * EQUIPMENT slot (Story 10.7, card 1) is what keeps the first offer from
+   * being four ladders on a hull with no weapon: on a bare hull every eligible
+   * equipment line is a bare weapon. The level-zero guarantee (amendment 93)
+   * is retired.
    *
    * `level` does NOT move. The captain is at LV 0 with one banked level and a
    * full hand — which is exactly what the HUD bar already renders (`LV 0`,
@@ -3330,14 +3337,15 @@ export class World {
   private grantOpeningTo(ship: ShipRecord): void {
     if (!roleIsParticipant(ship) || ship.openingGranted) return;
     ship.openingGranted = true;
-    this.grantPoint(ship, true);
+    this.grantPoint(ship);
   }
 
   /**
    * THE ONE FREE COUNTDOWN REDRAW (Story 8.10, FR48, epic-8 amendment 60):
-   * throw the level-zero hand back and draw another, with the same guarantee,
-   * off the SAME common pool — a draw consumes nothing, so there is nothing to
-   * give back and the thrown hand's lines are drawable again immediately.
+   * throw the level-zero hand back and draw another — simply the draw run
+   * again (Story 10.7, R2: the wildcards flip afresh) — off the SAME common
+   * pool. A draw consumes nothing, so there is nothing to give back and the
+   * thrown hand's lines are drawable again immediately.
    *
    * HONOURED IFF all five hold: the countdown is open (`Match` owns the
    * flag), the hull is a HUMAN CAPTAIN (a bot never sends the sentinel — its
@@ -3364,7 +3372,7 @@ export class World {
     ship.mulliganed = true;
     ship.offer = null; // dropped, NOT spent: bankedLevels does not move
     World.markRedrawn(ship); // the thrown hand stays in the log (Story 8.21)
-    this.materializeOffer(ship, true);
+    this.materializeOffer(ship);
     if (ship.offer !== null) this.pending.push({ k: 'pt', id: ship.id });
     return true;
   }
@@ -3386,20 +3394,28 @@ export class World {
    *
    * A SHORT OR EMPTY OFFER IS LEGAL (Story 10.5): with the consumables gone a
    * hull can run out of eligible lines. A short hand is stored as drawn; an
-   * EMPTY one is never materialized — `offer` stays null and the level stays
-   * banked (no refit window opens, nothing throws); there is no latch, no log,
-   * no counter and no silent-bank branch.
+   * EMPTY one is never materialized — `offer` stays null, no refit window
+   * opens, nothing throws, nothing is logged.
    *
-   * `guarantee` (Story 8.10, narrowed by amendment 93) is passed by the
-   * LEVEL-ZERO paths ONLY — grantOpening and mulligan — and rides straight
-   * through to `drawOffer`, where it makes card 0 a line this hull can actually
-   * USE. Every ordinary level leaves it false: the guarantee is the opening's
-   * promise, not the economy's.
+   * AN EMPTY DRAW BANKS NOTHING (Story 10.7, R3, Eric 2026-11-06): it zeroes
+   * `bankedLevels`. Exhaustion is permanent — only taking a card can make a
+   * new line eligible, and an exhausted hull has no card to take — so every
+   * level queued behind the empty one is unspendable too. This one line covers
+   * all three callers: a level earned by an exhausted hull (`grantPoint`),
+   * the next-level draw after a hull spends its LAST eligible card with levels
+   * queued (`spendCard`), and the redraw (`mulligan`). `level` is untouched.
+   *
+   * There is no level-zero guarantee any more (amendment 93, retired by Story
+   * 10.7): the opening, its redraw and every ordinary level all run the same
+   * four-slot draw, whose Equipment slot deals a bare weapon on a bare hull.
    */
-  private materializeOffer(ship: ShipRecord, guarantee = false): void {
+  private materializeOffer(ship: ShipRecord): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
-    const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog, { guarantee });
-    if (offer.length === 0) return;
+    const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog);
+    if (offer.length === 0) {
+      ship.bankedLevels = 0;
+      return;
+    }
     ship.offer = offer;
     // THE HAND LOG (Story 8.21, R1): a dealt hand is logged the moment it is
     // drawn — this is the single place a hand is ever drawn.
@@ -3431,9 +3447,8 @@ export class World {
    *   - `slotIds`: the five slot contents, the same array `pickRefusal`
    *     takes. `sim/draw.ts` derives which FAMILY slots are still empty from
    *     it — what makes copy 1 of a weapon eligible at all (a bare weapon
-   *     needs its family's slot empty, Story 10.5) — and the level-zero
-   *     guarantee runs the full `pickRefusal` over it
-   *     so it can never hand out a card this hull could not take (review F2).
+   *     needs its family's slot empty, Story 10.5) — and which add-on hosts
+   *     are aboard (Story 10.6).
    *   - `mountedGun`: the MODULE slot 0 carries by `loadoutFor`'s
    *     construction — `'mainBattery'` on every captain / bot hull since
    *     Story 10.4 (no ladder is hosted on it, so the three deck-gun ladders
@@ -3768,7 +3783,9 @@ export class World {
    * first (drop the offer, decrement the bank), then settle the fit, and
    * materialize the NEXT offer LAST — so the next hand is drawn against the
    * build this pick just produced (its new copy counts, its now-fuller weapon
-   * row, and its own take already in the ledger).
+   * row, and its own take already in the ledger). If that pick was the hull's
+   * LAST eligible card, the next draw comes back empty and `materializeOffer`
+   * drops every level still queued to 0 (Story 10.7, R3).
    */
   private spendCard(ship: ShipRecord, choice: number): boolean {
     const front = ship.offer;

@@ -11,6 +11,7 @@ import { World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
 import { fitClassWeapons } from './classWeapons.js';
+import { expectLevelZeroPlan } from './offerPlanFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 // Ticks in one full sinking window. Since the amendment-17 REVERSAL (Eric veto
@@ -277,7 +278,8 @@ describe('match — countdown', () => {
 
 // THE OPENING (Story 8.10, FR48, epic-8 amendments 59-63). The countdown is
 // where the card economy now starts: arming it grants every participant one
-// banked level and a guaranteed hand, and the activation redeploy of a
+// banked level and a hand (the four-slot plan, Story 10.7 — its Equipment
+// slot deals a bare weapon on a bare hull), and the activation redeploy of a
 // QUEUE-FORMED room (expectedCaptains set — the held start line, which is also
 // every Solo vs AI room) carries that economy onto live water. The redraw
 // itself is pinned in mulligan.test.ts; this suite owns the two transitions.
@@ -318,6 +320,7 @@ describe('match — the opening at the countdown', () => {
       expect(s.level, id).toBe(0);
       expect(s.xpMs, id).toBe(0);
       expect(s.offer, id).toHaveLength(CONFIG.offer.size);
+      expectLevelZeroPlan(s, id);
     }
     expect(ai.bankedLevels).toBe(1);
     // A PvE fleet hull never draws: no bank, no hand (amendment 63e).
@@ -404,10 +407,10 @@ describe('match — the opening at the countdown', () => {
     expect(m.phase).toBe('countdown');
     expect(ai.bankedLevels).toBe(1);
 
-    // The bot spends its opening level on the guaranteed card, through the one
-    // wire path its policy uses.
-    const picked = ai.offer![0];
-    expect(w.spendPoint('bot-1', 0)).toBe(true);
+    // The bot spends its opening level on the Equipment card (slot 1 — a bare
+    // weapon at level zero), through the one wire path its policy uses.
+    const picked = ai.offer![1];
+    expect(w.spendPoint('bot-1', 1)).toBe(true);
     expect(ai.bankedLevels).toBe(0);
     const fitted = ai.loadout.filter((s) => s.equipmentId !== null).length;
 
@@ -427,10 +430,10 @@ describe('match — the opening at the countdown', () => {
   it('activation shuts the redraw FIRST and keeps the countdown economy', () => {
     const ctx = opening(['a', 'b']);
     const a = ctx.w.ships.get('a')!;
-    // Take the guaranteed first card at the start line, exactly as a captain
-    // does when the window auto-opens.
-    const picked = a.offer![0];
-    expect(ctx.w.spendPoint('a', 0)).toBe(true);
+    // Take the Equipment card (slot 1 — a bare weapon at level zero) at the
+    // start line, exactly as a captain does when the window auto-opens.
+    const picked = a.offer![1];
+    expect(ctx.w.spendPoint('a', 1)).toBe(true);
     expect(a.bankedLevels).toBe(0);
     const b = ctx.w.ships.get('b')!;
     const heldHand = b.offer;
