@@ -2,8 +2,8 @@
 title: 'Story 10.6: The Catalog Under the Index'
 type: 'feature'
 created: '2026-11-05'
-status: 'ready-for-dev'
-baseline_revision: '95e33e47'
+status: 'in-progress'
+baseline_revision: '8c7004aa'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
