@@ -197,13 +197,13 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
     expect(unrouted).toEqual([]);
   });
 
-  it('the shipwide lines are EXACTLY the six universal ladders — no gap, no orphan', () => {
+  it('the shipwide lines are EXACTLY the eight universal ladders — no gap, no orphan', () => {
     // Story 9.7 (epic-9 amendments 110–117): the new ARMOR ladder joins;
     // Story 9.9 (epic-9 amendments 145, 159): ARMOR PIERCING joins;
     // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): HULL POINTS and
-    // PASSIVE HEALING deleted, four ids renamed (power/engines/rudder/intel).
+    // PASSIVE HEALING deleted, four ids renamed; Story 10.6: RUDDER deleted, RANGE / HULL REPAIR / SMOKE SCREEN joined.
     const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'addon').map((l) => l.id);
-    expect(shipwide.sort()).toEqual(['armor', 'engines', 'intel', 'power', 'reload', 'rudder']);
+    expect(shipwide.sort()).toEqual(['armor', 'engines', 'hullRepair', 'intel', 'power', 'range', 'reload', 'smokeScreen']);
   });
 
   it('a shipwide ladder owns no slot, so its fit falls through to the rank-wide pulse', () => {

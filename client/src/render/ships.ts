@@ -22,6 +22,13 @@
 // Children inherit the hull's pose, settle, sight fade and hit-flash tint for
 // free. Drones have no battery, draw none, and keep today's drone look.
 //
+// THE DECK TORPEDO LAUNCHERS (Story 10.6 — render/launcherViews.ts) sit
+// on the deck UNDER the turrets (Eric 2026-11-05: "It needs to render under
+// the gun barrels, not over"): one Graphics per launcher
+// at its shared station, rotated by its angle (`setLaunchers`); the own hull
+// draws its tubes, a sighted enemy one generic housing (its tube count is not
+// on the wire).
+//
 // The render polygon is the shared local-frame silhouette VERBATIM (bow at +x,
 // origin-centered, world units) — no independent geometry, so what you see is
 // the collision/hit-test hull. The view is added to a camera-transformed layer,
@@ -46,6 +53,7 @@ import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
 import { relationStyle, type Relation, type ShipStyle } from './relationColor.js';
 import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
+import { LauncherMounts } from './launcherViews.js';
 
 export type { ShipStyle } from './relationColor.js';
 
@@ -356,6 +364,11 @@ export class ShipView {
   private readonly ownOutline: GraphicsContext;
   /** One Graphics per battery mount, bow to stern (empty for a drone). */
   private turrets: Graphics[] = [];
+  /** The deck torpedo launchers (Story 10.6), seated on the deck, UNDER the turrets. */
+  private readonly launchers: LauncherMounts;
+  /** The last launcher angles / tubes handed in — redrawn on a hull or color change. */
+  private launcherAngles: readonly number[] = [];
+  private launcherTubes: number | null = null;
   /** THE SETTLE (Story 5.2 fix): progress through the sinking window, [0,1].
    *  0 alive, 1 the wreck. Was a boolean `downed` — see `hullLook`. */
   private sink = 0;
@@ -377,6 +390,7 @@ export class ShipView {
     this.ownHull = this.hull.context;
     this.ownOutline = this.outline.context;
     this.gfx.addChild(this.hull, this.outline);
+    this.launchers = new LauncherMounts(this.gfx, this.hull);
     this.style = style;
     this.hullId = hullId;
     this.draw();
@@ -390,6 +404,7 @@ export class ShipView {
     if (hullId === this.hullId) return;
     this.hullId = hullId;
     this.draw();
+    this.launchers.clear(); // first: the turrets re-seat by index; the next setLaunchers seats the launchers on the new hull's stations
     this.buildTurrets();
   }
 
@@ -402,6 +417,7 @@ export class ShipView {
     this.style = { stroke, fill };
     this.draw();
     this.skinTurrets();
+    this.setLaunchers(this.launcherAngles, this.launcherTubes);
   }
 
   /** How many turret children this view carries (tests/debug). */
@@ -425,6 +441,29 @@ export class ShipView {
       const a = angles[i];
       this.turrets[i].rotation = a === undefined ? turretRest(mounts[i]) : a;
     }
+  }
+
+  /**
+   * The deck torpedo launchers (Story 10.6): one per entry of `angles` (fore
+   * first, HULL-RELATIVE — shared sim/launchers.ts convention), each with
+   * `tubes` tubes, or the generic housing when `tubes` is null (a sighted
+   * enemy — its tube count is not on the wire). An empty list draws none.
+   * Rotation writes only, unless the count / tubes / color changed.
+   */
+  setLaunchers(angles: readonly number[], tubes: number | null): void {
+    this.launcherAngles = angles;
+    this.launcherTubes = tubes;
+    this.launchers.set(captainOf(this.hullId), angles, tubes, this.style.stroke);
+  }
+
+  /** How many launcher children this view carries (tests/debug). */
+  get launcherCount(): number {
+    return this.launchers.count;
+  }
+
+  /** Launcher `i`'s child Graphics (tests/debug), or undefined. */
+  launcherView(i: number): Graphics | undefined {
+    return this.launchers.view(i);
   }
 
   /** Point the deck and outline Graphics at this hull's art: the shared cached

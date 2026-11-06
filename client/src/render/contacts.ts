@@ -20,7 +20,9 @@
 // into render(); a contact is every ship but our own, so in play that is the
 // enemy red). Drone contacts (drone hull ids) wear the greys. The contact's
 // turrets point along the latest frame's `Contact.tu` (ContactStore
-// `turretAnglesOf`); none on the wire holds them at rest.
+// `turretAnglesOf`); none on the wire holds them at rest. Its deck torpedo
+// launchers (Story 10.6) point along `Contact.lu` (`launcherAnglesOf`), drawn
+// as the generic housing; none on the wire draws none.
 //
 // Story 1.13 (Class Silhouettes): each contact also floats a truesight nameplate
 // (render/nameplates.ts). The plate rides this view's SAME snapshot sample (its
@@ -241,6 +243,9 @@ export class ContactViews {
     if (s) {
       fv.view.update(s.x, s.y, s.heading);
       fv.view.setTurretAngles(store.turretAnglesOf(id) ?? NO_ANGLES);
+      // Story 10.6 (I7): the launcher ANGLES only — the generic housing, since
+      // a sighted hull's tube count is not on the wire.
+      fv.view.setLaunchers(store.launcherAnglesOf(id) ?? NO_ANGLES, null);
     }
     else if (!store.get(id)) fv.fader.hide(); // pruned: hold last pose, fade out
     // The feather reads the view's LAST-APPLIED pose (the same one the plate

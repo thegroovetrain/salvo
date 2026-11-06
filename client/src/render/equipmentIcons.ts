@@ -471,14 +471,8 @@ const engines: GlyphPaths = [
   path([-0.95, 0.35], [-0.3, 0.35]),
 ];
 
-/** Turning (cycle 162 DRAFT): a RUDDER — a tall blade widening aft, hung from
- *  a horizontal baseline, with a short tiller arm on its stock. Keyed `rudder`
- *  (was `turning`) since Story 10.3 (epic-10 amendment 8). */
-const rudder: GlyphPaths = [
-  path([-0.9, -0.7], [0.9, -0.7]),
-  path([-0.2, -0.7], [0.2, -0.7], [0.5, 0.9], [-0.05, 0.9], [-0.2, -0.7]),
-  path([0, -0.7], [0, -0.95], [0.65, -0.95]),
-];
+// The TURNING / RUDDER glyph (a rudder blade on its stock) sat here until
+// Story 10.6 deleted the line (Eric 2026-11-05, R2).
 
 /** Radar sweep's fan origin (bottom-left of the box). */
 const FAN: GlyphPoint = [-0.75, 0.75];
@@ -510,9 +504,63 @@ const reload: GlyphPaths = [
 // The PASSIVE HEALING glyph (a heartbeat pulse trace, amendment 98) sat here
 // until Story 10.3 deleted the line (Eric 2026-11-04, epic-10 amendment 8).
 
+// --- STORY 10.6 (Eric 2026-11-05) — IMPLEMENTER DRAFTS for Eric's eye on the
+// rendered candidate page (the amendment 110 precedent). HULL REPAIR and
+// SMOKE SCREEN's ladders reuse their abilities' drawings (below, in
+// `LINE_GLYPHS`); the other five are new.
+
+/** Range (Story 10.6 DRAFT, R1): a MEASURED SPAN — a double-headed arrow
+ *  between two end bars. Not ENGINES' one-way arrowhead. */
+const range: GlyphPaths = [
+  path([-0.95, -0.5], [-0.95, 0.5]),
+  path([0.95, -0.5], [0.95, 0.5]),
+  path([-0.75, 0], [0.75, 0]),
+  path([-0.45, -0.28], [-0.75, 0], [-0.45, 0.28]),
+  path([0.45, -0.28], [0.75, 0], [0.45, 0.28]),
+];
+
+/** A launcher's deck mount (a ring) with tubes — boxes along ±x from its
+ *  centre `cx`, each `[yTop, yBottom]`, running to `x1`. */
+function launcherGlyph(cx: number, x1: number, tubes: readonly (readonly [number, number])[]): GlyphPaths {
+  return [
+    circle(cx, 0, 0.32),
+    ...tubes.map(([y0, y1]) => path([cx, y0], [x1, y0], [x1, y1], [cx, y1])),
+  ];
+}
+
+/** Aft torpedo launcher (Story 10.6 DRAFT, R6): one mount with its tube
+ *  pointing ASTERN (left — the torpedo glyphs point their noses right), and a
+ *  chevron at the muzzle marking the bearing. */
+const aftTorpedoLauncher: GlyphPaths = [
+  ...launcherGlyph(0.55, -0.6, [[-0.14, 0.14]]),
+  path([-0.62, -0.42], [-0.95, 0], [-0.62, 0.42]),
+];
+
+/** Second launcher tube (Story 10.6 DRAFT, R6): one mount with TWO parallel
+ *  tubes pointing ahead. */
+const secondLauncherTube: GlyphPaths = launcherGlyph(-0.55, 0.95, [[-0.4, -0.12], [0.12, 0.4]]);
+
+/** A mine rack: a rail at `y` with mines (small spheres) resting on it at
+ *  `xs`. */
+function rackGlyph(y: number, xs: readonly number[], r: number): GlyphPart[] {
+  return [path([-0.95, y], [0.95, y]), ...xs.map((x) => circle(x, y - r, r))];
+}
+
+/** Second mine rack (Story 10.6 DRAFT, R7): TWO racks, one over the other,
+ *  two mines on each. */
+const secondMineRack: GlyphPaths = [...rackGlyph(-0.15, [-0.42, 0.42], 0.24), ...rackGlyph(0.8, [-0.42, 0.42], 0.24)];
+
+/** Expanded mine racks (Story 10.6 DRAFT, R7): ONE rack holding three mines,
+ *  a plus over it — one more seat on each rack. */
+const expandedMineRacks: GlyphPaths = [
+  ...rackGlyph(0.55, [-0.6, 0, 0.6], 0.24),
+  path([-0.25, -0.62], [0.25, -0.62]),
+  path([0, -0.87], [0, -0.37]),
+];
+
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the six ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the eight ship ladders, the four one-off WEAPON cards (Story 10.6), and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
@@ -520,10 +568,19 @@ const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
   armor,
   power,
   engines,
-  rudder,
   intel,
   reload,
   deckGun: gun,
+  // Story 10.6 (Eric 2026-11-05): the three new SHIP ladders — the two
+  // ability ladders wear their ability's drawing (the `C` / `V` square's) —
+  // and the four one-off WEAPON cards.
+  range,
+  hullRepair,
+  smokeScreen: countermeasure,
+  aftTorpedoLauncher,
+  secondLauncherTube,
+  secondMineRack,
+  expandedMineRacks,
 };
 
 /**

@@ -18,8 +18,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import {
+  CATALOG,
   CONFIG,
   DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   SLOT_COUNT,
   SLOT_GUN,
   effectiveStats,
@@ -29,7 +31,7 @@ import {
 } from '@salvo/shared';
 import { SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries, loadoutRowSquares } from '../ui/loadoutBlock.js';
+import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries, ladderValue, loadoutRowSquares } from '../ui/loadoutBlock.js';
 import { ABILITY_SQUARES, HOTBAR_SQUARE_COUNT } from '../render/hotbarSquares.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
@@ -65,9 +67,10 @@ import { boonName } from '../ui/boonCopy.js';
 /** The ship ladders in their ruled order (Stories 9.7 / 9.9; Story 10.3, Eric
  *  2026-11-04, epic-10 amendment 8, deleted HULL POINTS and PASSIVE HEALING
  *  and renamed four ids in place), by ID. */
-// The six ship ladders in the ruled line order (Story 10.3: ARMOR · POWER ·
-// RELOAD over ENGINES · RUDDER · INTEL — the index order, amendment 6(c)).
-const LADDER_IDS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'];
+// The eight ship ladders in Eric's sheet order (Story 10.6, 2026-11-05, R1:
+// ARMOR · POWER · INTEL · RELOAD over ENGINES · RANGE · HULL REPAIR · SMOKE
+// SCREEN; RUDDER gone, R2).
+const LADDER_IDS = ['armor', 'power', 'intel', 'reload', 'engines', 'range', 'hullRepair', 'smokeScreen'] as const;
 
 /** Occurrences of `needle` in `hay`. */
 function count(hay: string, needle: string): number {
@@ -135,7 +138,7 @@ function mockOwn(
     'starShells',
     ...rep('armor', over.armor ?? 1), // I (Story 9.7) — every ship ladder starts from nothing
     ...rep('engines', over.engines ?? 3), // III
-    'rudder', // I
+    'range', // I (Story 10.6: RANGE took RUDDER's seat in the fixture)
     ...rep('intel', over.intel ?? 2), // II
     ...rep('reload', 3), // III
   ];
@@ -510,18 +513,22 @@ describe('showResults — the elimination modal', () => {
       expect((row.textContent ?? '').trim()).toBe('');
     });
 
-    it('the ladder line reads each ship ladder\'s copies as its numeral, on the tier ramp', () => {
+    // Eric 2026-11-05: "For the results screen also I want to see my ship
+    // numbers." Each ladder prints the SHIP'S FINAL NUMBER, tinted on the
+    // tier ramp by the copies held (muted at zero copies).
+    it('the ladder line reads each ship ladder\'s FINAL number, tinted by its copies on the tier ramp', () => {
       // Story 9.6 (epic-9 amendments 93/94): HULL / SPEED / TURNING count from
       // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last;
       // ARMOR sits right after HULL (Story 9.7, Eric 2026-10-13); ARMOR
       // PIERCING right after ARMOR (Story 9.9, epic-9 amendment 159).
-      open(mockOwn());
+      const o = mockOwn();
+      open(o);
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      // In the ruled ladder order (Story 10.3): ARMOR I, POWER —, RELOAD III,
-      // ENGINES III, RUDDER I, INTEL II.
-      expect(numerals.map((n) => n.textContent)).toEqual(['I', '—', 'III', 'III', 'I', 'II']);
-      // TWO EQUAL ROWS (Story 10.3 — amendment 99's two rows of three return
-      // with the six ladders): no separator crosses the row break.
+      expect(numerals.map((n) => n.textContent)).toEqual(LADDER_IDS.map((id) => ladderValue(id, o.stats)));
+      // POWER, HULL REPAIR and SMOKE SCREEN hold no copies: muted.
+      for (const k of [1, 6, 7]) expect(numerals[k].style.color).toBe('var(--hc-text-muted)');
+      // TWO EQUAL ROWS (Story 10.6 — amendment 160's four over four returns
+      // with the eight ladders): no separator crosses the row break.
       const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
       expect(rows).toHaveLength(2);
       rows.forEach((r) => {
@@ -530,48 +537,55 @@ describe('showResults — the elimination modal', () => {
         expect(kids[0].children.length, 'no separator leads a row').toBeGreaterThan(0);
         expect(kids.at(-1)!.children.length, 'no separator trails a row').toBeGreaterThan(0);
       });
-      // ARMOR, (POWER dashes), RELOAD, ENGINES, RUDDER, INTEL.
+      // ARMOR, (POWER dashes), INTEL, RELOAD, ENGINES, RANGE.
       expect([0, 2, 3, 4, 5].map((k) => numerals[k].style.color)).toEqual(
-        [0, 2, 2, 0, 1].map((i) => LINEAGE_TIERS[i]),
+        [0, 1, 2, 2, 0].map((i) => LINEAGE_TIERS[i]),
       );
     });
 
-    // THE SPLIT FITS (Story 9.9, epic-9 amendment 160; 3 + 3 since 10.3): each row of the
+    // THE SPLIT FITS (Story 9.9, epic-9 amendment 160; 4 + 4 again since 10.6): each row of the
     // ladder line, at its WIDEST numerals (III on every entry — the longest
     // roman up to the cap of V), stays inside the panel's 530 px content
     // column. The mono model mirrors makeLadderLine/makeLadderEntry's CSS:
     // labels 10 px at .16em, numerals 11 px at .1em after a 6 px margin, and a
     // `·` separator at the label type with 12 px margins either side.
-    it('each row of the 3 + 3 ladder line fits the 530 px column at its widest numerals', () => {
+    it('each row of the 4 + 4 ladder line fits the 530 px column at its widest numerals', () => {
       const COLUMN = 530;
       const L = LADDER_LINE_PX;
       const label = (t: string): number => monoTextWidth(t, L.labelPx, L.labelPx * L.labelTrackingEm);
-      const numeral = L.numeralGapPx + monoTextWidth('III', L.numeralPx, L.numeralPx * L.numeralTrackingEm);
+      const numeral = (v: string): number => L.numeralGapPx + monoTextWidth(v, L.numeralPx, L.numeralPx * L.numeralTrackingEm);
       const sep = label('·') + 2 * L.separatorMarginPx;
-      const rowW = (labels: readonly string[]): number =>
-        labels.reduce((w, l) => w + label(l) + numeral, 0) + sep * (labels.length - 1);
-      const labels = ladderEntries([]).map((e) => e.label);
-      expect(labels).toEqual(LADDER_IDS.map((id) => boonName(id))); // the ruled order, by line id
-      const half = labels.length / 2;
-      const rows = [labels.slice(0, half), labels.slice(half)];
-      for (const r of rows) expect(rowW(r), r.join(' · ')).toBeLessThanOrEqual(COLUMN);
+      // The widest numbers any build can print: no cards (the longest
+      // cooldowns) and every ladder maxed (the largest indices), every hull.
+      for (const cls of SHIP_CLASS_IDS) {
+        for (const cards of [[], LADDER_IDS.flatMap((id) => rep(id, CATALOG[id].cap))]) {
+          const entries = ladderEntries(cards, effectiveStats(CONFIG.shipClasses[cls], cards));
+          expect(entries.map((e) => e.label)).toEqual(LADDER_IDS.map((id) => boonName(id))); // the ruled order
+          const rowW = (es: typeof entries): number =>
+            es.reduce((w, e) => w + label(e.label) + numeral(e.value), 0) + sep * (es.length - 1);
+          const half = entries.length / 2;
+          for (const r of [entries.slice(0, half), entries.slice(half)]) {
+            expect(rowW(r), `${cls} ${r.map((e) => e.value).join(' · ')}`).toBeLessThanOrEqual(COLUMN);
+          }
+        }
+      }
     });
 
-    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all six still listed', () => {
+    it('a ladder at zero copies prints its number in the muted label colour (Eric R2), all eight still listed', () => {
       // The I/O matrix row: 0 × ENGINES dashes (PASSIVE HEALING, the other
       // half of this row, left with Story 10.3).
-      open(mockOwn({ engines: 0 }));
+      const o = mockOwn({ engines: 0 });
+      open(o);
       const shownMarks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      expect(shownMarks.map((m) => m.textContent)).toEqual(['I', '—', 'III', '—', 'I', 'II']);
-      const entries = ladderEntries([]);
+      expect(shownMarks.map((m) => m.textContent)).toEqual(LADDER_IDS.map((id) => ladderValue(id, o.stats)));
+      const entries = ladderEntries([], effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []));
       expect(entries).toHaveLength(LADDER_IDS.length);
       // Every ship ladder starts from nothing (amendment 94; ARMOR too, Story
       // 9.7, epic-9 amendments 110–117; ARMOR PIERCING too, Story 9.9, epic-9
-      // amendment 159), so all six dash.
-      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null]);
+      // amendment 159; the three Story 10.6 ladders too), so all eight dash.
+      expect(entries.map((e) => e.tier)).toEqual(LADDER_IDS.map(() => null));
       const marks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      for (const dash of [marks[1], marks[3]]) { // POWER (no copies) and ENGINES (0)
-        expect(dash.textContent).toBe('—');
+      for (const dash of [marks[1], marks[4]]) { // POWER (no copies) and ENGINES (0)
         expect(dash.style.color).toBe('var(--hc-text-muted)');
       }
     });
@@ -852,5 +866,22 @@ describe('updateResultsScore — an open elimination modal re-renders in place',
     hideResults();
     updateResultsScore(score({ placement: 1 }));
     expect(resultsVisible()).toBe(false);
+  });
+});
+
+// Eric 2026-11-05 — the results LOADOUT strip's ship numbers, off the fold.
+describe('ladderValue — the ship\'s final number on a ladder', () => {
+  const fold = (cards: string[]) => effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cards);
+  it('an index ladder prints the folded index — cards raise it', () => {
+    for (const id of ['armor', 'power', 'intel', 'reload', 'engines', 'range'] as const) {
+      expect(Number(ladderValue(id, fold(rep(id, 2)))), id).toBeGreaterThan(Number(ladderValue(id, fold([]))));
+      expect(ladderValue(id, fold([])), id).toBe(String(Math.round(fold([])[id])));
+    }
+  });
+  it('HULL REPAIR / SMOKE SCREEN print the ability\'s cooldown in seconds — cards shorten it', () => {
+    for (const id of ['hullRepair', 'smokeScreen'] as const) {
+      const secs = (cards: string[]): number => parseFloat(ladderValue(id, fold(cards)));
+      expect(secs(rep(id, 5)), id).toBeLessThan(secs([]));
+    }
   });
 });

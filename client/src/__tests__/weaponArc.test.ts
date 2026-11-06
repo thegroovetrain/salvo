@@ -5,12 +5,12 @@
 // dependent — the three weapon slots are generic, so whatever a captain drew
 // sits in whichever of Q/E/R was empty first. A slot-number branch would light
 // the wrong marker. The gun family
-// (gun/starShells) is 360°; the torpedo has a bow arc; the MINE and (Story
-// 8.16) the DECOY BUOY consumable have a rear placement arc; the BROADSIDE
-// BARRAGE has TWIN mirrored beam sectors.
+// (gun/starShells) is 360°; the three torpedoes share the deck LAUNCHER arcs
+// (Story 10.6, R6 — fore ±140°, plus the aft launcher's when held); the MINE
+// has a rear placement arc; the BROADSIDE BARRAGE has TWIN mirrored beam
+// sectors.
 //
-// The TB torpedo case is the byte-identical regression pin: its bow-arc behavior
-// must NOT drift as the branch grows more shapes. `slotsWithCards` over the
+// `slotsWithCards` over the
 // hull's FITTED CARDS is the authoritative id→slot map, so we derive the ids
 // the same way main.ts's slotIdsFor does — Story 8.10 deleted the interim spawn
 // seed that used to supply them, so the lists are this suite's own fixture.
@@ -34,6 +34,9 @@ import {
   arcFor,
   effectiveStats,
   gunReachU as sharedGunReachU,
+  launcherArcHolds,
+  launcherSectors,
+  launcherTrainRad,
   WEAPON_SLOTS,
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
@@ -41,6 +44,8 @@ import {
 import type { Catalog, CatalogLine, EquipmentId, HullIndex, ShipClass } from '@salvo/shared';
 import {
   MINE_EQUIPMENT_IDS,
+  TORPEDO_ITEM_IDS,
+  arcUnion,
   fireArcKind,
   isMineEquipment,
   isPlacedItem,
@@ -101,8 +106,7 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     expect(fireArcKind('foulingShell')).toBe('gunLike');
   });
 
-  it('classes the SECTOR ids — torpedo bow arc, the mines\' rear arc', () => {
-    expect(fireArcKind('heavyTorpedo')).toBe('sector');
+  it('classes the SECTOR ids — the mines\' rear arc', () => {
     // PIN FLIPPED (Story 2.8, amendment 45): the mine is a click-aimed weapon
     // with a rear placement sector — it used to classify `none`.
     expect(fireArcKind('navalMines')).toBe('sector');
@@ -133,24 +137,10 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     for (const id of MINE_EQUIPMENT_IDS) expect(fireArcKind(id), id).toBe('sector');
   });
 
-  it('classes the LIGHT TORPEDO as `twin` — both beams, ±45° (catalog-v3 R18)', () => {
-    expect(fireArcKind('lightTorpedo')).toBe('twin');
-    const arc = arcFor('lightTorpedo');
-    if (arc.kind !== 'twin-sector') throw new Error('the light torpedo must declare twin sectors');
-    // The beams, not the bow: dead ahead and dead astern are the dead zones.
-    expect(weaponArcHit(0, arc.offset, 'lightTorpedo')).toBe(true);
-    expect(weaponArcHit(0, -arc.offset, 'lightTorpedo')).toBe(true);
-    expect(weaponArcHit(0, 0, 'lightTorpedo')).toBe(false);
-    expect(weaponArcHit(0, Math.PI, 'lightTorpedo')).toBe(false);
-  });
-
-  it('classes the BELT\'s SUPERCAV TORPEDO as its own bow SECTOR', () => {
-    expect(fireArcKind('supercavTorpedo')).toBe('sector');
-    expect(weaponArcHit(0, 0, 'supercavTorpedo')).toBe(true);
-    expect(weaponArcHit(0, CONFIG.supercavTorpedo.halfArc + 0.001, 'supercavTorpedo')).toBe(false);
-    // ...and it is NARROWER than the heavy fish's bow arc, which is the point
-    // of a 195 u/s straight-runner.
-    expect(CONFIG.supercavTorpedo.halfArc).toBeLessThan(CONFIG.torpedo.halfArc);
+  // STORY 10.6 (R6): the light torpedo's twin beams and the heavy / supercav
+  // bow sectors are RETIRED — all three leave the deck launchers.
+  it('classes ALL THREE torpedoes as `launcher` — one arc, the held launchers\'', () => {
+    for (const id of TORPEDO_ITEM_IDS) expect(fireArcKind(id), id).toBe('launcher');
   });
 });
 
@@ -225,9 +215,10 @@ describe('clickInArc — the click-aimed consumables are GATED by their arcs', (
     }
   });
 
-  it('GATES the supercav by its bow sector too', () => {
-    expect(clickInArc(0, 0, 10, 'supercavTorpedo')).toBe(true); // dead ahead: inside ±15°
-    expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo')).toBe(false); // astern: denied
+  it('GATES a torpedo by the held launchers\' arcs: fore only denies dead astern; the aft launcher opens it', () => {
+    expect(clickInArc(0, 0, 10, 'supercavTorpedo')).toBe(true); // dead ahead: the fore launcher bears
+    expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo')).toBe(false); // astern, fore only: denied
+    expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo', 2)).toBe(true); // ...the aft launcher bears
   });
 
   it('gates EVERY mine line on the ONE shared leash, not just the naval rack', () => {
@@ -337,48 +328,69 @@ describe('weaponArcHit — mine REAR placement arc (Story 2.8, amendment 45)', (
   });
 });
 
-describe('weaponArcHit — torpedo bow arc', () => {
-  const halfArc = CONFIG.torpedo.halfArc;
+describe('weaponArcHit — the torpedo launcher arcs (Story 10.6, R6)', () => {
+  const train = launcherTrainRad();
 
-  it('is true dead ahead (bow-centered) with heading 0', () => {
-    expect(weaponArcHit(0, 0, 'heavyTorpedo')).toBe(true);
+  it('is the shared launcherArcHolds for every torpedo, at every launcher count', () => {
+    for (const id of TORPEDO_ITEM_IDS) {
+      for (const n of [1, 2]) {
+        for (const heading of [0, 1.1, -2.4]) {
+          for (let k = 0; k < 24; k++) {
+            const aim = -Math.PI + (k * Math.PI) / 12;
+            expect(weaponArcHit(heading, aim, id, n), `${id} n${n} h${heading} a${aim}`).toBe(launcherArcHolds(n, heading, aim));
+          }
+        }
+      }
+    }
   });
 
-  it('is true right at the arc edge and false just past it', () => {
-    expect(weaponArcHit(0, halfArc, 'heavyTorpedo')).toBe(true); // inclusive boundary
-    expect(weaponArcHit(0, halfArc + 0.01, 'heavyTorpedo')).toBe(false);
-  });
-
-  it('is false directly astern', () => {
+  it('fore only: true at the train limit, false just past it and dead astern', () => {
+    expect(weaponArcHit(0, train, 'heavyTorpedo')).toBe(true);
+    expect(weaponArcHit(0, train + 0.01, 'heavyTorpedo')).toBe(false);
     expect(weaponArcHit(0, Math.PI, 'heavyTorpedo')).toBe(false);
   });
 
   it('rotates with heading', () => {
     const heading = Math.PI / 2; // facing +y
     expect(weaponArcHit(heading, Math.PI / 2, 'heavyTorpedo')).toBe(true);
-    expect(weaponArcHit(heading, 0, 'heavyTorpedo')).toBe(false);
+    expect(weaponArcHit(heading, -Math.PI / 2, 'heavyTorpedo')).toBe(false);
   });
 });
 
-describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', () => {
-  // The id-driven branch must reproduce the TB's bow-arc torpedo behavior
-  // (TB's Q = torpedo). The Mine Layer's seed fills Q with the mine; the RADAR
-  // BUOY that used to ride E went dark (epic-8 amendment 22) and was deleted in
-  // Story 8.16.
-  const halfArc = CONFIG.torpedo.halfArc;
+describe('arcUnion — the torpedo wedge is the fewest fills', () => {
+  it('one launcher is ONE span of twice its train, centred on its rest bearing', () => {
+    const u = arcUnion(launcherSectors(1));
+    if (u === 'full') throw new Error('one launcher leaves a dead wedge');
+    expect(u).toHaveLength(1);
+    expect(u[0].to - u[0].from).toBeCloseTo(2 * launcherTrainRad(), 12);
+    expect(Math.cos((u[0].from + u[0].to) / 2)).toBeCloseTo(1, 12); // centred dead ahead
+  });
 
+  it('the fore and the aft launcher together are the whole disc', () => {
+    expect(arcUnion(launcherSectors(2))).toBe('full');
+  });
+
+  it('disjoint sectors stay apart; overlapping ones merge (across ±π too)', () => {
+    expect(arcUnion([{ offset: Math.PI / 2, halfArc: 0.2 }, { offset: -Math.PI / 2, halfArc: 0.2 }])).toHaveLength(2);
+    const merged = arcUnion([{ offset: Math.PI - 0.1, halfArc: 0.3 }, { offset: -Math.PI + 0.1, halfArc: 0.3 }]);
+    if (merged === 'full') throw new Error('two 0.6 rad sectors are not the circle');
+    expect(merged).toHaveLength(1);
+    expect(merged[0].to - merged[0].from).toBeCloseTo(0.8, 12);
+  });
+});
+
+describe('weaponArcHit — the fitted torpedo and mine (Story 1.8)', () => {
   it('a torpedo fills Q and a mine fills E — each in its family slot (Story 10.5)', () => {
     expect(idAt('torpedoFit', Q)).toBe('heavyTorpedo');
     expect(idAt('mineFit', E)).toBe('navalMines');
     expect(idAt('mineFit', Q)).toBeNull();
   });
 
-  it('the TB torpedo gates on the bow arc exactly as before', () => {
+  it('the fitted torpedo gates on the launcher arcs', () => {
     const torp = idAt('torpedoFit', Q);
     expect(weaponArcHit(0, 0, torp)).toBe(true);
-    expect(weaponArcHit(0, halfArc, torp)).toBe(true);
-    expect(weaponArcHit(0, halfArc + 0.01, torp)).toBe(false);
-    expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern
+    expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern, fore only
+    expect(weaponArcHit(0, Math.PI, torp, 2)).toBe(true); // ...the aft launcher held
   });
 
   it('the mine is an AIMED rear-sector id', () => {
@@ -627,6 +639,7 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
       full: 'gunLike',
       sector: 'sector',
       'twin-sector': 'twin',
+      launcher: 'launcher',
       none: 'none',
     };
     for (const id of ALL_IDS) {
@@ -634,14 +647,14 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
     }
   });
 
-  it('the torpedo aim gate is EXACTLY the descriptor sector (boundary-inclusive)', () => {
-    const arc = arcFor('heavyTorpedo');
-    if (arc.kind !== 'sector') throw new Error('torpedo must declare a sector');
-    // Heading 0: the sector edge is in-arc (shared inArc is boundary-inclusive)…
-    expect(weaponArcHit(0, arc.offset + arc.halfArc, 'heavyTorpedo')).toBe(true);
-    expect(weaponArcHit(0, arc.offset - arc.halfArc, 'heavyTorpedo')).toBe(true);
-    // …and a hair beyond it is denied — the exact server gate, same primitives.
-    expect(weaponArcHit(0, arc.offset + arc.halfArc + 0.001, 'heavyTorpedo')).toBe(false);
+  it('the torpedo aim gate is EXACTLY the shared launcher arc (boundary-inclusive)', () => {
+    expect(arcFor('heavyTorpedo').kind).toBe('launcher');
+    const train = launcherTrainRad();
+    // Heading 0, fore only: the train limit is in arc (boundary-inclusive)…
+    expect(weaponArcHit(0, train, 'heavyTorpedo')).toBe(true);
+    expect(weaponArcHit(0, -train, 'heavyTorpedo')).toBe(true);
+    // …and a hair beyond it is denied — the shared primitive, same answer.
+    expect(weaponArcHit(0, train + 0.001, 'heavyTorpedo')).toBe(false);
   });
 });
 

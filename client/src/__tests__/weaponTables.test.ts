@@ -15,8 +15,10 @@ const TIERED = [
   'starShells', 'phosphorShells', 'navalMines', 'captiveMines', 'foulingMines',
 ];
 // HULL POINTS and PASSIVE HEALING left with Story 10.3 (Eric 2026-11-04,
-// epic-10 amendment 8); the six that remain are index cards.
-const SHIP = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
+// epic-10 amendment 8); RUDDER left with Story 10.6 (R2) and RANGE joined —
+// the six index cards (HULL REPAIR and SMOKE SCREEN wait on Story 10.14's
+// How-to-Play copy).
+const SHIP = ['armor', 'power', 'reload', 'engines', 'intel', 'range'] as const;
 
 /** Every row's cells, label-blind — a derived row is found by its VALUES. */
 const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.values);

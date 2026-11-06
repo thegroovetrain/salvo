@@ -101,6 +101,10 @@ interface CloudSprite {
   x: number;
   y: number;
   t0: number; // server-clock birth stamp — drives the field's age
+  /** The cloud's stamped life and disc (Story 10.6, I6) — the field's own. */
+  lifeMs: number;
+  r0: number;
+  r1: number;
   /** Server time of the last frame that delivered this cloud's row; absent =
    *  never gated (render/cloudReturnGate.ts). */
   deliveredAt?: number;
@@ -360,11 +364,13 @@ export class Countermeasure {
     sprite.position.set(c.x, c.y);
     sprite.tint = COLOR;
     this.body.addChild(sprite);
+    const field = makeField(c); // the cloud's own stamped life and disc (Story 10.6, I6)
     this.clouds.set(c.id, {
       sprite,
       source: sprite.texture.source as BufferImageSource,
       rgba,
-      field: makeField(),
+      field,
+      ...field.size,
       x: c.x,
       y: c.y,
       t0: c.t0,

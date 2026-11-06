@@ -95,7 +95,7 @@ export interface TooltipModel {
  *
  * A COOLDOWN-ABILITY square (`C` HULL REPAIR / `V` SMOKE — Story 10.5,
  * 2026-11-05, epic-10 amendment 11) reads like the Shift square: its name and
- * its rows (the card face's former rows for the line, off CONFIG), with no
+ * its rows (off the ship's own `stats.repair` / `stats.smoke` — Story 10.6), with no
  * interaction word — an ability has no tier.
  */
 export function tooltipModel(
@@ -105,7 +105,7 @@ export function tooltipModel(
   cards: readonly string[] = [],
 ): TooltipModel | null {
   if (id === null) return null;
-  if (isCooldownAbility(id)) return { name: abilityName(id), interaction: '', stats: abilityStatRows(id) };
+  if (isCooldownAbility(id)) return { name: abilityName(id), interaction: '', stats: abilityStatRows(id, stats) };
   return {
     name: slotHeading(id, stats),
     interaction: interactionLine(slot, id, cards, stats),

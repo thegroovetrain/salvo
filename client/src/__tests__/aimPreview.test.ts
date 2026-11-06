@@ -33,7 +33,11 @@ import {
   turretSalvo,
   islandFromPolygon,
   parallelOffsets,
-  torpedoSpawn,
+  initialLaunchers,
+  launcherAimPoint,
+  launcherStationWorld,
+  pickTube,
+  torpedoLaunchPoint,
   type EffectiveStats,
   type Island,
   type TurretAim,
@@ -553,16 +557,42 @@ describe('island clipping', () => {
 });
 
 describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
-  it('runs from the real tube exit to the map edge, far past gun range', () => {
+  // STORY 10.6 (R6 / R16): the track leaves the DECK LAUNCHER the shared pick
+  // names — its station, pushed clear of the hull — along the bearing it fires
+  // on. (The retired bow-ring `torpedoSpawn` is gone.)
+  it('runs from the PICKED LAUNCHER\'s station to the map edge, far past gun range', () => {
     const inp = input({ id: 'heavyTorpedo', aimDist: 100 });
     const [l] = computeAimPreview(inp).lines;
-    const tube = torpedoSpawn(SHIP, hullEnvelope(DEFAULT_CLASS_ID).hull.length, 0);
-    expect(l.x1).toBeCloseTo(tube.x, 9);
+    const states = initialLaunchers(DEFAULT_CLASS_ID, inp.stats);
+    const pick = pickTube(states, DEFAULT_CLASS_ID, SHIP, launcherAimPoint(SHIP, DEFAULT_CLASS_ID, 0, 100));
+    if (pick.verdict !== 'fire') throw new Error('the fore launcher bears dead ahead');
+    expect(pick.station).toEqual(launcherStationWorld(DEFAULT_CLASS_ID, 0, SHIP)); // the FORE station
+    const exit = torpedoLaunchPoint(pick.station, SHIP, DEFAULT_CLASS_ID, pick.bearing);
+    expect(l.x1).toBeCloseTo(exit.x, 9);
+    expect(l.y1).toBeCloseTo(exit.y, 9);
     // weaponArc.weaponRangeU would have answered stats.equipment.gun.rangeU here (a
-    // documented meaningless fallback for the torpedo) — the fish runs on.
+    // documented meaningless fallback for the torpedo) — the torpedo runs on.
     expect(l.x2).toBeGreaterThan(inp.stats.equipment.gun.rangeU);
     expect(Math.hypot(l.x2, l.y2)).toBeLessThanOrEqual(MAP_R);
     expect(computeAimPreview(inp).bursts).toEqual([]); // contact-only: no blast
+  });
+
+  it('previews NOTHING where no held launcher bears (fore only, aimed dead astern)', () => {
+    expect(computeAimPreview(input({ id: 'heavyTorpedo', aim: Math.PI }))).toEqual(EMPTY_MODEL);
+  });
+
+  it('with the AFT launcher held, an astern aim leaves from the AFT station', () => {
+    const st = stats('heavyTorpedo', 'aftTorpedoLauncher');
+    const [l] = computeAimPreview(input({ id: 'heavyTorpedo', stats: st, aim: Math.PI })).lines;
+    expect(l.x1).toBeLessThan(launcherStationWorld(DEFAULT_CLASS_ID, 1, SHIP).x); // aft of the aft station, running astern
+    expect(l.x2).toBeLessThan(l.x1);
+  });
+
+  it('a launcher not yet on the aim previews its CURRENT bearing (the early-click rule), reloads ignored', () => {
+    const st = stats('heavyTorpedo');
+    const held = [{ a: 0.5, tubes: [9_000] }]; // trained off the aim, and reloading
+    const [l] = computeAimPreview(input({ id: 'heavyTorpedo', stats: st, aim: 0, launchers: held })).lines;
+    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(0.5, 6);
   });
 
   it('stops the track at the first island', () => {

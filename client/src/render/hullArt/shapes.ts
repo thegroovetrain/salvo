@@ -195,6 +195,28 @@ function frameOf(id: ShipClassId): Frame {
   return { len: h.length, beam: h.beam };
 }
 
+/**
+ * Pure: a deck TORPEDO LAUNCHER's art in its own frame (pivot at the origin,
+ * tubes along +x — Story 10.6, I2): the pivot disc, then `tubes` outlined
+ * tubes side by side (1 or 2), or — `tubes` null, a sighted enemy whose tube
+ * count is not on the wire (I7) — ONE generic housing of the same length.
+ */
+export function launcherArt(tubes: number | null): readonly Prim[] {
+  const L = A.launcher;
+  const x0 = -L.tubeBackM * U_PER_M;
+  const x1 = (L.tubeLenM - L.tubeBackM) * U_PER_M;
+  const rect = (y: number, w: number, fill: FillKey): PolyPrim => {
+    const h = (w / 2) * U_PER_M;
+    const c = y * U_PER_M;
+    return { kind: 'poly', pts: [{ x: x0, y: c - h }, { x: x1, y: c - h }, { x: x1, y: c + h }, { x: x0, y: c + h }], fill, line: 'inner' };
+  };
+  const prims: Prim[] = [circle({ x: 0, y: 0 }, L.pivotM * U_PER_M, 'round', 'inner')];
+  if (tubes === null) return [...prims, rect(0, L.housingWidthM, 'sec')];
+  const n = Math.max(1, Math.floor(tubes));
+  for (let k = 0; k < n; k++) prims.push(rect((k - (n - 1) / 2) * L.tubeGapM, L.tubeWidthM, 'barrel'));
+  return prims;
+}
+
 /** Pure: a main turret's barbette ring (deck layer) at its shared station. */
 export function barbetteRadiusU(id: ShipClassId): number {
   return HOUSES[id].barbette * U_PER_M;

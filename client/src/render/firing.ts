@@ -4,8 +4,10 @@
 //     (2026-10-12; the `ship` layer before) — chartRoot, above the fog, the
 //     countermeasure cloud and the radar paint (render/stage.ts). Nothing about the arcs
 //     changes with the lift: they rotate with the own ship and sit inside the
-//     sight bubble, where the fog was already clear. Three ids draw one: the
-//     torpedo's BOW arc; (Story 2.8, amendment 45) the mine's REAR PLACEMENT
+//     sight bubble, where the fog was already clear. Three families draw one:
+//     the torpedo's LAUNCHER arcs (Story 10.6, R6 — the union of the deck
+//     launchers held, fore ±140° and the aft's ±140°; the retired fixed bow
+//     and twin-beam sectors are gone); (Story 2.8, amendment 45) the mine's REAR PLACEMENT
 //     arc, drawn at its true CONFIG.mine.placeRange radius so the wedge IS the
 //     reachable water; and (Story 7-5 wave 2, R2.1) the BROADSIDE BARRAGE, whose
 //     two mirrored BEAM sectors are now thin OUTLINES marking the deny boundary
@@ -31,6 +33,7 @@ import {
   CONFIG,
   arcFor,
   inArc,
+  launcherSectors,
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
@@ -38,7 +41,7 @@ import {
   type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit, type FireArcKind } from './weaponArc.js';
+import { arcUnion, fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit, type FireArcKind } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
@@ -62,35 +65,14 @@ const IDENTITY_POSE = { x: 0, y: 0, heading: 0 };
  * Pure: the aim colour of one primed system — THE TORPEDO FAMILY's cool green,
  * or aim amber for everything else.
  *
- * ONE ANSWER, THREE SURFACES (the sector wedge, the twin-beam outlines and the
+ * ONE ANSWER, EVERY SURFACE (the wedges, the twin-beam outlines and the
  * reticle), because they are one statement: "this is the system you are
  * aiming". It keys on the FAMILY since Story 8.13 rather than on
- * `id === 'heavyTorpedo'` — the LIGHT torpedo's twin beams and the belt's
- * SUPERCAV bow sector are torpedoes too, and a fish that drew amber would read
- * as gunnery.
+ * `id === 'heavyTorpedo'` — every torpedo line is a torpedo, and a torpedo
+ * that drew amber would read as gunnery.
  */
 function weaponTint(id: EquipmentId | null): number {
   return isTorpedoItem(id) ? TORP_TINT : AMBER;
-}
-
-/**
- * Pure: HOW a `twin-sector` weapon draws each of its two beams.
- *
- * - `outline-turrets` — the BROADSIDE's grammar (Eric ruling 2026-08-27, ruling
- *   4): a hairline legal boundary plus one small filled wedge per gun, because
- *   under the zero-overlap ladder a big filled beam would promise water no gun
- *   can reach.
- * - `filled-sector` — a TORPEDO's grammar: the beam IS the aim-gated wedge, the
- *   same indicative ARC_R fill the heavy torpedo's bow sector draws, mirrored on
- *   both beams. A fish has no turret fan to draw instead, so an outline alone
- *   leaves the player aiming into an empty green line (Eric, 2026-09-21).
- *
- * Exported so the decision is pinned as a decision (firingArcs.test.ts), the
- * file's convention for everything the arcs Graphics draws.
- */
-export type TwinBeamStyle = 'outline-turrets' | 'filled-sector';
-export function twinBeamStyle(id: EquipmentId | null): TwinBeamStyle {
-  return isTorpedoItem(id) ? 'filled-sector' : 'outline-turrets';
 }
 
 export interface FiringPose {
@@ -201,6 +183,10 @@ export class FiringUX {
    *  lit zones raises the reach to the click and the clamp marker correctly
    *  stops drawing. */
   private rangeU: number = CONFIG.gun.rangeU;
+  /** How many deck torpedo launchers the own ship holds (Story 10.6 —
+   *  `stats.torpedoLaunchers`, fed each frame by update()): the torpedo wedge
+   *  and the reticle's in-arc read are their arcs' union. */
+  private launchers = 1;
 
   /**
    * `shipLayer` (chartRoot's `ownShip` — the own-hull layer since 2026-10-12)
@@ -239,8 +225,10 @@ export class FiringUX {
     denied = false,
     rangeU: number = CONFIG.gun.rangeU,
     broadside: BroadsideArcs | null = null,
+    torpedoLaunchers = 1,
   ): void {
     this.rangeU = rangeU;
+    this.launchers = torpedoLaunchers;
     const kind = fireArcKind(id);
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
@@ -265,6 +253,7 @@ export class FiringUX {
   ): void {
     if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
     if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
+    if (kind === 'launcher') this.drawLauncherArcs(id, aim, heading, ammo, denied);
     // (The four buoys' 360° placement DISC left with the buoys — 2026-11-05,
     // Story 10.5, epic-10 amendment 11: the mines' wedge is the only
     // placement shape.)
@@ -275,8 +264,8 @@ export class FiringUX {
    * arcFor descriptor (Story 1.10 — the single arc-shape source), so the drawn
    * sector IS the enforced one. The MINE draws at its true placement reach
    * (this.rangeU = CONFIG.mine.placeRange) because for it the wedge is the
-   * reachable water, not an indicator; the torpedo keeps the fixed indicative
-   * ARC_R (its fish runs to the map edge, so a radius would be a lie).
+   * reachable water, not an indicator. (Since Story 10.6 no torpedo declares
+   * a sector — its wedge is `drawLauncherArcs`.)
    */
   private drawSectorArc(
     id: EquipmentId,
@@ -315,6 +304,35 @@ export class FiringUX {
   }
 
   /**
+   * THE TORPEDO WEDGE (Story 10.6, R6): the union of the deck launchers the
+   * ship holds — `launcherSectors(n)`, the same arcs the shared pick tests —
+   * drawn as the fewest fills (`arcUnion`: one launcher is one 280° wedge, the
+   * fore and aft together the whole disc) at the indicative ARC_R, because a
+   * torpedo runs to the map edge and a radius would be a lie. Lit when some
+   * held launcher bears and a tube would fire.
+   */
+  private drawLauncherArcs(id: EquipmentId, aim: number, heading: number, ammo: FiringAmmo, denied: boolean): void {
+    const lit = denied || (weaponArcHit(heading, aim, id, this.launchers) && ammo.hasAmmo);
+    const color = denied ? DENIED_RED : weaponTint(id);
+    const union = arcUnion(launcherSectors(this.launchers));
+    if (union === 'full') {
+      this.disc(color, lit, ammo.reloadFrac);
+      return;
+    }
+    for (const span of union) {
+      this.sector((span.from + span.to) / 2, (span.to - span.from) / 2, color, lit, ammo.reloadFrac);
+    }
+  }
+
+  /** A whole-circle wedge (every bearing bears) + its reload sweep-back — the
+   *  `sector` grammar at 360°. */
+  private disc(color: number, lit: boolean, reloadFrac: number): void {
+    const g = this.arcs;
+    g.circle(0, 0, ARC_R).fill(arcFillStyle(color, lit));
+    if (reloadFrac > 0 && reloadFrac < 1) g.circle(0, 0, ARC_R * 0.5).fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
+  }
+
+  /**
    * The BROADSIDE BARRAGE's twin beams (R2.1): both mirrored sectors are drawn
    * every frame — the pair IS the information ("you can fire to either side,
    * and not fore or aft") — but only the one CONTAINING the aim lights, which
@@ -346,23 +364,9 @@ export class FiringUX {
     if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
     const firing = twinSectorSide(heading, aim, t);
     const color = denied ? DENIED_RED : weaponTint(id);
-    const style = twinBeamStyle(id);
     for (const side of [1, -1] as const) {
       const lit = denied || (firing === side && ammo.hasAmmo);
-      if (style === 'filled-sector') {
-        // A TORPEDO'S BEAM IS A FILLED WEDGE (quiet fix, Eric 2026-09-21): the
-        // LIGHT TORPEDO shares the twin-sector SHAPE with the broadside but not
-        // its battery — it fires tubes, not turrets — so each beam draws the
-        // same indicative ARC_R sector fill the heavy torpedo's bow arc draws,
-        // mirrored. Story 8.13's first cut turned the turret wedges off for it
-        // and left only the hairline outline: a beam with no fill at all.
-        this.sector(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
-        continue;
-      }
       this.drawLegalOutline(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
-      // PER-TURRET WEDGES ARE THE BROADSIDE'S ALONE (Story 8.13): drawing the
-      // barrage's gun wedges on a torpedo's beams would invent a fan of shells
-      // that no fish has.
       if (bs !== null) this.drawTurretWedges(side, color, lit, bs);
     }
   }
@@ -512,11 +516,10 @@ export class FiringUX {
     // anyway, so both owe the player the true burst distance — every weapon's
     // reach is its own tiered dial (Story 9.8, ruling 125), none of them radar.
     //
-    // NEVER FOR A TORPEDO (Story 8.13). The LIGHT TORPEDO is the second
-    // `twin-sector` weapon in the game, and no torpedo line has a max range
+    // NEVER FOR A TORPEDO (Story 8.13): no torpedo line has a max range
     // (epic-8 amendment 84f): `weaponRangeU` hands it the cannon's range as a
     // fallback purely so nothing crashes, and drawing a clamp ring at it would
-    // promise the fish stops there.
+    // promise the torpedo stops there.
     // NOR FOR A PLACED id (a mine): a placement past the leash is DENIED,
     // never clamped, so no clamp marker.
     if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id) && !isPlacedItem(id)) {
@@ -552,7 +555,7 @@ export class FiringUX {
    *  The torpedo keeps its cool-green identity; everything else (gun family, the
    *  broadside's beams, the mine's rear placement) is amber. */
   private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
-    if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
+    if (!(weaponArcHit(heading, aim, id, this.launchers) && hasAmmo)) return DIM;
     return weaponTint(id);
   }
 }

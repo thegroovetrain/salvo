@@ -11,7 +11,7 @@
 //     never wedges the key).
 
 import { describe, expect, it } from 'vitest';
-import { abilityReadyAt } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, abilityReadyAt, effectiveStats } from '@salvo/shared';
 import {
   OPEN_LATCHES,
   latchHolds,
@@ -20,6 +20,9 @@ import {
   latchRelease,
 } from '../sim/abilityLatch.js';
 import { PENDING_CAPACITY } from '../sim/prediction.js';
+
+/** Any hull's folded stats — the latch reads only the stamp's presence. */
+const STATS = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
 const NOW = 1_000_000;
 
@@ -41,7 +44,7 @@ describe('the C / V press latch', () => {
 
   it('the frame that carries the ability cooling opens it', () => {
     let l = latchPress(latchPress(OPEN_LATCHES, 'smoke'), 'repair');
-    l = latchOnOwnFrame(l, { repairReadyAt: abilityReadyAt(NOW, 'repair') }, NOW);
+    l = latchOnOwnFrame(l, { repairReadyAt: abilityReadyAt(NOW, STATS, 'repair') }, NOW);
     expect(latchHolds(l, 'repair')).toBe(false);
     expect(latchHolds(l, 'smoke')).toBe(true); // the other ability's answer has not come
   });
@@ -61,7 +64,7 @@ describe('the C / V press latch', () => {
   });
 
   it('frames on an open latch leave it open', () => {
-    const l = latchOnOwnFrame(OPEN_LATCHES, { repairReadyAt: abilityReadyAt(NOW, 'repair') }, NOW);
+    const l = latchOnOwnFrame(OPEN_LATCHES, { repairReadyAt: abilityReadyAt(NOW, STATS, 'repair') }, NOW);
     expect(latchHolds(l, 'repair')).toBe(false);
     expect(latchHolds(l, 'smoke')).toBe(false);
   });

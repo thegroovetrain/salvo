@@ -16,6 +16,7 @@ import {
   MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
   SLOT_COUNT,
+  familySlotFor,
   initialTurrets,
   type OwnShip,
   type EquipmentId,
@@ -37,8 +38,8 @@ import {
   shouldAutoOpen,
   spendLatchReleased,
   spendOutcome,
-  KIND_COLORS,
-  KIND_EDGES,
+  cardArmedColor,
+  cardEdge,
   type OfferCard,
   type OfferView,
   type RefitBox,
@@ -49,8 +50,7 @@ import {
   boonFitToastLine,
   boonName,
   cardHoverRows,
-  cardKind,
-  cardKindLabel,
+  cardColorTier,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
@@ -303,13 +303,12 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(offerView(ownShip({ pts: 0, offer: [] }), false, false, false)).toBeNull();
   });
 
-  it('resolves the front offer to four cards with the kind word + ratified copy', () => {
+  it('resolves the front offer to four cards with the ratified copy', () => {
     const view = offerView(ownShip(), false, false, false);
     expect(view?.options.map((o) => o.id)).toEqual(OFFER);
     expect(view?.options).toHaveLength(CONFIG.offer.size);
     expect(view?.pts).toBe(1);
     for (const card of view!.options) {
-      expect(card.kind.length).toBeGreaterThan(0);
       expect(card.name).toBe(boonName(card.id, 0)); // the sheet's name for the line
       // STORY 8.7: the face is the ratified FIVE-ROW block. A LADDER card and a
       // LIVE equipment line print rows; an add-on, a consumable and an unbuilt
@@ -401,17 +400,13 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // EXCLUSIVE line in the catalog. So no SHIPPED line carries that tier today;
   // the label itself is still supported and pinned in boonCopy.test.ts, and the
   // DOM row below still renders one from a hand-built card.
-  // AMENDMENT 181 (Eric 2026-09-30): the kind is what the card does for the
-  // player — a function of the line AND the copies held.
-  it('carries the KIND word and its tone, unconditional, on every card', () => {
-    const view = offerView(ownShip({ offer: ['intel', 'deckGun', 'captiveMines', 'foulingShell'] }), false, false, false);
-    // Story 10.5: the FOULING SHELL is a slot weapon — copy 1 is a WEAPON.
-    expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'weapon']);
-    for (const o of view!.options) expect(o.kind, o.id).toBe(cardKindLabel(o.kindTone));
-    // Copy 2 of an equipment line is a WEAPON UPGRADE.
+  // Eric 2026-11-05: a card's colour is the TIER it grants, whatever its kind.
+  it('carries the tone = the tier the card grants, on every card', () => {
+    const offer = ['intel', 'deckGun', 'captiveMines', 'foulingShell'];
+    const view = offerView(ownShip({ offer }), false, false, false);
+    expect(view?.options.map((o) => o.tone)).toEqual(offer.map((id) => cardColorTier(CATALOG[id], 0)));
     const tier = offerView(ownShip({ offer: ['captiveMines'], cards: ['captiveMines'] }), false, false, false);
-    expect(tier?.options[0].kindTone).toBe('weaponUpgrade');
-    expect(tier?.options[0].kind).toBe(cardKindLabel('weaponUpgrade'));
+    expect(tier?.options[0].tone).toBe(cardColorTier(CATALOG.captiveMines, 1));
   });
 
   it('carries the ladder length and the copies held — the rungs and their fill', () => {
@@ -505,14 +500,13 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   afterEach(() => settings.set({ motion: 'full' }));
 
   // THE RATIFIED FACE's OfferCard (Story 8.7, ruling 11): the icon box, the
-  // name, the cap-rung ladder with its `cur → next` numerals, the KIND word, up
-  // to six live stat rows and the foot. No description, no lineage handrail,
+  // name, the cap-rung ladder with its `cur → next` numerals, up to six live
+  // stat rows and the foot (the KIND word left the face in Story 10.6). No description, no lineage handrail,
   // no copy count — those went with the interim face.
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
     ids.map((id) => ({
       id,
-      kind: cardKindLabel(cardKind(CATALOG[id], 0)),
-      kindTone: cardKind(CATALOG[id], 0),
+      tone: cardColorTier(CATALOG[id], 0),
       name: boonName(id, 0),
       tier: cardTierLabel(CATALOG[id], 0),
       tierStep: cardTierSteps(CATALOG[id], 0),
@@ -558,7 +552,8 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   // THE RATIFIED FACE, TOP-DOWN (Story 8.7, ruling 11 — mock `.rc`): key chip
   // (outside the clipped body, pinned first) · 40px icon box · name · ladder ·
-  // KIND word · six 17px rows · foot. No prose anywhere on it.
+  // six 17px rows · foot. No prose anywhere on it, and since Story 10.6 no
+  // kind word (Eric 2026-11-05: "get rid of the 'kind' words on all the cards").
   it('builds the ratified face in the mock\'s own DOM order', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view());
@@ -566,21 +561,20 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect((card.firstElementChild as HTMLElement).textContent).toBe('1'); // key chip
     const body = card.lastElementChild as HTMLElement;
     const kids = [...body.children] as HTMLElement[];
-    expect(kids).toHaveLength(6);
+    expect(kids).toHaveLength(5);
     expect(kids[0].style.width).toBe(`${R.iconBox}px`);        // icon box
     expect(kids[1].textContent).toBe(boonName(OFFER[0], 0));   // name
     expect(kids[2].style.height).toBe(`${R.ladderH}px`);       // ladder row
-    expect(kids[3].textContent).toBe(cardKindLabel(cardKind(CATALOG[OFFER[0]], 0)));
-    expect(kids[4].style.display).toBe('grid');                // the six-row grid
-    expect(kids[5].style.height).toBe(`${R.footH}px`);         // foot, blank at rest
-    expect(kids[5].textContent).toBe('');
+    expect(kids[3].style.display).toBe('grid');                // the six-row grid
+    expect(kids[4].style.height).toBe(`${R.footH}px`);         // foot, blank at rest
+    expect(kids[4].textContent).toBe('');
   });
 
   it('always renders EXACTLY six rows, blank past the end of the card\'s stats', () => {
     const menu = new UpgradeMenu(() => {});
     // radarSweep moves ONE number, so five of its six rows are ruled blanks.
     menu.toggle(view({ options: cardsOf(['intel']) }));
-    const grid = (cards()[0].lastElementChild as HTMLElement).children[4] as HTMLElement;
+    const grid = (cards()[0].lastElementChild as HTMLElement).children[3] as HTMLElement;
     expect(grid.children).toHaveLength(R.rowCount);
     expect(grid.style.gridTemplateRows).toBe(`repeat(${R.rowCount}, ${R.rowH}px)`);
     expect((grid.children[0] as HTMLElement).textContent).not.toBe('');
@@ -601,42 +595,36 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // The card face grew three CONDITIONAL lines. The digit chip stays the FIRST
   // span in every card (pinned above and re-pinned here against the new lines):
   // the whole 1-4 spatial mapping is read off it.
-  // THE KIND IS COLOR-CODED (Eric ruling 2026-09-30, epic-8 amendment 188 —
-  // supersedes amendment 8's neutral word): the word and the resting edge carry
-  // the kind's token; the armed state keeps its amber edge and glow.
-  it('renders the kind WORD on EVERY card, in the kind\'s colour, with a kind-tinted resting edge', () => {
+  // THE CARD COLOUR (Eric 2026-11-05): the resting edge carries the tier the
+  // card grants; the armed state keeps its amber edge and glow.
+  it('tints EVERY card\'s resting edge by the tier it grants', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
         { ...cardsOf(['intel'])[0] },
-        // CANNON replaced the DECK GUN TURRET here (deleted, amendment 197):
-        // the gun ladder that is still a WEAPON UPGRADE.
         { ...cardsOf(['deckGun'])[0] },
         { ...cardsOf(['captiveMines'])[0] },
-        { ...cardsOf(['depthCharge'])[0] },
+        { ...cardsOf(['aftTorpedoLauncher'])[0] },
       ],
     }));
-    const tones = ['shipUpgrade', 'weaponUpgrade', 'weapon', 'addon'] as const;
+    const ids = ['intel', 'deckGun', 'captiveMines', 'aftTorpedoLauncher'];
     cards().forEach((b, i) => {
-      const tone = tones[i];
-      const word = cardKindLabel(tone);
-      const kindEl = ((b.lastElementChild as HTMLElement).children[3]) as HTMLElement;
-      expect(kindEl.textContent, word).toBe(word);
-      expect(kindEl.style.color, word).toBe(KIND_COLORS[tone]);
+      const tone = ids[i];
       const probe = document.createElement('div');
-      probe.style.borderColor = KIND_EDGES[tone];
-      expect(b.style.borderColor, word).toBe(probe.style.borderColor);
-      expect(b.style.boxShadow, word).toBe('none');
+      probe.style.borderColor = cardEdge(cardColorTier(CATALOG[tone], 0));
+      expect(b.style.borderColor, tone).toBe(probe.style.borderColor);
+      expect(b.style.boxShadow, tone).toBe('none');
     });
-    // ARMED: amber edge + glow, the kind word keeps its colour; disarmed: back
-    // to the kind edge.
-    const first = cards()[0];
-    first.dispatchEvent(new MouseEvent('mouseenter'));
-    expect(first.style.borderColor).toBe('var(--hc-amber)');
-    expect(first.style.boxShadow).toContain('var(--hc-amber)');
-    expect(((first.lastElementChild as HTMLElement).children[3] as HTMLElement).style.color).toBe(KIND_COLORS.shipUpgrade);
-    first.dispatchEvent(new MouseEvent('mouseleave'));
-    expect(first.style.borderColor).not.toBe('var(--hc-amber)');
+    // ARMED (Eric 2026-11-06): the card's OWN tier colour on the edge and the
+    // glow, never amber; disarmed: back to the resting tier edge.
+    cards().forEach((b, i) => {
+      const own = cardArmedColor(cardColorTier(CATALOG[ids[i]], 0));
+      b.dispatchEvent(new MouseEvent('mouseenter'));
+      expect(b.style.borderColor, ids[i]).toBe(own);
+      expect(b.style.boxShadow, ids[i]).toContain(own);
+      b.dispatchEvent(new MouseEvent('mouseleave'));
+      expect(b.style.boxShadow, ids[i]).toBe('none');
+    });
     menu.hide();
   });
 
@@ -789,7 +777,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     // beside it (radarSweep) is the one that prints a stat row.
     const foot = (cards()[0].lastElementChild as HTMLElement).lastElementChild as HTMLElement;
     const body = cards()[1].lastElementChild as HTMLElement;
-    const [icon, name, ladder, kind, grid] = [...body.children] as HTMLElement[];
+    const [icon, name, ladder, grid] = [...body.children] as HTMLElement[];
     const label = grid.children[0].firstElementChild as HTMLElement;
     const value = grid.children[0].lastElementChild as HTMLElement;
     // The two registers ON the floor divide their size (and their tracking).
@@ -801,7 +789,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(label.textContent).not.toBe('');    // ...and so is the label
     // ...and every register above the floor is untouched by it.
     const chip = cards()[1].firstElementChild as HTMLElement;
-    for (const [what, el] of [['name', name], ['kind', kind], ['value', value], ['chip', chip],
+    for (const [what, el] of [['name', name], ['value', value], ['chip', chip],
       ['icon', icon], ['ladder', ladder]] as const) {
       expect(el.style.cssText, what).not.toContain(MICRO_VAR);
     }
@@ -1465,6 +1453,15 @@ describe('the greyed card — a refusal stated before the press', () => {
     expect(cardGreyed(CATALOG.heavyTorpedo, ROW_FULL, ['lightTorpedo'])).toBe(true); // Q holds the light torpedo
     expect(cardGreyed(CATALOG.lightTorpedo, ROW_FULL, ['lightTorpedo'])).toBe(false); // a TIER card of the held kind
     expect(cardGreyed(CATALOG.heavyTorpedo, ROOM_LEFT, [])).toBe(false); // the family slot is open
+  });
+
+  // Story 10.6 (R10): a one-off WEAPON card is refused `noHost` while its
+  // family slot is EMPTY — greyed, with no foot word (no word is ruled for it).
+  it('greys a one-off card whose family slot is empty, with no foot word; live once a host is aboard', () => {
+    const torpedoAboard: Slots = ROOM_LEFT.map((id, i) => (i === familySlotFor('heavyTorpedo') ? 'heavyTorpedo' : id));
+    expect(cardGreyed(CATALOG.aftTorpedoLauncher, ROOM_LEFT, [])).toBe(true);
+    expect(cardFoot(CATALOG.aftTorpedoLauncher, ROOM_LEFT, [])).toBe('');
+    expect(cardGreyed(CATALOG.aftTorpedoLauncher, torpedoAboard, ['heavyTorpedo'])).toBe(false);
   });
 
   it('prints SLOTS FULL for the family-slot refusal ONLY — a capped line has NO foot word (amendment 32)', () => {

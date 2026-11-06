@@ -996,6 +996,15 @@ export const CLIENT_CONFIG = {
       /** A crane's post disc radius (m). */
       craneHubM: 1.6,
       /**
+       * THE DECK TORPEDO LAUNCHER (Story 10.6, I2 — a CANDIDATE for Eric's
+       * yes): a pivot disc (`round` skin) under 1–2 long outlined tubes
+       * (`barrel` skin) along the launcher's bearing — rods, not a gunhouse,
+       * so it never reads as a turret. A SIGHTED ENEMY's launcher draws one
+       * generic housing instead (`sec` skin, no tube detail): observers know
+       * its angle, never its tube count (I7). Metres.
+       */
+      launcher: { pivotM: 2.4, tubeLenM: 11, tubeBackM: 4.5, tubeWidthM: 1.3, tubeGapM: 1.7, housingWidthM: 3.2 },
+      /**
        * DOM (SVG) art weights in SCREEN px (`vector-effect: non-scaling-stroke`,
        * so the weight holds whatever size the art is fitted to): the page's
        * floor values — hull 2.5 px, inner a third of it.
@@ -1872,6 +1881,15 @@ export const CLIENT_CONFIG = {
      *  `.badge`). */
     badge: 16,
     badgeOverhang: 7,
+    /**
+     * THE UNIT PIPS (Story 10.6 — a CANDIDATE for Eric's yes): on `Q` / `E`,
+     * one small pip per torpedo TUBE / per MINE in a rack, stacked bottom-up
+     * in one column per LAUNCHER / RACK along the square's left inside edge
+     * (clear of the 28 px glyph and the bottom-right tier numeral). A filled
+     * pip is ready; the pip a clock is running for fills from its floor as it
+     * reloads. They replace the count badge on those squares. Px.
+     */
+    pips: { w: 3, h: 5, gap: 2, colGap: 2, inset: 4 },
     /** XP STRIP. `stripGap` is the main row to strip row gap (mock `.B-xp
      *  { margin-top: 8px }`); `strip` the track's own height (mock `.B-xp
      *  .hbar.xp { height: 4px }`); `stripRowH` the row the strip's items are
@@ -2096,8 +2114,6 @@ export const CLIENT_CONFIG = {
      *  which applies, and the fit suite walks every catalog name through it. */
     nameSize: 15,
     nameSizeLong: 12.5,
-    /** The KIND word — mock `.ck { font: 10px var(--mono); letter-spacing:.2em }`. */
-    kindSize: 10,
     /** The LADDER row: its fixed height, the gap between rungs and one rung's
      *  box (mock `.ladder` / `.ladder i`). The row is rendered EMPTY (but still
      *  16px tall) for a consumable or an add-on, so the six rows below it sit
@@ -2535,8 +2551,9 @@ export const CLIENT_CONFIG = {
    * someone was using the spraypaint tool on a bitmap … the radius of that
    * tool gets slightly bigger over time … each 'paint' itself fades to 0
    * alpha (similarly to the phosphor decay). It's smoke." The spray runs the
-   * whole shared `CONFIG.countermeasure.lifeMs`, inside the shared
-   * `cloudOutlineRadius(age)` disc (r0 → r1); everything below is look.
+   * cloud's whole stamped life, inside the shared
+   * `cloudOutlineRadius(age, size)` disc (r0 → r1) — both the cloud's own,
+   * off the wire (Story 10.6, I6); everything below is look.
    * NOT `smoke` below (WOUNDED smoke): the two share `colors.woundedSmoke`.
    */
   countermeasure: {

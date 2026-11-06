@@ -9,10 +9,13 @@
 // on a bitmap, and the user is just holding down the mouse while the radius of
 // that tool gets slightly bigger over time, and it's capturing this
 // frame-by-frame so that each 'paint' itself fades to 0 alpha (similarly to
-// the phosphor decay). It's smoke." His picks: the spray runs the whole shared
-// `CONFIG.countermeasure.lifeMs`, fixed at the press point, inside the shared
-// disc `cloudOutlineRadius(age)` (r0 → r1); each paint fades over ~6–10 s;
-// cells are the radar raster's 9 u.
+// the phosphor decay). It's smoke." His picks: the spray runs the cloud's whole
+// life, fixed at the press point, inside the shared disc
+// `cloudOutlineRadius(age, size)` (r0 → r1); each paint fades over ~6–10 s;
+// cells are the radar raster's 9 u. THE LIFE AND THE DISC ARE THE CLOUD'S OWN
+// (Story 10.6, Eric 2026-11-05, R9 / I6): the owner's SMOKE SCREEN cards at
+// the press, stamped on the wire `CloudView` (`lifeMs`, `r0`, `r1`) and held
+// on the field (`makeField(size)`) — never a CONFIG read.
 //
 // THE BRUSH (session 3, Eric 2026-10-12, rejecting the dot spray: "It looks
 // like you have sprayed the spray tool itself" … "I said PIXELS, not blobs"
@@ -28,8 +31,8 @@
 //
 // A FIELD IS A SQUARE ALPHA GRID centred on the cloud: `CLOUD_CELLS` per side,
 // cell (i, j)'s centre at ((i − c)·cellU, (j − c)·cellU) from the cloud centre
-// with c = (CLOUD_CELLS − 1) / 2, wide enough for an end-of-life r1 disc plus
-// one largest puff (so a rim puff is never clipped square by the grid). One
+// with c = (CLOUD_CELLS − 1) / 2, wide enough for the LARGEST end-of-life r1
+// disc the catalog can stamp (five SMOKE SCREEN cards) plus one largest puff (so a rim puff is never clipped square by the grid). One
 // `stepField` = decay every cell LINEARLY (the phosphor shape: a cell at
 // `maxAlpha` reaches 0 in exactly `fadeMs`), then stamp this step's puffs. Because the decay is linear, history older
 // than `fadeMs` contributes exactly nothing — which is what makes the catch-up
@@ -38,15 +41,26 @@
 // PURELY VISUAL: the server hides nothing behind a cloud (2026-10-12), so the
 // RNG is the caller's (Math.random in the game) and never shared with anyone.
 
-import { CONFIG, cloudOutlineRadius } from '@salvo/shared';
+import { CATALOG, CONFIG, SHIP_CLASS_IDS, cloudOutlineRadius, effectiveStats, type CloudSize } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 const K = CLIENT_CONFIG.countermeasure;
 const CELL = K.cellU;
 
-/** Cells per side of a cloud's field — covers the end-of-life r1 disc plus
- *  one largest puff's radius. */
-export const CLOUD_CELLS = Math.ceil((2 * (CONFIG.countermeasure.r1 + K.puffMaxU)) / CELL) + 1;
+/**
+ * u — the LARGEST end-of-life disc any cloud can be stamped with: the shared
+ * fold's `smoke.r1` on a hull holding every SMOKE SCREEN card the ladder deals
+ * (its cap), the largest across the captain hulls. Derived from the shared
+ * ability stats, never hard-coded, so a re-tuned ladder resizes the grid.
+ */
+export function largestCloudR1(): number {
+  const cards = new Array<string>(CATALOG.smokeScreen.cap).fill('smokeScreen');
+  return Math.max(...SHIP_CLASS_IDS.map((id) => effectiveStats(CONFIG.shipClasses[id], cards).smoke.r1));
+}
+
+/** Cells per side of a cloud's field — covers the largest end-of-life r1 disc
+ *  plus one largest puff's radius. */
+export const CLOUD_CELLS = Math.ceil((2 * (largestCloudR1() + K.puffMaxU)) / CELL) + 1;
 /** The centre cell index (fractional when CLOUD_CELLS is even). */
 const MID = (CLOUD_CELLS - 1) / 2;
 /** ms — the fixed step `advanceField` catches up in (pre-roll, a stalled tab). */
@@ -67,6 +81,8 @@ export interface CloudField {
   carry: number;
   /** ms — the cloud age the field has been advanced to. */
   age: number;
+  /** The cloud's stamped life and disc (the wire `CloudView`, Story 10.6 I6). */
+  readonly size: CloudSize;
 }
 
 /** One puff, drawn by `samplePuff` — offsets and radius in u. */
@@ -81,9 +97,11 @@ export interface Puff {
 /** The one scratch puff the spray reuses (no per-puff allocation). */
 const PUFF: Puff = { x: 0, y: 0, r: 0, s: 0, shade: 0 };
 
-export function makeField(): CloudField {
+/** A fresh field for a cloud stamped with `size` (its wire `lifeMs` / `r0` / `r1`). */
+export function makeField(size: CloudSize): CloudField {
   const n = CLOUD_CELLS * CLOUD_CELLS;
-  return { alpha: new Float32Array(n), shade: new Float32Array(n), peak: 0, carry: 0, age: 0 };
+  const { lifeMs, r0, r1 } = size;
+  return { alpha: new Float32Array(n), shade: new Float32Array(n), peak: 0, carry: 0, age: 0, size: { lifeMs, r0, r1 } };
 }
 
 /** Linear decay of every cell by `dtMs`; refreshes `peak`. */
@@ -168,13 +186,14 @@ export function sprayPuffs(f: CloudField, n: number, radiusU: number, rng: () =>
  */
 export function stepField(f: CloudField, dtMs: number, rng: () => number): void {
   decayField(f, dtMs);
-  const sprayMs = Math.max(0, Math.min(dtMs, CONFIG.countermeasure.lifeMs - f.age));
+  const lifeMs = f.size.lifeMs;
+  const sprayMs = Math.max(0, Math.min(dtMs, lifeMs - f.age));
   f.age += dtMs;
   if (sprayMs <= 0) return;
   const want = f.carry + (K.puffsPerSec * sprayMs) / 1000;
   const n = Math.floor(want);
   f.carry = want - n;
-  sprayPuffs(f, n, cloudOutlineRadius(Math.min(f.age, CONFIG.countermeasure.lifeMs)), rng);
+  sprayPuffs(f, n, cloudOutlineRadius(Math.min(f.age, lifeMs), f.size), rng);
 }
 
 /**
@@ -225,7 +244,7 @@ export function fieldPreview(f: CloudField, rgbaOut: Uint8Array): void {
 
 /** Is the field done: spraying over and every cell faded out? */
 export function fieldSpent(f: CloudField): boolean {
-  return f.age >= CONFIG.countermeasure.lifeMs && f.peak < FADED_ALPHA;
+  return f.age >= f.size.lifeMs && f.peak < FADED_ALPHA;
 }
 
 /** u — world offset of cell index `i` from the cloud centre. */

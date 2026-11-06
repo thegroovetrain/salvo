@@ -4,7 +4,7 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { decodeTurretAngle, lerpAngle, type Contact, type HullId } from '@salvo/shared';
+import { decodeLauncherAngle, decodeTurretAngle, lerpAngle, type Contact, type HullId } from '@salvo/shared';
 import { lerp } from '../util/math.js';
 
 /** One timestamped kinematic sample. `t` is server time (ms). */
@@ -169,6 +169,13 @@ export class ContactStore {
    * 90°/s, i.e. 4.5° between 20 Hz frames. Absent for a drone (no `tu`).
    */
   private turretAngles = new Map<string, number[]>();
+  /**
+   * THE CONTACT'S TORPEDO LAUNCHER ANGLES (Story 10.6, I7): the latest frame's
+   * `Contact.lu`, decoded (`decodeLauncherAngle`) and SNAPPED exactly as the
+   * turret angles are. Its LENGTH is the launcher count; tubes never travel.
+   * Absent while the hull holds no torpedo (no `lu`).
+   */
+  private launcherAngles = new Map<string, number[]>();
 
   /** Ingest one frame's contact list at server time `t`. */
   pushFrame(t: number, contacts: readonly Contact[]): void {
@@ -184,28 +191,21 @@ export class ContactStore {
       this.everSeenClasses.set(c.id, c.cls);
       if (c.aggro === true) this.aggro.add(c.id);
       else this.aggro.delete(c.id);
-      this.pushTurrets(c);
+      pushAngles(this.turretAngles, c.id, c.tu, (i, q) => decodeTurretAngle(c.cls, i, q));
+      pushAngles(this.launcherAngles, c.id, c.lu, decodeLauncherAngle);
     }
-  }
-
-  private pushTurrets(c: Contact): void {
-    if (c.tu === undefined) {
-      this.turretAngles.delete(c.id);
-      return;
-    }
-    let out = this.turretAngles.get(c.id);
-    if (out === undefined) {
-      out = [];
-      this.turretAngles.set(c.id, out);
-    }
-    out.length = c.tu.length;
-    for (let i = 0; i < c.tu.length; i++) out[i] = decodeTurretAngle(c.cls, i, c.tu[i]);
   }
 
   /** The contact's turret angles (hull-relative rad, bow to stern) as of its
    *  last frame, or undefined when it carried none (a drone) or is pruned. */
   turretAnglesOf(id: string): readonly number[] | undefined {
     return this.turretAngles.get(id);
+  }
+
+  /** The contact's torpedo launcher angles (hull-relative rad, fore first) as
+   *  of its last frame, or undefined when it carried none (no torpedo held). */
+  launcherAnglesOf(id: string): readonly number[] | undefined {
+    return this.launcherAngles.get(id);
   }
 
   get(id: string): SnapshotBuffer | undefined {
@@ -264,8 +264,30 @@ export class ContactStore {
       this.classes.delete(id);
       this.aggro.delete(id);
       this.turretAngles.delete(id);
+      this.launcherAngles.delete(id);
       removed.push(id);
     }
     return removed;
   }
+}
+
+/** Decode one frame's whole-degree angle key (`tu` / `lu`) into the id's
+ *  reused array — or drop the id's entry when the key is absent. */
+function pushAngles(
+  into: Map<string, number[]>,
+  id: string,
+  wire: readonly number[] | undefined,
+  decode: (i: number, q: number) => number,
+): void {
+  if (wire === undefined) {
+    into.delete(id);
+    return;
+  }
+  let out = into.get(id);
+  if (out === undefined) {
+    out = [];
+    into.set(id, out);
+  }
+  out.length = wire.length;
+  for (let i = 0; i < wire.length; i++) out[i] = decode(i, wire[i]);
 }

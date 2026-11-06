@@ -16,8 +16,13 @@
 // look), and `C` (HULL REPAIR) / `V` (SMOKE) are two cooldown ABILITY squares
 // in the Shift square's family: the ready-ability skin, the standard cooldown
 // wipe + numeral off the own block's `repairReadyAt` / `smokeReadyAt` (shared
-// `abilityCooldownFraction`), no badge, no tier, no ACTIVE state. The square
-// index space is render/hotbarSquares.ts.
+// `abilityCooldownFraction` over the SHIP'S OWN cooldown — `stats.repair` /
+// `stats.smoke` since Story 10.6, R8 / R9), no badge, no tier, no ACTIVE
+// state. The square index space is render/hotbarSquares.ts.
+//
+// STORY 10.6 (R6 / R7): the gun square, `Q` and `E` carry UNIT PIPS — one per
+// main-battery turret, one per torpedo tube, one per mine seat, a column per
+// launcher / rack — in place of the count badge (render/hotbarUnits.ts).
 //
 // WHAT STORY 8.6 DELETED, and why it is deletion rather than a flag:
 //   • `hotbarLayout` / `HotbarLayout` — the bottom-left stack is gone; the bar's
@@ -78,7 +83,14 @@ import {
   abilityCooldownFraction,
   abilityCooldownMs,
   equipmentMaxAmmo,
+  equipmentReloadMs,
+  isMineEquipment,
+  rackCapacity,
+  type AbilityCooldowns,
   type CooldownAbilityId,
+  type LauncherState,
+  type RackState,
+  type TurretState,
   type EquipmentId,
   type EffectiveStats,
   type SecondariesHeat,
@@ -96,6 +108,9 @@ import { microScale, type HudBarLayout, type Rect } from './hudBar.js';
 import { secHeatLook } from './secHeat.js';
 import { SEC_KEY_GLYPH, SLOT_KEY_GLYPHS, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare, emptySlotGlyph, type SquareItemId } from './hotbarSquares.js';
+import { pipRects, rackPips, shownPips, tubePips, turretPips, type UnitPip } from './hotbarUnits.js';
+import { isTorpedoItem } from './weaponArc.js';
+import { TIER_RAMP_COLORS } from '../ui/tierRamp.js';
 // THE TOOLTIP CORE MOVED OUT in Story 8.7 (ruling 13): `render/slotTooltip.ts`
 // owns the hover dwell, the stat-line model, the container-fit model and the
 // placement. This file keeps the SQUARES and the Pixi shell that paints both.
@@ -227,8 +242,12 @@ export interface SlotViewModel {
    *  (dual-coding — DESIGN.md). */
   selected: boolean;
   keyGlyph: string;
-  /** Ammo count text, or null — badges show ONLY on pools larger than one. */
+  /** Ammo count text, or null — badges show ONLY on pools larger than one,
+   *  and never beside unit pips (which carry the count). */
   badge: string | null;
+  /** THE UNIT PIPS (Story 10.6): one per torpedo tube / mine seat, a column
+   *  per launcher / rack (render/hotbarUnits.ts); null / absent = none. */
+  pips?: UnitPip[] | null;
   /** The wipe's elapsed fraction in [0,1); 0 when not cooling (or swapping). */
   coolFrac: number;
   /** Reload ms left while COOLING — or while a machine gun's partial swap runs
@@ -268,6 +287,15 @@ export interface HotbarView {
   serverNowMs?: number;
   /** Slot-aligned server-authoritative pools + reload timers. */
   ammo: readonly (WeaponAmmo | null)[];
+  /** The own torpedo LAUNCHERS (Story 10.6 — the predicted
+   *  `ownLaunchers.states`): the `Q` square's tube pips. Absent = none. */
+  launchers?: readonly LauncherState[];
+  /** The own mine RACKS (Story 10.6 — `OwnShip.racks`): the `E` square's
+   *  rack pips. Absent = none. */
+  racks?: readonly RackState[];
+  /** The own main-battery TURRETS (Story 10.6 — the predicted
+   *  `ownBattery.turrets`): the gun square's per-turret pips. Absent = none. */
+  turrets?: readonly TurretState[];
   /** Own effective stats — every denominator (reload, pool size). */
   stats: EffectiveStats;
   /** Client-primed slot (gun when nothing is primed). */
@@ -432,7 +460,9 @@ export function slotDegraded(view: HotbarView, slot: number, denied: boolean): b
 /**
  * Pure: a COOLDOWN ABILITY's wipe inputs at `nowMs` (Story 10.5): the wipe's
  * ELAPSED fraction (the bar's `coolFrac` grammar, 0 when ready) and the ms
- * still to run (the numeral's input). The remaining fraction is shared
+ * still to run (the numeral's input), measured against THIS SHIP's cooldown
+ * (`stats.repair` / `stats.smoke` — Story 10.6, R8 / R9: the HULL REPAIR and
+ * SMOKE SCREEN cards shorten it). The remaining fraction is shared
  * `abilityCooldownFraction` — the one law the server stamps against — so the
  * square can never disagree with a refusal. A never-pressed ability (`readyAt`
  * 0 / absent) and an absent clock read READY. An UNREADABLE (NaN) clock or
@@ -444,14 +474,15 @@ export function slotDegraded(view: HotbarView, slot: number, denied: boolean): b
  */
 export function abilityCooldownView(
   id: CooldownAbilityId,
+  stats: AbilityCooldowns,
   nowMs: number | undefined,
   readyAt: number | undefined,
 ): { coolFrac: number; msLeft: number } {
   if (nowMs === undefined || readyAt === undefined) return { coolFrac: 0, msLeft: 0 };
-  const remaining = abilityCooldownFraction(nowMs, readyAt, id);
+  const remaining = abilityCooldownFraction(nowMs, readyAt, stats, id);
   if (remaining <= 0) return { coolFrac: 0, msLeft: 0 };
   const left = readyAt - nowMs;
-  const msLeft = Number.isNaN(left) ? Infinity : Math.min(abilityCooldownMs(id), left);
+  const msLeft = Number.isNaN(left) ? Infinity : Math.min(abilityCooldownMs(stats, id), left);
   return { coolFrac: 1 - remaining, msLeft };
 }
 
@@ -463,7 +494,7 @@ export function abilityCooldownView(
  */
 function abilitySquareModel(view: HotbarView, slot: number, id: CooldownAbilityId, keyGlyph: string): SlotViewModel {
   const flags = slotFlags(view, slot);
-  const cd = abilityCooldownView(id, view.serverNowMs, view.abilityReadyAt?.[id]);
+  const cd = abilityCooldownView(id, view.stats, view.serverNowMs, view.abilityReadyAt?.[id]);
   return {
     slot, id, selected: false, keyGlyph, badge: null, tier: 0, fitFlash: false, activeMsLeft: 0,
     state: slotState(id, flags, cd.msLeft > 0, false, false),
@@ -510,9 +541,11 @@ function equipmentMarks(
   // machine gun's partial swap (amendment 112), which keeps its ready state.
   const swapWipe = swapWipeShown(view, slot, id, ammo, state);
   const left = cooling || swapWipe ? (ammo?.reloadMsLeft ?? 0) : 0;
+  const pips = slotPips(view, id);
   return {
     state,
-    badge: badgeText(info, ammo),
+    pips,
+    badge: pips === null ? badgeText(info, ammo) : null,
     tier: slotTier(view.stats, view.cards ?? [], id),
     coolFrac: coolFraction(left, info.reloadMs),
     reloadMsLeft: left,
@@ -529,9 +562,29 @@ function swapWipeShown(view: HotbarView, slot: number, id: EquipmentId, ammo: We
   return state === 'selected' || state === 'readyWeapon';
 }
 
+/**
+ * Pure: a square's UNIT PIPS (Story 10.6, render/hotbarUnits.ts) — the main
+ * battery's turrets off `view.turrets`, a held torpedo's tubes off `view.launchers`, a held mine's rack seats off
+ * `view.racks`, each clock measured against the held weapon's FOLDED reload;
+ * null for every other weapon and wherever the slot holds a single unit.
+ */
+export function slotPips(view: Pick<HotbarView, 'stats' | 'launchers' | 'racks' | 'turrets'>, id: EquipmentId): UnitPip[] | null {
+  if (id === 'mainBattery' && view.turrets !== undefined) {
+    return shownPips(turretPips(view.turrets, equipmentReloadMs(view.stats, id)));
+  }
+  if (isTorpedoItem(id) && view.launchers !== undefined) {
+    return shownPips(tubePips(view.launchers, equipmentReloadMs(view.stats, id)));
+  }
+  if (isMineEquipment(id) && view.racks !== undefined) {
+    return shownPips(rackPips(view.racks, rackCapacity(view.stats, id), equipmentReloadMs(view.stats, id)));
+  }
+  return null;
+}
+
 /** A fitted equipment square's marks (`equipmentMarks`' answer). */
 type EquipmentMarks = {
   state: SlotState;
+  pips: UnitPip[] | null;
   badge: string | null;
   tier: number;
   coolFrac: number;
@@ -573,7 +626,7 @@ export const TIER_NUMERALS: readonly string[] = ['I', 'II', 'III', 'IV', 'V'];
  * — Story 8.6 mints nothing), and the last two rungs deliberately borrow the
  * ALERT hues: a tier IV/V weapon is a thing other players should worry about.
  */
-export const TIER_COLORS: readonly number[] = [C.phosphor, C.info, C.stormReadout, C.denied, C.amber];
+export const TIER_COLORS: readonly number[] = TIER_RAMP_COLORS; // the ONE tier palette (ui/tierRamp.ts)
 
 /** Pure: the numeral a tier prints, or '' for "no fitted ladder" (tier 0) and
  *  for anything past the ramp (which the catalog's caps make unreachable). */
@@ -1239,6 +1292,7 @@ export class Hotbar {
     this.drawDrain(m, square);
     this.drawIcon(m, square, skin);
     if (cooling) drawWipeDark(this.gfx, square, m.coolFrac);
+    this.drawPips(m, square);
     this.drawTier(m, square);
     this.drawBadge(m, layout);
     this.drawChip(m, layout);
@@ -1368,6 +1422,27 @@ export class Hotbar {
     const glyph = m.id ?? m.emptyGlyph ?? null;
     if (glyph === null) drawDashGlyph(this.gfx, cx, cy, size * 0.5, style);
     else drawEquipmentIcon(this.gfx, glyph, cx, cy, size, style);
+  }
+
+  /**
+   * THE UNIT PIPS (Story 10.6): drawn OVER the wipe — like every mark that
+   * carries a count — in the ready-weapon phosphor (full), a muted hairline
+   * (empty), and a phosphor floor fill for a running clock's progress.
+   */
+  private drawPips(m: SlotViewModel, square: Rect): void {
+    const pips = m.pips ?? null;
+    if (pips === null) return;
+    const g = this.gfx;
+    const alpha = dimAlphaFor(m);
+    pipRects(square, pips).forEach((r, i) => {
+      const fill = pips[i].fill;
+      if (fill >= 1) {
+        g.rect(r.x, r.y, r.w, r.h).fill({ color: C.phosphor, alpha: 0.9 * alpha });
+        return;
+      }
+      g.rect(r.x, r.y, r.w, r.h).stroke({ width: 1, color: C.textMuted, alpha: 0.6 * alpha });
+      if (fill > 0) g.rect(r.x, r.y + r.h * (1 - fill), r.w, r.h * fill).fill({ color: C.phosphor, alpha: 0.5 * alpha });
+    });
   }
 
   /**

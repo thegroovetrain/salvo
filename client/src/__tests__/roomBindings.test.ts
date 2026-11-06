@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, SHIFT_IDS, type OwnShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, SHIFT_IDS, baseSmokeStats, type OwnShip } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
   bindRoom,
@@ -29,6 +29,9 @@ import { cssHex } from '../util/color';
 import { KILL_LEADER_MARK, bountyKillLine } from '../ui/bounty';
 import { pointToastLine } from '../ui/upgradeToast';
 import { boonFitToastLine } from '../ui/boonCopy';
+
+/** A bare ship's stamped cloud life and disc — they ride every `CloudView` (Story 10.6, I6). */
+const CLOUD_SIZE = (({ lifeMs, r0, r1 }) => ({ lifeMs, r0, r1 }))(baseSmokeStats());
 
 // The feed and toast COPY is owned by the pure line builders (killLine,
 // bountyKillLine, pointToastLine, boonFitToastLine — each unit-tested beside
@@ -252,7 +255,7 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
   it('hands a present cloud list to the renderer and mirrors it into state', () => {
     const cloudSync = vi.fn();
     const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
-    const clouds = [{ id: 'cl1', x: 10, y: 20, t0: 90 }];
+    const clouds = [{ id: 'cl1', x: 10, y: 20, t0: 90, ...CLOUD_SIZE }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds });
     // Held with its delivery stamp (the frame's server time — Story 9.8 F1).
     const held = [{ ...clouds[0], deliveredAt: 100 }];
@@ -271,13 +274,13 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
   it('HOLDS a cloud present in frame N and absent in frame N+1 — the renderer and the wake mirror still see it — until its life ends', () => {
     const cloudSync = vi.fn();
     const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
-    const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
+    const c = { id: 'cl1', x: 10, y: 20, t0: 90, ...CLOUD_SIZE };
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
     sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
     const held = { ...c, deliveredAt: 100 };
     expect(cloudSync).toHaveBeenLastCalledWith([held]);
     expect(deps.state.net.clouds).toEqual([held]); // the wake mirror reads the held cloud
-    const LIFE = CONFIG.countermeasure.lifeMs;
+    const LIFE = c.lifeMs; // the cloud's OWN stamped life (Story 10.6, I6)
     sink.handler({ t: 90 + LIFE - 1, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
     expect(deps.state.net.clouds).toEqual([held]);
     sink.handler({ t: 90 + LIFE, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
@@ -285,11 +288,26 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
     expect(deps.state.net.clouds).toEqual([]);
   });
 
+  // STORY 10.6 (R9 / I6): the life is the cloud's own stamp — a SMOKE SCREEN
+  // card makes a longer-lived cloud, and the held set keeps each to ITS end.
+  it('drops each held cloud at ITS OWN stamped life, never a CONFIG one', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const short = { id: 's', x: 0, y: 0, t0: 0, lifeMs: 10_000, r0: 100, r1: 200 };
+    const long = { id: 'l', x: 0, y: 0, t0: 0, lifeMs: 20_000, r0: 160, r1: 320 };
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [short, long] });
+    sink.handler({ t: 10_000, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(deps.state.net.clouds.map((c) => c.id)).toEqual(['l']);
+    expect(deps.state.net.clouds[0]).toMatchObject({ lifeMs: 20_000, r0: 160, r1: 320 }); // the stamp rides through
+    sink.handler({ t: 20_000, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(deps.state.net.clouds).toEqual([]);
+  });
+
   it('a re-delivered held cloud is held once, and a second cloud joins it in first-seen order', () => {
     const cloudSync = vi.fn();
     const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
-    const a = { id: 'a', x: 0, y: 0, t0: 90 };
-    const b = { id: 'b', x: 5, y: 5, t0: 120 };
+    const a = { id: 'a', x: 0, y: 0, t0: 90, ...CLOUD_SIZE };
+    const b = { id: 'b', x: 5, y: 5, t0: 120, ...CLOUD_SIZE };
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [a] });
     sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [b, a] });
     expect(deps.state.net.clouds).toEqual([{ ...a, deliveredAt: 150 }, { ...b, deliveredAt: 150 }]);
@@ -301,7 +319,7 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
   it('stamps a held cloud deliveredAt = the frame time of its LAST row; an absent row keeps the old stamp', () => {
     const cloudSync = vi.fn();
     const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
-    const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
+    const c = { id: 'cl1', x: 10, y: 20, t0: 90, ...CLOUD_SIZE };
     const at = (): number | undefined => deps.state.net.heldClouds.get('cl1')?.deliveredAt;
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
     expect(at()).toBe(100);

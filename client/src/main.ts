@@ -61,7 +61,7 @@ import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './re
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { clickInArc, weaponReachU } from './render/weaponArc.js';
+import { clickInArc, isTorpedoItem, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
@@ -121,6 +121,8 @@ import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { OwnBattery } from './sim/ownBattery.js';
+import { OwnLaunchers } from './sim/ownLaunchers.js';
+import { predictTorpedoClick, stepOwnLaunchers, torpedoClickPrediction } from './sim/ownLaunchersTick.js';
 import { OPEN_LATCHES, latchHolds, latchOnOwnFrame, latchPress, latchRelease, type AbilityLatches } from './sim/abilityLatch.js';
 import { batteryClickPrediction, batteryWouldFire, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
@@ -682,6 +684,10 @@ interface Game {
   /** THE OWN BATTERY (Story 10.4): the predicted turrets + secondaries heat,
    *  stepped per sim tick and corrected per own frame (sim/ownBattery.ts). */
   ownBattery: OwnBattery;
+  /** THE OWN TORPEDO LAUNCHERS (Story 10.6): the predicted launcher angles and
+   *  tube clocks, stepped per sim tick and corrected per own frame
+   *  (sim/ownLaunchers.ts). Empty while no torpedo is held. */
+  ownLaunchers: OwnLaunchers;
   /**
    * Slot-aligned equipment ids of the OWN loadout — slotsWithBoons(you.cls,
    * ownStats, resolved boons): the hull's base loadoutFor fit with every
@@ -2892,6 +2898,7 @@ function buildGame(
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownPlated: false, // unresolved until the roster syncs the own name (1.13)
     ownBattery: new OwnBattery(cls),
+    ownLaunchers: new OwnLaunchers(cls),
     // The kit is DEFAULT_KIT only until the first own-ship frame replaces it
     // with the seat's own (Story 10.1 — the wire, never localStorage).
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
@@ -3041,6 +3048,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shif
   if (classChanged) {
     g.ownView.setHullId(cls);
     g.ownBattery.reset(cls); // Story 10.4: a new hull's turrets start at rest, loaded
+    g.ownLaunchers.reset(cls); // Story 10.6: the launchers come back with the next own frame
     // The wake tracker needs no class hook: a class change respawns the hull,
     // and `WakeSources` re-provisions a source whose class moved (its ring
     // capacity is derived from that class's top speed).
@@ -3131,6 +3139,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     colors: (id) => feedColor(g, id),
     // Story 10.4: the own turrets + secondaries heat, corrected per own frame.
     ownBattery: g.ownBattery,
+    ownLaunchers: g.ownLaunchers, // Story 10.6: the own launchers, corrected per own frame
     // Story 10.5 review gate: the C / V press latch reads every own frame.
     onOwnFrame: (you) => {
       g.abilityLatch = latchOnOwnFrame(g.abilityLatch, you, g.clock.serverNow());
@@ -3327,6 +3336,8 @@ function renderOwn(
   g.ownView.setSink(ownSettle(g.state.net.you, g.clock.serverNow()));
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.ownView.setTurretAngles(g.ownBattery.angles()); // Story 10.4: the predicted turrets
+  // Story 10.6: the predicted launchers, drawn with the tubes the own stats hold.
+  g.ownView.setLaunchers(g.ownLaunchers.angles(), g.ownStats.tubesPerLauncher);
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
   // EVERY VISIBLE HULL LAYS A WAKE (amendment 199) — own predicted pose plus
@@ -3495,6 +3506,13 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
     abilityReadyAt: { repair: you?.repairReadyAt, smoke: you?.smokeReadyAt },
     serverNowMs: g.clock.serverNow(),
     ammo: status.ammo,
+    // Story 10.6: the `Q` tube pips off the PREDICTED launchers (a fired tube
+    // empties on the click, as the turret does) and the `E` rack pips off the
+    // own block's racks.
+    launchers: g.ownLaunchers.states,
+    racks: you?.racks,
+    // Eric 2026-11-05: the gun square's per-turret pips, off the predicted battery.
+    turrets: g.ownBattery.turrets,
     stats: status.stats,
     // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).
     cls: status.cls,
@@ -3690,7 +3708,7 @@ function renderFiring(
   // denial-dedup marking come apart — and for a click-placed consumable they
   // came apart the same way, a predicted denial over a shot the server takes.
   const aimDist = Math.hypot(cursor.x - pose.x, cursor.y - pose.y);
-  const inArc = clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[slot] ?? null);
+  const inArc = slotAimInArc(g, slot, aim, aimDist);
   // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
   // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
   // rate-limited red pulse — the late server case replaces total silence.
@@ -3722,8 +3740,19 @@ function renderFiring(
     g.deniedFlash,
     reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
     broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
+    status.stats.torpedoLaunchers, // Story 10.6: the torpedo wedge is the held launchers' arcs
   );
   renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU);
+}
+
+/** The bearing (and placement-reach) half of the click gate for the primed
+ *  slot: a TORPEDO asks the shared tube pick (Story 10.6, R16 — some held
+ *  launcher's arc holds the aim, measured from its own station); every other
+ *  weapon its `arcFor` descriptor (`clickInArc`). */
+function slotAimInArc(g: Game, slot: number, aim: number, aimDist: number): boolean {
+  const id = g.ownSlots[slot] ?? null;
+  if (isTorpedoItem(id)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).inArc;
+  return clickInArc(predictedHeading(g), aim, aimDist, id);
 }
 
 /** Does the primed slot have a round? The pool count off the server's ammo —
@@ -3733,6 +3762,8 @@ function renderFiring(
  *  prediction makes. */
 function slotHasRound(g: Game, slot: number, a: WeaponAmmo | null, aim: number, aimDist: number): boolean {
   if (g.ownSlots[slot] === 'mainBattery') return batteryWouldFire(g.ownBattery, ownBatteryPose(g), aim, aimDist);
+  // Story 10.6 (R16): a torpedo is "loaded" exactly when the shared tube pick fires.
+  if (isTorpedoItem(g.ownSlots[slot] ?? null)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).loaded;
   return !!a && a.n > 0;
 }
 
@@ -3792,6 +3823,7 @@ function renderAimPreview(
     legal,
     gunReachU,
     turrets: g.ownBattery.turrets, // Story 10.4: the predicted turrets the next salvo picks from
+    launchers: g.ownLaunchers.states, // Story 10.6: the predicted launchers the next torpedo picks from
   });
   g.aimPreview.update(model, previewTint(primedId));
 }
@@ -3827,14 +3859,9 @@ function clickPrediction(
   aim: number,
   aimDist: number,
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
-  const you = g.state.net.you;
-  const a = you?.ammo[primedSlot] ?? null;
-  // STORY 10.4: the MAIN BATTERY fires when the shared pick names a ready
-  // turret whose arc holds the aim (arc-only fire, epic-10 amendment 10) — read
-  // off the predicted turrets — and is never out of arc as a weapon (`arcFor` is full).
-  if (g.ownSlots[primedSlot] === 'mainBattery') {
-    return batteryClickPrediction(g.ownBattery, conningNow(g) ?? false, ownBatteryPose(g), aim, aimDist);
-  }
+  const picked = pickedClickPrediction(g, primedSlot, aim, aimDist);
+  if (picked !== null) return picked;
+  const a = g.state.net.you?.ammo[primedSlot] ?? null;
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also
@@ -3852,6 +3879,29 @@ function clickPrediction(
     // narrowing.
     inArc: clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[primedSlot] ?? null),
   };
+}
+
+/**
+ * The click verdict of the two weapons whose shot is a shared PICK over a
+ * predicted mount state, or null for every other slot:
+ *  - STORY 10.4: the MAIN BATTERY fires when the shared pick names a ready
+ *    turret whose arc holds the aim (arc-only fire, epic-10 amendment 10) —
+ *    read off the predicted turrets — and is never out of arc as a weapon;
+ *  - STORY 10.6 (R16): a TORPEDO's verdict is the shared tube pick over the
+ *    predicted launchers — out of every held launcher's arc is the bearing
+ *    denial, an arc with no loaded tube the reload denial.
+ */
+function pickedClickPrediction(
+  g: Game,
+  primedSlot: number,
+  aim: number,
+  aimDist: number,
+): { alive: boolean; loaded: boolean; inArc: boolean } | null {
+  const id = g.ownSlots[primedSlot] ?? null;
+  const alive = conningNow(g) ?? false;
+  if (id === 'mainBattery') return batteryClickPrediction(g.ownBattery, alive, ownBatteryPose(g), aim, aimDist);
+  if (isTorpedoItem(id)) return torpedoClickPrediction(g.ownLaunchers, alive, ownBatteryPose(g), aim, aimDist);
+  return null;
 }
 
 /**
@@ -3884,6 +3934,21 @@ function ownBatteryGate(g: Game): OwnBatteryGate {
 function ownBatteryPose(g: Game): { x: number; y: number; heading: number } | null {
   if (g.state.mode === 'predict' && g.predictor.isInitialized) return g.predictor.predicted;
   return g.state.net.you ?? null;
+}
+
+/** A torpedo click predicted FIREABLE starts the shared pick's tube clock at
+ *  the held torpedo's folded reload (Story 10.6). */
+function predictOwnTorpedo(
+  g: Game,
+  primedSlot: number,
+  p: { alive: boolean; loaded: boolean },
+  aim: number,
+  aimDist: number,
+  seq: number,
+): void {
+  const id = g.ownSlots[primedSlot] ?? null;
+  if (!p.alive || !p.loaded || !isTorpedoItem(id)) return;
+  predictTorpedoClick(g.ownLaunchers, ownBatteryPose(g), aim, aimDist, equipmentReloadMs(g.ownStats, id), seq);
 }
 
 /**
@@ -3947,6 +4012,9 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   if (p.alive && p.loaded && g.ownSlots[primedSlot] === 'mainBattery') {
     predictBatteryClick(g.ownBattery, ownBatteryPose(g), aim, aimDist, g.ownStats.equipment.mainBattery.reloadMs, wire.seq);
   }
+  // Story 10.6: a predicted torpedo shot starts the picked tube's clock locally
+  // (one click, one torpedo), tagged with this input's seq like the battery's.
+  predictOwnTorpedo(g, primedSlot, p, aim, aimDist, wire.seq);
   // ARM, DON'T REVERT (Story 8.5, ruling 9 / UX-DR42). The PREDICATE still
   // decides here, at pointerdown, where the fire input and its D1 fire-time
   // stamp are built — nothing about the shot moved. What moved is the revert
@@ -4843,6 +4911,8 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // so a turret that comes on target or finishes reloading this tick
       // counts this tick.
       stepOwnBattery(g.ownBattery, ownBatteryPose(g), input, ownBatteryGate(g));
+      // Story 10.6: the launchers step beside the turrets, before fire control (R13: always).
+      stepOwnLaunchers(g.ownLaunchers, ownBatteryPose(g), input, ownBatteryGate(g).afloat);
       consumePrimeOnFire(g, primedSlot, aim, aimDist, input);
       stampOwnStream(g, input.sec);
     },

@@ -13,7 +13,7 @@ import { GraphicsContext } from 'pixi.js';
 import type { ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import { skinFill } from './palette.js';
-import { hullArt, turretArt, type LineKey, type Prim } from './shapes.js';
+import { hullArt, launcherArt, turretArt, type LineKey, type Prim } from './shapes.js';
 
 const A = CLIENT_CONFIG.ship.art;
 
@@ -75,6 +75,12 @@ export function outlineContext(id: ShipClassId, line: number): GraphicsContext {
  *  frame: barrels along +x). */
 export function turretContext(id: ShipClassId, i: number, line: number): GraphicsContext {
   return cached(`turret|${id}|${i}|${line}`, () => paint(new GraphicsContext(), id, turretArt(id, i).prims, line));
+}
+
+/** The shared context for a deck torpedo LAUNCHER on hull `id` (its skin) with
+ *  `tubes` tubes — null = the generic enemy housing (Story 10.6) — in `line`. */
+export function launcherContext(id: ShipClassId, tubes: number | null, line: number): GraphicsContext {
+  return cached(`launcher|${id}|${tubes ?? 'x'}|${line}`, () => paint(new GraphicsContext(), id, launcherArt(tubes), line));
 }
 
 /** How many contexts are cached (tests: building views does not grow it per view). */

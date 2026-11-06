@@ -52,14 +52,13 @@ export const MONO_ADVANCE_EM = 0.605;
  * live in CLIENT_CONFIG.refit with the rest of the face's geometry.
  *
  * Every tracking below is `size × the mock's em value`:
- *   name `.02em` · kind `.2em` · tier `.14em` · label `.14em` · value `.04em`
+ *   name `.02em` · tier `.14em` · label `.14em` · value `.04em`
  *   · foot `.24em` · key chip `0`.
  */
 export const REFIT_TYPE = {
   /** Letter-spacing (px) per card mark, from the mock's `em` values. */
   nameLetterSpacing: R.nameSize * 0.02,
   nameLetterSpacingLong: R.nameSizeLong * 0.02,
-  kindLetterSpacing: R.kindSize * 0.2,
   tierLetterSpacing: R.tierSize * 0.14,
   labelLetterSpacing: R.labelSize * 0.14,
   valueLetterSpacing: R.valueSize * 0.04,
@@ -68,10 +67,10 @@ export const REFIT_TYPE = {
   nameLineHeight: 1.15,
   /** Line-height MULTIPLIER for every other single-line mark on the card. */
   lineHeight: 1.2,
-  /** The mock's vertical seams, top-down: icon→name, name→kind, kind→ladder,
-   *  ladder→rows, rows→foot (`margin-top` on each of those blocks). */
+  /** The mock's vertical seams, top-down: icon→name, name→ladder,
+   *  ladder→rows, rows→foot (`margin-top` on each of those blocks; the kind
+   *  word and its seam left the face in Story 10.6). */
   nameGap: 4,
-  kindGap: 2,
   ladderGap: 4,
   rowsGap: 6,
   footGap: 2,
@@ -127,7 +126,6 @@ export function domMicroScale(uiScale: number): number {
 export const REFIT_REGISTERS = {
   name: R.nameSize,
   nameLong: R.nameSizeLong,
-  kind: R.kindSize,
   tier: R.tierSize,
   label: R.labelSize,
   value: R.valueSize,
@@ -288,9 +286,6 @@ export interface RefitStatRow {
 /** The copy a card face carries — structurally the ui/upgradeMenu OfferCard,
  *  restated here so the math module depends on nothing but strings. */
 export interface RefitCardCopy {
-  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the mock's `.ck`.
-   *  CONSUMABLE is the widest, so it sets that mark's worst case. */
-  kind: string;
   name: string;
   /** The `cur → next` tier numerals beside the ladder, or null for a line with
    *  no ladder at all (a consumable or an add-on). */
@@ -318,8 +313,6 @@ export interface RefitCardMetrics {
   widestRow: number;
   /** The whole ladder row's width (px), 0 when there is no ladder. */
   ladderWidth: number;
-  /** The KIND word's width (px). */
-  kindWidth: number;
   /** The foot word's width (px), its box included when it is a reason word. */
   footWidth: number;
   /** Total rendered content height (px) — a CONSTANT across the catalog, since
@@ -369,7 +362,7 @@ export function ladderRowWidth(cap: number, tier: string | null): number {
 
 /**
  * Pure: the ratified face measured against its fixed inner box. Mirrors
- * makeCard()'s DOM exactly, top-down — icon box · name · KIND word · ladder row
+ * makeCard()'s DOM exactly, top-down — icon box · name · ladder row
  * · the six-row grid · foot — with the mock's own `margin-top` seam between
  * each pair.
  */
@@ -380,7 +373,6 @@ export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMet
   const nameWidth = cardNameWidth(card.name);
   const widestRow = card.rows.reduce((w, r) => Math.max(w, statRowWidth(r, uiScale)), 0);
   const ladderWidth = ladderRowWidth(card.cap, card.tier);
-  const kindWidth = monoTextWidth(card.kind, R.kindSize, T.kindLetterSpacing);
   const footF = microFactor(R.footSize, uiScale);
   const footWidth = card.foot === ''
     ? 0
@@ -388,7 +380,6 @@ export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMet
   const height =
     R.iconBox +
     T.nameGap + lineBox(nameSize, T.nameLineHeight) +
-    T.kindGap + lineBox(R.kindSize, T.lineHeight) +
     T.ladderGap + R.ladderH +
     T.rowsGap + R.rowCount * R.rowH +
     // A REASON WORD IS BOXED, AND A BOX IS TALLER (review patch P6): the foot
@@ -398,9 +389,9 @@ export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMet
   // The rows are the one block with padding of their own, so they are measured
   // against their OWN box; every other mark clears the inner box directly.
   const rowBoxW = refitCardRowBox();
-  const widest = Math.max(nameWidth, kindWidth, footWidth, ladderWidth);
+  const widest = Math.max(nameWidth, footWidth, ladderWidth);
   return {
-    innerW, innerH, rowBoxW, nameSize, nameWidth, widestRow, ladderWidth, kindWidth, footWidth,
+    innerW, innerH, rowBoxW, nameSize, nameWidth, widestRow, ladderWidth, footWidth,
     height,
     overflow: height - innerH,
     overflowX: Math.max(widest - innerW, widestRow - rowBoxW),

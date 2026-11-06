@@ -27,11 +27,8 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, initialTurrets, LINE_IDS, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
   CARD_STAT_ROWS,
-  KIND_WORDS,
   boonName,
   cardHoverRows,
-  cardKind,
-  cardKindLabel,
   cardStatRows,
   cardTierLabel,
 } from '../ui/boonCopy.js';
@@ -82,7 +79,6 @@ function heldCards(line: CatalogLine, stack: number, maxed: boolean): string[] {
 function faceOf(line: CatalogLine, stack: number, cls: ShipClassId, maxed: boolean): RefitCardCopy {
   const cards = heldCards(line, stack, maxed);
   return {
-    kind: cardKindLabel(cardKind(line, stack)),
     name: boonName(line.id, stack),
     tier: cardTierLabel(line, stack),
     cap: line.cap,
@@ -119,7 +115,7 @@ const FACES = everyFace();
 
 /** The one face that prints a FOOT: a weapon whose family slot is taken. */
 const GREYED_FACE: RefitCardCopy = {
-  kind: 'WEAPON', name: boonName('supercavTorpedo'), tier: null, cap: 1, rows: [], foot: SLOTS_FULL,
+  name: boonName('supercavTorpedo'), tier: null, cap: 1, rows: [], foot: SLOTS_FULL,
 };
 
 describe('the ratified face is a FIXED box, and its content is a constant', () => {
@@ -405,16 +401,6 @@ describe('the laws that constrain the fix', () => {
       (d) => d.id,
     );
     expect(silent).toEqual(LINES.filter((l) => l.stub === true).map((d) => d.id));
-  });
-
-  // AMENDMENT 181 split the kind word; the longest is WEAPON UPGRADE, and the
-  // nowrap kind row must still sit inside the card at every kind.
-  it('fits every kind word inside the inner box', () => {
-    for (const kind of KIND_WORDS) {
-      const m = refitCardMetrics({ ...GREYED_FACE, kind });
-      expect(m.kindWidth, kind).toBeLessThanOrEqual(m.innerW);
-      expect(m.overflowX, kind).toBeLessThanOrEqual(0);
-    }
   });
 });
 

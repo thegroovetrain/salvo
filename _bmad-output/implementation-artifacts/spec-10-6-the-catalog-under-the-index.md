@@ -87,6 +87,10 @@ warnings: ['oversized']
 - **R23 Glyphs and the 4-over-4 results strip stand** until his design pass; **the results screen also shows the ship's numbers** (*"For the results screen also I want to see my ship numbers."*). Reading (shown to him on the rebuilt page): each index ladder shows the ship's final index value; HULL REPAIR and SMOKE SCREEN their final cooldown.
 - **R24 Card names:** `secondLauncherTube` prints **SECOND TUBE**, `aftTorpedoLauncher` prints **AFT LAUNCHER** (*"'SECOND TUBE' and 'AFT LAUNCHER' I guess."*) — supersedes the names in R6 on the card face.
 
+- **R25 Card colors are by TIER, not kind** (verbatim: *"Tier I should be Green, Tier II should be Blue, Tier III should be Purple, Tier IV should be Red, and Tier V should be Gold. The Launcher/Mine Rack upgrades should be Gold. Otherwise it doesn't matter what kind of card it is."*). Reading: the tier is the one the card GRANTS; the five colors are the rung strip's existing palette. Supersedes R22's "kind edge colors untouched".
+
+- **R26 The hovered / selected card glows in its OWN color** (2026-11-06, verbatim: *"Instead of highlighting in amber, just make the 'selected' one glow in whatever color it is."*). The amber highlight is gone; the existing glow is tinted with the card's tier color.
+
 ## Implementer readings of record (Eric may veto any; none is a ruling)
 
 - **I1** RULED — see R16.

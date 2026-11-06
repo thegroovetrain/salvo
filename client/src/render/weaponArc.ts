@@ -11,8 +11,9 @@
 // arcFor descriptor (sim/arcs.ts — the single arc-shape source both sides
 // consume), so the rendered arc and the server's enforced arc can never
 // diverge: the gun FAMILY (gun / star shells) declares `full` (360° — always in
-// arc, never denied for bearing, aimed to the clicked point); the torpedo
-// declares its bow `sector` and — as of Story 2.8 (amendment 45) — the MINE and
+// arc, never denied for bearing, aimed to the clicked point); the three
+// torpedoes declare `launcher` (Story 10.6, R6 — the union of the deck
+// launchers the ship holds, `launcherSectors`); as of Story 2.8 (amendment 45) the MINE and
 // (Story 8.16) the old DECOY BUOY declared their rear placement `sector` (since
 // Story 10.9 the four BUOYS declare `full` — 360°, ruling 9 — on the same leash); the
 // BROADSIDE BARRAGE declares `twin-sector`, two mirrored beam sectors at
@@ -25,9 +26,9 @@
 // leash. Nothing here may re-add a branch for it.
 //
 // STORY 8.13 TOOK THE ID EQUALITIES OUT. Three mine LINES now share the rear
-// placement grammar (naval/captive/fouling), the LIGHT TORPEDO declares a
-// TWIN sector on both beams, and the SUPERCAV TORPEDO declares the bow ±15°
-// sector, so every predicate below is keyed on the shared `arcFor` descriptor
+// placement grammar (naval/captive/fouling) and the torpedo lines share one
+// family (since Story 10.6 one `launcher` arc — the fixed beam / bow sectors
+// are retired), so every predicate below is keyed on the shared `arcFor` descriptor
 // or on an explicit, pinned id SET, never on `id === 'navalMines'` /
 // `id === 'heavyTorpedo'`. Since Story 10.5 (2026-11-05, epic-10 amendment 11)
 // every id is an `EquipmentId` again: the supercav, FLASH SHELLS and the
@@ -39,6 +40,7 @@ import {
   gunReachU,
   inArc,
   isMineEquipment,
+  launcherArcHolds,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
@@ -108,10 +110,13 @@ export function isTorpedoItem(id: EquipmentId | null): id is TorpedoItemId {
  *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
  *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
  *   dead zones — is denied exactly like a `sector` miss.
+ * - `launcher` — a TORPEDO (Story 10.6, R6): the union of the deck launchers
+ *   the ship holds (`launcherSectors(stats.torpedoLaunchers)`) — fore ± 140°,
+ *   and the aft launcher's ± 140° when held.
  * - `none`    — the `none` descriptor (the speed boost) or an empty slot: not
  *   an aimed weapon, no marker, no reticle.
  */
-export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
+export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'launcher' | 'none';
 
 /** Pure: classify a fitted slot's content (or null empty slot) by firing-arc
  *  kind — a straight projection of the shared arcFor descriptor (the SUPERCAV
@@ -122,6 +127,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (arc.kind === 'full') return 'gunLike'; // the guns / star, phosphor, fouling, flash shells
   if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / the mines' rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
+  if (arc.kind === 'launcher') return 'launcher'; // the torpedoes' deck launchers (Story 10.6)
   return 'none'; // none (boost)
 }
 
@@ -131,15 +137,19 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
  * arc is always true; a `sector` checks heading + offset ± halfArc via shared
  * `inArc` (the exact server gate — the torpedo's bow sector, and the mine's and
  * decoy buoy's rear placement sector); a `twin-sector` is in arc when EITHER
- * mirrored beam contains the aim (the broadside, R2.1/R2.2). An instant ability
- * (`none`) or the empty slot is NOT a firing weapon, so it is never "in arc".
+ * mirrored beam contains the aim (the broadside, R2.1/R2.2); a `launcher` (a
+ * torpedo, Story 10.6) when ANY of the ship's `launchers` held launchers bears
+ * (`launcherArcHolds` — parallax-free, from the hull centre; the ENFORCED
+ * verdict is the shared `pickTube`, which main.ts asks for the click). An
+ * instant ability (`none`) or the empty slot is NOT a firing weapon, so it is
+ * never "in arc".
  *
  * NOTE: this is the BEARING gate only. The mine additionally requires the
  * clicked point to lie within CONFIG.mine.placeRange — an out-of-range click
  * is denied by the server exactly like an out-of-arc one (see weaponRangeU,
  * which supplies that ring to the firing UX).
  */
-export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null): boolean {
+export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null, launchers = 1): boolean {
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
@@ -147,6 +157,7 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
     return inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc);
   }
   if (arc.kind === 'twin-sector') return twinSectorSide(heading, aim, arc) !== null;
+  if (arc.kind === 'launcher') return launcherArcHolds(launchers, heading, aim);
   return false; // ability / empty slot: not a weapon, never in arc
 }
 
@@ -305,10 +316,12 @@ export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean
  * THE CLICK GATE over a slot's CONTENT — the one predicate main.ts's click
  * prediction asks (review patch P8): the bearing gate and the range gate of
  * the fitted weapon's own descriptor. (The consumable carve-outs left with the
- * kit — Story 10.5.)
+ * kit — Story 10.5.) `launchers` = the held torpedo launchers (Story 10.6) —
+ * main.ts asks the shared `pickTube` for a TORPEDO click instead, measured
+ * from each launcher's station; this parallax-free read is the fallback.
  */
-export function clickInArc(heading: number, aim: number, aimDist: number, id: EquipmentId | null): boolean {
-  return weaponArcHit(heading, aim, id) && weaponRangeHit(aimDist, id);
+export function clickInArc(heading: number, aim: number, aimDist: number, id: EquipmentId | null, launchers = 1): boolean {
+  return weaponArcHit(heading, aim, id, launchers) && weaponRangeHit(aimDist, id);
 }
 
 
@@ -342,4 +355,48 @@ export function sectorOutline(offset: number, halfArc: number, radius: number): 
     ],
     arc: { from, to, r: radius },
   };
+}
+
+/** One angular span of a wedge, hull-relative radians, `from < to`. */
+export interface ArcSpan {
+  from: number;
+  to: number;
+}
+
+const TAU = 2 * Math.PI;
+
+/**
+ * Pure: the UNION of hull-relative sectors (`offset ± halfArc`) as the fewest
+ * spans to fill — or `'full'` when together they cover every bearing. The
+ * torpedo wedge is drawn from this (Story 10.6, R6): one launcher is one
+ * 280° span; the fore and the aft launcher together (±140° about the bow and
+ * about the stern) cover the whole circle, which is ONE disc, never two
+ * overlapping fills double-shading their overlap.
+ */
+export function arcUnion(sectors: readonly { offset: number; halfArc: number }[]): ArcSpan[] | 'full' {
+  const spans: ArcSpan[] = [];
+  for (const s of sectors) {
+    if (2 * s.halfArc >= TAU) return 'full';
+    const from = (((s.offset - s.halfArc) % TAU) + TAU) % TAU;
+    spans.push({ from, to: from + 2 * s.halfArc });
+  }
+  spans.sort((a, b) => a.from - b.from);
+  const out: ArcSpan[] = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (last !== undefined && s.from <= last.to) last.to = Math.max(last.to, s.to);
+    else out.push({ ...s });
+  }
+  return closeWrap(out);
+}
+
+/** Fold the first span into the last when the last runs past a full turn onto
+ *  it; a span a whole turn long is the full circle. */
+function closeWrap(out: ArcSpan[]): ArcSpan[] | 'full' {
+  if (out.length > 1 && out[out.length - 1].to - TAU >= out[0].from) {
+    const first = out.shift()!;
+    const last = out[out.length - 1];
+    last.to = Math.max(last.to, first.to + TAU);
+  }
+  return out.some((s) => s.to - s.from >= TAU) ? 'full' : out;
 }

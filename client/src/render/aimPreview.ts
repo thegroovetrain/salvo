@@ -7,8 +7,8 @@
 // actually run, where a BROADSIDE BARRAGE's shells fan out to, where a mine's
 // trigger ring will actually sit, or where a DECOY BUOY will float. This module draws
 // all of it, and draws it from the SAME shared helpers the server fires with
-// (shared sim/aim.ts — burstPointAlong / muzzleOrTarget / torpedoSpawn /
-// blockedWater, promoted out of the server equipment rows for exactly this
+// (shared sim/aim.ts — burstPointAlong / muzzleOrTarget / blockedWater, and
+// since Story 10.6 sim/launchers.ts's pickTube / torpedoLaunchPoint, promoted out of the server equipment rows for exactly this
 // reason). The preview is therefore not an approximation of the shot: it is the
 // shot's own geometry, evaluated one frame early.
 //
@@ -32,12 +32,15 @@ import {
   blockedWater,
   burstPointAlong,
   clampInsideMap,
-  hullEnvelope,
   islandSegHit,
   muzzleOrTarget,
   parallelOffsets,
-  torpedoSpawn,
+  initialLaunchers,
+  launcherAimPoint,
+  pickTube,
+  torpedoLaunchPoint,
   turretAimPoints,
+  type LauncherState,
   twinSectorArcFor,
   twinSectorSide,
   type EffectiveStats,
@@ -99,6 +102,13 @@ export interface AimPreviewInput {
    * actually land. Omitted = every turret at rest and loaded.
    */
   turrets?: readonly TurretState[];
+  /**
+   * THE OWN TORPEDO LAUNCHERS (Story 10.6) — the predicted launcher state
+   * (sim/ownLaunchers.ts) the torpedo preview picks from, so it starts at the
+   * launcher that will fire, along the bearing it will fire on. Omitted = the
+   * launchers the stats hold, at rest.
+   */
+  launchers?: readonly LauncherState[];
 }
 
 /** One travel line, already island-clipped (except where the shot overflies).
@@ -556,10 +566,14 @@ function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpe
 }
 
 /**
- * The torpedo family — the LIGHT and HEAVY lines and the belt's SUPERCAV fish
- * (Story 8.13: one preview, three ids, exactly as `torpedoCore` is one spawn).
- * The line starts at the REAL tube exit (torpedoSpawn — a fish is not launched
- * from the ship's centre) and runs to the first island or the map edge.
+ * The torpedo family — the LIGHT, HEAVY and SUPERCAV lines (Story 8.13: one
+ * preview, three ids, exactly as `torpedoCore` is one spawn). Since Story 10.6
+ * (R6 / R16) the line starts at the DECK LAUNCHER the shared `pickTube` names
+ * — its station, pushed clear of the hull (`torpedoLaunchPoint`) — along the
+ * bearing that launcher fires on (the aim when on target, else its CURRENT
+ * bearing: the battery's early-click rule), and runs to the first island or
+ * the map edge. The pick is taken as if every tube were loaded, so a captain
+ * waiting on a reload still sees where the next torpedo goes.
  *
  * A HOMING fish additionally carries its finite travel budget and the
  * acquisition BAND: the straight line is only the fish's INITIAL track, and
@@ -573,13 +587,10 @@ function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpe
  * line has a max range — amendment 84f).
  */
 function torpedoPreview(inp: AimPreviewInput, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): AimPreviewModel {
-  // Legal ⇒ the aim is inside this line's arc (the heavy's bow sector, the
-  // supercav's ±15°, or ONE of the light torpedo's two beam sectors), and every
-  // fish launches toward the click, so the launch bearing IS the aim.
-  const dir = inp.aim;
-  const hullLength = hullEnvelope(inp.ship.cls).hull.length;
-  const origin = torpedoSpawn(inp.ship, hullLength, dir);
-  // A tube exit past the rim launches a fish the sim expires on the spot; the
+  const launch = torpedoLaunch(inp);
+  if (launch === null) return EMPTY; // no held launcher bears: the click is out of arc
+  const { origin, dir } = launch;
+  // A tube exit past the rim launches a torpedo the sim expires on the spot; the
   // map clamp below would fold its whole run into a degenerate point and draw a
   // phantom track out of the ship's nose. Preview nothing instead.
   if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
@@ -594,6 +605,21 @@ function torpedoPreview(inp: AimPreviewInput, id: 'lightTorpedo' | 'heavyTorpedo
     place: null,
     band: homing ? { ...line, halfWidth: CONFIG.torpedo.homingAcquireRange } : null,
   };
+}
+
+/** Every tube loaded — the preview's pick ignores reloads (see torpedoPreview). */
+function loaded(states: readonly LauncherState[]): LauncherState[] {
+  return states.map((s) => ({ a: s.a, tubes: s.tubes.map(() => 0) }));
+}
+
+/** Where and along what bearing the next torpedo enters the water — the
+ *  shared R16 pick's launcher (null when no held launcher's arc holds the aim). */
+function torpedoLaunch(inp: AimPreviewInput): { origin: Vec2; dir: number } | null {
+  const cls = inp.ship.cls;
+  const states = loaded(inp.launchers ?? initialLaunchers(cls, inp.stats));
+  const pick = pickTube(states, cls, inp.ship, launcherAimPoint(inp.ship, cls, inp.aim, inp.aimDist));
+  if (pick.verdict !== 'fire') return null;
+  return { origin: torpedoLaunchPoint(pick.station, inp.ship, cls, pick.bearing), dir: pick.bearing };
 }
 
 /** Mine placement: the rings at the clicked drop point (the server places the

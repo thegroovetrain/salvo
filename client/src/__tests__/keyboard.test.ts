@@ -59,6 +59,7 @@ import {
   WEAPON_SLOTS,
   abilityCode,
   abilityCooldownMs,
+  effectiveStats,
   type AbilityId,
   type CooldownAbilityId,
   type EquipmentId,
@@ -1482,7 +1483,8 @@ describe('main.ts wires ONE refit-visibility watcher (rulings 8 + 9)', () => {
 const MAX_HP = CONFIG.shipClasses[DEFAULT_CLASS_ID].hp;
 /** A clock a whole cooldown past the epoch, so a stamp in either direction is
  *  representable. */
-const NOW = abilityCooldownMs('repair') + abilityCooldownMs('smoke');
+const STATS = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
+const NOW = abilityCooldownMs(STATS, 'repair') + abilityCooldownMs(STATS, 'smoke');
 
 describe('cooldownAbilityDenied — the client\'s known C / V refusal', () => {
   const hurt = { hp: MAX_HP / 2, maxHp: MAX_HP, sinking: false, now: NOW };
