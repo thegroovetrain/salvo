@@ -4,7 +4,7 @@
 // every hull its own table), so a test that wants "the CONFIG number, with no
 // index in the way" has no shipped hull to ask. This envelope is the default
 // hull's geometry, kinematics and battery with EVERY index at
-// `CONFIG.index.base` — the hull on which RELOAD, RANGE, ENGINES, RUDDER,
+// `CONFIG.index.base` — the hull on which RELOAD, RANGE, ENGINES,
 // INTEL, ARMOR and POWER are all the identity, so a zero-card fold reads the
 // CONFIG bases byte for byte.
 //

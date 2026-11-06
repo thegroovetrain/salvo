@@ -8,11 +8,13 @@
 // THE COOLDOWN LAW (R1–R3), the whole of it:
 //   - a SUCCESSFUL press at server time `t` stamps `readyAt = t + cooldownMs`;
 //   - the ability is ready again when `now >= readyAt`;
-//   - `cooldownMs` is `CONFIG.hullRepair.cooldownMs` (90 s) or
-//     `CONFIG.countermeasure.cooldownMs` (60 s) and NOTHING ELSE — FIXED FOR
-//     EVERY SHIP: no RELOAD index, no card, no `cooldownScale`, no INSTANT
-//     RELOAD touches it (R3). That is why it lives here and not on an
-//     `EffectiveStats` row, where the one reload multiply would reach it;
+//   - `cooldownMs` is THE SHIP'S OWN: `stats.repair.cooldownMs` or
+//     `stats.smoke.cooldownMs` (Story 10.6, Eric 2026-11-05, R8 / R9 — the
+//     HULL REPAIR and SMOKE SCREEN ladders shorten it, 75 s / 60 s with no
+//     card, through the haste law over each ability's own score of 100 + 5 a
+//     card; sim/abilityStats.ts). The ship's RELOAD index, `cooldownScale`
+//     and INSTANT RELOAD never touch it (R3, kept). Until 10.6 it was a
+//     fixed CONFIG read here;
 //   - a REFUSED press stamps nothing (a HULL REPAIR press on a full hull does
 //     not start the cooldown).
 //
@@ -24,7 +26,6 @@
 //
 // Pure, deterministic, zero I/O.
 
-import { CONFIG } from '../constants.js';
 import type { DenialReason } from '../types.js';
 import { hullIsFull } from './hull.js';
 import { SLOT_BOOST } from './loadout.js';
@@ -69,10 +70,17 @@ export function abilitySlot(id: AbilityId): number {
   return id === 'shift' ? SLOT_BOOST : NO_SLOT;
 }
 
-/** ms — the FIXED cooldown of a cooldown ability (R1: 90 s, R2: 60 s). The
- *  one read of the two CONFIG dials; no stat is ever an input (R3). */
-export function abilityCooldownMs(id: CooldownAbilityId): number {
-  return id === 'repair' ? CONFIG.hullRepair.cooldownMs : CONFIG.countermeasure.cooldownMs;
+/** The slice of `EffectiveStats` the cooldown law reads — the two abilities'
+ *  folded cooldowns (a full `EffectiveStats` fits). */
+export interface AbilityCooldowns {
+  readonly repair: { readonly cooldownMs: number };
+  readonly smoke: { readonly cooldownMs: number };
+}
+
+/** ms — a cooldown ability's cooldown on THIS ship (Story 10.6, R8 / R9): the
+ *  folded `stats.repair` / `stats.smoke` value, never a CONFIG read. */
+export function abilityCooldownMs(stats: AbilityCooldowns, id: CooldownAbilityId): number {
+  return id === 'repair' ? stats.repair.cooldownMs : stats.smoke.cooldownMs;
 }
 
 /**
@@ -86,22 +94,24 @@ export function abilityReady(now: number, readyAt = 0): boolean {
 }
 
 /** The `readyAt` stamp a successful press at `pressedAt` writes — the cooldown
- *  counts FROM THE PRESS (R2), whatever the effect's own duration. */
-export function abilityReadyAt(pressedAt: number, id: CooldownAbilityId): number {
-  return pressedAt + abilityCooldownMs(id);
+ *  counts FROM THE PRESS (R2), whatever the effect's own duration, at the
+ *  pressing ship's cooldown then. */
+export function abilityReadyAt(pressedAt: number, stats: AbilityCooldowns, id: CooldownAbilityId): number {
+  return pressedAt + abilityCooldownMs(stats, id);
 }
 
 /**
  * 0..1 — how much of the cooldown is still to run at `now`: 1 at the press,
  * falling linearly to 0 when the ability is ready (and 0 for a never-pressed
- * one). The hotbar's cooldown wipe reads THIS. Clamped; a non-finite input
- * reads 1 (the `abilityReady` fail-closed posture: unreadable = not ready).
+ * one), measured against the ship's CURRENT cooldown. The hotbar's cooldown
+ * wipe reads THIS. Clamped; a non-finite input reads 1 (the `abilityReady`
+ * fail-closed posture: unreadable = not ready).
  */
-export function abilityCooldownFraction(now: number, readyAt: number, id: CooldownAbilityId): number {
+export function abilityCooldownFraction(now: number, readyAt: number, stats: AbilityCooldowns, id: CooldownAbilityId): number {
   const left = readyAt - now;
   if (Number.isNaN(left)) return 1;
   if (left <= 0) return 0;
-  return Math.min(1, left / abilityCooldownMs(id));
+  return Math.min(1, left / abilityCooldownMs(stats, id));
 }
 
 /**

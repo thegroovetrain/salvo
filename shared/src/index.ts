@@ -994,6 +994,8 @@ export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';
 export * from './sim/indexStats.js';
+export * from './sim/abilityStats.js';
+export * from './sim/mountStats.js';
 export * from './sim/turrets.js';
 export * from './sim/secondaries.js';
 export * from './sim/hullOutlines.js';

@@ -13,8 +13,9 @@
 //       can only ever move WHICH weapon.
 //   (2) ELIGIBILITY: no equipment copy 1 with the weapon row full; nothing at
 //       or over its cap EXCEPT a consumable, which is dealt at cap on purpose
-//       (amendment 94); gun ladders follow the MOUNTED gun; an add-on may be
-//       held ahead of its host only while a weapon slot is open; and since
+//       (amendment 94); gun ladders follow the MOUNTED gun; an add-on is
+//       dealt only while a weapon it names holds its family slot (Story 10.6,
+//       R10 — the old "held ahead while a slot is open" rule is retired); and since
 //       Story 10.1 (epic-10 amendment 3) NO consumable outside the ship's KIT
 //       is ever dealt — not by the draw, not by the level-zero guarantee.
 //   (3) THE WEIGHTING (amendment 90): 1.0 at zero takes, 0.75 at one, 0.5625
@@ -173,7 +174,8 @@ describe('eligibleLines — the whole eligibility law', () => {
     const ships: DrawShip[] = [OPEN, CLOSED, shipOf([]), shipOf(['lightTorpedo']), { ...OPEN, held: ['broadside'] }];
     for (const ship of ships) {
       const ids = eligibleLines(ship).map((e) => e.id as string);
-      for (const gone of ['broadside', 'hullRepair', 'shieldBlock', 'countermeasure', 'radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy', 'depthCharge']) {
+      // (`hullRepair` is a live SHIP ladder again since Story 10.6, R8.)
+      for (const gone of ['broadside', 'shieldBlock', 'countermeasure', 'radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy', 'depthCharge', 'rudder']) {
         expect(ids, gone).not.toContain(gone);
       }
     }
@@ -239,7 +241,7 @@ describe('eligibleLines — the whole eligibility law', () => {
     // appliesTo) are gun-blind and stay dealable whatever is mounted (Story
     // 10.3, Eric 2026-11-04, epic-10 amendment 8: HULL POINTS and PASSIVE
     // HEALING deleted; SPEED / TURNING / RADAR SWEEP renamed).
-    for (const id of ['engines', 'rudder', 'intel', 'reload']) {
+    for (const id of ['engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen']) {
       expect(elsewhere, id).toContain(id);
     }
 
@@ -257,7 +259,7 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    for (const id of ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'] as const) {
+    for (const id of ['armor', 'power', 'engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
       // ...and so eligible on every seat, whatever gun it mounts (Story 9.9,
       // epic-9 amendment 145: the draw covers POWER like ARMOR).
@@ -326,29 +328,33 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(eligibleLines(capped).some((e) => e.id === 'machineGun')).toBe(false);
   });
 
-  it('an ADD-ON may be held ahead of its host while a slot is open, never with the row full', () => {
-    // NO PRODUCTION ADD-ON IS LEFT since Story 8.17 (Eric 2026-09-29,
-    // amendments 131–134: DAZZLE SHELLS became the FLASH SHELLS consumable and
-    // PHOSPHOR SHELLS its own weapon), but the `addon` kind and its draw law
-    // stay in the engine — so the law is pinned on an INJECTED add-on, shaped
-    // exactly as the deleted DAZZLE SHELLS card was (injected over the
-    // `foulingShell` slot, which held DAZZLE SHELLS before Story 9.4).
+  it('an ADD-ON is dealt only while a weapon it NAMES holds its family slot — never ahead of its host (Story 10.6, R10 / I8)', () => {
+    // The law, pinned on an INJECTED add-on that names ONE shell (the
+    // production one-offs name a whole family — catalogUnderIndex.test.ts):
+    // what matters is which equipment sits in the slot, not the open row
+    // (amendment 89b's held-ahead rule is retired).
     const WITH_ADDON: Catalog = {
       ...CATALOG,
       foulingShell: {
         id: 'foulingShell', kind: 'addon', cap: 1, appliesTo: ['starShells'],
-        tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]],
+        tiers: [[{ kind: 'stat', path: 'equipment.starShells.litRadius', mult: 1.1 }]],
       },
     };
     const has = (ship: DrawShip): boolean => eligibleLines(ship, WITH_ADDON).some((e) => e.id === 'foulingShell');
-    // Row open, no host held: held-ahead is allowed (amendment 89b).
-    expect(has(OPEN)).toBe(true);
-    // Row full, no host: the card would be dead, so it is not dealt.
-    expect(has(CLOSED)).toBe(false);
-    // Row full WITH the host aboard: eligible again.
-    expect(has({ ...CLOSED, held: ['starShells'] })).toBe(true);
+    const withShell = (eq: EquipmentId): DrawShip => {
+      const slotIds = [...ROW_OPEN];
+      slotIds[FAMILY_SLOT.shell] = eq;
+      return { ...OPEN, slotIds };
+    };
+    // Row open, no host aboard: NOT dealt (the held-ahead rule is gone).
+    expect(has(OPEN)).toBe(false);
+    // The host in its family slot: an upgrade.
+    expect(has(withShell('starShells'))).toBe(true);
+    expect(eligibleLines(withShell('starShells'), WITH_ADDON)).toContainEqual({ id: 'foulingShell', kind: 'upgrade' });
+    // ANOTHER kind of the family in the slot is not the host.
+    expect(has(withShell('phosphorShells'))).toBe(false);
     // ...and at its cap of 1 it leaves, host or no host.
-    expect(has({ ...CLOSED, held: ['starShells', 'foulingShell'] })).toBe(false);
+    expect(has({ ...withShell('starShells'), held: ['starShells', 'foulingShell'] })).toBe(false);
   });
 });
 

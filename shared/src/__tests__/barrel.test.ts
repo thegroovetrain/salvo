@@ -488,8 +488,8 @@ describe('shared barrel', () => {
     const fresh: Pick<OwnShip, 'repairReadyAt' | 'smokeReadyAt'> = {};
     expect(Object.keys(fresh)).toEqual([]);
     const cooling: Pick<OwnShip, 'repairReadyAt' | 'smokeReadyAt' | 'dazzledUntil'> = {
-      repairReadyAt: abilityReadyAt(1000, 'repair'),
-      smokeReadyAt: abilityReadyAt(1000, 'smoke'),
+      repairReadyAt: abilityReadyAt(1000, effectiveStats(CONFIG.shipClasses.yamato), 'repair'),
+      smokeReadyAt: abilityReadyAt(1000, effectiveStats(CONFIG.shipClasses.yamato), 'smoke'),
       dazzledUntil: 12000,
     };
     expect(abilityReady(1000, cooling.repairReadyAt)).toBe(false);
@@ -513,16 +513,18 @@ describe('shared barrel', () => {
 
   it('re-exports the 9.3 COUNTERMEASURE shapes: the cloud.ts disc functions, CloudRecord (server store), CloudView + FrameMsg.clouds (wire)', () => {
     // TYPE-LEVEL PINS as much as runtime ones: the wire view is exactly
-    // id,x,y,t0 — a radius, owner, count or expiry would be an excess property.
+    // id,x,y,t0 + the stamped size lifeMs,r0,r1 APPENDED (Story 10.6, I6) —
+    // an owner, count or expiry would be an excess property.
     for (const fn of [cloudScale, cloudOutlineRadius]) {
       expect(typeof fn).toBe('function');
     }
-    const rec: CloudRecord = { id: 'cl1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 16000 };
-    const view: CloudView = { id: rec.id, x: rec.x, y: rec.y, t0: rec.bornAt };
-    expect(Object.keys(view)).toEqual(['id', 'x', 'y', 't0']);
+    const size = effectiveStats(CONFIG.shipClasses.yamato).smoke;
+    const rec: CloudRecord = { id: 'cl1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 1000 + size.lifeMs, lifeMs: size.lifeMs, r0: size.r0, r1: size.r1 };
+    const view: CloudView = { id: rec.id, x: rec.x, y: rec.y, t0: rec.bornAt, lifeMs: rec.lifeMs, r0: rec.r0, r1: rec.r1 };
+    expect(Object.keys(view)).toEqual(['id', 'x', 'y', 't0', 'lifeMs', 'r0', 'r1']);
     const frame: Pick<FrameMsg, 'clouds'> = { clouds: [view] };
     expect(frame.clouds).toHaveLength(1);
-    expect(cloudOutlineRadius(0)).toBe(CONFIG.countermeasure.r0);
+    expect(cloudOutlineRadius(0, view)).toBe(view.r0);
     // The retired 8.18 smoke symbols and cycle 174's pixel machinery are gone
     // from the barrel (Story 9.3 session 2: the cloud is a client overlay).
     for (const gone of ['puffRadius', 'cloudBase', 'cloudBlocks', 'forEachLivingPixel']) {
@@ -577,9 +579,10 @@ describe('shared barrel', () => {
       expect(BOON_STAT_PATHS, w).toContain(`equipment.${w}.rangeU`);
     }
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
-    // THE SEVEN INDICES ARE THE AUTHORED PATHS (Story 10.3, Eric 2026-11-04,
-    // epic-10 amendment 8): `armor`, `power`, `reload`, `engines`, `rudder`,
-    // `intel`, `range` — pinned PRESENT; what they derive is pinned ABSENT below.
+    // THE INDICES ARE THE AUTHORED PATHS (Story 10.3, Eric 2026-11-04,
+    // epic-10 amendment 8; `rudder` deleted by Story 10.6, R2): `armor`,
+    // `power`, `reload`, `engines`, `intel`, `range` — pinned PRESENT; what
+    // they derive is pinned ABSENT below.
     for (const idx of INDEX_IDS) expect(BOON_STAT_PATHS, idx).toContain(idx);
     for (const path of [
       'sweepPeriodMs', 'sightRange',
@@ -587,11 +590,16 @@ describe('shared barrel', () => {
       // is DERIVED from `armor` (which IS addressable) — never a card path.
       'damageMultiplier',
       // Story 10.3: DERIVED from the indices (sim/indexStats.ts) — the speed
-      // from ENGINES, the turn rate from RUDDER, the sweep from INTEL, the
-      // cooldown scale from RELOAD; `regen.*` is DELETED with PASSIVE HEALING
-      // and the out-of-combat regen; `armorPiercing` is renamed `power`.
+      // from ENGINES, the sweep from INTEL, the cooldown scale from RELOAD;
+      // the turn rate is the one baseline (Story 10.6, R2); `regen.*` is
+      // DELETED with PASSIVE HEALING and the out-of-combat regen;
+      // `armorPiercing` is renamed `power`; `rudder` is DELETED (Story 10.6).
       'kinematics.maxSpeed', 'kinematics.turnRate', 'sweepRpm', 'cooldownScale',
-      'regen.missingPctPerS', 'regen.outOfCombatMs', 'armorPiercing',
+      'regen.missingPctPerS', 'regen.outOfCombatMs', 'armorPiercing', 'rudder',
+      // Story 10.6 (R8 / R9 / R15): the abilities' DERIVED halves — the
+      // cooldowns from each ability's own score, the fixed pool window, the
+      // smoke disc from its rung (sim/abilityStats.ts).
+      'repair.cooldownMs', 'repair.regenMs', 'smoke.cooldownMs', 'smoke.r0', 'smoke.r1',
       // Every weapon `rangeU` LEFT this list with Story 9.8 (ruling 125 — a
       // tiered dial the cards step, pinned PRESENT above).
       'equipment.phosphorShells.tier',
@@ -691,7 +699,7 @@ describe('shared barrel', () => {
     // carries the one engine dial the fold needs.
     expect((CONFIG as Record<string, unknown>).deck).toBeUndefined();
     expect((CONFIG as Record<string, unknown>).pool).toBeUndefined();
-    expect(Object.keys(CONFIG.catalog)).toEqual(['reloadStepPerTier']);
+    expect(Object.keys(CONFIG.catalog)).toEqual(['reloadBonusPerTier']);
     // THE WEIGHTING (amendments 90/91): the offer size and the factor/floor
     // pair are the draw's only dials.
     expect(Object.keys(CONFIG.offer).sort()).toEqual(['size', 'weighting']);

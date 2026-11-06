@@ -551,8 +551,8 @@ export interface OwnShip {
   /**
    * hp still owed to this hull — `0` = no pool draining. ONE pool since PV 53:
    * the HULL REPAIR pool (Eric rulings 2026-08-04, catalog-v3 R13) — each
-   * HULL REPAIR press SETS it to CONFIG.hullRepair.regenHp, drained at the
-   * fixed regenHp/regenMs rate. The
+   * HULL REPAIR press SETS it to the ship's `stats.repair.regenHp` (Story
+   * 10.6, R8), drained at the regenHp/regenMs rate. The
    * FREE per-level auto-heal pool that used to be folded in beside it
    * (`ship.levelRepairHp`) IS GONE: epic-8 amendment 46 replaced the per-level
    * heal with an out-of-combat regen that paid STRAIGHT INTO hp and never owed
@@ -651,8 +651,8 @@ export interface OwnShip {
   hunkerUntil?: number;
   /**
    * ms — server-clock time HULL REPAIR (`C`) is READY again (Story 10.5, Eric
-   * 2026-11-05, epic-10 amendment 11, R1): `press + CONFIG.hullRepair
-   * .cooldownMs`, stamped by `abilityReadyAt` on a SUCCESSFUL press only (a
+   * 2026-11-05, epic-10 amendment 11, R1): `press + stats.repair.cooldownMs`
+   * (the ship's own, Story 10.6 R8), stamped by `abilityReadyAt` on a SUCCESSFUL press only (a
    * refused press — cooling, or a full hull — stamps nothing). OMITTED while
    * the ability is ready (never 0, never an `undefined` value — the
    * `slowedUntil` conditional-spread precedent), so a fresh hull carries no
@@ -666,7 +666,7 @@ export interface OwnShip {
   repairReadyAt?: number;
   /**
    * ms — server-clock time SMOKE (`V`) is READY again (Story 10.5, R2):
-   * `press + CONFIG.countermeasure.cooldownMs`, counted from the press. The
+   * `press + stats.smoke.cooldownMs` (the ship's own, Story 10.6 R9), counted from the press. The
    * same grammar, omission rule and privacy as `repairReadyAt`.
    */
   smokeReadyAt?: number;
@@ -1534,18 +1534,25 @@ export interface FoulZoneView {
  * its centre. Radar delivery is therefore per-sweep, and the client HOLDS a
  * cloud it has received until that cloud's life ends.
  *
- * NO OWNER, NO RADIUS, NO EXPIRY on the wire: `t0` is the server time the
- * cloud was made; the client derives the disc from the shared
- * `cloudOutlineRadius(now − t0)` and `CONFIG.countermeasure.lifeMs`. A cloud
- * dropping out of the list means expired OR out of view — the client cannot
- * tell (the mines precedent). NOT the wounded-smoke `SmokeEvent` (`sm`). KEY
- * ORDER (msgpack): id,x,y,t0.
+ * NO OWNER on the wire: `t0` is the server time the cloud was made; the
+ * client derives the disc from the shared `cloudOutlineRadius(now − t0, view)`
+ * over the cloud's OWN stamped `lifeMs` / `r0` / `r1` (Story 10.6, Eric
+ * 2026-11-05, R9 / I6 — the owner's SMOKE SCREEN cards at the press; until
+ * 10.6 they were CONFIG reads). They ride under the cloud's existing
+ * perception gate — a bigger cloud is visible to whoever can already see the
+ * cloud. A cloud dropping out of the list means expired OR out of view — the
+ * client cannot tell (the mines precedent). NOT the wounded-smoke
+ * `SmokeEvent` (`sm`). KEY ORDER (msgpack): id,x,y,t0,lifeMs,r0,r1 — the
+ * three Story 10.6 keys APPENDED, never inserted.
  */
 export interface CloudView {
   id: string; // the cloud's own id
   x: number; // u — cloud centre (stationary)
   y: number; // u
   t0: number; // ms — server time the cloud was made (drives the disc's age)
+  lifeMs: number; // ms — the cloud's stamped life (Story 10.6, I6)
+  r0: number; // u — the stamped disc radius at birth
+  r1: number; // u — the stamped disc radius at the end of its life
 }
 
 /**
