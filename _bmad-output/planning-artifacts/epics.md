@@ -2645,7 +2645,7 @@ So that the kit is three choices I made by leveling, not ten buttons to manage.
 **And** the HUD hotbar is re-cut for Q / E / R + C / V + Shift — a RENDERED candidate shown to Eric before commit; `settings.ts` keys copy follows; bots use the two cooldowns and ready-and-click at minimum (10.12 tunes timing)
 **And** `PROTOCOL_VERSION` bumps; How-to-Play, GDD Consumables v3, catalog-v3 and DESIGN.md consumable-strip / loadout-row / buoy rows are stamped at 10.14. *(This story undoes the player-facing surfaces of cycles 207–210 — Stories 10.1 and 10.2, PRs #309–#312 — an accepted cost recorded in the forge.)*
 
-### Story 10.6: The Catalog Under the Index *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.5; Story 10.7 Offer Composition is built straight after it)*
+### Story 10.6: The Catalog Under the Index *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.5; Story 10.7 Offer Composition is built straight after it; BUILT 2026-11-06, cycle 215, 0.19.9, PV 98, epic-10 amendment 12, `spec-10-6-the-catalog-under-the-index.md` — the text below is superseded where amendment 12 rules: no flat +20 on every index (RELOAD, ENGINES and RANGE are +10), no RUDDER, no TEST BOTH dial, no capacity in the tiers, no 5 %-per-tier reload step; the fixed torpedo sectors are gone for launchers)*
 
 As a captain leveling up,
 I want every card to be a flat +20 on one index or a weapon for an empty slot,

@@ -2,8 +2,9 @@
 title: 'Story 10.6: The Catalog Under the Index'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '8c7004aa'
+final_revision: 'the closing records commit at the PR head on worktree-story-10-6-catalog-under-the-index (code: the review-gate patches commit before it)'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -179,34 +180,34 @@ warnings: ['oversized']
 **Execution (waves in dependency order; each wave gated by the workspace's tests):**
 
 Wave 1 — shared stats and catalog
-- [ ] `shared/src/sim/stats.ts`, `indexStats.ts`, `constants.ts` -- replace `reloadTierScale` × `cooldownScale` with `reloadCooldownScale(RELOAD + bonusPerTier × (tier − 1))` on scaled rows; delete `reloadStepPerTier`; add `CONFIG.catalog.reloadBonusPerTier` 10 -- R5.
-- [ ] `shared/src/constants.ts`, `sim/indexStats.ts`, `stats.ts`, `effects.ts` -- remove the RUDDER index (`INDEX_IDS`, hull tables, stat path); captains' `turnRate` is the baseline dial; drones get authored turn rates -- R2, I5.
-- [ ] `shared/src/sim/stats.ts`, `abilities.ts`, `cloud.ts`, `constants.ts` -- per-ship `repair` (heal amounts, cooldown) and `smoke` (cooldown, life, r0, r1) on `EffectiveStats` from card counts and CONFIG bases (75 s / 60 s, +5 a card, ×1.1 size by repeated multiply anchored at two cards); `abilityCooldownMs` / `abilityCooldownFraction` take stats; cloud radius / life take the cloud's stamped values -- R8, R9.
-- [ ] `shared/src/sim/catalog.ts`, `constants.ts` -- delete `rudder`; RELOAD / ENGINES +10; append `range`, `hullRepair`, `smokeScreen` ladders and the four cap-1 one-offs (family-wide effects); strip every capacity step from the tiers; rack bases 3 / 3 / 1; header counts restated -- R1, R3, R4, R6, R7.
-- [ ] `shared/src/sim/draw.ts`, `boons.ts` -- one-off eligibility and refusal = family slot FILLED and card unheld -- R10, I8.
-- [ ] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (reload law, bonus locality, ability laws, smoke sizes, eligibility, RANGE reach, turn-rate equality); delete pins the rulings retire.
+- [x] `shared/src/sim/stats.ts`, `indexStats.ts`, `constants.ts` -- replace `reloadTierScale` × `cooldownScale` with `reloadCooldownScale(RELOAD + bonusPerTier × (tier − 1))` on scaled rows; delete `reloadStepPerTier`; add `CONFIG.catalog.reloadBonusPerTier` 10 -- R5.
+- [x] `shared/src/constants.ts`, `sim/indexStats.ts`, `stats.ts`, `effects.ts` -- remove the RUDDER index (`INDEX_IDS`, hull tables, stat path); captains' `turnRate` is the baseline dial; drones get authored turn rates -- R2, I5.
+- [x] `shared/src/sim/stats.ts`, `abilities.ts`, `cloud.ts`, `constants.ts` -- per-ship `repair` (heal amounts, cooldown) and `smoke` (cooldown, life, r0, r1) on `EffectiveStats` from card counts and CONFIG bases (75 s / 60 s, +5 a card, ×1.1 size by repeated multiply anchored at two cards); `abilityCooldownMs` / `abilityCooldownFraction` take stats; cloud radius / life take the cloud's stamped values -- R8, R9.
+- [x] `shared/src/sim/catalog.ts`, `constants.ts` -- delete `rudder`; RELOAD / ENGINES +10; append `range`, `hullRepair`, `smokeScreen` ladders and the four cap-1 one-offs (family-wide effects); strip every capacity step from the tiers; rack bases 3 / 3 / 1; header counts restated -- R1, R3, R4, R6, R7.
+- [x] `shared/src/sim/draw.ts`, `boons.ts` -- one-off eligibility and refusal = family slot FILLED and card unheld -- R10, I8.
+- [x] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (reload law, bonus locality, ability laws, smoke sizes, eligibility, RANGE reach, turn-rate equality); delete pins the rulings retire.
 
 Wave 2 — shared launcher and rack models
-- [ ] `shared/src/sim/turrets.ts` (+ new `sim/launchers.ts`) -- parameterize the stepper / pick / angle codec by a mount spec; launcher mounts from held cards (fore, optional aft, ±140°, battery traverse rate, 1–2 tubes each with its own reload); `arcs.ts` torpedo sectors replaced by the launcher arc union -- R6, R16.
-- [ ] `shared/src/sim/racks.ts` (new), `loadout.ts` -- rack state (1–2 racks, capacity, one clock each restoring one mine per cycle), alternation cursor, slot summary -- R7, R17.
-- [ ] `shared/src/types.ts`, `index.ts` -- own-block launcher / tube and rack state, contact launcher-angle key, `CloudView` size and life, barrel exports, `PROTOCOL_VERSION` 98.
-- [ ] `shared/src/__tests__/{launchers,racks}.test.ts` -- arc, hold-outside-arc, tube choice, per-tube clocks, rack restock and alternation.
+- [x] `shared/src/sim/turrets.ts` (+ new `sim/launchers.ts`) -- parameterize the stepper / pick / angle codec by a mount spec; launcher mounts from held cards (fore, optional aft, ±140°, battery traverse rate, 1–2 tubes each with its own reload); `arcs.ts` torpedo sectors replaced by the launcher arc union -- R6, R16.
+- [x] `shared/src/sim/racks.ts` (new), `loadout.ts` -- rack state (1–2 racks, capacity, one clock each restoring one mine per cycle), alternation cursor, slot summary -- R7, R17.
+- [x] `shared/src/types.ts`, `index.ts` -- own-block launcher / tube and rack state, contact launcher-angle key, `CloudView` size and life, barrel exports, `PROTOCOL_VERSION` 98.
+- [x] `shared/src/__tests__/{launchers,racks}.test.ts` -- arc, hold-outside-arc, tube choice, per-tube clocks, rack restock and alternation.
 
 Wave 3 — server
-- [ ] `server/src/game/world.ts`, `equipment/{torpedoCore,torpedoes,mines,ammo,index}.ts` -- launcher state per ship, `stepLaunchers` in `STEP_ORDER`, fire from the picked tube at its station and angle; rack drops; card-driven resize (arrives loaded); rescale, INSTANT RELOAD (R14) and reset branches; abilities and cloud from `ship.stats`, cloud stamped at the press -- R5–R9, I1, I3, I6.
-- [ ] `server/src/game/{frames,signals}.ts`, `__tests__/{perception,goldenFrames}.test.ts` -- new keys under the existing gates; invariants extended; golden frames regenerated -- I6, I7.
-- [ ] `server/src/game/ai/*` -- launcher-arc torpedo legality, new card classification, `rudder` favorite dropped -- I8, I9.
-- [ ] `server/src/__tests__/*`, `server/scripts/{weaponsSmoke,matchSmoke}.mjs`, `scripts/batchsim/*`, `scripts/rl/*` -- integration tests for the remaining matrix rows; smokes re-cut for launchers, racks and per-ship cooldowns; `rudder` pins removed.
+- [x] `server/src/game/world.ts`, `equipment/{torpedoCore,torpedoes,mines,ammo,index}.ts` -- launcher state per ship, `stepLaunchers` in `STEP_ORDER`, fire from the picked tube at its station and angle; rack drops; card-driven resize (arrives loaded); rescale, INSTANT RELOAD (R14) and reset branches; abilities and cloud from `ship.stats`, cloud stamped at the press -- R5–R9, I1, I3, I6.
+- [x] `server/src/game/{frames,signals}.ts`, `__tests__/{perception,goldenFrames}.test.ts` -- new keys under the existing gates; invariants extended; golden frames regenerated -- I6, I7.
+- [x] `server/src/game/ai/*` -- launcher-arc torpedo legality, new card classification, `rudder` favorite dropped -- I8, I9.
+- [x] `server/src/__tests__/*`, `server/scripts/{weaponsSmoke,matchSmoke}.mjs`, `scripts/batchsim/*`, `scripts/rl/*` -- integration tests for the remaining matrix rows; smokes re-cut for launchers, racks and per-ship cooldowns; `rudder` pins removed.
 
 Wave 4 — client (the rendered candidate FIRST — Block If)
-- [ ] throwaway candidate page (esbuild recipe of 9.11) -- launchers on the four hulls, hotbar with 1–4 tubes and 1–2 racks, the seven new card faces -- shown to Eric; build only after his yes -- I2.
-- [ ] `client/src/sim/*`, `main.ts`, `net/{snapshots,roomBindings}.ts` -- predicted launcher angles and fire verdict from the shared model; contact launcher angles; cloud size / life from the wire.
-- [ ] `client/src/render/*` -- launcher art on own and enemy hulls, torpedo wedge = the launcher arcs, preview from the launcher station, hotbar tube / rack clocks, `C` / `V` wipes from stats, cloud paint from stamped size.
-- [ ] `client/src/ui/{boonCopy,upgradeMenu,loadoutBlock}.ts`, `render/equipmentIcons.ts`, `how-to-play/*` -- names, kind word (one-offs read WEAPON), stat and hover rows for the new lines, glyphs, results strip for eight ladders, RUDDER gone; How-to-Play kept building only (new ids to `AWAITING_COPY`, the `rudder` entry dropped).
-- [ ] `client/src/**/__tests__/*` -- tests for the above; retired pins deleted.
+- [x] throwaway candidate page (esbuild recipe of 9.11) -- launchers on the four hulls, hotbar with 1–4 tubes and 1–2 racks, the seven new card faces -- shown to Eric; build only after his yes -- I2.
+- [x] `client/src/sim/*`, `main.ts`, `net/{snapshots,roomBindings}.ts` -- predicted launcher angles and fire verdict from the shared model; contact launcher angles; cloud size / life from the wire.
+- [x] `client/src/render/*` -- launcher art on own and enemy hulls, torpedo wedge = the launcher arcs, preview from the launcher station, hotbar tube / rack clocks, `C` / `V` wipes from stats, cloud paint from stamped size.
+- [x] `client/src/ui/{boonCopy,upgradeMenu,loadoutBlock}.ts`, `render/equipmentIcons.ts`, `how-to-play/*` -- names, kind word (one-offs read WEAPON), stat and hover rows for the new lines, glyphs, results strip for eight ladders, RUDDER gone; How-to-Play kept building only (new ids to `AWAITING_COPY`, the `rudder` entry dropped).
+- [x] `client/src/**/__tests__/*` -- tests for the above; retired pins deleted.
 
 Wave 5 — records
-- [ ] `_bmad-output/implementation-artifacts/epic-10-context-amendments.md` (amendment 12), `epic-10-context.md`, `deferred-work.md` (close the add-on eligibility entry), both trackers, `VERSION` + root `package.json`, `CHANGELOG.md`, DESIGN.md / GDD / catalog-v3 one-line stamps.
+- [x] `_bmad-output/implementation-artifacts/epic-10-context-amendments.md` (amendment 12), `epic-10-context.md`, `deferred-work.md` (close the add-on eligibility entry), both trackers, `VERSION` + root `package.json`, `CHANGELOG.md`, DESIGN.md / GDD / catalog-v3 one-line stamps.
 
 **Acceptance Criteria:**
 - Given a fresh match, when any captain levels, then only the eight SHIP ladders, the ten WEAPON lines and (once their slot is filled) the four one-offs are ever dealt, and no card changes a tube, mine or shot count except the one-offs.
@@ -218,6 +219,42 @@ Wave 5 — records
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-11-06 — Review pass (Fable Blind Hunter + Fable Edge Case Hunter + Codex `gpt-5.6-sol`, on `git diff 8c7004aa HEAD`)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 1, medium 1, low 6)
+- defer: 1
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` Bots launched torpedoes along the launcher's current bearing (not the solved lead) and repeated a refused torpedo click every tick ahead of the main battery (both in-house reviewers; one root cause, counted once) — the bot's torpedo row now decides with the shared `pickTube` over its own launchers and clicks only on fire + on target; three tests shown red first.
+  - `[medium]` `[patch]` The torpedo preview vanished while a launcher swung toward a legal aim — it now draws from the bearing launcher along the aim bearing; test shown red first.
+  - `[low]` `[patch]` `tickRacks` restored one mine per call on a step longer than the reload; shown red first.
+  - `[low]` `[patch]` `rackCapacity` returned NaN on a non-finite row; shown red first.
+  - `[low]` `[patch]` Tubes per launcher had no cap (`MAX_TUBES_PER_LAUNCHER`); shown red first.
+  - `[low]` `[patch]` A cloud row with a missing / non-finite / non-positive life or disc was never dropped — refused at ingest (`cloudRowValid`); test written with the fix, not seen red.
+  - `[low]` `[patch]` A contact with an unknown hull id threw in the turret / launcher angle decode and dropped the rest of the frame; shown red first.
+  - `[low]` `[patch]` `lu` longer than two built extra launcher housings; shown red first.
+- deferred: the client's cloud grid is sized from its own catalog (ledger).
+- Codex: no findings, BUILD-ON-IT (it stopped the perception suite before it finished; the orchestrator's full gate covers it).
+
+## Auto Run Result
+
+**Status:** done — built by `/orchestrate` (Opus implementation agents, a Fable agent for the shared launcher / rack models, Fable reviewers, Codex cross-check), every gate re-run by the orchestrator.
+
+**Summary.** The card catalog is re-authored to Eric's sheet (rulings R1–R30): eight SHIP ladders (ARMOR / POWER / INTEL +20, RELOAD / ENGINES / RANGE +10, HULL REPAIR, SMOKE SCREEN), ten WEAPON lines whose tiers add +10 to that weapon's own RELOAD score and no longer hand out capacity, and four one-off cards (AFT LAUNCHER, SECOND TUBE, SECOND MINE RACK, EXPANDED MINE RACKS). RUDDER is gone. Torpedoes fire from deck launchers that train like turrets and fire only into their own side-firing band, per ship from the art; mines drop from stern racks with one clock each that alternate per drop. HULL REPAIR and SMOKE SCREEN are per-ship from their cards. Cards are colored by the tier they grant, carry no kind word, and glow in their own color when hovered; the hotbar shows a pip per turret, tube and mine; the results strip shows the ship's numbers.
+
+**Files changed (by layer).**
+- `shared/src/sim/{stats,indexStats,effects,catalog,draw,boons,abilities,cloud,arcs,aim,turrets,loadout}.ts`, new `sim/{abilityStats,mountStats,mountAim,launchers,racks}.ts`, `constants.ts`, `types.ts`, `index.ts` (PV 97 → 98) — the reload law, the catalog, per-ship ability stats, the launcher and rack models, the wire types.
+- `server/src/game/world.ts`, `frames.ts`, `signals.ts`, `equipment/{torpedoCore,torpedoes,mines,index,mounts}.ts`, `ai/{tacticKit,tactics,equipment,movedWeapons,spending,profiles,types,torpedoMount}.ts`, `server/scripts/{weaponsSmoke,matchSmoke}.mjs`, `scripts/batchsim/*` — `stepLaunchers` in `STEP_ORDER`, the pick, rack drops, card resize / rescale, INSTANT RELOAD, stamped clouds, the new wire keys under existing gates, bots on the shared law, smokes re-cut.
+- `client/src/sim/{ownLaunchers,ownLaunchersTick}.ts`, `render/{launcherViews,hotbarUnits,hotbar,firing,weaponArc,aimPreview,ships,contacts,cloudPaint,cloudReturnGate,equipmentIcons,slotTooltip}.ts`, `render/hullArt/*`, `net/{snapshots,roomBindings}.ts`, `ui/{boonCopy,upgradeMenu,refitCardFit,tierRamp,loadoutBlock}.ts`, `how-to-play/copy.ts`, `main.ts`, `config.ts` — prediction, art, wedges, pips, cards, results strip.
+- Records: epic-10 amendment 12, `epic-10-context.md`, `deferred-work.md`, both trackers, `VERSION` / `package.json` 0.19.9, `CHANGELOG.md`, stamps in `epics.md`, the GDD, `catalog-v3.md`, `DESIGN.md`.
+
+**Review.** Fable Blind Hunter, Fable Edge Case Hunter, Codex `gpt-5.6-sol` on `git diff 8c7004aa HEAD`: 8 patches applied, 1 deferred, 0 rejected (see the triage log). Both in-house reviewers independently found the bot torpedo defect; Codex found nothing.
+
+**Verification (run by the orchestrator on the final tree).** `npm run check` EXIT 0 — eslint 0 errors (3 pre-existing max-lines warnings), shared 1421 tests, server 2744, client 4148, hook 266. `matchSmoke` MATCH SMOKE OK and `weaponsSmoke` WEAPONS SMOKE OK, each run alone (weaponsSmoke against the orchestrator's own server on port 2601, shut down after). The rendered candidate (https://claude.ai/artifact/YbxGN4rxhF4wehG6yYeWej) was approved by Eric through six revisions.
+
+**Residual risks.** Nothing has been played by a human yet — staging QA is the gate. The launcher arcs, the 3× wedge length and its fade start, the launcher stations, the results strip without tier numerals, and the bots' hold-aim behavior while a torpedo is pending are readings or first cuts Eric may want changed on staging. How-to-Play is stale until 10.14. Pre-existing and untouched: `CHANGELOG.md` has no 0.19.5–0.19.8 entries; `gds-workflow-status.yaml` does not parse as strict YAML.
 
 ## Design Notes
 
