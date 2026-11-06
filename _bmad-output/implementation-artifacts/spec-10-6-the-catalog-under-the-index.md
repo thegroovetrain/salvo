@@ -78,6 +78,15 @@ warnings: ['oversized']
 - **R18 The empty-turn rack** (verbatim: *"Next rack in line with an available mine would drop to avoid that edge case."*): when the rack whose turn it is holds no mine, the next rack holding one drops, and the turn passes on from the rack that dropped.
 - **Build ordered** (Eric 2026-11-05: *"go ahead and build (don't forget /orchestrate for subagent models)"*).
 
+## Rulings on the rendered candidate (Eric 2026-11-05, chat, on https://claude.ai/artifact/YbxGN4rxhF4wehG6yYeWej — *"I love it. Perfect so far."*)
+
+- **R19 Launcher shape approved; it draws UNDER the gun barrels** (*"It needs to render under the gun barrels, not over."*).
+- **R20 Hotbar pips approved, and the MAIN GUN gets the same treatment** (*"can you give the main gun the same treatment? This is excellent until I take a pass at the UI/UX."*). Reading: one pip per turret, one column, replacing the count badge.
+- **R21 Row labels:** HULL REPAIR's over-time row reads **"OVER 5S"**; SMOKE SCREEN's "LASTS" reads **"DURATION"**.
+- **R22 The kind words leave every card** (*"we can just get rid of the 'kind' words on all the cards, its not as necessary now that there are no consumables. They are all basically upgrades."*). Kind edge colors untouched (not asked).
+- **R23 Glyphs and the 4-over-4 results strip stand** until his design pass; **the results screen also shows the ship's numbers** (*"For the results screen also I want to see my ship numbers."*). Reading (shown to him on the rebuilt page): each index ladder shows the ship's final index value; HULL REPAIR and SMOKE SCREEN their final cooldown.
+- **R24 Card names:** `secondLauncherTube` prints **SECOND TUBE**, `aftTorpedoLauncher` prints **AFT LAUNCHER** (*"'SECOND TUBE' and 'AFT LAUNCHER' I guess."*) — supersedes the names in R6 on the card face.
+
 ## Implementer readings of record (Eric may veto any; none is a ruling)
 
 - **I1** RULED — see R16.
