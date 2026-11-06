@@ -897,7 +897,9 @@ function markSpendAcked(g: Game): void {
 /**
  * Clear the spend latch once spendOutcome() says it is no longer 'pending' —
  * the server ACKED it (markSpendAcked) or the bank shrank / the offer queue
- * shifted ('success'), or the own ship is gone / the fallback timeout elapsed
+ * shifted, or — for a REDRAW — the own row's `rd` reads used (Story 10.7 review
+ * gate: the receipt even for an identical hand) ('success'), or the own ship is
+ * gone / the fallback timeout elapsed
  * ('failed'). A pts INCREASE with an unchanged
  * front offer HOLDS the latch: Story 2.6's passive banking makes that routine
  * mid-flight, and the old "changed in ANY way" check released on it — re-opening

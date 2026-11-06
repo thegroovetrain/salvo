@@ -39,7 +39,8 @@
 // With it went amendment 94's "the offer is never empty": that rested on
 // consumables being dealt at their cap. An offer is now SHORT when fewer than
 // `CONFIG.offer.size` lines are eligible and EMPTY when none is (a hull holding
-// every ladder and its three slotted weapons at cap); `drawOffer` returns what
+// every ladder, its three slotted weapons at cap and every add-on it can
+// host); `drawOffer` returns what
 // there is, never a throw.
 //
 // EVERY ELIGIBLE LINE HAS AN OFFER TYPE (Story 10.7, Eric 2026-11-06, epic-10
@@ -82,9 +83,14 @@
 // amendment 91 — no other word for it appears anywhere). `lineWeight(n)` =
 // `max(floor, factor ** n)` where `n` counts the OTHER participants who have
 // taken copy 1 of that line this match. It bends only WHICH BARE WEAPON is
-// drawn (amendment 90): in the line walk a bare weapon weighs `weights.get(id)
-// ?? 1` and every other line — a tier card, a ladder, an add-on — weighs 1.
-// Copies 2+ never move anyone's weight, the taker's own weight is untouched,
+// drawn (amendment 90; and amendment 92's standing law, "the odds of drawing A
+// weapon are the same, but WHICH weapon it is gets weighted"). In the line walk
+// every non-bare line — a tier card, a ladder, an add-on — weighs 1, and the
+// BARE WEAPONS' raw weights (`weights.get(id) ?? 1`) are RESCALED TO SUM TO
+// THEIR COUNT: bare weapon i weighs w_i × nBare / sumBare (2026-11-06, Story
+// 10.7 review gate). So the chance a line pick lands on SOME bare weapon is
+// exactly their unweighted share, nBare / candidates, whatever the weights —
+// the weighting only moves WHICH bare weapon it is. Copies 2+ never move anyone's weight, the taker's own weight is untouched,
 // and a take is permanent for the match (the taker sinking restores nothing).
 // The take ledger itself lives on the World, server-side: this file only ever
 // receives the finished per-line weights.
@@ -307,9 +313,11 @@ export function eligibleLines(ship: DrawShip, catalog: Catalog = CATALOG): Eligi
  * at two, and floored at 0.25 from five takes on. Never zero: a line another
  * captain took is less likely, never impossible.
  *
- * It applies ONLY to BARE WEAPONS in the line walk: it never changes a slot's
- * type, never touches a tier card, a ladder or an add-on, and never touches
- * the taker's own weight (the World excludes the taker when it counts).
+ * It applies ONLY to BARE WEAPONS in the line walk, and only RELATIVE to one
+ * another (`pickLine` rescales them to sum to their count): it never changes a
+ * slot's type, never changes the odds that a pick is a bare weapon at all,
+ * never touches a tier card, a ladder or an add-on, and never touches the
+ * taker's own weight (the World excludes the taker when it counts).
  */
 export function lineWeight(takesByOthers: number, cfg: WeightingConfig = CONFIG.offer.weighting): number {
   return Math.max(cfg.floor, cfg.factor ** takesByOthers);
@@ -339,17 +347,40 @@ function slotType(plan: SlotPlan, remaining: readonly Eligible[], rng: Rng): Off
 }
 
 /**
+ * THE WALK WEIGHTS of a slot's candidates (2026-11-06, Story 10.7 review gate
+ * — amendment 92's law: the odds of A weapon are fixed, the weighting picks
+ * WHICH). Every non-bare line weighs 1. The bare weapons' raw weights
+ * (`weights.get(id) ?? 1`) are rescaled so they SUM TO THEIR COUNT — bare
+ * weapon i weighs w_i × nBare / sumBare — so the bare weapons together hold
+ * exactly their unweighted share of the walk. Defensive: if `sumBare` is not a
+ * finite positive number, every bare weapon weighs 1 (`lineWeight` has a
+ * positive floor, so the World never sends one).
+ */
+function walkWeights(candidates: readonly Eligible[], weights: Weights): number[] {
+  const raw = candidates.map((e) => (e.bareWeapon ? weights.get(e.id) ?? 1 : 1));
+  let nBare = 0;
+  let sumBare = 0;
+  candidates.forEach((e, i) => {
+    if (!e.bareWeapon) return;
+    nBare += 1;
+    sumBare += raw[i];
+  });
+  const scale = Number.isFinite(sumBare) && sumBare > 0 ? nBare / sumBare : undefined;
+  return candidates.map((e, i) => {
+    if (!e.bareWeapon) return 1;
+    return scale === undefined ? 1 : raw[i] * scale;
+  });
+}
+
+/**
  * WHICH line, within the slot's type. One `rng.next()`, a weighted walk in
- * catalog key order: a bare weapon weighs its WEIGHTING (absent = 1.0), every
- * other line 1. `candidates` is never empty here.
+ * catalog key order over `walkWeights`: every non-bare line 1, the bare
+ * weapons rescaled to sum to their count — so the weighting bends WHICH bare
+ * weapon, never WHETHER the pick is one. `candidates` is never empty here.
  */
 function pickLine(candidates: readonly Eligible[], weights: Weights, rng: Rng): LineId {
-  let total = 0;
-  const ws = candidates.map((e) => {
-    const w = e.bareWeapon ? weights.get(e.id) ?? 1 : 1;
-    total += w;
-    return w;
-  });
+  const ws = walkWeights(candidates, weights);
+  const total = ws.reduce((a, w) => a + w, 0);
   let r = rng.next() * total;
   for (let i = 0; i < candidates.length; i += 1) {
     r -= ws[i];
@@ -370,7 +401,8 @@ function pickLine(candidates: readonly Eligible[], weights: Weights, rng: Rng): 
  * gives an EMPTY one with no rng spent.
  *
  * `weights` is the World's per-line weighting for THIS ship (absent = 1.0); it
- * bends only which BARE WEAPON a line walk lands on, never a slot's type.
+ * bends only which BARE WEAPON a line walk lands on — never a slot's type, and
+ * never the odds that the walk lands on a bare weapon at all (`walkWeights`).
  */
 export function drawOffer(ship: DrawShip, weights: Weights, rng: Rng, catalog: Catalog = CATALOG): LineId[] {
   const eligible = eligibleLines(ship, catalog);

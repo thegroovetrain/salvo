@@ -24,7 +24,10 @@
 //       → Equipment) — a mechanism test, never a measured frequency.
 //   (6) WEIGHTING bends only WHICH BARE WEAPON: a weight on a bare weapon can
 //       move a scripted pick; a weight on a tier card or a ladder changes
-//       nothing, and no weight ever changes a slot's type.
+//       nothing, no weight ever changes a slot's type, and no weight moves the
+//       boundary between "a bare weapon" and "another line" in a line pick
+//       (the bare weapons are rescaled to sum to their count — amendment 92's
+//       law, 2026-11-06, Story 10.7 review gate).
 //   (7) ONE KIND PER SLOT (Story 10.5) over seeded random card histories.
 //
 // The kind-odds invariant (amendment 92), the "two rng per card" pin and the
@@ -657,6 +660,45 @@ describe('drawOffer — WEIGHTING bends only WHICH bare weapon (amendment 90)', 
     const weighted = drawOffer(bare, new Map([[candidates[0].id, TINY]]), scriptedRng(script).rng);
     expect(plain[1]).toBe(candidates[0].id);
     expect(weighted[1]).toBe(candidates[1].id);
+  });
+
+  it('a weighting NEVER moves the bare-weapon boundary of a line pick — only WHICH bare weapon lands (amendment 92; 2026-11-06, 10.7 review gate)', () => {
+    // Two families slotted (copy 1, below cap → their TIER cards and hosted
+    // add-ons are eligible), the last family EMPTY (its kinds are bare weapons).
+    const open = SLOT_FAMILIES[SLOT_FAMILIES.length - 1];
+    const held = SLOT_FAMILIES.filter((f) => f !== open).map((f) => WEAPON_LINES.find((id) => familyOfLine(id) === f)!);
+    const ship = shipOf(held);
+    const candidates = eligibleLines(ship).filter((e) => e.type === 'equipment');
+    const bareAt = candidates.flatMap((e, i) => (e.bareWeapon ? [i] : []));
+    const bareIds = bareAt.map((i) => candidates[i].id);
+    // Preconditions: the slot mixes bare weapons with other lines, and the bare
+    // weapons sit together in the walk (one family), so "is it bare?" for a
+    // scripted value is a fixed interval whose length is their unweighted share.
+    expect(bareAt.length).toBeGreaterThan(1);
+    expect(bareAt.length).toBeLessThan(candidates.length);
+    expect(bareAt[bareAt.length - 1] - bareAt[0]).toBe(bareAt.length - 1);
+    const { floor } = CONFIG.offer.weighting;
+    const lopsided: [string, Weights][] = [
+      ['every bare weapon at the floor', new Map(bareIds.map((id) => [id, floor]))],
+      ['one bare weapon at the floor, the rest at 1', new Map([[bareIds[0], floor]])],
+      ['one bare weapon near zero, the rest at 1', new Map([[bareIds[0], TINY]])],
+    ];
+    /** The Equipment card (slot 1) for a scripted line value `r`. */
+    const equipmentCard = (weights: Weights, r: number): LineId => drawOffer(ship, weights, scriptedRng([0, r]).rng)[1];
+    const isBare = (id: LineId): boolean => bareIds.includes(id);
+    const STEPS = 997; // midpoints of a prime grid: never exactly on a walk boundary
+    let movedWithinBare = false;
+    for (let k = 0; k < STEPS; k += 1) {
+      const r = (k + 0.5) / STEPS;
+      const plain = equipmentCard(NO_WEIGHTS, r);
+      for (const [label, weights] of lopsided) {
+        const weighted = equipmentCard(weights, r);
+        expect(isBare(weighted), `${label}, r ${r}`).toBe(isBare(plain));
+        if (!isBare(plain)) expect(weighted, `${label}, r ${r}`).toBe(plain);
+        movedWithinBare ||= weighted !== plain;
+      }
+    }
+    expect(movedWithinBare).toBe(true); // within the bare weapons, a low weight still moves the pick
   });
 
   it('a weight on any line that is NOT a bare weapon right now — a tier card, a ladder, an add-on — changes NOTHING', () => {

@@ -639,6 +639,16 @@ export function frontOfferSignature(you: { offer: string[] } | null | undefined)
   return you ? you.offer.join(',') : '';
 }
 
+/** What the latch reads off the own row: the bank, the front offer and the
+ *  server's redraw-used flag (`rd`, Story 10.7 R4 — absent reads as false). */
+export type LatchYou = { pts: number; offer: string[]; rd?: boolean };
+
+/** Pure: the latch is a REDRAW and the own row says the one redraw is used —
+ *  the server's own acknowledgement of it (clause (a3) below). */
+function redrawHonored(latch: SpendLatch, you: LatchYou): boolean {
+  return latch.choice === MULLIGAN_CHOICE && you.rd === true;
+}
+
 /**
  * Pure: may the FINDING A spend latch be released this frame? Released when
  *
@@ -668,14 +678,23 @@ export function frontOfferSignature(you: { offer: string[] } | null | undefined)
  * With `acked: false` the predicate is byte-for-byte the Story 2.6 rule (its
  * hold-through-passive-bank pins are load-bearing and stay green untouched);
  * Story 2.7 only ADDS the acked release.
+ *
+ *   (a3) a REDRAW latch (`choice === MULLIGAN_CHOICE`) whose own row reports
+ *       `rd === true` (2026-11-06, Story 10.7 review gate): the server's used
+ *       flag IS the redraw's receipt. The button can only be pressed while
+ *       `rd` is false, so `rd` true proves the server honored it — even when
+ *       the fresh draw deals the SAME cards (pts and signature unchanged),
+ *       which used to sit to the timeout and pulse "denied" under a pip that
+ *       already read spent. A card spend never reads `rd`.
  */
 export function spendLatchReleased(
   latch: SpendLatch,
-  you: { pts: number; offer: string[] } | null | undefined,
+  you: LatchYou | null | undefined,
   nowMs: number,
 ): boolean {
   if (!you) return true;
   if (latch.acked) return true;
+  if (redrawHonored(latch, you)) return true;
   if (nowMs - latch.at > SPEND_LATCH_TIMEOUT_MS) return true;
   if (you.pts < latch.pts) return true;
   return frontOfferSignature(you) !== latch.offerSig;
@@ -720,16 +739,19 @@ export type SpendOutcome = 'pending' | 'success' | 'failed';
  *
  * The ack outranks every inference, including the vanished own ship: a `bn` for
  * this spend is proof it landed, and a denied pulse would then contradict the
- * fitted toast the player already saw.
+ * fitted toast the player already saw. A REDRAW latch whose own row reads
+ * `rd === true` is likewise a 'success' (clause (a3) of spendLatchReleased —
+ * the server's used flag is the redraw's receipt, even for an identical hand).
  */
 export function spendOutcome(
   latch: SpendLatch,
-  you: { pts: number; offer: string[] } | null | undefined,
+  you: LatchYou | null | undefined,
   nowMs: number,
 ): SpendOutcome {
   if (!spendLatchReleased(latch, you, nowMs)) return 'pending';
   if (latch.acked) return 'success';
   if (!you) return 'failed';
+  if (redrawHonored(latch, you)) return 'success';
   return you.pts < latch.pts || frontOfferSignature(you) !== latch.offerSig ? 'success' : 'failed';
 }
 

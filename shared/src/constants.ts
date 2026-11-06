@@ -2868,7 +2868,9 @@ export const CONFIG = {
    * lines; a slot whose type is dry takes the other. It retired the two-stage
    * kind-share draw (amendment 92) and the level-zero weapon guarantee
    * (amendment 93). `weighting` below changes only WHICH bare weapon a line
-   * walk lands on, never a slot's type.
+   * walk lands on — never a slot's type, and never the odds that a pick is a
+   * bare weapon at all: the draw rescales the bare weapons' weights to sum to
+   * their count (2026-11-06, Story 10.7 review gate; amendment 92's law).
    *
    * THE WEIGHTING (amendment 90; named by amendment 91 — it is called
    * WEIGHTING): each OTHER participant, human or bot, who has taken COPY 1 of
@@ -2882,8 +2884,8 @@ export const CONFIG = {
    * amendment 11): amendment 94's "never empty" rested on the consumable
    * lines, which were dealt even at their cap, and they are gone. An offer is
    * SHORTER than `size` when fewer than `size` lines are still eligible for
-   * the ship, and empty once it holds every ladder and every slotted weapon at
-   * its cap (45 cards: six ladders and three slot weapons, five each). Since
+   * the ship, and empty once it holds every ladder, its three slotted weapons
+   * at cap and every add-on it can host. Since
    * Story 10.7 (R3) such a hull with nothing dealable BANKS NO LEVEL: its level
    * still counts, but nothing unspendable is ever banked.
    */

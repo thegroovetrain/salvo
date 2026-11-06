@@ -1374,6 +1374,39 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
   });
 });
 
+// STORY 10.7 REVIEW GATE (2026-11-06) — a REDRAW that deals the SAME four cards.
+// The server honors the redraw, but the fresh hand is byte-identical: pts and
+// the front signature never move, and a redraw fits nothing, so no `bn` ack
+// arrives. The own row's `rd` flag (the one redraw is used) IS the receipt —
+// the button could only be pressed while `rd` was false.
+describe('the REDRAW latch releases on the server\'s used flag (`rd`)', () => {
+  const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
+    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: MULLIGAN_CHOICE, acked: false, ...over,
+  });
+  const you = (rd: boolean) => ({ pts: 1, offer: [...OFFER], rd });
+  const soon = 1000 + SPEND_LATCH_TIMEOUT_MS / 2;
+  const late = 1000 + SPEND_LATCH_TIMEOUT_MS + 1;
+
+  it('an identical hand with `rd` true: released at once, a SUCCESS — never a denied pulse', () => {
+    expect(spendLatchReleased(latch(), you(true), soon)).toBe(true);
+    expect(spendOutcome(latch(), you(true), soon)).toBe('success');
+    expect(spendOutcome(latch(), you(true), late)).toBe('success');
+  });
+
+  it('with `rd` still false: held, then FAILED at the timeout (the server truly refused)', () => {
+    expect(spendLatchReleased(latch(), you(false), soon)).toBe(false);
+    expect(spendOutcome(latch(), you(false), soon)).toBe('pending');
+    expect(spendOutcome(latch(), you(false), late)).toBe('failed');
+  });
+
+  it('a CARD spend latch is unaffected by `rd`', () => {
+    const card = latch({ choice: 0 });
+    expect(spendLatchReleased(card, you(true), soon)).toBe(false);
+    expect(spendOutcome(card, you(true), soon)).toBe('pending');
+    expect(spendOutcome(card, you(true), late)).toBe('failed');
+  });
+});
+
 // --- THE GREYED CARD (Story 8.7, ruling 10 / UX-DR52) ---------------------------
 //
 // A card the server would refuse (a line at its cap; copy 1 of a weapon with
