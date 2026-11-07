@@ -42,7 +42,6 @@ import {
   type ShiftId,
   type IndexBonus,
   type GameMap,
-  type HullId,
   type OwnShip,
   type ResultsMsg,
   type ShipClassId,
@@ -53,12 +52,11 @@ import { createGameState, type GameState } from './state.js';
 import { applyCamera, createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom, stepZoom, type Point } from './render/camera.js';
-import { ShipView, contactStyle, isDroneHull, setHullFlashGate } from './render/ships.js';
+import { ShipView, setHullFlashGate } from './render/ships.js';
 import { relationOf, relationStroke, relationStyle, type Relation } from './render/relationColor.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
-import { setAggroFlashGate } from './render/aggro.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
-import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
+import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
@@ -66,6 +64,7 @@ import { clickInArc, isTorpedoItem, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
+import { Beacons, BEACON_COLOR } from './render/beacons.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
@@ -146,6 +145,7 @@ import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { ContactBodies } from './sim/contactBodies.js';
+import { BeaconBodies, beaconViewsFrom, isBeaconBodyId, type BeaconPlane, type BeaconView } from './sim/beaconView.js';
 import { ContactFx } from './render/contactFx.js';
 import { bleedSpeed } from './sim/contactBleed.js';
 import { InputSampler, type Aiming } from './sim/inputSampler.js';
@@ -167,7 +167,7 @@ import { injectTheme } from './ui/theme.js';
 import { epochLatchReset, heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
-import { fleetSizeName, pushKillLine } from './ui/killFeed.js';
+import { pushKillLine } from './ui/killFeed.js';
 import { pushUpgradeToast } from './ui/upgradeToast.js';
 import {
   closeResultsAsSpectate,
@@ -253,6 +253,13 @@ interface Game {
   /** The predictor's contact bodies (Story 9.5), rebuilt every render frame
    *  from the poses the contact renderer draws (sim/contactBodies.ts). */
   contactBodies: ContactBodies;
+  /** THE RADIO BEACONS (Story 10.8): this frame's live beacons, derived once
+   *  per render frame from the public schema (sim/beaconView.ts) — drawn by
+   *  `beacons` and handed to the predictor as immovable bodies by
+   *  `beaconBodies`. The array is reused frame to frame. */
+  beaconViews: BeaconView[];
+  beaconBodies: BeaconBodies;
+  beacons: Beacons;
   /** HULL CONTACT sparks + the grind scrape (render/contactFx.ts, Story 9.5) —
    *  render-only, read off the predictor's last live tick. */
   contactFx: ContactFx;
@@ -1146,8 +1153,10 @@ function handleConfirm(g: Game): void {
 }
 
 
-/** The public plane fields this client polls off the room schema. */
-interface PublicState {
+/** The public plane fields this client polls off the room schema. The
+ *  radio-beacon fields (Story 10.8: `beaconCycle`, `beaconCount`, `bcnN…`)
+ *  come in through `BeaconPlane` (sim/beaconView.ts). */
+interface PublicState extends BeaconPlane {
   zoneState?: string;
   zoneStartT?: number;
   zoneCurCx?: number;
@@ -1172,7 +1181,7 @@ interface PublicState {
     size: number;
     get(id: string): { name?: string; color?: number; kills?: number; alive?: boolean } | undefined;
     /** MapSchema iteration (roster scans: live-contestant count for placement).
-     *  `color` carries the drone sentinel, so placement can exclude drones. */
+     *  */
     forEach(fn: (meta: { id?: string; alive?: boolean; color?: number }) => void): void;
   };
 }
@@ -1284,84 +1293,15 @@ function rosterNameOrNull(g: Game, id: string): string | null {
  * A ship id's RELATION to this client (Story 10.4, Eric's ruling R6 —
  * render/relationColor.ts): own for our session id, enemy for everyone else.
  * The source of truth for every hull, wake, nameplate, kill-feed and contact-FX
- * color. A FLEET HULL also resolves here, but `contactStyle` routes a drone
- * HULL ID to the greys before the relation is ever read.
+ * color.
  */
 function relationFor(g: Game, id: string): Relation {
   return relationOf(id, g.state.net.sessionId);
 }
 
-/**
- * TRUE IFF `id` NAMES A PvE FLEET HULL — read off `Contact.cls` via the shared
- * `isDroneHull` predicate (Story 5.6, amendment 39).
- *
- * THE 255-SENTINEL CHANNEL IS GONE. The client used to detect drones through
- * TWO independent channels — a drone hull id on the contact, and the
- * `REGATTA_NO_HUE` roster hue — and taking fleet ships off the roster deleted
- * the second. Amendment 38 named that cost explicitly when it was ruled; this
- * function is where the remaining channel is centralised so no call site has to
- * know that history.
- *
- * IT READS THE HULL MEMO, NOT THE LIVE CONTACT (Story 5.6 follow-up ruling).
- * `classOf` goes undefined the tick a contact is pruned, which made a fleet hull
- * you sailed past and then MINED unidentifiable — and that is a Mine Layer's
- * ordinary playstyle rather than an edge case. `everSeenClassOf` remembers what
- * we actually observed and never forgets it; see its own note in
- * net/snapshots.ts for why this asserts nothing we did not see, and for the two
- * things it deliberately still refuses to guess.
- *
- * IT IS THE SECOND ANSWER, NOT THE FIRST (Eric ruling 2026-08-14). For OUR OWN
- * kills the wire now names the victim outright — `SunkEvent.vcls` — and carries
- * the SIZE with it, because *the size is the payout*. The memo keeps the case
- * `vcls` cannot reach: a fleet sinking we WITNESSED but were not credited with.
- * A hull that is neither our kill nor ever seen still answers `false`, and its
- * line still reads `UNKNOWN VESSEL` — we genuinely do not know what it was.
- */
-function isDroneId(g: Game, id: string): boolean {
-  const hull = g.contacts.everSeenClassOf(id);
-  return hull !== undefined && isDroneHull(hull);
-}
-
-/**
- * Kill-feed / MATCH LOG name for a vessel id — ONE resolver, shared by BOTH
- * surfaces (review-gate fix, Eric ruling 2026-08-14: *"if you actually die to
- * a drone, I DO want to see that in the end-game report... You SHOULD be
- * embarrassed"* — and, in the same ruling, *"SUNK BY SMALL DRONE is both
- * funnier and strictly more informative"* than plain `DRONE`, since the size
- * IS the payout, ¼/½/¾ of a level).
- *
- * A fleet hull sizes itself off the SAME ever-seen memo `isDroneId` reads —
- * `SMALL DRONE` / `MEDIUM DRONE` / `LARGE DRONE` via `fleetSizeName`; plain
- * `DRONE_PLATE_TEXT` is a defensive fallback only, unreachable today because
- * every hull id `isDroneHull` admits also has a `droneSizeOf` size — the two
- * predicates are kept in lockstep by construction, not by this call site.
- * Everyone else gets the synced roster callsign or null (the feed prints
- * `UNKNOWN_VESSEL`; the log omits the line). The hull half comes from the
- * memo, so a trap sprung long after the target aged out of sight still sizes.
- *
- * NAMEPLATES STAY UNSIZED — plain `DRONE`, by deliberate, separate ruling; do
- * not route this resolver into render/nameplates.ts.
- *
- * STEPS 2-3 OF THE VICTIM'S RESOLUTION ORDER (and the ONLY step for a
- * killer). Step 1 is `SunkEvent.vcls` — our own credited kill — which
- * outranks this and is ALSO sized, via the same `fleetSizeName`; step 4 is the
- * feed's `UNKNOWN_VESSEL`. All four resolve at the one place that holds the
- * event — net/roomBindings.ts `victimNameRef` — and THIS function is what
- * both the feed's killer name and the MATCH LOG's `killerName` call, so a
- * fleet hull that sank you can never read sized on one surface and plain on
- * the other.
- */
-function feedName(g: Game, id: string): string | null {
-  const hull = g.contacts.everSeenClassOf(id);
-  if (hull !== undefined && isDroneHull(hull)) return fleetSizeName(hull) ?? DRONE_PLATE_TEXT;
-  return rosterNameOrNull(g, id);
-}
-
 /** Kill-feed name color for a vessel id: the captain's RELATION stroke (Story
- *  10.4), drone-outline for a fleet hull, null for a roster miss (the feed
- *  leaves the name in text-secondary). */
+ *  10.4), null for a roster miss (the feed leaves the name in text-secondary). */
 function feedColor(g: Game, id: string): number | null {
-  if (isDroneId(g, id)) return CLIENT_CONFIG.colors.droneOutline; // drone grey
   if (publicState(g).players?.get(id) === undefined) return null; // roster miss
   return relationStroke(relationFor(g, id));
 }
@@ -1439,7 +1379,7 @@ function updateBounty(g: Game): void {
  * Own truesight nameplate (Story 1.13): resolve + latch the own callsign plate
  * once the roster syncs the own name + hue (the SAME roster source as the hull
  * color — own callsign comes from the roster, never localStorage), then float it
- * above the own hull at screen space, full alpha. Own is never a drone. The
+ * above the own hull at screen space, full alpha. The
  * caller (renderOwn) runs this after camera.update so the projection matches the
  * hull; the plate hides whenever the hull hides (spectate / forceSnap gap).
  */
@@ -1460,7 +1400,7 @@ function ownWreckPose(g: Game): RenderPose | null {
 function updateOwnPlate(g: Game, pose: RenderPose): void {
   const id = g.state.net.sessionId;
   if (!g.ownPlated) {
-    const r = latchPlate(false, rosterNameOrNull(g, id), relationStroke('own'), false);
+    const r = latchPlate(false, rosterNameOrNull(g, id), relationStroke('own'));
     if (r.plate) g.nameplates.set(id, r.plate.text, r.plate.color);
     g.ownPlated = r.latched;
   }
@@ -1670,7 +1610,6 @@ function handleSunkObserved(
   g: Game,
   victimId: string,
   killerId: string | null,
-  killerCls: HullId | undefined,
 ): void {
   g.score = recordSunk(
     g.score,
@@ -1681,23 +1620,13 @@ function handleSunkObserved(
       victimId,
       victimName: rosterNameOrNull(g, victimId),
       killerId,
-      victimIsDrone: isDroneId(g, victimId),
       // The MATCH LOG's stamp and killer name (Story 5.3, amendment 28). Both
       // are resolved HERE, at fold time, because both are perishable: the T+
       // clock only means anything at the moment the sinking is observed, and a
       // killer who leaves the roster later would no longer resolve to a name.
-      // `feedName`, not `rosterNameOrNull` (review-gate fix, Story 5.6
-      // follow-up): a PvE fleet hull has no roster row, so the roster lookup
-      // alone always resolved null and the MATCH LOG printed "SUNK BY UNKNOWN
-      // VESSEL" for a designed, common outcome of this feature while the kill
-      // feed — already on `feedName` — correctly read "DRONE SANK <you>". Both
-      // surfaces must agree about the same event.
-      // `?? fleetSizeName(killerCls)` (Story 7.6): the same second step the kill
-      // feed's killerNameRef takes, for a fleet killer this client never saw.
-      // Without it the feed would read `SUNK BY SMALL DRONE` while the modal's
-      // MATCH LOG read `SUNK BY UNKNOWN VESSEL` for the identical event.
+      // The same resolver the kill feed uses, so both surfaces agree.
       tMs: ownMatchTime(g),
-      killerName: killerId === null ? null : feedName(g, killerId) ?? fleetSizeName(killerCls),
+      killerName: killerId === null ? null : rosterNameOrNull(g, killerId),
     },
     g.state.net.sessionId,
   );
@@ -2740,12 +2669,6 @@ function armWorldFlashBudget(g: Game, camera: Camera, budget: FlashBudget): void
   const gate = new WorldFlashGate(budget, camera);
   g.effects.setFlashGate(gate);
   setHullFlashGate(gate);
-  // Story 5.6: the aggro bracket's ACQUIRE pop is an on-water one-shot at a
-  // world position, so it claims the same aggregate budget by the same rule
-  // (amendment 241 keeps world one-shots outside the tier system and answers
-  // them to render/flashBudget.ts). Over budget it loses the pop and keeps the
-  // bracket, which is the only part that carries information.
-  setAggroFlashGate(gate);
 }
 
 function buildGame(
@@ -2805,6 +2728,9 @@ function buildGame(
     contacts: new ContactStore(),
     predictor: makePredictor(map, cls),
     contactBodies: new ContactBodies(),
+    beaconViews: [],
+    beaconBodies: new BeaconBodies(),
+    beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
     contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
     lastBleedMs: -Infinity,
     camera,
@@ -2812,11 +2738,7 @@ function buildGame(
     mouse,
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
-    // Story 5.6: the aggro bracket's two stings. The renderer detects the edge
-    // (it is the only thing holding per-hull lock state) and calls back with the
-    // TRANSITION; the sound stays here, on the data flow's audio side, so
-    // render/ never reaches into audio/.
-    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease'), (x, y) => countermeasure.coverAt(x, y)),
+    contactViews: new ContactViews(stage.layers.ship, nameplates, (x, y) => countermeasure.coverAt(x, y)),
     nameplates,
     // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
     // the one shared wake ribbon, pulled by `wakeHulls` from
@@ -3111,11 +3033,8 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // The FEED's name lookup is the nullable resolver, NOT rosterName: a
     // departed vessel must render the feed's neutral UNKNOWN_VESSEL label
     // (roomBindings.handleSunk), never the raw-session-id fallback — the same
-    // rule the score card already applies (handleSunkObserved below). Story 5.6
-    // routes it through `feedName` so a PvE fleet hull — which has no roster row
-    // at all any more (amendment 39) — reads `DRONE` rather than falling into
-    // that neutral label.
-    names: (id) => feedName(g, id),
+    // rule the score card already applies (handleSunkObserved below).
+    names: (id) => rosterNameOrNull(g, id),
     // The kill-feed name color (Story 10.4: the relation color).
     colors: (id) => feedColor(g, id),
     // Story 10.4: the own turrets + secondaries heat, corrected per own frame.
@@ -3127,7 +3046,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     },
     // Every observed sinking feeds the personal-score accumulator; our own
     // sinking in a live match opens the elimination modal (amendments 22/23).
-    onSunkObserved: (victimId, killerId, killerCls) => handleSunkObserved(g, victimId, killerId, killerCls),
+    onSunkObserved: (victimId, killerId) => handleSunkObserved(g, victimId, killerId),
     // The `bn` fitted event is the spend latch's ack (Story 2.7 review): mark
     // the latch in flight so it releases as a SUCCESS even when a same-frame
     // passive bank + an identical re-roll hide every other landing signal.
@@ -3206,7 +3125,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * Story 4.12).
  *
  * Own predicted pose first (or nothing, spectating), then every contact —
- * captains and drones alike, at the SAME interp-delayed time the hull renderer
+ * every captain, at the SAME interp-delayed time the hull renderer
  * samples them at, so the foam lands on the hull the player can see rather than
  * ~100ms ahead of it.
  *
@@ -3218,8 +3137,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * ruling (amendment 123), not papered over.
  *
  * Each source carries its own tint, resolved off the SAME roster the hull's
- * silhouette reads (`contactStyle` → drone grey for the 255 sentinel, the
- * personal hue otherwise), so a wake is never a different colour from the ship
+ * silhouette reads (the relation color), so a wake is never a different colour from the ship
  * that made it.
  *
  * AND EVERY LIVE TORPEDO IS A SOURCE TOO (cycle-69 review gate, P10). A fish's
@@ -3260,7 +3178,7 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
     if (s === null || s === undefined || cls === undefined) continue;
     out.push({
       id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls,
-      color: contactStyle(cls, relationFor(g, id)).stroke,
+      color: relationStroke(relationFor(g, id)),
     });
   }
   return out;
@@ -3322,7 +3240,7 @@ function renderOwn(
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
   // EVERY VISIBLE HULL LAYS A WAKE (amendment 199) — own predicted pose plus
-  // every truesight contact, drones included. Before Story 4.12 this passed the
+  // every truesight contact. Before Story 4.12 this passed the
   // own pose alone and enemy hulls glided across the water leaving nothing.
   g.effects.update(frameDt, now, wakeHulls(g, pose, now));
   g.lastOwn = { x: pose.x, y: pose.y };
@@ -4477,7 +4395,7 @@ function renderAlive(
   g.fog.update(hole.x, hole.y);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
   // ...and everything that renders ABOVE that fog carries its feather itself:
-  // the hull, its aggro bracket, and — since this cycle's lift — its NAMEPLATE.
+  // the hull and — since this cycle's lift — its NAMEPLATE.
   // Built from the SAME pose, the same effective sight radius and the same owned
   // zones the two lines above use, so the surfaces cannot disagree about where
   // the bubble ends.
@@ -4914,6 +4832,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
+      renderBeacons(g, now); // public: the same for a captain and a spectator
       // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
       // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
       // ribbon laid while dead was observed with no sight bubble and no island
@@ -4958,9 +4877,22 @@ function feedContactBodies(g: Game, now: number): void {
     p.setContacts(NO_CONTACT_BODIES);
     return;
   }
-  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId));
+  const beacons = g.beaconBodies.build(g.beaconViews); // Story 10.8: solid beacons, immovable
+  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId, beacons));
 }
 const NO_CONTACT_BODIES: readonly ContactBody[] = [];
+
+/**
+ * THE RADIO BEACONS (Story 10.8), once per render frame after the camera
+ * moved: derive this frame's live set from the public schema against the
+ * server clock (sim/beaconView.ts — the shared lifecycle, never re-derived),
+ * then draw it (render/beacons.ts). The pulse is decoration: it alone reads
+ * the motion setting.
+ */
+function renderBeacons(g: Game, now: number): void {
+  beaconViewsFrom(publicState(g), now, g.beaconViews);
+  g.beacons.render(g.beaconViews, now, g.camera.zoom, motionIntensity(settings.current.motion));
+}
 
 /**
  * HULL CONTACT legibility for this frame (Story 9.5, amendment 79): the
@@ -5004,8 +4936,8 @@ function stampContactBleeding(g: Game, live: boolean, nowMs: number): void {
 
 /** The other hull's color for a strike spark — the color its hull is drawn in. */
 function contactFxColor(g: Game, id: string): number {
-  const cls = g.contacts.classOf(id);
-  return cls === undefined ? relationStroke(relationFor(g, id)) : contactStyle(cls, relationFor(g, id)).stroke;
+  if (isBeaconBodyId(id)) return BEACON_COLOR; // a radio beacon's own linework (Story 10.8)
+  return relationStroke(relationFor(g, id));
 }
 
 /**

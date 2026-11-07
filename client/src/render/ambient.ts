@@ -53,7 +53,8 @@ import { Effects } from './effects.js';
 import { Fog } from './fog.js';
 import { buildMap, type MapChart } from './map.js';
 import { Radar } from './radar.js';
-import { ShipView, contactStyle, type ShipStyle } from './ships.js';
+import { ShipView, type ShipStyle } from './ships.js';
+import { relationStyle } from './relationColor.js';
 import { applyCamera, type Stage, type StageLayers } from './stage.js';
 import { WakeSources, type WakeHull } from './wake.js';
 import {
@@ -305,7 +306,7 @@ export class AmbientScene {
     this.fog = new Fog(stage.fogSprite);
     this.fog.setSightRange(stats.sightRange, stats.radarRange);
     for (const h of this.world.hulls) {
-      const style = contactStyle(h.cls, h.relation);
+      const style = relationStyle(h.relation);
       this.styles.set(h.id, style);
       const view = new ShipView(style, h.cls);
       stage.layers.ship.addChild(view.gfx);
@@ -493,7 +494,7 @@ export class AmbientScene {
         // that knows the fleet stopped.
         speed: tick.travelSec > 0 ? pose.speed : 0,
         cls: h.cls,
-        color: (this.styles.get(h.id) ?? contactStyle(h.cls, h.relation)).stroke,
+        color: (this.styles.get(h.id) ?? relationStyle(h.relation)).stroke,
       });
     }
   }

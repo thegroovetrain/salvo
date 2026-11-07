@@ -5,16 +5,9 @@
 // capped at MAX_LINES.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { KILL_LEADER_MARK, bountyClaimLine, bountyKillLine } from '../ui/bounty.js';
-import { UNKNOWN_VESSEL, fleetSizeName, killLine, ellipsizeName, pinDroneColor, pushKillLine } from '../ui/killFeed.js';
-import { DRONE_PLATE_TEXT } from '../render/nameplates.js';
-import { ContactStore } from '../net/snapshots.js';
-import { isDroneHull } from '../render/ships.js';
-import { CLIENT_CONFIG } from '../config.js';
-import { cssHex, cssRgba, textSafe } from '../util/color.js';
-import { DEFAULT_CLASS_ID, SHIP_CLASS_IDS, type HullId } from '@salvo/shared';
+import { killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
+import { cssRgba, textSafe } from '../util/color.js';
 
 describe('ellipsizeName — mid-ellipsize > 14 code points to exactly 14', () => {
   it('leaves names of 14 chars or fewer untouched', () => {
@@ -130,19 +123,6 @@ describe('the kill-leader feed registers render through the shipped adapter', ()
     expect(span.style.textShadow).toBe(ref.style.textShadow);
   });
 
-  it('a DRONE name NEVER glows — even if a leader flag somehow reached it', () => {
-    // A drone can never hold the throne (captain kills only); the adapter
-    // enforces it independently, so a bad flag cannot glow the pinned grey.
-    const droneOutline = CLIENT_CONFIG.colors.droneOutline;
-    pushKillLine([{ text: `${KILL_LEADER_MARK} DRONE`, id: 'd', leader: true }], () => droneOutline);
-    const span = feed().firstChild!.firstChild as HTMLSpanElement;
-    expect(span.style.textShadow).toBe('');
-    // ...and the drone grey stays pinned verbatim, un-lightened.
-    const ref = document.createElement('span');
-    ref.style.color = cssHex(droneOutline);
-    expect(span.style.color).toBe(ref.style.color);
-  });
-
   it('an UNMARKED name never glows — the flag is the only license', () => {
     pushKillLine(killLine({ name: 'ALPHA', id: 'a' }, null), () => 0x00d0ff);
     const span = feed().firstChild!.firstChild as HTMLSpanElement;
@@ -173,22 +153,6 @@ describe('pushKillLine — DOM span building', () => {
     expect(spans[1].style.fontWeight).toBe(''); // ' SUNK BY ' connective
     expect(spans[1].style.color).toBe('');
     expect(spans[2].style.fontWeight).toBe('600'); // killer name
-  });
-
-  it('pins a DRONE name to the droneOutline token VERBATIM (never run through textSafe)', () => {
-    // The name is the bare literal `DRONE` since Story 5.6 (amendment 39: "a
-    // fleet sinking reads DRONE, never DRONE-07") — fleet hulls hold no roster
-    // row, so the feed sources the label from the hull exactly as the nameplate
-    // always has.
-    const droneOutline = CLIENT_CONFIG.colors.droneOutline;
-    pushKillLine(killLine({ name: 'DRONE', id: 'd' }, null), () => droneOutline);
-    const span = feed().firstChild!.firstChild as HTMLSpanElement;
-    // jsdom normalizes color strings, so compare against a reference span set to
-    // the raw token — the drone name must render the token itself, un-lightened.
-    const ref = document.createElement('span');
-    ref.style.color = cssHex(droneOutline);
-    expect(span.style.color).toBe(ref.style.color);
-    expect(span.style.fontWeight).toBe('600');
   });
 
   it('leaves a roster-miss name (color null) uncolored — inherits text-secondary', () => {
@@ -225,187 +189,5 @@ describe('pushKillLine — DOM span building', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-});
-
-// THE VICTIM'S NAME — the full four-step resolution order (Eric rulings
-// 2026-08-14, layered over the Story 5.6 hull memo; the second same-day ruling
-// sized step 2, which used to answer plain DRONE — review-gate fix).
-//
-//   1. `SunkEvent.vcls`  → SMALL / MEDIUM / LARGE DRONE  (our own kills only)
-//   2. the HULL MEMO     → SMALL / MEDIUM / LARGE DRONE  (witnessed, uncredited)
-//   3. the roster CALLSIGN
-//   4. UNKNOWN VESSEL
-//
-// The KILLER's order (Story 7.6, Eric ruling 2026-08-21) is the MIRROR of it,
-// with the first two steps swapped because `kcls` is observer-INDEPENDENT and
-// so never the more specific answer:
-//
-//   1. the HULL MEMO / roster CALLSIGN   (≡ main.ts `feedName`)
-//   2. `SunkEvent.kcls`  → SMALL / MEDIUM / LARGE DRONE  (a fleet killer we
-//                                                        never saw)
-//   3. UNKNOWN VESSEL   — which, after 7.6, can only ever be a fleet hull
-//
-// The order itself lives in net/roomBindings.ts `victimNameRef`, which holds the
-// event; it is not exported, so this models the identical composition from its
-// three real parts — `fleetSizeName`, a real `ContactStore`, and a roster stub.
-// If the production order ever changes, these expectations are what should have
-// to change with it.
-//
-// THIS SAME `names` FUNCTION IS main.ts `feedName` — the ONE resolver Eric's
-// review-gate fix routed BOTH the kill feed's killer segment (`feedNameRef`)
-// AND the MATCH LOG's `killerName` (main.ts `handleSunkObserved`) through, so
-// the two surfaces can never disagree about the same event again. See the
-// pinning test at the end of this block.
-describe('the kill feed names its victim: vcls, then the memo, then the roster', () => {
-  const store = new ContactStore();
-  const roster: Record<string, string> = { cap: 'SALT SHAKER' };
-
-  /** main.ts `feedName`, verbatim: a fleet hull sizes off the memo via
-   *  `fleetSizeName` (falling back to the unsized `DRONE_PLATE_TEXT` only if a
-   *  hull `isDroneHull` admits somehow has no `droneSizeOf` size — unreachable
-   *  today), else the roster callsign, else null. */
-  const names = (id: string): string | null => {
-    const hull = store.everSeenClassOf(id);
-    if (hull !== undefined && isDroneHull(hull)) return fleetSizeName(hull) ?? DRONE_PLATE_TEXT;
-    return roster[id] ?? null;
-  };
-  /** roomBindings `victimNameRef`, verbatim. */
-  const victimName = (id: string, vcls?: HullId): string =>
-    fleetSizeName(vcls) ?? names(id) ?? UNKNOWN_VESSEL;
-  /** roomBindings `killerNameRef`, verbatim — the KILLER's three-step order
-   *  (Story 7.6). It is the MIRROR of the victim's, with the first two steps
-   *  SWAPPED: the memo/roster answers FIRST, then `SunkEvent.kcls`, then the
-   *  neutral label. `kcls` is observer-INDEPENDENT (unlike `vcls`, which is
-   *  stamped for the credited killer alone), so it is never the more specific
-   *  answer — putting the memo first keeps every already-working case
-   *  byte-identical. A killer never gets a `vcls`. */
-  const killerName = (id: string, kcls?: HullId): string => names(id) ?? fleetSizeName(kcls) ?? UNKNOWN_VESSEL;
-
-  const sight = (id: string, cls: HullId): void => {
-    store.pushFrame(100, [{ id, x: 0, y: 0, heading: 0, speed: 0, cls }]);
-  };
-
-  it('names OUR OWN kill by SIZE for each of the three fleet hulls, unseen or not', () => {
-    // The whole reason the wire field exists: you can mine a fleet ship you
-    // never once saw, and the size IS the payout (1/4, 1/3, 1/2 of a level).
-    const sizes: HullId[] = ['droneSmall', 'droneMedium', 'droneLarge'];
-    const named = sizes.map((cls) => {
-      const id = `never-seen-${cls}`;
-      expect(store.everSeenClassOf(id)).toBeUndefined(); // never in our contact set
-      expect(fleetSizeName(cls)).not.toBeNull();
-      expect(victimName(id, cls)).toBe(fleetSizeName(cls));
-      return victimName(id, cls);
-    });
-    expect(new Set(named).size).toBe(3); // three sizes, three distinct names
-  });
-
-  it('vcls and the memo agree on SIZE — both steps answer the sized name (review-gate fix)', () => {
-    // Before the review-gate fix, step 2 (the memo, no `vcls`) answered plain
-    // `DRONE`, so vcls "outranking" it was also a SIZE upgrade, not just a
-    // priority tiebreak between two equally-precise sources. Now both steps
-    // are sized off the same `fleetSizeName`, so the outrank is pure priority:
-    // vcls still wins on a row that carries it, but the two answers coincide.
-    sight('f-seen', 'droneMedium');
-    expect(victimName('f-seen')).toBe(fleetSizeName('droneMedium')); // step 2 on its own, SIZED
-    expect(victimName('f-seen', 'droneMedium')).toBe(fleetSizeName('droneMedium')); // step 1, same answer
-  });
-
-  it('a fleet sinking we WITNESSED but did not cause reads its SIZE (no vcls, review-gate fix)', () => {
-    // No `vcls` — the server stamps it only for the credited killer — so the
-    // memo answers, sized, and it still answers sized after the hull has aged
-    // out of the live contact set (the mined-trap case: `everSeenClassOf`
-    // outlives `classOf`).
-    sight('f-other', 'droneLarge');
-    expect(victimName('f-other')).toBe(fleetSizeName('droneLarge'));
-    store.prune(100_000, 500);
-    expect(store.classOf('f-other')).toBeUndefined();
-    expect(victimName('f-other')).toBe(fleetSizeName('droneLarge')); // the mined-trap case
-  });
-
-  it('never renames a CAPTAIN: fleetSizeName is null for every non-drone hull', () => {
-    for (const cls of SHIP_CLASS_IDS) expect(fleetSizeName(cls)).toBeNull();
-    expect(fleetSizeName(undefined)).toBeNull();
-    // ...so a captain victim keeps their callsign even on a row carrying vcls.
-    expect(victimName('cap', DEFAULT_CLASS_ID)).toBe('SALT SHAKER');
-  });
-
-  it('falls through to UNKNOWN VESSEL only for a hull that is neither ours nor seen', () => {
-    expect(victimName('ghost')).toBe(UNKNOWN_VESSEL);
-  });
-
-  // ---- Story 7.6: SunkEvent.kcls, the killer's step 2 -----------------------
-  it('names a NEVER-SEEN fleet killer by SIZE off kcls — the whole point of the field', () => {
-    // Eric 2026-08-21: *"Yes I want to see that Bob was killed by SMALL DRONE if
-    // that's what happened."* A captain's sinking is PUBLIC, so this line
-    // renders on every client in the room, most of whom never had the killer in
-    // their bubble — the memo is empty for them and only the wire can answer.
-    for (const cls of ['droneSmall', 'droneMedium', 'droneLarge'] as const) {
-      const id = `never-seen-killer-${cls}`;
-      expect(store.everSeenClassOf(id)).toBeUndefined();
-      expect(killerName(id)).toBe(UNKNOWN_VESSEL); // without the field: the old answer
-      expect(fleetSizeName(cls)).not.toBeNull();
-      expect(killerName(id, cls)).toBe(fleetSizeName(cls)); // with it: named by size
-    }
-  });
-
-  it('the MEMO OUTRANKS kcls, and the two agree anyway (step 1 before step 2)', () => {
-    sight('f-both', 'droneLarge');
-    expect(killerName('f-both')).toBe(fleetSizeName('droneLarge')); // step 1 alone
-    expect(killerName('f-both', 'droneLarge')).toBe(fleetSizeName('droneLarge')); // step 1 still wins, same answer
-  });
-
-  it('kcls can NEVER rename a captain — two independent reasons', () => {
-    // (1) the server stamps the field only for a `role === 'fleet'` killer, so
-    // a captain's class never reaches this resolver at all; and (2) even if one
-    // did, `fleetSizeName` is null for every non-drone hull, and the roster
-    // callsign already won at step 1 regardless.
-    for (const cls of SHIP_CLASS_IDS) {
-      expect(fleetSizeName(cls)).toBeNull();
-      expect(killerName('cap', cls)).toBe('SALT SHAKER');
-      expect(killerName('ghost', cls)).toBe(UNKNOWN_VESSEL); // and no captain hull is ever named
-    }
-  });
-
-  it('PINNING (Story 7.6): main.ts actually folds kcls into the MATCH LOG name', () => {
-    // The model above is only a model. main.ts is the app entry point (Pixi
-    // stage, DOM chrome, a live socket), so the wiring itself is pinned by
-    // reading the source — the resumeWiring/sessionLock/projectiles technique.
-    // Without this line the feed would read `SUNK BY SMALL DRONE` while the
-    // results modal's MATCH LOG read `SUNK BY UNKNOWN VESSEL` for the identical
-    // event: the exact feed-vs-log disagreement the Story 5.6 review gate
-    // already caught once.
-    const src = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
-    const start = src.indexOf('function handleSunkObserved(');
-    expect(start).toBeGreaterThan(-1);
-    const body = src.slice(start, src.indexOf('\n}\n', start));
-    expect(body).toContain('feedName(g, killerId) ?? fleetSizeName(killerCls)');
-  });
-});
-
-describe('a vcls-named fleet victim keeps the drone grey (pinDroneColor)', () => {
-  beforeEach(() => {
-    document.getElementById('kill-feed')?.remove();
-  });
-
-  const feed = (): HTMLElement => document.getElementById('kill-feed') as HTMLElement;
-  const grey = CLIENT_CONFIG.colors.droneOutline;
-
-  it('pins ONLY the victim id and defers every other id to the shipped resolver', () => {
-    const base = (id: string): number | null => (id === 'k' ? 7 : null);
-    const pinned = pinDroneColor('v', base);
-    expect(pinned('v')).toBe(grey); // the victim the roster/contact set both miss
-    expect(pinned('k')).toBe(7); // the killer resolves exactly as before
-    expect(pinned('other')).toBeNull();
-  });
-
-  it('renders that grey VERBATIM, un-lightened, exactly as a seen drone always has', () => {
-    pushKillLine(killLine({ name: 'SMALL DRONE', id: 'v' }, null), pinDroneColor('v', () => null));
-    const span = feed().firstChild!.firstChild as HTMLSpanElement;
-    const ref = document.createElement('span');
-    ref.style.color = cssHex(grey); // NOT textSafe(grey) — the drone token is pinned
-    expect(span.style.color).toBe(ref.style.color);
-    expect(span.style.fontWeight).toBe('600');
-    expect(span.style.textShadow).toBe(''); // a drone can never glow as kill leader
   });
 });

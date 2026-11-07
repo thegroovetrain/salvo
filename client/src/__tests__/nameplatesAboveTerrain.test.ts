@@ -17,8 +17,8 @@
 //      of the bubble — which is what DESIGN.md's Nameplate row means by "they
 //      fade in/out with truesight resolution". `chartRoot` is above `fogSprite`,
 //      so the plate's alpha is now `fader × softness`, the SAME per-frame
-//      `HullSoftness` product the hull (contacts.ts) and the aggro mark already
-//      wear. Identical bill, identical payment, to epic-5 amendment 22's hull
+//      `HullSoftness` product the hull (contacts.ts) already
+//      wears. Identical bill, identical payment, to epic-5 amendment 22's hull
 //      lift — with ONE deliberate difference, pinned below: the feather is
 //      sampled at the HULL's world pose, not at the plate's own offset
 //      position, so a label fades with the thing it labels rather than
@@ -196,9 +196,9 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
     expect(EVERY_ROOT_PLACED).toBe(true);
   });
 
-  it('the world layers stack ocean → wake → projectile → mines, and the HUD vignette → hud → foghorn', () => {
+  it('the world layers stack ocean → wake → beacon bodies → projectile → mines, and the HUD vignette → hud → foghorn', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'projectile', 'mineWorld', // the buoy layer went with the buoys (Story 10.5)
+      'ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', // the buoy layer went with the buoys (Story 10.5); beacons Story 10.8
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
   });
@@ -439,28 +439,28 @@ describe('NameplateLayer.place writes the composed alpha', () => {
 // feather fail loudly instead of coincidentally agreeing.
 describe('drivePlate samples the feather at the hull pose, and multiplies it in', () => {
   const WORLD = { x: 40, y: -20 };
-  const droneContact = (): Contact[] => [
-    { id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' },
+  const rivalContact = (): Contact[] => [
+    { id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'bismarck' },
   ];
   // screen != world, by construction.
   const camera = {
     worldToScreen: (p: { x: number; y: number }) => ({ x: p.x * 3 + 1000, y: p.y * 3 - 500 }),
     zoom: 1,
   };
-  const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
   const relationOf = (): Relation => 'enemy';
 
   const drive = (softnessValue: number) => {
     textLog.length = 0;
     const shipLayer = new Container();
-    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {});
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()));
     const store = new ContactStore();
     const seen: { x: number; y: number }[] = [];
     const softness = (x: number, y: number): number => {
       seen.push({ x, y });
       return softnessValue;
     };
-    store.pushFrame(0, droneContact());
+    store.pushFrame(0, rivalContact());
     views.render(store, 0, 0, 16, relationOf, plateFrame, softness);
     return { seen, shipLayer };
   };
@@ -503,9 +503,9 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     const withFeather = textLog[0].alpha;
     textLog.length = 0;
     const shipLayer = new Container();
-    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {});
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()));
     const store = new ContactStore();
-    store.pushFrame(0, droneContact());
+    store.pushFrame(0, rivalContact());
     views.render(store, 0, 0, 16, relationOf, plateFrame); // softness omitted => NO_SOFTENING
     expect(textLog[0].alpha, 'a full feather changes nothing').toBeCloseTo(withFeather, 12);
   });
@@ -519,7 +519,7 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
 describe('a nameplate under thick countermeasure paint is hidden; the hull never is', () => {
   const WORLD = { x: 40, y: -20 };
   const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
-  const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
   const HIDE = CLIENT_CONFIG.countermeasure.plateHideAlpha;
 
   const drive = (cover: number) => {
@@ -530,9 +530,9 @@ describe('a nameplate under thick countermeasure paint is hidden; the hull never
       sampled.push({ x, y });
       return cover;
     };
-    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {}, coverAt);
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), coverAt);
     const store = new ContactStore();
-    store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' }]);
+    store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'bismarck' }]);
     views.render(store, 0, 0, 16, () => 'enemy', plateFrame);
     const hull = shipLayer.children[0];
     return { plate: textLog[0], hull: { alpha: hull.alpha, visible: hull.visible }, sampled };
