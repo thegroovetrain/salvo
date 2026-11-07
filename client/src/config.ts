@@ -935,48 +935,62 @@ export const CLIENT_CONFIG = {
    * are shared `CONFIG.beacons`. IMPLEMENTER DRAFTS pending Eric's yes on the
    * rendered candidate (the spec's Block-If).
    *
-   * Linework is `silver` — DESIGN.md's token for "chart rings, idle outlines,
-   * neutral linework"; never phosphor (a phosphor-ish mark on the water reads
-   * as a radar return), never amber (warning), never purple (the storm's).
-   * Phase is coded by STYLE, not hue: DASHED while only charted (the storm
-   * plane's solid-current / dashed-future grammar), SOLID once it is in the
-   * water; the sink is a fade. Stroke widths and the marker are SCREEN px
-   * divided by the camera zoom (the zone/terrain `strokeWorldWidth` rule), so
-   * the marker reads at every zoom up to the whole-ring intel view.
+   * THE LOOK (Eric 2026-11-07: "What does this radio beacon look like? Make
+   * that."): a LARGE NAVIGATION BUOY seen from directly above, at true size,
+   * drawn like the battleship hulls — skin fills under linework. The hull is
+   * the shared `beaconPolygon` octagon itself, so the drawn edge IS the hit
+   * edge. Linework is `silver` (DESIGN.md: neutral linework — a beacon is no
+   * one's, so never a relation color, never phosphor, amber or purple).
+   *
+   * Phase is coded by STYLE, not hue: the chart icon is a DASHED outline with
+   * no fills while only charted (the storm plane's dashed-future grammar),
+   * the solid painted buoy once it is in the water; the sink is the hull's
+   * settle (ship `hullLook`) plus a fade. Chart widths are SCREEN px divided
+   * by the camera zoom (`strokeWorldWidth`); the water body's are world units
+   * (fractions of the body radius), like the hull art.
    */
   beacons: {
-    /** The marker / body design under review: 'station' (a chart station
-     *  circle + centre dot over a plain octagon) or 'transmitter' (a centre
-     *  dot with broadcast arcs over an octagon with guy-line spokes). One is
-     *  deleted once Eric picks. */
-    glyph: 'station' as 'station' | 'transmitter',
-    /** The marker's radius (screen px). */
-    markerPx: 7,
-    /** The marker never sits tighter than this multiple of the body radius,
-     *  so at close zoom it frames the hull instead of covering it. */
-    bodyClearance: 1.75,
-    /** The centre dot's radius (screen px). */
-    dotPx: 2,
-    markerStrokePx: 1.5,
+    /** THE CHART ICON's side (screen px): the same buoy from above at a
+     *  constant size, so it reads at every zoom out to the whole-ring view.
+     *  HANDOVER: once the real buoy would draw larger than this, the icon
+     *  hides and the true-size buoy on the water is what you see. */
+    iconPx: 16,
+    /** Chart icon linework (screen px): the hull rim and the inner lines. */
+    iconRimPx: 1.25,
+    iconInnerPx: 0.75,
+    /** The icon's light never shrinks under this radius (screen px). */
+    iconLampMinPx: 1.5,
+    /** Dash / gap (screen px) of the icon's rim while only charted. */
+    iconDashPx: 3,
+    iconGapPx: 2,
     ringStrokePx: 1.5,
-    bodyStrokePx: 1.5,
-    /** Marker alpha while only charted (signal, nothing in the water) / live. */
-    markerChartedAlpha: 0.5,
-    markerLiveAlpha: 0.9,
-    /** Range-ring alpha while only charted / live — subordinate to the marker
+    /** Icon linework alpha while only charted (nothing in the water) / live. */
+    markerChartedAlpha: 0.6,
+    markerLiveAlpha: 0.95,
+    /** Range-ring alpha while only charted / live — subordinate to the icon
      *  and to the storm edge. */
     ringChartedAlpha: 0.3,
     ringLiveAlpha: 0.5,
-    /** Dash count and lit fraction of the charted range ring and marker. */
+    /** Dash count and lit fraction of the charted range ring. */
     ringDashes: 72,
-    markerDashes: 8,
     dashDuty: 0.5,
+    /** The water body's linework as fractions of the body radius: the hull
+     *  rim (bold, like a hull outline) and every inner line. */
+    rimLineFrac: 0.1,
+    innerLineFrac: 0.035,
+    /** The deck rail's alpha (a hairline, quieter than the rim). */
+    railAlpha: 0.6,
+    /** THE SKIN — the battleship greys (`skins`): a dark fender/hull side, a
+     *  steel-grey deck, near-black-navy solar panels, a dark lattice tower and
+     *  the white light at the masthead. */
+    skin: { fender: 0x2f3539, deck: 0x6f787e, panel: 0x1f2f42, tower: 0x3f474c, lamp: 0xe2e8f0 },
     /** DECORATION ONLY (scaled by the motion setting, gone at `off`): a
-     *  transmission ring growing `pulseGrowPx` out from the marker every
-     *  `pulsePeriodMs` while the beacon is in the water. */
+     *  broadcast ring growing `pulseGrowPx` out from the buoy's edge every
+     *  `pulsePeriodMs` while it is in the water. */
     pulsePeriodMs: 2400,
     pulseGrowPx: 16,
     pulseAlpha: 0.45,
+    pulseStrokePx: 1.25,
     /** Re-stroke throttle: a zoom change under this fraction keeps the drawn
      *  linework (the zone/terrain discipline). */
     redrawZoomFrac: 0.02,

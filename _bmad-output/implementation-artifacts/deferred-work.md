@@ -3752,7 +3752,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   evidence: `client/src/how-to-play/copy.ts`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
-  status: open - PROVISIONAL pending Eric's ruling on the rendered candidate - 2026-11-07 (Story 10.8, epic-10 amendment 14 (q))
+  status: CLOSED 2026-11-07 - RULED by Eric on the third candidate (epic-10 amendment 14 (s)): a true-size top-down LANBY buoy whose rim is the hit octagon, `bodyRadiusU` 8 u, chart icon hides when the real buoy draws larger; A / B and the side-view glyph rejected and deleted. Was: open - PROVISIONAL pending Eric's ruling on the rendered candidate - 2026-11-07 (Story 10.8, epic-10 amendment 14 (q))
   summary: THE BEACON LOOK - glyph A vs B (`CLIENT_CONFIG.beacons.glyph`; delete the loser at his ruling), `bodyRadiusU` 8 u, and whether the body shows under fog. The ruling and the How-to-Play sentence follow as one commit.
   evidence: `client/src/config.ts` (`CLIENT_CONFIG.beacons`), `client/src/render/beacons.ts`.
 

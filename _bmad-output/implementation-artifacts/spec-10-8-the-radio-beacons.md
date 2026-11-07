@@ -145,7 +145,7 @@ warnings: ['oversized', 'multiple-goals']
 - **Payout.** Per beacon: `pot += rateMsPerMs × dt`; `share = floor(pot / n)`; each of n hulls gets `share` via `addXpMs`; `pot -= share × n`.
 - **Known tell, inherent to the ruled split (report to Eric):** a receiver whose own rate halves learns another hull is within 500 u, even in fog.
 - **Known tell 2, inherent to the ruled placement (report to Eric):** at 4:00 / 8:00 the beacon set marks the emptiest water in the ring (max-min from every afloat hull).
-- **Look is PROVISIONAL** (amendment 14(q)): Eric has not ruled on the rendered candidate; glyph A, body 8 u, body under fog shipped as dials.
+- **Look RULED 2026-11-07** (amendment 14(s), supersedes (q)): a true-size top-down LANBY buoy whose rim is the hit octagon; `bodyRadiusU` 8 u ruled; chart icon hides when the real buoy draws larger. Two earlier takes rejected.
 - **Waves (orchestrator):** W1 shared additive (Opus) → W2a server beacons (Fable) ∥ W2b client beacons (Opus) → W3 bots + harness (Opus) → W4 drone retirement: server core (Fable), fixtures/bots (Opus), harness/smokes/client (Sonnet), shared deletions last → review gate (Fable hunters + Codex `gpt-5.6-sol`).
 
 ## Verification
