@@ -59,6 +59,8 @@ export interface BotGroup {
   n: number;
   kills: Summary;
   pveKills: Summary;
+  /** Levels of XP RADIO BEACONS paid, per bot-match (Story 10.8). */
+  beaconLevels: Summary;
   levels: Summary;
   boons: Summary;
   shots: Summary;
@@ -188,6 +190,7 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     n: rows.length,
     kills: summarize(rows.map((r) => r.kills)),
     pveKills: summarize(rows.map((r) => r.pveKills)),
+    beaconLevels: summarize(rows.map((r) => r.beaconXpLevels)),
     levels: summarize(rows.map((r) => r.levelsEarned)),
     boons: summarize(rows.map((r) => r.boonsFitted)),
     shots: summarize(rows.map((r) => r.shots)),
@@ -429,6 +432,8 @@ const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] 
   { head: 'alive%', w: 7, value: (g) => pct(g.aliveRate) },
   { head: 'lifeS', w: 7, value: (g) => fmt(g.lifeS.mean, 1) },
   { head: 'lvl', w: 6, value: (g) => fmt(g.levels.mean, 2) },
+  // Story 10.8: levels the RADIO BEACONS paid (part of `lvl`).
+  { head: 'bcnLv', w: 7, value: (g) => fmt(g.beaconLevels.mean, 2) },
   { head: 'boons', w: 6, value: (g) => fmt(g.boons.mean, 2) },
   { head: 'spent%', w: 7, value: (g) => pct(g.spentRate) },
   { head: 'shots', w: 7, value: (g) => fmt(g.shots.mean, 1) },

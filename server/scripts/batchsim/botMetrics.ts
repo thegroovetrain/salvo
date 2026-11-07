@@ -19,6 +19,7 @@
 // imports it.
 
 import {
+  CONFIG,
   hullSilhouette,
   islandDistance,
   isAfloat,
@@ -128,6 +129,9 @@ export interface BotSample extends BotReadouts {
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
+  /** Levels of XP RADIO BEACONS paid this bot (Story 10.8 —
+   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`), read at the last afloat tick. */
+  beaconXpLevels: number;
   /** Whole hp this bot TOOK from hull contact (rams and grinds, by any hull)
    *  and from the coast (land strikes and scrapes) — `ShipRecord.
    *  contactDamageTaken` / `landDamageTaken`, the gate's own tallies (Story
@@ -217,6 +221,7 @@ interface BotTrack {
   shots: number;
   minesLaid: number;
   damageDealt: number;
+  beaconXpLevels: number;
   contactDamageTaken: number;
   landDamageTaken: number;
   landEpisodes: number;
@@ -246,6 +251,7 @@ function newTrack(): BotTrack {
     shots: 0,
     minesLaid: 0,
     damageDealt: 0,
+    beaconXpLevels: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     landEpisodes: 0,
@@ -448,6 +454,7 @@ export class BotCollector {
         shots: track.shots,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
+        beaconXpLevels: track.beaconXpLevels,
         contactDamageTaken: track.contactDamageTaken,
         landDamageTaken: track.landDamageTaken,
         ticks: track.ticks,
@@ -538,6 +545,7 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
+  track.beaconXpLevels = ship.beaconXpMs / CONFIG.xp.levelMs;
   track.contactDamageTaken = ship.contactDamageTaken;
   track.landDamageTaken = ship.landDamageTaken;
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only

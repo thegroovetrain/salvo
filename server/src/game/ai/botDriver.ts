@@ -71,6 +71,7 @@ function freshStory913Seats(): Required<
     | 'route'
     | 'coverPoint'
     | 'patrolWaypoint'
+    | 'beaconGoal'
     | 'patrolBestU'
     | 'patrolProgressAt'
     | 'hitVolleyAt'
@@ -91,6 +92,7 @@ function freshStory913Seats(): Required<
     route: null,
     coverPoint: null,
     patrolWaypoint: null,
+    beaconGoal: null,
     patrolBestU: Infinity,
     patrolProgressAt: 0,
     hitVolleyAt: new Map(),

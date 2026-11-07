@@ -46,6 +46,8 @@ export interface ParticipantRecord {
   kills: number;
   pveKills: Record<string, number>;
   damageDealt: number;
+  /** XP ms paid to this combatant by RADIO BEACONS (Story 10.8). */
+  beaconXpMs: number;
   /** The final build: fitted line ids, fit order, repeats intact (devfit
    *  cards included — they are cards, not hands). */
   cards: readonly LineId[];
@@ -104,6 +106,7 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>, p
     kills: p.kills,
     pveKills: { ...p.pveKills },
     damageDealt: p.damageDealt,
+    beaconXpMs: p.beaconXpMs,
     cards: [...p.cards],
     hands: p.hands.map((h) => toTPlus(h, match.activatedAt)),
     bankedLevels: p.bankedLevels,

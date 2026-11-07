@@ -217,6 +217,9 @@ export interface CaptainSample {
   firstDoctrineFitted: ReachSample | null;
   /** levelCurve[k] = level at k*LEVEL_SAMPLE_MS since activation. */
   levelCurve: number[];
+  /** Levels of XP RADIO BEACONS paid this captain (Story 10.8 —
+   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`). */
+  beaconXpLevels: number;
 }
 
 /**
@@ -275,6 +278,11 @@ export interface MatchSample {
   endgameNoContactMaxS?: number;
   droneGroundedTicks?: number;
   droneStormDeaths?: number;
+  /** RADIO BEACON CROWDING (Story 10.8): `[n]` = paying beacon-ticks, over
+   *  the whole match and every beacon, with n hulls in range (World.beacons.
+   *  inRangeTicks, holes read as 0). OPTIONAL for the same reason `bots` is:
+   *  sample literals predating the field exist in the harness's own tests. */
+  beaconInRangeHist?: number[];
 }
 
 export interface BatchResult {
@@ -392,6 +400,7 @@ export class MatchCollector {
       firstDoctrineOffered: t.firstDoctrineOffered,
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
+      beaconXpLevels: ship.beaconXpMs / CONFIG.xp.levelMs,
     };
   }
 }
@@ -699,6 +708,7 @@ function buildSample(
     catalog: catalog?.result(),
     captains,
     departedCaptains,
+    beaconInRangeHist: Array.from(world.beacons.inRangeTicks, (n) => n ?? 0),
   };
 }
 

@@ -60,6 +60,10 @@ export interface BatchAggregate {
   doctrineOffered: ReachAggregate;
   doctrineFitted: ReachAggregate;
   levelCurve: { tS: number; n: number; mean: number; p50: number }[];
+  /** RADIO BEACONS (Story 10.8): beacon XP levels per captain, by class. */
+  beaconLevelsByClass: Record<string, Summary>;
+  /** `[n]` = paying beacon-ticks with n hulls in range, summed over matches. */
+  beaconInRangeHist: number[];
 }
 
 function reachAggregate(samples: readonly ({ s: number; level: number } | null)[]): ReachAggregate {
@@ -95,6 +99,34 @@ function aggregateLevelCurve(captains: readonly { levelCurve: number[] }[]): Bat
     const s = summarize(values);
     out.push({ tS: (k * LEVEL_SAMPLE_MS) / 1000, n: s.n, mean: s.mean, p50: s.p50 });
   }
+  return out;
+}
+
+/** Element-wise sum of the per-match hulls-in-range histograms. */
+export function sumHist(hists: readonly (readonly number[] | undefined)[]): number[] {
+  const out: number[] = [];
+  for (const h of hists) {
+    if (h === undefined) continue;
+    for (let n = 0; n < h.length; n += 1) out[n] = (out[n] ?? 0) + (h[n] ?? 0);
+  }
+  return Array.from(out, (v) => v ?? 0);
+}
+
+/** The hist as one compact row: `0=… 1=… 2=…` (or `(none)`). */
+export function histLine(hist: readonly number[]): string {
+  return hist.length === 0 ? '(none)' : hist.map((v, n) => `${n}=${v}`).join(' ');
+}
+
+/** Beacon XP levels per captain, summarized per hull class. */
+function beaconLevelsByClass(captains: readonly { cls: string; beaconXpLevels: number }[]): Record<string, Summary> {
+  const byCls = new Map<string, number[]>();
+  for (const c of captains) {
+    const rows = byCls.get(c.cls) ?? [];
+    rows.push(c.beaconXpLevels);
+    byCls.set(c.cls, rows);
+  }
+  const out: Record<string, Summary> = {};
+  for (const cls of [...byCls.keys()].sort()) out[cls] = summarize(byCls.get(cls)!);
   return out;
 }
 
@@ -161,6 +193,8 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     doctrineOffered: reachAggregate(captains.map((c) => c.firstDoctrineOffered)),
     doctrineFitted: reachAggregate(captains.map((c) => c.firstDoctrineFitted)),
     levelCurve: aggregateLevelCurve(captains),
+    beaconLevelsByClass: beaconLevelsByClass(captains),
+    beaconInRangeHist: sumHist(matches.map((m) => m.beaconInRangeHist)),
   };
 }
 
@@ -195,6 +229,7 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   lines.push(`winner class: ${countLine(agg.winnerClass)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);
   lines.push(`captain kills by victim tier: ${countLine(agg.killsByVictimTier)}`);
+  lines.push(`beacon hulls-in-range (paying beacon-ticks): ${histLine(agg.beaconInRangeHist)}`);
   // A BOT-ONLY LOBBY has no captain rows at all, and printing 20 lines of
   // all-zero economy summaries under a bot campaign would read as evidence
   // about bots. Suppressed entirely; every captain run is byte-unchanged.
@@ -210,6 +245,8 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   lines.push(`final level per captain: ${fmtSummary(agg.finalLevel)}`);
   lines.push(`picks per captain: ${fmtSummary(agg.picks)}`);
   lines.push(`boons fitted per captain: ${fmtSummary(agg.boonsFitted)}`);
+  const bcn = Object.entries(agg.beaconLevelsByClass).map(([cls, s]) => `${cls}=${fmt(s.mean, 2)}`);
+  lines.push(`beacon levels per captain (mean by class): ${bcn.length === 0 ? '(none)' : bcn.join(' ')}`);
   lines.push(`copy-capped lines per captain: ${fmtSummary(agg.cappedLines)} | captains with >=1 cap: ${pct(agg.anyCapRate)}`);
   lines.push(reachLine('first doctrine OFFERED ', agg.doctrineOffered));
   lines.push(reachLine('first doctrine FITTED  ', agg.doctrineFitted));

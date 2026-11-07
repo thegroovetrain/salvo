@@ -126,6 +126,7 @@ import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
 import { probeExit } from './unbeachProbe.js';
+import { beaconGoalOf, onStation } from './beacons.js';
 import {
   RUDDER_GAIN,
   avoidHulls,
@@ -143,6 +144,7 @@ import {
   nearestRayHitU,
   sideRayHitU,
   patrolBearing,
+  patrolDisc,
   ringClamped,
   ringGoalOf,
   ringRunBearing,
@@ -610,6 +612,19 @@ function idleBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): number
   return patrolBearing(ctx, port, sit, avoidReachU(sit.stats));
 }
 
+/** THE BEACON FARM (Story 10.8, ai/beacons.ts): steer (routed) for the
+ *  goal's fixed standoff point — never the solid centre — else patrol. */
+function beaconBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): number {
+  const goal = ctx.mind.beaconGoal ?? null;
+  return goal === null ? idleBearing(ctx, port, sit) : steerToward(ctx, goal.standoff);
+}
+
+/** A target-less `farm` with a beacon goal — the beacon farm, not the fleet
+ *  farm (which always has its fleet track as the target). */
+function farmingBeacon(mind: BotMind, posture: BotPosture, target: BotTrack | null): boolean {
+  return posture === 'farm' && target === null && (mind.beaconGoal ?? null) !== null;
+}
+
 /** THE BREAK-OFF (disengage / hide, amendment 199): steer (routed) for the
  *  cover point when there is one, else the reciprocal of the threat. */
 function fleeBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, target: BotTrack | null): number {
@@ -629,7 +644,8 @@ function postureBearing(
   posture: BotPosture,
 ): number {
   if (posture === 'disengage' || posture === 'hide') return fleeBearing(ctx, port, sit, target);
-  if (target === null || posture === 'reposition' || posture === 'hold') return idleBearing(ctx, port, sit);
+  if (target === null) return posture === 'farm' ? beaconBearing(ctx, port, sit) : idleBearing(ctx, port, sit);
+  if (posture === 'reposition' || posture === 'hold') return idleBearing(ctx, port, sit);
   if (posture === 'pursue') return steerToward(ctx, approachPoint(sit.profile, target, sit));
   if (posture === 'ram') return bearing(ctx.pos, ramPoint(self, sit, target));
   if (posture === 'kite') return kiteBearing(self.state, plotAt(sit, target), ownReachU(sit));
@@ -679,11 +695,19 @@ function throttleFor(posture: BotPosture): number {
   return posture === 'engage' || posture === 'farm' ? CRUISE_THROTTLE : 1;
 }
 
+/** The helm's base throttle: a beacon farm in transit runs full ahead like
+ *  the patrol it replaces (the band-holding cruise is for a fleet target). */
+function baseThrottle(mind: BotMind, posture: BotPosture, target: BotTrack | null): number {
+  if (posture === 'hold' || farmingBeacon(mind, posture, target)) return 1;
+  return throttleFor(posture);
+}
+
 /** Dead in the water this tick: HOLD always (amendment 199), and a HIDE that
  *  has reached its cover point (the orchestrator's reading under 199 — the
  *  posture stays `hide` and re-evaluates every deliberation). */
-function sitsStill(self: BotSelf, mind: BotMind, posture: BotPosture): boolean {
+function sitsStill(self: BotSelf, mind: BotMind, posture: BotPosture, target: BotTrack | null): boolean {
   if (posture === 'hold') return true;
+  if (farmingBeacon(mind, posture, target)) return onStation(mind.beaconGoal!, self.state, 2 * hullLengthU(self.hullId));
   if (posture !== 'hide') return false;
   return atCover({ x: self.state.x, y: self.state.y, hullLength: hullLengthU(self.hullId) }, mind.coverPoint);
 }
@@ -718,7 +742,7 @@ function helmFor(
   const stage0 = updateManoeuvre(self, mind, port);
   if (stage0 === 'astern') return burstHelm(mind);
   const escaping = ringEscaping(sit, posture === 'ringRun');
-  if (!escaping && stage0 === 'none' && sitsStill(self, mind, posture)) return { throttle: throttleFor('hold'), rudder: 0 };
+  if (!escaping && stage0 === 'none' && sitsStill(self, mind, posture, target)) return { throttle: throttleFor('hold'), rudder: 0 };
   const ctx = navCtxOf(self, mind, port, deliberate);
   const back = stage0 === 'hold' && !escaping ? backingHold(ctx, self, port, sit, target, posture) : null;
   if (back !== null) return back;
@@ -728,7 +752,7 @@ function helmFor(
   const avoid =
     avoidIslands(self, ctx.nav.grid, want) + avoidMines(self, mind) + boundaryBias(self.state, port.map.radius)
     + avoidHulls(self, mind, posture);
-  const base = posture === 'hold' ? 1 : throttleFor(posture);
+  const base = baseThrottle(mind, posture, target);
   const damped = entryDamped(self, mind, port, want, deliberate);
   return { throttle: damped ? Math.min(base, CRUISE_THROTTLE) : base, rudder: composeRudder(track, avoid) };
 }
@@ -863,7 +887,17 @@ function triggerOf(
  */
 function deliberateNow(mind: BotMind, sit: BotSituation, port: BotWorldPort): void {
   mind.targetKey = selectTargetKey(mind, sit);
+  refreshBeaconGoal(mind, sit, port);
   mind.posture = choosePosture(sit, resolveTarget(mind), mind.posture, postureInputs(mind, port));
+}
+
+/** THE BEACON GOAL (Story 10.8, ai/beacons.ts) for this deliberation: the
+ *  nearest public beacon worth farming inside the disc the bot patrols; null
+ *  when there is none (or no chart). The posture chain farms it only when
+ *  there is no target (posture.ts clause 5). */
+function refreshBeaconGoal(mind: BotMind, sit: BotSituation, port: BotWorldPort): void {
+  const beacons = port.beacons?.() ?? [];
+  mind.beaconGoal = beacons.length === 0 ? null : beaconGoalOf(beacons, patrolDisc(port, sit), sit, mind.beaconGoal ?? null);
 }
 
 /** The extended chain's inputs (Story 9.13, amendment 193): the mind (latch,
@@ -926,7 +960,10 @@ export const COMBAT_BRAIN: BotBrain = {
     ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
-    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture, postureInputs(mind, port));
+    if (deliberate) {
+      refreshBeaconGoal(mind, sit, port);
+      mind.posture = choosePosture(sit, null, mind.posture, postureInputs(mind, port));
+    }
     const helm = helmFor(self, mind, port, sit, null, mind.posture, deliberate);
     return {
       throttle: helm.throttle,

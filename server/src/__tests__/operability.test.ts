@@ -33,6 +33,7 @@ const SUMMARY: MatchEndSummary = {
   winnerClass: 'bismarck',
   killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
   pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 44) — keyed by VICTIM hull
+  beaconXpMsByClass: { torpedoBoat: 1500 }, // Story 10.8 — keyed by the EARNER's hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',
   outcome: 'winner', // amendment 16's discriminator rides the same spread

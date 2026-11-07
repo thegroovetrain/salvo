@@ -15,13 +15,16 @@
 //   4. THE RAM EXIT (amendment 201): a ram that has touched its target falls
 //      to disengage once CONFIG.bots.ramExitMs passes without the target
 //      sinking, and never re-arms on that target until the pair separate.
-//   5. NO TARGET: siege / trapper standing at a cover point HOLD (amendments
-//      199/202); everyone else repositions (the routed patrol is wave 2's).
+//   5. NO TARGET: a beacon worth farming -> farm (Story 10.8: sail to its
+//      standoff and hold); else siege / trapper standing at a cover point
+//      HOLD (amendments 199/202); everyone else repositions (the routed
+//      patrol is wave 2's).
 //   6. THE RING CLAUSES (amendment 200(2)): a target outside the live ring is
 //      never chased (engaged only from where the bot is, if in reach); with
 //      the close under CONFIG.bots.ringOpenMarginMs no fight is opened.
 //   7. NO LINE OF FIRE -> pursue (unchanged; wave 2 routes it).
-//   8. A fleet prize the profile values -> farm (unchanged).
+//   8. A fleet prize the profile values -> farm (unchanged; with a target,
+//      `farm` still means "shoot the fleet track" until the drones retire).
 //   9. IN OWN REACH -> engage. BEYOND IT, THE ODDS GATE (amendments 194–195):
 //      pass -> pursue; fail -> lean in (raider / duelist at
 //      CONFIG.bots.leanInFactor of the bar), else SHADOW at own reach (`kite`)
@@ -222,9 +225,13 @@ function hideOrLeave(sit: BotSituation, mind: BotMind | null, threat: Vec2, prev
   return mind.coverPoint ? 'hide' : 'disengage';
 }
 
-/** Clause 5: no target. Siege / trapper lie in wait at a cover point. */
+/** Clause 5: no target. A public beacon worth farming in the patrol disc
+ *  (the deliberation's `mind.beaconGoal`, ai/beacons.ts — Story 10.8) is
+ *  farmed by every profile; otherwise siege / trapper lie in wait at a cover
+ *  point. */
 function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
   const mind = inp.mind ?? null;
+  if ((mind?.beaconGoal ?? null) !== null) return 'farm';
   if (mind === null || !sit.profile.holdsInCover) return 'reposition';
   if (!coverUsable(sit, mind.coverPoint, inp.nextRing)) {
     mind.coverPoint = findCover(mind, coverSite(sit), null, sit.islands, mind.fogAt, coverOptions(sit, inp));

@@ -284,6 +284,9 @@ export interface MatchEndSummary {
    * economy signal that harness used to generate.
    */
   pveKillsByClass: Record<string, number>;
+  /** hullId -> summed RADIO BEACON XP ms across combatants (Story 10.8) —
+   *  keyed by the EARNER's hull, as `killsByClass` is. Operator telemetry. */
+  beaconXpMsByClass: Record<string, number>;
   /** Sinks with no attributable killer (storm deaths) observed while active. */
   stormDeaths: number;
   /** How the match ended (amendment 53). Before a finish this reads the
@@ -344,6 +347,9 @@ export interface Participant {
    *  end-of-match telemetry. */
   pveKills: Record<string, number>;
   damageDealt: number;
+  /** XP ms this combatant was paid by RADIO BEACONS (Story 10.8 —
+   *  `ShipRecord.beaconXpMs`), snapshotted exactly as `damageDealt` is. */
+  beaconXpMs: number;
   /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
    *  Shift (Story 10.4 — was the gun), the fitted card ids (fit order, repeats intact), every hand dealt and
    *  the levels still unspent — snapshotted with the tallies at leave and at
@@ -369,12 +375,18 @@ function participantOf(ship: ShipRecord): Participant {
     kills: ship.kills,
     pveKills: { ...ship.pveKills },
     damageDealt: ship.damageDealt,
+    beaconXpMs: ship.beaconXpMs,
     shift: ship.shift,
     cards: [...ship.cards] as LineId[],
     hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
     bankedLevels: ship.bankedLevels,
     indexBonus: { ...ship.indexBonus },
   };
+}
+
+/** `rec[key] += n` on a tally that starts at 0. */
+function addTo(rec: Record<string, number>, key: string, n: number): void {
+  rec[key] = (rec[key] ?? 0) + n;
 }
 
 export class Match {
@@ -1096,12 +1108,12 @@ export class Match {
     // Keyed by the VICTIM's hull, not the killer's — the PvE column answers
     // "how much drone tonnage went down", which is the XP the faucet paid.
     const pveKillsByClass: Record<string, number> = {};
+    const beaconXpMsByClass: Record<string, number> = {};
     for (const p of this.participants.values()) {
-      rosterByClass[p.hullId] = (rosterByClass[p.hullId] ?? 0) + 1;
-      killsByClass[p.hullId] = (killsByClass[p.hullId] ?? 0) + p.kills;
-      for (const [victimHull, n] of Object.entries(p.pveKills)) {
-        pveKillsByClass[victimHull] = (pveKillsByClass[victimHull] ?? 0) + n;
-      }
+      addTo(rosterByClass, p.hullId, 1);
+      addTo(killsByClass, p.hullId, p.kills);
+      addTo(beaconXpMsByClass, p.hullId, p.beaconXpMs);
+      for (const [victimHull, n] of Object.entries(p.pveKills)) addTo(pveKillsByClass, victimHull, n);
     }
     const finished = this.finishedAt > 0 && this.activatedAt > 0;
     const durationS = finished ? Math.round((this.finishedAt - this.activatedAt) / 100) / 10 : 0;
@@ -1112,6 +1124,7 @@ export class Match {
       winnerClass: this.participants.get(this.winnerId)?.hullId ?? null,
       killsByClass,
       pveKillsByClass,
+      beaconXpMsByClass,
       stormDeaths: this.stormDeaths,
       endedBy: this.endedBy,
       outcome: this.outcomeOf(finished),
@@ -1165,6 +1178,7 @@ export class Match {
     p.kills = fresh.kills;
     p.pveKills = fresh.pveKills;
     p.damageDealt = fresh.damageDealt;
+    p.beaconXpMs = fresh.beaconXpMs;
     p.shift = fresh.shift;
     p.cards = fresh.cards;
     p.hands = fresh.hands;

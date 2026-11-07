@@ -64,6 +64,7 @@ describe('Match.endSummary — pre-activation safety', () => {
       winnerClass: null,
       killsByClass: {},
       pveKillsByClass: {},
+      beaconXpMsByClass: {},
       stormDeaths: 0,
       // Pre-finish default (amendment 53): the no-survivor winner-resolution
       // state. durationS 0 + winnerClass null are the not-yet-finished tell.

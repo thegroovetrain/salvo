@@ -472,3 +472,26 @@ describe('the results hook hands the record over (pin d)', () => {
     expect(h.logs.find((l) => l.event === 'account.write.failed')?.fields).toEqual({ matchId: 'room-match', err: 'sync boom' });
   });
 });
+
+describe('RADIO BEACON XP rides the record (Story 10.8)', () => {
+  it('each participant carries its beaconXpMs — a leaver at its leave, the winner at the finish — and the summary sums it by class', () => {
+    const w = bareWorld();
+    const m = new Match(w, TIMINGS, noopHooks());
+    const ctx = { w, m };
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+    m.notifyRosterChanged();
+    for (let i = 0; i < 100 && m.phase !== 'active'; i++) step(ctx);
+    expect(m.phase).toBe('active');
+    const levelMs = CONFIG.xp.levelMs;
+    w.ships.get('b')!.beaconXpMs = levelMs / 2;
+    m.onPlayerLeave('b'); // snapshot at the leave
+    w.ships.get('a')!.beaconXpMs = 3 * levelMs;
+    for (let i = 0; i < 100 && m.phase !== 'finished'; i++) step(ctx);
+    expect(m.phase).toBe('finished');
+    const byId = new Map(buildMatchRecord(m, META).participants.map((p) => [p.id, p]));
+    expect(byId.get('a')!.beaconXpMs).toBe(3 * levelMs);
+    expect(byId.get('b')!.beaconXpMs).toBe(levelMs / 2);
+    expect(m.endSummary().beaconXpMsByClass).toEqual({ bismarck: 3 * levelMs, yamato: levelMs / 2 });
+  });
+});
