@@ -98,7 +98,7 @@ function probe(o: ProbeOpts): ProbeResult {
   let wall = 0;
   const clock = new ServerClock(() => wall);
   const store = new ContactStore();
-  const views = new ContactViews(new PixiContainer(), new NameplateLayer(plateSink()), () => {});
+  const views = new ContactViews(new PixiContainer(), new NameplateLayer(plateSink()));
   const out: ProbeResult = { removed: 0, firstRemovedAtMs: null, hiddenFrames: 0 };
   countPrunes(store, () => wall, out);
   let tick = 0;

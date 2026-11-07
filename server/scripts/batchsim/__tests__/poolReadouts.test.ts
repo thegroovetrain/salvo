@@ -53,7 +53,6 @@ function match(bots: BotSample[], pool: PoolMatchSample | undefined, index = 0):
     endedBy: 'fieldCleared',
     winnerClass: null,
     stormDeaths: 0,
-    killsByVictimTier: {},
     captains: [],
     departedCaptains: [],
     bots,

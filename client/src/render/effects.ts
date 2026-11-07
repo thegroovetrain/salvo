@@ -637,7 +637,7 @@ export class Effects {
    * Advance all effects by `dt` (seconds) and lay this frame's wake.
    *
    * `hulls` IS EVERY HULL THE PLAYER CAN SEE (amendment 199) — own predicted
-   * pose, every truesight contact, drones included — not just the own ship.
+   * pose, every truesight contact — not just the own ship.
    * Before Story 4.12 this took a single `ShipState` and enemy hulls glided
    * across the water leaving nothing at all; the wake was a UI element attached
    * to the camera rather than a property of the world, and the thing on the

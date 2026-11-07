@@ -3,6 +3,20 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  100 — Story 10.8 THE RADIO BEACONS (Eric 2026-11-06, epic-10 amendment
+ *  14, rulings R1–R13): the SCHEMA shape changed — ArenaState gains the flat
+ *  public beacon fields (`beaconCycle`, `beaconCount`, `bcn0..7X` / `Y` /
+ *  `SinkT`; no new Schema class, no ArraySchema), from which the client
+ *  derives every beacon's phase, rate and body through the shared
+ *  `sim/beacons.ts` model (`beaconStateAt`, `zoneGroupMs`) and the CONFIG the
+ *  client now reads (`CONFIG.beacons`); `TargetKind` gains `'beacon'`. The PvE
+ *  DRONE FLEET IS RETIRED: on the wire `Contact.aggro`, `SunkEvent.vcls` and
+ *  `SunkEvent.kcls` are gone and `HullId` narrows to `ShipClassId` (no drone
+ *  hull id can ride `Contact.cls`); CONFIG the client read is deleted
+ *  (`drones`, `fleet`, `xp.droneTierLevels`, the drone hull-id exports,
+ *  `fleetHullIds` / `fleetLevels`); `loadoutFor` / `slotsWithCards` lose the
+ *  `fleet` parameter. Catalog CONTENT unchanged. No beacon id ever enters a
+ *  frame; perception exception count stays SIX.
  *  99 — Story 10.7 OFFER COMPOSITION (Eric 2026-11-06, epic-10 amendment 13,
  *  rulings R1–R4): OwnShip gains the REQUIRED `rd` (the captain's one
  *  countdown REDRAW is used — server truth, self-private, replacing the
@@ -1009,7 +1023,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 99;
+export const PROTOCOL_VERSION = 100;
 
 // Tunables
 export * from './constants.js';
@@ -1071,3 +1085,4 @@ export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';
 export * from './sim/zone.js';
+export * from './sim/beacons.js';

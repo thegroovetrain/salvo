@@ -12,10 +12,10 @@
 // THE THREE RATIFIED RULES THIS MODULE ENCODES
 //
 //  • AFLOAT counts CAPTAINS — every PARTICIPANT, the local player included
-//    (the public-register cycle, superseding amendment 19's all-hulls count:
-//    drones are not combatants). Story 6-5 widened "captains" from humans to
+//    (the public-register cycle, superseding amendment 19's all-hulls count).
+//    Story 6-5 widened "captains" from humans to
 //    participants: an AI captain holds a roster row and is counted, because it
-//    contests the match exactly as a human does. Fleet hulls never are. The
+//    contests the match exactly as a human does. The
 //    rule and its doctrine note live in score.ts
 //    (isAfloatHull), beside the rival count it remains half-asymmetric with.
 //  • THE RING READOUT IS A CONTINUOUS COUNTDOWN (amendment 26, superseding
@@ -178,10 +178,6 @@ export interface ChromeSegment {
  * lookup missed — either way the WHOLE segment (its separator included) is
  * omitted, because a bar that printed a bare `☠︎ ` with nothing after it
  * would be a register with no register.
- *
- * There is deliberately no drone case: a drone can never hold the throne (the
- * server counts CAPTAIN kills only), so the feed's "drone grey is pinned
- * verbatim, never run through textSafe" exception has no analogue here.
  */
 export interface BountyHolder {
   /** Roster callsign (mid-ellipsized here, at the one shared name cap). */
@@ -197,17 +193,10 @@ export interface ChromeBarView {
    *  phase lines own top-center. */
   visible: boolean;
   /** Captains still afloat — every participant (human OR AI), the local player
-   *  included (the public-register cycle; drones are excluded — score.ts
-   *  isAfloatHull). */
+   *  included (the public-register cycle — score.ts isAfloatHull). */
   afloat: number;
-  /** Own kills, the server-authoritative public roster tally — EVERY hull the
-   *  server credited, DRONES INCLUDED (the same number the results modal
-   *  reports). Never a client recount. HONEST CAVEAT: this denominator now
-   *  deliberately differs from the AFLOAT segment beside it — AFLOAT counts
-   *  captains only (the public-register cycle) while KILLS still counts every
-   *  hull, so a solo captain can read `1 AFLOAT · 5 KILLS` off five drone
-   *  kills. Whether KILLS should go captains-only awaits an owner ruling
-   *  (ledgered); until then the roster tally stands unchanged. */
+  /** Own kills, the server-authoritative public roster tally (the same number
+   *  the results modal reports). Never a client recount. */
   kills: number;
   /** Elapsed match time (ms) = serverNow − zoneStartT, clamped at 0. */
   matchMs: number;

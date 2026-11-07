@@ -29,9 +29,7 @@ import {
   scenePublicPlane,
   sceneOwn,
   sceneWelcome,
-  hullPose,
 } from '../stage/worstCaseScene.js';
-import { isDroneHull } from '../render/ships.js';
 import { railCritical, railPulsing } from '../render/hpGlobe.js';
 import { tier1Active, tier2Active, freezeAtDimKeyframe } from '../render/attention.js';
 import { barVisible, chromeBarSegments, ringReadout } from '../ui/chromeBar.js';
@@ -41,10 +39,8 @@ import { zoneViewFrom } from '../sim/zoneView.js';
 const MAP_RADIUS = 1500;
 const world = buildSceneWorld(MAP_RADIUS, STAGE_SEED);
 
-/** The kill leader's ROSTER ROW, resolved by id. `BOUNTY_INDEX` is a SCENE SLOT
- *  index and stopped being a roster index the moment fleet hulls came off the
- *  roster (Story 5.6, amendment 39) — the two are only equal in a world where
- *  every hull holds a row. */
+/** The kill leader's ROSTER ROW, resolved by id (`BOUNTY_INDEX` is a SCENE SLOT
+ *  index, not a roster index). */
 function leaderRow(): (typeof world.roster)[number] {
   const row = world.roster.find((r) => r.id === world.bountyId);
   if (!row) throw new Error('the staged kill leader must hold a roster row');
@@ -219,15 +215,11 @@ describe('staged worst-case scene — the BR CHROME BAR is actually on screen', 
 });
 
 describe('staged worst-case scene — the population', () => {
-  it('stages the arena cap worth of HULLS, and a roster of CAPTAINS ONLY', () => {
-    // Story 5.6 (amendment 39): the hull population is the arena cap — every
-    // rival plus the local captain (16 since Story 9.8; 20 before) — but a PvE
-    // fleet hull holds no roster row, so the roster is strictly SHORTER than
-    // the hull count, and the difference is exactly the drone slots.
+  it('stages the arena cap worth of HULLS, every one a captain with a roster row', () => {
+    // The hull population is the arena cap — every rival plus the local captain
+    // (16 since Story 9.8; 20 before) — and every hull holds a roster row.
     expect(world.hulls).toHaveLength(CONFIG.map.playerCap - 1);
-    const droneSlots = world.hulls.filter((h) => isDroneHull(h.cls)).length;
-    expect(droneSlots).toBeGreaterThan(0); // the scene still stages fleet hulls
-    expect(world.roster).toHaveLength(CONFIG.map.playerCap - droneSlots);
+    expect(world.roster).toHaveLength(CONFIG.map.playerCap);
   });
 
   it('keeps every truesighted contact inside the sight bubble, at every tick', () => {
@@ -266,29 +258,10 @@ describe('staged worst-case scene — the population', () => {
     }
   });
 
-  it('keeps every FLEET HULL off the roster, so AFLOAT counts captains for free', () => {
-    // The exclusion is STRUCTURAL now (amendment 39) rather than a hue test: no
-    // row exists to filter, and the sentinel channel is gone entirely.
+  it('gives every staged hull and the local captain a roster row', () => {
     const rosterIds = new Set(world.roster.map((r) => r.id));
-    const drones = world.hulls.filter((h) => isDroneHull(h.cls));
-    expect(drones.length).toBeGreaterThan(0);
-    for (const d of drones) expect(rosterIds.has(d.id)).toBe(false);
-    // ...and every hull that is NOT a fleet ship still holds one.
-    for (const h of world.hulls) if (!isDroneHull(h.cls)) expect(rosterIds.has(h.id)).toBe(true);
+    for (const h of world.hulls) expect(rosterIds.has(h.id)).toBe(true);
     expect(rosterIds.has(world.ownId)).toBe(true);
-  });
-
-  it('puts the aggro bracket on the water: every NEAR fleet hull has acquired us', () => {
-    // Story 5.6, amendment 40 — the readability gate has to see the bracket
-    // STACKED with every other channel, and `aggro` is self-private so a scene
-    // that is always the local captain's own frame may legitimately set it.
-    const near = world.hulls.filter((h) => isDroneHull(h.cls) && !h.far);
-    expect(near.length).toBeGreaterThan(0);
-    for (const h of near) expect(hullPose(h, world, 0).aggro).toBe(true);
-    // A FAR fleet hull is a blip, not a hull view — nothing to bracket.
-    for (const h of world.hulls.filter((x) => x.far)) expect(hullPose(h, world, 0).aggro).toBeUndefined();
-    // ...and no CAPTAIN ever wears one: aggro is a PvE-fleet state.
-    for (const h of world.hulls.filter((x) => !isDroneHull(x.cls))) expect(hullPose(h, world, 0).aggro).toBeUndefined();
   });
 
   it('stages a kill leader who is a captain, matching the published bountyId', () => {

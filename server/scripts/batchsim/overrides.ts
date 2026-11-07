@@ -72,7 +72,7 @@ const TUNE_FAMILIES = [
   // (TUNE_MIN_ONE_KEYS) — the heat stepper divides by them.
   'mainBattery.',
   'secondaries.',
-  // The deck gun — the PvE drones' gun since Story 10.4 (no captain mounts it).
+  // The deck gun — kept for reference (amendment 6); no hull mounts it since Story 10.8.
   'gun.',
   // Story 8.15: the two pickable guns and the two new class Shifts — every
   // number Eric ruled for them is a harness dial (amendments 97-105).
@@ -131,14 +131,6 @@ const TUNE_FAMILIES = [
   // (1000) and the four pass-through kinematics; `maxSpeed` / `turnRate` are
   // no longer leaves (derived from ENGINES / the baseline).
   'shipClasses.',
-  // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
-  // "should a drone be worth, through damage, what its kill tier already says
-  // it is worth" — at a damage->XP rate of 1/N, tier x N is the hp that makes
-  // the two halves proportional. It is a COMBAT envelope (hp, gun, kinematics)
-  // and so belongs on this surface rather than the --set economy whitelist,
-  // even though the question that reaches for it is an economy one. The `hp`
-  // leaf inherits the existing floor of 1 via TUNE_MIN_ONE_LEAVES.
-  'drones.',
   // HULL REPAIR is a COMBAT dial, not an economy one, so it belongs on this
   // surface rather than the --set whitelist: `hullRepair` amounts are FLAT
   // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which

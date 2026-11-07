@@ -2,8 +2,7 @@
 // wheel is gone everywhere: every piece of ship linework — hull stroke and fill,
 // wake foam, nameplate, kill-feed and bounty name, results own-name, own buoy
 // marker, contact FX — reads ONE relation to the viewer. Own = cyan, every other
-// captain or bot = red. Drones keep their own greys (render/ships.ts DRONE_STYLE)
-// and the reserved amber, mine, lit-zone and hazard colors are untouched.
+// captain or bot = red. The reserved amber, mine, lit-zone and hazard colors are untouched.
 //
 // Pure and leaf-level: no Pixi, no state. The one place the two colors and the
 // dark fill rule live, so a later skin story swaps one module.

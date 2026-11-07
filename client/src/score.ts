@@ -10,11 +10,8 @@
 //                 the number the player experienced as PICKS is the fitted-boon
 //                 count, so score continuity holds (spec 2.8 Design Notes).
 //   • kills     — the public roster's PlayerMeta.kills for the own session
-//                 (captains only since Story 5.6 — the server stopped counting
-//                 PvE sinkings there, amendment 38, so the client filters
-//                 nothing)
 //   • sunk list — the `sunk` events the kill feed already renders, filtered to
-//                 kills credited to the own session and to non-drone victims
+//                 kills credited to the own session
 //   • placement — the public roster's alive count at the moment you went down
 //                 (k contestants still floating ⇒ you placed k+1)
 //
@@ -53,20 +50,6 @@ export interface SunkObservation {
   victimName: string | null;
   /** The credited killer's id, or null (storm / unattributed). */
   killerId: string | null;
-  /**
-   * The victim is a PvE fleet hull.
-   *
-   * RESOLVED FROM `Contact.cls` (via render/ships.ts `isDroneHull`), NOT from a
-   * roster hue: Story 5.6 took fleet ships off the roster entirely (amendment
-   * 39), which deleted the `REGATTA_NO_HUE` sentinel as a drone channel and left
-   * the hull id as the only one. See main.ts `isDroneId`.
-   *
-   * It now excludes the victim from EVERY record — the roll below and the MATCH
-   * LOG alike (amendment 38: *"i dont want PvE kills to show up as 'kills' in a
-   * player's killcount or as events in their records"*). It used to exclude them
-   * from the roll only.
-   */
-  victimIsDrone: boolean;
   /** MATCH TIME (T+, ms) at which this sinking was observed — `matchTimeMs()`
    *  of the caller's clock, so a timeline that is not anchored yet reads null
    *  (see matchTimeMs). A sinking with no stamp earns no MATCH LOG line: the
@@ -90,14 +73,7 @@ export const STORM_KILLER = 'THE STORM';
  *  Deliberately NOT `STORM_KILLER`: something sank us and saying otherwise is a
  *  lie about our own death. The copy mirrors the kill feed's `UNKNOWN_VESSEL`
  *  for the identical case; it is duplicated rather than imported because this
- *  module is a pure leaf and killFeed.ts is a DOM adapter.
- *
- *  STORY 7.6 NARROWED WHAT REACHES IT, without moving it: main.ts now folds
- *  `feedName(g, id) ?? fleetSizeName(killerCls)`, so a fleet killer this client
- *  never saw arrives NAMED off `SunkEvent.kcls` and no longer lands here. What
- *  is left is a killer with no live server record at all. The kill feed's
- *  terminal label still spells the same case the same way, which is the whole
- *  reason the two strings are identical. */
+ *  module is a pure leaf and killFeed.ts is a DOM adapter. */
 export const UNKNOWN_KILLER = 'UNKNOWN VESSEL';
 
 /** One MATCH LOG line: when it happened, which side of the exchange we were on,
@@ -116,9 +92,9 @@ export interface MatchLogEntry {
 
 /** The accumulator's state. */
 export interface ScoreState {
-  /** Display names of the CONTESTANT (non-drone) ships the player sank, in the
-   *  order they went down. De-duplicated by victim id — a respawning drone-era
-   *  victim can be sunk twice, and the list is a roll of hulls, not of events. */
+  /** Display names of the CONTESTANT ships the player sank, in the order they
+   *  went down. De-duplicated by victim id — the list is a roll of hulls, not
+   *  of events. */
   readonly sunkContestants: readonly string[];
   /** Victim ids already listed (the de-dup key for the above). */
   readonly sunkIds: readonly string[];
@@ -140,8 +116,7 @@ export interface ScoreState {
   readonly matchLog: readonly MatchLogEntry[];
   /** Victim ids already LOGGED — the log's own de-dup key, deliberately
    *  separate from `sunkIds` above because the two lists still admit different
-   *  events (the log takes our own death; the roll takes neither that nor a
-   *  drone, and since amendment 38 the log takes no drone either).
+   *  events (the log takes our own death; the roll does not).
    *  A hull sinks at most once per live match — respawns are ready-room-only
    *  (`respawnArmedIn`) and the accumulator is reset on the → active edge — so
    *  this can only ever swallow a DUPLICATE/replayed `sunk`, never a second
@@ -202,21 +177,6 @@ function killerLabel(obs: SunkObservation): string {
  * OUR OWN DEATH WINS OVER EVERYTHING — the victim test runs first, so a hull we
  * somehow sank ourselves reads as the death it was, not as a kill.
  *
- * DRONES ARE OUT — and this REVERSES the rule this function shipped with.
- * Story 5.3 admitted drone kills to the log on the argument that the adjacent
- * KILLS tile was the roster's drone-INCLUSIVE tally, so dropping them would show
- * one line beside a tile reading 3. Story 5.6's amendment 38 removed the other
- * half of that pair: a PvE sinking no longer increments `kills` anywhere, so the
- * two now AGREE BY EXCLUSION rather than by inclusion, and the disagreement the
- * old rule was avoiding cannot arise. Eric: *"i dont want PvE kills to show up
- * as 'kills' in a player's killcount or as events in their records."* The feed
- * line, the kill flash, the settle and the XP all survive (amendment 21 exists
- * precisely because drones dying silently read as a bug); what empties is the
- * persistent record, which is what he means by *records*.
- *
- * OUR OWN DEATH IS NEVER DROPPED BY THIS CLAUSE — the victim test above runs
- * first, so a captain sunk BY a fleet ship still gets their `SUNK BY` line.
- *
  * An unnameable kill contributes NO line rather than a blank or an id (the
  * shipped roll's rule, inherited verbatim — deferred-work.md:211-212 tracks the
  * underlying LOS limitation and it is NOT fixed here).
@@ -224,7 +184,7 @@ function killerLabel(obs: SunkObservation): string {
 export function matchLogLine(obs: SunkObservation, ownId: string): MatchLogEntry | null {
   if (obs.tMs === null) return null;
   if (obs.victimId === ownId) return { tMs: obs.tMs, kind: 'sunkBy', name: killerLabel(obs) };
-  if (obs.killerId !== ownId || obs.victimIsDrone || obs.victimName === null) return null;
+  if (obs.killerId !== ownId || obs.victimName === null) return null;
   return { tMs: obs.tMs, kind: 'sank', name: obs.victimName };
 }
 
@@ -247,22 +207,21 @@ function recordMatchLog(state: ScoreState, obs: SunkObservation, ownId: string):
 
 /**
  * Pure: fold one observed sinking into the score. Only a kill CREDITED to the
- * own session and landed on a non-drone hull adds a name; everything else
- * (someone else's kill, a storm death, a drone you sank, a hull already listed)
+ * own session adds a name; everything else (someone else's kill, a storm
+ * death, a hull already listed)
  * leaves the state untouched — returning the SAME object, so callers can use
  * identity to skip re-renders.
  *
  * The MATCH LOG folds FIRST and on a slightly wider admission (amendment 28): it
- * takes our own death, which the roll drops. It NO LONGER takes drone kills —
- * amendment 38 emptied every persistent record of them — so the two folds now
- * differ on exactly one event class instead of two. They share this one call
+ * takes our own death, which the roll drops — the two folds differ on exactly
+ * that one event class. They share this one call
  * site so main.ts keeps a single entry point per observed sinking and the two
  * lists can never disagree about which events arrived.
  */
 export function recordSunk(state: ScoreState, obs: SunkObservation, ownId: string): ScoreState {
   const logged = recordMatchLog(state, obs, ownId);
   if (obs.killerId !== ownId || obs.victimId === ownId) return logged;
-  if (obs.victimIsDrone || logged.sunkIds.includes(obs.victimId)) return logged;
+  if (logged.sunkIds.includes(obs.victimId)) return logged;
   // A victim whose roster entry has already gone (they left the room between
   // the sinking and the event landing) has no CALLSIGN to show. The kill still
   // counts — the tally is the authoritative roster figure — but the LIST is a
@@ -280,23 +239,16 @@ export function recordSunk(state: ScoreState, obs: SunkObservation, ownId: strin
 export interface RosterEntry {
   id?: string;
   alive?: boolean;
-  /** Regatta hue index. No longer ever the `REGATTA_NO_HUE` drone sentinel in
-   *  practice — Story 5.6 took fleet hulls off the roster (amendment 39), so 255
-   *  survives only as the schema's "hue not assigned yet" default. Neither
-   *  predicate below reads it any more. */
+  /** Regatta hue index (255 = the schema's "hue not assigned yet" default).
+   *  Neither predicate below reads it. */
   color?: number;
 }
 
 /**
  * Pure: does this roster entry count as a live RIVAL for placement?
  *
- * THE ROSTER IS CAPTAINS-ONLY SINCE STORY 5.6 (amendment 39: *"fleet ships are
- * not roster members"*), so this no longer has to filter drones out — there are
- * none in it to filter. What the predicate still asserts is unchanged and is
- * still the whole point: placement ranks the OTHER contestants, so it counts
- * live entries that are not us. The `droneHue` parameter every call site used to
- * pass is GONE rather than ignored, so no caller can keep threading a sentinel
- * that means nothing.
+ * The roster is captains-only, so placement — which ranks the OTHER contestants —
+ * counts live entries that are not us.
  */
 export function isLiveRival(meta: RosterEntry, ownId: string): boolean {
   return meta.alive === true && meta.id !== ownId;
@@ -306,13 +258,8 @@ export function isLiveRival(meta: RosterEntry, ownId: string): boolean {
  * Pure: does this roster entry count toward `n AFLOAT`? Alive — and that is now
  * the whole test.
  *
- * THE RULE IS UNCHANGED AND ITS IMPLEMENTATION GOT SIMPLER (amendment 39:
- * *"`n AFLOAT` gets simpler rather than harder: the roster becomes
- * captains-only, so the count is the roster"*). DRONES ARE NOT COMBATANTS still
- * holds — a fleet kill pays a fraction of a level where a captain pays a full
- * one, PvE sinkings never reach the public register, and the results table lists
- * participants only — but the exclusion is now STRUCTURAL: fleet hulls have no
- * `PlayerMeta` row to exclude. Story 6-5: "captain" here means PARTICIPANT, not
+ * The roster is captains-only (amendment 39: *"the count is the roster"*).
+ * Story 6-5: "captain" here means PARTICIPANT, not
  * human. An AI captain carries a roster row and is counted, because it contests
  * the match, holds a placement and can win it; only `isHuman` (server-side,
  * gating minHumans) still means a person. The LOCAL PLAYER is still counted, which is the
@@ -320,17 +267,8 @@ export function isLiveRival(meta: RosterEntry, ownId: string): boolean {
  * OTHER contestants, while AFLOAT includes your own hull because you are on the
  * water too.
  *
- * WHY THE HUE TEST IS GONE RATHER THAN KEPT AS BELT-AND-BRACES: `REGATTA_NO_HUE`
- * (255) was always DUAL-PURPOSE — "drone" AND "hue not assigned yet" — and with
- * the first meaning deleted, keeping the test would drop a real captain whose
- * schema patch had not landed yet. The old doctrine note argued at length that
- * an UNDEFINED colour must count as a captain mid-patch; 255 is that same state
- * spelled differently, and it must count for the same reason.
- *
- * NOTE (Eric deferral): the WIN CONDITION still counts drones today —
- * Match.checkWin() is untouched by this cycle and belongs to Story 6-3 ("The
- * Participants-Only Win Check"). Until 6-3 lands, AFLOAT reads as "rivals
- * left" (plus you); when 6-3 lands it becomes literally "hulls left to clear".
+ * NO HUE TEST: 255 means "hue not assigned yet", and a captain whose schema
+ * patch has not landed must still count.
  */
 export function isAfloatHull(meta: RosterEntry): boolean {
   return meta.alive === true;
@@ -501,11 +439,9 @@ export interface PersonalScore {
   /** Total BOONS fitted this match (OwnShip.boons.length — Story 2.8; the
    *  legacy per-upgrade count sum died with the 14 upgrades). */
   boons: number;
-  /** Kills — CAPTAINS ONLY (the authoritative public roster tally). Amendment
-   *  37 stopped `ShipRecord.kills` counting PvE sinkings at the source, so this
-   *  is drone-free without the client filtering anything. */
+  /** Kills — the authoritative public roster tally. */
   kills: number;
-  /** Contestant ships personally sunk — drones excluded (see the module note). */
+  /** Contestant ships personally sunk (see the module note). */
   sunkContestants: readonly string[];
   /** Elimination placement, or null when the player is the winner. */
   placement: number | null;

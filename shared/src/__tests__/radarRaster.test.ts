@@ -302,26 +302,13 @@ describe('THE CALIBRATION (amendments 156-157): measured, not asserted', () => {
     }
   });
 
-  it('SIZE STILL DISCRIMINATES AT THE EXTREMES: over the 3-paint phosphor window, the largest hull always reads clearly bigger than the smallest', () => {
-    // The read a player actually gets is the persistence window, so the pin is
-    // the median of 3 consecutive paints: every window of the LARGEST
-    // silhouette (by area) out-reads every window of the SMALLEST on
-    // covered-cell count, at every tested aspect.
-    const byArea = [...HULL_IDS].sort((x, y) => Math.abs(polygonArea(hullSilhouette(x))) - Math.abs(polygonArea(hullSilhouette(y))));
-    const smallest = byArea[0];
-    const largest = byArea[byArea.length - 1];
-    for (const a of [0, Math.PI / 4, Math.PI / 2]) {
-      const medians = (cls: HullId): number[] => {
-        const out: number[] = [];
-        for (let g = 0; g < 16; g++) {
-          const w = [0, 1, 2].map((j) => coverageCellCount(fuzzedPaint(cls, g * 3 + j, a))).sort((p, q) => p - q);
-          out.push(w[1]);
-        }
-        return out;
-      };
-      expect(Math.min(...medians(largest)), `aspect ${a.toFixed(2)}`).toBeGreaterThan(Math.max(...medians(smallest)));
-    }
-  });
+  // RETIRED with the drones (Story 10.8, 2026-11-06): 'SIZE STILL
+  // DISCRIMINATES AT THE EXTREMES' measured the smallest silhouette against
+  // the largest, and the smallest was a PvE drone. Among the four
+  // true-to-scale battleships alone the fuzzed 3-paint medians of the
+  // smallest and largest hull overlap (measured at aspect 0: largest min 50
+  // cells vs smallest max 59), so the measurement no longer holds. Recorded,
+  // not re-tuned — the radar fuzz is Eric's dial.
 
   it('ORIENTATION STILL READS: broadside vs bow-on differ in the expected axis, on EVERY paint of the two most elongated hulls', () => {
     for (const cls of ['yamato', 'iowa'] as const) {

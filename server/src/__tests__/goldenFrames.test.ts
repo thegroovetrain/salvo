@@ -107,6 +107,14 @@
 //   * the draw's new plan moved two drawn `offer` values (the rng stream is
 //     spent differently).
 // Nothing else moved: no event, contact, salvo, proof or exception.
+//
+// RE-RECORDED 2026-11-06 (Story 10.8, the PvE fleet retired). ONE KEY GONE,
+// nothing else: the credited killer's `vcls` stamp on four `sunk` rows (Story
+// 5.6, amendment 43 — the victim's hull id, which only a roster-less drone
+// kill ever needed) left with the fleet. 4 of 174 lines moved, each by that
+// key alone; no `kcls` or `aggro` was ever in a captured frame. No RNG
+// stream moved (no scenario runs the zone clock, so the deleted wave spawner
+// never drew). The six exceptions and every proof are unchanged.
 
 import { describe, it, expect } from 'vitest';
 import {

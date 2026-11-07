@@ -30,7 +30,7 @@ import {
 const OWN = 'me';
 
 function obs(over: Partial<SunkObservation> = {}): SunkObservation {
-  return { victimId: 'v1', victimName: 'RIVAL', killerId: OWN, victimIsDrone: false, tMs: 0, killerName: null, ...over };
+  return { victimId: 'v1', victimName: 'RIVAL', killerId: OWN, tMs: 0, killerName: null, ...over };
 }
 
 describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () => {
@@ -51,35 +51,10 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     expect(ownDown.sunkIds).toEqual([]);
   });
 
-  it('a PvE fleet hull we sank enters NEITHER record (amendment 38)', () => {
-    const base = freshScore();
-    const droned = recordSunk(base, obs({ victimIsDrone: true }), OWN);
-    expect(droned.sunkContestants).toEqual([]);
-    expect(droned.sunkIds).toEqual([]);
-    // ...and no MATCH LOG line either, which REVERSES Story 5.3's rule: the
-    // roster tally that argument leaned on no longer counts drones, so the two
-    // now agree by exclusion. The state is returned IDENTICAL.
-    expect(droned.matchLog).toEqual([]);
-    expect(droned).toBe(base);
-  });
-
   it('de-duplicates by victim id (a respawn-and-resink lists one hull)', () => {
     let s = recordSunk(freshScore(), obs(), OWN);
     s = recordSunk(s, obs(), OWN);
     expect(s.sunkContestants).toEqual(['RIVAL']);
-  });
-
-  it('2 fleet hulls + 1 captain ⇒ kills 1 (the server already dropped the PvE two)', () => {
-    let s = freshScore();
-    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE', victimIsDrone: true }), OWN);
-    s = recordSunk(s, obs({ victimId: 'd2', victimName: 'DRONE', victimIsDrone: true }), OWN);
-    s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2' }), OWN);
-    // `kills` is the roster tally handed in, and amendment 38 stopped that
-    // tally counting PvE sinkings at the SOURCE — the client filters nothing.
-    const score = personalScore(s, [], 1, false, null);
-    expect(score.kills).toBe(1);
-    expect(score.sunkContestants).toEqual(['CAPTAIN-2']);
-    expect(score.matchLog.map((e) => e.name)).toEqual(['CAPTAIN-2']);
   });
 });
 
@@ -485,45 +460,6 @@ describe('recordSunk — the MATCH LOG fold (chronological, de-duplicated, PvE O
     ]);
     // Stamps only ever run forward, so appending IS sorting.
     expect(s.matchLog.map((e) => e.tMs)).toEqual([...s.matchLog.map((e) => e.tMs)].sort((x, y) => x - y));
-  });
-
-  it('DROPS a PvE kill from the log, exactly as the roll does (amendment 38)', () => {
-    // Story 5.3 logged drone kills because the adjacent KILLS tile counted them
-    // and a log that dropped them would disagree with the tile. Amendment 37
-    // emptied the tile, so the log empties with it: one line, one kill, one
-    // number, all three agreeing.
-    let s = freshScore();
-    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE', victimIsDrone: true, tMs: 30_000 }), OWN);
-    s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2', tMs: 60_000 }), OWN);
-    expect(s.matchLog.map((e) => e.name)).toEqual(['CAPTAIN-2']);
-    expect(s.sunkContestants).toEqual(['CAPTAIN-2']);
-    expect(personalScore(s, [], 1, false, 90_000).kills).toBe(1);
-  });
-
-  it('STILL logs our own death when a PvE fleet hull is what sank us, SIZED (review-gate fix)', () => {
-    // The victim test runs first, so the new drone clause can never eat the one
-    // line the log exists to guarantee: the player's own end.
-    //
-    // killerName here is 'LARGE DRONE', not null and not plain 'DRONE': main.ts
-    // resolves the MATCH LOG's killer name through `feedName` (the same
-    // resolver the kill feed uses), which now sizes a fleet hull off the memo
-    // via `fleetSizeName` rather than either falling through the roster lookup
-    // to null OR answering the unsized `DRONE_PLATE_TEXT`. Eric's ruling
-    // 2026-08-14 (the size-the-death-line follow-up): *"if you actually die to
-    // a drone, I DO want to see that... SUNK BY SMALL DRONE is both funnier and
-    // strictly more informative"* — the size IS the embarrassment. A hull that
-    // sank you is one you almost certainly saw (symmetric 330u sight/gun
-    // range), so the memo has it. Before the FIRST review-gate fix the two
-    // surfaces disagreed outright (feed "DRONE SANK <you>" vs. log "SUNK BY
-    // UNKNOWN VESSEL"); before THIS one they'd have agreed on the wrong,
-    // unsized answer. Both must resolve the identical sized string.
-    const s = recordSunk(
-      freshScore(),
-      obs({ victimId: OWN, victimIsDrone: true, killerId: 'd1', killerName: 'LARGE DRONE', tMs: 77_000 }),
-      OWN,
-    );
-    expect(s.matchLog).toEqual([{ tMs: 77_000, kind: 'sunkBy', name: 'LARGE DRONE' }]);
-    expect(s.sunkAtMs).toBe(77_000);
   });
 
   it('never logs a hull twice (a duplicate/replayed `sunk` is swallowed)', () => {

@@ -1,5 +1,5 @@
 // Input validation + latest-input store. The ONLY path player intent enters
-// the simulation (drones will use it too). Malformed messages are silently
+// the simulation (bots write through it too). Malformed messages are silently
 // dropped per the plan: every field finite-checked, numeric axes clamped,
 // aim wrapped, fireSeq/aimDist floored/clamped non-negative, seq must
 // strictly exceed the stored seq, and each client is rate-capped at 40

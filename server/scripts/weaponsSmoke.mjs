@@ -4,11 +4,11 @@
 //
 // WHY IT USED TO FLAKE. Every hull carried a heuristic pilot (rendezvous to
 // the midpoint, hold-station loiter, island-avoid rudder bias, nearest-mine
-// chase) on a RANDOM map, while the 60 s PvE fleet wave and passive regen
+// chase) on a RANDOM map, while passive regen
 // raced every kill — so a red run measured the piloting, not the weapon.
 // Now nothing sails by heuristic: every phase gets its OWN fresh room on a
 // PINNED map (`mapSeed`), every hull is PLACED by the dev-only `spawnOverride`
-// pose, the fleet wave is off (`matchOverride.fleetWaves: false`), and the
+// pose, and the
 // inputs are scripted per phase through the ordinary `i` channel (so they pass
 // `inputs.ts`' sanitizeInput like any client's).
 //
@@ -187,7 +187,7 @@ const statsOf = (cls, fit = []) => effectiveStats(CONFIG.shipClasses[cls], fit);
 // the 2nd join. The 10-minute beat parks the first close 30 minutes out, so
 // every phase runs on the full-map ring.
 const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
-const MATCH_OVERRIDE = { sandbox: true, fleetWaves: false };
+const MATCH_OVERRIDE = { sandbox: true };
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);

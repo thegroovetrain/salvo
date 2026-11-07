@@ -218,17 +218,6 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
       expect(equipmentMaxAmmo(rec.stats, 'mainBattery')).toBe(rec.turrets.length);
     }
   });
-
-  it('DRONES never draw (no bank, no hand, whatever the XP)', () => {
-    const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
-    // Even a direct XP grant banks nothing for a drone (the addXpMs guard).
-    w.grantXp(d, 5);
-    expect(d.level).toBe(0);
-    expect(d.bankedLevels).toBe(0);
-    expect(d.offer).toBeNull();
-    expect(w.takes.size).toBe(0);
-  });
 });
 
 // ---------- earn: who banks one ----------------------------------------------
@@ -1761,8 +1750,8 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
       // battery, the SEAT's Shift (Story 10.4), seven empty slots.
       // `loadoutFor` IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
-      expect(a.loadout).toEqual(loadoutFor(a.stats, false, a.shift));
-      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, CATALOG, false, a.shift));
+      expect(a.loadout).toEqual(loadoutFor(a.stats, a.shift));
+      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, CATALOG, a.shift));
       for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       expect(a.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
       expect(a.loadout[SLOT_BOOST].equipmentId).toBe(DEFAULT_SHIFT);
@@ -1808,14 +1797,6 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
-    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, fresh.shift)); // the seat's Shift
-  });
-
-  it('DRONES still draw nothing, and hold no cards to speak of either', () => {
-    const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
-    expect(d.cards).toEqual([]);
-    // A fleet hull fits the GUN ALONE — never the Shift boost (amendment 24).
-    expect(d.loadout.map((x) => x.equipmentId)).toEqual(['gun', ...new Array<null>(SLOT_COUNT - 1).fill(null)]);
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, fresh.shift)); // the seat's Shift
   });
 });

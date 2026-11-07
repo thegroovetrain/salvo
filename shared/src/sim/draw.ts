@@ -144,8 +144,8 @@ export type OfferType = 'ship' | 'equipment';
  * slot 0, which is what a gun ladder's host is matched against. SINCE STORY
  * 10.4 A CAPTAIN'S IS ALWAYS `'mainBattery'` — no ladder hosts on that row, so
  * the CANNON, MACHINE GUN and FLAK ladders are NEVER eligible for a captain
- * (their catalog lines stay for reference and the PvE fleet, which never
- * draws). There is no `kit` since Story 10.5.
+ * (their catalog lines stay for reference; the PvE fleet that mounted the
+ * gun retired at Story 10.8, 2026-11-06). There is no `kit` since Story 10.5.
  *
  * THE SLOT IDS REPLACED A `weaponSlotOpen` BOOLEAN (Story 8.14 review, F2).
  * Carrying both a derived boolean and the array it is derived from let the

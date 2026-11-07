@@ -2,7 +2,7 @@
 //
 // THE RUNNER SEAM (AR12): one match = build lobby -> drive to finished ->
 // collect stats. World + Match are Colyseus-free and wall-clock-free, so the
-// harness constructs them DIRECTLY (the drones.test.ts fillingHooks pattern):
+// harness constructs them DIRECTLY (the solo.test.ts hooks pattern):
 // no sockets, no rooms, no frame/perception builds anywhere in the hot loop —
 // the loop is exactly `controls(); world.step(); match.update(); observe()`.
 // The later load-test duty reuses runMatch with a different ControlFactory
@@ -10,7 +10,7 @@
 // is beyond the CaptainControl interface.
 //
 // Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
-// match (map, spawns, drones, draws, controls) derives from it. No Math.random,
+// match (map, spawns, beacons, draws, controls) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
 // Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
@@ -20,7 +20,7 @@
 // room — would only burn batch budget in the ready room where nothing
 // measurable happens; minHumans=1 lets the scripted-captain lobby arm without
 // a second "human". All three ride the same MatchTimings dev seam the
-// drone/solo tests use — no production code changes.
+// solo tests use — no production code changes.
 
 import {
   CATALOG,
@@ -36,7 +36,6 @@ import {
 import { World, type ShipRecord } from '../../src/game/world.js';
 import { spawnRingRadii } from '../../src/game/spawn.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
-import { isFleetHull } from '../../src/game/participants.js';
 import { CONTROL_REGISTRY, type CaptainControl, type ControlFactory } from './controls.js';
 import { BOT_PROFILE_SCHEME } from './args.js';
 import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
@@ -217,6 +216,9 @@ export interface CaptainSample {
   firstDoctrineFitted: ReachSample | null;
   /** levelCurve[k] = level at k*LEVEL_SAMPLE_MS since activation. */
   levelCurve: number[];
+  /** Levels of XP RADIO BEACONS paid this captain (Story 10.8 —
+   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`). */
+  beaconXpLevels: number;
 }
 
 /**
@@ -246,8 +248,6 @@ export interface MatchSample {
    *  3.4 evidence: a resolved endgame match must name a real winner class. */
   winnerClass: string | null;
   stormDeaths: number;
-  /** Victims of CAPTAIN killers, by tier: captain / droneSmall / droneMedium / droneLarge. */
-  killsByVictimTier: Record<string, number>;
   /** Captains still in world.ships at the finish — the ONLY rows that feed the
    *  per-captain aggregates (see departedCaptains). */
   captains: CaptainSample[];
@@ -269,12 +269,15 @@ export interface MatchSample {
    *  the live-mine peak. OPTIONAL for the same reason `bots` is. */
   pool?: PoolMatchSample;
   /** STORY 9.13 MATCH READOUTS (botReadouts.ts MatchReadouts) — the endgame
-   *  stall and the drone grounding. OPTIONAL for the same reason `bots` is;
-   *  present on every bot-lobby sample. */
+   *  stall. OPTIONAL for the same reason `bots` is; present on every
+   *  bot-lobby sample. */
   lastTwoS?: number;
   endgameNoContactMaxS?: number;
-  droneGroundedTicks?: number;
-  droneStormDeaths?: number;
+  /** RADIO BEACON CROWDING (Story 10.8): `[n]` = paying beacon-ticks, over
+   *  the whole match and every beacon, with n hulls in range (World.beacons.
+   *  inRangeTicks, holes read as 0). OPTIONAL for the same reason `bots` is:
+   *  sample literals predating the field exist in the harness's own tests. */
+  beaconInRangeHist?: number[];
 }
 
 export interface BatchResult {
@@ -330,7 +333,6 @@ function firstReach(cur: ReachSample | null, hit: boolean, at: ReachSample): Rea
 /** Per-match stats collection: tick events + captain trackers + level curve.
  *  Exported only for the capSample pin (see capSample). */
 export class MatchCollector {
-  readonly killsByVictimTier: Record<string, number> = {};
   private readonly trackers = new Map<string, CaptainTracker>();
   private nextBucket = 0;
 
@@ -358,23 +360,12 @@ export class MatchCollector {
   private consumeEvents(world: World): void {
     for (const e of world.tickEvents) {
       if (e.k === 'bn') this.recordPick(e.id);
-      else if (e.k === 'sunk' && e.by !== undefined) this.recordKill(world, e.by, e.id);
     }
   }
 
   private recordPick(id: string): void {
     const t = this.trackers.get(id);
     if (t) t.picks += 1;
-  }
-
-  /** Tally a CAPTAIN's kill by victim tier (drone killers cannot happen —
-   *  drones are weaponless — but stay fail-closed on the lookup anyway). */
-  private recordKill(world: World, by: string, victimId: string): void {
-    const killer = world.ships.get(by);
-    const victim = world.ships.get(victimId);
-    if (!killer || isFleetHull(killer) || !victim) return;
-    const tier = isFleetHull(victim) ? victim.hullId : 'captain';
-    this.killsByVictimTier[tier] = (this.killsByVictimTier[tier] ?? 0) + 1;
   }
 
   captainSample(ship: ShipRecord): CaptainSample {
@@ -392,14 +383,14 @@ export class MatchCollector {
       firstDoctrineOffered: t.firstDoctrineOffered,
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
+      beaconXpLevels: ship.beaconXpMs / CONFIG.xp.levelMs,
     };
   }
 }
 
 /** Inert lobby hooks. The round-robin drone fill they used to carry died
- *  with the fill itself (Story 5.6, amendment 41) — the harness's committed
- *  drone-lobby tuning method loses its implementation with it, homed at Epic
- *  6's combat bots (see deferred-work.md). */
+ *  with the fill itself (Story 5.6, amendment 41); the combat bots are the
+ *  lobby now. */
 function harnessHooks(): MatchHooks {
   return {
     lock: () => {},
@@ -472,8 +463,8 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
     // NOT a lobby that ships today — a real solo captain never leaves the
     // weapons-safe ready room. Read 1vN rows as forward-looking, not current.
-    // SINCE AMENDMENT 4 a `--captains 1 --bots 0` run is DEGENERATE: drones
-    // no longer gate the win, so the lone captain wins on the activation tick
+    // SINCE AMENDMENT 4 a `--captains 1 --bots 0` run is DEGENERATE: the
+    // lone captain wins on the activation tick
     // and the sample carries no combat at all. A `--captains 1 --bots N` run
     // is NOT (Story 6.4): bots are participants, so the match runs and the
     // fighting is real — that IS the solo-vs-AI shape. Story 6-5 still owes
@@ -563,7 +554,6 @@ function spawnDiagOf(world: World): SpawnDiag {
   let spawnHulls = 0;
   let spawnOffLattice = 0;
   for (const ship of world.ships.values()) {
-    if (isFleetHull(ship)) continue;
     spawnHulls += 1;
     const r = Math.hypot(ship.state.x, ship.state.y);
     if (!radii.some((ring) => Math.abs(r - ring) <= SPAWN_LATTICE_TOL)) spawnOffLattice += 1;
@@ -692,13 +682,13 @@ function buildSample(
     endedBy: outcome.endedBy,
     winnerClass: outcome.winnerClass,
     stormDeaths: outcome.stormDeaths,
-    killsByVictimTier: collector.killsByVictimTier,
     // Match.placements is only computed at finish — on an 'unresolved' sample
     // it is empty and every bot's placement honestly reads null.
     bots: bots?.samples(world, match.placements) ?? [],
     catalog: catalog?.result(),
     captains,
     departedCaptains,
+    beaconInRangeHist: Array.from(world.beacons.inRangeTicks, (n) => n ?? 0),
   };
 }
 

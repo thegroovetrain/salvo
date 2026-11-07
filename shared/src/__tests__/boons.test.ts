@@ -27,6 +27,7 @@ import {
   FAMILY_SLOT,
   LINE_IDS,
   NO_CARDS,
+  SHIFT_IDS,
   SLOT_BOOST,
   SLOT_FAMILIES,
   SLOT_GUN,
@@ -580,25 +581,10 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
   it('slotsWithCards at zero cards equals plain loadoutFor (byte-identical baseline)', () => {
     const stats = effectiveStats(TB);
     expect(slotsWithCards(stats, [])).toEqual(loadoutFor(stats));
-    // ...and the fleet flag rides through to the gun-only drone fit.
-    expect(slotsWithCards(stats, [], CATALOG, true)).toEqual(loadoutFor(stats, true));
-    expect(slotsWithCards(stats, [], CATALOG, true)[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
-  });
-
-  it('a capacity ladder + an equipment fit compose: the folded gun pool beside a fresh fill', () => {
-    // CANNON ×2 reaches tier III, whose rung adds the second turret (Eric
-    // 2026-09-30). Read on the GUN-MODULE fit (`fleet`): a captain mounts the
-    // main battery since Story 10.4 and is never dealt this ladder, but the
-    // composition of a folded pool with a fresh fill is a contract of the
-    // replay itself.
-    const cards: LineId[] = ['deckGun', 'deckGun', 'navalMines'];
-    const stats = effectiveStats(BS, cards);
-    const loadout = slotsWithCards(stats, cards, CATALOG, true);
-    expect(loadout[SLOT_GUN]).toEqual({ equipmentId: 'gun', state: { n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 } });
-    expect(equipmentMaxAmmo(stats, 'gun')).toBeGreaterThan(CONFIG.gun.maxAmmo);
-    expect(loadout[FAMILY_SLOT.mine]).toEqual({
-      equipmentId: 'navalMines', state: { n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 },
-    });
+    // ...and the seat's Shift rides through to slot 1.
+    for (const shift of SHIFT_IDS) {
+      expect(slotsWithCards(stats, [], CATALOG, shift)).toEqual(loadoutFor(stats, shift));
+    }
   });
 
   it('THE SLOT IS THE FAMILY\'S, WHATEVER THE CARD ORDER: every permutation of one weapon per family replays the same row', () => {

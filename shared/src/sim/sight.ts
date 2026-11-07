@@ -74,7 +74,7 @@ export function flashClearFraction(elapsedMs: number): number {
  * `dazzledUntil` is the hull's server-clock mark (0 / absent = never flashed);
  * `now` is the caller's clock (the server reads its tick clock, the client its
  * server-clock estimate) — this function never reads a clock itself. Both
- * default to 0 so a caller with no dazzle to report (a wake or drone reader)
+ * default to 0 so a caller with no dazzle to report (a wake reader)
  * passes the stats alone.
  */
 export function effectiveSight(

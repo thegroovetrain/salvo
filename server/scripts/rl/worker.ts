@@ -50,7 +50,7 @@ function main(): void {
     return;
   }
   // STDOUT IS THE PROTOCOL. The server's structured logger (log.ts) writes to
-  // stdout — a single `warn fleet.spawnFallback {...}` line would corrupt the
+  // stdout — a single `warn beacon.placeFallback {...}` line would corrupt the
   // JSON stream — so every console channel is rehomed to stderr before any
   // sim code runs. The protocol writes below go through process.stdout.write
   // directly and are the only stdout producers left.

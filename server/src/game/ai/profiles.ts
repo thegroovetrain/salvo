@@ -27,8 +27,9 @@
 //   bulwark — attrition. Holds ground, trades on HP, disengages late.
 //   siege   — standoff. Cannon-led; star shells to resolve stale contacts
 //             into live sight.
-//   forager — clears PvE fleet groups for a level lead; avoids captains
-//             early. Hangs BACK doing it (Eric ruling 2026-08-20).
+//   forager — farms for a level lead (the radio beacons since Story 10.8;
+//             the PvE fleet before); avoids captains early. Hangs BACK doing
+//             it (Eric ruling 2026-08-20).
 //   trapper — mines astern while withdrawing; prepares its field from
 //             standoff and lets the traps do the closing.
 //
@@ -57,22 +58,19 @@
 // THE HUMAN GETS NO SPECIAL WEIGHT (Eric ruling B3). `targetWeights.captain`
 // covers human captains and other bots IDENTICALLY — a bot cannot even tell
 // them apart, since both arrive as an ordinary `Contact` carrying a ship
-// class. The only kind distinction any profile draws is participant-vs-PvE
-// fleet hull, which is a real difference in what the target is worth.
+// class. (The one kind distinction a profile drew — participant vs PvE fleet
+// hull — retired with the fleet at Story 10.8.)
 
 import { CONFIG, type EquipmentId, type ShipClassId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
- *  `captain`/`fleet` are multiplicative weights on the whole score; `damaged`
+ *  `captain` is a multiplicative weight on the whole score; `damaged`
  *  and `isolated` are additive bonus coefficients on a 0..1 estimate. */
 export interface BotTargetWeights {
   /** A participant hull — human captain or another bot, indistinguishable by
    *  ruling B3 and by construction. */
   captain: number;
-  /** A PvE fleet hull (world content: cheaper XP, no return fire worth
-   *  fearing, but it is what `forager` is FOR). */
-  fleet: number;
   /** Coefficient on the 0..1 estimated-damage term (built from the bot's own
    *  self-private Hit Calls — see ai/utility.ts). */
   damaged: number;
@@ -217,7 +215,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     leansIn: true,
     holdsInCover: false,
     // Isolation and damage dominate: a raider picks off stragglers.
-    targetWeights: { captain: 1.0, fleet: 0.8, damaged: 1.6, isolated: 1.8 },
+    targetWeights: { captain: 1.0, damaged: 1.6, isolated: 1.8 },
     disengageHpFrac: 0.5, // leaves EARLY — a hit torpedo boat is a dead one
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
@@ -243,7 +241,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     leansIn: true,
     holdsInCover: false,
     // Wants a PEER, and does not care whether it is hurt or alone.
-    targetWeights: { captain: 1.4, fleet: 0.6, damaged: 0.9, isolated: 0.5 },
+    targetWeights: { captain: 1.4, damaged: 0.9, isolated: 0.5 },
     disengageHpFrac: 0.3,
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
@@ -267,7 +265,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     oddsThreshold: 1.0,
     leansIn: false,
     holdsInCover: false,
-    targetWeights: { captain: 1.2, fleet: 0.9, damaged: 1.0, isolated: 0.4 },
+    targetWeights: { captain: 1.2, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
     healHpFrac: 0.6, // and repairs sooner, because HP IS its plan
     // Bulwark CARRIES star shells and now genuinely uses them — reluctantly
@@ -296,7 +294,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     oddsThreshold: 1.0,
     leansIn: false,
     holdsInCover: true,
-    targetWeights: { captain: 1.2, fleet: 0.8, damaged: 1.1, isolated: 0.6 },
+    targetWeights: { captain: 1.2, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
     healHpFrac: DEFAULT_HEAL,
     // EAGER flares (C2 — the BS DOES use star shells: the eager tier keeps
@@ -326,9 +324,10 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     oddsThreshold: 1.2,
     leansIn: false,
     holdsInCover: false,
-    // THE ONLY profile that would rather shoot world content than a captain
-    // (C3: clear fleet groups for the level lead, avoid captains early).
-    targetWeights: { captain: 0.5, fleet: 2.0, damaged: 0.8, isolated: 0.6 },
+    // The one profile that would rather farm than fight (C3: a level lead
+    // first, avoid captains early) — the low captain weight is what lets a
+    // paying beacon outrank a far track.
+    targetWeights: { captain: 0.5, damaged: 0.8, isolated: 0.6 },
     disengageHpFrac: 0.55, // the EARLIEST break-off in the game — see above
     healHpFrac: 0.6, // and repairs early: boons are its plan, hp buys the time
     // A farmer, not a layer: the mine sits barely above neutral (reactive —
@@ -358,7 +357,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     oddsThreshold: 1.1,
     leansIn: false,
     holdsInCover: true,
-    targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 0.8 },
+    targetWeights: { captain: 1.0, damaged: 1.0, isolated: 0.8 },
     disengageHpFrac: 0.45, // breaks off early — the trap fights on without it
     healHpFrac: 0.6, // and heals early, for the same survive-to-payoff reason
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
@@ -420,7 +419,7 @@ const testRow = (id: TestProfileId): BotProfile => ({
   oddsThreshold: 1.0,
   leansIn: false,
   holdsInCover: false,
-  targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 },
+  targetWeights: { captain: 1.0, damaged: 1.0, isolated: 1.0 },
   disengageHpFrac: DEFAULT_DISENGAGE,
   healHpFrac: DEFAULT_HEAL,
   appetite: { ...TEST_APPETITE },

@@ -201,16 +201,12 @@ async function fightScenario(a, b, log) {
     // miss or two.
     //
     // THE DONE PREDICATE NAMES BOTH PARTIES. `deaths >= 1 && kills >= 1` on the
-    // roster is satisfiable WITHOUT A EVER TOUCHING B: the PvE fleet (Story
-    // 5.6) sails armed hulls into this room, so a fleet gun sinking idle B
-    // books B a death while A sinking a fleet hull books A a kill — two
-    // unrelated events that together pass a conjunction and prove nothing about
-    // A's shells hitting B. The real claim is ONE `sunk` event asserting both
-    // halves at once: victim is B, credited killer is A. A fleet kill of B
-    // carries `by` = the fleet hull's id (never A's sessionId), and A's kill of
-    // a fleet hull carries `id` = that hull's id (never B's sessionId), so
-    // neither satisfies the pair. A reads it under the Public Register's
-    // "credited to you" clause, so fog cannot hide it either.
+    // roster would be satisfiable without A ever touching B whenever a third
+    // party is in the room (the retired PvE fleet was one, Story 10.8; the
+    // storm still is). The real claim is ONE `sunk` event asserting both
+    // halves at once: victim is B, credited killer is A. A reads it under the
+    // Public Register's "credited to you" clause, so fog cannot hide it
+    // either.
   }, () => a.sunk.some((e) => e.id === b.room.sessionId && e.by === a.room.sessionId), 300000, 'A never sank B');
   // Secondary: the public roster booked the same outcome.
   assert(roster(a.room, b.room.sessionId)?.deaths >= 1, 'B sank but the roster booked no death');

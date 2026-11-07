@@ -157,7 +157,7 @@ export function wakeCapacity(maxSpeedU: number, lifeMs: number): number {
  * (everything instantly expired), a non-finite `widthU` to 0 (spine-only,
  * one-cell ribbon) — degrade, never throw. `torp` marks a TORPEDO source
  * (see WakeRibbon.torp); it defaults to
- * false so every hull/drone caller stays a ship source by construction.
+ * false so every hull caller stays a ship source by construction.
  * `hullAheadU` is the attached source hull's half length (see
  * WakeRibbon.hullAheadU); it defaults to 0 (render-only ribbons, torpedo
  * water), and a non-finite or negative value degrades to 0.
@@ -180,7 +180,7 @@ export function createWakeRibbon(
   };
 }
 
-/** A ship-class (or drone) wake's turbulent-core width: the hull's own beam
+/** A ship-class wake's turbulent-core width: the hull's own beam
  *  (amendment 205's "the turbulent core runs at roughly the hull's beam") —
  *  9/32/20u for the three captain classes → 1-4 lattice cells. DERIVED from
  *  the source, never a constant. */

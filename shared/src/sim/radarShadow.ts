@@ -1,7 +1,7 @@
 // RADAR SHADOWS — the ONE height-aware terrain-occlusion model (Story 4.11).
 //
 // THE RULE. Radar range is pinned to the sea horizon (amendment 114:
-// 2RH = radarRange²/4), every antenna — ship, drone and decoy alike — stands
+// 2RH = radarRange²/4), every antenna — ship and decoy alike — stands
 // at the single mast height H = CONFIG.vision.radarMastQ (amendment 184: a
 // FIXED threshold in the height raster's own 0-255 quantized units), and a ray
 // marching outward from an observer folds every LAND raster sample it crosses

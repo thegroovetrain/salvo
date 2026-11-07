@@ -31,12 +31,12 @@ export interface HandRecord {
   redrawn: boolean;
 }
 
-/** One combatant who sailed in the match — a human captain or a bot; a fleet
- *  hull is world content and never appears (Story 6.3's participant rule). */
+/** One combatant who sailed in the match — a human captain or a bot (Story
+ *  6.3's participant rule). */
 export interface ParticipantRecord {
   id: string;
   name: string;
-  role: Exclude<ShipRole, 'fleet'>;
+  role: ShipRole;
   /** Account link — null for everyone until Epic 9 has accounts. */
   userId: null;
   hullId: HullId;
@@ -44,8 +44,9 @@ export interface ParticipantRecord {
   shift: ShiftId;
   placement: number;
   kills: number;
-  pveKills: Record<string, number>;
   damageDealt: number;
+  /** XP ms paid to this combatant by RADIO BEACONS (Story 10.8). */
+  beaconXpMs: number;
   /** The final build: fitted line ids, fit order, repeats intact (devfit
    *  cards included — they are cards, not hands). */
   cards: readonly LineId[];
@@ -96,14 +97,14 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>, p
   return {
     id,
     name: p.name,
-    role: p.role as Exclude<ShipRole, 'fleet'>, // narrowed by the caller's isParticipant filter
+    role: p.role,
     userId: null,
     hullId: p.hullId,
     shift: p.shift,
     placement,
     kills: p.kills,
-    pveKills: { ...p.pveKills },
     damageDealt: p.damageDealt,
+    beaconXpMs: p.beaconXpMs,
     cards: [...p.cards],
     hands: p.hands.map((h) => toTPlus(h, match.activatedAt)),
     bankedLevels: p.bankedLevels,

@@ -1,7 +1,7 @@
 // The predictor's contact bodies (sim/contactBodies.ts, Story 9.5 — epic-9
 // amendment 74): built from the SAME sampled poses the contact renderer draws,
 // for SIGHTED contacts only — never the own hull, never a ghost the buffer has
-// frozen past its dead-reckoning limit — with the class (or drone envelope)
+// frozen past its dead-reckoning limit — with the class
 // base ARMOR index as mass (Story 10.3: mass = ARMOR), and reused across frames.
 
 import { describe, expect, it } from 'vitest';
@@ -16,7 +16,7 @@ function contact(id: string, cls: HullId, x: number, y: number, heading = 0): Co
 describe('ContactBodies.build', () => {
   it('poses each sighted contact at the sample time, with its envelope ARMOR index as mass', () => {
     const store = new ContactStore();
-    store.pushFrame(1000, [contact('a', 'bismarck', 10, 20, 0.5), contact('d', 'droneSmall', -40, 0)]);
+    store.pushFrame(1000, [contact('a', 'bismarck', 10, 20, 0.5), contact('d', 'yamato', -40, 0)]);
     const bodies = new ContactBodies().build(store, 1000, 'me');
     expect(bodies.map((b) => b.id).sort()).toEqual(['a', 'd']);
     const a = bodies.find((b) => b.id === 'a')!;
@@ -24,7 +24,7 @@ describe('ContactBodies.build', () => {
     expect(a.poly).toEqual(transformPolygon(hullSilhouette('bismarck'), 10, 20, 0.5));
     expect(a.mass).toBe(hullEnvelope('bismarck').index.armor);
     expect(a.movable).toBe(true);
-    expect(bodies.find((b) => b.id === 'd')!.mass).toBe(hullEnvelope('droneSmall').index.armor);
+    expect(bodies.find((b) => b.id === 'd')!.mass).toBe(hullEnvelope('yamato').index.armor);
   });
 
   it('never includes the own hull', () => {

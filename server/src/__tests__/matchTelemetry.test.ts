@@ -63,7 +63,7 @@ describe('Match.endSummary — pre-activation safety', () => {
       durationS: 0,
       winnerClass: null,
       killsByClass: {},
-      pveKillsByClass: {},
+      beaconXpMsByClass: {},
       stormDeaths: 0,
       // Pre-finish default (amendment 53): the no-survivor winner-resolution
       // state. durationS 0 + winnerClass null are the not-yet-finished tell.
@@ -91,26 +91,25 @@ describe('Match.endSummary — pre-activation safety', () => {
   });
 });
 
-describe('Match.endSummary — driven mini-match (drones + storm death)', () => {
+describe('Match.endSummary — driven mini-match (three captains + a storm death)', () => {
   function run(): Ctx {
     const ctx = build();
-    // Two humans of distinct classes (arm the countdown) + one drone (fills a
-    // slot; drones never count toward humanCount so this can't start/hold it).
-    // The drone takes a DRONE hull id — telemetry buckets it under that id.
+    // Three humans of distinct classes (the countdown arms at two); the third
+    // is the storm's victim — telemetry buckets it under its own hull id.
     ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     ctx.m.notifyRosterChanged();
     ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('d1', 'D1', 'fleet', 'droneLarge', undefined, undefined);
+    ctx.w.addShip('c', 'C', 'captain', 'yamato', undefined, undefined);
     ctx.m.notifyRosterChanged();
     // Activate (2 ticks: now 0 -> 100 == countdownEndT).
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
     expect(ctx.m.activatedAt).toBe(100);
-    // Killer-less sink of the drone = a storm death (by === undefined).
-    ctx.w.sinkShip('d1');
+    // Killer-less sink of c = a storm death (by === undefined).
+    ctx.w.sinkShip('c');
     step(ctx);
-    expect(ctx.m.phase).toBe('active'); // both humans still afloat
+    expect(ctx.m.phase).toBe('active'); // a and b still afloat
     // 'a' (torpedoBoat) sinks 'b' (mineLayer) → the outcome latches at a; the
     // finish waits for b's sinking window (amendment 17 reversed).
     ctx.w.sinkShip('b', 'a');
@@ -120,15 +119,15 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     return ctx;
   }
 
-  it('aggregates roster/kills/winner/storm/duration across all combatants incl. drones', () => {
+  it('aggregates roster/kills/winner/storm/duration across all combatants', () => {
     const s = run().m.endSummary();
-    expect(s.rosterSize).toBe(3); // drone included
-    expect(s.rosterByClass).toEqual({ bismarck: 1, warspite: 1, droneLarge: 1 });
+    expect(s.rosterSize).toBe(3);
+    expect(s.rosterByClass).toEqual({ bismarck: 1, warspite: 1, yamato: 1 });
     expect(s.winnerClass).toBe('bismarck');
-    expect(s.killsByClass).toEqual({ bismarck: 1, warspite: 0, droneLarge: 0 });
+    expect(s.killsByClass).toEqual({ bismarck: 1, warspite: 0, yamato: 0 });
     expect(s.stormDeaths).toBe(1);
     // The finish lands on b's founder tick: sink-entry at 150 (activation 100
-    // + one drone-sink tick) + the 5000ms window → finishedAt 5150, activated
+    // + one storm-sink tick) + the 5000ms window → finishedAt 5150, activated
     // 100 → 5.05s, rounded to 1 decimal (half-up) = 5.1.
     expect(s.durationS).toBeCloseTo(
       Math.round((150 + CONFIG.ship.sinkingWindowMs - 100) / 100) / 10,
@@ -138,64 +137,24 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
   });
 });
 
-// PvE telemetry (Story 5.6, epic-5 amendment 44): the faucet's economy signal.
-// A PvE kill still reaches no tally and no record — killsByClass must count
-// NONE of it — while pveKillsByClass carries the per-size truth an operator can
-// turn back into XP paid (¼ / ⅓ / ½ level).
-describe('Match.endSummary — the PvE column (amendment 44)', () => {
-  it('counts drone sinkings per VICTIM size, and leaves killsByClass untouched', () => {
-    const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
-    ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
-    ctx.m.notifyRosterChanged();
-    for (const [id, hull] of [
-      ['d1', 'droneSmall'],
-      ['d2', 'droneSmall'],
-      ['d3', 'droneMedium'],
-      ['d4', 'droneLarge'],
-    ] as const) {
-      ctx.w.addShip(id, id.toUpperCase(), 'fleet', hull, undefined, undefined);
-      ctx.m.notifyRosterChanged();
-    }
-    for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
-    expect(ctx.m.phase).toBe('active');
-    for (const id of ['d1', 'd2', 'd3', 'd4']) ctx.w.sinkShip(id, 'a');
-    step(ctx);
-    ctx.w.sinkShip('b', 'a'); // ...and ONE captain kill, for the contrast
-    step(ctx, SINK_TICKS + 1);
-    expect(ctx.m.phase).toBe('finished');
-    const s = ctx.m.endSummary();
-    expect(s.pveKillsByClass).toEqual({ droneSmall: 2, droneMedium: 1, droneLarge: 1 });
-    // The presentation tally saw exactly the captain kill — the four drones
-    // are absent from it, keyed by the KILLER's hull as it always was.
-    expect(s.killsByClass.bismarck).toBe(1);
-    expect(s.killsByClass.droneSmall).toBe(0);
-  });
-});
-
 // endedBy (amendment 53): the abandonment classification the balance evidence
 // needs, so a quit-out match can't be read as a fought-out one. One case per
 // cause, driven through the real transitions (no direct field pokes).
 describe('Match.endSummary — endedBy classification', () => {
-  /** Two humans + `drones` drones, activated. Since amendment 4 the drones do
-   *  NOT hold the match open for a lone survivor — the second captain is what
-   *  keeps it live — but they still prove a finish can happen with hulls afloat. */
-  function activated(drones: number): Ctx {
+  /** Two humans, activated. */
+  function activated(): Ctx {
     const ctx = build();
     ctx.w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     ctx.m.notifyRosterChanged();
     ctx.w.addShip('b', 'B', 'captain', 'warspite', undefined, undefined);
     ctx.m.notifyRosterChanged();
-    for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, 'fleet', 'droneLarge', undefined, undefined);
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
     return ctx;
   }
 
   it('fieldCleared: the winner is alive with everything else dead', () => {
-    const ctx = activated(1);
-    ctx.w.sinkShip('d0', 'a');
+    const ctx = activated();
     ctx.w.sinkShip('b', 'a');
     step(ctx, SINK_TICKS + 1); // b's window holds the finish (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
@@ -205,11 +164,10 @@ describe('Match.endSummary — endedBy classification', () => {
   });
 
   it('lastHumanSunk: a terminal sinking leaves 0 humans alive (storm case)', () => {
-    const ctx = activated(1);
-    // Killer-less sinks = storm deaths; the drone outlives both captains. Both
-    // captains going down on ONE tick is amendment 14's wipe — a DRAW — but
-    // the endedBy classification is about CAUSE, not winner, and stays
-    // lastHumanSunk.
+    const ctx = activated();
+    // Killer-less sinks = storm deaths. Both captains going down on ONE tick
+    // is amendment 14's wipe — a DRAW — but the endedBy classification is
+    // about CAUSE, not winner, and stays lastHumanSunk.
     ctx.w.sinkShip('a');
     ctx.w.sinkShip('b');
     step(ctx, SINK_TICKS + 1); // both windows hold the finish (amendment 17 reversed)
@@ -226,7 +184,7 @@ describe('Match.endSummary — endedBy classification', () => {
   });
 
   it('lastHumanSunk: mutual destruction in combat classifies as sunk, not cleared', () => {
-    const ctx = activated(0);
+    const ctx = activated();
     ctx.w.sinkShip('a', 'b');
     ctx.w.sinkShip('b', 'a'); // same tick
     step(ctx, SINK_TICKS + 1); // both windows hold the finish (amendment 17 reversed)
@@ -242,7 +200,7 @@ describe('Match.endSummary — endedBy classification', () => {
   //  it rather than being adapted — no dead knob, no synthetic-only coverage.)
 
   it('a departure that leaves a survivor standing is fieldCleared', () => {
-    const ctx = activated(0);
+    const ctx = activated();
     ctx.m.onPlayerLeave('b'); // 'a' is left alone on an empty ocean
     expect(ctx.m.phase).toBe('active'); // b's scuttled hull holds the finish (Story 6.7)
     step(ctx, SINK_TICKS + 1); // b's sinking window runs out

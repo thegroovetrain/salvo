@@ -366,7 +366,7 @@ export function applySlotEffect(
 /**
  * The client-side loadout derivation (ONE derivation, both sides): the
  * universal loadoutFor fit with every held card's slot effects replayed over
- * it. `fleet` selects the gun-only drone fit; `shift` is the SEAT'S pick
+ * it. `shift` is the SEAT'S pick
  * (slot 1 — Story 10.4; `OwnShip.shift` off the wire client-side). Slot 0 is
  * the main battery on every captain. There is no kit parameter since Story
  * 10.5 (the kit is retired).
@@ -385,13 +385,12 @@ export function slotsWithCards(
   stats: EffectiveStats,
   cards: readonly string[],
   catalog: Catalog = CATALOG,
-  fleet = false,
   shift: ShiftId = DEFAULT_SHIFT,
 ): LoadoutSlot[] {
   // Slot 0 is the MAIN BATTERY and slot 1 the SEAT'S Shift (Story 10.4): the
   // same `loadoutFor` the spawn ran, so a replay on either side re-mounts what
   // the captain picked, never a literal.
-  const loadout = loadoutFor(stats, fleet, shift);
+  const loadout = loadoutFor(stats, shift);
   const seen = new Map<string, number>();
   for (const id of cards) {
     for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, catalog);

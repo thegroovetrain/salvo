@@ -386,41 +386,20 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     expect(o.hp).toBe(o.stats.maxHp); // owner-excluded blast (universal AoE convention)
   });
 
-  it('DRONES are valid blast victims (enemies AND drones — no special-casing)', () => {
+  it('a SECOND hull inside the blast is a victim too (every non-owner hull, no special-casing)', () => {
     // The FULL amount is read off its `dmg` event rather than off an hp
-    // raised past the hull's own max (an unreachable state — review gate).
-    // Whether the LARGE drone survives is a fact of the tables, not the
-    // contract (2026-11-04, Story 10.3: the base mine 200 no longer one-shots
-    // the 225 hp ×3-placeholder large drone; the small-drone fleet-farm ruling
-    // below still holds) — so the outcome is derived.
+    // raised past the hull's own max (an unreachable state — review gate);
+    // whether it survives is a fact of the tables, not the contract.
     const { w } = minefield();
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const dr = w.addShip('dr', 'DR', 'fleet', 'droneLarge', undefined, undefined); // drone inside the blast
+    const dr = w.addShip('dr', 'DR', 'captain', 'yamato', undefined, undefined); // a bystander inside the blast
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
     expect(dr.hp).toBe(dr.stats.maxHp);
     w.step();
     const hits = w.tickEvents.filter((e): e is DamageEvent => e.k === 'dmg' && e.id === 'dr');
-    expect(hits.map((h) => h.amount)).toEqual([CONFIG.mine.damage]); // the full damage, one blow
-    expect(dr.hp).toBe(Math.max(0, dr.stats.maxHp - CONFIG.mine.damage));
-    expect(dr.lifecycle.kind === 'alive').toBe(CONFIG.mine.damage < dr.stats.maxHp);
-  });
-
-  it('a BASE mine one-shots a small drone — the Mine Layer fleet-farm (Eric ruling 2026-08-16)', () => {
-    // *"if you wanna spend mines to clear drones, do it. My players actually
-    // found that the minelayer is a fleet-killing machine, and it being able to
-    // aggro and mine pve ships can secure it an XP bonus to rely on in fights."*
-    // At the old 60hp small drone the base mine (55) fell just short and only a
-    // STACKED mine cleared it; at 45 it clears at base. Ratified, not incidental.
-    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp);
-    const { w } = minefield();
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
-    b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const dr = w.addShip('dr', 'DR', 'fleet', 'droneSmall', undefined, undefined);
-    dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
-    w.step();
-    expect(dr.hp).toBeLessThanOrEqual(0);
-    expect(dr.lifecycle.kind).not.toBe('alive');
+    expect(hits.map((h) => h.amount)).toEqual([blow(CONFIG.mine.damage, dr, w.ships.get('o')!)]); // the full gated blow, once
+    expect(dr.hp).toBe(Math.max(0, dr.stats.maxHp - blow(CONFIG.mine.damage, dr, w.ships.get('o')!)));
   });
 
   it('mineBlastVictims: silhouette-in-radius membership, owner excluded (the shared burstVictims rule)', () => {

@@ -2,7 +2,7 @@
 // sim/launchers.ts as a set of laws over CONFIG, never literal tables:
 //
 //   (1) geometry: stations on the centerline inside the hull, FORE ahead of
-//       the forward turrets and AFT abaft the aft turrets; a drone has none;
+//       the forward turrets and AFT abaft the aft turrets;
 //   (2) the arc: trains rest ± its OWN trainDeg (per hull, per launcher —
 //       R30, CONFIG.shipClasses.<id>.launchers); traverse at the
 //       BATTERY's rate, through its own dead wedge to change sides; HOLD
@@ -24,7 +24,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DRONE_HULL_IDS,
   SHIP_CLASS_IDS,
   arcFor,
   copyLaunchers,
@@ -125,13 +124,6 @@ describe('launcher geometry', () => {
     expect(w.y).toBeCloseTo(POSE.y + Math.sin(POSE.heading) * local.x, 9);
   });
 
-  it.each(DRONE_HULL_IDS)('%s mounts no launcher whatever the counts say', (hull) => {
-    const ls = initialLaunchers(hull, counts(2, 2));
-    expect(ls).toEqual([]);
-    expect(pickTube(ls, hull, POSE, at(POSE, 0)).verdict).toBe('out-of-arc');
-    expect(launcherSummary(ls)).toEqual({ n: 0, reloadMsLeft: 0 });
-  });
-
   it('every torpedo id declares the launcher arc; the sectors are the two firing bands of each launcher held', () => {
     for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
       expect(arcFor(id)).toEqual({ kind: 'launcher' });
@@ -156,7 +148,6 @@ describe('launcher geometry', () => {
         expect(secs.filter((sec) => Math.sin(sec.offset) > 0)).toHaveLength(n);
       }
     }
-    for (const hull of DRONE_HULL_IDS) expect(launcherSectors(hull, 2)).toEqual([]);
   });
 });
 
@@ -191,7 +182,6 @@ describe('the arc and the traverse', () => {
       );
     }
     expect(launcherArcHolds(HULL, 0, POSE.heading, POSE.heading)).toBe(false);
-    expect(launcherArcHolds(DRONE_HULL_IDS[0], 2, POSE.heading, POSE.heading + BEAM)).toBe(false);
   });
 
   it('traverses through its own dead wedge to change sides', () => {

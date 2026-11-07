@@ -7,8 +7,9 @@
 // every CAPTAIN hull now fits exactly [gun, boost, empty × the rest] — the boost
 // stopped being a Torpedo Boat privilege (amendment 23) and the class weapons
 // arrive as CARDS: since Story 8.10 deleted the interim spawn seed, the first
-// of them comes off the LEVEL-ZERO OFFER at countdown start. A PvE fleet
-// hull fits [gun, empty × the rest] (Story 5.6, amendment 34). Also pins the
+// of them comes off the LEVEL-ZERO OFFER at countdown start. (The PvE fleet
+// hull's [gun, empty × the rest] fit retired with the fleet, Story 10.8,
+// 2026-11-06.) Also pins the
 // EQUIPMENT_IS_WEAPON split — the single source server rows and the client
 // activation path read. Pure, zero I/O.
 
@@ -48,11 +49,6 @@ import { NEUTRAL_HULL } from './neutralHull.js';
 /** Fresh effective stats for any hull id at zero boons. */
 function statsFor(id: HullId): EffectiveStats {
   return effectiveStats(hullEnvelope(id));
-}
-
-/** Is this hull id a PvE fleet (drone) hull? */
-function isFleet(id: HullId): boolean {
-  return !(SHIP_CLASS_IDS as readonly string[]).includes(id);
 }
 
 describe('slot-grammar constants — the fixed roles (Story 8.5; five slots since Story 10.5)', () => {
@@ -235,7 +231,7 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     for (const id of SHIP_CLASS_IDS) {
       const stats = statsFor(id);
       for (const shift of SHIFT_IDS) {
-        const loadout = loadoutFor(stats, false, shift);
+        const loadout = loadoutFor(stats, shift);
         expect(loadout[SLOT_BOOST].equipmentId, `${id}/${shift}`).toBe(shift);
         // A FULL charge, idle — the boost's semantics for every Shift.
         expect(loadout[SLOT_BOOST].state, `${id}/${shift}`).toEqual({ n: equipmentMaxAmmo(stats, shift), reloadMsLeft: 0 });
@@ -260,13 +256,6 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     }
   });
 
-  it('a FLEET drone fits NO Shift whatever `shift` says', () => {
-    for (const shift of SHIFT_IDS) {
-      expect(loadoutFor(statsFor('droneSmall'), true, shift)[SLOT_BOOST])
-        .toEqual({ equipmentId: null, state: null });
-    }
-  });
-
   it('the three family slots start EMPTY on every captain hull', () => {
     for (const id of SHIP_CLASS_IDS) {
       const loadout = loadoutFor(statsFor(id));
@@ -276,35 +265,12 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     }
   });
 
-  it('fleet === true is the gun-only drone fit: [gun, empty × the rest] (amendments 34 / 24)', () => {
+  it('is SLOT_COUNT slots with the main battery fitted in slot 0 on every hull id', () => {
     for (const id of HULL_IDS) {
-      const loadout = loadoutFor(statsFor(id), true);
-      expect(loadout.map((s) => s.equipmentId), id).toEqual([
-        'gun', ...new Array<null>(SLOT_COUNT - 1).fill(null),
-      ]);
-      expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'gun'), reloadMsLeft: 0 });
-    }
-  });
-
-  it('is SLOT_COUNT slots with slot 0 fitted on every hull id: the main battery on a captain fit, the gun on a fleet fit', () => {
-    for (const id of HULL_IDS) {
-      for (const fleet of [false, true]) {
-        const mounted = fleet ? 'gun' : 'mainBattery';
-        const loadout = loadoutFor(statsFor(id), fleet);
-        expect(loadout, `${id}/${String(fleet)}`).toHaveLength(SLOT_COUNT);
-        expect(loadout[SLOT_GUN].equipmentId).toBe(mounted);
-        expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), mounted), reloadMsLeft: 0 });
-      }
-    }
-  });
-
-  it('the fit is hull-INDEPENDENT: a drone hull passed as a captain gets the captain fit', () => {
-    // The hull parameter is gone; a fleet hull is one BOOLEAN away, and the
-    // only thing its id still decides is its STATS (pools/reloads).
-    for (const id of HULL_IDS) {
-      if (!isFleet(id)) continue;
-      expect(loadoutFor(statsFor(id)).map((s) => s.equipmentId), id)
-        .toEqual(loadoutFor(statsFor('iowa')).map((s) => s.equipmentId));
+      const loadout = loadoutFor(statsFor(id));
+      expect(loadout, id).toHaveLength(SLOT_COUNT);
+      expect(loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
+      expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'mainBattery'), reloadMsLeft: 0 });
     }
   });
 });
@@ -361,8 +327,8 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover the three moved weapons (St
 describe('LoadoutSlot invariant — state is null iff equipmentId is null', () => {
   it('holds for every slot across every hull id', () => {
     for (const id of HULL_IDS) {
-      for (const fleet of [false, true]) {
-        const loadout: LoadoutSlot[] = loadoutFor(statsFor(id), fleet);
+      for (const shift of SHIFT_IDS) {
+        const loadout: LoadoutSlot[] = loadoutFor(statsFor(id), shift);
         expect(loadout).toHaveLength(SLOT_COUNT); // all SLOT_COUNT slots, not just the fitted head
         for (const slot of loadout) {
           expect(slot.state === null).toBe(slot.equipmentId === null);

@@ -57,7 +57,6 @@ import {
   type WelcomeMsg,
   type ZoneRing,
 } from '@salvo/shared';
-import { isDroneHull } from '../render/ships.js';
 
 /**
  * A string that exists NOWHERE ELSE in the codebase, emitted onto `window` by
@@ -197,10 +196,10 @@ export interface SceneProfile {
    *  AND, like every hull since amendment 210, a radar paint — see
    *  `blipEvents`). Everything else sits in the radar annulus and reaches the
    *  client as paint only. A PREDICATE rather than a count, so a profile can INTERLEAVE
-   *  the two bands: NFR1's fleet hulls are the tail of the slot range, and a
+   *  the two bands: NFR1's extra hulls are the tail of the slot range, and a
    *  bare `i <= nearContacts` split would have put every one of them outside the
-   *  bubble — no drone silhouette, no aggro bracket, no hull-hit flash, i.e. the
-   *  cheap half of the picture measured as if it were the whole one. */
+   *  bubble — no silhouette, no hull-hit flash, i.e. the cheap half of the
+   *  picture measured as if it were the whole one. */
   near(i: number): boolean;
   /**
    * Ticks between radar paints of ONE hull (near or far — every hull paints
@@ -226,35 +225,16 @@ const CONTACT_HULLS: readonly HullId[] = [
   'yamato',
   'bismarck',
   'warspite',
-  'droneMedium',
+  'bismarck',
   'iowa',
   'yamato',
-  'droneLarge',
+  'iowa',
   'warspite',
 ];
 
-/**
- * The staged hull id for scene slot `i` — ONE expression, read by both the hull
- * builder and the roster builder, because Story 5.6 made them disagree at their
- * peril: a PvE fleet hull holds NO roster row (amendment 39), so "which slots
- * are drones" is now a fact both sides have to answer identically.
- */
+/** The staged hull id for scene slot `i` (readability profile). */
 export function sceneHullFor(i: number): HullId {
   return CONTACT_HULLS[i % CONTACT_HULLS.length];
-}
-
-// `sceneSlotIsDrone(i)` USED TO LIVE HERE AND WAS DELETED (Story 7.1 review).
-// It answered "is this slot a fleet hull" against the READABILITY hull cycle
-// only, and once profiles arrived it became a public helper that returns the
-// wrong answer for the `nfr1` profile while looking like the obvious one to
-// reach for. Its own docstring warned that these two sides "disagree at their
-// peril". Use `slotIsDrone(profile, i)` below, which cannot be asked the
-// question without naming the profile it is about.
-
-/** The same question against an arbitrary profile — the form every internal
- *  reader uses. Slot 0 is always the local captain and is never a fleet hull. */
-function slotIsDrone(profile: SceneProfile, i: number): boolean {
-  return i > 0 && isDroneHull(profile.hullFor(i));
 }
 
 /** The local captain's class. */
@@ -275,34 +255,23 @@ export const READABILITY_PROFILE: SceneProfile = {
 };
 
 /**
- * NFR1's REFERENCE SCENARIO, derived from CONFIG rather than written down: a
- * FULL arena of contestants plus the PEAK concurrent PvE fleet.
+ * NFR1's REFERENCE SCENARIO: a FULL arena of contestants plus the extra hulls
+ * below.
  *
  * `playerCap` rival captains less one ride slots 1..cap−1 and the local captain
  * is slot 0 — a full arena (20 when NFR1 was written; 16 since Story 9.8, Eric
- * 2026-10-13). Fleet hulls follow on slots cap+.
+ * 2026-10-13). The extra hulls follow on slots cap+.
  */
 const NFR1_CAPTAIN_SLOTS = CONFIG.map.playerCap;
 
-/** One PvE fleet group's hulls, in `CONFIG.fleet.composition` proportion
- *  (1 large : 2 medium : 3 small = the six-hull half-fleet Eric ruled is the
- *  spawn unit). Built from CONFIG so a composition retune moves the staged
- *  fleet with it. */
-const FLEET_GROUP: readonly HullId[] = [
-  ...Array<HullId>(CONFIG.fleet.composition.large).fill('droneLarge'),
-  ...Array<HullId>(CONFIG.fleet.composition.medium).fill('droneMedium'),
-  ...Array<HullId>(CONFIG.fleet.composition.small).fill('droneSmall'),
-];
-
 /**
- * The PEAK CONCURRENT fleet population — the largest single wave, not the sum
- * of the schedule. `CONFIG.fleet.waves` spawns 8 groups at 1:00, 4 at 5:00 and
- * 2 at 9:00; at six hulls a group that is 48 / 24 / 12, and the waves are
- * spaced minutes apart precisely so the field is thinned between them. 48 is
- * therefore the number a frame can actually be asked to draw.
+ * The EXTRA hulls staged past the full arena — the scene's stress population.
+ * It was the peak concurrent PvE drone fleet (the largest single wave, six hulls
+ * a group) until Story 10.8 retired the drones; the slots now carry captain
+ * hulls of real classes so the frame-cost measurement keeps its hull COUNT.
+ * A stage knob, not a gameplay number.
  */
-const NFR1_FLEET_HULLS =
-  FLEET_GROUP.length * CONFIG.fleet.waves.reduce((peak, w) => Math.max(peak, w.fleets), 0);
+const NFR1_EXTRA_HULLS = 48;
 
 /**
  * NEAR/FAR INTERLEAVE for the NFR1 profile: every 4th slot sits inside the
@@ -313,8 +282,8 @@ const NFR1_FLEET_HULLS =
  * uniformly-spread population occupies. It was FOUR on the eighths ladder
  * (330/660); the twelfths ladder (Story 9.8, epic-9 amendment 103 — radar =
  * 3 × sight) makes it NINE, one near and eight in the annulus. Taking every
- * Nth slot also mixes captains and fleet hulls into both bands, which is the
- * point of using a stride at all.
+ * Nth slot also mixes arena captains and extra hulls into both bands, which is
+ * the point of using a stride at all.
  */
 const NFR1_NEAR_STRIDE = Math.round((CONFIG.vision.radar / CONFIG.vision.sight) ** 2);
 
@@ -324,8 +293,7 @@ const SWEEP_REVOLUTION_TICKS = Math.round(60_000 / CONFIG.vision.sweepRpm / SCEN
 
 /**
  * THE NFR1 POPULATION PROFILE (Story 7.1) — the arena cap of contestants + the
- * 48-hull peak PvE fleet (68 hulls at the 20 cap; 64 at 16 since Story 9.8),
- * sharing SCENE's flash stack and torpedo salvo.
+ * extra hulls (64 at the 16 cap since Story 9.8), sharing SCENE's flash stack and torpedo salvo.
  *
  * Reached at `/?stage=worstcase&profile=nfr1`; the readability gate's own URL
  * (no `profile`) is untouched.
@@ -333,13 +301,10 @@ const SWEEP_REVOLUTION_TICKS = Math.round(60_000 / CONFIG.vision.sweepRpm / SCEN
 export const NFR1_PROFILE: SceneProfile = {
   id: 'nfr1',
   scene: SCENE,
-  contacts: NFR1_CAPTAIN_SLOTS - 1 + NFR1_FLEET_HULLS,
+  contacts: NFR1_CAPTAIN_SLOTS - 1 + NFR1_EXTRA_HULLS,
   near: (i) => (i - 1) % NFR1_NEAR_STRIDE === 0,
   blipStrideTicks: SWEEP_REVOLUTION_TICKS,
-  hullFor: (i) =>
-    i < NFR1_CAPTAIN_SLOTS
-      ? SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]
-      : FLEET_GROUP[(i - NFR1_CAPTAIN_SLOTS) % FLEET_GROUP.length],
+  hullFor: (i) => SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length],
 };
 
 /** Every profile by id — the selector's table (see `sceneProfile`). */
@@ -378,9 +343,6 @@ export interface SceneRosterRow {
 export interface SceneHull {
   id: string;
   cls: HullId;
-  /** Story 5.6: this hull has acquired the local captain, so its contact rows
-   *  carry the self-private `aggro` mark and it wears the bracket. */
-  aggro: boolean;
   /** Orbit centre offset from the own start point (u). */
   cx: number;
   cy: number;
@@ -421,23 +383,15 @@ function callsign(i: number): string {
 }
 
 /**
- * The roster: the local captain plus every RIVAL CAPTAIN slot — and NOTHING
- * ELSE.
- *
- * STORY 5.6 (amendment 39): a PvE fleet hull is not a roster member, so the
- * slots staging drone hulls contribute no row at all. The scene keeps its drone
- * CONTACTS (the greyscale chevrons are part of what the readability gate has to
- * show) while the roster shrinks around them, which is exactly the shape the
- * arena now has — and it is what makes the chrome bar's AFLOAT count exercise
- * its captains-only rule, since AFLOAT is now simply the roster's live rows.
+ * The roster: the local captain plus every RIVAL CAPTAIN slot — every staged
+ * hull is a captain, so every slot holds a row.
  *
  * The kill leader carries the highest kill count, which is the count `bountyId`
  * agrees with.
  */
-function buildRoster(profile: SceneProfile, count: number): SceneRosterRow[] {
+function buildRoster(count: number): SceneRosterRow[] {
   const rows: SceneRosterRow[] = [];
   for (let i = 0; i < count; i += 1) {
-    if (slotIsDrone(profile, i)) continue;
     rows.push({
       id: hullId(i),
       name: callsign(i),
@@ -472,11 +426,6 @@ function buildHull(i: number, rng: () => number, profile: SceneProfile): SceneHu
     // ~1 lap per 12-30s at 20 Hz — visible motion, so every hull lays wake.
     rateRadPerTick: (0.008 + rng() * 0.012) * (rng() < 0.5 ? -1 : 1),
     far,
-    // Every NEAR fleet hull is hunting us, so the readability gate sees the
-    // aggro bracket stacked with every other channel rather than in isolation.
-    // A FAR one is not: at radar range you hold no hull view to hang a bracket
-    // on, which is the honest picture of what amendment 40 actually renders.
-    aggro: !far && slotIsDrone(profile, i),
   };
 }
 
@@ -506,9 +455,8 @@ export function buildSceneWorld(
   const rng = (): number => stream.next();
   const total = profile.contacts;
   // Slot 0 is the local captain, so the roster scan spans one more slot than
-  // there are contacts. Fleet slots contribute no row (amendment 39) and are
-  // skipped inside buildRoster.
-  const roster = buildRoster(profile, total + 1);
+  // there are contacts.
+  const roster = buildRoster(total + 1);
   const ownStart = { x: 0, y: 0 };
   const hulls: SceneHull[] = [];
   for (let i = 1; i <= total; i += 1) hulls.push(buildHull(i, rng, profile));
@@ -542,12 +490,7 @@ export function hullPose(h: SceneHull, world: SceneWorld, tick: number): Contact
   // wake trails astern — the wake ribbon is one of the channels under test.
   const heading = a + (h.rateRadPerTick >= 0 ? Math.PI / 2 : -Math.PI / 2);
   const speed = Math.abs(h.rateRadPerTick) * h.radiusU * (1000 / SCENE_TICK_MS);
-  // THE AGGRO BRACKET is a channel the readability gate has to see stacked with
-  // everything else (Story 5.6, amendment 40), so every NEAR fleet hull in the
-  // scene is hunting us. `aggro` is self-private on the wire and this scene is
-  // always the local captain's own frame, so setting it here is exactly what a
-  // real server would send this observer.
-  return h.aggro ? { id: h.id, x, y, heading, speed, cls: h.cls, aggro: true } : { id: h.id, x, y, heading, speed, cls: h.cls };
+  return { id: h.id, x, y, heading, speed, cls: h.cls };
 }
 
 /** The own hull's pose at `tick` — a slow wide turn, so it lays a wake too. */

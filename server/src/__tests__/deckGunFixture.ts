@@ -2,9 +2,9 @@
 // hull's slot 0, and put a hull on the NEUTRAL index.
 //
 // Since Story 10.4 no captain picks a deck gun — slot 0 is the MAIN BATTERY on
-// every captain hull and the `gun` row is the PvE drones' — but the cannon /
-// machine gun / flak Equipment rows still exist in the registry (drones fire
-// the cannon; the other two stay for reference), and their row mechanics
+// every hull (the PvE drones that fired the `gun` row retired at Story 10.8)
+// — but the cannon / machine gun / flak Equipment rows still exist in the
+// registry (kept for reference, amendment 6), and their row mechanics
 // (magazine, stream, flak air-burst, mine damage on landing, attenuation) are
 // still guarded by directed tests. Those tests seat the row here, straight
 // onto the loadout, loaded, exactly as `loadoutFor` used to.

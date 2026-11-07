@@ -33,8 +33,8 @@ import type { BotProfile } from './profiles.js';
 import type { TacticContext } from './tacticKit.js';
 
 /** The slot-0 guns — the only weapons the lit lift serves: the captain's MAIN
- *  BATTERY (Story 10.4) and the three deck guns (the drones' `gun` today; the
- *  machine gun and flak rows stay for reference). */
+ *  BATTERY (Story 10.4) and the three deck-gun rows (kept for reference,
+ *  amendment 6; no hull mounts one since Story 10.8). */
 export type DeckGun = 'gun' | 'machineGun' | 'flak' | 'mainBattery';
 
 /** The gun mounted in slot 0: the main battery, the machine gun and flak by

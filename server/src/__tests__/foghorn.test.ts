@@ -68,8 +68,6 @@ const radarCtx = (w: World) => ({
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,
-  // Story 5.6: the aggro mark's input; the fh row reads none of it either.
-  aggroAt: (fleetShipId: string, observerId: string) => w.drones.isTargeting(fleetShipId, observerId),
   // Story 9.8: the radar dropout roll's inputs; the fh row reads neither.
   dropoutSeed: w.dropoutSeed,
   wakeKeyOf: (r: Parameters<World['wakeKeyOf']>[0]) => w.wakeKeyOf(r),
@@ -157,18 +155,6 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     honk(w, 'a', 2, 1000);
     for (let i = 0; i < COOLDOWN / DT + 1; i++) w.step();
     expect(honks(w.tickEvents)).toHaveLength(0); // replay reads stale forever
-  });
-
-  it('a drone never honks — the press is consumed and dropped', () => {
-    const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    // Out-run the drone controller's own per-tick submit (mind.seq counts up
-    // from 1): a seq-10 forged press wins latest, the controller's input reads
-    // stale — this is exactly the shape a hijacked drone channel would take.
-    honk(w, 'd1', 10, 1);
-    w.step();
-    expect(honks(w.tickEvents)).toHaveLength(0);
-    expect(d.lastHornSeq).toBe(1); // consumed, exactly like malformed input
   });
 
   it('a dead captain cannot honk; the press is consumed', () => {

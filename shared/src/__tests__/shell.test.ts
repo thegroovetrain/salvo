@@ -11,6 +11,7 @@ import {
 import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
 import { islandFromPolygon } from '../sim/map.js';
 import { segCircleHit } from '../math/geom.js';
+import { beaconPolygon } from '../sim/beacons.js';
 import { CONFIG, SHIP_CLASS_IDS, hullEnvelope, type HullId } from '../constants.js';
 import { TRANSOM_NOTCH_HULL } from './concaveFixtures.js';
 import type { Island } from '../types.js';
@@ -30,12 +31,31 @@ function ctx(o: Partial<ShellContext> = {}): ShellContext {
   return { islands: [], targets: [] as Target[], now: 1000, dt: DT, mapRadius: BIG_R, ...o };
 }
 
-/** A silhouette-polygon hull target at a world pose. droneMedium (100×30
- *  chevron) by default: at heading π/2 its flat starboard side is the vertical
- *  segment x = poseX − 15 spanning y ∈ [poseY − 45, poseY + 15] — a clean
- *  broadside across a +x shell path. */
-function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: HullId = 'droneMedium'): Target {
-  return { id, kind: 'hull', poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
+/** THE TEST CHEVRON — a 100×30 hull polygon (bow tip, shoulders at
+ *  0.3·halfLen, stern inset 0.1·halfLen). It was the PvE `droneMedium`
+ *  silhouette until the drones retired (Story 10.8, 2026-11-06); the shell
+ *  cases below are about shell-vs-polygon geometry, not any hull, so the
+ *  shape is kept here byte-for-byte as a local fixture. */
+const CHEVRON_100X30 = ((): Vec2[] => {
+  const hl = 50;
+  const hb = 15;
+  const shoulder = hl * 0.3;
+  const stern = -hl + hl * 0.1;
+  return [
+    { x: hl, y: 0 },
+    { x: shoulder, y: -hb },
+    { x: stern, y: -hb },
+    { x: -hl, y: 0 },
+    { x: stern, y: hb },
+    { x: shoulder, y: hb },
+  ];
+})();
+
+/** A hull-polygon target at a world pose — the test chevron: at heading π/2
+ *  its flat starboard side is the vertical segment x = poseX − 15 spanning
+ *  y ∈ [poseY − 45, poseY + 15] — a clean broadside across a +x shell path. */
+function hullAt(x: number, y: number, heading: number, id = 'victim'): Target {
+  return { id, kind: 'hull', poly: transformPolygon(CHEVRON_100X30, x, y, heading) };
 }
 
 /**
@@ -368,7 +388,7 @@ describe('stepShell — earliest hit wins', () => {
 });
 
 // --- Universal standard gun: targeted burst hit rule (Story 1.4) ------------
-// droneMedium at heading π/2 (see hullAt): near flat side at x = poseX − 15
+// The test chevron at heading π/2 (see hullAt): near flat side at x = poseX − 15
 // spanning y ∈ [poseY − 45, poseY + 15]; hull body x ∈ [poseX − 15, poseX + 15].
 
 describe('stepShell — targeted shell bursts at the clicked point', () => {
@@ -423,7 +443,7 @@ describe('stepShell — bodyblock (early interception) vs proximity exception', 
   });
 
   it('an interceptor whose silhouette is within burstRadius of the target (not containing it) also bursts', () => {
-    // droneMedium at (260, 16) heading 0: its flat underside (y = 1, x ∈
+    // The test chevron at (260, 16) heading 0: its flat underside (y = 1, x ∈
     // [215, 275]) grazes the shell path (hitRadius 2) → intercepts near
     // x ≈ 213, far from the target — but its bow edge passes ~10.8u from
     // (300, 0), INSIDE the 15u blast, and the target itself is outside the
@@ -621,26 +641,28 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 
 describe('CONFIG ordnance masks (AR44)', () => {
   it('the shipped rows declare exactly the ruled masks; no stub row exists', () => {
+    // STORY 10.8 (Eric 2026-11-06, R8): every weapon row strikes a radio
+    // beacon; the two mine TRIP masks do not (R12 — a mine never trips on one).
     // THE `decoy` KIND IS GONE (Story 10.5, Eric 2026-11-05, epic-10 amendment
     // 11): the buoys are deleted, so no mask names it.
-    expect(CONFIG.gun.hits).toEqual(['hull', 'mine']);
+    expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'beacon']);
     // Amendment 200 (Eric 2026-10-01): only the three DECK GUNS damage a mine
     // (by landing on it) — the broadside barrage and phosphor shells lost `mine`.
-    expect(CONFIG.broadside.hits).toEqual(['hull']);
-    expect(CONFIG.phosphorShells.hits).toEqual(['hull']);
-    expect(CONFIG.torpedo.hits).toEqual(['hull']);
-    expect(CONFIG.starShells.hits).toEqual(['hull']); // illumination detonates nothing
-    expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
+    expect(CONFIG.broadside.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.torpedo.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.starShells.hits).toEqual(['hull', 'beacon']); // illumination detonates nothing
+    expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask — never a beacon (Story 10.8, R12)
     // STORY 8.13's ROWS. Every torpedo runs UNDER a minefield (AR44) and every
     // mine trips on hulls only, so the two new masks are their families'.
-    expect(CONFIG.lightTorpedo.hits).toEqual(['hull']);
-    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull']);
-    expect(CONFIG.foulingMines.hits).toEqual(['hull']);
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.foulingMines.hits).toEqual(['hull']); // a TRIP mask — never a beacon (R12)
     // The two burst shells of the special-shell slot hit hulls only.
-    expect(CONFIG.flashShells.hits).toEqual(['hull']);
-    expect(CONFIG.foulingShell.hits).toEqual(['hull']);
+    expect(CONFIG.flashShells.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.foulingShell.hits).toEqual(['hull', 'beacon']);
     // The main battery's shell (Story 10.4): hulls, no mine bit.
-    expect(CONFIG.mainBattery.hits).toEqual(['hull']);
+    expect(CONFIG.mainBattery.hits).toEqual(['hull', 'beacon']);
     // CAPTIVE MINES declares NO mask of its own and needs none: the mine never
     // detonates on contact — it LAUNCHES a torpedo, which flies under the
     // torpedo family's mask (CONFIG.torpedo.hits).
@@ -649,11 +671,11 @@ describe('CONFIG ordnance masks (AR44)', () => {
     // gun is DIRECT-HIT with no burst, and since amendment 200 a shell of its
     // that ARRIVES on a mine damages it, so it carries `mine`; the flak gun
     // adds `ordnance` (a side effect nothing leans on).
-    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine']);
-    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance']);
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'beacon']);
+    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']);
     // No mask anywhere names a kind outside the vocabulary.
     for (const block of Object.values(CONFIG) as { hits?: readonly string[] }[]) {
-      for (const kind of block.hits ?? []) expect(['hull', 'mine', 'ordnance']).toContain(kind);
+      for (const kind of block.hits ?? []) expect(['hull', 'mine', 'ordnance', 'beacon']).toContain(kind);
     }
     // The CUT lines never get a row (amendment 89e).
     for (const row of ['missile', 'monitor']) {
@@ -817,10 +839,11 @@ describe('stepShell — homing torpedo steering', () => {
 // --- CYCLE-148 REVIEW GATE, P6: A LOCKED FISH HAS ONE TARGET, FOR GOOD -------
 //
 // The CAPTIVE MINE fires at the hull that tripped it AND cleared the hostile
-// gate (R2.13 — a fleet drone is a target only while it is actively hunting the
-// mine's owner). That gate is a World read; `steerHoming` is pure shared sim and
-// cannot re-run it. So an ordinary re-acquiring fish would happily abandon the
-// captain it was fired at for a neutral drone that drifted nearer — springing
+// gate (R2.13 — a fleet drone, while the PvE fleet sailed, was a target only
+// while it was actively hunting the mine's owner). That gate is a World read;
+// `steerHoming` is pure shared sim and cannot re-run it. So an ordinary
+// re-acquiring fish would happily abandon the captain it was fired at for a
+// neutral hull that drifted nearer — springing
 // the trap on exactly the hull the gate refused. `locked` pins the answer at
 // launch.
 describe('stepShell — a LOCKED homing torpedo (the captive mine\'s fish)', () => {
@@ -860,5 +883,34 @@ describe('stepShell — a LOCKED homing torpedo (the captive mine\'s fish)', () 
     stepShell(t, ctx({ targets: [hullAt(90, 45, 0, 'farther'), hullAt(50, -25, 0, 'nearer')] }));
     expect(t.homing!.targetId).toBe('nearer');
     expect(t.vy).toBeLessThan(0);
+  });
+});
+
+// --- Story 10.8: the `beacon` kind (Eric 2026-11-06, R8 / R12) ---------------
+// A radio beacon's body is a target like a hull: a shell in flight stops on
+// it, a burst covering it lists it, and a homing torpedo may lock it. The
+// World lists it only while it is hittable; the pure functions just accept it.
+
+/** A beacon target: the shared octagon body at (x, y). */
+function beaconAt(x: number, y: number, id = 'bcn'): Target {
+  return { id, kind: 'beacon', poly: beaconPolygon(x, y) };
+}
+
+describe('stepShell / burstVictims — the beacon kind (Story 10.8)', () => {
+  it('a contact shell flying into a beacon stops on it as a hit', () => {
+    const out = stepToOutcome(shell(), ctx({ targets: [beaconAt(40, 0)] }));
+    expect(out).toMatchObject({ kind: 'hitShip', victimId: 'bcn' });
+  });
+
+  it('a burst covering a beacon lists it as a victim', () => {
+    const out = burstVictims({ x: 0, y: 0 }, CONFIG.beacons.bodyRadiusU * 2, [beaconAt(0, 0)], 'owner');
+    expect(out.map((t) => [t.id, t.kind])).toEqual([['bcn', 'beacon']]);
+  });
+
+  it('a homing torpedo acquires a beacon in range (R12) and steers toward it', () => {
+    const t = homingTorp();
+    stepShell(t, ctx({ targets: [beaconAt(80, 50)] }));
+    expect(t.homing!.targetId).toBe('bcn');
+    expect(t.vy).toBeGreaterThan(0);
   });
 });

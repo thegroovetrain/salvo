@@ -27,13 +27,16 @@
 // flare deals 10 → 20 across its ladder, under the same per-shell law). Pure
 // CONFIG/catalog pins — they fail the moment a retune or a
 // catalog step drifts across a line.
+//
+// THE DRONES RETIRED (Story 10.8, 2026-11-06): the drone-hp pins, the small
+// drone's farming trade and the PvE exchange-rate guard went with them; the
+// class-hull scope above stands.
 
 import { describe, it, expect } from 'vitest';
 import {
   BOON_STAT_PATHS,
   CATALOG,
   CONFIG,
-  DRONE_SIZE_IDS,
   LINE_IDS,
   SHIP_CLASS_IDS,
   boostedKinematics,
@@ -52,16 +55,12 @@ function maxStackFor(path: string): LineId[] {
 }
 
 const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
-const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
 // The one-hit-kill LAW protects player-piloted CLASS hulls only (Story 5.6 —
-// see the file header). Drone hp is tracked separately below, deliberately
-// NOT folded into this floor.
+// see the file header).
 const minHullHp = Math.min(...classHps);
-const minDroneHp = Math.min(...droneHps);
 
 const classSpeeds = SHIP_CLASS_IDS.map((c) => effectiveStats(CONFIG.shipClasses[c]).kinematics.maxSpeed);
-const droneSpeeds = DRONE_SIZE_IDS.map((d) => effectiveStats(CONFIG.drones[d]).kinematics.maxSpeed);
-const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
+const maxHullSpeed = Math.max(...classSpeeds);
 
 /** Stats under N copies of one catalog line (the max-stack computation). */
 const stacked = (id: LineId, n = CATALOG[id].cap) =>
@@ -88,20 +87,6 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     // (see 'THE LAW IS PER SHELL' below).
     expect(CONFIG.broadside.damage).toBeLessThan(minHullHp);
   });
-
-  it('every drone hull is lighter than every class hull, so drones are not floor-eligible', () => {
-    // Drones are ALL lighter than every pickable class hull. That does NOT
-    // make the small drone "the lightest hull on the water" for GUARDRAIL
-    // purposes — fleet hulls are PvE fodder (amendment 33) and are
-    // deliberately NOT protected by the one-hit-kill law. minHullHp is
-    // therefore the CLASS floor, not the drone floor.
-    for (const droneHp of droneHps) {
-      for (const classHp of classHps) {
-        expect(droneHp).toBeLessThan(classHp);
-      }
-    }
-    expect(minDroneHp).toBeLessThan(minHullHp);
-  });
 });
 
 describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105)', () => {
@@ -125,41 +110,6 @@ describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendmen
     expect(capped.damage).toBeLessThan(minHullHp);
     expect(capped.contactDamage).toBe(CONFIG.flak.contactDamage); // FIXED — the ladder never steps it
     expect(CONFIG.flak.contactDamage).toBeLessThanOrEqual(CONFIG.flak.damage);
-  });
-});
-
-describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 34; epic-6 amendment 24)', () => {
-  it('the GUN — the fleet-clearing weapon — still cannot one-shot even the smallest drone', () => {
-    // This is the one that must hold: the gun is the weapon the TTK ladder is
-    // written against (3/4/5 shots = 15/20/25s), so a one-shot here would
-    // collapse the whole envelope rather than reward a build.
-    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // one SHELL never one-shots it
-  });
-
-  it('EVERY heavier player weapon one-shots a small drone at BASE — INTENDED, and the Mine Layer case is the point', () => {
-    // Eric ruling 2026-08-16: *"if you wanna spend mines to clear drones, do
-    // it. My players actually found that the minelayer is a fleet-killing
-    // machine, and it being able to aggro and mine pve ships can secure it an
-    // XP bonus to rely on in fights."*
-    //
-    // At 60hp the base mine (55) fell just short and only a STACKED mine
-    // cleared the bar. At 45 it clears at base, so the Mine Layer's fleet-
-    // farming play works out of the box instead of needing a card first. That
-    // is a RATIFIED buff, not an accepted cost — do not "restore" the gap.
-    //
-    // Note this does NOT touch amendment 36 clause 3: a mine hit still does
-    // not aggro its victim. The Mine Layer pulls aggro with its GUN and leads
-    // hulls over the field, which is that rule working as designed.
-    // The cannon's 65 became the broadside's 20 PER SHELL (Story 7-5 wave 2),
-    // which no longer clears a 45hp small drone on its own — but a BARRAGE of 3
-    // does, and a barrage is the weapon's unit of fire. Pinned as the barrage
-    // so the Battleship's fleet-clearing is still guarded.
-    expect(CONFIG.broadside.damage * CONFIG.broadside.turrets).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 60 >= 45
-    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp);
-    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // the ruling
-    // The `stacked('mineDamage')` half of this pin is RETIRED with the card
-    // (Story 7-5 wave 1): TNT FILLER is deleted, so 55 IS the mine's damage at
-    // every build and the base clause above is now the whole statement.
   });
 });
 
@@ -324,9 +274,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // barrels × damage at V = 2 × 13 = 26 — the small-drone one-click is GONE
     // again (every drone size takes two or more maxed clicks). The ceiling is
     // read from the fold; a future barrel or damage change moves it visibly.
-    expect(perShell * barrels).toBeLessThan(minDroneHp); // the maxed click no longer one-clicks a small drone
-    expect(perShell * barrels).toBeLessThan(CONFIG.drones.medium.hp);
-    expect(perShell * barrels).toBeLessThan(CONFIG.drones.large.hp);
+    // (The drone-hp pins left with the drones, Story 10.8, 2026-11-06.)
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 
@@ -474,80 +422,5 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     // CONFIG number is its speed at every build.
     expect(CONFIG.supercavTorpedo.speed).toBeGreaterThan(maxHullSpeed);
     expect(CONFIG.supercavTorpedo.damage).toBeLessThan(minHullHp);
-  });
-});
-
-// --- The PvE exchange rate (epic-5 amendment 45) ------------------------------
-//
-// THE GUARDRAIL AMENDMENT 33 FAILED TO APPLY, and the one that actually caught
-// the 6/8/10 fleet gun. A PvE kill is only a faucet if the XP it pays exceeds
-// what the damage taken COSTS TO UNDO — and undoing damage has a hard price in
-// the same currency: one HULL REPAIR copy restores instantHp + regenHp, and a
-// copy is a card, which is what a banked level buys. So the honest test of a
-// PvE damage profile is an EXCHANGE RATE, never a dps or a time-to-kill.
-// (It was a level spent directly on the heal until Story 8.8 made the heal a
-// card; the arithmetic — one level, one heal's worth of hp — is unchanged.)
-//
-// Eric's derivation, 2026-08-14: an unupgraded gun (15) needs 4 shots to sink a
-// 60hp small hull; on a 5s reload that is 20 seconds, in which the drone fires
-// back 4 times. At 6 damage that is 24 hp taken for a quarter-level earned —
-// and 24 hp costs about half a level to repair. Every size was NET NEGATIVE:
-// farming correctly and winning left a captain BEHIND one who ignored the
-// fleet entirely, which is a broken faucet rather than a hard fight.
-describe('the PvE farm must PAY — damage taken costs less to repair than the kill earns', () => {
-  const HEAL_HP = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp; // 100 per HULL REPAIR copy
-  const TIERS = [
-    ['small', 'droneSmall'],
-    ['medium', 'droneMedium'],
-    ['large', 'droneLarge'],
-  ] as const;
-
-  // The CAPTAIN's click: `barrels` shells of `damage` each (two barrels at
-  // every tier since Story 9.12, Eric 2026-10-16), read through the fold —
-  // never CONFIG.gun.damage alone, which is one SHELL.
-  const captainGun = effectiveStats(CONFIG.shipClasses.iowa).equipment.gun;
-  const clickDamage = captainGun.damage * captainGun.barrels;
-
-  it('a solo duel with each fleet size is XP-POSITIVE after repair costs', () => {
-    // 100 since balance cycle 1 (instantHp + regenHp both 25 → 50, doubled in
-    // step with hull hp). CONSEQUENCE RECORDED RATHER THAN ABSORBED: a level now
-    // buys twice the repair, so the level-cost of PvE damage HALVED and farming
-    // is materially cheaper to sustain than it was when this bar was derived.
-    // The bar itself still holds — and now holds by a wider margin.
-    for (const [size, hullId] of TIERS) {
-      const drone = CONFIG.drones[size];
-      // Clicks the captain needs, on the base gun (every barrel's shell
-      // landing); the drone answers on its own reload for exactly as long as
-      // that takes.
-      const shotsToKill = Math.ceil(drone.hp / clickDamage);
-      const duelMs = shotsToKill * captainGun.reloadMs;
-      const volleysBack = Math.floor(duelMs / drone.gun.reloadMs);
-      const damageTaken = volleysBack * drone.gun.damage;
-
-      const levelsEarned = CONFIG.xp.droneTierLevels[hullId];
-      const levelsToRepair = damageTaken / HEAL_HP;
-
-      expect(levelsToRepair).toBeLessThan(levelsEarned);
-    }
-  });
-
-  it('and the OLD 6/8/10 gun fails this same test at the PRE-DOUBLING heal — the pin is not vacuous', () => {
-    // THE COUNTERFACTUAL IS ANCHORED TO THE OLD HEAL (50 hp/level) ON PURPOSE.
-    // At today's 100 hp/level the old 6/8/10 drone gun clears the bar too (the
-    // small tier costs 0.18 levels to repair against 0.25 earned), so measuring
-    // it against the CURRENT heal would make this guard vacuous — it would pass
-    // no matter how weak the counterfactual was. That the guard had to be
-    // re-anchored IS the finding: doubling the paid heal halved the level-cost
-    // of PvE damage, which loosened the faucet this whole describe-block exists
-    // to keep honest. Flagged for a ruling; not silently accepted.
-    const PRE_DOUBLING_HEAL = 50;
-    const OLD = { small: 6, medium: 8, large: 10 } as const;
-    for (const [size, hullId] of TIERS) {
-      const drone = CONFIG.drones[size];
-      const shotsToKill = Math.ceil(drone.hp / clickDamage);
-      const volleysBack = Math.floor((shotsToKill * captainGun.reloadMs) / drone.gun.reloadMs);
-      const damageTaken = volleysBack * OLD[size];
-      expect(damageTaken / PRE_DOUBLING_HEAL).toBeGreaterThan(CONFIG.xp.droneTierLevels[hullId]);
-    }
   });
 });

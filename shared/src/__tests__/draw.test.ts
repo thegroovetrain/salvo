@@ -40,7 +40,9 @@ import {
   CONFIG,
   EQUIPMENT_FAMILY,
   FAMILY_SLOT,
+  SLOT_BOOST,
   SLOT_FAMILIES,
+  SLOT_GUN,
   WEAPON_SLOTS,
   boonStackCount,
   drawBonusIndex,
@@ -72,8 +74,12 @@ import { NEUTRAL_HULL } from './neutralHull.js';
 
 /** The slot ids of a fresh hull on the gun-module fit: the gun, no Shift and
  *  three EMPTY family slots. The draw reads the row off this array — there is
- *  no separate `weaponSlotOpen` boolean to disagree with it (review F2). */
-const ROW_OPEN: readonly (EquipmentId | null)[] = loadoutFor(effectiveStats(NEUTRAL_HULL), true).map((s) => s.equipmentId);
+ *  no separate `weaponSlotOpen` boolean to disagree with it (review F2). Built
+ *  over the captain fit since `loadoutFor`'s `fleet` flag retired with the
+ *  PvE fleet (Story 10.8, 2026-11-06): slot 0 the gun module, slot 1 empty. */
+const ROW_OPEN: readonly (EquipmentId | null)[] = loadoutFor(effectiveStats(NEUTRAL_HULL)).map((s, i) =>
+  i === SLOT_GUN ? 'gun' : i === SLOT_BOOST ? null : s.equipmentId,
+);
 
 /** The same hull with all three family slots occupied — the first kind of each
  *  family, read off the model. */
@@ -82,8 +88,8 @@ const ROW_FULL: readonly (EquipmentId | null)[] = ROW_OPEN.map((id, i) => {
   return k < 0 ? id : familyMembers(SLOT_FAMILIES[k])[0];
 });
 
-/** The three RETIRED deck-gun modules (reference + the PvE fleet since Story
- *  10.4) — the hosts the three gun ladders name. A captain mounts none of them. */
+/** The three RETIRED deck-gun modules (reference only since Story 10.4; the
+ *  PvE fleet that mounted `gun` retired at 10.8) — the hosts the three gun ladders name. A captain mounts none of them. */
 const GUN_MODULES = ['gun', 'machineGun', 'flak'] as const satisfies readonly EquipmentId[];
 
 /** A ship with an open weapon row, holding nothing — the level-zero state. */

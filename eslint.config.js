@@ -65,8 +65,8 @@ export default tseslint.config(
               message: 'ai/ may import perception.js types only (PerceptionView) — the fogged view arrives as an injected thunk, and a value import (observe/observeSpectator) is a fog bypass.',
             },
             {
-              group: ['**/match.js', '**/drones.js', '**/frames.js', '**/combat.js', '**/equipment/*', '**/rooms/*'],
-              message: 'ai/ is perception-gated: no match/drones/frames/combat/equipment/rooms imports (see game/ai/types.ts).',
+              group: ['**/match.js', '**/frames.js', '**/combat.js', '**/equipment/*', '**/rooms/*'],
+              message: 'ai/ is perception-gated: no match/frames/combat/equipment/rooms imports (see game/ai/types.ts).',
             },
           ],
         },
@@ -87,10 +87,10 @@ export default tseslint.config(
     // lint rule cannot be scoped INSIDE a file, and a grep cannot see the other
     // 60 server files.
     //
-    // `decoy.hp -=` in world.ts (World.damageDecoy — Story 8.16; the radar buoy's
-    // `buoy.hp -=` before it) is the one non-hull decrement and is allowed by
-    // the same file exception (a decoy is not a ship: no XP, no feed line, no
-    // dmg event, and it never enters the gate).
+    // `mine.hp -=` (World.damageMine) and `beacon.hp -=` (World.damageBeacon —
+    // Story 10.8) in world.ts are the two non-hull decrements and are allowed
+    // by the same file exception (neither is a ship: no feed line, no dmg
+    // event, and neither enters the hull gate).
     files: ['server/src/**/*.ts'],
     ignores: ['server/src/game/world.ts'],
     rules: {
