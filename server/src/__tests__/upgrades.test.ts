@@ -1750,8 +1750,8 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
       // battery, the SEAT's Shift (Story 10.4), seven empty slots.
       // `loadoutFor` IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
-      expect(a.loadout).toEqual(loadoutFor(a.stats, false, a.shift));
-      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, CATALOG, false, a.shift));
+      expect(a.loadout).toEqual(loadoutFor(a.stats, a.shift));
+      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, CATALOG, a.shift));
       for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       expect(a.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
       expect(a.loadout[SLOT_BOOST].equipmentId).toBe(DEFAULT_SHIFT);
@@ -1797,6 +1797,6 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
-    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, fresh.shift)); // the seat's Shift
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, fresh.shift)); // the seat's Shift
   });
 });

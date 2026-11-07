@@ -17,7 +17,6 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  DRONE_SIZE_IDS,
   EQUIPMENT_FAMILY,
   EQUIPMENT_IDS,
   FAMILY_SLOT,
@@ -345,15 +344,6 @@ describe('R2 — RUDDER is gone; one baseline turn rate', () => {
     for (const [clsId, cls] of HULLS) {
       expect(effectiveStats(cls).kinematics.turnRate, clsId).toBe(CONFIG.index.turnRate);
       expect(effectiveStats(cls, stack('engines', 5)).kinematics.turnRate, clsId).toBe(CONFIG.index.turnRate);
-    }
-  });
-
-  it('the drones keep the turn rates they had under the retired RUDDER law (I5)', () => {
-    // The pre-10.6 law, inlined as the oracle: 0.4 rad/s × RUDDER / 100 over
-    // the drones' old indices 225 / 188 / 150.
-    const OLD: Record<(typeof DRONE_SIZE_IDS)[number], number> = { small: 225, medium: 188, large: 150 };
-    for (const size of DRONE_SIZE_IDS) {
-      expect(effectiveStats(CONFIG.drones[size]).kinematics.turnRate, size).toBe((0.4 * OLD[size]) / 100);
     }
   });
 });

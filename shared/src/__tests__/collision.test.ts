@@ -441,18 +441,19 @@ describe('resolveShipPose — island push-out (nearest-boundary normal)', () => 
   });
 
   it('pushes an overlapping hull OUTWARD off the coast; GRAZING costs no way', () => {
-    // droneMedium broadside at heading π/2: flat side at x = ship.x − 15,
-    // over the island's eastern coastline by ~5u.
-    const prev: Pose = { x: 62, y: 10, heading: Math.PI / 2 };
-    const s: ShipState = { x: 60, y: 10, heading: Math.PI / 2, speed: 12 };
-    const res = resolve(prev, s, [island], 'droneMedium');
+    // A broadside battleship at heading π/2 (the droneMedium chevron this
+    // case was written on retired with the drones, Story 10.8): its widest
+    // side sits a few u over the island's eastern coastline.
+    const prev: Pose = { x: 54, y: 10, heading: Math.PI / 2 };
+    const s: ShipState = { x: 52, y: 10, heading: Math.PI / 2, speed: 12 };
+    const res = resolve(prev, s, [island], 'bismarck');
     // Push direction = the nearest-boundary normal at the DEEPEST-PENETRATING
     // HULL VERTEX (cycle 59 teleport fix — the centre aim let a bow in one
     // coastal feature take its direction from another). The vertex sits off
     // the centre radial, so the facet-exact normal may tilt from the centre's
     // outward radial by the n-gon facet geometry — still solidly outward.
-    const rad = { x: 60 / Math.hypot(60, 10), y: 10 / Math.hypot(60, 10) };
-    const disp = { x: s.x - 60, y: s.y - 10 };
+    const rad = { x: 52 / Math.hypot(52, 10), y: 10 / Math.hypot(52, 10) };
+    const disp = { x: s.x - 52, y: s.y - 10 };
     const mag = Math.hypot(disp.x, disp.y);
     expect(mag).toBeGreaterThan(3); // a real correction, not a nudge
     expect(mag).toBeLessThan(10); // minimal-translation push, no teleport
@@ -463,7 +464,7 @@ describe('resolveShipPose — island push-out (nearest-boundary normal)', () => 
     expect(res.contact).toBe(true);
     expect(res.headOn).toBeLessThan(0.2);
     expect(s.speed).toBe(12);
-    expect(islandClear(worldPoly(s, 'droneMedium'), island)).toBe(true);
+    expect(islandClear(worldPoly(s, 'bismarck'), island)).toBe(true);
   });
 
   it('applies ONE damp per tick even with multiple island contacts (#64 root cause)', () => {

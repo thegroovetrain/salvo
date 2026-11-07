@@ -24,11 +24,15 @@ const SQRT2 = 1.4142135623730951;
 
 // --- Ratified constants (re-exported by map.ts as MAP_RULES) -----------------
 
-/** Widest hull beam across ship classes AND drones (order-independent max). */
-const WIDEST_BEAM = Math.max(
-  ...Object.values(CONFIG.shipClasses).map((c) => c.hull.beam),
-  ...Object.values(CONFIG.drones).map((d) => d.hull.beam),
-);
+/**
+ * u — the beam the navigability erosion is sized for. It WAS the max over the
+ * ship classes AND the PvE drones, and the large drone's 35 u beam set it
+ * (every battleship is under 18 u). FROZEN AT 35 when the drones retired
+ * (Story 10.8, 2026-11-06) so map generation stays byte-identical — it is
+ * mirrored by `TERRAIN_PARAMS.navClear` (sim/heightField.ts). Re-deriving it
+ * from the battleships would regenerate every map: not a cleanup call.
+ */
+const WIDEST_BEAM = 35;
 const NAV_CELL = 32; // u — ratified navigability raster cell size
 const NAV_MARGIN = 6; // u — hull half-beam slack in the navigability erosion
 /** Erosion radius: a cell is navigable iff its centre clears every polygon by this. */

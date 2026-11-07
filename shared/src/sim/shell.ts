@@ -93,7 +93,7 @@ export interface ShellState {
    * `hitTargets(mask)` to build `ctx.targets` for this shell, so the mask is a
    * per-projectile hit-rule parameter exactly like `burstRadius` (the Story 1.4
    * seam) rather than a branch in the collector. NEVER on the wire (the
-   * ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit`/`noAggro`
+   * ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit`
    * posture).
    */
   hits: readonly TargetKind[];
@@ -173,17 +173,9 @@ export interface ShellState {
    * tag's exact posture).
    */
   flash?: { radius: number; durationMs: number };
-  /**
-   * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
-   * shell must aggro NOBODY at its owner — the GUN BUOY's shells carried it
-   * (the gun buoy is deleted with the radar buoy, Story 8.16), because "the layer may be dead or across the map, so there is nothing to
-   * chase" (the mine exception's own rationale, which the buoy turret adopted
-   * when Eric ruled it autonomous). The World's hitShip call sites read it as
-   * the `fromMine` argument; stepShell never reads it, and it is NEVER on the
-   * wire (the ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit` tag's
-   * exact posture).
-   */
-  noAggro?: true;
+  // The SERVER-INTERNAL `noAggro` tag (Story 7-5 fix cycle, R2.21a — the
+  // gun buoy's shells) is DELETED with the PvE fleet's aggro (Story 10.8,
+  // 2026-11-06): nothing read or set it any more.
   // PLUNGING FIRE (`arcing`) and ARMOR-PIERCING (`pierce`) are DELETED with the
   // cannon (Story 7-5 wave 2, R2.6): they were the cannon's two doctrine cards
   // and nothing else ever set either field. The BROADSIDE BARRAGE that replaces
@@ -204,9 +196,9 @@ export interface ShellState {
    *
    * `locked` PINS THAT LOCK AT LAUNCH (cycle-148 review gate, P6). A CAPTIVE
    * MINE's fish is fired at the ONE hull that tripped the mine and the hostile
-   * gate cleared (R2.13) — so it must not re-acquire, ever: a neutral fleet
-   * drone drifting nearer would otherwise steal a trap the drone was not
-   * allowed to spring. With `locked` the fish steers at `targetId` for as long
+   * gate cleared (R2.13) — so it must not re-acquire, ever: a neutral hull
+   * drifting nearer would otherwise steal a trap it was not allowed to spring
+   * (the PvE fleet drone was the original case, retired at Story 10.8). With `locked` the fish steers at `targetId` for as long
    * as that target is in `ctx.targets` and flies STRAIGHT once it is gone —
    * never at somebody else. It is set only by `captiveTorpedo`; an ordinary
    * homing torpedo leaves it unset and keeps the nearest-acquire rule above,
@@ -240,7 +232,7 @@ export interface ShellState {
  *                 owner, so no friendly-fire case applies to it.
  * The old fourth kind, `decoy` (a dropped buoy's body, Story 8.16 / 10.9), is
  * DELETED with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
- * Pure geometry: shared knows nothing about owners' doctrine, drones or the
+ * Pure geometry: shared knows nothing about owners' doctrine or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */
 export type TargetKind = 'hull' | 'mine' | 'ordnance' | 'beacon';

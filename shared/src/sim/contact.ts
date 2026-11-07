@@ -5,7 +5,7 @@
 // against another lands in the same place on both sides.
 //
 // MODEL OF RECORD (amendment 25). For a pair A/B with masses mA, mB (each
-// hull's EFFECTIVE max hull, `effectiveStats().maxHp`; a drone's envelope hp;
+// hull's EFFECTIVE max hull, `effectiveStats().maxHp`;
 // a wreck keeps its maxHp), the contact normal n points from B toward A and
 // the relative velocity is v = vA − vB, each hull's velocity being
 // `speed × (cos heading, sin heading)`:

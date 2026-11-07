@@ -313,8 +313,7 @@ export interface InputMsg {
    * grammar (Story 1.6). A value newer than the last the server consumed
    * requests exactly ONE instant activation of the ABILITY named by `act`;
    * `0` is the explicit "never activated" sentinel, so every existing driver
-   * (and every drone) that never touches an ability keeps sending 0 and never
-   * activates. Abilities are NOT aimed and NEVER prime — the activation is an
+   * that never touches an ability keeps sending 0 and never activates. Abilities are NOT aimed and NEVER prime — the activation is an
    * instant key-press effect, independent of the click that fires the primed
    * weapon. Validated server-side like every field (finite int ≥ 0, monotonic).
    */
@@ -333,8 +332,7 @@ export interface InputMsg {
    * Client-side monotonic FOGHORN counter, mirroring fireSeq/actSeq's grammar
    * (Story 4.5). A value newer than the last the server consumed requests
    * exactly ONE honk; `0` is the explicit "never honked" sentinel, so every
-   * existing driver (and every drone — drones never honk) keeps sending 0 and
-   * never sounds. The server consumes it with max(), so a stale or replayed
+   * existing driver that never honks keeps sending 0 and never sounds. The server consumes it with max(), so a stale or replayed
    * value reads as "no new press" and a spoofed jump (`hornSeq += 1000`)
    * gains nothing — at most one gated honk resolves per tick, and it is
    * gated again on CONFIG.foghorn.cooldownMs. The honk is NOT aimed and NEVER
@@ -353,7 +351,7 @@ export interface InputMsg {
    * reads it off the LATEST input (never the intent queue); a tap shorter than
    * one sample is latched client-side so it still yields one `true` sample.
    * REQUIRED: a non-boolean drops the whole message (server/src/game/inputs.ts).
-   * Drones and neutral inputs send `false`.
+   * Neutral inputs send `false`.
    *
    * Since Story 10.4 no captain mounts the machine gun, so this level drives
    * nothing on a captain's hull; it stays on the wire for the retired module.
@@ -369,7 +367,7 @@ export interface InputMsg {
    * else. The server reads it off the LATEST input; a tap shorter than one
    * sample should be latched client-side like `held`.
    * REQUIRED: a non-boolean drops the whole message (server/src/game/inputs.ts).
-   * Drones and neutral inputs send `false`.
+   * Neutral inputs send `false`.
    */
   sec: boolean;
 }
@@ -463,7 +461,7 @@ export interface OwnShip {
    * which Shift ability this captain picked at ship select, frozen at queue —
    * `boost`, `instantReload` or `hunker`, defaulting to `boost`
    * (`sanitizeShiftId`). The client replays its own loadout from it
-   * (`slotsWithCards(stats, cards, catalog, false, shift)`), which is why
+   * (`slotsWithCards(stats, cards, catalog, shift)`), which is why
    * it rides the frame at all. It REPLACES `gun` (the seat's deck-gun pick,
    * Story 8.14 — gone with the three scaffold classes).
    *
@@ -751,30 +749,14 @@ export interface Contact {
   heading: number; // rad
   speed: number; // u/s
   /**
-   * Hull id — a sighted hull's silhouette is legitimately visible. Wider than
-   * OwnShip.cls: contacts can also be drones (droneSmall/Medium/Large), which
-   * are never a class YOU can be.
+   * Hull id — a sighted hull's silhouette is legitimately visible. (It was
+   * wider than OwnShip.cls while the PvE drones sailed; since Story 10.8,
+   * 2026-11-06, `HullId` is `ShipClassId`.)
    */
   cls: HullId;
-  /**
-   * SELF-PRIVATE aggro mark (Story 5.6, epic-5 amendment 40). Present and
-   * `true` ONLY when this contact is a PvE fleet ship that has acquired THE
-   * OBSERVER RECEIVING THIS FRAME; omitted entirely in every other case,
-   * including for other observers watching the same hull and for spectators.
-   *
-   * WHY THIS NEEDS NO SEVENTH PERCEPTION EXCEPTION: it is an extra attribute
-   * on a contact the observer can ALREADY see (the row only exists because
-   * `contactSignal.visible` passed), so it widens no spatial disclosure — it
-   * is the `sinkingUntil`/`slowedUntil` shape applied to a Contact instead of
-   * to `you`. It is also unforgeable intent rather than derived state: a
-   * client cannot compute it, which is exactly why Eric's *"very visually
-   * obvious that a PvE ship has aggro'd you"* needs a field at all.
-   *
-   * Appended LAST and optional so the historical key order stays byte-stable;
-   * `spectator.test.ts`'s exact Contact key-set assertion (epic-5 amendment
-   * 19) is updated deliberately alongside it.
-   */
-  aggro?: true;
+  // The SELF-PRIVATE `aggro` mark (Story 5.6, epic-5 amendment 40 — a PvE
+  // fleet ship had acquired the observer) is DELETED with the fleet (Story
+  // 10.8, 2026-11-06, PROTOCOL_VERSION 100).
   /**
    * THE HULL'S TURRET ANGLES (Story 10.4, epic-10 amendment 7(e): "Turret
    * angles of a sighted hull travel in the per-client frames as part of that
@@ -783,15 +765,14 @@ export interface Contact {
    * turret's offset from its rest bearing in WHOLE DEGREES, counter-clockwise
    * positive (`encodeTurretAngles` / `decodeTurretAngle`, sim/turrets.ts).
    *
-   * Present on a battleship's contact row, ABSENT on a drone's (a drone has no
-   * turrets). ANGLES ONLY — never a reload, a heat or a readiness bit: when an
+   * Present on a battleship's contact row. ANGLES ONLY — never a reload, a heat or a readiness bit: when an
    * enemy turret can fire again is the enemy's private state. It rides the
    * contact row and therefore that row's own visibility gate; nothing about a
    * hull outside sight ∪ this-tick radar may carry it (extend the invariant
    * tests).
    *
-   * APPENDED LAST, AND OPTIONAL: key order is load-bearing for msgpack, and
-   * the `aggro` precedent above is the shape.
+   * APPENDED LAST, AND OPTIONAL: key order is load-bearing for msgpack (the
+   * retired `aggro` key was the precedent for the shape).
    */
   tu?: number[];
   /**
@@ -1177,7 +1158,8 @@ export interface MuzzleEvent {
  * not a per-observer alias, not a stable anonymous key (amendment 45) — so
  * per-source puff capping is impossible by construction and the client may
  * cap globally only. Own smoke rides this same row with no special case
- * (amendment 46), as does a drone's (amendment 47). KEY ORDER IS LOAD-BEARING
+ * (amendment 46), as did a PvE drone's (amendment 47; the drones retired at
+ * Story 10.8, 2026-11-06). KEY ORDER IS LOAD-BEARING
  * (msgpack): k,x,y,tier.
  */
 export interface SmokeEvent {
@@ -1299,8 +1281,9 @@ export interface DamageEvent {
  *
  * THE PUBLIC REGISTER (global kill feed): a human captain's sinking is
  * delivered to EVERY client — identity only ({k,id,by?}), never a position,
- * class, hue, damage, or weapon field. Drone sinkings stay gated (witnessed,
- * or your own kill). `seen` is PER-OBSERVER, stamped by the sunk row's
+ * class, hue, damage, or weapon field. (Drone sinkings were gated —
+ * witnessed, or your own kill — until the drones retired at Story 10.8,
+ * 2026-11-06.) `seen` is PER-OBSERVER, stamped by the sunk row's
  * materialize() on the server: present (always `true`) iff THIS observer
  * legitimately witnessed the wreck (sight+LOS, an owned lit zone, own hull,
  * or spectator). It gates EVERYTHING SPATIAL on the client — the sink plume
@@ -1314,17 +1297,16 @@ export interface DamageEvent {
  * sinking held the bounty throne at the pre-sink instant — `'v'` the victim,
  * `'k'` the killer. Both can never be true at once (one throne, and a
  * self-sink credits nobody, so `'k'` requires a `by` distinct from `id`).
- * Identity-only, adds NO disclosure: `'v'` can only ride a combatant sinking
- * (a drone can never hold the throne), `'k'` may ride a drone wreck — but
- * that event reaches only the witness and the credited killer, both of whom
- * already know the leader's identity from the public ArenaState.bountyId.
+ * Identity-only, adds NO disclosure: both ride a captain sinking, and the
+ * leader's identity is already public in ArenaState.bountyId.
  * The key is omitted entirely when neither held it, never `undefined`.
  * Observer-INDEPENDENT (unlike the per-observer `seen`): every recipient of
  * the row gets the same value.
  *
- * `vcls` (Story 5.6) and `kcls` (Story 7.6) are documented on the fields
- * themselves and are appended after `bty`; the full load-bearing key order is
- * k,id,by?,seen?,bty?,vcls?,kcls?.
+ * The PvE fleet's class stamps `vcls` (Story 5.6, the victim's hull id to the
+ * credited killer) and `kcls` (Story 7.6, a fleet killer's hull id) are
+ * DELETED with the fleet (Story 10.8, 2026-11-06, PROTOCOL_VERSION 100); the
+ * load-bearing key order is k,id,by?,seen?,bty?.
  */
 export interface SunkEvent {
   k: 'sunk';
@@ -1332,77 +1314,6 @@ export interface SunkEvent {
   by?: string;
   seen?: true;
   bty?: 'v' | 'k';
-  /**
-   * THE VICTIM'S HULL ID, delivered ONLY to the observer credited with the
-   * kill (Story 5.6, Eric ruling 2026-08-14, epic-5 amendment 43):
-   * *"I want to know the kills I get when I get them. Meaning I want to know
-   * I killed a Small Drone if a Small Drone is killed by my mine."*
-   *
-   * WHY THIS COULD NOT BE DONE CLIENT-SIDE, which is the whole reason a wire
-   * field exists: you can sink a fleet ship you never saw — a mine it sailed
-   * over, or a shell at 500u, since the gun reaches 660u and truesight is 330.
-   * With drones off the roster (amendment 39) the client then holds no name,
-   * no hull and no row for that id, and the feed could only say
-   * `UNKNOWN VESSEL`. The server knows; nobody else can.
-   *
-   * PER-OBSERVER, like `seen` and unlike `bty` — stamped by the sunk row's
-   * materialize() only when `by === observerId`. A bystander who witnesses the
-   * same sinking never receives it, so this discloses the victim's CLASS to
-   * exactly one client that already earned the XP for it and already learned
-   * the tier from the amount. It therefore adds NO perception exception: the
-   * master invariant stays at exactly SIX.
-   *
-   * Deliberately NOT the Public Register's business: the register is
-   * identity-only by ruling, and this key never rides a row the killer is not
-   * the recipient of. Appended LAST, key omitted entirely when absent (never
-   * `undefined` — msgpack encodes that). KEY ORDER IS LOAD-BEARING:
-   * k,id,by?,seen?,bty?,vcls?.
-   *
-   * It names the SIZE because the size is the payout (¼ / ½ / ¾ level), and it
-   * changes nothing else: PvE kills still never increment the KILLS tally and
-   * still never reach the match log or the end-game record (amendment 38,
-   * re-confirmed by Eric in the same ruling).
-   */
-  vcls?: HullId;
-  /**
-   * THE KILLER'S HULL ID, AND ONLY EVER A PvE FLEET HULL'S (Story 7.6, Eric
-   * ruling 2026-08-21): *"if someone gets sunk by a drone, you can tell me
-   * what drone sunk them. Its fine. UNKNOWN VESSEL can only be a drone anyway.
-   * Please, let me laugh and foghorn salute the dumbass who died to a drone."*
-   * And, asked directly whether it was worth a wire break: *"Yes I want to see
-   * that Bob was killed by SMALL DRONE if that's what happened."*
-   *
-   * WHY IT MUST BE ON THE WIRE, and why it is the MIRROR of `vcls` rather than
-   * a widening of it. A fleet hull can sink a captain from outside that
-   * captain's — and every bystander's — truesight bubble, and with fleet hulls
-   * off the roster (amendment 39) no client then holds a name, a hull or a row
-   * for the killer id. The `sunk` row is GLOBAL for a captain victim, so every
-   * client renders that line, and every one of them could only say
-   * `UNKNOWN VESSEL`. The ever-seen hull memo (client/src/net/snapshots.ts)
-   * answers this whenever the killer was once in our bubble; this key answers
-   * the case the memo structurally cannot, exactly as `vcls` does for victims.
-   *
-   * FLEET HULLS ONLY — THE LOAD-BEARING CONSTRAINT. The key is stamped iff the
-   * killer's `role` is `'fleet'`. A CAPTAIN killer never carries it, because a
-   * captain's hull class is NOT disclosed by this row today and widening it
-   * would be a genuine new disclosure about a player (their class is a build
-   * fact, readable off a contact only when you can actually see them). A fleet
-   * hull's tier is about nobody: it names a server-spawned PvE hull whose
-   * existence, size mix and tier ladder are fixed by CONFIG.
-   *
-   * OBSERVER-INDEPENDENT, like `bty` and unlike `seen`/`vcls`: every recipient
-   * of the row gets the same value, because the fact it carries is the same
-   * for all of them. It therefore adds NO perception exception — the master
-   * invariant stays at exactly SIX. The row is already a declared exception,
-   * and this key discloses nothing about any observer's sensors, nothing
-   * spatial, and nothing about any player.
-   *
-   * NOTHING ELSE RIDES IT: no position, bearing, range, hp, weapon or hue.
-   * Appended LAST, after `vcls`; the key is OMITTED entirely when it does not
-   * apply, never `undefined` (msgpack encodes that). KEY ORDER IS LOAD-BEARING:
-   * k,id,by?,seen?,bty?,vcls?,kcls?.
-   */
-  kcls?: HullId;
 }
 
 /** A ship (re)spawned at a position. */

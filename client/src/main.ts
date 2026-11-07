@@ -765,7 +765,7 @@ function slotIdsFor(
   _cls: ShipClassId,
   shift: ShiftId = DEFAULT_SHIFT,
 ): (EquipmentId | null)[] {
-  return slotsWithCards(stats, cards, CATALOG, false, shift).map((s) => s.equipmentId);
+  return slotsWithCards(stats, cards, CATALOG, shift).map((s) => s.equipmentId);
 }
 
 /**

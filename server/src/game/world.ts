@@ -583,7 +583,7 @@ export interface ShipRecord {
    * THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — it replaced the seat's
    * GUN, Story 8.14): which Shift ability this captain PICKED, sanitized at
    * the door (`sanitizeShiftId`, fail-open to `DEFAULT_SHIFT`) and frozen for
-   * the match. Slot 1 mounts it (`loadoutFor(stats, false, shift)`); slot 0 is
+   * the match. Slot 1 mounts it (`loadoutFor(stats, shift)`); slot 0 is
    * the hull's MAIN BATTERY on every hull. A bot's is dealt off the room's
    * bot-fleet stream.
    *
@@ -2325,7 +2325,7 @@ export class World {
     // The fit is the universal five-slot loadout and nothing else: the MAIN
     // BATTERY + THE SEAT'S SHIFT (Story 10.4) — the three family slots start
     // empty.
-    const loadout = loadoutFor(stats, false, shift);
+    const loadout = loadoutFor(stats, shift);
     const rec: ShipRecord = {
       id,
       name,
@@ -2829,7 +2829,7 @@ export class World {
     ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog, ship.indexBonus);
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
     // replayed over it through the SHARED fill rule.
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, false, ship.shift);
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, ship.shift);
     ship.hp = ship.stats.maxHp;
   }
 
@@ -7667,7 +7667,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, false, ship.shift);
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, ship.shift);
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

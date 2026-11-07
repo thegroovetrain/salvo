@@ -34,10 +34,8 @@
 // (`CONFIG.shipClasses.<id>.shift`, epic-8 amendments 89(c) and 97–102);
 // that field and `classShift()` are gone.
 //
-// PvE FLEET HULLS FIT THE GUN AND NOTHING ELSE (epic-5 amendment 34, epic-8
-// amendment 24): Eric's ruling is "each has a gun to defend itself", singular.
-// They used to inherit a universal torpedo + mine fit — loaded tubes they
-// could never use, with both reload timers ticking forever.
+// (The PvE fleet hulls' gun-only fit — epic-5 amendment 34, epic-8 amendment
+// 24 — retired with the fleet at Story 10.8, 2026-11-06.)
 //
 // Pure, zero I/O.
 
@@ -196,8 +194,8 @@ export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
 // `GunId`, `GUN_IDS`, `DEFAULT_GUN`, `isGunId` and `MOUNTED_GUN` named the
 // captain's deck-gun pick (Story 8.14/8.15). A captain mounts `mainBattery`
 // now and picks a SHIFT instead; the CANNON / MACHINE GUN / FLAK modules stay
-// as equipment ids for reference and for the PvE fleet, which mounts `gun`
-// directly (`loadoutFor(stats, true)`).
+// as equipment ids for reference (the PvE fleet that mounted `gun` retired
+// at Story 10.8, 2026-11-06 — no hull mounts it now).
 
 /**
  * One piece of equipment's runtime state: a pool of `n` charges/rounds and a
@@ -224,7 +222,7 @@ export interface LoadoutSlot {
 export const SLOT_COUNT = 5;
 
 /** Slot index of the gun — the permanently-selected default weapon: THE MAIN
- *  BATTERY on a captain (Story 10.4), the `gun` module on a PvE drone. */
+ *  BATTERY (Story 10.4). */
 export const SLOT_GUN = 0;
 
 /** Slot index of the seat's Shift (the boost, instant reload or hunker —
@@ -342,10 +340,8 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  * the level-zero offer at the start line first (Story 8.10), then every offer
  * after it.
  *
- * `fleet === true` is the PvE drone fit: the `gun` module in slot 0 and
- * empties, nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone
- * has no seat, no battery and no Shift; its weaker envelope gun rides the
- * `gun` row (Story 5.6).
+ * (The `fleet` parameter — the PvE drone's gun-only fit — retired with the
+ * fleet at Story 10.8, 2026-11-06.)
  *
  * SLOT 0 IS THE MAIN BATTERY on a captain (Story 10.4). Its slot state is the
  * HOTBAR SUMMARY only — `n` = turrets ready (fitted full: every turret
@@ -354,18 +350,17 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  * `batterySummary` writes this pair from it).
  *
  * SLOT 1 IS THE SEAT'S SHIFT (Story 10.4): `shift` is the captain's pick,
- * passed in already sanitized (`sanitizeShiftId`). A fleet drone ignores it.
+ * passed in already sanitized (`sanitizeShiftId`).
  *
  * No hull parameter: which weapons a hull ends up carrying is a fact about its
  * picks, never about its hardware (the turret count rides `stats`).
  */
-export function loadoutFor(stats: EffectiveStats, fleet = false, shift: ShiftId = DEFAULT_SHIFT): LoadoutSlot[] {
+export function loadoutFor(stats: EffectiveStats, shift: ShiftId = DEFAULT_SHIFT): LoadoutSlot[] {
   const fitted = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
-  const out: LoadoutSlot[] = [fitted(fleet ? 'gun' : 'mainBattery')];
-  if (!fleet) out.push(fitted(shift));
+  const out: LoadoutSlot[] = [fitted('mainBattery'), fitted(shift)];
   while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
   return out;
 }

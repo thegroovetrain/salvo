@@ -97,7 +97,7 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — in the seat GUN's
     // place) — SELF-PRIVATE on exactly the terms `cls` is: it rides `you` and
     // NOTHING else, because which Shift an enemy picked is build information.
-    // The client replays `loadoutFor(stats, false, shift)` from it.
+    // The client replays `loadoutFor(stats, shift)` from it.
     shift: ship.shift,
     // THE TURRETS (Story 10.4, R2/R4) — angle + remaining reload per turret,
     // full precision, SELF-PRIVATE: the client corrects its own predicted

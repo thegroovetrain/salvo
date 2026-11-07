@@ -11,7 +11,6 @@ import { CONFIG, beaconInRange, beaconStateAt, mulberry32, type HullId, type Vec
 import { World, type ShipRecord } from '../game/world.js';
 import { COMBAT_BRAIN } from '../game/ai/tactics.js';
 import {
-  BEACON_STANDOFF_FRAC,
   beaconGoalOf,
   beaconStandoffU,
   onStation,
@@ -172,7 +171,7 @@ describe('ai/beacons — pick, standoff, station', () => {
       const a = (k * Math.PI) / 4;
       const bot = { x: at.x + Math.cos(a) * 1500, y: at.y + Math.sin(a) * 1500 };
       const s = standoffPoint(at, bot);
-      expect(Math.hypot(s.x - at.x, s.y - at.y)).toBeCloseTo(BEACON_STANDOFF_FRAC * B.rangeU, 6);
+      expect(Math.hypot(s.x - at.x, s.y - at.y)).toBeCloseTo(CONFIG.bots.beaconStandoffFrac * B.rangeU, 6);
       // Collinear and between: the standoff is on the segment beacon → bot.
       const toBot = { x: bot.x - at.x, y: bot.y - at.y };
       const toS = { x: s.x - at.x, y: s.y - at.y };

@@ -129,7 +129,7 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
 });
 
 describe('hullAheadU — the attached hull that sits ahead of the newest sample (Story 8.19, amendment 159)', () => {
-  it('a ship wake carries half its own hull length, for every class and drone hull', () => {
+  it('a ship wake carries half its own hull length, for every hull', () => {
     for (const id of HULL_IDS) {
       expect(createShipWake(id, 40).hullAheadU).toBe(hullEnvelope(id).hull.length / 2);
     }
@@ -301,7 +301,7 @@ describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment
     expect(shipWakeWidthU('iowa')).toBe(CONFIG.shipClasses.iowa.hull.beam);
     expect(shipWakeWidthU('yamato')).toBe(CONFIG.shipClasses.yamato.hull.beam);
     expect(shipWakeWidthU('warspite')).toBe(CONFIG.shipClasses.warspite.hull.beam);
-    expect(shipWakeWidthU('droneSmall')).toBe(CONFIG.drones.small.hull.beam);
+    expect(shipWakeWidthU('bismarck')).toBe(CONFIG.shipClasses.bismarck.hull.beam);
     expect(torpWakeWidthU()).toBe(CONFIG.vision.radarCellU);
   });
 
@@ -501,7 +501,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
   // unreliable", not cryptographic: every neighbouring source pair's range
   // must OVERLAP, so no single glance at a track width names a class. A
   // torpedo boat's wake reading like a torpedo's is the INTENDED outcome.
-  it('measured width ranges overlap between neighbouring sources — a torpedo, then every hull by beam — and the extremes still separate', () => {
+  it('measured width ranges overlap between neighbouring sources — a torpedo, then every hull by beam', () => {
     const widthsFor = (coreU: number): Set<number> => {
       const seen = new Set<number>();
       for (const phase of [0, 2.7, 4.5, 6.3]) {
@@ -514,15 +514,14 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
     };
     const overlap = (a: Set<number>, b: Set<number>): boolean => [...a].some((v) => b.has(v));
     // The sources in width order: the torpedo's one-cell core, then every hull
-    // (battleships and drones) narrowest to widest.
+    // narrowest to widest.
     const hulls = [...HULL_IDS].sort((x, y) => shipWakeWidthU(x) - shipWakeWidthU(y));
     const ranges = [widthsFor(torpWakeWidthU()), ...hulls.map((id) => widthsFor(shipWakeWidthU(id)))];
     for (let i = 1; i < ranges.length; i += 1) expect(overlap(ranges[i - 1], ranges[i]), `source ${i - 1} ↔ ${i}`).toBe(true);
-    // Size still reads in aggregate (amendment 66): the extremes stay
-    // separable at their MAXIMA even though single paints are ambiguous. The
-    // WIDEST source is whichever hull has the widest beam — since Story 10.4
-    // that is a drone; the true-to-scale battleships are narrow enough that a
-    // battleship's widest paint can equal a torpedo's.
-    expect(Math.max(...ranges[ranges.length - 1])).toBeGreaterThan(Math.max(...ranges[0]));
+    // The "extremes still separate at their MAXIMA" clause (amendment 66) is
+    // RETIRED with the drones (Story 10.8, 2026-11-06): the widest source was
+    // a drone, and the true-to-scale battleships are narrow enough that the
+    // widest one's maximum paint equals a torpedo's (measured: 2 cells each).
+    // Recorded, not re-tuned.
   });
 });

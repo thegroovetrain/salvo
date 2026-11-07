@@ -1222,7 +1222,7 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
     const cards: string[] = [];
     let wasted = 0;
     const slotIds = (): (EquipmentId | null)[] =>
-      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, CATALOG, false, shift)
+      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, CATALOG, shift)
         .map((s) => s.equipmentId);
     for (let level = 0; level < LEVELS; level += 1) {
       const ids = slotIds();

@@ -27,8 +27,8 @@
 // `cooldownScale` (1 / (1 + (RELOAD − 100) / 100) — the haste law), and in
 // clampStats alone the ONE-SHOT multiply of the deck-gun rows' `rangeU` by
 // RANGE / 100. `kinematics.turnRate` is the ONE baseline
-// `CONFIG.index.turnRate` on every captain hull (R2; a PvE drone envelope
-// authors its own — I5).
+// `CONFIG.index.turnRate` on every hull (R2; the PvE drone's authored rate,
+// I5, retired at Story 10.8, 2026-11-06).
 //
 // STORY 10.6 (Eric 2026-11-05) ADDED THREE PER-SHIP GROUPS the new cards
 // write: `repair` / `smoke` — the two cooldown abilities' numbers, improved by
@@ -75,8 +75,8 @@
 //   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
 //     from its folded blastRadius, the CAPTIVE's from its TIER;
 //   - gun.barrels clamped to 1..3 integer — barrels are a fixed 2 since
-//     Story 9.12 (CONFIG.gun.barrels, Eric 2026-10-16; no barrel rungs, PvE
-//     fleet envelopes keep 1); the clamp guards malformed data;
+//     Story 9.12 (CONFIG.gun.barrels, Eric 2026-10-16; no barrel rungs); the
+//     clamp guards malformed data;
 //   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
 //     standing rule (a +0.5 tube step shows nothing until it completes a whole);
@@ -144,7 +144,7 @@ export interface EffectiveGun extends EquipmentRowCommon {
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around the clicked point
-  barrels: number; // shells per click (CONFIG.gun.barrels for a captain, 1 for a PvE envelope; clamped 1..3 — each a real shell, own burst point)
+  barrels: number; // shells per click (CONFIG.gun.barrels; clamped 1..3 — each a real shell, own burst point)
 }
 
 /**
@@ -258,9 +258,9 @@ export interface EffectiveFlak extends EquipmentRowCommon {
  * `damage` is the hull's per-shell `battery.shellDamage`. Guns per turret,
  * stations and train limits are hull geometry and stay on
  * `CONFIG.shipClasses.<id>.battery` (sim/turrets.ts reads them by hull id).
- * A hull with NO battery (a PvE drone envelope) carries an INERT row — zero
- * turrets, zero damage — because the record is total over `EquipmentId`; a
- * drone never mounts it.
+ * A hull with NO battery carries an INERT row — zero turrets, zero damage —
+ * because the record is total over `EquipmentId` (every battleship has one;
+ * the PvE drones that did not retired at Story 10.8, 2026-11-06).
  */
 export interface EffectiveMainBattery extends EquipmentRowCommon {
   rangeU: number; // u — max shell travel from the firing turret's station — CONFIG.mainBattery.rangeU × RANGE / 100
@@ -404,8 +404,8 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
 export interface EffectiveStats {
   // The runtime kinematics stepShip and the predictor read. `maxSpeed` is
   // DERIVED (CONFIG.index.engines × engines / 100); `turnRate` is the
-  // baseline CONFIG.index.turnRate on every captain hull (Story 10.6, R2) or
-  // a drone envelope's authored rate (I5); reverse / accel / decel /
+  // baseline CONFIG.index.turnRate on every hull (Story 10.6, R2); reverse /
+  // accel / decel /
   // steerage are the envelope's own.
   kinematics: ShipConfig;
   maxHp: number; // 1000 on every hull since Story 10.3 (shown as a percent, never raw)
@@ -658,24 +658,24 @@ function boostRow(src: { reloadMs: number; maxAmmo: number; durationMs: number }
   };
 }
 
-/** The gun row — the ONE row a ship class may override (PvE fleet envelopes
- *  carry their own weaker gun: Story 5.6, epic-5 amendments 34/45). */
-function gunRow(cls: ShipClass): EffectiveGun {
+/** The gun row — the deck gun, a pure CONFIG pass-through. No hull mounts it
+ *  since Story 10.8 (2026-11-06): the PvE fleet envelopes' own weaker gun
+ *  (Story 5.6, the one per-hull override) retired with them; the row stays
+ *  because the record is total over `EquipmentId`. */
+function gunRow(): EffectiveGun {
   return {
     tier: 1, // tier I is EQUIPPED at zero cards — the deck gun is slotless
-    reloadMs: cls.gun?.reloadMs ?? CONFIG.gun.reloadMs,
+    reloadMs: CONFIG.gun.reloadMs,
     maxAmmo: CONFIG.gun.maxAmmo,
     // Tier I reach — its own dial since Story 9.8 (ruling 125), no longer the
-    // radar rung; the CANNON ladder's cards step it (PvE envelopes share it).
+    // radar rung; the CANNON ladder's cards step it.
     rangeU: CONFIG.gun.rangeU,
-    damage: cls.gun?.damage ?? CONFIG.gun.damage,
+    damage: CONFIG.gun.damage,
     contactDamage: CONFIG.gun.contactDamage,
     burstRadius: CONFIG.gun.burstRadius,
-    // TWO BARRELS AT EVERY TIER for a captain (CONFIG.gun.barrels, Eric
-    // 2026-10-16, Story 9.12 — no barrel rungs). A PvE fleet envelope
-    // (`cls.gun` present) keeps ONE 1-hp shell per click: its shots-to-kill
-    // rule (epic-7 amendment 24) is untouched.
-    barrels: cls.gun ? 1 : CONFIG.gun.barrels,
+    // TWO BARRELS AT EVERY TIER (CONFIG.gun.barrels, Eric 2026-10-16, Story
+    // 9.12 — no barrel rungs).
+    barrels: CONFIG.gun.barrels,
   };
 }
 
@@ -754,7 +754,7 @@ function movedWeaponRows(): Pick<EquipmentRows, 'supercavTorpedo' | 'dazzleShell
 /**
  * THE MAIN BATTERY at zero cards (Story 10.4): the shared half from
  * `CONFIG.mainBattery`, the per-hull half (turret count, shell damage) from
- * the envelope's `battery`. An envelope without one (a PvE drone) gets the
+ * the envelope's `battery`. An envelope without one gets the
  * inert row — see `EffectiveMainBattery`.
  */
 function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
@@ -772,7 +772,7 @@ function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
 /** THE total equipment record at base. Every id present, every tier 1. */
 function baseEquipment(cls: ShipClass): EquipmentRows {
   return {
-    gun: gunRow(cls),
+    gun: gunRow(),
     mainBattery: mainBatteryRow(cls),
     // THE SPEED BOOST (Story 8.9; the Torpedo Boat's Shift since 8.15):
     // `CONFIG.boost` verbatim — RELOAD no longer scales it (Story 10.5, R10).
@@ -826,9 +826,9 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
 function baseStats(cls: ShipClass): EffectiveStats {
   const stats: EffectiveStats = {
     // maxSpeed is DERIVED below from ENGINES; the turn rate is the ONE
-    // baseline (Story 10.6, R2) unless the envelope authors its own (a PvE
-    // drone — I5); the four pass-through kinematics are the envelope's own.
-    kinematics: { ...cls.kinematics, maxSpeed: 0, turnRate: cls.kinematics.turnRate ?? CONFIG.index.turnRate },
+    // baseline (Story 10.6, R2); the four pass-through kinematics are the
+    // envelope's own.
+    kinematics: { ...cls.kinematics, maxSpeed: 0, turnRate: CONFIG.index.turnRate },
     maxHp: cls.hp,
     radarRange: CONFIG.vision.radar,
     sweepRpm: 0, // DERIVED below (INTEL)
@@ -1049,8 +1049,7 @@ function clampStats(stats: EffectiveStats): void {
  * `RELOAD_UNSCALED_ROWS` (the three Shifts — Story 10.5, R10) keep their base:
  * no tier reaches them (no card addresses a Shift), so they take no bonus
  * either. The legacy gun-ladder rows (cannon, machine gun, flak, broadside)
- * follow the same law mechanically; a PvE drone holds no card, so its gun
- * stays at tier I and its reload is untouched.
+ * follow the same law mechanically.
  */
 function applyReloadLaw(stats: EffectiveStats): void {
   const bonus = CONFIG.catalog.reloadBonusPerTier;

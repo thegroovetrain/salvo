@@ -11,10 +11,7 @@ import {
   damageMultiplierFor,
   FLASH_WINDOW_MS,
   CONFIG,
-  DRONE_HULL_IDS,
   INDEX_IDS,
-  fleetHullIds,
-  fleetLevels,
   MSG,
   SLOT_COUNT,
   WEAPON_SLOTS,
@@ -150,12 +147,8 @@ describe('shared barrel', () => {
     expect('sweepRpmMax' in CONFIG.vision).toBe(false);
   });
 
-  it('carries the XP economy block (Story 2.6) — the shape, tiers included', () => {
+  it('carries the XP economy block (Story 2.6) — the shape', () => {
     expect(CONFIG.xp.levelMs % CONFIG.tick.simDtMs).toBe(0);
-    for (const id of DRONE_HULL_IDS) {
-      expect(CONFIG.xp.droneTierLevels[id]).toBeGreaterThan(0);
-      expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels);
-    }
     // THE ASSIST SPLIT IS ONE DIAL (Eric answer A1, 2026-08-23): the same
     // number is the per-attacker restart gap, the eligibility window at the
     // sink, and the on-switch, so a second gap dial appearing here would fail
@@ -180,7 +173,7 @@ describe('shared barrel', () => {
       if (!EQUIPMENT_IS_WEAPON[id]) continue;
       expect(CONFIG.xp.assistWindowMs, id).toBeGreaterThan(stats.equipment[id].reloadMs);
     }
-    expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
+    expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'killLevels', 'killerShare', 'levelMs']);
   });
 
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {
@@ -729,57 +722,15 @@ describe('shared barrel', () => {
     expect('burstRadius' in CONFIG.machineGun).toBe(false); // direct hit, NO burst
   });
 
-  // NO HARDCODED XP TOTAL (Eric ruling 2026-08-16, epic-6 amendment 24: *"XP
-  // is calculated from fleet comp. No need to hardcode any amount of xp into
-  // the contract."*).
-  //
-  // Amendment 33's `expect(fleetLevels()).toBe(3)` is RETIRED, and it had gone
-  // vacuous on its own terms. It existed because droneMedium paid 1/3 — a
-  // NON-DYADIC rational — so a composition edit could quietly start paying
-  // float dust. The current tiers are 1/4, 1/2, 3/4: all dyadic, so EVERY
-  // integer composition is exactly representable and no total can carry dust.
-  //
-  // So the invariant moves up a level and is pinned where it can still bite:
-  // the TIERS must stay exactly representable. A future tier that is not a
-  // power-of-two fraction (1/3, 1/5, 0.1) reintroduces the exact hazard 33 was
-  // written against, and THIS test is what fails.
-  it('CONFIG.fleet block + the tier-exactness invariant (amendment 24 retires the total pin)', () => {
-    for (const tier of Object.values(CONFIG.xp.droneTierLevels)) {
-      // Dyadic <=> some power-of-two multiple is a whole number. 2^10 is far
-      // past any plausible tier denominator and keeps the check cheap.
-      expect(Number.isInteger(tier * 1024)).toBe(true);
-    }
-    // ...and therefore the derived total is exact, whatever it happens to be.
-    expect(Number.isInteger(fleetLevels() * 1024)).toBe(true);
-    expect(fleetLevels()).toBeGreaterThan(0);
-
-    // fleetHullIds() is the SPAWN ORDER, generated from the composition and
-    // largest-first by contract, so the biggest hull always gets the first
-    // (least-constrained) scatter slot.
-    const hulls = fleetHullIds();
-    const { large, medium, small } = CONFIG.fleet.composition;
-    expect(hulls).toEqual([
-      ...new Array<string>(large).fill('droneLarge'),
-      ...new Array<string>(medium).fill('droneMedium'),
-      ...new Array<string>(small).fill('droneSmall'),
-    ]);
-
-    expect(Object.keys(CONFIG.fleet).sort()).toEqual([
-      'aimScatterU',
-      'composition',
-      'memoryMs',
-      'spawnRetryTicks',
-      'spreadU',
-      'waves',
-    ]);
-    // The wave sizes are a RATIO held against a shrinking field, so each later
-    // wave lands fewer fleets than the one before it — the ratio itself (today
-    // halving) is Eric's dial, not a contract (9.14 gate P2).
-    const waves = CONFIG.fleet.waves;
-    for (let i = 1; i < waves.length; i += 1) {
-      expect(waves[i].atMs, `wave ${i}`).toBeGreaterThan(waves[i - 1].atMs);
-      expect(waves[i].fleets, `wave ${i}`).toBeLessThan(waves[i - 1].fleets);
-      expect(waves[i].fleets, `wave ${i}`).toBeGreaterThan(0);
+  // THE PvE DRONE FLEET IS RETIRED (Story 10.8, Eric 2026-11-06, epic-10
+  // amendment 14): its CONFIG blocks, its XP tiers and every drone hull-id
+  // export are gone — no alias survives on the barrel.
+  it('the drone fleet left no CONFIG block, XP tier or hull-id export behind', () => {
+    for (const gone of ['drones', 'fleet']) expect(gone in CONFIG, gone).toBe(false);
+    expect('droneTierLevels' in CONFIG.xp).toBe(false);
+    const ns = shared as Record<string, unknown>;
+    for (const gone of ['DRONE_HULL_IDS', 'DRONE_SIZE_IDS', 'droneSizeOf', 'droneHullOf', 'fleetHullIds', 'fleetLevels']) {
+      expect(ns[gone], gone).toBeUndefined();
     }
   });
 });

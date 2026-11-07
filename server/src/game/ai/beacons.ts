@@ -11,7 +11,7 @@
 // charted (about to surface) or still paying, and whose centre lies inside the
 // disc the bot would patrol anyway (ai/navigate.ts patrolDisc), becomes the
 // bot's goal. It sails (routed) for a STANDOFF point on the bearing from the
-// beacon to itself, `BEACON_STANDOFF_FRAC × CONFIG.beacons.rangeU` out — so
+// beacon to itself, `CONFIG.bots.beaconStandoffFrac × CONFIG.beacons.rangeU` out — so
 // the line it sails never crosses the solid body — and once there (inside
 // the paying range by construction) it HOLDS dead in the water like a `hold`.
 // The goal is released on the next deliberation once the beacon has gone or
@@ -23,16 +23,10 @@
 import { CONFIG, beaconInRange, type Vec2, type ZoneRing } from '@salvo/shared';
 import type { BotBeacon, BotBeaconGoal } from './types.js';
 
-/** The standoff as a fraction of the paying range: well inside the circle
- *  (a nudge or a coast does not carry the hull out) and far from the body.
- *  A bot tuning knob, derived from CONFIG.beacons.rangeU — it belongs in
- *  CONFIG.bots once shared/ is open for it (Story 10.8 kept shared/ frozen
- *  for this wave). */
-export const BEACON_STANDOFF_FRAC = 0.6;
-
-/** u — the standoff distance from a beacon's centre. */
+/** u — the standoff distance from a beacon's centre: the bot tuning knob
+ *  `CONFIG.bots.beaconStandoffFrac` of the paying range. */
 export function beaconStandoffU(): number {
-  return BEACON_STANDOFF_FRAC * CONFIG.beacons.rangeU;
+  return CONFIG.bots.beaconStandoffFrac * CONFIG.beacons.rangeU;
 }
 
 /** Worth sailing for: charted (it will surface and pay) or paying now. */

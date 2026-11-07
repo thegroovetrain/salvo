@@ -400,8 +400,8 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       }
       // The class stamps `vcls` / `kcls` retired with the PvE fleet (Story
       // 10.8): a sunk row carries no hull id at all, to anyone.
-      expect(e.vcls).toBeUndefined();
-      expect(e.kcls).toBeUndefined();
+      expect('vcls' in e).toBe(false);
+      expect('kcls' in e).toBe(false);
       return;
     }
     case 'spawn':
