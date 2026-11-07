@@ -32,6 +32,24 @@ export interface BeaconConfig {
 }
 
 /**
+ * How many beacons the public room schema can carry: its `bcn0…bcn7` field
+ * triples (server/src/rooms/schema/ArenaState.ts). A WIRE-CAPACITY number,
+ * not a gameplay number — the schema's slot count, read by the server's
+ * placer and chart mirror and by the client's chart reader so the two sides
+ * can never disagree about it. Raising it means adding schema field triples
+ * (a PROTOCOL_VERSION bump); the room test pins the triples to this count.
+ */
+export const BEACON_WIRE_SLOTS = 8;
+
+// A shipped `CONFIG.beacons.counts` entry the wire cannot carry is a build
+// error, not a silent clamp: fail at module load.
+if (Math.max(0, ...CONFIG.beacons.counts) > BEACON_WIRE_SLOTS) {
+  throw new Error(
+    `CONFIG.beacons.counts asks for ${Math.max(...CONFIG.beacons.counts)} beacons in a cycle; the wire carries ${BEACON_WIRE_SLOTS} (BEACON_WIRE_SLOTS)`,
+  );
+}
+
+/**
  * Where a beacon is in its life (R3):
  *   charted — on the chart, nothing in the water (cycle start → surface);
  *   afloat  — surfaced, paying the full rate, hittable;

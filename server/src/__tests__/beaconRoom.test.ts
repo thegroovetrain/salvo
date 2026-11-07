@@ -10,12 +10,11 @@
 // ArenaState and drives the private sync by name.
 
 import { describe, it, expect } from 'vitest';
-import { beaconCountFor, beaconCycleStartMs } from '@salvo/shared';
+import { BEACON_WIRE_SLOTS, beaconCountFor, beaconCycleStartMs } from '@salvo/shared';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
 import { ArenaState } from '../rooms/schema/ArenaState.js';
 import type { SanitizedRoomOptions } from '../rooms/roomOptions.js';
 import type { World } from '../game/world.js';
-import { BEACON_CHART_SLOTS } from '../game/beacons.js';
 import { B, DT, SINK_MS, SURFACE_MS, bareWorld, openCycle, run } from './beaconFixture.js';
 
 interface BareRoom {
@@ -54,12 +53,12 @@ describe('ArenaState — the beacon fields', () => {
     const state = new ArenaState() as unknown as Slots;
     expect(state.beaconCycle).toBe(-1);
     expect(state.beaconCount).toBe(0);
-    for (let i = 0; i < BEACON_CHART_SLOTS; i += 1) {
+    for (let i = 0; i < BEACON_WIRE_SLOTS; i += 1) {
       expect([state[`bcn${i}X`], state[`bcn${i}Y`], state[`bcn${i}SinkT`]]).toEqual([0, 0, 0]);
     }
-    expect(state[`bcn${BEACON_CHART_SLOTS}X`]).toBeUndefined();
+    expect(state[`bcn${BEACON_WIRE_SLOTS}X`]).toBeUndefined();
     // The chart can carry every cycle's set.
-    for (let c = 0; c < B.counts.length; c += 1) expect(beaconCountFor(c)).toBeLessThanOrEqual(BEACON_CHART_SLOTS);
+    for (let c = 0; c < B.counts.length; c += 1) expect(beaconCountFor(c)).toBeLessThanOrEqual(BEACON_WIRE_SLOTS);
   });
 });
 

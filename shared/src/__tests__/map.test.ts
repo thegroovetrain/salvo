@@ -90,6 +90,12 @@ describe('MAP_RULES pinning', () => {
     expect(MAP_RULES.NAV_CLEAR).toBe(P.navClear);
   });
 
+  it('the nav erosion beam is at least every ship class beam (a wider hull widens it, never beaches on it)', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      expect(MAP_RULES.WIDEST_BEAM).toBeGreaterThanOrEqual(CONFIG.shipClasses[id].hull.beam);
+    }
+  });
+
   it('SPAWN_MARGIN is at least the widest player-hull bounding radius, and mirrors TERRAIN_PARAMS.spawnMargin', () => {
     const widest = Math.max(...SHIP_CLASS_IDS.map((id) => polygonMaxRadius(hullSilhouette(id))));
     expect(MAP_RULES.SPAWN_MARGIN).toBeGreaterThanOrEqual(widest);

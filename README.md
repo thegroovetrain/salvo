@@ -40,19 +40,19 @@ Open http://localhost:5173. Enter a callsign, pick a class, then take one of the
 npm run check          # lint + type-check + all tests (shared/server/client)
 npm run lint           # ESLint (complexity=10 enforced)
 npm test -w shared     # kinematics, geometry, ballistics, zone timeline, mapgen, stats, boons
-npm test -w server     # world sim, perception/anti-cheat invariants, match state machine, bots, PvE fleet
+npm test -w server     # world sim, perception/anti-cheat invariants, match state machine, bots, radio beacons
 npm test -w client     # prediction, snapshots, clock, HUD/feel pure logic
 npm run build          # shared → client → server
 ```
 
 - **Tunables** all live in `shared/src/constants.ts` (`CONFIG`) — ship handling, vision/sweep, weapon stats, zone timeline, match flow, boon catalog. Client-only feel knobs in `client/src/config.ts`.
-- **Headless smokes** in `server/scripts/*.mjs` prove full flows over real sockets (combat, fog, weapons, zone, match, fleet). Self-booting ones spawn their own server; the rest document their requirements in the header. Smokes use dev-only room options which the server only honors when `HC_DEV_OPTIONS=1` is set in its environment — production clients cannot pass them.
+- **Headless smokes** in `server/scripts/*.mjs` prove full flows over real sockets (combat, fog, weapons, zone, match, opening). Self-booting ones spawn their own server; the rest document their requirements in the header. Smokes use dev-only room options which the server only honors when `HC_DEV_OPTIONS=1` is set in its environment — production clients cannot pass them.
 - **Server must boot from `server/`** (or with `--tsconfig server/tsconfig.json`): Colyseus schema decorators need that tsconfig.
 
 ## Architecture (short version)
 
 - `shared/` — deterministic simulation math used by both sides: ship kinematics (`sim/ship.ts`), swept ballistic collision (`sim/shell.ts`), collision resolution, seeded fBm height-field map generation, radar shadows and wakes, the common pool, the zone timeline. All pure functions over plain objects.
-- `server/` — authoritative 20Hz fixed-tick `World` (zero Colyseus imports) wrapped by a thin `ArenaRoom`, with a `StandardQueueRoom` in front of it. All outbound state flows through one per-observer chokepoint (`game/perception.ts` → `game/frames.ts`) over the declarative signal registry (`game/signals.ts`): clients are never sent what their sight or sweep hasn't legitimately revealed, enforced by property-style invariant tests. Match lifecycle (`game/match.ts`) is a pure state machine; the PvE fleet (`game/drones.ts`) and the AI captains (`game/ai/`) drive through the same input pipeline as humans.
+- `server/` — authoritative 20Hz fixed-tick `World` (zero Colyseus imports) wrapped by a thin `ArenaRoom`, with a `StandardQueueRoom` in front of it. All outbound state flows through one per-observer chokepoint (`game/perception.ts` → `game/frames.ts`) over the declarative signal registry (`game/signals.ts`): clients are never sent what their sight or sweep hasn't legitimately revealed, enforced by property-style invariant tests. Match lifecycle (`game/match.ts`) is a pure state machine; the AI captains (`game/ai/`) drive through the same input pipeline as humans, and the radio beacons (`game/beacons.ts`) surface each ring cycle and pay XP to ships nearby.
 - `client/` — PixiJS 8 renderer with client-side prediction (shared kinematics + reconcile-and-replay), snapshot interpolation for contacts, and a fog composite built entirely from pre-baked textures (dark overlay with a feathered sight hole, conic sweep wedge, timestamp-decayed blips). DOM is used only for chrome: home, settings, refit, results, kill feed, and the `/how-to-play` and `/privacy` pages.
 
 The visual language is defined in `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md` (with `EXPERIENCE.md` alongside); gameplay design lives in the GDD at `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md`.

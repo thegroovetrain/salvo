@@ -1,7 +1,7 @@
 // THE RADIO BEACONS' pure model (Story 10.8, sim/beacons.ts). Every
 // expectation is written through CONFIG.beacons / CONFIG.zone / CONFIG.xp —
 // the mechanism follows the dials, whatever Eric sets them to.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   CONFIG,
   beaconCountFor,
@@ -191,5 +191,23 @@ describe('beaconInRange', () => {
     expect(beaconInRange(10, 20, 10, 20 - r)).toBe(true);
     expect(beaconInRange(10, 20, 10 + r + 1e-6, 20)).toBe(false);
     expect(beaconInRange(0, 0, (r * 3) / 5, (r * 4) / 5)).toBe(true);
+  });
+});
+
+describe('BEACON_WIRE_SLOTS — the wire capacity guard', () => {
+  it('a CONFIG asking for more beacons in a cycle than the wire carries fails at module load', async () => {
+    const real = await import('../constants.js');
+    const { BEACON_WIRE_SLOTS } = await import('../sim/beacons.js');
+    vi.resetModules();
+    vi.doMock('../constants.js', () => ({
+      ...real,
+      CONFIG: { ...real.CONFIG, beacons: { ...real.CONFIG.beacons, counts: [BEACON_WIRE_SLOTS + 1] } },
+    }));
+    try {
+      await expect(import('../sim/beacons.js')).rejects.toThrow(/BEACON_WIRE_SLOTS/);
+    } finally {
+      vi.doUnmock('../constants.js');
+      vi.resetModules();
+    }
   });
 });

@@ -16,17 +16,19 @@
 // perception invariants in beaconPerception.test.ts; the schema mirror in
 // beaconRoom.test.ts.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
+  BEACON_WIRE_SLOTS,
   CONFIG,
   beaconCountFor,
   beaconCycleStartMs,
+  beaconPolygon,
   beaconStateAt,
   beaconXpMsPerMs,
   type Vec2,
 } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { BeaconField, BEACON_CHART_SLOTS } from '../game/beacons.js';
+import { BeaconField } from '../game/beacons.js';
 import { SPAWN_ISLAND_CLEARANCE, islandClearance } from '../game/spawn.js';
 import { B, DT, GONE_MS, SINK_MS, SURFACE_MS, bareWorld, captain, moveTo, openCycle, run, seatBeacon, xpMsOf } from './beaconFixture.js';
 
@@ -122,6 +124,35 @@ describe('BeaconField.replace — the placement loop', () => {
     seen.forEach((taken, i) => expect(taken).toEqual(placed.slice(0, i)));
   });
 
+  it('every placed coordinate is FLOAT32-EXACT (the schema carries float32): record, body, polygon and chart all hold the wire value', () => {
+    const field = new BeaconField(7);
+    field.replace(0, 1000, pickFrom([]));
+    expect(field.records.length).toBeGreaterThan(0);
+    field.records.forEach((b, i) => {
+      expect(b.x).toBe(Math.fround(b.x));
+      expect(b.y).toBe(Math.fround(b.y));
+      expect([b.body.state.x, b.body.state.y]).toEqual([b.x, b.y]);
+      expect(b.poly).toEqual(beaconPolygon(b.x, b.y));
+      expect(field.chart.beacons[i]).toEqual({ x: b.x, y: b.y, sinkT: b.sinkT });
+    });
+  });
+
+  it('a runtime count past the wire capacity is clamped to BEACON_WIRE_SLOTS LOUDLY (a warn line), never silently', () => {
+    const counts = CONFIG.beacons.counts as unknown as number[];
+    const was = counts[0];
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      counts[0] = BEACON_WIRE_SLOTS + 2;
+      const field = new BeaconField(7);
+      field.replace(0, 1000, pickFrom([]));
+      expect(field.records).toHaveLength(BEACON_WIRE_SLOTS);
+      expect(log.mock.calls.some(([line]) => String(line).includes('beacons.count_clamped'))).toBe(true);
+    } finally {
+      counts[0] = was;
+      log.mockRestore();
+    }
+  });
+
   it('each cycle draws from its OWN stream of the private seed, and a replace drops the previous set whole', () => {
     const field = new BeaconField(7);
     field.replace(0, 0, pickFrom([]));
@@ -139,7 +170,7 @@ describe('BeaconField.replace — the placement loop', () => {
     other.replace(1, 5000, pickFrom([]));
     expect(other.chart).not.toEqual(field.chart);
     // ...and never more than the chart can carry.
-    expect(field.records.length).toBeLessThanOrEqual(BEACON_CHART_SLOTS);
+    expect(field.records.length).toBeLessThanOrEqual(BEACON_WIRE_SLOTS);
   });
 });
 

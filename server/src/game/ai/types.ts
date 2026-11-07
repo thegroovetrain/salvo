@@ -250,6 +250,9 @@ export interface BotBeacon {
 export interface BotBeaconGoal {
   readonly x: number;
   readonly y: number;
+  /** rad — the bearing from the beacon to the bot when the standoff was
+   *  fixed: a swing of more than 90° off it re-fixes the standoff. */
+  readonly bearing: number;
   readonly standoff: Vec2;
 }
 

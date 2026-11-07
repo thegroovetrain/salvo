@@ -23,6 +23,7 @@
 // fence keeps every `.hp -=` in world.ts (`World.damageBeacon`).
 
 import {
+  BEACON_WIRE_SLOTS,
   CONFIG,
   beaconCountFor,
   beaconHittable,
@@ -39,14 +40,9 @@ import {
   type Target,
   type Vec2,
 } from '@salvo/shared';
+import { logWarn } from '../log.js';
 import type { FleetAnchor } from './spawn.js';
 import type { AssistTally, ShipRecord } from './world.js';
-
-/** How many beacons the public chart can carry — the schema's `bcn0…bcn7`
- *  slots (rooms/schema/ArenaState.ts). WIRE CAPACITY, not a gameplay dial: a
- *  `CONFIG.beacons.counts` entry above it is placed only up to this many, so
- *  the server can never hold a beacon no client was told about. */
-export const BEACON_CHART_SLOTS = 8;
 
 /** One beacon. Everything but `x` / `y` / `sinkT` (and the cycle it belongs
  *  to) is SERVER-PRIVATE. */
@@ -101,6 +97,17 @@ export interface BeaconChart {
   readonly cycle: number;
   readonly cycleStartT: number;
   readonly beacons: readonly BeaconChartEntry[];
+}
+
+/** Beacons placed for `cycle`: `beaconCountFor`, capped at the wire's slot
+ *  count (`BEACON_WIRE_SLOTS`, shared) so the server never holds a beacon no
+ *  client was told about. The shipped CONFIG cannot exceed it (shared throws
+ *  at load); a runtime override (`--tune`) that does is clamped LOUDLY. */
+function wireCount(cycle: number): number {
+  const want = beaconCountFor(cycle);
+  if (want <= BEACON_WIRE_SLOTS) return want;
+  logWarn('beacons.count_clamped', { cycle, want, slots: BEACON_WIRE_SLOTS });
+  return BEACON_WIRE_SLOTS;
 }
 
 const NO_CHART: BeaconChart = Object.freeze({ cycle: -1, cycleStartT: 0, beacons: Object.freeze([]) });
@@ -172,14 +179,19 @@ export class BeaconField {
     this.placedCycle = cycle;
     this.cycleStartT = cycleStartT;
     this.chartMemo = null;
-    const count = Math.min(beaconCountFor(cycle), BEACON_CHART_SLOTS);
+    const count = wireCount(cycle);
     if (count === 0) return;
     const rng = mulberry32((this.seed ^ Math.imul(cycle + 1, 0x9e3779b9)) >>> 0);
     const taken: Vec2[] = [];
     for (let slot = 0; slot < count; slot += 1) {
       const at = pick(rng, taken);
-      taken.push({ x: at.x, y: at.y });
-      this.add(cycle, slot, at.x, at.y);
+      // FLOAT32-EXACT: the schema carries x / y as float32, so the record,
+      // its body, its polygon and every range test hold the WIRE value — the
+      // server and every client test the very same point.
+      const x = Math.fround(at.x);
+      const y = Math.fround(at.y);
+      taken.push({ x, y });
+      this.add(cycle, slot, x, y);
     }
   }
 
@@ -294,16 +306,17 @@ export class BeaconField {
   }
 
   /**
-   * SMOKE AND FIRE (R11): a hurt beacon on the water — afloat or sinking —
-   * owes one anonymous puff per `CONFIG.smoke.puffIntervalMs`, at the tier the
+   * SMOKE AND FIRE (R11, "like a ship"): a hurt beacon AFLOAT owes one
+   * anonymous puff per `CONFIG.smoke.puffIntervalMs`, at the tier the
    * SHIP damage bands give its hp fraction (the hull emitter's rule, read off
    * the same two CONFIG blocks). `emit` queues the existing `sm` row; nothing
-   * about the beacon rides it.
+   * about the beacon rides it. A hull emits only while afloat, so a sinking
+   * beacon — destroyed early or on its natural schedule — emits nothing.
    */
   smoke(now: number, emit: (x: number, y: number, tier: 1 | 2) => void): void {
     const bands = CONFIG.damageBands;
     for (const b of this.list) {
-      if (now < b.nextSmokeAt || !beaconSolid(this.phaseOf(b, now))) continue;
+      if (now < b.nextSmokeAt || !this.hittable(b, now)) continue;
       const frac = b.hp / CONFIG.beacons.hp;
       if (frac >= bands.amberBelow) continue;
       b.nextSmokeAt = now + CONFIG.smoke.puffIntervalMs;

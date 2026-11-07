@@ -13,6 +13,7 @@ import {
   MSG,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
+  BEACON_WIRE_SLOTS,
   isAfloat,
   mulberry32,
   sanitizeClassId,
@@ -28,7 +29,6 @@ import {
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World, type ShipRecord } from '../game/world.js';
-import { BEACON_CHART_SLOTS } from '../game/beacons.js';
 
 import { buildFrame } from '../game/frames.js';
 import {
@@ -1468,7 +1468,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private syncBeacons(): void {
     const s = this.state;
     const chart = this.world.beaconChart;
-    const count = Math.min(chart.beacons.length, BEACON_CHART_SLOTS);
+    const count = Math.min(chart.beacons.length, BEACON_WIRE_SLOTS);
     if (s.beaconCycle !== chart.cycle) s.beaconCycle = chart.cycle;
     if (s.beaconCount !== count) s.beaconCount = count;
     const slots = s as unknown as Record<string, number>;

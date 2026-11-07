@@ -473,7 +473,7 @@ describe('at 0 hp the sink starts at once (R6, R9, R13)', () => {
     expect(beacon.damageFrom.size).toBe(0);
   });
 
-  it('SMOKE AND FIRE (R11): a hurt beacon puffs the anonymous `sm` row at the ship bands, afloat and while it sinks — a whole one never does', () => {
+  it('SMOKE AND FIRE (R11): a hurt beacon puffs the anonymous `sm` row at the ship bands while AFLOAT, none once sinking (a hull emits only afloat) — a whole one never does', () => {
     const { w, beacon } = range(6303);
     const bands = CONFIG.damageBands;
     const puffsAt = (n: number): GameEvent[] => {
@@ -492,9 +492,10 @@ describe('at 0 hp the sink starts at once (R6, R9, R13)', () => {
     for (const e of hurt) expect(e).toEqual({ k: 'sm', x: beacon.x, y: beacon.y, tier: 1 });
     beacon.hp = B.hp * bands.criticalBelow - 1;
     expect(puffsAt(window).every((e) => (e as { tier: number }).tier === 2)).toBe(true);
-    // Destroyed: it burns all the way down, then stops with it.
+    // Destroyed: the sink minute starts at once, and a sinking beacon — like
+    // a sinking hull — emits nothing.
     w.damageBeacon(beacon.id, B.hp, 'shell', undefined);
-    expect(puffsAt(window).length).toBeGreaterThan(0);
+    expect(puffsAt(window)).toEqual([]);
     run(w, B.sinkMs / DT);
     expect(puffsAt(window)).toEqual([]);
   });

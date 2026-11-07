@@ -145,6 +145,7 @@ import {
   sideRayHitU,
   patrolBearing,
   patrolDisc,
+  reachedAshoreGoal,
   ringClamped,
   ringGoalOf,
   ringRunBearing,
@@ -705,11 +706,20 @@ function baseThrottle(mind: BotMind, posture: BotPosture, target: BotTrack | nul
 /** Dead in the water this tick: HOLD always (amendment 199), and a HIDE that
  *  has reached its cover point (the orchestrator's reading under 199 — the
  *  posture stays `hide` and re-evaluates every deliberation). */
-function sitsStill(self: BotSelf, mind: BotMind, posture: BotPosture, target: BotTrack | null): boolean {
+function sitsStill(self: BotSelf, mind: BotMind, port: BotWorldPort, posture: BotPosture, target: BotTrack | null): boolean {
   if (posture === 'hold') return true;
-  if (farmingBeacon(mind, posture, target)) return onStation(mind.beaconGoal!, self.state, 2 * hullLengthU(self.hullId));
+  if (farmingBeacon(mind, posture, target)) return beaconStationed(self, mind, port);
   if (posture !== 'hide') return false;
   return atCover({ x: self.state.x, y: self.state.y, hullLength: hullLengthU(self.hullId) }, mind.coverPoint);
+}
+
+/** On station at the beacon goal: the station test, OR the route has ended at
+ *  the snapped anchor of a standoff ashore (navigate.ts reachedAshoreGoal) —
+ *  steering on for a point on land only circles it. */
+function beaconStationed(self: BotSelf, mind: BotMind, port: BotWorldPort): boolean {
+  const goal = mind.beaconGoal!;
+  if (onStation(goal, self.state, 2 * hullLengthU(self.hullId))) return true;
+  return reachedAshoreGoal(navCtxOf(self, mind, port, false), goal.standoff);
 }
 
 /**
@@ -742,7 +752,7 @@ function helmFor(
   const stage0 = updateManoeuvre(self, mind, port);
   if (stage0 === 'astern') return burstHelm(mind);
   const escaping = ringEscaping(sit, posture === 'ringRun');
-  if (!escaping && stage0 === 'none' && sitsStill(self, mind, posture, target)) return { throttle: throttleFor('hold'), rudder: 0 };
+  if (!escaping && stage0 === 'none' && sitsStill(self, mind, port, posture, target)) return { throttle: throttleFor('hold'), rudder: 0 };
   const ctx = navCtxOf(self, mind, port, deliberate);
   const back = stage0 === 'hold' && !escaping ? backingHold(ctx, self, port, sit, target, posture) : null;
   if (back !== null) return back;
@@ -897,7 +907,7 @@ function deliberateNow(mind: BotMind, sit: BotSituation, port: BotWorldPort): vo
  *  there is no target (posture.ts clause 5). */
 function refreshBeaconGoal(mind: BotMind, sit: BotSituation, port: BotWorldPort): void {
   const beacons = port.beacons?.() ?? [];
-  mind.beaconGoal = beacons.length === 0 ? null : beaconGoalOf(beacons, patrolDisc(port, sit), sit, mind.beaconGoal ?? null);
+  mind.beaconGoal = beacons.length === 0 ? null : beaconGoalOf(beacons, patrolDisc(port, sit), sit, mind.beaconGoal ?? null, navOf(port).grid);
 }
 
 /** The extended chain's inputs (Story 9.13, amendment 193): the mind (latch,

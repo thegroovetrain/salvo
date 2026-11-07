@@ -315,7 +315,7 @@ function routeFor(ctx: NavCtx, goal: Vec2): Vec2[] {
 /** A goal standing on a non-navigable cell is REACHED within one hull
  *  length of its snapped anchor (fix wave P14): the route ends at the anchor,
  *  and steering on for a point ashore only circles it. */
-function reachedAshoreGoal(ctx: NavCtx, goal: Vec2): boolean {
+export function reachedAshoreGoal(ctx: NavCtx, goal: Vec2): boolean {
   const grid = ctx.nav.grid;
   if (isWater(grid, cellOf(grid, goal.x, goal.y))) return false;
   const idx = snapToWater(grid, goal);

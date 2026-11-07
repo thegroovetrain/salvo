@@ -25,6 +25,7 @@
 // anonymous smoke/fire rows render/smoke.ts and render/fire.ts already draw.
 
 import {
+  BEACON_WIRE_SLOTS,
   CONFIG,
   beaconCycleAt,
   beaconCycleStartMs,
@@ -35,9 +36,10 @@ import {
   type ContactBody,
 } from '@salvo/shared';
 
-/** The wire's slot count: the largest per-cycle beacon count (the schema
- *  carries one flat field triple per slot). */
-export const BEACON_SLOTS = Math.max(0, ...CONFIG.beacons.counts);
+/** The wire's slot count — the shared `BEACON_WIRE_SLOTS` (the schema
+ *  carries one flat field triple per slot), the same number the server's
+ *  placer and chart mirror read. */
+export const BEACON_SLOTS = BEACON_WIRE_SLOTS;
 
 /** A per-slot schema field name (`bcn0X` … `bcn7SinkT`). */
 type SlotField = `bcn${number}${'X' | 'Y' | 'SinkT'}`;

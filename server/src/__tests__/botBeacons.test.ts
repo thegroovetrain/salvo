@@ -20,6 +20,7 @@ import {
 import { hullLengthU } from '../game/ai/navigate.js';
 import type { BotBeacon, BotMind, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 import { GONE_MS, SURFACE_MS, bareWorld, run, seatBeacon, seatBeacons } from './beaconFixture.js';
+import { circleIsland } from './islandFixture.js';
 
 const B = CONFIG.beacons;
 const EPS = 1e-6;
@@ -192,7 +193,7 @@ describe('ai/beacons — pick, standoff, station', () => {
   });
 
   it('on station = inside the range and within the standoff distance (or at the standoff)', () => {
-    const g = { x: 0, y: 0, standoff: { x: beaconStandoffU(), y: 0 } };
+    const g = { x: 0, y: 0, bearing: 0, standoff: { x: beaconStandoffU(), y: 0 } };
     expect(onStation(g, { x: beaconStandoffU() - 1, y: 0 }, 0)).toBe(true);
     expect(onStation(g, { x: 0, y: beaconStandoffU() + 1 }, 0)).toBe(false);
     expect(onStation(g, { x: beaconStandoffU() + 5, y: 0 }, 10)).toBe(true);
@@ -324,5 +325,69 @@ describe('a real World — the bot farms and never touches the body', () => {
     }
     expect(rec.lastFireSeq).toBe(fire0);
     expect(beacon.hp).toBe(B.hp);
+  });
+});
+
+// --- review gate: a standoff ashore --------------------------------------------
+
+describe('a real World — a standoff that falls ON LAND (review gate)', () => {
+  it('the bot stations on water within range and HOLDS (throttle 0), never circling ashore or touching land', () => {
+    const w = bareWorld(1201);
+    const at: Vec2 = { x: 0, y: 0 };
+    // An island east of the beacon whose land swallows the east standoff point
+    // deep — further in than the nav layer's shore snap reaches — its shore
+    // a third of the standoff distance short of the standoff.
+    const sU = beaconStandoffU();
+    const shoreX = sU - sU / 3;
+    const isleR = 2.5 * sU;
+    w.map.islands.push(circleIsland(shoreX + isleR, 0, isleR));
+    // Charted now: the whole charted + afloat span to get round the island.
+    const beacon = seatBeacon(w, 0, at);
+    // The bot starts EAST, beyond the island: its standoff bearing is east.
+    const rec = realBot(w, shoreX + 2 * isleR + B.rangeU, 0, 0);
+    let arrivedAt = -1;
+    let fullAheadAfter = 0;
+    const ticks = (SURFACE_MS + B.floatMs) / CONFIG.tick.simDtMs;
+    for (let i = 0; i < ticks; i += 1) {
+      w.step();
+      expect(rec.landContact).toBe(false);
+      if (arrivedAt < 0 && beaconInRange(at.x, at.y, rec.state.x, rec.state.y) && Math.abs(rec.state.speed) < 1) arrivedAt = i;
+      if (arrivedAt >= 0 && rec.input.throttle === 1) fullAheadAfter += 1;
+    }
+    expect(arrivedAt).toBeGreaterThanOrEqual(0);
+    // Holding, not circling: (almost) never full ahead once on station.
+    expect(fullAheadAfter).toBeLessThanOrEqual(20);
+    expect(beaconInRange(at.x, at.y, rec.state.x, rec.state.y)).toBe(true);
+    expect(Math.abs(rec.state.speed)).toBeLessThan(1);
+    expect(rec.landDamageTaken).toBe(0);
+    expect(rec.beaconXpMs).toBeGreaterThan(0);
+    expect(beacon.hp).toBe(B.hp);
+  });
+});
+
+// --- review gate: a stale standoff after a swing round the beacon ---------------
+
+describe('a real World — the standoff is re-fixed after a swing round the beacon (review gate)', () => {
+  it('picked from the EAST, then put WEST of the beacon: the standoff moves west and the path never enters the body', () => {
+    const w = bareWorld(1202);
+    const at: Vec2 = { x: 0, y: 0 };
+    const beacon = seatBeacon(w, SURFACE_MS, at);
+    const rec = realBot(w, 1000, 0, 0);
+    const mind = (w.bots as unknown as { minds: Map<string, BotMind> }).minds.get(rec.id)!;
+    for (let i = 0; i < 40 && (mind.beaconGoal ?? null) === null; i += 1) w.step();
+    expect(mind.beaconGoal!.standoff.x).toBeGreaterThan(at.x); // fixed on the east side
+    // The far side, bow pointed east AT the beacon (no target anywhere).
+    rec.state = { x: -1000, y: 0, heading: 0, speed: 0 };
+    const bodyClear = B.bodyRadiusU + hullLengthU(rec.hullId);
+    let minD = Infinity;
+    for (let i = 0; i < 1100; i += 1) {
+      w.step();
+      minD = Math.min(minD, Math.hypot(rec.state.x - at.x, rec.state.y - at.y));
+    }
+    expect(mind.beaconGoal!.standoff.x).toBeLessThan(at.x); // re-fixed on the west side
+    expect(minD).toBeGreaterThan(bodyClear);
+    expect(rec.contactDamageTaken).toBe(0);
+    expect(beacon.hp).toBe(B.hp);
+    expect(beaconInRange(at.x, at.y, rec.state.x, rec.state.y)).toBe(true);
   });
 });
