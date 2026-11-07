@@ -30,7 +30,6 @@
 import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../../src/game/world.js';
 import { Match } from '../../src/game/match.js';
-import { isFleetHull } from '../../src/game/participants.js';
 import { mixSeed } from './stats.js';
 
 const MATCHES = Number(process.argv[2] ?? 40);
@@ -98,7 +97,6 @@ for (let m = 0; m < MATCHES; m++) {
   while (world.now < cap && match.phase !== 'finished') {
     const snap = new Map<string, Per[]>();
     for (const s of world.ships.values()) {
-      if (isFleetHull(s)) continue;
       if (isAfloat(s.lifecycle)) wasAfloat.add(s.id);
       if (s.damageFrom.size === 0) {
         firstDmg.delete(s.id);
@@ -116,7 +114,7 @@ for (let m = 0; m < MATCHES; m++) {
     match.update();
 
     for (const s of world.ships.values()) {
-      if (isFleetHull(s) || !wasAfloat.has(s.id) || isAfloat(s.lifecycle)) continue;
+      if (!wasAfloat.has(s.id) || isAfloat(s.lifecycle)) continue;
       wasAfloat.delete(s.id);
       const per = snap.get(s.id) ?? prev.get(s.id);
       if (per === undefined || per.length === 0) continue;

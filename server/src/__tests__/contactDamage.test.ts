@@ -9,8 +9,8 @@
 // the phosphor burn; the land strike on the `landContact` edge and the land
 // scrape on the sliding speed only. HUNKER (was DAMAGE CUT until Story 9.9) and SHIELD BLOCK apply like any
 // damage (amendment 75); a wreck is solid and unharmed while the live hull
-// pays — as HULL contact, never land (amendment 82); two fleet hulls push but
-// do not hurt each other; a mutual ram credits both; the weapons-safe gate
+// pays — as HULL contact, never land (amendment 82); a mutual ram credits
+// both; the weapons-safe gate
 // holds; a NaN mass prices as nothing.
 //
 // Every number here is read from CONFIG and the shared contact functions —
@@ -21,11 +21,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_HORN_ID,
   contactGrindRate,
   contactHitDamage,
   damageMultiplierFor,
-  droneHullOf,
   groundingSpeedFactor,
   isAfloat,
   isSinking,
@@ -59,14 +57,6 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Sh
   const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   fitClassWeapons(w, rec);
   pose(rec, x, y, heading, 0);
-  return rec;
-}
-
-/** A PvE drone registered with the fleet controller at an exact pose. */
-function drone(w: World, id: string, x: number, y: number, heading: number, speed: number, fleetId = 1): ShipRecord {
-  const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x, y });
-  w.drones.add(id, 'medium', fleetId, { x: 0, y: 0 });
-  pose(rec, x, y, heading, speed);
   return rec;
 }
 
@@ -444,7 +434,7 @@ describe('LAND (amendment 81: the strike on the edge, the scrape on the sliding 
   });
 });
 
-describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
+describe('WRECKS, the GATE and CREDIT', () => {
   it('(f) a live hull into a sinking wreck: the wreck is pushed and unharmed, the live hull pays its share with no attacker credited — as HULL contact, never land (amendment 82)', () => {
     const w = bareWorld();
     const b = place(w, 'b', 40, 0);
@@ -487,51 +477,6 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     expect(sunkOf(events).map((e) => [e.id, e.by])).toEqual([['a', undefined]]);
     expect(a.lastDamageSrc).toBe('contact');
     expect(a.lastContactWasLand).toBe(false);
-  });
-
-  it('(g) two PvE fleet hulls are pushed apart but deal each other nothing — no hit, no bleed', () => {
-    const w = bareWorld();
-    const d1 = drone(w, 'd1', -45, 0, 0, 35, 1);
-    const d2 = drone(w, 'd2', 45, 0, Math.PI, 35, 2); // a different fleet: still PvE on PvE
-    setInput(d1, { throttle: 1 });
-    setInput(d2, { throttle: 1 });
-    const gap0 = d2.state.x - d1.state.x;
-    const events = stepCollect(w, 5);
-    expect(d2.state.x - d1.state.x).toBeGreaterThan(gap0 - 2 * 35 * DT * 5); // pushed apart against the closing
-    expect(d1.hp).toBe(d1.stats.maxHp);
-    expect(d2.hp).toBe(d2.stats.maxHp);
-    expect(events.filter((e) => e.k === 'dmg')).toEqual([]);
-    expect(d1.lastDamageSrc).toBeNull();
-  });
-
-  it('a captain ramming a drone: the drone takes its share and dies, the captain takes its share, a PvE kill is credited, the drone aggroed its rammer', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', -60, 0);
-    const d = drone(w, 'd1', 43, 0, Math.PI, 35);
-    fullAhead(a, 0);
-    expect(w.drones.targetOf('d1')).toBeNull();
-    // drone hull avoidance (amendment 192c) would dodge; the ram is forced so the damage contract is what is tested
-    const droneTick = w.drones.tick.bind(w.drones);
-    let forcedSeq = 1_000_000;
-    w.drones.tick = () => {
-      droneTick();
-      forcedSeq += 1;
-      w.submitInput('d1', { ...d.input, seq: forcedSeq, throttle: 1, rudder: 0 });
-    };
-    w.step();
-    // The closing speed the resolver measured: both x-velocities after this
-    // tick's kinematics (the contact row changes neither).
-    const vn = a.state.speed * Math.cos(a.state.heading) - d.state.speed * Math.cos(d.state.heading);
-    const hit = contactHitDamage(a.stats.armor, d.stats.armor, vn, RAM);
-    expect(hit.b).toBeGreaterThanOrEqual(d.stats.maxHp); // the ruled 80 u/s drone row
-    expect(a.stats.maxHp - a.hp).toBeGreaterThanOrEqual(hit.a);
-    // ...plus at most this tick's bleed (the strike sinks d, so no later one).
-    const bleedTick = contactGrindRate(a.stats.armor, d.stats.armor, 0, vn, RAM).a * DT;
-    expect(a.stats.maxHp - a.hp).toBeLessThanOrEqual(hit.a + bleedTick + 1e-9);
-    expect(isSinking(d.lifecycle)).toBe(true);
-    expect(sunkOf(w.tickEvents)).toEqual([expect.objectContaining({ id: 'd1', by: 'a' })]);
-    expect(a.pveKills[d.hullId]).toBe(1);
-    expect(w.drones.targetOf('d1')).toBe('a');
   });
 
   it('HUNKER applies to a contact HIT like any damage (amendment 75; the SHIELD BLOCK half left with Story 10.5)', () => {

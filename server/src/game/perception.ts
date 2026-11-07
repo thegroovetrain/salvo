@@ -104,8 +104,6 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     wakes: world.wakeRibbons,
     // The pseudonym resolver (radar realism cycle), threaded from the World.
     pseudonymOf: (id: string) => world.pseudonymFor(id),
-    // Story 5.6 (amendment 40): the self-private aggro mark's ONE input.
-    aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
     // Story 9.8 (rulings 121–123): the radar dropout roll's server-private
     // seed and the wake ribbons' source keys. The observer key is `me.id`
     // and the revolution is `me.sweepRev` — both already on the record.
@@ -142,10 +140,6 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Inert on this path (spectators get live contacts, never blips) — rides
     // uniformly so the context stays one shape.
     pseudonymOf: (id: string) => world.pseudonymFor(id),
-    // Story 5.6 (amendment 40): DEAD on this path — the contact row refuses
-    // the aggro mark for `mode: 'spectator'` before it ever asks. It rides
-    // uniformly so the context stays one shape (the narrow-context posture).
-    aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
     // Story 9.8: INERT on this path (spectators have no radar, so nothing
     // rolls) — rides uniformly so the context stays one shape.
     dropoutSeed: world.dropoutSeed,

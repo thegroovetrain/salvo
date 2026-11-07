@@ -103,7 +103,6 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
     live: true,
     sunk: false,
     cls: 'bismarck' as HullId,
-    fleet: false,
     firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0,
     vx: null,
@@ -362,10 +361,7 @@ describe('special / ability triggers (amendment 199)', () => {
       const u = plot(far, track(port.now, { x: R + 100 }));
       expect(hunker.want(ctxOf(bs, far, port, posture, u)), posture).toBe(false);
     }
-    // A neutral PvE fleet hull in reach is no hostile; a reposition posture presses nothing.
-    const fleet = mkMind('bulwark');
-    const f = plot(fleet, track(port.now, { x: 0.5 * R, cls: 'droneSmall' as HullId, fleet: true }));
-    expect(hunkerCues(ctxOf(bs, fleet, port, 'pursue', f))).toBe(false);
+    // A reposition posture presses nothing.
     const idle = mkMind('bulwark');
     const i = plot(idle, track(port.now, { x: 0.5 * R }));
     expect(hunkerCues(ctxOf(bs, idle, port, 'reposition', i))).toBe(false);

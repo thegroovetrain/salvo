@@ -1,12 +1,11 @@
 // THE LEAD SOLVE — one intercept solver, shared by everything on the server
 // that has to shoot at a moving hull.
 //
-// Extracted verbatim (Story 7-5 wave 2) from FleetController.aimPoint, which
-// was its only implementation and is now its first caller; the CAPTIVE MINE's
-// torpedo (equipment/mines.ts, R2.12 — "fired with intelligent lead") is the
-// second. Two copies of an intercept solver is exactly the kind of quiet
-// divergence this codebase spends its structure avoiding, and the fish needs the
-// same answer the fleet gun already computes.
+// Extracted verbatim (Story 7-5 wave 2) from the retired PvE fleet
+// controller's aimPoint (Story 10.8 deleted the fleet); the CAPTIVE MINE's
+// torpedo (equipment/mines.ts, R2.12 — "fired with intelligent lead") is its
+// caller. Two copies of an intercept solver is exactly the kind of quiet
+// divergence this codebase spends its structure avoiding.
 //
 // Fixed point rather than the closed-form quadratic on purpose: three passes is
 // far past convergence at these speeds (ordnance 60-500 u/s against hulls

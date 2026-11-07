@@ -25,8 +25,7 @@ import type { Connection } from '../net/connection';
 import type { OwnFire } from '../render/projectiles';
 import { CLIENT_CONFIG } from '../config';
 import { fitDetune, fitTone } from '../audio/tones';
-import { UNKNOWN_VESSEL, fleetSizeName, killLine, type KillSegment, type NameRef } from '../ui/killFeed';
-import { cssHex } from '../util/color';
+import { UNKNOWN_VESSEL, killLine, type KillSegment, type NameRef } from '../ui/killFeed';
 import { KILL_LEADER_MARK, bountyKillLine } from '../ui/bounty';
 import { pointToastLine } from '../ui/upgradeToast';
 import { boonFitToastLine } from '../ui/boonCopy';
@@ -567,7 +566,7 @@ describe('bindRoom own sunk', () => {
     expect(resetPrime).toHaveBeenCalledTimes(1); // the primed skillshot never survives death
     // Story 2.3: the SAME observed sinking feeds the personal-score accumulator
     // and (for our own hull, in a live match) opens the elimination modal.
-    expect(onSunkObserved).toHaveBeenCalledWith('me', null, undefined);
+    expect(onSunkObserved).toHaveBeenCalledWith('me', null);
   });
 
   // Story 5.2 (amendments 10/16): the `sunk` event still fires at SINK-ENTRY,
@@ -625,7 +624,7 @@ describe('bindRoom own sunk', () => {
     expect(resetThrottle).not.toHaveBeenCalled();
     expect(resetPrime).not.toHaveBeenCalled();
     // ...while the bookkeeping the amendment pins to sink-entry all still lands.
-    expect(onSunkObserved).toHaveBeenCalledWith('me', 'rival', undefined);
+    expect(onSunkObserved).toHaveBeenCalledWith('me', 'rival');
     expect(state.killerId).toBe('rival');
     expect(state.respawnEta).not.toBeNull();
   });
@@ -890,7 +889,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(feedLines()).toEqual([lineText(killLine(V, K))]); // identity is public...
     expect(spawnEffect).not.toHaveBeenCalled(); // ...but a stale position never draws a plume
     expect(markSunk).not.toHaveBeenCalled();
-    expect(onSunkObserved).toHaveBeenCalledWith('victim', 'killer', undefined); // score rides regardless
+    expect(onSunkObserved).toHaveBeenCalledWith('victim', 'killer'); // score rides regardless
   });
 
   // --- THE PLUME MARKS THE KILLING BLOW (amendment 32, 2026-08-14) ----------
@@ -1056,7 +1055,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     const { sink, spawnEffect, markSunk, play, onSunkObserved } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'me' })); // no seen — fog kill
     expect(play).toHaveBeenCalledWith('kill'); // your victim went down, witnessed or not
-    expect(onSunkObserved).toHaveBeenCalledWith('victim', 'me', undefined); // "SHIPS YOU SANK" credit
+    expect(onSunkObserved).toHaveBeenCalledWith('victim', 'me'); // "SHIPS YOU SANK" credit
     expect(spawnEffect).not.toHaveBeenCalled(); // still no spatial render
     expect(markSunk).not.toHaveBeenCalled();
   });
@@ -1128,63 +1127,13 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     for (const span of spans) expect((span as HTMLElement).style.color).toBe('');
   });
 
-  // --- Story 7.6: SunkEvent.kcls names a NEVER-SEEN fleet killer -------------
-  //
-  // Eric 2026-08-21: *"if someone gets sunk by a drone, you can tell me what
-  // drone sunk them. Its fine. UNKNOWN VESSEL can only be a drone anyway.
-  // Please, let me laugh and foghorn salute the dumbass who died to a drone."*
-  //
-  // `names(() => null)` models the case exactly: no roster row and no ever-seen
-  // hull memo entry for either id — which is every bystander's state for a fleet
-  // killer 2000u away, on a line the PUBLIC register puts in front of them all.
-
-  it('names a fleet killer from kcls when the client has no other answer', () => {
-    const { sink } = setupSunk(() => null);
-    sink.handler(sunkFrame({ k: 'sunk', id: 'sess_bob', by: 'sess_drone', kcls: 'droneSmall' }));
-    const drone = fleetSizeName('droneSmall');
-    expect(drone).not.toBeNull();
-    expect(feedLines()).toEqual([
-      lineText(killLine({ name: UNKNOWN_VESSEL, id: 'sess_bob' }, { name: drone!, id: 'sess_drone' })),
-    ]);
-    expect(feedLines().join('')).not.toContain('sess_'); // still never a raw id
-  });
-
-  it('the MEMO/roster still outranks kcls — the shipped path does not move', () => {
-    // `names` resolves, so step 1 wins and the wire field is never consulted.
-    const { sink } = setupSunk();
-    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', kcls: 'droneLarge' }));
-    expect(feedLines()).toEqual([lineText(killLine(V, K))]);
-  });
-
-  it('a row WITHOUT kcls is byte-identical to before — the absent-field guarantee', () => {
+  it('a row whose ids resolve nowhere names both UNKNOWN VESSEL (never a raw id)', () => {
     const { sink, onSunkObserved } = setupSunk(() => null);
     sink.handler(sunkFrame({ k: 'sunk', id: 'sess_v', by: 'sess_k' }));
     expect(feedLines()).toEqual([
       lineText(killLine({ name: UNKNOWN_VESSEL, id: 'sess_v' }, { name: UNKNOWN_VESSEL, id: 'sess_k' })),
     ]);
-    expect(onSunkObserved).toHaveBeenCalledWith('sess_v', 'sess_k', undefined);
-  });
-
-  it('a kcls-named killer wears the DRONE GREY, not plain body text', () => {
-    // The victim named from `vcls` has been pinned since Story 5.6 for exactly
-    // this reason; a killer named from the wire is the same case, and leaving it
-    // unpinned would put two drone names on one line in two different colours.
-    const { sink } = setupSunk(() => null);
-    sink.handler(sunkFrame({ k: 'sunk', id: 'sess_bob', by: 'sess_drone', kcls: 'droneMedium' }));
-    const spans = [...(document.getElementById('kill-feed')?.querySelectorAll('span') ?? [])] as HTMLElement[];
-    const named = spans.find((el) => el.textContent === fleetSizeName('droneMedium'));
-    expect(named).toBeDefined();
-    const ref = document.createElement('span');
-    ref.style.color = cssHex(CLIENT_CONFIG.colors.droneOutline);
-    expect(named?.style.color).toBe(ref.style.color);
-    // ...and the UNKNOWN VESSEL victim beside it is still uncoloured.
-    expect(spans.find((el) => el.textContent === UNKNOWN_VESSEL)?.style.color).toBe('');
-  });
-
-  it('forwards kcls to onSunkObserved so the MATCH LOG agrees with the feed', () => {
-    const { sink, onSunkObserved } = setupSunk(() => null);
-    sink.handler(sunkFrame({ k: 'sunk', id: 'sess_bob', by: 'sess_drone', kcls: 'droneLarge' }));
-    expect(onSunkObserved).toHaveBeenCalledWith('sess_bob', 'sess_drone', 'droneLarge');
+    expect(onSunkObserved).toHaveBeenCalledWith('sess_v', 'sess_k');
   });
 
   // --- THE SOUND MAP's sinking cue (Story 4.7) -------------------------------

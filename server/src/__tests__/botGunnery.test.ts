@@ -100,7 +100,7 @@ function buildRig(start: { x: number; y: number }): Rig {
   // MG-only: every slot but 0 is emptied, so hp lost is machine-gun damage.
   // Since Story 10.4 no captain MOUNTS the machine gun (slot 0 is the main
   // battery); these pins measure the bot's PLOT ESTIMATOR and LEAD through the
-  // machine gun's stream, so the rig fits the drone-era MG module into slot 0
+  // machine gun's stream, so the rig fits the retired deck-gun MG module into slot 0
   // by hand (a fixture, not a fit any production path makes). The
   // secondaries are held locked every tick (reseat) so no second 'mg'
   // stream confounds the count.

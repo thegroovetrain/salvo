@@ -28,7 +28,6 @@ import {
   publishedDamageMultiplier,
   INDEX_IDS,
   hullEnvelope,
-  DRONE_HULL_IDS,
   HULL_IDS,
   SHIP_CLASS_IDS,
   burstVictims,
@@ -179,7 +178,7 @@ function barrelBlock(): void {
   console.log('');
   console.log(`OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (${barrels} barrels — the fold's, R=300u):`);
   const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
-  for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
+  for (const hullId of SHIP_CLASS_IDS) {
     const row: string[] = [];
     for (const miss of [0, 10, 20, 30, 40, 60]) {
       const targets = offsets.map((o) => ({ x: 300 + o.x, y: o.y + miss }));
@@ -273,7 +272,7 @@ for (const hullId of HULL_IDS) {
     `hull ${hullId.padEnd(12)} silhouette length=${fmt(Math.max(...xs) - Math.min(...xs))}u beam=${fmt(Math.max(...ys) - Math.min(...ys))}u`,
   );
 }
-console.log('HULLS PROBED: ' + HULL_IDS.join(' ') + ` (classes: ${SHIP_CLASS_IDS.join(' ')}; fleet: ${DRONE_HULL_IDS.join(' ')})`);
+console.log('HULLS PROBED: ' + HULL_IDS.join(' '));
 statsBlock();
 reachBlock();
 broadsideBlock();

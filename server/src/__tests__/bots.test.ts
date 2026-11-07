@@ -27,7 +27,7 @@ import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, abilityCode, effectiveStats, isA
 import { World } from '../game/world.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
 import type { BotWorldPort } from '../game/ai/types.js';
-import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
+import { isHuman, isParticipant } from '../game/participants.js';
 
 /** The DELIBERATION round-robin window in ticks — recomputed here
  *  independently (250ms / 50ms = 5) so a CONFIG retune fails loudly instead
@@ -93,13 +93,12 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
 });
 
 describe('addBot — an AI captain through the ordinary addShip path', () => {
-  it('stamps role bot: a participant, never a human, never fleet content', () => {
+  it('stamps role bot: a participant, never a human', () => {
     const { w, ids } = botWorld(11, 1);
     const rec = w.ships.get(ids[0])!;
     expect(rec.role).toBe('bot');
     expect(isParticipant(rec)).toBe(true);
     expect(isHuman(rec)).toBe(false); // FR34: a bot can never arm a countdown
-    expect(isFleetHull(rec)).toBe(false);
   });
 
   it('ids are namespaced bot-N; class is a real ship class; the economy is real', () => {
@@ -302,6 +301,7 @@ describe('the narrow world port — its surface is exactly the ruled one', () =>
     // amendment 190 (Eric 2026-10-17, human parity) for EXACTLY zoneNextRing,
     // zonePhase and zoneSafeDisc; anything else still needs a ruling.
     expect(Object.keys(port).sort()).toEqual([
+      'beacons', // Story 10.8 (Eric 2026-11-06, amendment 6(g)): the public beacon chart
       'helmEnabled',
       'map',
       'nav', // Story 9.13 (amendments 191/192): the public map's nav cache — derived from `map` alone

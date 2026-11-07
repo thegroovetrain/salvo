@@ -109,7 +109,7 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
       maxAmmo: FLAK.maxAmmo, reloadMs: FLAK.reloadMs, damage: FLAK.damage, burstRadius: FLAK.burstRadius, contactDamage: FLAK.contactDamage,
     });
     expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
-    expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance']); // the decoy kind left with Story 10.5
+    expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']); // the decoy kind left with Story 10.5; the beacon joined with Story 10.8
   });
 
   it('a click at 300 u: the shell bursts AT the click, the falloff hit to a hull 30 u off the point, one `hc`, `w: flak`', () => {
@@ -380,25 +380,25 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
     }
   });
 
-  it('a 0-DAMAGE arm deals nothing: resolveBurst\'s `damage > 0` gate skips the victims entirely — no hp, no aggro seam, no `dmg` (the burst still fires)', () => {
+  it('a 0-DAMAGE arm deals nothing: resolveBurst\'s `damage > 0` gate skips the victims entirely — no hp, no hitShip, no `dmg` (the burst still fires)', () => {
     const saved = CONFIG.flak.damage;
     (CONFIG.flak as { damage: number }).damage = 0;
     try {
       const w = bareWorld();
       flakker(w, 'a');
       const b = hull(w, 'b', 300, 0); // centred: only the damage dial makes the raw blow 0
-      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      const hitShip = vi.spyOn(w as unknown as { hitShip: (...a: unknown[]) => void }, 'hitShip'); // the credit seat: never reached
       const log = click(w, 'a', NEAR_CLICK);
       expect(count(log, 'burst')).toBe(1);
       expect(b.hp).toBe(b.stats.maxHp);
-      expect(aggro).not.toHaveBeenCalled();
+      expect(hitShip).not.toHaveBeenCalled();
       expect(count(log, 'dmg')).toBe(0);
     } finally {
       (CONFIG.flak as { damage: number }).damage = saved;
     }
   });
 
-  it('a POSITIVE-damage blow SETTLED to 0 is NO blow (reading r3, burstDamage\'s `amount <= 0` guard): minFactor 0 at max range → raw D × 0 → no hp, no aggro seam, no `dmg`', () => {
+  it('a POSITIVE-damage blow SETTLED to 0 is NO blow (reading r3, burstDamage\'s `amount <= 0` guard): minFactor 0 at max range → raw D × 0 → no hp, no hitShip, no `dmg`', () => {
     const saved = CONFIG.gunAttenuation.minFactor;
     (CONFIG.gunAttenuation as { minFactor: number }).minFactor = 0;
     try {
@@ -420,12 +420,12 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
         contactDamage: FLAK.contactDamage, hits: FLAK.hits, originX: -REACH, originY: 0, attenRangeU: REACH,
       };
       expect(D).toBeGreaterThan(0); // the premise: the gate in resolveBurst lets this through
-      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      const hitShip = vi.spyOn(w as unknown as { hitShip: (...a: unknown[]) => void }, 'hitShip'); // the credit seat: never reached
       inner.resolveShell(shell, { kind: 'burst', x: 0, y: 0 }, inner.hitTargets(FLAK.hits));
       const log = [...inner.pending];
       expect(count(log, 'burst')).toBe(1);
       expect(b.hp).toBe(b.stats.maxHp);
-      expect(aggro).not.toHaveBeenCalled();
+      expect(hitShip).not.toHaveBeenCalled();
       expect(count(log, 'dmg')).toBe(0);
     } finally {
       (CONFIG.gunAttenuation as { minFactor: number }).minFactor = saved;

@@ -17,7 +17,7 @@
 //       does not hold the aim point is never picked — and the fire solution
 //       (reach clamp, parallel barrels, muzzle clear of the own hull);
 //   (5) reload bookkeeping, the hotbar summary and the contact wire codec;
-//   (6) a hull with no battery (a PvE drone) degrades to the empty answer;
+//   (6) [retired with the PvE drones, Story 10.8 — no hull id lacks a battery];
 //   (7) the review-gate patches: an aim with no bearing — zero distance, or on
 //       a turret's own station — holds (P4).
 
@@ -25,7 +25,6 @@ import { describe, it, expect } from 'vitest';
 import {
   AIM_STATION_EPS_U,
   CONFIG,
-  DRONE_HULL_IDS,
   SHIP_CLASS_IDS,
   U_PER_M,
   aimPointOf,
@@ -570,23 +569,6 @@ describe('reloads, the hotbar summary and the wire codec', () => {
         expect(Math.abs(offRest(hull, 0, decodeTurretAngle(hull, 0, q))), `${hull} ${q}`).toBeLessThanOrEqual(train);
       }
       expect(decodeTurretAngle(hull, 99, 10)).toBe(0); // no such turret
-    }
-  });
-});
-
-describe('a hull with no battery (a PvE drone) has no turrets', () => {
-  it('every function degrades to the empty answer', () => {
-    for (const hull of DRONE_HULL_IDS) {
-      expect(turretMounts(hull)).toEqual([]);
-      expect(initialTurrets(hull)).toEqual([]);
-      expect(turretTrainRad(hull)).toBe(0);
-      expect(gunsBearing(hull, 0)).toBe(0);
-      expect(pickTurret([], hull, POSE, { x: 0, y: 0 })).toBeNull();
-      expect(encodeTurretAngles([], hull)).toEqual([]);
-      expect(turretBears(hull, 0, POSE, { x: 0, y: 0 })).toBe(false);
-      const stray: TurretState[] = [{ a: 1, reloadMsLeft: 100 }];
-      stepTurrets(stray, hull, POSE, { x: 0, y: 0 }, DT);
-      expect(stray).toEqual([{ a: 1, reloadMsLeft: 100 }]); // no mount, nothing stepped
     }
   });
 });

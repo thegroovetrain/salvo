@@ -20,7 +20,7 @@
 //
 // THE MASK IS FUZZY BY RULING (cycle-63 review gate, amendments 156-157). The
 // sharp rasterization made ship class FREE TO READ — at the shipped lattice
-// all six hull envelopes (three captain classes + three drone sizes) had
+// all six hull envelopes (three captain classes + three drone sizes, at the time) had
 // pairwise-distinct cell dimensions, a lookup table where amendment 68 ruled
 // class must be "learnable ... because it should not be easy". Eric's ruling
 // keeps the architecture and adds the RESOLUTION LOSS he had already described

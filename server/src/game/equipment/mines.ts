@@ -39,9 +39,9 @@
 // CAPTIVE MINES (Story 7-5 wave 2, R2.12-R2.14) change the TRIP and what
 // follows it, and nothing else. A captive mine never receives or propagates a
 // chain (R2.18), NEVER detonates on contact, and
-// trips only on a HOSTILE (R2.13: an enemy captain or bot, or a fleet drone
-// whose CURRENT acquired target is the layer; a neutral drone may sail straight
-// over it) — answering by LAUNCHING its one torpedo and expending itself. A
+// trips only on a HOSTILE (R2.13: an enemy captain or bot — the PvE drone's
+// live-aggro clause retired with the fleet at Story 10.8) — answering by
+// LAUNCHING its one torpedo and expending itself. A
 // deck gun CAN destroy one (amendment 200): at 0 hp it is removed with a boom,
 // no blast and no fish.
 //
@@ -157,10 +157,9 @@ export interface MineTripRules {
   triggerRadius(ownerId: string, kind: MineKind): number;
   /**
    * CAPTIVE-ONLY (R2.13, Eric): is `victimId` HOSTILE to `ownerId`? An enemy
-   * captain or bot always is; a fleet drone is hostile ONLY while its CURRENT
-   * acquired target is the mine's owner, so a drone that breaks off becomes
-   * safe to sail past again. NEVER consulted for a naval or fouling mine —
-   * those still trip on ANY non-owner hull, drones included.
+   * captain or bot always is (the PvE drone's live-aggro clause retired with
+   * the fleet at Story 10.8). NEVER consulted for a naval or fouling mine —
+   * those still trip on ANY non-owner hull.
    */
   hostile(ownerId: string, victimId: string): boolean;
 }
@@ -243,7 +242,7 @@ export function dropBlocked(p: Vec2, islands: readonly Island[], mapRadius: numb
  * The first hull that trips `mine`: a non-owner silhouette within `radius`
  * (pointPolygonDistance — 0 inside, concave-safe), scanned in hull order.
  * `hostile` is the CAPTIVE-ONLY gate (null for every other mine): a hull it
- * refuses is SKIPPED, not returned — the scan continues, so a neutral drone
+ * refuses is SKIPPED, not returned — the scan continues, so a refused hull
  * sitting on a captive mine never masks the enemy captain right behind it.
  */
 function firstTripper(
@@ -299,8 +298,8 @@ export function checkMineTriggers(
  * The BLAST membership for one detonating mine (Story 1.8): every hull whose
  * silhouette lies within `blastRadius` of the mine point (the OWNER's
  * effective blast radius as of Story 2.8 — the World threads it in with the
- * vacated-owner CONFIG fallback) — OWNER EXCLUDED, enemies AND drones alike,
- * full damage each (the World applies it). Reuses the shared burstVictims
+ * vacated-owner CONFIG fallback) — OWNER EXCLUDED, every enemy alike, full
+ * damage each (the World applies it). Reuses the shared burstVictims
  * silhouette-in-radius rule (the gun/starShells AoE precedent), so mine blasts
  * and shell bursts can never diverge on what "inside the blast" means. Pure —
  * the World deletes the mine and resolves damage/booms.
@@ -385,10 +384,10 @@ export function captiveTorpedo(
   };
   // THE LOCK IS PINNED AT LAUNCH (cycle-148 review gate, P6): this fish was
   // fired at the ONE hull that tripped the mine and cleared the hostile gate
-  // (R2.13), so it must never re-acquire. A neutral fleet drone drifting nearer
-  // mid-run would otherwise steal a trap it was never allowed to spring — and
-  // the gate cannot be re-run in flight, because `steerHoming` is pure shared
-  // sim with no idea what a drone's current aggro is. See `ShellState.homing`.
+  // (R2.13), so it must never re-acquire: a bystander drifting nearer mid-run
+  // would otherwise steal a trap it was never allowed to spring — and the gate
+  // cannot be re-run in flight, because `steerHoming` is pure shared sim. See
+  // `ShellState.homing`.
   if (homes) {
     shell.homing = {
       turnRate: p.homingTurnRate,

@@ -7,8 +7,6 @@
 // stack is a thin adapter. Lines expire after a few seconds; the stack is capped
 // so a bloodbath cannot fill the screen.
 
-import { droneSizeOf, type HullId } from '@salvo/shared';
-import { CLIENT_CONFIG } from '../config.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
 // Display cap + surrogate-safe mid-ellipsis hoisted to the shared util (Story
 // 1.13) so the feed and the on-water nameplates share one cap source. Re-exported
@@ -31,52 +29,6 @@ const MAX_LINES = 6;
  * stays uncolored (a roster miss also resolves no hue).
  */
 export const UNKNOWN_VESSEL = 'UNKNOWN VESSEL';
-
-/**
- * Pure: the feed's name for a PvE fleet victim WITH ITS SIZE — `SMALL DRONE`,
- * `MEDIUM DRONE`, `LARGE DRONE` — or null when the hull is not a fleet hull (or
- * is absent).
- *
- * ERIC'S RULING (2026-08-14): *"I want to know the kills I get when I get them.
- * Meaning I want to know I killed a Small Drone if a Small Drone is killed by my
- * mine."* THE SIZE IS THE POINT, because **the size IS the payout** — ¼ / ½ / ¾
- * of a level — so a line that said only `DRONE` would omit the one fact the
- * moment is actually about.
- *
- * Fed from `SunkEvent.vcls`, which the server stamps ONLY on the credited
- * killer's copy of the row. That is why this can be reliable where the client
- * alone never could: you can mine a fleet ship you never once saw.
- *
- * DERIVED FROM `droneSizeOf`, NOT FROM A SECOND TABLE — a fourth drone size
- * would name itself here rather than silently falling through to `DRONE`. The
- * uppercase is the feed's own register (every name in a line is uppercase).
- *
- * IT NAMES NOTHING ELSE. A captain victim returns null and keeps their roster
- * callsign, and none of this touches the KILLS tally, the MATCH LOG or SHIPS YOU
- * SANK — amendment 38 is unmoved and Eric re-confirmed all three in the same
- * breath (*"it doesn't increment my kill count... doesn't need to show up in my
- * end-game kills record"*).
- */
-export function fleetSizeName(cls: HullId | undefined): string | null {
-  const size = cls === undefined ? null : droneSizeOf(cls);
-  return size === null ? null : `${size.toUpperCase()} DRONE`;
-}
-
-/**
- * Pure: a colour resolver that pins ONE id to the drone grey and defers every
- * other id to `base`.
- *
- * The feed colours a name by looking its id up in the roster/contact set, and a
- * fleet hull named from `vcls` is precisely the hull that is in NEITHER — so the
- * lookup would come back null and the one line that finally knows what it sank
- * would render it in plain body text. This keeps requirement 3 true (fleet
- * victims wear the drone grey exactly as they always have) without giving the
- * segment shape a new colour channel: `renderSegments`' drone-verbatim rule
- * still keys off the resolved value BEING `droneOutline`, unchanged.
- */
-export function pinDroneColor(id: string, base: (id: string) => number | null): (id: string) => number | null {
-  return (probe) => (probe === id ? CLIENT_CONFIG.colors.droneOutline : base(probe));
-}
 
 /** A vessel reference in a feed line — its display name + roster id (for color). */
 export interface NameRef {
@@ -147,11 +99,8 @@ function renderSegments(line: HTMLDivElement, segments: KillSegment[], colorFor:
     if (seg.id !== undefined) {
       const color = colorFor(seg.id);
       if (color !== null) {
-        // A drone name is pinned to the droneOutline token VERBATIM — the spec
-        // forbids running the drone grey through textSafe. Only human personal
-        // hues get the WCAG lighten-toward-void pass.
-        const isDrone = color === CLIENT_CONFIG.colors.droneOutline;
-        const textColor = isDrone ? color : textSafe(color);
+        // Every name gets the WCAG lighten-toward-void pass.
+        const textColor = textSafe(color);
         span.style.color = cssHex(textColor);
         span.style.fontWeight = '600';
         // THE KILL LEADER'S FAINT GLOW (Eric ruling 2026-08-10): a STATIC
@@ -162,9 +111,8 @@ function renderSegments(line: HTMLDivElement, segments: KillSegment[], colorFor:
         // 10px is the hotbar ready-weapon glow (the faint end of the
         // 10/14/16px ladder in the component inventory) and .4 is the
         // canonical glow alpha from the DESIGN.md "Glow" motif's selected-slot
-        // example (the 16px amber bloom at .4). A DRONE name can never be a
-        // leader (captain kills only) and must never glow.
-        if (seg.leader && !isDrone) span.style.textShadow = `0 0 10px ${cssRgba(textColor, 0.4)}`;
+        // example (the 16px amber bloom at .4).
+        if (seg.leader) span.style.textShadow = `0 0 10px ${cssRgba(textColor, 0.4)}`;
       }
     }
     line.appendChild(span);
@@ -173,8 +121,8 @@ function renderSegments(line: HTMLDivElement, segments: KillSegment[], colorFor:
 
 /**
  * Push one line onto the feed; it fades out and removes itself after the TTL.
- * `colorFor(id)` resolves a vessel id → its personal hue (drone-outline for a
- * drone, null for a roster miss). Newest line renders on TOP.
+ * `colorFor(id)` resolves a vessel id → its personal hue (null for a roster
+ * miss). Newest line renders on TOP.
  */
 export function pushKillLine(segments: KillSegment[], colorFor: (id: string) => number | null): void {
   const feed = ensureFeed();

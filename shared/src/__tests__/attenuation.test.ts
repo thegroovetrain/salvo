@@ -122,7 +122,7 @@ describe('settleBlow — the ONE floor to a whole number, floor of one for a pos
     expect(settleBlow(16 * 0.9)).toBe(14);
   });
 
-  it('a positive blow under one deals one (the 1 hp drone shell at max range)', () => {
+  it('a positive blow under one deals one (a 1 hp shell at max range)', () => {
     expect(settleBlow(0.8)).toBe(1);
     expect(settleBlow(1e-6)).toBe(1);
   });

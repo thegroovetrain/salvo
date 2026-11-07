@@ -290,10 +290,8 @@ export function matchLogRow(entry: MatchLogEntry): { stamp: string; text: string
 }
 
 /**
- * Pure: the "ships you sank" block. Contestant-controlled hulls only — drone
- * kills count in the KILLS tally above but never appear here (the I/O matrix's
- * "2 drones + 1 human ⇒ kills 3, list shows the human"). An empty roll reads as
- * an explicit line, never as a missing section.
+ * Pure: the "ships you sank" block. An empty roll reads as an explicit line,
+ * never as a missing section.
  */
 export function sunkLines(score: PersonalScore): string[] {
   return score.sunkContestants.length === 0 ? ['— NONE —'] : score.sunkContestants.map((n) => `· ${n}`);

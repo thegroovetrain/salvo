@@ -550,23 +550,18 @@ describe('P4 — the per-tick state is cleared in the PROLOGUE', () => {
 
 });
 
-describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
-  it('a FLEET-owned burst never counts a friendly fleet wreck as a geometric victim', () => {
-    // A fleet shell does not see a friendly fleet hull as a collision subject at
-    // all (stepShells filter, amendment 36). Counting one here would let the
-    // wreck list re-admit through the back door what the damage path refuses.
+describe('wrecksInBurst — the owner-immunity rule (amendment 19)', () => {
+  it("a burst over another hull's wreck counts it as a geometric victim; the owner's own wreck is never counted", () => {
     const w = bareWorld(49);
-    w.addShip('fleetA', 'F1', 'fleet', 'bismarck', undefined, { x: 0, y: 0 });
-    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'bismarck', undefined, { x: 300, y: 0 });
-    f2.state = { x: 300, y: 0, heading: 0, speed: 0 };
-    w.sinkShip('fleetB', undefined);
+    const b = w.addShip('b', 'B', 'captain', 'bismarck', undefined, { x: 300, y: 0 });
+    b.state = { x: 300, y: 0, heading: 0, speed: 0 };
+    w.sinkShip('b', undefined);
     const inner = w as unknown as {
       wrecksInBurst(at: { x: number; y: number }, radius: number, ownerId: string): number;
     };
-    expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'fleetA')).toBe(0);
-    // A CAPTAIN burst over the same wreck still counts it (amendment 19).
     place(w, 'a', -900, 0);
     expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'a')).toBe(1);
+    expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'b')).toBe(0);
   });
 });
 

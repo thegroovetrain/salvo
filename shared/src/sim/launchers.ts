@@ -10,7 +10,7 @@
 //
 // each with `stats.tubesPerLauncher` tubes (SECOND LAUNCHER TUBE: +1 on every
 // launcher held). Stations are per hull, on the centerline
-// (`CONFIG.shipClasses.<id>.launchers`); a hull with none (a PvE drone) mounts
+// (`CONFIG.shipClasses.<id>.launchers`); a hull with none mounts
 // ZERO launchers and every function degrades to the empty answer.
 //
 // AIMING IS THE TURRETS' (R6: "they work the same way in terms of aiming and
@@ -112,7 +112,7 @@ export interface LauncherCounts {
   tubesPerLauncher: number;
 }
 
-/** Launcher `i`'s CONFIG row on `hullId` (0 fore, else aft), or `undefined` on a hull with no launchers (a drone). */
+/** Launcher `i`'s CONFIG row on `hullId` (0 fore, else aft), or `undefined` on a hull with no launchers. */
 function launcherRow(hullId: HullId, i: number): HullLauncher | undefined {
   const l = hullEnvelope(hullId).launchers;
   if (l === undefined) return undefined;
@@ -141,7 +141,7 @@ export function launcherRest(i: number): number {
   return i === 0 ? 0 : Math.PI;
 }
 
-/** How many launchers a hull can mount at all: `MAX_LAUNCHERS` on a hull with stations, 0 on one without (a drone). */
+/** How many launchers a hull can mount at all: `MAX_LAUNCHERS` on a hull with stations, 0 on one without. */
 function stationsOn(hullId: HullId): number {
   return hullEnvelope(hullId).launchers === undefined ? 0 : MAX_LAUNCHERS;
 }

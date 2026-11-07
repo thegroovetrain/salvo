@@ -52,14 +52,12 @@ function ship(
   id: string,
   x: number,
   y: number,
-  opts: { heading?: number; hull?: 'bismarck' | 'yamato'; gun?: 'machineGun' | 'flak'; role?: 'captain' | 'fleet' } = {},
+  opts: { heading?: number; hull?: 'bismarck' | 'yamato'; gun?: 'machineGun' | 'flak' } = {},
 ): ShipRecord {
-  const role = opts.role ?? 'captain';
-  const hullId = role === 'fleet' ? 'droneSmall' : (opts.hull ?? 'bismarck');
-  const rec = w.addShip(id, id.toUpperCase(), role, hullId, undefined, { x, y });
-  // A captain: the NEUTRAL index and the deck-gun row under test (deckGunFixture;
-  // the cannon by default). A drone keeps its own fit.
-  if (role === 'captain') mountDeckGun(neutralize(rec), opts.gun ?? 'gun');
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', opts.hull ?? 'bismarck', undefined, { x, y });
+  // The NEUTRAL index and the deck-gun row under test (deckGunFixture; the
+  // cannon by default).
+  mountDeckGun(neutralize(rec), opts.gun ?? 'gun');
   rec.state = { x, y, heading: opts.heading ?? 0, speed: 0 };
   return rec;
 }
@@ -197,11 +195,20 @@ describe('the FLAK GUN — the half rim × the attenuation, settled once', () =>
 });
 
 describe('the floor of one, and the fail-open reference', () => {
-  it('a PvE drone\'s 1 hp shell at max range still lands 1 (floor of one on a positive blow)', () => {
+  it('a 1 hp shell at max range still lands 1 (floor of one on a positive blow)', () => {
+    // The deck gun's row re-folded at damage 1 (the retired PvE drone's gun
+    // was the production case; the floor is the rule under test, not the gun).
+    const saved = CONFIG.gun.damage;
+    (CONFIG.gun as { damage: number }).damage = 1;
     const w = bareWorld();
-    const d = ship(w, 'd', 0, 0, { role: 'fleet' });
+    let d: ShipRecord;
+    try {
+      d = ship(w, 'd', 0, 0);
+    } finally {
+      (CONFIG.gun as { damage: number }).damage = saved;
+    }
     const gun = d.stats.equipment.gun;
-    expect(gun.damage).toBe(CONFIG.drones.small.gun.damage);
+    expect(gun.damage).toBe(1);
     ship(w, 'b', gun.rangeU, BS_HALF + 10, { hull: 'yamato', heading: HALF_PI });
     const { log, shells } = fire(w, 'd', gun.rangeU);
     expect(burstAtten(shells[0])).toBeLessThan(1); // attenuated...
@@ -305,7 +312,7 @@ describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees
     }
   }
 
-  it('on a HULL: no hp lost, no drones.onDamaged, no `dmg`', () => {
+  it('on a HULL: no hp lost, no hitShip, no `dmg`', () => {
     withMinFactorZero(() => {
       const w = bareWorld();
       ship(w, 'o', -3000, 0);
@@ -313,11 +320,11 @@ describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees
       const inner = w as unknown as Inner;
       const shell = maxRangeMgShell(w, 0);
       expect(settleBlow(shell.contactDamage * attenAt(shell, { x: 0, y: 0 }))).toBe(0); // the premise
-      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      const hitShip = vi.spyOn(w as unknown as { hitShip: (...a: unknown[]) => void }, 'hitShip'); // the credit seat: never reached
       inner.resolveShell(shell, { kind: 'hitShip', victimId: 'b', x: 0, y: 0 }, inner.hitTargets(CONFIG.machineGun.hits));
       const log = [...(w as unknown as { pending: GameEvent[] }).pending];
       expect(b.hp).toBe(b.stats.maxHp);
-      expect(aggro).not.toHaveBeenCalled();
+      expect(hitShip).not.toHaveBeenCalled();
       expect(dmgTo(log, 'b')).toHaveLength(0);
       expect(log.some((e) => e.k === 'boom')).toBe(true); // the interception itself still resolved
     });

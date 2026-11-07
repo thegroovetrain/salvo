@@ -254,6 +254,16 @@ export function zoneTerminalRadius(cfg: ZoneTimeline = CONFIG.zone): number {
 }
 
 /**
+ * ms of ONE ring group (`ZONE_BEATS_PER_GROUP` beats) — the length of a ring
+ * cycle, which the radio beacons (Story 10.8, sim/beacons.ts) are timed on.
+ * 0 for a degenerate beat duration, like zoneClosedAtMs.
+ */
+export function zoneGroupMs(cfg: ZoneTimeline = CONFIG.zone): number {
+  const beatMs = beatMsOf(cfg);
+  return beatMs === null ? 0 : ZONE_BEATS_PER_GROUP * beatMs;
+}
+
+/**
  * ms from zone start to full closure (the end of the last group's close beat).
  * THE tick-budget helper (harness/tests). 0 for a degenerate beat duration —
  * a broken timeline is closed immediately, never open forever.

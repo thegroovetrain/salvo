@@ -43,6 +43,7 @@ import type {
   LauncherState,
   Vec2,
   ZonePhase,
+  BeaconPhase,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 import type { NavCache } from '../navCache.js';
@@ -232,11 +233,34 @@ export interface BotZonePhase {
   readonly closesInMs: number | null;
 }
 
+/** One RADIO BEACON as a bot reads it (Story 10.8): its position and where it
+ *  is in its life — exactly what a human's chart shows (the schema's public
+ *  beacon slots run through the shared `beaconStateAt`). No hp, no pot, no
+ *  hulls-in-range count: those never leave the server. */
+export interface BotBeacon {
+  readonly x: number;
+  readonly y: number;
+  readonly phase: BeaconPhase;
+  /** 0..1 — the payout rate's fraction of full (0 while charted / gone). */
+  readonly rate01: number;
+}
+
+/** A beacon a bot is farming (ai/beacons.ts): its centre and the standoff
+ *  point fixed when it was first picked. */
+export interface BotBeaconGoal {
+  readonly x: number;
+  readonly y: number;
+  /** rad — the bearing from the beacon to the bot when the standoff was
+   *  fixed: a swing of more than 90° off it re-fixes the standoff. */
+  readonly bearing: number;
+  readonly standoff: Vec2;
+}
+
 /**
  * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
  * its per-tick entries, and nothing else. World builds it with
- * game/botPort.ts `makeBotPort` (an object of delegating getters) beside
- * FleetController; the driver only ever stores it as this type.
+ * game/botPort.ts `makeBotPort` (an object of delegating getters); the
+ * driver only ever stores it as this type.
  *
  * WIDENING RULE. The cycle-110 line "the port may not widen past this one
  * boolean" (zoneEndgameReached) is SUPERSEDED by epic-9 amendment 190 (Eric
@@ -245,12 +269,26 @@ export interface BotZonePhase {
  * is sent or derives from what it is sent (the schema's `zoneNext*`, the
  * shared zone timeline over `zoneStartT`, and CONFIG.zone's ring ladder).
  * Every OTHER widening of this interface still needs its own Eric ruling.
+ * The RADIO BEACON chart (`beacons`, Story 10.8) has one: Eric 2026-11-06
+ * "bots sail to and farm beacons" (epic-10 amendment 6(g); spec R3, R9 —
+ * every beacon's cycle, position and early sink are public on the schema).
  *
  * Deliberately absent: ANY ship store (a bot's own record arrives in its
  * BotTickEntry; everything else reaches it only through the fogged view),
- * `shells`, `mines`, `litZones`, events, other observers.
+ * `shells`, `mines`, `litZones`, events, other observers, and any beacon
+ * fact a chart does not show (hp, pot, hulls in range).
  */
 export interface BotWorldPort {
+  /**
+   * THE PUBLIC BEACON CHART (Story 10.8 — the widening ruled above): every
+   * beacon of the current cycle as `BotBeacon` (position, phase, rate), built
+   * by game/botPort.ts from `World.beaconChart` — the very facts the schema
+   * mirrors to every client — through the shared `beaconStateAt`. Empty when
+   * there is no set. The returned array is REUSED between calls: read it,
+   * never keep it. OPTIONAL so a hand-built test port omits it (absent = no
+   * beacons, as `nav` absent = the per-map cache).
+   */
+  beacons?(): readonly BotBeacon[];
   /** ms since world creation — the one server clock. */
   readonly now: number;
   /** The generated map: islands (avoidance/LOS context) + radius (boundary). */
@@ -381,11 +419,8 @@ export interface RememberedContact {
   sunk: boolean;
   /** Hull class if the source disclosed one, else null (radar blips are
    *  identity-free by ruling). Drives the rear-quarter mine-layer exception
-   *  in wave-3 tactics and the participant-vs-fleet split below. */
+   *  in wave-3 tactics. */
   cls: HullId | null;
-  /** True when the disclosed class is a PvE fleet hull rather than a
-   *  participant. Unknown class = false (assume a captain: the safer read). */
-  fleet: boolean;
   /** Server ms this track was FIRST acquired — the reaction gate's input.
    *  Survives every refresh; a forgotten-then-reacquired track starts over,
    *  which is correct (you did lose the plot). */
@@ -574,6 +609,10 @@ export interface BotMind {
   coverPoint?: Vec2 | null;
   /** The routed idle-patrol waypoint (amendment 202). */
   patrolWaypoint?: Vec2 | null;
+  /** THE BEACON BEING FARMED (Story 10.8, ai/beacons.ts): the public beacon
+   *  this bot sails to and holds by, re-picked every deliberation; null =
+   *  none (patrol as usual). */
+  beaconGoal?: BotBeaconGoal | null;
   /** u — the closest the bot has come to `patrolWaypoint`, and the server ms
    *  it last gained a hull length on it: the no-progress re-pick after
    *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */

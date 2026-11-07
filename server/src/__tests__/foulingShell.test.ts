@@ -17,9 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_HORN_ID,
   familySlotFor,
-  droneHullOf,
   isAfloat,
   isSinking,
   type GameEvent,
@@ -213,14 +211,6 @@ describe('FOULING SHELL — who is stamped: the OUTLINE rule (amendment 62), own
     a.state.x = 400; // sails into it
     w.step();
     expect(a.fouledUntil).toBe(w.now + FS.lingerMs);
-  });
-
-  it('a PvE fleet drone inside is stamped (a drone is a ship)', () => {
-    const w = bareWorld();
-    injectZone(w, 'fz1', 'x', 400, 0);
-    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 420, y: 10 });
-    w.step();
-    expect(d.fouledUntil).toBe(w.now + FS.lingerMs);
   });
 
   it('a SINKING hull inside is not stamped, and its stale stamp is never refreshed', () => {

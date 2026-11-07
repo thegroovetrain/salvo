@@ -53,8 +53,6 @@ export interface BotReadoutAggregate {
   /** Per-match endgame clock and stall (MatchSample.lastTwoS / endgameNoContactMaxS). */
   lastTwoS: Summary;
   endgameNoContactMaxS: Summary;
-  droneGroundedTicks: number;
-  droneStormDeaths: number;
   byProfile: PostureGroup[];
 }
 
@@ -68,8 +66,6 @@ function sumRecords(base: Record<string, number>, recs: readonly Record<string, 
 }
 
 const sum = (rows: readonly BotSample[], f: (r: BotSample) => number): number => rows.reduce((a, r) => a + f(r), 0);
-const matchSum = (ms: readonly MatchSample[], f: (m: MatchSample) => number | undefined): number =>
-  ms.reduce((a, m) => a + (f(m) ?? 0), 0);
 
 export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReadoutAggregate {
   const rows = matches.flatMap((m) => m.bots ?? []);
@@ -101,8 +97,6 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
     endgameNoContactMaxS: summarize(
       matches.flatMap((m) => (m.endgameNoContactMaxS === undefined ? [] : [m.endgameNoContactMaxS])),
     ),
-    droneGroundedTicks: matchSum(matches, (m) => m.droneGroundedTicks),
-    droneStormDeaths: matchSum(matches, (m) => m.droneStormDeaths),
     byProfile: postureByProfile(rows),
   };
 }
@@ -159,7 +153,6 @@ export function renderReadoutLines(a: BotReadoutAggregate): string[] {
     `  activations (took effect): ${countLine(a.activations)}`,
     `  endgame (<= 2 hulls) s per match: ${fmtSummary(a.lastTwoS)}`,
     `  endgame longest no-hit gap s: ${fmtSummary(a.endgameNoContactMaxS)}`,
-    `  drones: grounded ${a.droneGroundedTicks} ticks | storm deaths ${a.droneStormDeaths}`,
   ];
 }
 

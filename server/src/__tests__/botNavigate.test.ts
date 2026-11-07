@@ -8,10 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_HORN_ID,
   buildNavGrid,
   cellOf,
-  droneHullOf,
   isWater,
   lineClear,
   mulberry32,
@@ -110,7 +108,7 @@ function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading: num
 function track(now: number, over: Partial<RememberedContact> = {}): RememberedContact {
   return {
     id: 'tgt', x: 0, y: 0, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
-    cls: 'bismarck' as HullId, fleet: false, firstSeenAt: now - CONFIG.bots.reactionMs * 4,
+    cls: 'bismarck' as HullId, firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0, vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     ...over,
   };
@@ -319,52 +317,6 @@ describe('hide at cover (orchestrator reading under amendment 199)', () => {
     const away = COMBAT_BRAIN.decide(rec, mind, port, false);
     expect(away.throttle).toBe(1);
     expect(away.rudder).toBeGreaterThan(0); // the cover lies to port
-  });
-});
-
-describe('the fleet routes over the public map (amendments 191, 192)', () => {
-  it('a fleet waypoint behind an island is reached by routing, with no grounding', () => {
-    const w = new World(9136, CONFIG.map.playerCap);
-    w.map.islands.length = 0;
-    const isle = circleIsland(0, 0, 350);
-    w.map.islands.push(isle);
-    const id = 'f';
-    const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: -900, y: 0 });
-    w.drones.add(id, 'medium', 1, { x: 0, y: 0 });
-    w.step(); // the controller picks its own first waypoint
-    // Hand the fleet a waypoint dead behind the island (the controller's own
-    // pick + route seams, reached by a typed cast — the test wants geometry).
-    type Seams = { fleets: Map<number, { waypoint: { x: number; y: number } | null; ashore: boolean; bestDist: number; progressAt: number; route: unknown }>; routeFleet(f: unknown, wp: unknown): void };
-    const ctl = w.drones as unknown as Seams;
-    const fleet = ctl.fleets.get(1)!;
-    const wp = { x: 900, y: 0 };
-    fleet.waypoint = wp;
-    fleet.ashore = false;
-    fleet.bestDist = Infinity;
-    fleet.progressAt = w.now;
-    ctl.routeFleet(fleet, wp);
-    const route = w.drones.routeOf(id);
-    expect(route).not.toBeNull();
-    expect(route!.length).toBeGreaterThan(0);
-    let land = 0;
-    let reached = false;
-    // Budget: twice the routed length at HALF the hull's rated speed (a fleet
-    // cruises below full ahead) — a detour, never a lap.
-    let len = 0;
-    let prev = { x: rec.state.x, y: rec.state.y };
-    for (const p of route!) {
-      len += dist(prev, p);
-      prev = p;
-    }
-    const budget = Math.ceil(((2 * len) / (0.5 * rec.stats.kinematics.maxSpeed)) * 1000 / DT);
-    for (let t = 0; t < budget && !reached; t += 1) {
-      if (dist(rec.state, wp) < 121) reached = true;
-      w.step();
-      if (rec.landContact) land += 1;
-    }
-    expect(reached).toBe(true);
-    expect(land).toBe(0);
-    expect(pointPolygonDistance(rec.state, isle.poly)).toBeGreaterThan(0);
   });
 });
 

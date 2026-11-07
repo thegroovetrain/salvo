@@ -63,11 +63,11 @@ function bareWorld(seed = 3): World {
   return w;
 }
 
-function place(w: World, id: string, x = 0, hull: HullId = 'bismarck', fleet = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull, undefined, undefined);
+function place(w: World, id: string, x = 0, hull: HullId = 'bismarck'): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // A captain on the NEUTRAL index (deckGunFixture): `hit()` lands EXACTLY
   // `damage`, so no ARMOR / POWER fold may stand between the two.
-  if (!fleet) neutralize(rec);
+  neutralize(rec);
   rec.state.x = x;
   rec.state.y = 0;
   rec.state.speed = 0;
@@ -214,21 +214,6 @@ describe('assist split: the payout', () => {
     });
   });
 
-  it('splits a DRONE victim\'s pot too — a size tier divides like a captain\'s', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0);
-    const c = place(w, 'c', 600);
-    const d = place(w, 'd', 300, 'droneMedium', true);
-    d.hp = 200;
-    hit(w, 'c', d, 100, 'assist');
-    hit(w, 'a', d, 100, 'kill');
-    // The pot is the drone's own tier value (½ a level), split on the same
-    // rules. Every measured arm behaved this way (Eric answer A5).
-    const pot = XP.droneTierLevels.droneMedium;
-    expect(levels(a)).toBeCloseTo(killerCut(0.5, pot), 6);
-    expect(levels(c)).toBeCloseTo(assistCut(0.5, pot), 6);
-    expect(levels(a) + levels(c)).toBeCloseTo(pot, 6);
-  });
 });
 
 describe('assist split: the rolling COUNTER (one dial, three jobs)', () => {
@@ -401,43 +386,6 @@ describe('assist split: the edges', () => {
       w.sinkShip('b');
       expect(levels(c)).toBe(0); // the pot evaporates: nobody was in a fight
     });
-  });
-
-  it('excludes a FLEET damager rather than evaporating its share', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0);
-    const b = place(w, 'b', 300);
-    const d = place(w, 'd', 600, 'droneSmall', true);
-    b.hp = 200;
-    hit(w, 'd', b, 100, 'drone');
-    hit(w, 'a', b, 100, 'kill');
-    // The drone's 100 damage is never ledgered at all, so a — the only eligible
-    // contributor — takes the whole pot. Counting it would have silently
-    // vanished 45 % of this kill's value.
-    expect(b.damageFrom.has('d')).toBe(false);
-    expect(levels(a)).toBeCloseTo(XP.killLevels, 6);
-    expect(levels(d)).toBe(0);
-  });
-
-  it('a FLEET killer burns the guaranteed share', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0);
-    const c = place(w, 'c', 600);
-    const f = place(w, 'f', 900, 'droneSmall', true);
-    const b = place(w, 'b', 300);
-    b.hp = 300;
-    hit(w, 'a', b, 100, 'a-soft'); // a and c soften b up...
-    hit(w, 'c', b, 100, 'c-soft');
-    hit(w, 'f', b, 100, 'f-kill'); // ...but the fleet hull lands the kill
-    // addXpMs fail-closes on fleet hulls, so the guaranteed killerShare tenth
-    // simply evaporates here rather than landing on anyone — the humans only
-    // ever split the 0.9 remainder, proportionally to their own damage.
-    expect(levels(f)).toBe(0);
-    expect(levels(a)).toBeCloseTo(0.5 * (1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
-    expect(levels(c)).toBeCloseTo(0.5 * (1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
-    // No one receives the killer share: the humans' total is exactly the
-    // remainder, never the full pot.
-    expect(levels(a) + levels(c)).toBeCloseTo((1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
   });
 
   it("a dead attacker's claim still pays", () => {

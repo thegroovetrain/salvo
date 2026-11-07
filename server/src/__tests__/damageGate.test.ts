@@ -37,7 +37,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CONFIG, DEFAULT_HORN_ID, damageMultiplierFor, droneHullOf, hullEnvelope, type DamageEvent, type GameEvent } from '@salvo/shared';
+import { CONFIG, damageMultiplierFor, type DamageEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 import { neutralize } from './deckGunFixture.js';
@@ -543,19 +543,6 @@ describe('applyDamage — (b′) POWER (was ARMOR PIERCING), the attacker read l
     expect(v.stats.maxHp - v.hp).toBe(3);
   });
 
-  it('DRONES hold no cards but carry their envelope indices (amendment 147; Story 10.3): a 1 hp drone shell on an ARMOR-capped hull still lands 1 (floor of one, amendment 119); a POWER-capped captain hits a drone ×1.5', () => {
-    const w = bareWorld();
-    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 800 });
-    expect(d.stats.power).toBe(hullEnvelope(droneHullOf('medium')).index.power);
-    expect(d.stats.armor).toBe(hullEnvelope(droneHullOf('medium')).index.armor);
-    const a = carded(w, place(w, 'a'), 'armor', 5);
-    gate(w).applyDamage(a, 1, 'shell', 'd');
-    expect(a.stats.maxHp - a.hp).toBe(1);
-    carded(w, place(w, 'b', 400, 0), 'power', 5);
-    gate(w).applyDamage(d, 12, 'shell', 'b');
-    expect(d.stats.maxHp - d.hp).toBe(18);
-  });
-
   it('LIVE at impact (amendment 156): a card bought between two blows from the same attacker changes the second', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -708,13 +695,20 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
     }
   });
 
-  it('`mine.hp -=` is the ONE non-hull decrement (amendment 200; the decoy\'s left with Story 10.5)', () => {
+  it('the TWO non-hull decrements are `mine.hp -=` (amendment 200) and `beacon.hp -=` (Story 10.8), each inside its own door', () => {
+    // One hull door, one mine door, one RADIO BEACON door (World.damageBeacon,
+    // Story 10.8 — a beacon is not a ship: no `dmg`, no feed line, it never
+    // enters applyDamage). The decoy's decrement left with Story 10.5.
     const code = WORLD_SRC.split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//'));
     expect(code.filter((l) => /\.hp\s*-=/.test(l)).map((l) => l.trim())).toEqual([
       'victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME',
+      'beacon.hp -= dealt; // THE ONE BEACON-HP DECREMENT IN THE GAME',
       'mine.hp -= amount;',
     ]);
     expect(methodBody('damageMine')).toContain('mine.hp -= amount;');
+    const door = WORLD_SRC.indexOf('  damageBeacon(id: string');
+    expect(door).toBeGreaterThan(-1);
+    expect(WORLD_SRC.slice(door, WORLD_SRC.indexOf('\n  }\n', door))).toContain('beacon.hp -= dealt;');
   });
 });
 

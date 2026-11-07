@@ -23,7 +23,6 @@ import {
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import type { BotPosture } from '../../src/game/ai/types.js';
-import { isFleetHull } from '../../src/game/participants.js';
 
 /** Every posture, zero-filled. A Record literal, so a posture added to the
  *  union without a row here is a COMPILE error (the tally must stay exhaustive
@@ -154,16 +153,12 @@ export function emptyBotReadouts(): BotReadouts {
 
 /** Match-level 9.13 readouts, spread flat into MatchSample (bot lobbies only). */
 export interface MatchReadouts {
-  /** sim-seconds with ≤ 2 afloat non-fleet hulls (the endgame). */
+  /** sim-seconds with ≤ 2 afloat hulls (the endgame). */
   lastTwoS: number;
   /** Longest run inside that phase, sim-seconds, with no non-storm `dmg` event
    *  on either survivor (a dmg whose victim's lastDamageSrc reads 'storm' that
    *  tick does not break the run) — the "endgame stall". */
   endgameNoContactMaxS: number;
-  /** Afloat PvE fleet-hull ticks with `ship.landContact` set. */
-  droneGroundedTicks: number;
-  /** Fleet hulls sunk with no killer and `lastDamageSrc === 'storm'`. */
-  droneStormDeaths: number;
 }
 
 /** Mutable per-bot state behind a BotReadouts row. */
@@ -183,8 +178,8 @@ const bump = (rec: Record<string, number>, key: string, by = 1): void => {
   rec[key] = (rec[key] ?? 0) + by;
 };
 
-/** True for a SLOT-0 GUN shell — the captain's MAIN BATTERY (Story 10.4), the
- *  drones' cannon, and any `mg` / `flak` round (the secondaries fly `mg`):
+/** True for a SLOT-0 GUN shell — the captain's MAIN BATTERY (Story 10.4) and
+ *  any `mg` / `flak` round (the secondaries fly `mg`):
  *  keyed on the family AND the row's own fields, because the broadside, the
  *  star / phosphor / fouling shells all fly `family: 'cannon'` and also lack
  *  `attenRangeU`. The tagged three carry `lit` / `burn` / `foul`. The cannon
@@ -214,7 +209,7 @@ export class BotReadoutCollector {
     burn: new Set(),
     foul: new Set(),
   };
-  private readonly match: MatchReadouts = { lastTwoS: 0, endgameNoContactMaxS: 0, droneGroundedTicks: 0, droneStormDeaths: 0 };
+  private readonly match: MatchReadouts = { lastTwoS: 0, endgameNoContactMaxS: 0 };
   private lastTwoTicks = 0;
   private gapTicks = 0;
   private maxGapTicks = 0;
@@ -378,23 +373,15 @@ export class BotReadoutCollector {
       if (e.k === 'heal') {
         const t = this.tracks.get(e.id);
         if (t !== undefined) bump(t.out.activations, 'heal');
-      } else if (e.k === 'sunk' && e.by === undefined) {
-        const v = world.ships.get(e.id);
-        if (v !== undefined && isFleetHull(v) && v.lastDamageSrc === 'storm') this.match.droneStormDeaths += 1;
       }
     }
   }
 
-  /** Endgame clock + drone grounding (one pass over every hull). */
+  /** The endgame clock (one pass over every hull). */
   private noteMatch(world: World): void {
     const survivors: ShipRecord[] = [];
     for (const ship of world.ships.values()) {
-      if (!isAfloat(ship.lifecycle)) continue;
-      if (isFleetHull(ship)) {
-        if (ship.landContact) this.match.droneGroundedTicks += 1;
-      } else {
-        survivors.push(ship);
-      }
+      if (isAfloat(ship.lifecycle)) survivors.push(ship);
     }
     if (survivors.length > 2) return;
     this.lastTwoTicks += 1;

@@ -1,13 +1,11 @@
 // Procedural ship hull view, now driven by the SHARED silhouette polygon
 // (sim/silhouette.ts — the silhouette IS the hitbox). One code path keyed by
-// hull id: the three pickable classes render their ratified board silhouettes;
-// drone hull ids render the legacy chevron (exactly what hullSilhouette returns
-// for a drone id) plus their TIER's rank ticks (Story 7.6 — see RANK_TICKS).
+// hull id: every pickable class renders its battleship art.
 //
 // Story 10.4 (Eric's ruling R6): the personal hue wheel is gone. Every captain
 // hull — own AND contact — draws in its RELATION color (render/relationColor.ts:
 // own cyan, everyone else red) as one stroke over that color's dark interior.
-// Drones wear the drone greys. The style is per-view and swappable (setColors).
+// The style is per-view and swappable (setColors).
 //
 // THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*): a captain hull
 // is three layers in the view's container — the DECK Graphics (skin fill,
@@ -20,7 +18,7 @@
 // once per (hull, line color) and borrowed by every view — per frame only
 // rotations and the container's pose / tint / alpha / scale are written.
 // Children inherit the hull's pose, settle, sight fade and hit-flash tint for
-// free. Drones have no battery, draw none, and keep today's drone look.
+// free.
 //
 // THE DECK TORPEDO LAUNCHERS (Story 10.6 — render/launcherViews.ts) sit
 // on the deck UNDER the turrets (Eric 2026-11-05: "It needs to render under
@@ -34,24 +32,19 @@
 // the collision/hit-test hull. The view is added to a camera-transformed layer,
 // so world heading == sprite rotation (no y-flip — see camera.ts).
 
-import { Container, Graphics, type GraphicsContext } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import {
   DEFAULT_CLASS_ID,
-  DRONE_HULL_IDS,
-  DRONE_SIZE_IDS,
-  droneSizeOf,
-  hullSilhouette,
   turretMounts,
   turretRest,
   turretStation,
   type HullId,
   type ShipClassId,
-  type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
-import { relationStyle, type Relation, type ShipStyle } from './relationColor.js';
+import type { ShipStyle } from './relationColor.js';
 import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
 import { turretDrawOrder } from './hullArt/shapes.js';
 import { LauncherMounts } from './launcherViews.js';
@@ -63,49 +56,6 @@ const FB = CLIENT_CONFIG.flashBudget;
 
 /** Roster-miss / pre-roster fallback: amber hollow outline. */
 export const FALLBACK_STYLE: ShipStyle = { stroke: C.amber, fill: null };
-/** Drone hull style (roster sentinel 255): grey outline + solid grey interior. */
-export const DRONE_STYLE: ShipStyle = { stroke: C.droneOutline, fill: C.droneFill };
-
-/** Style for a contact, given its hull id and its relation to the viewer. A
- *  drone hull id wins (greys); every captain hull wears its relation color. */
-export function contactStyle(hullId: HullId, relation: Relation): ShipStyle {
-  return isDroneHull(hullId) ? DRONE_STYLE : relationStyle(relation);
-}
-
-/**
- * True for the three drone hull ids (which never carry a personal hue).
- *
- * WHY THIS IS HULL-ID-BASED, AND NOT A FLAG (Story 6.3, epic-6 amendment 13).
- * The server's answer is a field — `ShipRecord.isDrone` / the ship-role seam —
- * and that field is NOT on the wire: there are zero occurrences of it in
- * `shared/`, by design (an explicit "this one is a bot" bit would be a
- * perception widening the frame chokepoint has never granted). What the client
- * holds is `Contact.cls`, a `HullId`, so the hull id IS the client's only
- * evidence and this predicate is the client's SECOND, independent
- * non-combatant test. `deferred-work.md` has carried the warning since Story
- * 5.6: two predicates exist by necessity and must be kept in step.
- *
- * THE INVARIANT THAT KEEPS THEM ALIGNED: a hull id is a drone hull id **iff**
- * it is in shared's `DRONE_HULL_IDS`. PvE fleet hulls spawn on those three ids
- * and nothing else does — a captain, human or AI, carries a real class hull id
- * (`yamato` / `bismarck` / `warspite` / `iowa`), which is precisely why Story
- * 6.4's bot captains do not move this function: a bot is a participant that is
- * not a fleet hull, and it will render in its relation color like any captain.
- *
- * This predicate answers "is this a PvE FLEET HULL" — presentation and economy
- * (greyscale style, nameplate, kill-feed suppression). It is NOT the
- * participant test; the client never runs one, because the match outcome is
- * decided server-side and arrives as `ResultsMsg`.
- *
- * `ships.test.ts` PINS the set against `DRONE_HULL_IDS` / `HULL_IDS` so a hull
- * id added server-side fails a test rather than silently mis-classifying a ship
- * (a new drone hull would render in a relation color and count as a contestant;
- * a new class listed as a drone would turn grey).
- */
-export function isDroneHull(hullId: HullId): boolean {
-  return hullId === 'droneSmall' || hullId === 'droneMedium' || hullId === 'droneLarge';
-}
-
 /** Pure: per-channel linear blend of two packed 0xRRGGBB colors (t=0 → a, 1 → b). */
 function mixColor(a: number, b: number, t: number): number {
   const ch = (shift: number): number =>
@@ -218,152 +168,23 @@ export function hullFlashIntensity(amount: number, degraded: boolean): number {
   return degraded ? amount * FB.degradeAlphaFactor : amount;
 }
 
-// --- DRONE RANK TICKS (Story 7.6, Eric ruling 2026-08-21) ----------------------
-//
-// *"We actually do need better distinction, size isn't enough."* … *"just use
-// the rank ticks on the silhouette, which is way better."*
-//
-// 1 / 2 / 3 transverse bars across a fleet hull's afterdeck for small / medium /
-// large. THE TICK COUNT IS THE TIER, and it is the only channel that could be:
-// drones are locked greyscale (DESIGN.md:157), so colour was never available,
-// and Eric has ruled the 85 → 100 → 115u length ladder insufficient on its own.
-// The tier matters because the tier IS the payout — 1/4, 1/2, 3/4 of a level
-// (`CONFIG.xp.droneTierLevels`).
-//
-// SCOPE: the RENDERED HULL ONLY. Radar returns cannot carry this. Since cycle
-// 105's ONE-RADAR ruling every blip is an identity-free coverage footprint
-// rasterised onto the phosphor lattice (render/radar.ts: *"the retired
-// `silhouette` grammar went with cycle 105's ONE-RADAR ruling"*) — there is no
-// outline out there to tick, and adding one would be a perception widening
-// besides. A drone's tier is legible exactly where its hull is: inside truesight.
-//
-// GEOMETRY IS DERIVED FROM THE SILHOUETTE, NEVER FROM CONFIG.drones DIMS. The
-// polygon is what actually gets drawn, so measuring the marks against its own
-// bounding box is what keeps them on the deck if a hull is ever reshaped. Every
-// fraction lives in `CLIENT_CONFIG.droneRank`.
-
-/**
- * One rank tick in the hull's LOCAL frame (bow at +x, origin-centred, world
- * units): a transverse segment on the keel at `x`, spanning ±`halfLenU` in y.
- */
-export interface RankTick {
-  readonly x: number;
-  readonly halfLenU: number;
-}
-
-const NO_TICKS: readonly RankTick[] = [];
-
-/** Bounding-box extent of a local-frame silhouette: bow-to-stern span (length)
- *  and port-to-starboard span (beam). */
-function hullExtent(poly: readonly Vec2[]): { lengthU: number; beamU: number } {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let maxAbsY = 0;
-  for (const p of poly) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (Math.abs(p.y) > maxAbsY) maxAbsY = Math.abs(p.y);
-  }
-  return { lengthU: maxX - minX, beamU: maxAbsY * 2 };
-}
-
-/**
- * Pure: the `count` ticks for a hull, centred as a group `aftOffsetLengthFrac`
- * of the hull's length abaft amidships and spaced along the keel. Index 0 is
- * the FORWARD-most tick; a single tick sits exactly on the group centre.
- */
-function buildRankTicks(hullId: HullId, count: number): readonly RankTick[] {
-  const cfg = CLIENT_CONFIG.droneRank;
-  const { lengthU, beamU } = hullExtent(hullSilhouette(hullId));
-  const spacing = lengthU * cfg.spacingLengthFrac;
-  const centerX = -lengthU * cfg.aftOffsetLengthFrac;
-  const halfLenU = (beamU * cfg.tickBeamFrac) / 2;
-  const out: RankTick[] = [];
-  for (let i = 0; i < count; i++) out.push({ x: centerX + (i - (count - 1) / 2) * spacing, halfLenU });
-  return out;
-}
-
-/**
- * The rank ticks per drone hull id, built ONCE at module load — `draw()` runs on
- * every hull construction and on every recolor, and this is fixed geometry.
- *
- * THE COUNT IS THE SHARED SIZE LADDER'S OWN ORDER (`DRONE_SIZE_IDS`), not a
- * second table: a fourth fleet tier added server-side gets its rank for free and
- * in the right place, the same reason `fleetSizeName` derives from `droneSizeOf`
- * instead of listing the three sizes again.
- */
-const RANK_TICKS: Readonly<Record<string, readonly RankTick[]>> = Object.fromEntries(
-  DRONE_HULL_IDS.map((id) => [id, buildRankTicks(id, DRONE_SIZE_IDS.indexOf(droneSizeOf(id) ?? 'small') + 1)]),
-);
-
-/** The rank ticks a hull wears: 1 / 2 / 3 for the small / medium / large fleet
- *  hulls, and NONE for every captain hull (a captain's class is already carried
- *  by a distinct silhouette). */
-export function droneRankTicks(hullId: HullId): readonly RankTick[] {
-  return RANK_TICKS[hullId] ?? NO_TICKS;
-}
-
-/** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
-function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
-  g.moveTo(poly[0].x, poly[0].y);
-  for (let i = 1; i < poly.length; i++) g.lineTo(poly[i].x, poly[i].y);
-  g.closePath();
-}
-
-/**
- * THE DRONE HULL (and the art seam's fallback): draw `hullId` in `style` onto
- * `g` (cleared first) — the shared silhouette as a solid interior under ONE
- * stroke (a null fill leaves a hollow outline), plus a fleet hull's rank
- * ticks. Drones keep exactly this look (Story 10.4 wave 2c); a captain hull
- * draws through the battleship art instead (`ShipView`, render/hullArt/*).
- */
-export function drawHull(g: Graphics, hullId: HullId, style: ShipStyle): void {
-  g.clear();
-  tracePolygon(g, hullSilhouette(hullId));
-  if (style.fill !== null) g.fill({ color: style.fill, alpha: 1 });
-  g.stroke({ width: CLIENT_CONFIG.ship.hullStrokeU, color: style.stroke, alpha: 1 });
-  drawRankTicks(g, hullId, style.stroke);
-}
-
-/**
- * The tier mark on a PvE fleet hull (Story 7.6) — a no-op for every captain
- * hull. Drawn AFTER the silhouette so the bars sit over the interior fill,
- * and in the hull's OWN stroke colour so the greyscale rule needs no
- * exception: for a drone that colour is `DRONE_STYLE.stroke`, and a hull
- * recoloured through `setColors` carries its ticks with it.
- */
-function drawRankTicks(g: Graphics, hullId: HullId, stroke: number): void {
-  const ticks = droneRankTicks(hullId);
-  if (ticks.length === 0) return;
-  for (const t of ticks) {
-    g.moveTo(t.x, -t.halfLenU);
-    g.lineTo(t.x, t.halfLenU);
-  }
-  g.stroke({ width: CLIENT_CONFIG.droneRank.widthU, color: stroke, alpha: 1 });
-}
-
-/** A captain hull id (one with the battleship art), or null for a drone. */
-function captainOf(hullId: HullId): ShipClassId | null {
-  return isDroneHull(hullId) ? null : (hullId as ShipClassId);
+/** The battleship-art class of a hull id — every hull id is a captain class. */
+function artClass(hullId: HullId): ShipClassId {
+  return hullId as ShipClassId;
 }
 
 export class ShipView {
   /** The view's root — position, heading, settle, fade and flash tint live
    *  here and reach the hull and every turret child. */
   readonly gfx: Container;
-  /** The hull's DECK Graphics — for a captain the battleship art's deck layer
-   *  (skin fill, features, barbette rings); for a drone the whole drone hull
-   *  (`drawHull`). Under the turrets. */
+  /** The hull's DECK Graphics — the battleship art's deck layer (skin fill,
+   *  features, barbette rings). Under the turrets. */
   readonly hull: Graphics;
   /** The captain hull's ONE bold relation line (amendment 7(o)), drawn over
-   *  the turrets so nothing covers it (the sitting page's order). Empty on a
-   *  drone, whose stroke is part of `hull`. */
+   *  the turrets so nothing covers it (the sitting page's order). The view
+   *  borrows the shared, cached art contexts (render/hullArt/pixiArt). */
   readonly outline: Graphics;
-  /** The two contexts this view owns (used for a drone hull); a captain view
-   *  borrows the shared, cached art contexts instead (render/hullArt/pixiArt). */
-  private readonly ownHull: GraphicsContext;
-  private readonly ownOutline: GraphicsContext;
-  /** One Graphics per battery mount, bow to stern (empty for a drone). */
+  /** One Graphics per battery mount, bow to stern. */
   private turrets: Graphics[] = [];
   /** The deck torpedo launchers (Story 10.6), seated on the deck, UNDER the turrets. */
   private readonly launchers: LauncherMounts;
@@ -388,8 +209,6 @@ export class ShipView {
     this.gfx = new Container();
     this.hull = new Graphics();
     this.outline = new Graphics();
-    this.ownHull = this.hull.context;
-    this.ownOutline = this.outline.context;
     this.gfx.addChild(this.hull, this.outline);
     this.launchers = new LauncherMounts(this.gfx, this.hull);
     this.style = style;
@@ -409,9 +228,9 @@ export class ShipView {
     this.buildTurrets();
   }
 
-  /** Swap the hull colors: stroke = the linework (a captain's every line —
-   *  the relation color), fill = a drone's interior (null = hollow). A
-   *  captain's fills are its skin, so only the stroke moves its art. Swaps
+  /** Swap the hull colors: stroke = the linework (every line — the relation
+   *  color), fill = the style's interior. The hull's fills are its skin, so
+   *  only the stroke moves its art. Swaps
    *  contexts in place; nothing is redrawn unless the style changed. */
   setColors(stroke: number, fill: number | null): void {
     if (stroke === this.style.stroke && fill === this.style.fill) return;
@@ -454,7 +273,7 @@ export class ShipView {
   setLaunchers(angles: readonly number[], tubes: number | null): void {
     this.launcherAngles = angles;
     this.launcherTubes = tubes;
-    this.launchers.set(captainOf(this.hullId), angles, tubes, this.style.stroke);
+    this.launchers.set(artClass(this.hullId), angles, tubes, this.style.stroke);
   }
 
   /** How many launcher children this view carries (tests/debug). */
@@ -467,24 +286,16 @@ export class ShipView {
     return this.launchers.view(i);
   }
 
-  /** Point the deck and outline Graphics at this hull's art: the shared cached
-   *  contexts for a captain, the view's own (drawn here) for a drone. */
+  /** Point the deck and outline Graphics at this hull's shared cached art. */
   private draw(): void {
-    const cls = captainOf(this.hullId);
-    if (cls === null) {
-      this.hull.context = this.ownHull;
-      this.outline.context = this.ownOutline;
-      drawHull(this.hull, this.hullId, this.style);
-      return;
-    }
+    const cls = artClass(this.hullId);
     this.hull.context = deckContext(cls, this.style.stroke);
     this.outline.context = outlineContext(cls, this.style.stroke);
   }
 
   /** Re-point every turret at the shared context for the current stroke. */
   private skinTurrets(): void {
-    const cls = captainOf(this.hullId);
-    if (cls === null) return;
+    const cls = artClass(this.hullId);
     for (let i = 0; i < this.turrets.length; i++) this.turrets[i].context = turretContext(cls, i, this.style.stroke);
   }
 
@@ -496,8 +307,7 @@ export class ShipView {
   private buildTurrets(): void {
     for (const t of this.turrets) t.destroy();
     this.turrets = [];
-    const cls = captainOf(this.hullId);
-    if (cls === null) return;
+    const cls = artClass(this.hullId);
     const mounts = turretMounts(cls);
     for (let i = 0; i < mounts.length; i++) {
       const g = new Graphics(turretContext(cls, i, this.style.stroke));

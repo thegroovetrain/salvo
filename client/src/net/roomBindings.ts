@@ -29,7 +29,6 @@ import {
   type GameEvent,
   type HealEvent,
   type HitCallEvent,
-  type HullId,
   type IndexBonus,
   type MuzzleEvent,
   type OwnShip,
@@ -64,7 +63,7 @@ import type { FoulZones } from '../render/foulZones.js';
 import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
-import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
+import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
@@ -275,7 +274,7 @@ export interface RoomBindingDeps {
   names: (id: string) => string | null;
   /**
    * Kill-feed name color: a vessel id → the color for its feed span (the
-   * captain's RELATION stroke — Story 10.4 — drone-outline for a drone), or null
+   * captain's RELATION stroke — Story 10.4), or null
    * for a roster miss (the name inherits text-secondary). The feed text-safes it.
    */
   colors: (id: string) => number | null;
@@ -308,7 +307,7 @@ export interface RoomBindingDeps {
    * elimination results modal. Fired for our own sinking too, so the accumulator
    * and the modal share one edge.
    */
-  onSunkObserved: (victimId: string, killerId: string | null, killerCls: HullId | undefined) => void;
+  onSunkObserved: (victimId: string, killerId: string | null) => void;
   /**
    * The self-private `bn` (boon fitted) event for the local captain arrived —
    * the server's RECEIPT for a spend (Story 2.7). main.ts marks the spend latch
@@ -1828,87 +1827,11 @@ function inOwnBlast(x: number, y: number, radius: number | undefined, deps: Room
   return dx * dx + dy * dy <= r * r;
 }
 
-/**
- * THE KILLER'S NAME, in its three-step order — the two-step `feedNameRef` this
- * replaces had no other caller, so it FOLDED IN HERE rather than surviving as a
- * one-use wrapper (Story 7.6, Eric ruling 2026-08-21: *"if someone gets sunk
- * by a drone, you can tell me what drone sunk them... let me laugh and foghorn
- * salute the dumbass who died to a drone"*). The MIRROR of `victimNameRef`, with the first two steps SWAPPED and
- * deliberately so:
- *
- *   1. `deps.names` — the roster callsign, or the SIZED fleet name off the
- *      ever-seen hull memo. FIRST, unlike the victim's order, because unlike
- *      `vcls` the new field is observer-INDEPENDENT and therefore never the
- *      more specific answer: the memo already resolves every hull this client
- *      has actually seen, and preferring it keeps the shipped path byte-for-byte
- *      unchanged for every case that already worked.
- *   2. `e.kcls` — the SIZED fleet name off the wire, for a fleet killer this
- *      client never once had in its bubble. That is the case the memo
- *      structurally cannot reach and the whole reason the field exists: a
- *      captain's sinking is PUBLIC, so this line renders on every client in the
- *      room, most of whom were nowhere near it.
- *   3. `UNKNOWN_VESSEL` — a hull that is neither named nor carried on the event
- *      (a fleet killer whose record was already gone when the frame was built).
- *
- * A CAPTAIN KILLER CANNOT REACH STEP 2. The server stamps `kcls` only for a
- * fleet hull, and `fleetSizeName` returns null for anything that is not a drone
- * hull anyway — two independent reasons, so this can never rename a player.
- */
-function killerNameRef(e: SunkEvent, deps: RoomBindingDeps): { name: string; id: string } {
-  const by = e.by as string;
-  return { name: deps.names(by) ?? fleetSizeName(e.kcls) ?? UNKNOWN_VESSEL, id: by };
-}
-
-/**
- * THE VICTIM'S NAME, in its full four-step resolution order (Eric rulings
- * 2026-08-14, the second same-day: *"if you actually die to a drone, I DO want
- * to see that... SUNK BY SMALL DRONE is both funnier and strictly more
- * informative"*). This is the ONE place that holds both the event and the
- * client's own knowledge, so it is the only place the order can live:
- *
- *   1. `e.vcls` — the SIZED fleet name (`SMALL DRONE`). Present only on the
- *      credited killer's copy of the row, which is exactly the case the client
- *      could never answer for itself: you can mine a hull you never saw. It
- *      OUTRANKS everything because *the size is the payout* and the moment of
- *      the kill is when the player wants it. A captain victim carries a `vcls`
- *      that is not a fleet hull, so `fleetSizeName` returns null and the roster
- *      callsign still wins — this cannot rename a human.
- *   2. the HULL MEMO — ALSO SIZED (`SMALL DRONE`, via the same `fleetSizeName`,
- *      now folded into `deps.names` itself / main.ts `feedName`), for a fleet
- *      sinking we WITNESSED but were not credited with (no `vcls`), on a hull
- *      that may already have aged out of the contact set. One resolver, so the
- *      kill feed and the MATCH LOG's `killerName` (which calls the same
- *      `feedName`) can never disagree about the same event's size.
- *   3. the roster CALLSIGN — every captain, also inside `deps.names`.
- *   4. `UNKNOWN_VESSEL` — now genuinely unreachable for our OWN kills, and still
- *      correct for a hull that is neither ours nor ever seen. Never a raw
- *      session id: a global feed would print transport plumbing to every client.
- */
-function victimNameRef(e: SunkEvent, deps: RoomBindingDeps): { name: string; id: string } {
-  return { name: fleetSizeName(e.vcls) ?? deps.names(e.id) ?? UNKNOWN_VESSEL, id: e.id };
-}
-
-/** The line's colour resolver. A hull named from the WIRE (`vcls` the victim,
- *  `kcls` the killer) is by definition one the roster and contact set both miss,
- *  so the ordinary id lookup would resolve null and render the drone in plain
- *  body text while the other name on the very same line wears the drone grey;
- *  pin each one that applies. Every other id still goes through the shipped
- *  resolver untouched, and a row carrying neither field is byte-identical to
- *  before. `pinDroneColor` composes: each wrapper defers to the one beneath it.
- *
- *  THE KILLER PIN IS GATED ON THE NAME ACTUALLY COMING FROM THE WIRE, not on
- *  `kcls` merely being present — the memo outranks it (killerNameRef step 1),
- *  and in that case `deps.colors` already resolves the drone grey on its own. */
-function sunkColors(e: SunkEvent, deps: RoomBindingDeps): (id: string) => number | null {
-  let colors = deps.colors;
-  if (fleetSizeName(e.vcls) !== null) colors = pinDroneColor(e.id, colors);
-  // `fleetSizeName(e.kcls)` FIRST: the field is absent on almost every row, so
-  // the cheap wire test short-circuits before the roster/memo lookup runs at all
-  // — a row without it never touches `deps.names` here, exactly as before.
-  if (e.by && fleetSizeName(e.kcls) !== null && deps.names(e.by) === null) {
-    colors = pinDroneColor(e.by, colors);
-  }
-  return colors;
+/** A vessel's feed name: the roster callsign (or the ever-seen memo inside
+ *  `deps.names`), else the neutral `UNKNOWN_VESSEL` — never a raw session id: a
+ *  global feed would print transport plumbing to every client. */
+function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: string } {
+  return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
 }
 
 /**
@@ -1974,13 +1897,9 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
   openWreckWindow(e, pos, t, deps, s);
   // feedNameRef: a roster miss renders the neutral UNKNOWN_VESSEL label,
   // never the raw session id — a global feed puts this line in front of
-  // EVERY client. The VICTIM runs the wider four-step order (victimNameRef),
-  // because only the victim can be a fleet hull the wire has just named for us.
-  // The KILLER runs killerNameRef since Story 7.6: `SunkEvent.kcls` names a
-  // fleet killer this client never saw, which is the one case `deps.names`
-  // (roster callsign / ever-seen hull memo) structurally cannot answer.
-  const killer = e.by ? killerNameRef(e, deps) : null;
-  const victim = victimNameRef(e, deps);
+  // EVERY client.
+  const killer = e.by ? feedNameRef(e.by, deps) : null;
+  const victim = feedNameRef(e.id, deps);
   // THE KILL LEADER'S MARK (Story 4.6, 2026-08-10 rework): `bty` is the
   // server's PRE-SINK truth — which participant held the throne at the
   // instant of sinking ('v' victim, 'k' killer). It is taken verbatim and
@@ -1991,14 +1910,11 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
   // CLAIMED/LIFTED trailing connectives carried a paid/unpaid distinction the
   // grammar no longer has.
   const line = e.bty ? bountyKillLine(victim, killer, e.bty) : killLine(victim, killer);
-  pushKillLine(line, sunkColors(e, deps));
+  pushKillLine(line, deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the
   // SAME observed sinking the kill feed does — no new wire data.
-  // `e.kcls` rides along (Story 7.6) so the MATCH LOG's `SUNK BY` line can name
-  // a never-seen fleet killer exactly as the feed line above just did — the two
-  // surfaces must agree about the same event (the Story 5.6 review-gate rule).
-  deps.onSunkObserved(e.id, e.by ?? null, e.kcls);
+  deps.onSunkObserved(e.id, e.by ?? null);
   if (e.id === sessionId) {
     // ONLY WHEN THE SERVER ACTUALLY ARMED ONE (Story 5.2 review fix). This used
     // to be unconditional, on the reasoning that "in active this ETA is never

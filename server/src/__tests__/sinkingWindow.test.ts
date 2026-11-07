@@ -488,7 +488,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
 
 const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
 
-function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: ResultsMsg[] } {
+function matchSetup(ids: string[]): { w: World; m: Match; results: ResultsMsg[] } {
   const w = new World(1);
   w.map.islands.length = 0;
   const results: ResultsMsg[] = [];
@@ -504,7 +504,6 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
     w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
   }
-  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet', undefined, undefined, undefined);
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();
@@ -576,18 +575,6 @@ describe('match outcome (amendment 14; amendment 17 REVERSED by Eric veto 2026-0
     expect(m.phase).toBe('finished');
     expect(m.winnerId).toBe(''); // the draw resolution was latched at the wipe tick
     expect(results[0].winnerId).toBe(''); // the wire carries the draw verbatim
-  });
-
-  it('a sinking DRONE never delays the finish (drones are not combatants)', () => {
-    const { w, m } = matchSetup(['a', 'b'], 1);
-    w.sinkShip('b', 'a'); // latch: a wins; hold for b's window
-    stepMatch(w, m, TICKS / 2);
-    expect(m.phase).toBe('active');
-    w.sinkShip('d0', 'a'); // the drone's window now outlives b's by half a window
-    stepMatch(w, m, TICKS / 2 + 1); // b's founder tick
-    expect(m.phase).toBe('finished'); // landed ON b's founder…
-    expect(isSinking(w.ships.get('d0')!.lifecycle)).toBe(true); // …with the drone mid-window
-    expect(m.winnerId).toBe('a');
   });
 
   it('the last sinking captain LEAVES mid-window: the finish is prompt, never hung', () => {

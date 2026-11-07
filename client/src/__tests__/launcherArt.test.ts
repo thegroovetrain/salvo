@@ -98,12 +98,6 @@ describe('ShipView.setLaunchers — one child per launcher at its shared station
     v.setLaunchers([0], null);
     expect(v.launcherView(0)!.context).toBe(launcherContext('bismarck', null, relationStyle('enemy').stroke));
   });
-
-  it('a drone mounts none', () => {
-    const v = new ShipView(relationStyle('enemy'), 'droneSmall');
-    v.setLaunchers([0, Math.PI], null);
-    expect(v.launcherCount).toBe(0);
-  });
 });
 
 describe('ContactStore — `Contact.lu` decoded like `tu`, snapped, dropped with the key', () => {

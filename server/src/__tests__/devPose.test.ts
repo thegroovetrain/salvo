@@ -1,9 +1,9 @@
 // THE DEV DOOR'S TWO SCRIPTED-SCENARIO ARMS, at the World (Story 9.15):
 //   • the DEV SPAWN POSE — a captain's placement honoured at EVERY placement
 //     edge it crosses (addShip, the countdown→active redeploy, respawn), and a
-//     placement only: hp is the redeploy's/respawn's to restore, never the pose's;
-//   • the FLEET-WAVES SWITCH — `WorldOptions.fleetWaves: false` turns the PvE
-//     wave scheduler off, and nothing else.
+//     placement only: hp is the redeploy's/respawn's to restore, never the pose's.
+//   (The second arm, the FLEET-WAVES SWITCH, retired with the PvE fleet at
+//   Story 10.8; `WorldOptions.beacons` is its successor, pinned in beacons.test.ts.)
 // The room-side gate (dev-only, value-sanitized) is pinned in roomOptions.test.ts.
 
 import { describe, it, expect, vi } from 'vitest';
@@ -152,28 +152,5 @@ describe('dev spawn pose — an invalid pose is rejected at the World, logged, a
     });
     expectAtPose(rec, pose);
     expect(lines).toHaveLength(0);
-  });
-});
-
-describe('fleetWaves switch — false keeps the PvE wave scheduler out of the world', () => {
-  const hasFleetHull = (w: World): boolean => [...w.ships.keys()].some((id) => id.startsWith('fleet-'));
-
-  /** Anchor the zone so the first beat has passed, then run a few live ticks. */
-  function runPastFirstBeat(w: World): void {
-    w.damageEnabled = true;
-    w.startZone(w.now - CONFIG.fleet.waves[0].atMs);
-    for (let t = 0; t < 5; t++) w.step();
-  }
-
-  it('fleetWaves: false — no fleet hull exists past the first beat', () => {
-    const w = openWorld(41, { fleetWaves: false });
-    runPastFirstBeat(w);
-    expect(hasFleetHull(w)).toBe(false);
-  });
-
-  it('the default (switch absent) still spawns the first wave', () => {
-    const w = openWorld(41);
-    runPastFirstBeat(w);
-    expect(hasFleetHull(w)).toBe(true);
   });
 });

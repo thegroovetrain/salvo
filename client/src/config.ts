@@ -130,9 +130,6 @@ const COLORS = {
   countermeasureSmoke: 0xc4c0b8,
   // FOG BANKS (Story 9.10, Eric's pick B "Wisps", 2026-10-15): a pale warm grey, LIGHTER than the countermeasure haze so weather never reads as a deployed smoke screen; the wisps' per-puff shades multiply it (CLIENT_CONFIG.fogField shadeMin/shadeMax).
   fogBank: 0xdcdad4,
-  // drones (PvE — always greyscale)
-  droneOutline: 0x9aa3b2,
-  droneFill: 0x454950,
   // utility — technical, non-role uses only (stage clear color, Pixi tint reset,
   // fog inverse mask). Never a design surface/text color.
   black: 0x000000,
@@ -440,9 +437,8 @@ const HEAT_WAKE_REF = fitMaterialRef({
 });
 
 /**
- * The fastest hull in the game (u/s), over EVERY hull id — the three pickable
- * classes and the three drone envelopes alike, because amendment 199 puts a
- * wake behind every visible hull and a drone is an ordinary ship. Read off
+ * The fastest hull in the game (u/s), over EVERY hull id, because amendment
+ * 199 puts a wake behind every visible hull. Read off
  * the zero-card fold (`hullTopSpeed` — since Story 10.3 a top speed is DERIVED
  * from the ENGINES index, never authored on the envelope) rather than written
  * down, so an index retune or a fourth class moves the wake pool's ceiling.
@@ -933,6 +929,73 @@ export const CLIENT_CONFIG = {
     armingScale: 0.4,
   },
 
+  /**
+   * THE RADIO BEACONS (Story 10.8, render/beacons.ts) — how a beacon LOOKS.
+   * Nothing here is gameplay: the lifecycle, the 500 u range and the body size
+   * are shared `CONFIG.beacons`. IMPLEMENTER DRAFTS pending Eric's yes on the
+   * rendered candidate (the spec's Block-If).
+   *
+   * THE LOOK (Eric 2026-11-07: "What does this radio beacon look like? Make
+   * that."): a LARGE NAVIGATION BUOY seen from directly above, at true size,
+   * drawn like the battleship hulls — skin fills under linework. The hull is
+   * the shared `beaconPolygon` octagon itself, so the drawn edge IS the hit
+   * edge. Linework is `silver` (DESIGN.md: neutral linework — a beacon is no
+   * one's, so never a relation color, never phosphor, amber or purple).
+   *
+   * Phase is coded by STYLE, not hue: the chart icon is a DASHED outline with
+   * no fills while only charted (the storm plane's dashed-future grammar),
+   * the solid painted buoy once it is in the water; the sink is the hull's
+   * settle (ship `hullLook`) plus a fade. Chart widths are SCREEN px divided
+   * by the camera zoom (`strokeWorldWidth`); the water body's are world units
+   * (fractions of the body radius), like the hull art.
+   */
+  beacons: {
+    /** THE CHART ICON's side (screen px): the same buoy from above at a
+     *  constant size, so it reads at every zoom out to the whole-ring view.
+     *  HANDOVER: once the real buoy would draw larger than this, the icon
+     *  hides and the true-size buoy on the water is what you see. */
+    iconPx: 16,
+    /** Chart icon linework (screen px): the hull rim and the inner lines. */
+    iconRimPx: 1.25,
+    iconInnerPx: 0.75,
+    /** The icon's light never shrinks under this radius (screen px). */
+    iconLampMinPx: 1.5,
+    /** Dash / gap (screen px) of the icon's rim while only charted. */
+    iconDashPx: 3,
+    iconGapPx: 2,
+    ringStrokePx: 1.5,
+    /** Icon linework alpha while only charted (nothing in the water) / live. */
+    markerChartedAlpha: 0.6,
+    markerLiveAlpha: 0.95,
+    /** Range-ring alpha while only charted / live — subordinate to the icon
+     *  and to the storm edge. */
+    ringChartedAlpha: 0.3,
+    ringLiveAlpha: 0.5,
+    /** Dash count and lit fraction of the charted range ring. */
+    ringDashes: 72,
+    dashDuty: 0.5,
+    /** The water body's linework as fractions of the body radius: the hull
+     *  rim (bold, like a hull outline) and every inner line. */
+    rimLineFrac: 0.1,
+    innerLineFrac: 0.035,
+    /** The deck rail's alpha (a hairline, quieter than the rim). */
+    railAlpha: 0.6,
+    /** THE SKIN — the battleship greys (`skins`): a dark fender/hull side, a
+     *  steel-grey deck, near-black-navy solar panels, a dark lattice tower and
+     *  the white light at the masthead. */
+    skin: { fender: 0x2f3539, deck: 0x6f787e, panel: 0x1f2f42, tower: 0x3f474c, lamp: 0xe2e8f0 },
+    /** DECORATION ONLY (scaled by the motion setting, gone at `off`): a
+     *  broadcast ring growing `pulseGrowPx` out from the buoy's edge every
+     *  `pulsePeriodMs` while it is in the water. */
+    pulsePeriodMs: 2400,
+    pulseGrowPx: 16,
+    pulseAlpha: 0.45,
+    pulseStrokePx: 1.25,
+    /** Re-stroke throttle: a zoom change under this fraction keeps the drawn
+     *  linework (the zone/terrain discipline). */
+    redrawZoomFrac: 0.02,
+  },
+
   /** Own/contact ship view feel constants. */
   ship: {
     flashMs: 130, // ms — hit-flash duration
@@ -970,9 +1033,6 @@ export const CLIENT_CONFIG = {
     /** The relation hull's dark interior: the stroke at HSV value ×0.45, per
      *  sRGB channel — the rule the retired wheel's fills used (render/relationColor.ts). */
     relationFillValue: 0.45,
-    /** A DRONE hull's one stroke (world u — the pre-10.4 literal; drones keep
-     *  today's look exactly). Captain hulls draw with `art` below. */
-    hullStrokeU: 1.5,
     /**
      * THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*, the sitting
      * page's `drawHull` + `drawFeatures` ported). Epic-10 amendment 7(m)/(o):
@@ -1072,135 +1132,6 @@ export const CLIENT_CONFIG = {
       warspite: { deck: 0x6b7176, tier: [0x9aa5ab, 0x8c979d, 0x7e898f], round: 0xa8b2b8, funnel: 0x2f3539, sec: 0x95a0a6, turret: 0x8b969c, barrel: 0x3b4246 },
       iowa: { deck: 0x2f4a6b, tier: [0x3f5f80, 0x365373, 0x2e4866], round: 0x4d6d8e, funnel: 0x1b2838, sec: 0x3b5878, turret: 0x3b5878, barrel: 0x1f2f42 },
     },
-  },
-
-  /**
-   * DRONE RANK TICKS (Story 7.6, Eric ruling 2026-08-21) — 1 / 2 / 3 short
-   * transverse bars across a PvE fleet hull's afterdeck for small / medium /
-   * large. *"We actually do need better distinction, size isn't enough."* …
-   * *"just use the rank ticks on the silhouette, which is way better."*
-   *
-   * WHY THE CHANNEL IS SHAPE, AGAIN. Drones are locked greyscale (DESIGN.md:157,
-   * `drone-outline`/`drone-fill`; reaffirmed by epic-5 amendment 40 for the
-   * aggro bracket), so colour was never available to separate the three tiers.
-   * Hull SIZE was the only channel carrying tier, and Eric has now ruled a bare
-   * 85 → 100 → 115u length ladder insufficient at the ranges a player actually
-   * reads a contact at. THE TICK COUNT *IS* THE TIER — a countable mark, dual
-   * coded with the size it rides, exactly as DESIGN.md's Do's and Don'ts require
-   * class/threat/state to ride shape.
-   *
-   * WHY NO NEW COLOUR TOKEN. The ticks are stroked in the hull's OWN outline
-   * colour (`DRONE_STYLE.stroke` = `colors.droneOutline`) over the `droneFill`
-   * interior, so they inherit the greyscale rule rather than being exempted
-   * from it, and a future palette change moves the hull and its ticks together.
-   *
-   * EVERY NUMBER IS A FRACTION OF THE HULL IT RIDES, never a world literal: one
-   * set of knobs has to read on all three drone hulls, and a fourth fleet hull
-   * must get correct ticks with no new tuning. The fractions are taken against
-   * the SILHOUETTE's own bounding box (render/ships.ts `droneRankTicks`), so the
-   * marks can never drift off the polygon they are drawn on.
-   *
-   * WHY THEY SIT AFT. The drone silhouette is the legacy CHEVRON — an arrowhead
-   * — and a mark near the bow would read as part of that arrowhead's terminal
-   * rather than as a count. `aftOffsetLengthFrac` parks the group behind
-   * amidships, inside the chevron's parallel-sided midbody (which spans
-   * −0.45L … +0.15L), where every tick has full beam under it and clear fill on
-   * both sides. They are entirely INSIDE the silhouette, so they can neither
-   * inflate the hull's bounding box nor reach the nameplate, which is floated
-   * above that box in screen space (render/nameplates.ts).
-   */
-  droneRank: {
-    /** Each tick's transverse length as a fraction of the hull's BEAM. 0.55
-     *  leaves ~22% of the beam as clear fill on each side, so a tick never
-     *  touches the outline and reads as a mark ON the deck rather than as a
-     *  notch in the hull. */
-    tickBeamFrac: 0.55,
-    /** Keel-wise gap between adjacent ticks as a fraction of hull LENGTH. At
-     *  0.11 the gap (9.4 / 11.0 / 12.7u) is six to eight times the tick's own
-     *  stroke width, which is what makes 2 vs 3 countable rather than a smear. */
-    spacingLengthFrac: 0.11,
-    /** How far AFT of amidships the tick GROUP's centre sits, as a fraction of
-     *  hull length. Keeps even the widest (3-tick) group clear of the bow
-     *  chevron and inside the parallel-sided midbody — see the block header. */
-    aftOffsetLengthFrac: 0.15,
-    /** Tick stroke width (world u) — the hull outline's own 1.5, so the mark
-     *  sits in the same linework family as the silhouette carrying it. */
-    widthU: 1.5,
-  },
-
-  /**
-   * THE AGGRO BRACKET (Story 5.6, epic-5 amendment 40) — the angular mark a PvE
-   * fleet ship wears once it has acquired YOU. *"I want it very visually obvious
-   * that a PvE ship has aggro'd you, and very visually obvious if it de-aggro's
-   * you, as well."*
-   *
-   * WHY THE CHANNEL IS SHAPE. Drones are locked greyscale (DESIGN.md:157,
-   * `drone-outline`/`drone-fill`) and DESIGN.md:162 keeps THREAT on the
-   * dual-coding floor even under the Variant-C identity waiver — so colour alone
-   * was never available. Presence/absence of a shape survives greyscale, the
-   * colourblind-assist palette and the drone palette simultaneously.
-   *
-   * WHY AMBER (`colors.amber`) AND NOT A NEW TOKEN. Amber is DESIGN.md:139's
-   * ratified *"selected / armed / action / WARNING"* register and is one of the
-   * four hue bands RESERVED from combatant hues (DESIGN.md:161), so the bracket
-   * can never be misread as a player's personal colour — which matters most
-   * here, since the thing it wraps is deliberately colourless. It is not the
-   * damage family (nothing has been damaged) and not `denied` (that is
-   * input-refusal chrome, explicitly *"never persistent chrome"*).
-   *
-   * WHY IT DOES NOT PULSE. DESIGN.md's attention rule — *"only the highest-tier
-   * active amber channel pulses — the rest hold steady"* — plus the argument
-   * epic-4 amendment 220 used to keep the kill-leader glow static: a pulse would
-   * claim a slice of the photosensitivity budget and would need Story 4.8
-   * attention-tier arbitration it has not been through.
-   *
-   * ONE GEOMETRY CHANNEL CARRIES BOTH TRANSITIONS. `spread` pushes each corner's
-   * two arms apart at the elbow: the acquire runs it DOWN to zero (the bracket
-   * closes onto the hull, with a brightness pop) and the release runs it UP (the
-   * bracket *"visibly breaks at the corners"* and fades). Same number, opposite
-   * directions, so the two beats can never drift apart.
-   */
-  aggro: {
-    /** Bracket half-size as a multiple of the hull's silhouette bounding radius.
-     *  >1 so the mark stands clear of the chevron it wraps rather than tracing
-     *  it — the bracket must read as a separate object at a glance. */
-    sizeFactor: 1.55,
-    /** Extra world-unit pad on top of `sizeFactor`, so the smallest fleet hull
-     *  still gets a bracket with visible air inside it. */
-    padU: 4,
-    /** Each corner arm's length as a fraction of the bracket half-size. Short
-     *  enough that the four corners never close into a square (a solid box is a
-     *  different shape and would read as a selection, not a lock). */
-    armFrac: 0.42,
-    /** Stroke width (world u) — the hull outline's own 1.5, so the mark sits in
-     *  the same linework family as the silhouette it wraps. */
-    widthU: 1.5,
-    /** Resting alpha while the lock is HELD (static — see the block header). */
-    holdAlpha: 0.85,
-    /** ms — the acquire beat: the bracket snaps in from `flashSpreadU` and pops
-     *  to full alpha. 300ms, NOT the hotbar's ≤80ms Activated-flash grammar
-     *  (review-gate fix, Story 5.6 follow-up): the hotbar pop is grammar for a UI
-     *  element the player is already looking at, but this flash marks a
-     *  WORLD-SPACE hull that may be anywhere in the sight bubble, including its
-     *  edge, and must survive being caught in peripheral vision — Eric's ruling
-     *  was *"very visually obvious"*. 300ms is long enough to catch peripherally
-     *  without crossing into a held state.
-     *
-     *  EXPERIENCE.md's 300ms same-source flash floor (the aggregate-budget rule
-     *  that repeated same-source flashes — e.g. hull hit flashes — must stay
-     *  ≥300ms apart) is a REPEAT-INTERVAL RATE LIMIT, a different quantity from
-     *  this DURATION, and governs this bracket too (an acquire cannot re-flash
-     *  faster than every 300ms) — but it is not why this number is 300. Do not
-     *  re-conflate the two. */
-    flashMs: 300,
-    /** World u the corners start OUTSIDE their resting position on acquire. */
-    flashSpreadU: 14,
-    /** ms — the release beat (*"breaks at the corners and fades (~400 ms)"*). */
-    breakMs: 400,
-    /** World u the corner arms tear apart by across the release. Larger than
-     *  `flashSpreadU` so the break is unmistakably the bigger motion of the
-     *  two — losing a lock must not read as acquiring one played backwards. */
-    breakSpreadU: 22,
   },
 
   /** Truesight nameplates (Story 1.13) — screen-space callsign labels floated

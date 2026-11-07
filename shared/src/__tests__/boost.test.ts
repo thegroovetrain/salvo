@@ -152,7 +152,7 @@ describe('the boost ROW — pool and window; RELOAD no longer reaches it (R40 su
   });
 });
 
-describe('the FIT — slot 1 on every captain, nothing on a fleet drone', () => {
+describe('the FIT — slot 1 on every captain', () => {
   it('every captain hull fits `boost` in slot 1 with a full single-charge pool', () => {
     for (const id of SHIP_CLASS_IDS) {
       const stats = effectiveStats(CONFIG.shipClasses[id], []);
@@ -160,10 +160,5 @@ describe('the FIT — slot 1 on every captain, nothing on a fleet drone', () => 
       expect(loadout[SLOT_BOOST].equipmentId, id).toBe('boost');
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });
     }
-  });
-
-  it('a PvE fleet hull fits the gun and nothing else — slot 1 stays empty (amendment 24)', () => {
-    const loadout = loadoutFor(effectiveStats(CONFIG.shipClasses.iowa, []), true);
-    expect(loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
   });
 });

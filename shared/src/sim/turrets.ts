@@ -56,8 +56,8 @@
 // (`copyTurrets`). Everything else here is a pure read.
 //
 // Pure, zero I/O, no randomness. Hull geometry comes from
-// `CONFIG.shipClasses.<id>.battery` by hull id; a hull with no battery (a PvE
-// drone) has ZERO turrets and every function degrades to the empty answer.
+// `CONFIG.shipClasses.<id>.battery` by hull id; a hull with no battery
+// has ZERO turrets and every function degrades to the empty answer.
 
 import { CONFIG, hullEnvelope, type HullId, type TurretMount } from '../constants.js';
 import { wrapAngle } from '../math/angle.js';

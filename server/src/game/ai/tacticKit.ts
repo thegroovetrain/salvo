@@ -349,12 +349,11 @@ export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: B
 // HOSTILE READS (Story 9.13, amendment 199) — the trigger extensions' cues.
 // ---------------------------------------------------------------------------
 
-/** Is this track a HOSTILE worth a defensive press: a captain (a sighted PvE
- *  fleet hull is neutral — the captive-mine precedent; an unclassed paint is
- *  assumed a captain), not a wreck, past the reaction gate, and LIVE or
- *  refreshed within one base sweep revolution (a fresh paint)? */
+/** Is this track a HOSTILE worth a defensive press: a captain (an unclassed
+ *  paint is assumed a captain), not a wreck, past the reaction gate, and LIVE
+ *  or refreshed within one base sweep revolution (a fresh paint)? */
 export function isFreshHostile(t: BotTrack, now: number): boolean {
-  if (t.sunk || t.fleet || !isActionable(t, now)) return false;
+  if (t.sunk || !isActionable(t, now)) return false;
   return t.live || now - t.seenAt <= TRACK_PERSIST_MS;
 }
 

@@ -36,8 +36,8 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'bismarck', drone = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), drone ? 'fleet' : 'captain', hull, undefined, undefined);
+function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'bismarck'): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.speed = 0;
@@ -56,8 +56,8 @@ function captainKill(w: World, killer: string): void {
 /** A candidate snapshot. `afloat` is a test-authoring convenience only — the
  *  rule itself reads the LIFECYCLE (Story 5.1, amendment 2), so the flag is
  *  converted here, at the fixture, and nowhere in the module under test. */
-function cand(id: string, kills: number, afloat = true, fleet = false): BountyCandidate {
-  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), role: fleet ? 'fleet' : 'captain', kills };
+function cand(id: string, kills: number, afloat = true): BountyCandidate {
+  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), role: 'captain', kills };
 }
 
 // ---------- the pure rule: nextBountyHolder ------------------------------------
@@ -112,12 +112,6 @@ describe('nextBountyHolder — the strict-overtake throne rule (pure)', () => {
     expect(nextBountyHolder('a', [cand('a', 2), cand('b', 9, false)])).toBe('a');
   });
 
-  it('a DRONE can never hold the throne, whatever its count says (defense in depth)', () => {
-    expect(nextBountyHolder('', [cand('d', 5, true, true), cand('b', 0)])).toBe('');
-    // ...nor keep it as a phantom incumbent.
-    expect(nextBountyHolder('d', [cand('d', 5, true, true), cand('b', MIN)])).toBe('b');
-  });
-
   it('an empty field is vacant', () => {
     expect(nextBountyHolder('', [])).toBe('');
     expect(nextBountyHolder('a', [])).toBe('');
@@ -148,23 +142,6 @@ describe('World — kill tally and throne recompute (per sink, in sink order)', 
     w.sinkShip('b', 'a');
     expect(a.kills).toBe(1);
     expect(w.bountyId).toBe('a');
-  });
-
-  it('a PvE kill advances NOTHING — not the tally, not the throne (amendment 38)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    captainKill(w, 'a'); // a holds at 1
-    const before = a.kills;
-    const d = place(w, 'd', 200, 0, 'droneMedium', true);
-    const xpBefore = a.xpMs;
-    w.sinkShip('d', 'a');
-    // Story 5.6 amendment 38 REVERSES the 4.6 clause that kept `kills`
-    // counting drones: a PvE kill now lands in no tally at all...
-    expect(a.kills).toBe(before);
-    expect(w.bountyId).toBe('a');
-    // ...while its XP still pays, which is the whole point of the split.
-    expect(a.xpMs).toBeGreaterThan(xpBefore);
-    expect(d.id).toBe('d');
   });
 
   it('held, a challenger reaching EXACTLY the incumbent count does not transfer (world direction)', () => {
@@ -341,23 +318,6 @@ describe('World — the sunk emission names WHICH participant held the throne (b
     const sunk = sunkEventsAfterStep(w);
     expect(sunk).toHaveLength(1);
     expect(sunk[0].id).toBe('b');
-    expect(sunk[0].bty).toBe('k');
-  });
-
-  it("the leader sinking a DRONE still marks bty 'k' — the mark rides a drone wreck legitimately", () => {
-    // Not a leak: a drone sunk event reaches only the witness and the killer
-    // (perception's sunk row), both of whom already know the leader's identity
-    // from the public ArenaState.bountyId. The 'v' case, by contrast, can
-    // never appear on a drone wreck — a drone can never hold the throne.
-    const w = bareWorld();
-    place(w, 'a');
-    place(w, 'd', 100, 0, 'bismarck', true); // a drone
-    captainKill(w, 'a'); // a holds the throne
-    w.step();
-    w.sinkShip('d', 'a');
-    const sunk = sunkEventsAfterStep(w);
-    expect(sunk).toHaveLength(1);
-    expect(sunk[0].id).toBe('d');
     expect(sunk[0].bty).toBe('k');
   });
 

@@ -322,22 +322,15 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     // contact — only the sunk vanish. And amendment 16: the contact shape
     // must disclose NOTHING about the window, so pin the exact key set.
     expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
-    // THE EXACT CONTACT KEY SET, updated deliberately for Story 5.6 (epic-5
-    // amendment 40) and Story 10.4. `aggro` is optional — only on a PvE fleet
-    // hull that has acquired THIS observer — and `tu` (the turret angles) is
-    // present exactly on a hull with a battery (a captain / bot), never on a
-    // drone. Every shape is enumerated rather than allowed loosely: a stray
-    // extra key still fails.
+    // THE EXACT CONTACT KEY SET, updated deliberately for Story 10.4 (and
+    // Story 10.8: the PvE fleet's self-private `aggro` mark is gone). `tu`
+    // (the turret angles) is present exactly on a hull with a battery. Every
+    // shape is enumerated rather than allowed loosely: a stray extra key
+    // still fails.
     const keys = Object.keys(c).sort();
     const base = ['cls', 'heading', 'id', 'speed', 'x', 'y'];
     const withTu = target.turrets.length > 0;
-    if (c.aggro === undefined) {
-      expect(keys).toEqual(withTu ? [...base, 'tu'].sort() : base);
-    } else {
-      expect(keys).toEqual(['aggro', ...base]);
-      expect(c.aggro).toBe(true); // never `false` — omitted is the negative
-      expect(w.drones.isTargeting(c.id, me.id)).toBe(true); // the independent oracle
-    }
+    expect(keys).toEqual(withTu ? [...base, 'tu'].sort() : base);
     if (withTu) expect(c.tu).toEqual(encodeTurretAngles(target.turrets, target.hullId));
     expect(c.id).not.toBe(me.id);
     expect(sighted(w, me, target.state)).toBe(true);
@@ -401,22 +394,14 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
         return;
       }
       const witnessed = sighted(w, me, wreck.state);
-      if (wreck.role === 'fleet') expect(witnessed || e.by === me.id).toBe(true);
       if (e.seen !== undefined) {
         expect(e.seen).toBe(true);
         expect(witnessed).toBe(true);
       }
-      // `vcls` (Story 5.6, amendment 43): the victim's hull id, to the
-      // CREDITED KILLER alone — one gate, the view mode is not a second one
-      // (see perception.test.ts's verifySunk). A witness who did not fire
-      // never gets it; a spectating killer does. Biconditional: a killer with
-      // a live wreck record MUST get it.
-      if (e.vcls !== undefined) {
-        expect(e.by).toBe(me.id);
-        expect(e.vcls).toBe(wreck.hullId);
-      } else {
-        expect(e.by === me.id).toBe(false);
-      }
+      // The class stamps `vcls` / `kcls` retired with the PvE fleet (Story
+      // 10.8): a sunk row carries no hull id at all, to anyone.
+      expect('vcls' in e).toBe(false);
+      expect('kcls' in e).toBe(false);
       return;
     }
     case 'spawn':

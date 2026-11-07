@@ -10,7 +10,7 @@
 //     in SHARED `CONFIG.vision.wakeLifeMs` precisely so no client-only knob can
 //     fork them. The length pins below are what make a silent re-introduction of
 //     a client `life` fail CI.
-//   • EVERY VISIBLE HULL LAYS ONE (amendment 199) — own ship, contacts, drones.
+//   • EVERY VISIBLE HULL LAYS ONE (amendment 199) — own ship, contacts.
 //     Before this cycle the emitter was driven from the own predicted pose alone
 //     and enemy hulls glided across the water leaving nothing.
 //   • NO DECOY SPECIAL-CASING, IN EITHER DIRECTION (amendment 201, Eric: *"Decoy
@@ -75,12 +75,12 @@ function sail(effects: Effects, hulls: WakeHull[], frames: number, dt: number, t
 // --- AMENDMENT 199: every visible hull lays a wake ------------------------------
 
 describe('the emitter lays wake behind EVERY visible hull, not just the own one', () => {
-  it('tracks own ship, an enemy captain and a drone alike', () => {
+  it('tracks own ship and two enemy captains alike', () => {
     const effects = new Effects(new Container());
     const hulls = [
       hull('me', FAST, 0, 40),
       hull('enemy', WIDE, 500, 30),
-      hull('drone', 'droneLarge', -500, 20),
+      hull('rival', 'yamato', -500, 20),
     ];
     sail(effects, hulls, 60, 1 / 20);
 
