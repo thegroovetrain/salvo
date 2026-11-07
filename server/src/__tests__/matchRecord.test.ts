@@ -105,7 +105,6 @@ function playMatch(hooks: MatchHooks = noopHooks(), onBuilt: (ctx: Ctx) => void 
   w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
   w.addShip('c', 'C', 'captain', 'warspite', undefined, undefined);
   w.addShip('bot-1', 'BOT', 'bot', 'bismarck', undefined, undefined);
-  w.addShip('f1', 'F1', 'fleet', 'droneSmall', undefined, undefined);
   m.notifyRosterChanged();
   expect(m.phase).toBe('countdown');
   step(ctx); // the countdown is live water-time: the opening hand is dealt
@@ -120,7 +119,6 @@ function playMatch(hooks: MatchHooks = noopHooks(), onBuilt: (ctx: Ctx) => void 
   const y = spendAny(w, 'a');
   m.onPlayerLeave('b');
   w.sinkShip('c', 'a');
-  w.sinkShip('f1', 'a');
   w.sinkShip('bot-1', 'a');
   step(ctx, SINK_TICKS + 2);
   expect(m.phase).toBe('finished');
@@ -159,7 +157,7 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     expect(a.placement).toBe(1);
   });
 
-  it('the leaver is present with placement + hands; the bot with role "bot"; the fleet hull is absent; userId null everywhere', () => {
+  it('the leaver is present with placement + hands; the bot with role "bot"; userId null everywhere', () => {
     const { w, m } = playMatch();
     const rec = buildMatchRecord(m, META);
     const ids = rec.participants.map((p) => p.id).sort();
@@ -170,10 +168,7 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     expect(b.placement).toBe(m.placements.get('b'));
     expect(b.hands).toHaveLength(1);
     expect(rec.participants.find((p) => p.id === 'bot-1')!.role).toBe('bot');
-    for (const p of rec.participants) {
-      expect(p.userId).toBeNull();
-      expect(p.role).not.toBe('fleet');
-    }
+    for (const p of rec.participants) expect(p.userId).toBeNull();
     // Placements are dense 1..n, the record sorted by them.
     expect(rec.participants.map((p) => p.placement)).toEqual([1, 2, 3, 4]);
   });

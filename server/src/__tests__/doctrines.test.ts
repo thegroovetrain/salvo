@@ -27,7 +27,7 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, FLASH_WINDOW_MS, familySlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, launcherStation, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, FLASH_WINDOW_MS, familySlotFor, effectiveStats, hullEnvelope, launcherStation, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -578,74 +578,31 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   });
 });
 
-describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are hunting you', () => {
-  function droneBoard(): { w: World; o: ShipRecord; d: ShipRecord } {
-    const w = bareWorld();
-    const o = placeBare(w, 'o', 600, 600, 0, 'warspite');
-    w.applyCard(o, 'captiveMines');
-    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 });
-    w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
-    lay(w, 'm1', 'o', 0, 0, 'captive');
-    return { w, o, d };
-  }
-
-  it('a NEUTRAL fleet drone sails straight over a captive mine — no launch, no detonation', () => {
-    const { w } = droneBoard();
-    expect(w.drones.targetOf('d')).toBeNull();
-    w.step();
-    expect(w.mines.size).toBe(1); // untouched
-    expect(w.shells.size).toBe(0);
-    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(false);
-  });
-
-  it('the SAME drone, once it has acquired the layer, is hostile and takes the fish', () => {
-    const { w } = droneBoard();
-    w.drones.onDamaged('d', 'o', false); // it now hunts the mine's owner
-    expect(w.drones.targetOf('d')).toBe('o');
-    w.step();
-    expect(w.mines.size).toBe(0);
-    expect(w.shells.size).toBe(1);
-  });
-
-  it('a neutral drone sitting on the mine does not MASK the enemy captain behind it', () => {
-    const { w } = droneBoard(); // the drone is registered FIRST, so it is scanned first
-    const cap = place(w, 'cap', 0, -40); // an enemy captain, also inside the trip ring
-    w.step();
-    expect(w.mines.size).toBe(0);
-    const fish = [...w.shells.values()];
-    expect(fish).toHaveLength(1);
-    // Aimed at the CAPTAIN (−y), not at the neutral drone (+y).
-    expect(fish[0].vy).toBeLessThan(0);
-    expect(cap.state.y).toBeLessThan(0); // sanity: the captain is the −y one
-  });
-
-  // CYCLE-148 REVIEW GATE, P6 — THE GATE MUST SURVIVE THE FLIGHT.
-  //
-  // R2.13 is a WORLD read (is this drone hunting me right now?) and `steerHoming`
-  // is pure shared sim, so a fish that re-acquired mid-run could only re-acquire
-  // BLIND — and would happily take a neutral drone that drifted nearer, springing
-  // the trap on the exact hull the gate had refused. The lock is pinned at launch
-  // instead: the fish steers at its victim and at nobody else.
-  it('a tier-II fish keeps steering at the HOSTILE captain past a nearer neutral drone', () => {
+describe('CAPTIVE MINES — the lock is pinned at launch (cycle-148 review gate, P6)', () => {
+  // THE GATE MUST SURVIVE THE FLIGHT. `steerHoming` is pure shared sim, so a
+  // fish that re-acquired mid-run would take whatever drifted nearer — the
+  // retired PvE drone (Story 10.8) was the neutral case R2.13 was written
+  // for; a second captain is the bystander now. The lock is pinned at launch:
+  // the fish steers at the hull that tripped the mine and at nobody else.
+  it('a tier-II fish keeps steering at the hull that tripped it past a nearer bystander', () => {
     const w = bareWorld(51);
     const o = placeBare(w, 'o', 900, 900, 0, 'warspite');
     fitTier(w, o, 'captiveMines', 2); // tier II: the first rung that steers
-    // The HOSTILE captain trips the mine from −y...
+    // The tripping captain is scanned first (hull order), from −y...
     const cap = place(w, 'cap', 0, -60);
-    // ...and a NEUTRAL drone sits NEARER the launch point, on the far side of
-    // the fish's course and well inside the family's 120 u acquire range. An
-    // unlocked fish takes the drone — it is the nearest thing in the water.
-    const drone = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 45, y: 25 });
-    drone.state = { x: 45, y: 25, heading: 0, speed: 0 };
-    w.drones.add('d', 'medium', 1, { x: 45, y: 25 }); // stationed where it stands
+    // ...and a bystander sits NEARER the launch point, on the far side of the
+    // fish's course and well inside the family's 120 u acquire range. An
+    // unlocked fish takes the bystander — it is the nearest thing in the water.
+    const byst = place(w, 'byst', 45, 25);
+    byst.state = { x: 45, y: 25, heading: 0, speed: 0 };
     lay(w, 'm1', 'o', 0, 0, 'captive');
     w.step();
 
     const fish = [...w.shells.values()][0];
-    expect(fish.homing?.targetId).toBe('cap'); // the gate's answer, pinned
-    expect(fish.vy).toBeLessThan(0); // running at the captain, not the drone
-    // ...and it STAYS pinned with the drone sitting right there: the lock never
-    // widens, and the fish's course never turns back toward +y.
+    expect(fish.homing?.targetId).toBe('cap'); // the trip's answer, pinned
+    expect(fish.vy).toBeLessThan(0); // running at cap, not the bystander
+    // ...and it STAYS pinned with the bystander sitting right there: the lock
+    // never widens, and the fish's course never turns back toward +y.
     for (let i = 0; i < 40 && w.shells.size > 0; i += 1) {
       w.step();
       const live = [...w.shells.values()][0];
@@ -653,22 +610,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
       expect(live.homing?.targetId).toBe('cap');
       expect(live.vy).toBeLessThan(0);
     }
-    expect(cap.hp).toBeLessThan(cap.stats.maxHp); // it connected with the captain
-  });
-
-  it('THE GATE IS CAPTIVE-ONLY: a NAVAL and a FOULING mine both still trip on a neutral drone', () => {
-    for (const kind of ['naval', 'fouling'] as const) {
-      const w = bareWorld(kind === 'naval' ? 3 : 5);
-      const o = placeBare(w, 'o', 600, 600, 0, 'warspite');
-      if (kind === 'fouling') w.applyCard(o, 'foulingMines');
-      w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 });
-      w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
-      lay(w, 'm1', 'o', 0, 0, kind);
-      w.step();
-      expect(w.mines.size, kind).toBe(0);
-      expect(w.tickEvents.some((e) => e.k === 'boom'), kind).toBe(true); // a real detonation
-      expect(w.shells.size, kind).toBe(0);
-    }
+    expect(cap.hp).toBeLessThan(cap.stats.maxHp); // it connected with cap
   });
 });
 

@@ -1,8 +1,8 @@
 // THE XP economy (Story 2.6) — the earn side of the point/offer contract that
 // upgrades.test.ts owns the spend side of. Covers the whole I/O & edge-case
-// matrix: the exact 1200-tick passive level, kill credit for human and drone
-// victims (the ratified ¼/⅓/½ tiers), fraction carry across a bank, multiple
-// crossings in one grant, the three gates (match-active / alive / not-a-drone),
+// matrix: the exact 1200-tick passive level, kill credit, fraction carry
+// across a bank, multiple crossings in one grant, the two gates (match-active
+// / alive),
 // the unattributed-sink cases, the lifecycle (redeploy wipes, respawn
 // preserves), the step-order position, and the wire's self-private lvl/xp.
 //
@@ -26,8 +26,8 @@ function bareWorld(seed = 3): World {
   return w;
 }
 
-function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'bismarck', drone = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), drone ? 'fleet' : 'captain', hull, undefined, undefined);
+function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'bismarck'): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.speed = 0;
@@ -70,17 +70,6 @@ describe('passive XP tick — the anti-snowball floor', () => {
     for (let i = 0; i < 100; i++) w.step();
     expect(a.xpMs).toBe(0);
     expect(a.level).toBe(0);
-  });
-
-  it('a DRONE never accrues XP or offers, however long it survives (the ratified bugfix)', () => {
-    const w = bareWorld();
-    const d = place(w, 'd', 300, 0, 'droneMedium', true);
-    const a = place(w, 'a');
-    for (let i = 0; i < TICKS_PER_LEVEL + 5; i++) w.step();
-    expect(d.xpMs).toBe(0);
-    expect(d.level).toBe(0);
-    expect(d.bankedLevels).toBe(0);
-    expect(a.level).toBe(1); // ...while the human beside it leveled normally
   });
 
   it('the tick runs at the END of the step: a level banked this tick rides THIS tick frame', () => {
@@ -163,43 +152,6 @@ describe('kill XP — value by victim, fraction always carried', () => {
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.4)); // the 0.4 carried, unscathed
   });
 
-  it('a DRONE victim pays its size tier — ¼ / ½ / ¾ — and only banks on a crossing', () => {
-    const cases: [HullId, number][] = [
-      ['droneSmall', XP.droneTierLevels.droneSmall],
-      ['droneMedium', XP.droneTierLevels.droneMedium],
-      ['droneLarge', XP.droneTierLevels.droneLarge],
-    ];
-    for (const [hull, fraction] of cases) {
-      const w = bareWorld();
-      const a = place(w, 'a');
-      const d = place(w, `d-${hull}`, 200, 0, hull, true);
-      w.sinkShip(d.id, 'a');
-      expect(a.xpMs).toBe(Math.round(XP.levelMs * fraction));
-      expect(a.level).toBe(0); // a single drone is never a whole level
-      expect(a.bankedLevels).toBe(0);
-    }
-  });
-
-  it('several drones of one tier carry the exact integer-ms remainder — every tier, no float dust', () => {
-    // Each drone pays its tier as a whole number of ms, so k sinks of one tier
-    // bank floor(k × tierMs / levelMs) levels and carry the exact remainder —
-    // an equality, never an approximation.
-    const K = 4;
-    for (const hull of ['droneSmall', 'droneMedium', 'droneLarge'] as const) {
-      const tierMs = Math.round(XP.levelMs * XP.droneTierLevels[hull]);
-      const w = bareWorld();
-      const a = place(w, 'a');
-      for (let i = 0; i < K; i++) {
-        const d = place(w, `d${i}`, 200 + i, 0, hull, true);
-        w.sinkShip(d.id, 'a');
-      }
-      const total = K * tierMs;
-      expect(a.level, hull).toBe(Math.floor(total / XP.levelMs));
-      expect(a.bankedLevels, hull).toBe(Math.floor(total / XP.levelMs));
-      expect(a.xpMs, hull).toBe(total % XP.levelMs);
-    }
-  });
-
   it('banks ONE level on a 0.9 + 1.0 crossing and carries the remainder (never two)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -232,17 +184,6 @@ describe('kill XP — value by victim, fraction always carried', () => {
     // standard captain level (Story 4.6): the dead killer banks BOTH.
     expect(a.level).toBe(XP.killLevels + CONFIG.bounty.killLevels);
     expect(a.bankedLevels).toBe(XP.killLevels + CONFIG.bounty.killLevels);
-  });
-
-  it('a DRONE killer banks nothing, however many hulls it sinks', () => {
-    const w = bareWorld();
-    const d = place(w, 'd', 0, 0, 'droneLarge', true);
-    const a = place(w, 'a', 100, 0);
-    w.sinkShip('a', 'd');
-    expect(d.xpMs).toBe(0);
-    expect(d.level).toBe(0);
-    expect(d.bankedLevels).toBe(0);
-    expect(ptsOf(w.tickEvents)).toEqual([]);
   });
 
   it('storm / self / unattributed sinks pay nothing, silently', () => {

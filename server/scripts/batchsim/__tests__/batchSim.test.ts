@@ -250,12 +250,12 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(CONFIG.xp.levelMs).toBe(before);
   });
 
-  it('applies and restores a nested dial (xp.droneTierLevels.droneSmall)', () => {
-    const before = CONFIG.xp.droneTierLevels.droneSmall;
-    const restore = applyOverrides({ 'xp.droneTierLevels.droneSmall': 0.5 });
-    expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(0.5);
+  it('applies and restores a nested dial (zone.stormDps.0)', () => {
+    const before = CONFIG.zone.stormDps[0];
+    const restore = applyOverrides({ 'zone.stormDps.0': 7 });
+    expect(CONFIG.zone.stormDps[0]).toBe(7);
     restore();
-    expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(before);
+    expect(CONFIG.zone.stormDps[0]).toBe(before);
   });
 
   it('addresses the phased-timeline shape: beatMs, ringRadii by index, offsetCap, map.baseRadius', () => {
@@ -292,7 +292,7 @@ describe('overrides — tunable CONFIG dials', () => {
   it('rejects non-tunable keys, unknown paths, and non-numeric leaves', () => {
     expect(() => validateTunableKey('gun.damage')).toThrow(TunableError); // real CONFIG, not a dial
     expect(() => validateTunableKey('xp.nope')).toThrow(TunableError); // dial family, no such leaf
-    expect(() => validateTunableKey('xp.droneTierLevels')).toThrow(TunableError); // object, not a number
+    expect(() => validateTunableKey('zone.ringRadii.x')).toThrow(TunableError); // a non-index into an array leaf
     expect(() => applyOverrides({ 'match.countdown': 1 })).toThrow(TunableError); // match.* is NOT open — only fillTo
   });
 });
@@ -757,7 +757,7 @@ describe('--json contract pin (the shape /balance-sim reads)', () => {
     // which is what a pacifist / cap-out campaign hands /balance-sim.
     const base: MatchSample = {
       index: 0, seed: 1, durationS: 100, endedBy: 'unresolved', winnerClass: null,
-      stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [],
+      stormDeaths: 0, captains: [], departedCaptains: [],
     };
     const agg = buildAggregate({ matches: [base, { ...base, index: 1 }], failures: [] }, 0);
     expect(agg.winnerClass).toEqual({ none: 2 });
@@ -979,7 +979,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
     w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
-    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
+    const target = w.addShip('tgt-1', 'TGT-01', 'captain', 'bismarck', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     // Park a live target right inside comfortable gun range.
     target.state.x = cap.state.x + 150;
@@ -1284,19 +1284,19 @@ describe('botMetrics — endCause reads the contact kind, not only the killer (S
     const v = w.addShip('v', 'V', 'captain', 'warspite', undefined, undefined);
     v.lastDamageSrc = 'contact';
     v.lastContactWasLand = false;
-    expect(endCause(w, undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
-    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    expect(endCause(undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
+    expect(endCause('k', v)).toBe('sunkByContact');
     v.lastContactWasLand = true;
-    expect(endCause(w, undefined, v)).toBe('ranAground');
+    expect(endCause(undefined, v)).toBe('ranAground');
     v.lastDamageSrc = 'grind'; // the bleed classifies exactly as the strike
-    expect(endCause(w, undefined, v)).toBe('ranAground');
+    expect(endCause(undefined, v)).toBe('ranAground');
     v.lastContactWasLand = false;
-    expect(endCause(w, undefined, v)).toBe('sunkByContact');
-    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    expect(endCause(undefined, v)).toBe('sunkByContact');
+    expect(endCause('k', v)).toBe('sunkByContact');
     v.lastDamageSrc = 'storm';
-    expect(endCause(w, undefined, v)).toBe('sunkByStorm');
+    expect(endCause(undefined, v)).toBe('sunkByStorm');
     v.lastDamageSrc = 'shell';
-    expect(endCause(w, 'k', v)).toBe('sunkByShip');
+    expect(endCause('k', v)).toBe('sunkByShip');
   });
 });
 
@@ -1335,7 +1335,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
   const closureS = zoneEndgameAtMs(CONFIG.zone) / 1000;
   const sample = (over: Partial<MatchSample>): MatchSample => ({
     index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'warspite',
-    stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [], ...over,
+    stormDeaths: 0, captains: [], departedCaptains: [], ...over,
   });
 
   it('excludes cap-outs from resolvedDurationS and from the past-closure rate', () => {
@@ -1466,7 +1466,7 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
     };
     const match: MatchSample = {
       index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'warspite', stormDeaths: 0,
-      killsByVictimTier: {}, captains: new Array<CaptainSample>(200000).fill(captain),
+      captains: new Array<CaptainSample>(200000).fill(captain),
       departedCaptains: [],
     };
     // FAIL-PROOF: `Math.max(0, ...captains.map(...))` over 200k entries throws

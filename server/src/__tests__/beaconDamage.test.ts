@@ -464,9 +464,8 @@ describe('at 0 hp the sink starts at once (R6, R9, R13)', () => {
     expect(gain.b).toBeCloseTo(pot * share + (pot * (1 - share) * bDealt) / B.hp, -1);
     expect(gain.a + gain.b).toBeCloseTo(pot, -1); // the whole value, to its damagers alone
     expect(xpMsOf(idle)).toBe(start.idle);
-    // Not a kill: no tally, no bounty, no PvE count, no `sunk` row, no feed line.
+    // Not a kill: no tally, no bounty, no `sunk` row, no feed line.
     expect([a.kills, b.kills]).toEqual([0, 0]);
-    expect([a.pveKills, b.pveKills]).toEqual([{}, {}]);
     expect(w.bountyId).toBe('');
     w.step();
     expect(kinds(w.tickEvents, 'sunk')).toEqual([]);

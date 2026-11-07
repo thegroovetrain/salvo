@@ -102,7 +102,6 @@ function track(over: Partial<BotTrack> = {}): BotTrack {
     live: true,
     sunk: false,
     cls: 'bismarck' as HullId,
-    fleet: false,
     firstSeenAt: 0,
     hits: 0,
     vx: null,
@@ -216,9 +215,8 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     const all = [t, ...others];
     expect(outnumbered(sit, t, all)).toBe(true);
     expect(['hide', 'disengage']).toContain(choosePosture(sit, t, 'pursue', { mind: m, targetKey: 'e1' }));
-    // PvE fleet hulls, wrecks and beyond-radar plots do not count.
+    // Wrecks and beyond-radar plots do not count.
     const harmless = [
-      track({ id: 'f', x: 0, y: 100, fleet: true, cls: 'droneSmall' }),
       track({ id: 'w', x: 0, y: 200, sunk: true }),
       track({ id: 'far', x: 0, y: sit.stats.radarRange + 100 }),
     ];
@@ -283,13 +281,13 @@ describe('ai/posture — THE RAM EXIT (epic-9 amendment 201)', () => {
   const TB = stats('bismarck');
   const raider = profileOf('raider');
   const broken = TB.maxHp * raider.disengageHpFrac - 1;
-  const touching = hullBumper('bismarck', 'droneMedium') - 1;
+  const touching = hullBumper('bismarck', 'yamato') - 1;
 
   it('falls to disengage ramExitMs after the strike on a surviving target, and never re-arms on it until the pair separate', () => {
     const m = mind('raider');
     m.fogAt = noFog;
     m.targetKey = 'e1';
-    const t = track({ x: touching, cls: 'droneMedium', hits: 3 });
+    const t = track({ x: touching, cls: 'yamato', hits: 3 });
     m.contacts.set('e1', t);
     const at = (now: number) =>
       choosePosture(

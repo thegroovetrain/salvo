@@ -58,17 +58,6 @@ describe('World clock + lifecycle', () => {
     expect(bb.cls).toBe(CONFIG.shipClasses.yamato);
     expect(bb.hp).toBe(CONFIG.shipClasses.yamato.hp);
   });
-
-  it('addShip resolves a drone hull id to its CONFIG.drones envelope', () => {
-    const w = new World(1);
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined);
-    expect(d.hullId).toBe('droneMedium');
-    expect(d.cls).toBe(CONFIG.drones.medium);
-    // effectiveStats accepts the drone envelope: hp/kinematics flow through.
-    expect(d.hp).toBe(CONFIG.drones.medium.hp);
-    expect(d.stats.maxHp).toBe(CONFIG.drones.medium.hp);
-    expect(d.stats.kinematics.maxSpeed).toBe(effectiveStats(CONFIG.drones.medium).kinematics.maxSpeed);
-  });
 });
 
 describe('World step — per-class kinematics', () => {

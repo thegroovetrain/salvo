@@ -121,14 +121,6 @@ describe('buildFrame — shape and clock', () => {
     expect('decoys' in buildFrame(w, 'k')).toBe(false);
   });
 
-  it('throws if a drone record is ever routed into an OwnShip (chokepoint guard)', () => {
-    // OwnShip.cls is a ShipClassId by construction; a drone hull id reaching
-    // toOwnShip means a drone was mis-routed to a client frame — fail loud.
-    const w = makeWorld();
-    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium', undefined, undefined);
-    expect(() => buildFrame(w, 'drone1')).toThrow(/drone hull id/);
-  });
-
   it('omits you for an unknown viewer, who sees nothing (fail-closed)', () => {
     const w = makeWorld();
     w.step();
@@ -178,19 +170,6 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
   });
 
-  it('drone contacts carry their DRONE hull id on the wire (Contact.cls: HullId)', () => {
-    const w = makeWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined);
-    d.state.x = 0;
-    d.state.y = 120; // inside a's sight bubble
-    d.state.heading = 0;
-    d.state.speed = 0;
-    w.step();
-    const contact = buildFrame(w, 'a').contacts.find((c) => c.id === 'd1');
-    expect(contact).toBeDefined();
-    expect(contact!.cls).toBe('droneMedium'); // never a player class
-  });
-
   it('excludes dead ships; a respawned ship reappears once back in sight', () => {
     const w = makeWorld();
     w.sinkShip('b');
@@ -227,13 +206,11 @@ describe('buildFrame — events (fogged via perception)', () => {
     w.sinkShip('b', 'a');
     w.step();
     const seen = { k: 'sunk', id: 'b', by: 'a', seen: true };
-    // The KILLER's row additionally carries `vcls` (Story 5.6, amendment 43):
-    // the victim's hull id, to the credited killer alone. Everyone else's row
-    // — witness or public — is the shipped shape, byte for byte.
-    const killerRow = { ...seen, vcls: DEFAULT_CLASS_ID };
-    // The killer additionally gets its self-private banked-point pt event.
+    // The killer's row is the same shape as a witness's (the `vcls` class
+    // stamp of Story 5.6 retired with the PvE fleet, Story 10.8); it
+    // additionally gets its self-private banked-point pt event.
     const aEvents = buildFrame(w, 'a').events;
-    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([killerRow]); // wreck 150u away — witnessed
+    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([seen]); // wreck 150u away — witnessed
     expect(aEvents.filter((e) => e.k === 'pt')).toEqual([{ k: 'pt', id: 'a' }]);
     expect(buildFrame(w, 'b').events).toEqual([seen]); // victim always told (own hull ⇒ seen), never the killer's point
     // The public register: c never saw the wreck — the feed line's identity

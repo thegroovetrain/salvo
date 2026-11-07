@@ -163,8 +163,8 @@ export function renderOrdnanceLedger(label: string, agg: CatalogAggregate): stri
 }
 
 /** A per-HULL hp figure as a whole-number percent of that hull's base maxHp
- *  (Story 10.3: a hull is read as 0–100 %, never a raw figure out of 1000;
- *  drones have their own envelope hp). An unknown hull key prints raw hp. */
+ *  (Story 10.3: a hull is read as 0–100 %, never a raw figure out of 1000).
+ *  An unknown hull key prints raw hp. */
 function hullShare(hull: string, hp: number): string {
   if (!(HULL_IDS as readonly string[]).includes(hull)) return `${fmt(hp, 1)} hp`;
   const maxHp = effectiveStats(hullEnvelope(hull as HullId)).maxHp;

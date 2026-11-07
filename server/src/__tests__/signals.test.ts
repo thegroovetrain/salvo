@@ -12,7 +12,6 @@ import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
-  shipSees,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -53,7 +52,6 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
-    aggroAt: (f, o) => w.drones.isTargeting(f, o),
     dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
     wakeKeyOf: (r) => w.wakeKeyOf(r),
   };
@@ -65,7 +63,6 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
-    aggroAt: (f, o) => w.drones.isTargeting(f, o),
     dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
     wakeKeyOf: (r) => w.wakeKeyOf(r),
   };
@@ -184,10 +181,11 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire.tu!.every((q) => Number.isInteger(q))).toBe(true);
   });
 
-  it('contact row: a hull with NO battery (a drone) omits `tu` — never an empty array', () => {
+  it('contact row: a hull with NO battery omits `tu` — never an empty array (directed: the turret list emptied)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const d = w.addShip('d', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 100, y: 0 });
+    const d = place(w, 'd', 100, 0);
+    d.turrets = []; // no production hull is batteryless since Story 10.8; the omit-not-empty rule still holds
     const row = SIGNAL_REGISTRY.contact;
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, d)).toBe(true);
@@ -791,13 +789,12 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(signalFor('burst')!.visible(foggedCtx(w, a), e)).toBe(true);
   });
 
-  it('sunk: a wreck inside the owned zone is visible — and WITNESSED (seen: true)', () => {
+  it('sunk: a wreck inside the owned zone is WITNESSED (seen: true) — the zone clause, read off `seen`', () => {
     const { w, a } = zoneWorld();
-    // A DRONE wreck isolates the zone clause: a human wreck would be visible
-    // via the public register regardless (PV 23), a drone only when witnessed.
-    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    d.state.x = 900;
-    d.state.y = 0;
+    // Every wreck is visible via the public register (PV 23; every hull is a
+    // participant since Story 10.8), so the zone clause shows only in `seen`:
+    // a wreck far beyond sight inside the owned zone is still WITNESSED.
+    const d = place(w, 'db', 900, 0);
     w.sinkShip('db');
     const row = signalFor('sunk')!;
     const ctx = foggedCtx(w, a);
@@ -811,22 +808,17 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(signalFor('spawn')!.visible(foggedCtx(w, a), e)).toBe(true);
   });
 
-  it("NON-owners gain none of it from someone else's zone (all four rows)", () => {
+  it("NON-owners gain none of it from someone else's zone (boom / burst / spawn; a wreck is public but UNSEEN)", () => {
     const { w } = zoneWorld(); // the zone belongs to 'a'
     const c = place(w, 'c', 0, 300); // never the owner
     place(w, 'b', 900, 0);
     w.sinkShip('b');
-    // The sunk row's zone clause is probed with a DRONE wreck: a human wreck
-    // is now visible everywhere via the public-register clause (PV 23 — see
-    // the dedicated suite below), so only a drone still isolates the zone term.
-    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    d.state.x = 900;
-    d.state.y = 0;
-    w.sinkShip('db');
     const ctx = foggedCtx(w, c);
     expect(signalFor('boom')!.visible(ctx, { k: 'boom', id: 's1', hit: 'b', x: 890, y: 0 })).toBe(false);
     expect(signalFor('burst')!.visible(ctx, { k: 'burst', id: 's1', x: 900, y: 0, own: 'a' } as BurstSubject)).toBe(false);
-    expect(signalFor('sunk')!.visible(ctx, { k: 'sunk', id: 'db' })).toBe(false);
+    // The sunk row reaches c via the public register (PV 23), but a's zone
+    // lends c no witness: no `seen`.
+    expect((signalFor('sunk')!.materialize(ctx, { k: 'sunk', id: 'b' }) as SunkEvent).seen).toBeUndefined();
     expect(signalFor('spawn')!.visible(ctx, { k: 'spawn', id: 'b', x: 890, y: 0 })).toBe(false);
   });
 
@@ -864,34 +856,12 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
 describe('SIGNAL_REGISTRY — sunk: the public register (PV 23, 4th declared exception)', () => {
   const row = signalFor('sunk')!;
 
-  /** A drone wreck teleported far outside every range, sunk by `by`. */
-  function sinkDroneFar(w: World, by?: string): void {
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    d.state.x = 2000;
-    d.state.y = 0;
-    w.sinkShip('d1', by);
-  }
-
   it('a HUMAN victim beyond sight is visible to ANY bystander (identity-only public)', () => {
     const w = bareWorld();
     const c = place(w, 'c', 0, 0);
     place(w, 'b', 2000, 0); // far outside sight AND radar
     w.sinkShip('b', 'a');
     expect(row.visible(foggedCtx(w, c), { k: 'sunk', id: 'b', by: 'a' })).toBe(true);
-  });
-
-  it('a DRONE victim beyond sight stays INVISIBLE to a bystander (not a combatant)', () => {
-    const w = bareWorld();
-    const c = place(w, 'c', 0, 0);
-    sinkDroneFar(w, 'a');
-    expect(row.visible(foggedCtx(w, c), { k: 'sunk', id: 'd1', by: 'a' })).toBe(false);
-  });
-
-  it('...but the SAME drone sinking IS visible to its credited killer (amendment 17 principle)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    sinkDroneFar(w, 'a');
-    expect(row.visible(foggedCtx(w, a), { k: 'sunk', id: 'd1', by: 'a' })).toBe(true);
   });
 
   it('a missing wreck record fails closed for a bystander (not visible, never a seen)', () => {
@@ -1301,7 +1271,7 @@ describe('withinSight FAILS CLOSED at zero sight (gate fix F4): a blind observer
       const ctx = foggedCtx(w, a);
       const boom: BoomEvent = { k: 'boom', id: 's1', x: 0, y: 0 };
       const burst: BurstSubject = { k: 'burst', id: 's2', x: 0, y: 0, own: 'b' };
-      expect(shipSees(a, b, ctx, w.now), `blind=${blind}`).toBe(!blind);
+      expect(SIGNAL_REGISTRY.contact.visible(ctx, b), `blind=${blind}`).toBe(!blind); // the contact row (a pseudo-row: direct access)
       expect(signalFor('boom')!.visible(ctx, boom), `blind=${blind}`).toBe(!blind);
       expect(signalFor('burst')!.visible(ctx, burst), `blind=${blind}`).toBe(!blind);
     }

@@ -58,7 +58,6 @@ export interface BotGroup {
   key: string;
   n: number;
   kills: Summary;
-  pveKills: Summary;
   /** Levels of XP RADIO BEACONS paid, per bot-match (Story 10.8). */
   beaconLevels: Summary;
   levels: Summary;
@@ -130,9 +129,6 @@ export interface BotAggregate {
   killShareBreachRate: number;
   deaths: number;
   stormDeaths: number;
-  /** Deaths at the hands of a PvE FLEET hull — armed, and not the brain's
-   *  peers, so they are visible rather than folded into the bot-vs-bot column. */
-  fleetDeaths: number;
   /** Story 9.5: deaths whose last blow was hull contact (a ram or a grind,
    *  with a killer) and groundings (the coast, no killer). */
   contactDeaths: number;
@@ -150,7 +146,6 @@ export interface BotAggregate {
   levelsEarned: number;
   levelsUnspent: number;
   participantKills: number;
-  pveKills: number;
   byProfile: BotGroup[];
   byClass: BotClassGroup[];
   /** Keyed by the hull's main-battery layout (`3x3` / `4x2` — botMetrics.layoutOf). */
@@ -161,7 +156,7 @@ export interface BotAggregate {
   /** POOL READOUTS (Story 8.20, R10): measurements, never judged. */
   pool: PoolReadouts;
   /** STORY 9.13 READOUTS (botReadoutReport.ts): grounding, ring, shots,
-   *  posture, fog, activations, endgame stall, drones — never judged. */
+   *  posture, fog, activations, endgame stall — never judged. */
   readouts: BotReadoutAggregate;
 }
 
@@ -189,7 +184,6 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     key,
     n: rows.length,
     kills: summarize(rows.map((r) => r.kills)),
-    pveKills: summarize(rows.map((r) => r.pveKills)),
     beaconLevels: summarize(rows.map((r) => r.beaconXpLevels)),
     levels: summarize(rows.map((r) => r.levelsEarned)),
     boons: summarize(rows.map((r) => r.boonsFitted)),
@@ -298,7 +292,6 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
   const resolved = matches.filter((m) => m.endedBy !== 'unresolved' && m.durationS <= collapseS).length;
   const deaths = rows.filter((r) => r.end !== 'alive').length;
   const stormDeaths = rows.filter((r) => r.end === 'sunkByStorm').length;
-  const fleetDeaths = rows.filter((r) => r.end === 'sunkByFleet').length;
   const levelsEarned = rows.reduce((a, r) => a + r.levelsEarned, 0);
   const levelsUnspent = rows.reduce((a, r) => a + r.levelsUnspent, 0);
   const agg: BotAggregate = {
@@ -312,7 +305,6 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     killShareBreachRate: ratio(shares.filter((s) => s > BARS.maxKillShare).length, shares.length),
     deaths,
     stormDeaths,
-    fleetDeaths,
     ...contactReadouts(rows),
     landContactRate: ratio(
       rows.reduce((a, r) => a + r.landTicks, 0),
@@ -323,7 +315,6 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     levelsEarned,
     levelsUnspent,
     participantKills: rows.reduce((a, r) => a + r.kills, 0),
-    pveKills: rows.reduce((a, r) => a + r.pveKills, 0),
     byProfile: groupBy(rows, (r) => r.profile),
     byClass: groupByClass(rows),
     byLayout: groupPickBy(scoredRows(matches), (r) => r.layout),
@@ -398,8 +389,8 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
     `bot-matches: ${a.botMatches} (${a.botsPerMatch} bots x ${a.matches} matches)`,
     `match length s: ${fmtSummary(a.durationS)}`,
     `endedBy: ${countLine(a.endedBy)}`,
-    `bot-vs-bot kills: ${a.participantKills} | PvE fleet kills: ${a.pveKills}`,
-    `deaths: ${a.deaths} = ${a.deaths - a.stormDeaths - a.fleetDeaths - a.contactDeaths - a.groundingDeaths} by participant + ${a.fleetDeaths} by PvE fleet + ${a.contactDeaths} by ramming + ${a.groundingDeaths} aground + ${a.stormDeaths} by storm`,
+    `bot-vs-bot kills: ${a.participantKills}`,
+    `deaths: ${a.deaths} = ${a.deaths - a.stormDeaths - a.contactDeaths - a.groundingDeaths} by participant + ${a.contactDeaths} by ramming + ${a.groundingDeaths} aground + ${a.stormDeaths} by storm`,
     `levels earned: ${a.levelsEarned} | still banked at death/finish: ${a.levelsUnspent}`,
     `longest unbroken land-contact run: ${fmt(a.worstLandRunS, 1)}s (CONFIG.bots.stuckMs = ${CONFIG.bots.stuckMs}ms)`,
     `land-contact damage: ${a.landDamage} hp total, ${fmt(a.landDamagePerBotMatch, 1)} hp mean per bot-match`,
@@ -428,7 +419,6 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
 const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] = [
   { head: 'n', w: 5, value: (g) => String(g.n) },
   { head: 'kills', w: 6, value: (g) => fmt(g.kills.mean, 2) },
-  { head: 'pve', w: 6, value: (g) => fmt(g.pveKills.mean, 2) },
   { head: 'alive%', w: 7, value: (g) => pct(g.aliveRate) },
   { head: 'lifeS', w: 7, value: (g) => fmt(g.lifeS.mean, 1) },
   { head: 'lvl', w: 6, value: (g) => fmt(g.levels.mean, 2) },

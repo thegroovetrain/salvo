@@ -181,7 +181,6 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
     live: true,
     sunk: false,
     cls: 'bismarck' as HullId,
-    fleet: false,
     firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0,
     vx: null,
@@ -691,7 +690,7 @@ describe('steering — the priority order is the policy', () => {
     const rec = mkBot(w, 'bismarck', 0, 0, 0);
     const mind = mkMind('raider');
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
-    const target = track(port.now, { id: 't1', x: 60, y: 20, live: true, cls: 'droneMedium' as HullId });
+    const target = track(port.now, { id: 't1', x: 60, y: 20, live: true, cls: 'yamato' as HullId });
     plot(mind, target);
     mind.targetKey = 't1';
     mind.posture = 'ram';
@@ -1408,17 +1407,17 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'warspite', 0, 0, 0);
     const mind = mkMind('forager');
-    plot(mind, track(port.now, { x: 300, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true }));
+    plot(mind, track(port.now, { x: 300, y: 0, speed: 0, cls: 'bismarck' as HullId }));
     COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('pursue');
-    // The same fleet target on open water is FARMED from the band instead.
+    // The same target on open water, in reach, is ENGAGED instead.
     const clear = openWorld(305);
     const clearPort = fakePort(clear);
     const rec2 = mkBot(clear, 'warspite', 0, 0, 0);
     const mind2 = mkMind('forager');
-    plot(mind2, track(clearPort.now, { x: 300, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true }));
+    plot(mind2, track(clearPort.now, { x: 300, y: 0, speed: 0, cls: 'bismarck' as HullId }));
     COMBAT_BRAIN.decide(rec2, mind2, clearPort);
-    expect(mind2.posture).toBe('farm');
+    expect(mind2.posture).toBe('engage');
   });
 });
 
@@ -1525,7 +1524,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(siege3, siegeClosing, port).fireSlot).toBe(slotOf(siege3, 'navalMines'));
   });
 
-  it('CAPTIVE MINES: full placeRange, proactive and arcless — and NEVER for a fleet-only target', () => {
+  it('CAPTIVE MINES: full placeRange, proactive and arcless', () => {
     const w = openWorld(404);
     const port = fakePort(w);
     // A hostile AHEAD (outside the rear arc): a contact mine has no play, a
@@ -1541,22 +1540,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const baseMind = mkMind('trapper');
     plot(baseMind, track(port.now, { x: 250, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).not.toBe(slotOf(base, 'navalMines'));
-
-    // THE FLEET GATE: a captive mine's trip is HOSTILE-ONLY — a neutral PvE
-    // drone walks over it — so a fleet-only target never justifies one, even
-    // on disengage; a contact mine still lays (it trips on any hull).
-    const fleet = { x: -150, y: 0, cls: 'droneSmall' as HullId, fleet: true };
-    const capFleet = mkBot(w, 'warspite', 0, 0, 0);
-    const capFleetRack = swapRack(capFleet, 'captiveMines');
-    capFleet.hp = capFleet.stats.maxHp * 0.1;
-    const capFleetMind = mkMind('trapper');
-    plot(capFleetMind, track(port.now, fleet));
-    expect(COMBAT_BRAIN.decide(capFleet, capFleetMind, port).fireSlot).not.toBe(capFleetRack);
-    const baseFleet = mkBot(w, 'warspite', 0, 0, 0);
-    baseFleet.hp = baseFleet.stats.maxHp * 0.1;
-    const baseFleetMind = mkMind('trapper');
-    plot(baseFleetMind, track(port.now, fleet));
-    expect(COMBAT_BRAIN.decide(baseFleet, baseFleetMind, port).fireSlot).toBe(slotOf(baseFleet, 'navalMines'));
   });
 
   it('FOULING MINES: the trap goes down EARLIER against a closing pursuer', () => {
@@ -1821,7 +1804,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('CAPTIVE MINES keeps the base mine UNCONDITIONAL withdrawal lay', () => {
     // REGRESSION (review gate, cycle 110). `mineWant` lays astern on
     // `disengage` at any appetite and with NO target; the captive branch ran
-    // its fleet/no-target refusal FIRST, so a trapper fleeing an attacker it
+    // its no-target refusal FIRST, so a trapper fleeing an attacker it
     // has lost in fog laid nothing where a contact mine always laid. A captive
     // mine trips hostile-only in a 144u ring, so the blind astern lay is at
     // least as valid. Without the fix fireSlot is not the mine.
@@ -2221,7 +2204,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     let worstRun = 0;
     for (let t = 0; t < TICKS; t += 1) {
       w.step();
-      if (!isAfloat(rec.lifecycle)) break; // sunk by a fleet hull: stop reading
+      if (!isAfloat(rec.lifecycle)) break; // sunk: stop reading
       ticks += 1;
       if (rec.landContact) {
         contactTicks += 1;
@@ -2846,21 +2829,15 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     expect(COMBAT_BRAIN.decide(tb, mind, port, false).act).not.toBe(abilityCode('shift'));
   });
 
-  it('Boost vs fleet (R13): a TB bot in farm posture, fleet group at band.max + 200 u -> not pressed', () => {
-    const { port, tb, boost } = setup(8206);
-    const bandMax = gunBand(profileOf('forager'), tb.stats).max;
-    const fleet = { x: bandMax + 200, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true };
-    const mind = mkMind('forager');
-    plot(mind, track(port.now, fleet));
-    expect(COMBAT_BRAIN.decide(tb, mind, port).act).not.toBe(abilityCode('shift'));
-    expect(mind.posture).toBe('farm');
+  it('Boost vs farm (R13): a HELD farm posture with a far track never boosts in; the same track under pursue does', () => {
+    // The fleet farm retired with the drones (Story 10.8); `farm` is the
+    // beacon farm now (botBeacons.test.ts). The posture's no-boost rule is
+    // pinned on a held posture, the amendment-194 idiom above.
+    const { port, tb, bandMax } = setup(8206);
+    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + 200, 'farm'), port, false).act).not.toBe(abilityCode('shift'));
     // Control: the same captain, the same far target, in a real-fight posture
     // boosts — so the hold above is the posture, not the appetite.
-    const fighting = mkMind('forager');
-    plot(fighting, track(port.now, fleet));
-    fighting.targetKey = 'tgt';
-    fighting.posture = 'pursue';
-    expect(COMBAT_BRAIN.decide(tb, fighting, port, false).act).toBe(abilityCode('shift'));
+    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + 200, 'pursue'), port, false).act).toBe(abilityCode('shift'));
   });
 });
 

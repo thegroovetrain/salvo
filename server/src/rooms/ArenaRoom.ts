@@ -257,7 +257,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   /**
    * The room's BOT-FLEET stream — seeded ONCE per room from mapSeed
    * decorrelated by a fresh mixing constant (distinct from world.ts's
-   * spawn/upgrade/drone streams). Born as the Regatta hue stream (Story 1.12);
+   * spawn/upgrade streams). Born as the Regatta hue stream (Story 1.12);
    * the hue wheel is gone (Story 10.4, R6), and what the stream still deals is
    * the bot fleet: the hull shuffle and each bot's Shift. Seeded, never
    * Math.random. (The KIT roll's separate stream left with the kit, Story 10.5.)
@@ -385,14 +385,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // The pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
-    // fleetWaves (Story 9.15) is read off the SANITIZED matchOverride — the
+    // beacons (Story 10.8) is read off the SANITIZED matchOverride — the
     // dev-gated door — not off the Match, so a sandbox room (no Match) honours
     // it too. Undefined on every production room.
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
-      fleetWaves: sanitized.matchOverride?.fleetWaves,
-      // beacons (Story 10.8): the same dev-gated door, the same posture.
       beacons: sanitized.matchOverride?.beacons,
     });
   }
@@ -474,7 +472,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // room at birth); minHumans 1 is what lets the countdown arm at all.
     const sanitized: SanitizedRoomOptions = input.solo ? { ...input, expectedCaptains: 1 } : input;
     // The bot-fleet stream (born as the Story 1.12 hue stream): one mulberry32
-    // per room, decorrelated from mapgen/spawn/upgrade/drone streams by a
+    // per room, decorrelated from mapgen/spawn/upgrade streams by a
     // fresh mixing constant.
     this.fleetRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
     if (!sanitized.matchOverride?.sandbox) {
@@ -702,9 +700,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       lock: () => void this.lock(),
       unlock: () => void this.unlock(),
       // (The drone-fill hook is GONE — Story 5.6, amendment 41 deleted the
-      // match-start fill outright. PvE fleets are world content on their own
-      // wave clock inside the World, hold no PlayerMeta row, and never top up
-      // a roster.)
+      // match-start fill outright; Story 10.8 retired the PvE fleet itself.)
       broadcastResults: (msg: ResultsMsg) => {
         // Cache before broadcasting (finding F2): a captain in grace isn't in
         // this.clients, so onDrop's resume handler re-sends this to them.
@@ -903,9 +899,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.resolveCallsignCollision(name);
 
     // A joining CLIENT is always a captain (Story 6.3's role seam, amendment
-    // 13): the socket is the proof. Fleet hulls are world content spawned by
-    // World itself and never reach this door; Story 6.4's AI captains will not
-    // either.
+    // 13): the socket is the proof. Story 6.4's AI captains never reach this
+    // door either.
     // `devFit` (Story 8.10, amendment 65) is EMPTY on every production path —
     // the dev gate strips `fitOverride` and the queue never forwards it — so
     // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.

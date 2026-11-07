@@ -50,11 +50,6 @@ function bot(w: World, id: string): ShipRecord {
   return w.addShip(id, id.toUpperCase(), 'bot', 'bismarck', undefined, undefined);
 }
 
-/** A PvE fleet hull — world content, never draws, no economy. */
-function fleet(w: World, id: string): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'fleet', 'droneSmall', undefined, undefined);
-}
-
 const ptIds = (w: World): string[] => w.tickEvents.filter((e) => e.k === 'pt').map((e) => e.id);
 
 /** The countdown, as the sim sees it: Match sets this flag and nothing else
@@ -66,12 +61,11 @@ function openCountdown(w: World): void {
 // ---------- the level-zero grant ---------------------------------------------
 
 describe('grantOpening — one banked level and a hand, participants only', () => {
-  it('captains and bots bank LV 0 / pts 1 / xp 0 / offer[4]; fleet hulls get NOTHING', () => {
+  it('captains and bots bank LV 0 / pts 1 / xp 0 / offer[4]', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
     const b = captain(w, 'b', 'yamato');
     const ai = bot(w, 'bot-1');
-    const drone = fleet(w, 'fleet-1');
 
     w.grantOpening();
 
@@ -84,9 +78,6 @@ describe('grantOpening — one banked level and a hand, participants only', () =
       expect(new Set(s.offer!).size, s.id).toBe(CONFIG.offer.size); // four distinct lines
       for (const id of s.offer!) expect(isStubLine(id), id).toBe(false);
     }
-    // A fleet hull never draws: it has no refit surface to spend a level on.
-    expect(drone.bankedLevels).toBe(0);
-    expect(drone.offer).toBeNull();
   });
 
   it('the hand is the four-slot plan: a ship line, then a bare weapon the hull can take', () => {
@@ -107,7 +98,6 @@ describe('grantOpening — one banked level and a hand, participants only', () =
     const w = bareWorld();
     captain(w, 'a');
     bot(w, 'bot-1');
-    fleet(w, 'fleet-1');
     w.grantOpening();
     w.step(); // the pending -> events swap is step()'s epilogue (amendment 63d)
     expect(ptIds(w).sort()).toEqual(['a', 'bot-1']);
@@ -210,16 +200,6 @@ describe('mulligan — the one free redraw at the start line', () => {
     expect(w.spendPoint('bot-1', MULLIGAN_CHOICE)).toBe(false);
     expect(ai.offer).toBe(hand);
     expect(ai.mulliganed).toBe(false);
-  });
-
-  it('a FLEET hull is refused — it never had a hand to throw back', () => {
-    const w = bareWorld();
-    const drone = fleet(w, 'fleet-1');
-    openCountdown(w);
-    w.grantOpening();
-    expect(w.spendPoint('fleet-1', MULLIGAN_CHOICE)).toBe(false);
-    expect(drone.offer).toBeNull();
-    expect(drone.bankedLevels).toBe(0);
   });
 
   it('NO OFFER, no redraw: a spent hand cannot be mulliganed back', () => {
@@ -532,16 +512,12 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     expect(c.cards.filter((id) => id === 'nope' || id === 'depthCharge')).toEqual([]);
   });
 
-  it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
+  it('NEVER a bot — the same option buys it nothing', () => {
     const w = bareWorld();
     const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'bismarck', undefined, undefined, DEFAULT_SHIFT, ['heavyTorpedo']);
-    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_SHIFT, ['heavyTorpedo']);
-    for (const s of [ai, drone]) {
-      expect(s.devFit, s.id).toEqual([]);
-      expect(s.cards, s.id).toEqual([]);
-    }
+    expect(ai.devFit).toEqual([]);
+    expect(ai.cards).toEqual([]);
     expect(slotIds(ai)).toEqual(['mainBattery', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
-    expect(slotIds(drone)[1]).toBeNull(); // a drone never even grows a boost
   });
 
   it('DROPS an unknown id and a STUB line — the two the catalog refuses', () => {

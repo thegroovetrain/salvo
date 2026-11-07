@@ -46,7 +46,6 @@ export interface BatchAggregate {
   endedBy: Record<string, number>;
   stormDeathsTotal: number;
   stormDeaths: Summary;
-  killsByVictimTier: Record<string, number>;
   killsPerCaptain: Summary;
   deathsPerCaptain: Summary;
   finalLevel: Summary;
@@ -130,14 +129,6 @@ function beaconLevelsByClass(captains: readonly { cls: string; beaconXpLevels: n
   return out;
 }
 
-function sumByKey(records: readonly Record<string, number>[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const rec of records) {
-    for (const key of Object.keys(rec)) out[key] = (out[key] ?? 0) + rec[key];
-  }
-  return out;
-}
-
 /** Resolved-only conclusion evidence (Story 3.4): the duration summary and the
  *  past-closure rate, both over matches that actually CONCLUDED. Reads the LIVE
  *  CONFIG.zone (so a --set zone.* override moves the closure threshold with the
@@ -181,7 +172,6 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     endedBy,
     stormDeathsTotal: stormDeaths.reduce((a, b) => a + b, 0),
     stormDeaths: summarize(stormDeaths),
-    killsByVictimTier: sumByKey(matches.map((m) => m.killsByVictimTier)),
     killsPerCaptain: summarize(captains.map((c) => c.kills)),
     deathsPerCaptain: summarize(captains.map((c) => c.deaths)),
     finalLevel: summarize(captains.map((c) => c.finalLevel)),
@@ -228,7 +218,6 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   lines.push(`endedBy: ${countLine(agg.endedBy)}`);
   lines.push(`winner class: ${countLine(agg.winnerClass)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);
-  lines.push(`captain kills by victim tier: ${countLine(agg.killsByVictimTier)}`);
   lines.push(`beacon hulls-in-range (paying beacon-ticks): ${histLine(agg.beaconInRangeHist)}`);
   // A BOT-ONLY LOBBY has no captain rows at all, and printing 20 lines of
   // all-zero economy summaries under a bot campaign would read as evidence

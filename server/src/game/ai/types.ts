@@ -256,8 +256,8 @@ export interface BotBeaconGoal {
 /**
  * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
  * its per-tick entries, and nothing else. World builds it with
- * game/botPort.ts `makeBotPort` (an object of delegating getters) beside
- * FleetController; the driver only ever stores it as this type.
+ * game/botPort.ts `makeBotPort` (an object of delegating getters); the
+ * driver only ever stores it as this type.
  *
  * WIDENING RULE. The cycle-110 line "the port may not widen past this one
  * boolean" (zoneEndgameReached) is SUPERSEDED by epic-9 amendment 190 (Eric
@@ -416,11 +416,8 @@ export interface RememberedContact {
   sunk: boolean;
   /** Hull class if the source disclosed one, else null (radar blips are
    *  identity-free by ruling). Drives the rear-quarter mine-layer exception
-   *  in wave-3 tactics and the participant-vs-fleet split below. */
+   *  in wave-3 tactics. */
   cls: HullId | null;
-  /** True when the disclosed class is a PvE fleet hull rather than a
-   *  participant. Unknown class = false (assume a captain: the safer read). */
-  fleet: boolean;
   /** Server ms this track was FIRST acquired — the reaction gate's input.
    *  Survives every refresh; a forgotten-then-reacquired track starts over,
    *  which is correct (you did lose the plot). */

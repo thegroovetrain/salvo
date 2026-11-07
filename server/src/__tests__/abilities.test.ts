@@ -2,8 +2,8 @@
 // epic-10 amendment 11, R1–R3, R5): HULL REPAIR (`C`) and SMOKE (`V`) are
 // per-ship cooldowns driven by `InputMsg.act` on an actSeq edge — fixed for
 // every hull, never shortened by RELOAD, never touched by INSTANT RELOAD,
-// ready at spawn and again at every fresh life. Plus R5: a drone kill pays XP
-// only — no drop, no card.
+// ready at spawn and again at every fresh life. (R5's "a drone kill pays XP
+// only" case left with the PvE fleet, Story 10.8.)
 //
 // The press / refusal / denial wire matrix lives in denials.test.ts and the
 // SMOKE cloud in countermeasure.test.ts; the own-frame privacy of the two
@@ -134,22 +134,5 @@ describe('both abilities are READY again at every fresh life', () => {
     w.resetForMatchStart();
     expect(a.repairReadyAt).toBe(0);
     expect(a.smokeReadyAt).toBe(0);
-  });
-});
-
-describe('a drone kill pays XP only (R5) — no drop, no card', () => {
-  it('sinking a PvE drone credits the kill and changes no card; no drop event exists', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
-    d.state = { x: 300, y: 0, heading: 0, speed: 0 };
-    const cards = [...a.cards];
-    const gate = w as unknown as { applyDamage(v: ShipRecord, n: number, s: 'shell', by: string): void };
-    gate.applyDamage(d, d.stats.maxHp * 10, 'shell', 'a');
-    w.step();
-    expect(a.pveKills[d.hullId]).toBe(1); // the kill was credited
-    expect(a.cards).toEqual(cards);
-    const kinds = new Set(w.tickEvents.map((e: GameEvent) => e.k as string));
-    expect(kinds.has('dp')).toBe(false);
   });
 });

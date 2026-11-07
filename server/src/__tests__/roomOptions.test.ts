@@ -196,10 +196,10 @@ describe('sanitizeRoomOptions — fitOverride (the dev spawn fit)', () => {
 });
 
 
-// --- spawnOverride + matchOverride.fleetWaves (Story 9.15) -------------------
-// The two dev-door keys a SCRIPTED smoke needs: a captain's placement pose and
-// a switch that keeps the PvE wave scheduler out of a scripted fight. Same gate
-// as every dev key; PRODUCTION MUST NEVER SEE EITHER.
+// --- spawnOverride (Story 9.15) ----------------------------------------------
+// The dev-door key a SCRIPTED smoke needs: a captain's placement pose. Same
+// gate as every dev key; PRODUCTION MUST NEVER SEE IT. (Its sibling, the
+// fleetWaves switch, retired with the PvE fleet at Story 10.8.)
 
 describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
   const R = mapRadius(CONFIG.map.playerCap); // the radius every room's World is built at
@@ -249,20 +249,6 @@ describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
   it('no rejection noise when the caller passed no pose', () => {
     expect(sanitizeRoomOptions({}, true).sanitized.spawnOverride).toBeUndefined();
     expect(sanitizeRoomOptions({}, false).rejectedKeys).toEqual([]);
-  });
-});
-
-describe('sanitizeRoomOptions — matchOverride.fleetWaves (the dev no-fleet switch)', () => {
-  it('fleetWaves: false survives under devEnabled', () => {
-    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, fleetWaves: false } }, true);
-    expect(out.sanitized.matchOverride?.fleetWaves).toBe(false);
-    expect(out.rejectedKeys).toEqual([]);
-  });
-
-  it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
-    const out = sanitizeRoomOptions({ matchOverride: { fleetWaves: false } }, false);
-    expect(out.sanitized.matchOverride).toBeUndefined();
-    expect(out.rejectedKeys).toEqual(['matchOverride']);
   });
 });
 

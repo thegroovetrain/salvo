@@ -24,12 +24,10 @@ export const SURFACE_MS = B.surfaceMs;
 export const SINK_MS = B.surfaceMs + B.floatMs;
 export const GONE_MS = B.surfaceMs + B.floatMs + B.sinkMs;
 
-/** Open water: no islands, flat raster (nothing shadows, nothing blocks) —
- *  and NO PvE FLEET: these cases anchor the zone clock in the past, which is
- *  also the wave scheduler's clock, and a drone wandering into a beacon would
- *  be a second hull in a case that counts hulls. */
+/** Open water: no islands, flat raster (nothing shadows, nothing blocks).
+ *  These cases anchor the zone clock in the past, so the beacon rows run. */
 export function bareWorld(seed = 1008, opts?: WorldOptions, zoneCfg: ZoneTimeline = CONFIG.zone): World {
-  const w = new World(seed, CONFIG.map.playerCap, zoneCfg, { fleetWaves: false, ...opts });
+  const w = new World(seed, CONFIG.map.playerCap, zoneCfg, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;

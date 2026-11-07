@@ -28,11 +28,10 @@ const SIM_DT = CONFIG.tick.simDtMs;
 
 const SUMMARY: MatchEndSummary = {
   rosterSize: 6,
-  rosterByClass: { torpedoBoat: 2, battleship: 2, droneSmall: 2 },
+  rosterByClass: { torpedoBoat: 2, battleship: 4 },
   durationS: 42.5,
   winnerClass: 'bismarck',
-  killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
-  pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 44) — keyed by VICTIM hull
+  killsByClass: { torpedoBoat: 5, battleship: 0 },
   beaconXpMsByClass: { torpedoBoat: 1500 }, // Story 10.8 — keyed by the EARNER's hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',

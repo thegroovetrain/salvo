@@ -23,8 +23,8 @@
 //      never chased (engaged only from where the bot is, if in reach); with
 //      the close under CONFIG.bots.ringOpenMarginMs no fight is opened.
 //   7. NO LINE OF FIRE -> pursue (unchanged; wave 2 routes it).
-//   8. A fleet prize the profile values -> farm (unchanged; with a target,
-//      `farm` still means "shoot the fleet track" until the drones retire).
+//   8. (Retired at Story 10.8 with the PvE fleet: the fleet-prize `farm`.
+//      `farm` is now the target-less beacon farm of clause 4 alone.)
 //   9. IN OWN REACH -> engage. BEYOND IT, THE ODDS GATE (amendments 194–195):
 //      pass -> pursue; fail -> lean in (raider / duelist at
 //      CONFIG.bots.leanInFactor of the bar), else SHADOW at own reach (`kite`)
@@ -168,8 +168,6 @@ function engagement(sit: BotSituation, target: BotTrack | null, prev: BotPosture
   const inReach = Math.hypot(p.x - sit.x, p.y - sit.y) <= ownReachU(sit);
   if (!inReach && closeImminent(sit, inp)) return 'reposition';
   if (lineBlocked(sit, p, sit.islands)) return 'pursue';
-  const w = sit.profile.targetWeights;
-  if (target.fleet && w.fleet >= w.captain) return 'farm';
   if (inReach) return 'engage';
   return beyondReach(sit, target, p, prev, inp);
 }
@@ -273,11 +271,12 @@ export function outnumbered(
 }
 
 /** Other HOSTILE tracks within the bot's radar range: not the target, not a
- *  wreck, not PvE fleet (the decoy exclusion left with the buoys, Story 10.5). */
+ *  wreck (the decoy exclusion left with the buoys, Story 10.5; the PvE fleet
+ *  exclusion with the fleet, Story 10.8). */
 export function nearbyHostiles(sit: BotSituation, target: BotTrack, tracks: readonly BotTrack[]): number {
   let n = 0;
   for (const t of tracks) {
-    if (t === target || t.sunk || t.fleet) continue;
+    if (t === target || t.sunk) continue;
     const p = plotAt(sit, t);
     if (Math.hypot(p.x - sit.x, p.y - sit.y) <= sit.stats.radarRange) n += 1;
   }

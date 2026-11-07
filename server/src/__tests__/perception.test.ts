@@ -8,9 +8,9 @@
 // range, and the mz flash inside the observer-scaled 6/12 halo (radar ×
 // muzzleFlashFactor, Story 9.8; SIGHT*1.25 under the eighths) with island LOS; PV 23's 4th declared exception, the
 // PUBLIC REGISTER `sunk` row:
-// a human captain's sinking is identity-only public, a drone's reaches only
-// a witness or its killer, and the per-observer `seen` flag may be present
-// only when the witness predicate holds — see verifySunk; plus DAMAGE
+// every sinking is identity-only public (every hull is a participant since
+// Story 10.8), and the per-observer `seen` flag may be present only when the
+// witness predicate holds — see verifySunk; plus DAMAGE
 // CONTROL's healer-private `heal` and the owner-only `repairHp` pool,
 // neither of which may ever reach another observer; Story 4.4's FIFTH
 // declared exception, the anonymous `sm` wounded-smoke pulse inside the same
@@ -1234,9 +1234,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     // register), WITHOUT the spatial license: no `seen`.
     expect(fa.events.filter((e) => e.k === 'boom')).toEqual([]);
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
-    // `vcls` (Story 5.6, amendment 43) rides to the CREDITED KILLER, appended
-    // LAST — the killer learns WHAT they sank even having never seen it.
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', vcls: DEFAULT_CLASS_ID }]);
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
   });
 
   it('a boom within sight is visible; a witnessed sinking carries seen: true', () => {
@@ -1249,9 +1247,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.step();
     const fa = buildFrame(w, 'a');
     expect(fa.events.filter((e) => e.k === 'boom')).toHaveLength(1);
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'b', by: 'a', seen: true, vcls: DEFAULT_CLASS_ID },
-    ]);
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
     // dmg stays victim-private even when the boom is visible.
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
     const fc = buildFrame(w, 'c');
@@ -1261,31 +1257,10 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     expect(fc.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
   });
 
-  it('the public register: a drone fog kill reaches its killer but NOT a bystander', () => {
-    const w = bareWorld();
-    place(w, 'a', 0, 0); // the killer
-    place(w, 'c', 0, 800); // an uninvolved, out-of-sight bystander
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    d.state.x = ANNULUS_D; // far outside everyone's sight
-    d.state.y = 0;
-    w.sinkShip('d1', 'a');
-    w.step();
-    // The killer learns its trap/round connected — no `seen` (never witnessed).
-    // ...and `vcls` names WHICH drone (Story 5.6, amendment 43): with fleet
-    // hulls off the roster this is the only way the killer can know.
-    expect(buildFrame(w, 'a').events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'd1', by: 'a', vcls: 'droneSmall' },
-    ]);
-    // The bystander receives NOTHING: drones are not on the public register.
-    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([]);
-  });
-
-  it('a WITNESSED drone sinking arrives with seen: true (today\'s rule, unchanged)', () => {
+  it('a WITNESSED sinking arrives with seen: true for a witness who did not fire the shot', () => {
     const w = bareWorld();
     place(w, 'c', 0, 0); // a witness who did not fire the shot
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    d.state.x = 100; // inside c's sight bubble
-    d.state.y = 0;
+    place(w, 'd1', 100, 0); // inside c's sight bubble
     w.sinkShip('d1', 'a');
     w.step();
     expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([
@@ -1317,8 +1292,8 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.step();
     // Killer (credited, unwitnessed): the channel arrives WITHOUT `seen`, LAST.
     const ka = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v', vcls: DEFAULT_CLASS_ID }]);
-    expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty', 'vcls']); // vcls LAST
+    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v' }]);
+    expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty']); // bty LAST
     // Victim (own hull => witnessed): seen AND bty, bty still last.
     const kb = buildFrame(w, 'b').events.filter((e) => e.k === 'sunk');
     expect(kb).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true, bty: 'v' }]);
@@ -1329,7 +1304,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     expect(kc).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v' }]);
   });
 
-  it('the BOUNTY channel: `bty: "k"` (the LEADER did the sinking) rides identically too — including on a DRONE wreck', () => {
+  it('the BOUNTY channel: `bty: "k"` (the LEADER did the sinking) rides identically too', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the throne holder — the killer this time
     place(w, 'b', ANNULUS_D, 0); // a captain victim
@@ -1340,24 +1315,17 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.sinkShip('b', 'a'); // the LEADER sinks a captain in fog
     w.step();
     const ka = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k', vcls: DEFAULT_CLASS_ID }]);
-    expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty', 'vcls']); // vcls LAST
+    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k' }]);
+    expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty']); // bty LAST
     const kc = buildFrame(w, 'c').events.filter((e) => e.k === 'sunk');
     expect(kc).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k' }]); // observer-independent
-    // The leader sinks a DRONE: `bty: 'k'` legitimately rides the (private)
-    // drone wreck — the event reaches only the witness and the killer, both
-    // of whom already know the leader's identity from the public
-    // ArenaState.bountyId, and `by` is already on the line. The out-of-sight
-    // bystander gets NOTHING: drone sinkings are not public.
-    const d = w.addShip('d', 'D', 'fleet', undefined, undefined, undefined); // a drone, in the leader's sight
-    d.state.x = 200;
-    d.state.y = 0;
-    d.state.speed = 0;
+    // The leader sinks a hull IN SIGHT: `seen` rides beside `bty`, bty last.
+    const d = place(w, 'd', 200, 0);
     w.sinkShip('d', 'a');
     w.step();
     const kd = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(kd).toEqual([{ k: 'sunk', id: 'd', by: 'a', seen: true, bty: 'k', vcls: DEFAULT_CLASS_ID }]);
-    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([]);
+    expect(kd).toEqual([{ k: 'sunk', id: 'd', by: 'a', seen: true, bty: 'k' }]);
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'd', by: 'a', bty: 'k' }]);
   });
 
   it('a boom whose victim center is out of sight arrives WITHOUT hit (straddle)', () => {
@@ -1883,9 +1851,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
       { k: 'boom', id: 's1', hit: 'b', x: expect.any(Number), y: expect.any(Number) },
     ]);
     // Wreck inside the owned zone => the sunk arrives WITNESSED (seen: true).
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'b', by: 'a', seen: true, vcls: DEFAULT_CLASS_ID },
-    ]);
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
     // dmg stays victim-private even under the zone (truesight parity, not omniscience).
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
   });
@@ -2178,324 +2144,48 @@ describe('perception — foulZones channel (Story 9.4: the burn-zone gate, a cir
   });
 });
 
-// ---------- Story 5.6: the self-private aggro mark (directed) -----------------
+// ---------- Story 10.8: the fleet's three wire keys are GONE (directed) ------
+//
+// `Contact.aggro` (Story 5.6, amendment 40), `SunkEvent.vcls` (amendment 43)
+// and `SunkEvent.kcls` (Story 7.6) were the PvE fleet's keys: the self-private
+// hunting mark, the victim's hull id to a killer who could hold no roster row
+// for it, and a PvE killer's hull id. With the fleet retired the server sets
+// none of them — the shared wire type keeps them optional until the shared
+// cut, so the pin lives here (and in the invariant's oracles above).
 
-describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 40)', () => {
-  /** Register a PvE fleet hull at an exact pose (the wave spawner's own seam). */
-  function fleet(w: World, id: string, x: number, y: number): ShipRecord {
-    const rec = w.addShip(id, 'DRONE', 'fleet', 'droneMedium', undefined, { x, y });
-    rec.state.speed = 0;
-    w.drones.add(id, 'medium', 1, { x: 0, y: 0 });
-    return rec;
-  }
-
-  /** The one contact for `id` in `viewer`'s frame. */
-  function contactOf(w: World, viewer: string, id: string): Contact {
-    const c = buildFrame(w, viewer, 'active').contacts.find((x) => x.id === id);
-    expect(c, `${viewer} should see ${id}`).toBeDefined();
-    return c!;
-  }
-
-  it('the HUNTED captain gets it; a THIRD-PARTY watching the same hull never does', () => {
-    const w = bareWorld();
-    const f = fleet(w, 'f', 0, 0);
-    place(w, 'hunted', 100, 0);
-    place(w, 'bystander', -100, 0);
-    // Both captains can see the fleet hull — identical vision, one difference.
-    expect(contactOf(w, 'hunted', 'f').aggro).toBeUndefined();
-    expect(contactOf(w, 'bystander', 'f').aggro).toBeUndefined();
-
-    w.drones.onDamaged('f', 'hunted', false); // it acquires `hunted`
-    expect(w.drones.targetOf('f')).toBe('hunted');
-
-    const mine = contactOf(w, 'hunted', 'f');
-    expect(mine.aggro).toBe(true);
-    expect(Object.keys(mine)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls', 'aggro']);
-
-    const theirs = contactOf(w, 'bystander', 'f');
-    expect('aggro' in theirs).toBe(false); // OMITTED, not false
-    expect(Object.keys(theirs)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls']);
-    expect(f.role).toBe('fleet');
-  });
-
-  it('a SPECTATOR never receives it, even for the hull that was hunting them', () => {
-    const w = bareWorld();
-    fleet(w, 'f', 0, 0);
-    const dead = place(w, 'dead', 100, 0);
-    w.drones.onDamaged('f', 'dead', false);
-    expect(w.drones.targetOf('f')).toBe('dead');
-    // Drive the captain all the way to `sunk` so frames.ts routes them onto
-    // the unfogged spectator path.
-    w.respawnEnabled = false;
-    w.sinkShip('dead');
-    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs) + 2; i++) w.step();
-    expect(isAfloat(dead.lifecycle)).toBe(false);
-    const frame = buildFrame(w, 'dead', 'active');
-    expect(frame.spec).toBe(true);
-    for (const c of frame.contacts) expect('aggro' in c).toBe(false);
-  });
-
-  it('a CAPTAIN contact never carries it, however the field is arranged', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    place(w, 'b', 100, 0);
-    // Even with the controller asked directly about two captains, the answer
-    // is structurally false: only fleet hulls have minds.
-    expect(w.drones.isTargeting('b', 'a')).toBe(false);
-    expect('aggro' in contactOf(w, 'a', 'b')).toBe(false);
-    expect(a.role).toBe('captain');
-  });
-
-  it('the mark CLEARS the moment the hull loses its target (memory expiry)', () => {
-    const w = bareWorld();
-    const f = fleet(w, 'f', 0, 0);
-    const cap = place(w, 'cap', 100, 0);
-    w.drones.onDamaged('f', 'cap', false);
-    expect(contactOf(w, 'cap', 'f').aggro).toBe(true);
-    // Break contact and hold the pose: after memoryMs the target is dropped,
-    // and the mark must vanish with it (no stale attribute on the wire).
-    for (let i = 0; i < Math.ceil(CONFIG.fleet.memoryMs / CONFIG.tick.simDtMs) + 4; i++) {
-      cap.state.x = 100;
-      cap.state.y = 0;
-      f.state.x = 3000; // out of the fleet hull's sight
-      f.state.y = 0;
-      w.step();
-    }
-    expect(w.drones.targetOf('f')).toBeNull();
-    f.state.x = 0; // back into view, still un-targeted
-    f.state.y = 0;
-    expect('aggro' in contactOf(w, 'cap', 'f')).toBe(false);
-  });
-});
-
-// ---------- Story 5.6: SunkEvent.vcls, killer-only (directed) ------------------
-
-describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amendment 43)', () => {
+describe('perception — the retired fleet keys never ride the wire (Story 10.8)', () => {
   /** The sunk rows in one observer's frame this tick. */
   function sunkRows(w: World, viewer: string, phase: MatchPhase = 'active'): SunkEvent[] {
     return buildFrame(w, viewer, phase).events.filter((e): e is SunkEvent => e.k === 'sunk');
   }
 
-  it('the killer learns the class of a fleet hull they NEVER SAW (the mine case)', () => {
+  it('a sighted contact carries no `aggro`, whoever is looking', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 150, 0);
+    place(w, 'c', 0, 150);
+    w.step();
+    for (const viewer of ['a', 'b', 'c']) {
+      for (const c of buildFrame(w, viewer, 'active').contacts) expect('aggro' in c, `${viewer} -> ${c.id}`).toBe(false);
+    }
+  });
+
+  it('a sinking carries no `vcls` / `kcls` — not to the credited killer, not to a witness, not to a spectator', () => {
     const w = bareWorld();
     const killer = place(w, 'killer', 0, 0);
-    // 2000u away — far outside sight (330u) and outside radar (660u) alike.
-    // This is precisely the disclosure the client cannot reconstruct: no
-    // roster row, no contact, no blip, and the wreck was never rendered.
-    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 });
+    place(w, 'bystander', 100, 0);
+    const victim = place(w, 'rival', 3000, 0); // unsighted by everyone
     expect(sighted(w, killer, victim.state)).toBe(false);
-    w.sinkShip('f', 'killer');
-    w.step();
-    const rows = sunkRows(w, 'killer');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].vcls).toBe('droneSmall');
-    expect(rows[0].seen).toBeUndefined(); // and NOT witnessed — no spatial licence
-    expect(Object.keys(rows[0])).toEqual(['k', 'id', 'by', 'vcls']); // key ORDER pinned
-  });
-
-  it('a third party who WITNESSED the same sinking gets the row WITHOUT vcls', () => {
-    const w = bareWorld();
-    place(w, 'killer', 0, 0);
-    const bystander = place(w, 'bystander', 100, 0);
-    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 });
-    expect(sighted(w, bystander, victim.state)).toBe(true); // genuinely watched it go down
-    w.sinkShip('f', 'killer');
-    w.step();
-    const theirs = sunkRows(w, 'bystander');
-    expect(theirs).toHaveLength(1);
-    expect('vcls' in theirs[0]).toBe(false); // OMITTED, not undefined
-    expect(theirs[0].seen).toBe(true); // they DID witness it — the two are independent
-    expect(sunkRows(w, 'killer')[0].vcls).toBe('droneLarge'); // ...and the killer still gets it
-  });
-
-  /** Sink `id` and run the sinking window out, so their next frame is the
-   *  unfogged spectator view (frame.spec === true). */
-  function spectateOut(w: World, id: string, by: string): void {
-    w.respawnEnabled = false;
-    w.sinkShip(id, by);
-    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs) + 2; i++) w.step();
-  }
-
-  it('a SPECTATOR who is not the killer never receives it', () => {
-    const w = bareWorld();
-    const watcher = place(w, 'watcher', 100, 0);
-    place(w, 'killer', 0, 0);
-    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 150, y: 0 });
-    spectateOut(w, 'watcher', 'killer');
-    expect(isAfloat(watcher.lifecycle)).toBe(false);
-    w.sinkShip('f', 'killer'); // someone ELSE's kill, while they watch
-    w.step();
-    const frame = buildFrame(w, 'watcher', 'active');
-    expect(frame.spec).toBe(true);
-    const rows = frame.events.filter((e): e is SunkEvent => e.k === 'sunk');
-    expect(rows).toHaveLength(1);
-    expect('vcls' in rows[0]).toBe(false); // the unfogged view is not a licence
-  });
-
-  it('a SPECTATOR who IS the credited killer DOES receive it (the mine you laid before you died)', () => {
-    // The view mode is NOT a gate (orchestrator ruling, review gate): amendment
-    // 43's "witnesses and spectators included" names observers who are not the
-    // killer. A mine laid before you went down, tripped by a fleet ship while
-    // you spectate, is exactly the kill "I want to know the kills I get when I
-    // get them" is about — and the SIZE is the payout.
-    const w = bareWorld();
-    const killer = place(w, 'killer', 0, 0);
-    place(w, 'watcher', 100, 0);
-    // 2000u away: never sighted, and now the killer has no hull to see with.
-    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 });
-    spectateOut(w, 'killer', 'watcher');
-    expect(isAfloat(killer.lifecycle)).toBe(false);
-    w.sinkShip('f', 'killer'); // the trap springs posthumously
-    w.step();
-    const frame = buildFrame(w, 'killer', 'active');
-    expect(frame.spec).toBe(true);
-    const rows = frame.events.filter((e): e is SunkEvent => e.k === 'sunk');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].vcls).toBe('droneMedium');
-    expect(Object.keys(rows[0])).toEqual(['k', 'id', 'by', 'seen', 'vcls']); // key ORDER pinned
-    // The BICONDITIONAL, restated on the spectator path: verifySunk's own
-    // `vcls` clause is mode-free and would pass here, but the rest of that
-    // oracle re-derives the WITNESS geometry, which the unfogged path stamps
-    // unconditionally — so the vcls half is asserted directly instead of
-    // running a fogged-frame oracle over a spec frame.
-    const creditedToMe = rows[0].by === 'killer';
-    expect(creditedToMe).toBe(true);
-    expect('vcls' in rows[0]).toBe(creditedToMe);
-    expect(rows[0].vcls).toBe(w.ships.get('f')!.hullId);
-  });
-
-  it('a CAPTAIN victim carries it to their killer too — the rule is uniform', () => {
-    const w = bareWorld();
-    place(w, 'killer', 0, 0);
-    place(w, 'rival', 3000, 0); // unsighted, exactly like the fleet case
     w.sinkShip('rival', 'killer');
     w.step();
-    expect(sunkRows(w, 'killer')[0].vcls).toBe(DEFAULT_CLASS_ID);
-  });
-
-  it('a STORM death (no killer) carries it to nobody', () => {
-    const w = bareWorld();
-    place(w, 'watcher', 0, 0);
-    w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
-    w.sinkShip('f'); // unattributed
-    w.step();
-    const rows = sunkRows(w, 'watcher');
-    expect(rows).toHaveLength(1);
-    expect('vcls' in rows[0]).toBe(false);
-    expect('by' in rows[0]).toBe(false);
-  });
-});
-
-// ---------- Story 7.6: SunkEvent.kcls, fleet killers only (directed) ----------
-
-describe('perception — SunkEvent.kcls names a FLEET killer and never a captain (Story 7.6)', () => {
-  /** The sunk rows in one observer's frame this tick. */
-  function sunkRows(w: World, viewer: string, phase: MatchPhase = 'active'): SunkEvent[] {
-    return buildFrame(w, viewer, phase).events.filter((e): e is SunkEvent => e.k === 'sunk');
-  }
-
-  it('names the fleet hull that sank a captain — to EVERY client, unsighted (the ruling)', () => {
-    // Eric 2026-08-21: *"Yes I want to see that Bob was killed by SMALL DRONE if
-    // that's what happened."* A captain victim's sinking is PUBLIC, so the line
-    // renders on every client; the killer is 2000u away, so no observer holds a
-    // contact, a blip or a hull memo for it. Only the wire can answer.
-    const w = bareWorld();
-    const victim = place(w, 'bob', 0, 0);
-    const watcher = place(w, 'watcher', 60, 0);
-    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 });
-    expect(sighted(w, victim, drone.state)).toBe(false);
-    expect(sighted(w, watcher, drone.state)).toBe(false);
-    w.sinkShip('bob', 'f');
-    w.step();
-    for (const viewer of ['bob', 'watcher']) {
+    for (const viewer of ['killer', 'bystander']) {
       const rows = sunkRows(w, viewer);
-      expect(rows).toHaveLength(1);
-      expect(rows[0].kcls).toBe('droneSmall');
+      expect(rows, viewer).toHaveLength(1); // the public register (PV 23)
+      expect(Object.keys(rows[0]), viewer).toEqual(['k', 'id', 'by']);
     }
-    // OBSERVER-INDEPENDENT: identical value for the victim and the bystander.
-    expect(sunkRows(w, 'bob')[0].kcls).toBe(sunkRows(w, 'watcher')[0].kcls);
-    // KEY ORDER pinned, kcls LAST — after vcls, which the fleet killer does not
-    // receive here (it is not an observer).
-    expect(Object.keys(sunkRows(w, 'watcher')[0])).toEqual(['k', 'id', 'by', 'seen', 'kcls']);
-  });
-
-  it('A CAPTAIN KILLER IS NEVER NAMED — the constraint the whole design rests on', () => {
-    // A captain's hull class is not disclosed by this row, and this row is
-    // PUBLIC for a captain victim. Stamping `by`'s class unconditionally would
-    // broadcast every killer's build fact to the whole room.
-    const w = bareWorld();
-    place(w, 'killer', 0, 0);
-    place(w, 'victim', 3000, 0);
-    place(w, 'watcher', 60, 0);
-    w.sinkShip('victim', 'killer');
-    w.step();
-    for (const viewer of ['killer', 'victim', 'watcher']) {
-      const rows = sunkRows(w, viewer);
-      expect(rows).toHaveLength(1);
-      expect('kcls' in rows[0]).toBe(false); // OMITTED, not undefined
-    }
-  });
-
-  it('AN AI CAPTAIN (role "bot") IS NEVER NAMED EITHER — participants, not world content', () => {
-    // The gate reads the Story 6.3 role seam's FLEET-HULL reading, not "is not
-    // a human": a bot is a captain for every disclosure purpose.
-    const w = bareWorld();
-    const bot = w.addShip('ai', 'AI', 'bot', 'yamato', undefined, { x: 0, y: 0 });
-    expect(bot.role).toBe('bot');
-    place(w, 'victim', 3000, 0);
-    place(w, 'watcher', 60, 0);
-    w.sinkShip('victim', 'ai');
-    w.step();
-    for (const viewer of ['victim', 'watcher']) {
-      expect('kcls' in sunkRows(w, viewer)[0]).toBe(false);
-    }
-  });
-
-  it('a FLEET victim of a FLEET killer names the killer only on the rows that reach an observer', () => {
-    // Both halves on one row: `vcls` (the credited killer alone — here nobody,
-    // since the credited killer is a drone with no client) and `kcls`.
-    const w = bareWorld();
-    const watcher = place(w, 'watcher', 0, 0);
-    const target = w.addShip('t', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 });
-    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 });
-    expect(sighted(w, watcher, target.state)).toBe(true); // a drone sinking needs a witness
-    w.sinkShip('t', 'f');
-    w.step();
-    const rows = sunkRows(w, 'watcher');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].kcls).toBe('droneMedium');
-    expect('vcls' in rows[0]).toBe(false); // the watcher did not fire
-    expect(Object.keys(rows[0])).toEqual(['k', 'id', 'by', 'seen', 'kcls']);
-  });
-
-  it('a STORM death (no killer) and a SELF-SINK both carry it to nobody', () => {
-    const w = bareWorld();
-    const watcher = place(w, 'watcher', 0, 0);
-    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
-    expect(sighted(w, watcher, drone.state)).toBe(true);
-    w.sinkShip('f'); // unattributed
-    w.step();
-    expect('kcls' in sunkRows(w, 'watcher')[0]).toBe(false);
-    // A self-sink credits nobody (creditKill's own attribution rule), so a
-    // fleet hull that goes down on its own id must not name ITSELF as killer.
-    const w2 = bareWorld();
-    const w2watcher = place(w2, 'watcher', 0, 0);
-    const d2 = w2.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
-    expect(sighted(w2, w2watcher, d2.state)).toBe(true);
-    w2.sinkShip('f', 'f');
-    w2.step();
-    expect('kcls' in sunkRows(w2, 'watcher')[0]).toBe(false);
-  });
-
-  it('a killer whose record is already GONE omits the key rather than guessing', () => {
-    const w = bareWorld();
-    place(w, 'victim', 0, 0);
-    place(w, 'watcher', 60, 0);
-    w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 2000, y: 0 });
-    w.sinkShip('victim', 'f');
-    w.removeShip('f');
-    w.step();
-    expect('kcls' in sunkRows(w, 'watcher')[0]).toBe(false);
+    const spec = sunkRows(w, 'rival', 'finished'); // the victim, unfogged
+    expect(spec).toHaveLength(1);
+    expect('vcls' in spec[0] || 'kcls' in spec[0]).toBe(false);
   });
 });
 
@@ -2834,7 +2524,7 @@ function bothLevels(level: boolean): { held: boolean; sec: boolean } {
  *   (1) `tu` — a hull's turret ANGLES — rides ONLY a contact row (the row's
  *       own visibility gate is what the rest of this verifier proves), equals
  *       the shared encoding of THAT hull's turrets, and is absent on a hull
- *       with no battery (a drone);
+ *       with no battery;
  *   (2) reloads, heat, lock and the Shift ride NOTHING but `you`: the keys
  *       `turrets`, `reloadMsLeft`-bearing turret rows, `heat`, `locked`,
  *       `untilRoundMs` and `shift` appear nowhere else, and the round phase
@@ -3082,7 +2772,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     // OWNS (Story 1.7 firer-only truesight parity) — nothing else.
     expect(sighted(w, me, target.state) || zoneCovers(w, me, target.state)).toBe(true);
     expect({ x: c.x, y: c.y }).toEqual({ x: target.state.x, y: target.state.y });
-    verifyAggro(w, me, c, target);
+    verifyAggro(c);
   }
   for (const e of f.events) verifyEvent(w, me, e);
   for (const m of f.mines) verifyMine(w, me, m);
@@ -3171,27 +2861,14 @@ function verifyOwnWindows(w: World, me: ShipRecord, f: FrameMsg, withoutYou: obj
 }
 
 /**
- * THE SELF-PRIVATE AGGRO ORACLE (Story 5.6, epic-5 amendment 40) —
- * INDEPENDENTLY REIMPLEMENTED, in the style every declared exception in this
- * suite carries. `Contact.aggro` is NOT a seventh perception exception: it
- * discloses nothing spatial (the row only ran because the contact was already
- * visible), so it is verified as an ATTRIBUTE rule, both directions:
- *
- *   PRESENT  <=>  the contact is a PvE fleet hull whose current target is
- *                 THIS observer. Not "some observer" — this one.
- *   ABSENT   for every captain contact, every un-aggroed fleet hull, and
- *            every fleet hull hunting somebody else.
- *
- * And it is `true` or missing — never `false`, which would put a dead key on
- * the wire and (worse) make "no mark" and "mark says no" two different states.
+ * THE RETIRED AGGRO MARK (Story 5.6, epic-5 amendment 40 → Story 10.8): the
+ * self-private `Contact.aggro` key named a PvE fleet hull hunting THIS
+ * observer. The fleet is gone; the key must never appear on any contact —
+ * a stray `aggro` would be a dead key on the wire (the shared type still
+ * declares it as optional until the shared cut).
  */
-function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): void {
-  const hunted = target.role === 'fleet' && w.drones.targetOf(target.id) === me.id;
-  if (hunted) {
-    expect(c.aggro).toBe(true);
-  } else {
-    expect('aggro' in c).toBe(false);
-  }
+function verifyAggro(c: Contact): void {
+  expect('aggro' in c).toBe(false);
 }
 
 /** One EXPECTED return: the mask an independent oracle recomputes for a gated
@@ -3802,116 +3479,37 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
 
 // THE PUBLIC REGISTER (PV 23) — `sunk` is the 4th DECLARED exception to the
 // master invariant (after sp/hc/mz), reimplemented here independently of its
-// registry row: a HUMAN victim's sinking is identity-only PUBLIC (allowed
-// unconditionally); a DRONE victim reaches only a witness (sighted or
-// owned-zone — Story 1.7) or its credited killer; the victim itself always
-// hears of its own sinking; and the per-observer `seen` flag may be PRESENT
-// only when the witness predicate genuinely holds — `seen` is the client's
-// license to render spatially, so a wrongly-stamped flag IS a location leak.
-// INDEPENDENCE SCOPE: the claim above is honest only for the GEOMETRY terms —
-// `sighted`/`zoneCovers` are this file's own reimplementations. The drone
-// discrimination reads the same production `wreck.role` field the row
-// reads, and the credited clause is the same trivial `by === me` equality, so
-// a hull mis-flagged at construction (e.g. a future combat bot built through
-// the drone path) would put the row and this oracle in agreement on the same
-// wrong answer.
-/**
- * `kcls` (Story 7.6, Eric ruling 2026-08-21): THE KILLER'S HULL ID, and it may
- * name a PvE FLEET HULL AND NOTHING ELSE.
- *
- * THE POSITIVE ASSERTION IS THE POINT, not the biconditional around it: a
- * CAPTAIN'S CLASS MAY NEVER RIDE THIS FIELD. A captain's hull class is not
- * disclosed by the `sunk` row, and this row is PUBLIC for a captain victim, so
- * a stamping that read `by`'s class unconditionally would broadcast every
- * killer's build fact to every client in the room. That is the single failure
- * this oracle exists to catch, and it is asserted in BOTH directions:
- *   • present ⇒ the killer's record exists AND its role is `'fleet'` AND the
- *     value is exactly that hull's id (so it cannot name some third ship);
- *   • a live FLEET killer distinct from the victim ⇒ it MUST be present (so the
- *     feature cannot silently stop working), and by contraposition a live
- *     NON-fleet killer must NOT be.
- *
- * INDEPENDENCE SCOPE, stated as honestly as verifySunk's own: the role read is
- * the same `role` field production reads (spelled here as a literal `'fleet'`
- * comparison rather than through the `isFleetHull` seam the row calls, so a
- * change to that seam's meaning shows up as a disagreement here). A hull
- * mis-flagged at CONSTRUCTION would put both in agreement on the same wrong
- * answer — that is a world-construction invariant, pinned elsewhere.
- *
- * OBSERVER-INDEPENDENT: no clause below reads `me`. A per-observer stamping
- * would make it a second `seen` and leak witness geometry, and the directed
- * suite restates that by comparing two observers' rows for equality.
- */
-function verifySunkKillerClass(w: World, ev: SunkEvent): void {
-  // A self-sink credits nobody (creditKill's own attribution rule), so it is
-  // not a "killer" for this purpose and must never stamp.
-  const killer = ev.by !== undefined && ev.by !== ev.id ? w.ships.get(ev.by) : undefined;
-  const fleetKiller = killer !== undefined && killer.role === 'fleet';
-  if ('kcls' in ev) {
-    expect(killer).toBeDefined();
-    // THE GUARANTEE THE WHOLE DESIGN RESTS ON: never a captain, never a bot.
-    expect(killer!.role).toBe('fleet');
-    expect(fleetKiller).toBe(true);
-    expect(ev.kcls).toBe(killer!.hullId);
-  } else {
-    // The other direction: a live fleet killer MUST be named. Contrapositive of
-    // the clause above — a captain or bot killer lands here and stays unnamed.
-    expect(fleetKiller).toBe(false);
-  }
-}
-
+// registry row: a victim's sinking is identity-only PUBLIC (allowed
+// unconditionally — every hull is a participant since Story 10.8 retired the
+// PvE fleet, whose sinkings reached only a witness or the credited killer);
+// the victim itself always hears of its own sinking; and the per-observer
+// `seen` flag may be PRESENT only when the witness predicate genuinely holds
+// — `seen` is the client's license to render spatially, so a wrongly-stamped
+// flag IS a location leak. INDEPENDENCE SCOPE: the claim above is honest
+// only for the GEOMETRY terms — `sighted`/`zoneCovers` are this file's own
+// reimplementations.
 function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as SunkEvent;
-  // THE PAYLOAD PIN: because this event now reaches every fogged client, the
-  // wire shape itself is the anti-leak boundary — the keys must be a subset of
-  // exactly {k,id,by,seen,bty,vcls,kcls}. A positional (or any other) field
-  // added at the world emission, or a materialize() regression back to
-  // pass-through, fails HERE even though every visibility clause still holds.
-  for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen', 'bty', 'vcls', 'kcls']).toContain(key);
-  // `vcls` (Story 5.6, epic-5 amendment 43): THE VICTIM'S HULL ID, and the
-  // only class field this row may carry ABOUT THE VICTIM. Reimplemented here as a hard
-  // biconditional against the two clauses it is allowed to depend on — the
-  // observer is the CREDITED KILLER, and the wreck record still exists — so
-  // any leak to a bystander or to a witness who did not fire fails here.
-  // Deliberately NOT keyed on the wreck's ROLE: the rule is uniform across
-  // every victim, and a fleet-only stamping would fail this. And deliberately
-  // NOT keyed on the VIEW MODE either (orchestrator ruling, review gate): a
-  // spectator who IS the credited killer must get it, and the directed suite
-  // restates this same biconditional over a spec frame (this oracle itself is
-  // a FOGGED-frame audit — its witness clauses re-derive geometry the unfogged
-  // path stamps unconditionally — so it is not run there). A spectator who is
-  // not the killer still fails `creditedToMe`, and so must not get it.
-  const creditedToMe = ev.by !== undefined && ev.by === me.id;
-  const wreckNow = w.ships.get(ev.id);
-  if ('vcls' in ev) {
-    expect(creditedToMe).toBe(true); // never a bystander, never a spectator
-    expect(wreckNow).toBeDefined();
-    expect(ev.vcls).toBe(wreckNow!.hullId);
-  } else if (creditedToMe && wreckNow !== undefined) {
-    // The other direction: a killer with a live wreck record MUST get it.
-    expect('vcls' in ev).toBe(true);
-  }
-  verifySunkKillerClass(w, ev);
+  // THE PAYLOAD PIN: because this event reaches every fogged client, the wire
+  // shape itself is the anti-leak boundary — the keys must be a subset of
+  // exactly {k,id,by,seen,bty}. A positional (or any other) field added at the
+  // world emission, or a materialize() regression back to pass-through, fails
+  // HERE even though every visibility clause still holds. The two class
+  // stamps of Stories 5.6 / 7.6 (`vcls` — the victim's hull id to the
+  // credited killer; `kcls` — a PvE killer's hull id) RETIRED with the fleet
+  // at Story 10.8: a hull class never rides this row again, to anyone (the
+  // shared type keeps them optional until the shared cut; this pin is what
+  // keeps the server from setting them).
+  for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen', 'bty']).toContain(key);
   // `bty` (Story 4.6, 2026-08-10 rework): WHICH PARTICIPANT held the bounty
-  // throne at the pre-sink instant — 'v' the victim, 'k' the killer. Three
-  // independent checks, none reading the production row: the value is only
-  // ever literally 'v' or 'k' (a false/undefined-valued key is a wire
-  // regression — msgpack encodes it); `bty === 'v'` can never mark a DRONE
-  // wreck (a drone can never hold the throne, so a 'v'-flagged drone sinking
-  // would be a crowning bug surfacing on the wire) — while `bty === 'k'` MAY
-  // ride a drone wreck (the leader sinks a drone): that is not a leak,
-  // because that sunk event only reaches the witness and the killer, both of
-  // whom already know the leader's identity from the public
-  // ArenaState.bountyId, and `by` is already on the line; and it must be
-  // observer-INDEPENDENT, equal to the world's own pre-sink emission verbatim
-  // — a per-observer stamping would turn it into a second `seen` and leak
-  // witness geometry.
+  // throne at the pre-sink instant — 'v' the victim, 'k' the killer. Two
+  // independent checks, neither reading the production row: the value is
+  // only ever literally 'v' or 'k' (a false/undefined-valued key is a wire
+  // regression — msgpack encodes it), and it must be observer-INDEPENDENT,
+  // equal to the world's own pre-sink emission verbatim — a per-observer
+  // stamping would turn it into a second `seen` and leak witness geometry.
   const src = w.tickEvents.find((t) => t.k === 'sunk' && t.id === ev.id) as SunkEvent | undefined;
-  if ('bty' in ev) {
-    expect(['v', 'k']).toContain(ev.bty);
-    const flaggedWreck = w.ships.get(ev.id);
-    if (ev.bty === 'v' && flaggedWreck !== undefined) expect(flaggedWreck.role).not.toBe('fleet');
-  }
+  if ('bty' in ev) expect(['v', 'k']).toContain(ev.bty);
   if (src !== undefined) {
     expect('bty' in ev).toBe(src.bty !== undefined); // present iff the world emitted it
     expect(ev.bty).toBe(src.bty); // and identical for every observer, verbatim
@@ -3928,8 +3526,6 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
     return;
   }
   const witnessed = sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state);
-  // A drone sinking is NEVER public: witnessed, or this observer's own kill.
-  if (wreck.role === 'fleet') expect(witnessed || ev.by === me.id).toBe(true);
   // In EVERY case: `seen` present ⇒ the sight-or-owned-zone condition holds.
   if (ev.seen !== undefined) {
     expect(ev.seen).toBe(true); // never emitted as false

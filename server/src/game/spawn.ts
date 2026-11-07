@@ -120,8 +120,7 @@ function spawnCandidates(map: MapShape, offset: number): Vec2[] {
 
 // Min clearance between a spawn point and any island edge: the LARGEST hull
 // bounding radius (max distance from ship origin to any silhouette vert) over
-// EVERY hull id — player classes AND drone envelopes (drones spawn on the same
-// ring). Using the true silhouette radius (not length/2) covers hulls whose
+// EVERY hull id. Using the true silhouette radius (not length/2) covers hulls whose
 // stern corners reach past half-length, so any hull spawns fully island-clear.
 const MAX_HULL_RADIUS = Math.max(...HULL_IDS.map((id) => polygonMaxRadius(hullSilhouette(id))));
 
@@ -130,9 +129,9 @@ export const SPAWN_ISLAND_CLEARANCE = MAX_HULL_RADIUS;
 
 /**
  * Signed clearance from `p` to the nearest island COASTLINE (negative =
- * ashore). EXPORTED (Story 5.6) so the fleet-wave spawner scatters its nine
- * hulls against THE SAME clearance math the spawn ring uses — the one place
- * "is this water deep enough for a hull" is answered.
+ * ashore). EXPORTED (Story 5.6) so every other placement — today the RADIO
+ * BEACON tests — reads THE SAME clearance math the spawn ring uses — the one
+ * place "is this water deep enough for a hull" is answered.
  *
  * `islandDistance` carries the mandatory bounding-circle broadphase
  * itself: past `r + ISLAND_DIST_SLACK` (128u) it returns the cheap
@@ -222,14 +221,15 @@ function fallbackSpawn(map: MapShape, occupied: readonly Vec2[], offset: number)
 }
 
 // ---------------------------------------------------------------------------
-// FLEET ANCHORS (Story 5.6, amendment 37) — the SIBLING placement path.
+// ANCHORS (Story 5.6, amendment 37) — the SIBLING placement path. Born as
+// the PvE fleet-wave anchor; since Story 10.8 its one consumer is the RADIO
+// BEACON placement (World.placeBeacons), which keeps the rule and the name.
 // ---------------------------------------------------------------------------
 
-/** Samples drawn per anchor request. One pass, one tick; the retry budget
- *  (CONFIG.fleet.spawnRetryTicks) is what turns this into a real search. */
+/** Samples drawn per anchor request. One pass, one tick. */
 const FLEET_ANCHOR_SAMPLES = 256;
 
-/** One captain's intel disc — the region a fleet anchor must avoid. */
+/** One captain's intel disc — the region an anchor must avoid. */
 export interface IntelDisc {
   x: number;
   y: number;
@@ -239,19 +239,17 @@ export interface IntelDisc {
 }
 
 /** An anchor answer. `fallback` = no sampled point cleared every intel disc,
- *  so this is the plain max-min point instead (the caller decides whether to
- *  accept it now or retry next tick, and LOGS it when it does — the wave
- *  always arrives, and degrades visibly rather than silently). */
+ *  so this is the plain max-min point instead (the caller accepts it and
+ *  LOGS it — the placement always happens, and degrades visibly rather than
+ *  silently). */
 export interface FleetAnchor {
   x: number;
   y: number;
   fallback: boolean;
 }
 
-/** Is `p` inside ANY captain's intel disc? EXPORTED (Story 5.6, review gate)
- *  so the per-hull scatter rejects the same region the anchor does — one
- *  predicate, one place, no second derivation of "already in someone's
- *  intel". */
+/** Is `p` inside ANY captain's intel disc? One predicate, one place, no
+ *  second derivation of "already in someone's intel". */
 export function insideIntelDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
   for (const d of discs) {
     const dx = p.x - d.x;
@@ -262,7 +260,8 @@ export function insideIntelDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
 }
 
 /**
- * Pick a fleet anchor inside the live ring (Story 5.6, amendment 37).
+ * Pick an anchor inside the live ring (Story 5.6, amendment 37; the RADIO
+ * BEACON placement rule since Story 10.8).
  *
  * NOT a variant of pickSpawn: that places ONE hull on the spawn RING at match
  * start with no hard constraint at all (`occupied` only scores). This is the

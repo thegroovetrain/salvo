@@ -23,11 +23,11 @@ import { World } from '../game/world.js';
 describe('STEP_ORDER identity (exact ratified tick order)', () => {
   it('pins the exact row sequence by name', () => {
     expect(World.STEP_ORDER.map((row) => row.name)).toEqual([
-      'dronesTick',
-      // Story 6.4's combat-bot driver — the third deliberate insertion: the
-      // AI input rows (dronesTick + botsTick) sit IMMEDIATELY before
-      // applyInputs so bot input written this tick is consumed this tick,
-      // exactly as fleet input is. See the row comment in world.ts.
+      // Story 6.4's combat-bot driver — THE AI input row, row 0 and
+      // IMMEDIATELY before applyInputs so bot input written this tick is
+      // consumed this tick. (Its sibling `dronesTick`, the PvE fleet's row,
+      // retired with the fleet at Story 10.8 — a deliberate removal.) See the
+      // row comment in world.ts.
       'botsTick',
       'applyInputs',
       'stepShips',
@@ -96,15 +96,12 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // tickXp's own reasons (post-respawn afloat truth, after every damage
       // row, before the event swap). See the row comment in world.ts.
       'tickBeacons',
-      // Story 5.6's PvE wave scheduler — the second deliberate insertion, and
-      // an APPEND rather than a splice: `dronesTick` keeps row 0 immediately
-      // before applyInputs (its position is load-bearing), and a hull spawned
-      // dead last enters the world at a clean tick boundary. See the row
-      // comment in world.ts.
-      'spawnFleetWaves',
-      // Story 10.8's RADIO BEACON placement — a second APPEND beside the wave
-      // scheduler: zone-clock driven, it replaces the set on a ring-cycle
-      // change against the tick's settled hull positions.
+      // Story 10.8's RADIO BEACON placement — dead LAST, an APPEND rather than
+      // a splice, in the seat Story 5.6's PvE wave scheduler held (that row,
+      // `spawnFleetWaves`, retired with the fleet at 10.8): zone-clock driven,
+      // it replaces the set on a ring-cycle change against the tick's SETTLED
+      // hull positions, and a body placed dead last enters the world at a
+      // clean tick boundary. See the row comment in world.ts.
       'placeBeacons',
     ]);
   });

@@ -37,7 +37,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CONFIG, DEFAULT_HORN_ID, damageMultiplierFor, droneHullOf, hullEnvelope, type DamageEvent, type GameEvent } from '@salvo/shared';
+import { CONFIG, damageMultiplierFor, type DamageEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 import { neutralize } from './deckGunFixture.js';
@@ -541,19 +541,6 @@ describe('applyDamage — (b′) POWER (was ARMOR PIERCING), the attacker read l
     const v = carded(w, place(w, 'v', 0, 400), 'armor', 5);
     gate(w).applyDamage(v, 3, 'storm', undefined);
     expect(v.stats.maxHp - v.hp).toBe(3);
-  });
-
-  it('DRONES hold no cards but carry their envelope indices (amendment 147; Story 10.3): a 1 hp drone shell on an ARMOR-capped hull still lands 1 (floor of one, amendment 119); a POWER-capped captain hits a drone ×1.5', () => {
-    const w = bareWorld();
-    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 800 });
-    expect(d.stats.power).toBe(hullEnvelope(droneHullOf('medium')).index.power);
-    expect(d.stats.armor).toBe(hullEnvelope(droneHullOf('medium')).index.armor);
-    const a = carded(w, place(w, 'a'), 'armor', 5);
-    gate(w).applyDamage(a, 1, 'shell', 'd');
-    expect(a.stats.maxHp - a.hp).toBe(1);
-    carded(w, place(w, 'b', 400, 0), 'power', 5);
-    gate(w).applyDamage(d, 12, 'shell', 'b');
-    expect(d.stats.maxHp - d.hp).toBe(18);
   });
 
   it('LIVE at impact (amendment 156): a card bought between two blows from the same attacker changes the second', () => {

@@ -25,13 +25,11 @@
 //
 // WHY A SCRIPT, NOT A PILOT. This smoke used to sail two heuristic pilots
 // (racetrack strafing, island-avoidance rudder bias, an unstick routine)
-// from ring spawns ~8,000 u apart across a RANDOM map, with the PvE fleet wave
-// arriving 60 s into the fight and passive regen
+// from ring spawns ~8,000 u apart across a RANDOM map, with passive regen
 // racing every single-tube kill — so its red runs were piloting outcomes, not sim defects. Now nothing
 // sails: the map is PINNED (`mapSeed`), both hulls are PLACED by the dev-only
 // `spawnOverride` pose (honored at spawn, at the countdown->active redeploy
-// and at respawn), the fleet wave is OFF (`matchOverride.fleetWaves: false`),
-// and the only inputs are scripted ones sent on the ordinary `i` channel, so
+// and at respawn), and the only inputs are scripted ones sent on the ordinary `i` channel, so
 // they pass inputs.ts' sanitizeInput like any client's. Every number the
 // smoke waits on (kill plan, budgets, the countdown) is READ from CONFIG and
 // the same effectiveStats fold the server runs, at run time.
@@ -195,10 +193,9 @@ const FIGHT_BUDGET_MS = PLAN.salvos * FISH.reloadMs + FISH.reloadMs;
  * observable. joinWindowMs is a small REAL window (unlike the other smokes'
  * 0): step 1 proves the gathering phase over real sockets; 5 s so the
  * post-join sleep + CHARLIE's join round-trip can't eat it on a slow box.
- * fleetWaves:false keeps the PvE wave scheduler off the fight (Story 9.15).
  */
 const COUNTDOWN_MS = Math.ceil(LAUNCHER_TRAIN_MS + FLIGHT_MS + FISH.reloadMs + SLACK_MS);
-const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000, fleetWaves: false };
+const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000 };
 /**
  * The storm: offsetCap 0 keeps every ring concentric on the map centre, where
  * both poses sit, so the storm reaches a hull only once a ring SMALLER than
@@ -233,10 +230,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Socket round-trip allowance for a state/message to reach a client after the
  *  server changed it (join, phase flip): polled, never slept. */
 const ROUNDTRIP_MS = 2000;
-/** Non-captain hull ids. `drone-N` was the deleted match-start fill
- *  (amendment 41); `fleet-N` is the PvE wave namespace that replaced it. */
-const isDrone = (id) => typeof id === 'string' && (id.startsWith('drone-') || id.startsWith('fleet-'));
-
 // --- server lifecycle --------------------------------------------------------
 
 function bootServer() {
@@ -296,8 +289,8 @@ function killServerHard(proc) {
 
 // --- client harness ----------------------------------------------------------
 
-/** Join through the dev door. Every join pins the map and switches the fleet
- *  off (room options ride the creating join); `pose`/`fit` are per-captain. */
+/** Join through the dev door. Every join pins the map (room options ride the
+ *  creating join); `pose`/`fit` are per-captain. */
 async function joinClient(name, { pose, fit } = {}) {
   const client = new Client(endpoint);
   const opts = { name, pv: PROTOCOL_VERSION, mapSeed: MAP_SEED, matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE };
@@ -400,13 +393,13 @@ function phase(ctx) {
 }
 
 /** Roster rows that are NOT one of the two captains — the independent oracle
- *  for amendment 41/39 over a real socket: the match-start drone fill is
- *  deleted outright and PvE fleet hulls hold no `PlayerMeta` row at all, so
- *  the roster this smoke sees must be captains and nothing else. */
+ *  for amendment 41 over a real socket: the match-start drone fill is deleted
+ *  outright (and the PvE fleet with it, Story 10.8), so the roster this smoke
+ *  sees must be captains and nothing else. */
 function nonCaptainRosterRows(ctx, captainIds) {
   const out = [];
   ctx.room.state.players.forEach((_meta, id) => {
-    if (isDrone(id) || !captainIds.includes(id)) out.push(id);
+    if (!captainIds.includes(id)) out.push(id);
   });
   return out;
 }
@@ -588,17 +581,15 @@ async function stepResults(a, b) {
   // the results table is CAPTAINS ONLY and placement is captain-relative.
   assert(rowB.placement === 2, `B placement=${rowB.placement}, expected 2`);
   assert(res.rows[0].id === rowA.id, `winner is not the first row (got ${res.rows[0].id})`);
-  const droneRows = res.rows.filter((r) => isDrone(r.id));
-  assert(droneRows.length === 0, `results carried ${droneRows.length} DRONE row(s): ${JSON.stringify(droneRows.map((r) => [r.id, r.placement]))}`);
   assert(res.rows.length === 2, `expected exactly the 2 captains, got ${res.rows.length} rows`);
   assert(res.rows.every((r) => r.placement >= 1), `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`);
   // Dense 1..N with no duplicates and no gaps — the partition invariant.
   const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
   assert(seen.every((p, i) => p === i + 1), `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`);
-  // The independent oracle (Story 5.6, amendments 39/41): the roster is
-  // CAPTAINS ONLY — no fill exists and a fleet hull holds no PlayerMeta row.
+  // The independent oracle (Story 5.6, amendment 41): the roster is
+  // CAPTAINS ONLY — no fill exists.
   const strays = nonCaptainRosterRows(a, [a.room.sessionId, b.room.sessionId]);
-  assert(strays.length === 0, `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 39/41)`);
+  assert(strays.length === 0, `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendment 41)`);
   for (let i = 1; i < res.rows.length; i++) {
     assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
   }

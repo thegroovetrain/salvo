@@ -72,7 +72,7 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
 }
 
 function openWorld(seed: number): World {
-  const w = new World(seed, 8, CONFIG.zone, { fleetWaves: false });
+  const w = new World(seed, 8, CONFIG.zone);
   w.map.islands.length = 0;
   return w;
 }
@@ -274,7 +274,7 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
     const now = port.now;
     const t: RememberedContact = {
       id: 'tgt', x: 0, y: 300, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
-      cls: 'bismarck', fleet: false, firstSeenAt: now - CONFIG.bots.reactionMs * 4, hits: 0,
+      cls: 'bismarck', firstSeenAt: now - CONFIG.bots.reactionMs * 4, hits: 0,
       vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 300, paintAt: -1, missSweptAt: -1,
     };
     mind.contacts.set('tgt', t);

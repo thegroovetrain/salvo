@@ -65,15 +65,12 @@ export function foldBlips(marks: BlipMark[], events: readonly GameEvent[], now: 
 
 const clip = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
-/** Hull class code — a scalar the net can separate (players 0.4/0.7/1.0,
- *  fleet tiers small). */
+/** Hull class code — a scalar the net can separate. */
 function clsCode(cls: string): number {
   switch (cls) {
     case 'torpedoBoat': return 0.4;
     case 'battleship': return 1.0;
     case 'mineLayer': return 0.7;
-    case 'droneSmall': return 0.1;
-    case 'droneMedium': return 0.15;
     default: return 0.2;
   }
 }

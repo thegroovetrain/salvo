@@ -261,7 +261,7 @@ export interface MatchOverride {
   /** DEV: unlocked gathering window (ms) at minHumans before the countdown
    *  arms; <= 0 = legacy immediate countdown + lock (the smokes' fast path). */
   joinWindowMs?: number;
-  /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
+  /** DEV: humans needed to start the countdown (e.g. 1 for a solo smoke). */
   minHumans?: number;
   /**
    * DEV SMOKE ARM (Story 8.10): the room performs the level-zero MULLIGAN for
@@ -274,22 +274,13 @@ export interface MatchOverride {
   mulligan?: boolean;
   sandbox?: boolean;
   /**
-   * DEV SMOKE ARM (Story 9.15): `false` switches the PvE WAVE SCHEDULER off —
-   * `World.spawnFleetWaves` becomes a no-op, so a scripted fight is never
-   * joined by `CONFIG.fleet.waves` arriving off the zone clock. Only the
-   * boolean `false` disables; absent / anything else is today's schedule. It
-   * rides into the World as `WorldOptions.fleetWaves` (sandbox rooms too — no
-   * Match needed), and is read ONLY by the scheduler: bots, `solo` and
-   * `botFill` are untouched. Dev-gated with the rest of matchOverride.
-   */
-  fleetWaves?: boolean;
-  /**
-   * DEV SMOKE ARM (Story 10.8): `false` switches the RADIO BEACONS off — no
-   * beacon is ever placed, nothing is paid and the public chart stays empty
-   * (`beaconCycle` -1, `beaconCount` 0). Only the boolean `false` disables;
-   * absent / anything else is the shipped beacons. It rides into the World as
-   * `WorldOptions.beacons` (sandbox rooms too). Dev-gated with the rest of
-   * matchOverride.
+   * DEV SMOKE ARM (Story 10.8, in the retired `fleetWaves` arm's seat): `false`
+   * switches the RADIO BEACONS off — no beacon is ever placed, nothing is paid
+   * and the public chart stays empty (`beaconCycle` -1, `beaconCount` 0). Only
+   * the boolean `false` disables; absent / anything else is the shipped
+   * beacons. It rides into the World as `WorldOptions.beacons` (sandbox rooms
+   * too — no Match needed), and is read ONLY by the beacon rows: bots, `solo`
+   * and `botFill` are untouched. Dev-gated with the rest of matchOverride.
    */
   beacons?: boolean;
 }

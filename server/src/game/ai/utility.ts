@@ -52,7 +52,7 @@
 //    tactics) is what makes retuning difficulty a one-number edit.
 //
 // A NOTE ON `BotTrack`: wave 2 shipped it as `extends RememberedContact` with
-// the four fields wave 1's type lacked (class, fleet-ness, acquisition time,
+// the fields wave 1's type lacked (class, acquisition time,
 // hit history) and normalized every read through an `asTrack()` fallback,
 // because a plain wave-1 entry written elsewhere would be missing them. WAVE 3
 // PROMOTED THOSE FOUR FIELDS onto `RememberedContact` itself, so `BotTrack` is
@@ -61,7 +61,6 @@
 
 import {
   CONFIG,
-  SHIP_CLASS_IDS,
   effectiveSight,
   pointInLitZone,
   type BlipEvent,
@@ -118,7 +117,7 @@ export { choosePosture, type PostureInputs } from './posture.js';
 
 /**
  * ONE PLOTTED TRACK. An alias of `RememberedContact` since wave 3 promoted
- * class / fleet-ness / acquisition time / hit history onto it: the name is
+ * class / acquisition time / hit history onto it: the name is
  * kept because it is what scoring and tactics speak, and because a future
  * scoring-only field would land here rather than on the driver's type.
  */
@@ -274,23 +273,16 @@ const ISOLATION_U = CONFIG.vision.sight * 0.5;
  * would leave it with NO target at all in cluttered coastal water — patrolling
  * for the ring centre while an enemy sits 200u away behind a rock.
  *
- * THE NUMBER IS SET BY THE WORST MEASURED CASE, not by feel. `forager` is the
- * profile the defect lived on (15.7% of its shells into terrain) precisely
- * because its `targetWeights.fleet` of 2.0 parks it on drone groups in
- * cluttered coastal water, against a `captain` weight of 0.5. Anything above
- * 0.25 leaves that fight unchanged — 2.0 x 0.35 = 0.70 still beats 0.50 — so
- * the penalty has to bite harder than a third to move the one case it was
- * written for. At 0.2 the blocked drones score 0.40 against the reachable
- * captain's 0.50 and the bot takes the shot it can actually make, while a
- * blocked track that is the ONLY thing on the water still scores well clear of
- * zero, still wins the slot, and still gets pursued.
+ * THE NUMBER WAS SET BY THE WORST MEASURED CASE, not by feel: `forager`, the
+ * profile the defect lived on (15.7% of its shells into terrain), parked on
+ * the retired PvE drone groups in cluttered coastal water with a fleet weight
+ * of 2.0 against a `captain` weight of 0.5; 0.2 was the first value that
+ * moved that fight (2.0 x 0.2 = 0.40 lost to the reachable captain's 0.50).
+ * The fleet weight retired with the drones (Story 10.8); the penalty keeps
+ * its measured value, and a blocked track that is the ONLY thing on the water
+ * still scores well clear of zero, still wins the slot, and still gets pursued.
  */
 const BLOCKED_LINE_SCORE = 0.2;
-
-/** A hull id that is PvE fleet content rather than a participant. */
-function isFleetHullId(cls: HullId): boolean {
-  return !(SHIP_CLASS_IDS as readonly string[]).includes(cls);
-}
 
 /** The one sighting shape every fold path funnels through. */
 interface Sighting {
@@ -309,7 +301,6 @@ type Carried = Pick<
   BotTrack,
   | 'id'
   | 'cls'
-  | 'fleet'
   | 'firstSeenAt'
   | 'hits'
   | 'sunk'
@@ -342,7 +333,6 @@ function freshBase(now: number): Carried {
   return {
     id: null,
     cls: null,
-    fleet: false,
     firstSeenAt: now,
     hits: 0,
     sunk: false,
@@ -384,7 +374,6 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     live: live && !dead,
     sunk: dead,
     cls,
-    fleet: cls === null ? base.fleet : isFleetHullId(cls),
     firstSeenAt: base.firstSeenAt,
     hits: base.hits,
     ...courseOf(s, base, now),
@@ -803,8 +792,8 @@ export function damageEstimate(t: BotTrack): number {
  * (three connections read as crippled, i.e. 0 remaining), so this is the
  * same guess the scorer's "how hurt" term makes, in hp instead of a weight
  * — never the target's real hp, which a bot cannot know. `baseHp` is
- * `hullEnvelope(cls).hp` (a captain's class hp or a drone's envelope hp):
- * the target's upgrades are private, exactly as they are to a human.
+ * `hullEnvelope(cls).hp` (the class base hp): the target's upgrades are
+ * private, exactly as they are to a human.
  */
 export function estimatedRemainingHp(t: BotTrack, baseHp: number): number {
   return (1 - damageEstimate(t)) * baseHp;
@@ -829,12 +818,13 @@ function isolation(
 
 /**
  * Profile-weighted desirability of one track, 0 = not worth pursuing. The
- * five terms are exactly the ones the profiles speak in: WHAT it is
- * (participant vs fleet hull — never human vs bot, ruling B3), HOW CLOSE it
- * is, HOW SURE we are of the plot, HOW HURT we believe it is (self-private
- * Hit Calls only) and HOW ALONE it is — times a SIXTH term that is not about
- * the track at all but about the water between: a target with a coastline in
- * the way cannot be shot at (see BLOCKED_LINE_SCORE).
+ * terms are exactly the ones the profiles speak in: the profile's `captain`
+ * weight on the whole (every track is a participant — never human vs bot,
+ * ruling B3), HOW CLOSE it is, HOW SURE we are of the plot, HOW HURT we
+ * believe it is (self-private Hit Calls only) and HOW ALONE it is — times a
+ * term that is not about the track at all but about the water between: a
+ * target with a coastline in the way cannot be shot at (see
+ * BLOCKED_LINE_SCORE).
  */
 export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
   if (t.sunk) return 0; // a wreck is nobody's target (Story 9.5 review gate)
@@ -843,7 +833,7 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   const d = Math.hypot(p.x - sit.x, p.y - sit.y);
   if (d > horizon) return 0;
   const w = sit.profile.targetWeights;
-  const kind = t.fleet ? w.fleet : w.captain;
+  const kind = w.captain;
   const prox = 1 - d / horizon;
   const dmg = 1 + w.damaged * damageEstimate(t);
   const iso = 1 + w.isolated * isolation(t, neighbours, sit);

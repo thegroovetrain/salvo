@@ -147,8 +147,7 @@ export function attenRangeFor(ctx: ActivationContext, rangeU: number, target: Ve
 /**
  * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells
  * (TWO at every tier since Eric 2026-10-16, Story 9.12 — `CONFIG.gun.barrels`,
- * no barrel rungs; a PvE fleet gun keeps one; the fold's 1..3 clamp still
- * guards) for ONE consumed round, each a REAL shell
+ * no barrel rungs; the fold's 1..3 clamp still guards) for ONE consumed round, each a REAL shell
  * bursting at its OWN point. The ONLY denial is an empty pool ('no-ammo' — the
  * shot cooldown; single-consume, so the denial mapping is unchanged from the
  * single-barrel era); there is no arc.

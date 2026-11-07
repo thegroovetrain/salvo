@@ -118,7 +118,7 @@ import {
   type WakeRibbon,
 } from '@salvo/shared';
 import type { BurnZone, FoulZone, LitZone, ShipRecord, StoredCloud } from './world.js';
-import { isFleetHull, isParticipant } from './participants.js';
+import { isParticipant } from './participants.js';
 import type { MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
@@ -170,15 +170,6 @@ interface SignalContextBase {
    *  row consults this today — it rides the context so identity resolution
    *  stays one seam for any future row that needs it. */
   pseudonymOf(shipId: string): string;
-  /**
-   * Has PvE fleet hull `fleetShipId` acquired `observerId`? (Story 5.6,
-   * amendment 40 — FleetController.isTargeting.) The ONE input to the
-   * self-private `Contact.aggro` mark, read by the contact row and by
-   * NOTHING else. It is not a perception gate: it never decides whether a
-   * contact exists, only whether an already-visible contact carries one more
-   * attribute for the one observer the answer is about.
-   */
-  aggroAt(fleetShipId: string, observerId: string): boolean;
   /** EVERY live wake ribbon (Story 4.12 — World.wakeRibbons: ships' active
    *  ribbons, running torpedoes', and detached water still ageing out). The
    *  wake scan's subject list, riding the context the way the height raster
@@ -294,8 +285,7 @@ export function sightClear(me: ShipRecord, b: Vec2, islands: readonly Island[]):
  * THE SIGHT FIELD (Story 9.10): everything a sight-range comparison reads
  * besides the observer — the islands for LOS and the fog toll thunk.
  * `SignalContextBase` satisfies it structurally, so every row passes its
- * `ctx`; the PvE drones (drones.ts) build one per tick from the World,
- * because they never hold a SignalContext.
+ * `ctx`.
  */
 export interface SightField {
   readonly islands: readonly Island[];
@@ -366,28 +356,6 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
  */
 export function sightOf(me: ShipRecord, now: number): number {
   return effectiveSight(me.stats, me.dazzledUntil, now);
-}
-
-/**
- * "Can `me` see `other`'s hull centre right now?" — the contact row's own
- * predicate, minus the lit-zone term, hoisted for reuse by the PvE fleet AI
- * (Story 5.6). Exported deliberately rather than re-derived there: a second
- * hand-rolled copy of the sight tier is exactly the desync class this file
- * exists to prevent, and `observe()` is the wrong tool for a fleet ship (it is
- * eight full scans, it allocates a SignalContext, and it MUTATES observer
- * state — seenBallistics/torpDirs — so it cannot be called speculatively).
- *
- * The lit-zone term is deliberately absent: a star shell is a captain's tool
- * for revealing hulls to CAPTAINS, and letting it also hand the AI free vision
- * would make firing one actively dangerous in a way nobody ruled on. No
- * cloud term (Story 9.3 session 2: a countermeasure cloud hides nothing).
- * FOGGED like a captain (Story 9.10, amendment 168): the field's banks toll
- * the ray through `withinSight`, so a drone loses its target, its witness
- * view and its shot inside fog by the same rule a client does; the
- * shot-from chase (amendment 139) never calls this and is untouched.
- */
-export function shipSees(me: ShipRecord, other: ShipRecord, field: SightField, now: number): boolean {
-  return withinSight(field, me, other.state, sightOf(me, now)) && sightClear(me, other.state, field.islands);
 }
 
 /** Sight-tier test for a point: within the OBSERVER'S effective sight range
@@ -742,33 +710,19 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
   },
   materialize(ctx, ship) {
     const s = ship.state;
-    // `cls` is the full HullId — drone contacts carry droneSmall/Medium/Large.
+    // `cls` is the full HullId. (The self-private `aggro` mark of Story 5.6,
+    // amendment 40, retired with the PvE fleet at Story 10.8 — nothing hunts
+    // an observer any more.)
     const base = { id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.hullId };
-    // THE SELF-PRIVATE AGGRO MARK (Story 5.6, amendment 40). Appended LAST so
-    // the historical key order is byte-stable, and present ONLY when this
-    // contact is a fleet hull that has acquired THE OBSERVER RECEIVING THIS
-    // FRAME. Three properties, each load-bearing:
-    //   * FOGGED PATH ONLY — a spectator's frame never carries it, even for a
-    //     hull that was hunting them a tick ago (`mode` is checked before the
-    //     controller is asked at all);
-    //   * keyed on ctx.observerId, so a third party watching the same chase
-    //     sees the identical contact WITHOUT the key. It is not "this hull is
-    //     hunting someone", it is "this hull is hunting YOU";
-    //   * OMITTED, never `false` — msgpack carries no dead keys, and the wire
-    //     shape for every non-targeted contact stays byte-identical to 5.5.
-    // It needs NO seventh perception exception: the row only runs because
-    // contactSignal.visible already passed, so it widens no spatial
-    // disclosure (the `sinkingUntil` shape, applied to a Contact).
-    const marked = ctx.mode !== 'fogged' || !ctx.aggroAt(ship.id, ctx.observerId) ? base : { ...base, aggro: true as const };
-    // THE TURRET ANGLES (Story 10.4, contract §7): `tu` appended LAST (after
-    // `aggro`), one whole degree per turret off its rest bearing
-    // (`encodeTurretAngles`), and ONLY for a hull that has a battery — never
-    // on a drone contact (OMITTED, not `[]`). ANGLES ONLY: never a reload,
-    // heat or readiness. Not a seventh perception exception: it rides this
-    // row, which only runs once contactSignal.visible has passed, so it
-    // widens no disclosure (the `aggro` shape). Spectators get it through the
-    // same row.
-    const turreted = ship.turrets.length === 0 ? marked : { ...marked, tu: encodeTurretAngles(ship.turrets, ship.hullId) };
+    // THE TURRET ANGLES (Story 10.4, contract §7): `tu` appended after the
+    // base keys, one whole degree per turret off its rest bearing
+    // (`encodeTurretAngles`), and ONLY for a hull that has a battery (OMITTED,
+    // not `[]`). ANGLES ONLY: never a reload, heat or readiness. Not a
+    // seventh perception exception: it rides this row, which only runs once
+    // contactSignal.visible has passed, so it widens no disclosure (the
+    // `sinkingUntil` shape, applied to a Contact). Spectators get it through
+    // the same row.
+    const turreted = ship.turrets.length === 0 ? base : { ...base, tu: encodeTurretAngles(ship.turrets, ship.hullId) };
     // THE LAUNCHER ANGLES (Story 10.6, I7): `lu` appended directly after
     // `tu`, the same whole-degree codec (`encodeLauncherAngles`), PRESENT
     // ONLY while the hull holds a torpedo (it then mounts one or two
@@ -1729,21 +1683,17 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
  *   • WITNESSED (sunkWitnessed — today's rule, unchanged): spectator, own
  *     hull, or wreck position sighted / owned-zone-covered;
  *   • CREDITED TO YOU (sunkCreditedTo — the amendment 17 shooter-only
- *     principle): you learn that anything you sank went down, drone included;
+ *     principle): you learn that anything you sank went down;
  *   • THE VICTIM IS A COMBATANT (`isParticipant(wreck)`): every captain's
- *     sinking reaches every client. This is the single site the PvE/combat-bot
- *     distinction runs through, and since Story 6.3 it reads the PARTICIPANT
+ *     sinking reaches every client. Since Story 6.3 it reads the PARTICIPANT
  *     seam — so a 6.4 AI captain's sinking is public, exactly as a human's is,
- *     with no edit here.
+ *     with no edit here; since Story 10.8 every hull is a participant, so
+ *     this clause admits every sinking.
  * ANTI-LEAK RATIONALE for the public clause: the PUBLIC payload is IDENTITY
- * ONLY ({k,id,by?} — no position, class, hue, damage, or weapon field). Story
- * 5.6's `vcls` does not weaken that: it is stamped for the CREDITED KILLER
- * alone (stampVictimClass below), so no row that reaches an observer on the
- * public clause ever carries a class ABOUT A PLAYER. Story 7.6's `kcls` does
- * reach the public clause — it is observer-independent — but it names a PvE
- * FLEET hull's tier and nothing else (stampKillerClass below): never a
- * captain's class, no position, no hue, no weapon. And
- * ArenaRoom.syncRoster() already makes the FACT of every sinking public —
+ * ONLY ({k,id,by?} — no position, class, hue, damage, or weapon field). The
+ * Story 5.6 / 7.6 class stamps `vcls` / `kcls` (the credited killer's victim
+ * hull id; a PvE killer's hull id) retired with the fleet at Story 10.8 —
+ * the roster already names every hull's class. And ArenaRoom.syncRoster() already makes the FACT of every sinking public —
  * alive/kills/deaths mirror to every client. What this row adds beyond the
  * schema is precision, and that is the honest scope of the ratification: the
  * event is a SAME-TICK channel (frame events send synchronously each tick;
@@ -1751,10 +1701,7 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
  * victim explicitly via `by` — two same-tick kills by different killers
  * aggregate in the counters as (+1, +1) and cannot be paired back from
  * deltas. So the public clause makes ATTRIBUTION explicit and same-tick;
- * it does not merely restate the schema. Drone sinkings are NOT public
- * (drones are not contestants — a
- * drone kill is a fraction of a level via CONFIG.xp.droneTierLevels where a
- * captain is a full one); they arrive only witnessed or credited.
+ * it does not merely restate the schema.
  * materialize() stamps the per-observer `seen: true` exactly when
  * sunkWitnessed holds — the client gates everything SPATIAL (sink VFX,
  * contact teardown) on it, so location stays as protected as it is today.
@@ -1768,7 +1715,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
   },
   materialize(ctx, e) {
     // ALWAYS a fresh object (the burstSignal discipline): KEY ORDER IS
-    // LOAD-BEARING (msgpack): k,id,by?,seen?,bty?,vcls?,kcls? — and NEVER a key whose
+    // LOAD-BEARING (msgpack): k,id,by?,seen?,bty? — and NEVER a key whose
     // value is undefined (msgpack encodes it; world-emitted storm deaths
     // carry `by: undefined`, which must leave the wire as an ABSENT key).
     const out: SunkEvent = { k: 'sunk', id: e.id };
@@ -1776,115 +1723,15 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
     if (sunkWitnessed(ctx, e)) out.seen = true; // per-observer; spectators always carry it
     // `bty` (Story 4.6, Eric rulings 2026-08-10): which PARTICIPANT held the
     // bounty throne at the pre-sink instant — 'v' the victim, 'k' the killer.
-    // Appended LAST, only when present. This adds NO disclosure: 'v' only
-    // ever rides a combatant sinking (a drone can never hold the throne, so
-    // it is already public via this row's third clause); 'k' may ride a DRONE
-    // wreck (the leader sinks a drone), but that event reaches only the
-    // witness and the credited killer, both of whom already know the leader's
-    // identity from the public ArenaState.bountyId — and `by` is already on
-    // the line. Unlike `seen` it is observer-INDEPENDENT — passed through
-    // verbatim from the world's pre-sink read, never re-derived per observer.
+    // Appended LAST, only when present. This adds NO disclosure: every
+    // sinking is public via this row's third clause, and both ids already
+    // ride the line (`id`, `by`) beside the public ArenaState.bountyId.
+    // Unlike `seen` it is observer-INDEPENDENT — passed through verbatim from
+    // the world's pre-sink read, never re-derived per observer.
     if (e.bty === 'v' || e.bty === 'k') out.bty = e.bty;
-    stampVictimClass(ctx, e, out);
-    stampKillerClass(ctx, e, out);
     return out;
   },
 };
-
-/**
- * `vcls` — THE VICTIM'S HULL ID, TO THE CREDITED KILLER ALONE (Story 5.6,
- * epic-5 amendment 43, Eric ruling 2026-08-14): *"I want to know the kills I
- * get when I get them... if a Small Drone is killed by my mine."*
- *
- * WHY IT MUST BE ON THE WIRE. You can sink a fleet ship you never saw — a
- * mine it sailed over, or a shell fired from beyond sight, since every gun's
- * reach is its own dial on the twelfths ruler (Story 9.8, ruling 125) and the
- * deck gun's reaches past truesight. With fleet hulls off the roster (amendment 39) the
- * client then holds no name, no hull and no row for that id at all, so the
- * feed could only read `UNKNOWN VESSEL`. The server knows; nobody else can.
- *
- * PER-OBSERVER, on the `seen` pattern and DELIBERATELY NOT the `bty` one:
- * `bty` is observer-independent (every recipient gets the same value), while
- * this key exists for exactly one recipient. ONE GATE, not two:
- * `by === observerId` — THE CREDITED KILLER, FULL STOP, the same identity
- * `sunkCreditedTo` reads. A bystander who WITNESSED the identical sinking gets
- * the row without the key; a SPECTATOR who IS the credited killer gets it.
- *
- * THE VIEW MODE IS NOT A GATE (orchestrator ruling, review gate). An earlier
- * draft also required `mode === 'fogged'`, reading amendment 43's *"witnesses
- * and spectators included"* as excluding a dead killer — a misreading: that
- * phrase names OBSERVERS WHO ARE NOT THE KILLER. Eric's ruling is *"I want to
- * know the kills I get when I get them"*, and a mine you laid before you died,
- * tripped by a fleet ship while you spectate, is exactly such a kill — the
- * SIZE is the payout, so withholding it withholds the thing the ruling asks
- * for. A one-gate rule is also strictly simpler than a two-gate one and cannot
- * drift from `sunkCreditedTo`. No leak: materialize() runs PER OBSERVER, so
- * `by === observerId` still admits exactly one recipient regardless of mode.
- *
- * NO SEVENTH PERCEPTION EXCEPTION. The row is already a declared exception
- * and already reaches its killer through `sunkCreditedTo`; this adds one
- * attribute for the one client that earned the XP for it and could already
- * read the size back out of the payout tier. The master invariant stays at
- * exactly SIX.
- *
- * EVERY VICTIM, not just fleet hulls — a captain kill carrying its victim's
- * class to its killer alone is the same disclosure class (the killer already
- * has the wreck and the feed line names them), and a uniform rule has one
- * oracle instead of two. Appended LAST; the key is OMITTED when it does not
- * apply, never `undefined` (msgpack encodes that).
- */
-function stampVictimClass(ctx: SignalContext, e: SunkEvent, out: SunkEvent): void {
-  if (e.by === undefined || e.by !== ctx.observerId) return;
-  const wreck = ctx.ships.get(e.id);
-  if (wreck !== undefined) out.vcls = wreck.hullId;
-}
-
-/**
- * `kcls` — THE KILLER'S HULL ID, AND ONLY EVER A PvE FLEET HULL'S (Story 7.6,
- * Eric ruling 2026-08-21): *"if someone gets sunk by a drone, you can tell me
- * what drone sunk them. Its fine. UNKNOWN VESSEL can only be a drone anyway.
- * Please, let me laugh and foghorn salute the dumbass who died to a drone."*
- *
- * WHY IT MUST BE ON THE WIRE — the MIRROR of `vcls`, not a widening of it. A
- * fleet hull can sink a captain from outside every observer's truesight bubble,
- * and with fleet hulls off the roster (amendment 39) no client then holds a
- * name, a hull or a row for that killer id. Because a CAPTAIN victim's sinking
- * is PUBLIC (the third clause above), that line renders on every client, and
- * every one of them could only read `UNKNOWN VESSEL`. The ever-seen hull memo
- * covers the killer we once had in our bubble; this key covers the case the
- * memo structurally cannot.
- *
- * FLEET HULLS ONLY — THE ONE CONSTRAINT THAT MATTERS, and it is enforced here
- * and nowhere else. `killer.role !== 'fleet'` returns without stamping. A
- * captain's hull class is NOT disclosed by this row today, and widening it
- * would be a genuine new disclosure about a PLAYER (their class is a build fact
- * you read off a contact when you can actually see them). A fleet hull's tier
- * is about nobody — a server-spawned PvE hull whose existence, size mix and
- * tier ladder are fixed by CONFIG and identical every match.
- *
- * OBSERVER-INDEPENDENT, on the `bty` pattern and deliberately NOT the
- * `seen`/`vcls` one: the fact it carries is the same for every recipient, so
- * per-observer stamping would only invent a difference that does not exist.
- * NO SEVENTH PERCEPTION EXCEPTION: the row is already a declared exception, and
- * this key discloses nothing spatial, nothing about any observer's sensors and
- * nothing about any player. The master invariant stays at exactly SIX.
- *
- * FAIL-CLOSED on a missing killer record (a killer who left the room between
- * the sinking and the frame): the key is simply omitted and the client falls
- * back exactly as it does today. Appended LAST, after `vcls`; OMITTED rather
- * than `undefined` (msgpack encodes that).
- */
-function stampKillerClass(ctx: SignalContext, e: SunkEvent, out: SunkEvent): void {
-  if (e.by === undefined || e.by === e.id) return; // no credited killer / self-sink
-  const killer = ctx.ships.get(e.by);
-  // THE GATE. Never a captain, never an AI captain ('bot'), never anything but
-  // a PvE fleet hull — see the note above; this is the whole safety argument.
-  // Read through the Story 6.3 role SEAM (`isFleetHull` is WORLD CONTENT, the
-  // exact reading this key needs) rather than a raw `role ===` comparison, so a
-  // future role lands on the safe side without an edit here.
-  if (killer === undefined || !isFleetHull(killer)) return;
-  out.kcls = killer.hullId;
-}
 
 /**
  * `spawn` — visible to the spawner itself, and to anyone who can see the spawn

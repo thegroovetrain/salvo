@@ -21,13 +21,13 @@
 // the safety layers (ring escape, the un-beach machine, avoidance) are
 // re-evaluated every tick regardless of the cached posture.
 //
-// THE MATHS ARE PORTED FROM drones.ts, THE MODULE IS NOT (spec: "port the
-// maths, not the module"). The 3-iteration fixed-point lead solve, the
-// boundary bias and the un-beach trip are the fleet AI's, re-implemented
-// against the perception view because a fleet hull reads `world.ships` and a
-// bot may not. Since Story 9.13 the STEERING maths live in ai/navigate.ts
-// (graded avoidance on the nav grid, routes, the ring flow field, patrol) and
-// the fleet imports them from there — the one direction the boundary allows.
+// THE MATHS WERE PORTED FROM the retired PvE fleet AI (drones.ts, deleted at
+// Story 10.8), THE MODULE WAS NOT (spec: "port the maths, not the module").
+// The 3-iteration fixed-point lead solve, the boundary bias and the un-beach
+// trip were re-implemented against the perception view because a bot may not
+// read `world.ships`. Since Story 9.13 the STEERING maths live in
+// ai/navigate.ts (graded avoidance on the nav grid, routes, the ring flow
+// field, patrol).
 //
 // THE RING IS BOTH A FLOOR AND A CEILING. It escapes as a BEARING OVERRIDE
 // when the hull is wet (priority 1 below), and — since the storm-chatter fix —
@@ -619,8 +619,8 @@ function beaconBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): numb
   return goal === null ? idleBearing(ctx, port, sit) : steerToward(ctx, goal.standoff);
 }
 
-/** A target-less `farm` with a beacon goal — the beacon farm, not the fleet
- *  farm (which always has its fleet track as the target). */
+/** A target-less `farm` with a beacon goal — the beacon farm (the only
+ *  `farm` since Story 10.8 retired the fleet farm, which had a target). */
 function farmingBeacon(mind: BotMind, posture: BotPosture, target: BotTrack | null): boolean {
   return posture === 'farm' && target === null && (mind.beaconGoal ?? null) !== null;
 }
@@ -696,7 +696,7 @@ function throttleFor(posture: BotPosture): number {
 }
 
 /** The helm's base throttle: a beacon farm in transit runs full ahead like
- *  the patrol it replaces (the band-holding cruise is for a fleet target). */
+ *  the patrol it replaces (the band-holding cruise is for a target). */
 function baseThrottle(mind: BotMind, posture: BotPosture, target: BotTrack | null): number {
   if (posture === 'hold' || farmingBeacon(mind, posture, target)) return 1;
   return throttleFor(posture);

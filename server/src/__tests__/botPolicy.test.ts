@@ -315,14 +315,6 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('forager is the one profile that would rather shoot world content', () => {
-    const f = profileOf('forager');
-    expect(f.targetWeights.fleet).toBeGreaterThan(f.targetWeights.captain);
-    for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
-      const w = profileOf(id).targetWeights;
-      expect(w.fleet).toBeLessThanOrEqual(w.captain);
-    }
-  });
 });
 
 // --- perception fold: the radar wire -----------------------------------------
@@ -454,7 +446,6 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
       seenAt: 10000,
       live: true,
       cls: 'yamato' as HullId,
-      fleet: false,
       firstSeenAt: 0,
       hits: 0,
       sunk: false,
@@ -480,15 +471,16 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
     expect(behind).toBeLessThan(open);
   });
 
-  it('a clear-line target takes the slot from a blocked one — including a forager\'s fleet prize', () => {
-    // The measured worst case: `forager` weights fleet 2.0 against captain
-    // 0.5, which is what parked a Mine Layer on a drone group behind a rock.
+  it('a clear-line target takes the slot from a blocked one that otherwise outscores it', () => {
+    // The measured worst case was a forager's fleet prize behind a rock (the
+    // fleet retired at Story 10.8); the same shape with a HURT track: a hit
+    // history outscores a fresh one, until the rock stands in the way.
     const m = mind('forager');
-    m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, fleet: true, cls: 'droneSmall' as HullId }));
+    m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, hits: 2 }));
     m.contacts.set('openWater', plotTrack({ id: 'openWater', x: 0, y: 400 }));
     const sit = situation({ profile: profileOf('forager'), stats: stats('warspite'), islands: [ROCK] });
     expect(selectTarget(m, sit)?.id).toBe('openWater');
-    // With the rock gone the fleet weight wins, exactly as it always did.
+    // With the rock gone the hurt track wins, exactly as it always did.
     expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('warspite') }))?.id).toBe('behindRock');
   });
 
@@ -572,20 +564,6 @@ describe('ai/utility — the reaction delay (E2 competence knob)', () => {
 describe('ai/utility — profile-weighted target selection', () => {
   const NOW = 20000;
 
-  function twoTargets(m: BotMind): void {
-    foldView(m, view({ contacts: [contact('cap', 200, 0, 'yamato'), contact('fleet', 210, 0, 'droneSmall')] }), 1000);
-  }
-
-  it('forager prefers the fleet hull; duelist prefers the captain', () => {
-    const mf = mind('forager');
-    twoTargets(mf);
-    expect(selectTarget(mf, situation({ now: NOW, profile: profileOf('forager'), stats: stats('warspite') }))?.id).toBe('fleet');
-
-    const md = mind('duelist');
-    twoTargets(md);
-    expect(selectTarget(md, situation({ now: NOW, profile: profileOf('duelist'), stats: stats('bismarck') }))?.id).toBe('cap');
-  });
-
   it('a human is a contact like any other (ruling B3) — only KIND is weighed', () => {
     // Two participant contacts, identical but for id: nothing in the score
     // can separate them, because nothing on the wire separates a human
@@ -647,16 +625,12 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   it('fires in the ruled state: broken hull, sighted target in reach, predicted hit >= the estimated remaining hp', () => {
     // A thrice-hit target reads as CRIPPLED (0 remaining) to the bot's own
     // estimate, so any strike above the allowance is judged to sink it.
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(CONFIG.bots.ramReachU).toBeGreaterThan(150);
-    expect(contactHitDamage(TB.armor, hullEnvelope('droneMedium').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
+    expect(contactHitDamage(TB.armor, hullEnvelope('yamato').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
     expect(choosePosture(sit(), crippled)).toBe('ram');
-    // ...and a FRESH target whose base hp the predicted hit covers outright —
-    // the target's own approach speed adds to the closing speed.
-    const fresh = sighted('droneSmall', 150, 0, 20, Math.PI);
-    const vn = TB.kinematics.maxSpeed + 20;
-    expect(contactHitDamage(TB.armor, hullEnvelope('droneSmall').index.armor, vn, CONFIG.ram).b).toBeGreaterThanOrEqual(hullEnvelope('droneSmall').hp);
-    expect(choosePosture(sit(), fresh)).toBe('ram');
+    // (The "fresh target the hit covers outright" case rode the retired PvE
+    // drone's small envelope hp — no battleship can be rammed down from full.)
   });
 
   it('holds with a healthy target the hit cannot sink: the broken hull disengages instead', () => {
@@ -667,29 +641,29 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   });
 
   it('holds above the disengage fraction — a ram is a broken hull\'s last ditch, never an opener', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('ram');
     expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('disengage');
   });
 
   it('holds beyond ramReachU, for an unsighted plot, and for a plot with no class', () => {
-    expect(choosePosture(sit(), sighted('droneMedium', CONFIG.bots.ramReachU + 50, 3))).toBe('disengage');
-    const lost = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit(), sighted('yamato', CONFIG.bots.ramReachU + 50, 3))).toBe('disengage');
+    const lost = sighted('yamato', 150, 3);
     lost.live = false;
     expect(choosePosture(sit(), lost)).toBe('disengage');
-    const anon = sighted('droneMedium', 150, 3);
+    const anon = sighted('yamato', 150, 3);
     anon.cls = null;
     expect(choosePosture(sit(), anon)).toBe('disengage');
   });
 
   it('a strike under the allowance never triggers it, whatever the estimate says', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit({ speed: CONFIG.ram.allowanceU }), crippled)).toBe('disengage');
   });
 
   it('the closing speed is PROJECTED on the bearing to the target (review gate): sternway and a bow pointed away close nothing', () => {
     const max = TB.kinematics.maxSpeed;
-    const still = sighted('droneMedium', 150, 3);
+    const still = sighted('yamato', 150, 3);
     // Bow on the target at full speed: the whole speed closes.
     expect(closingSpeed(sit(), still, 150, 0, 150)).toBeCloseTo(max, 9);
     // Pointed away, or abeam: nothing of the bot's own speed closes.
@@ -698,12 +672,12 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
     // Making sternway toward it: speed < 0 projects negative — nothing.
     expect(closingSpeed(sit({ speed: -10 }), still, 150, 0, 150)).toBe(0);
     // A target running away takes its speed off; one coming on adds it.
-    const fleeing = sighted('droneMedium', 150, 3, 20, 0);
+    const fleeing = sighted('yamato', 150, 3, 20, 0);
     expect(closingSpeed(sit(), fleeing, 150, 0, 150)).toBeCloseTo(max - 20, 9);
-    const coming = sighted('droneMedium', 150, 3, 20, Math.PI);
+    const coming = sighted('yamato', 150, 3, 20, Math.PI);
     expect(closingSpeed(sit(), coming, 150, 0, 150)).toBeCloseTo(max + 20, 9);
     // A target outrunning the bot: floored at 0.
-    const gone = sighted('droneMedium', 150, 3, max + 5, 0);
+    const gone = sighted('yamato', 150, 3, max + 5, 0);
     expect(closingSpeed(sit(), gone, 150, 0, 150)).toBe(0);
     // ...and the trigger follows the projection: a broken hull pointed away
     // from a crippled target does not ram it, a sternway hull neither.
@@ -712,11 +686,11 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   });
 
   it('a WRECK is never a ram target: a sunk track reads dead to the trigger', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit(), crippled)).toBe('ram');
     const m = mind('raider');
-    foldView(m, view({ contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'droneMedium' }] }), 1000);
-    foldView(m, view({ events: [{ k: 'sunk', id: 'e1' }], contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'droneMedium' }] }), 1050);
+    foldView(m, view({ contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'yamato' }] }), 1000);
+    foldView(m, view({ events: [{ k: 'sunk', id: 'e1' }], contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'yamato' }] }), 1050);
     const wreck = onlyTrack(m);
     wreck.hits = 3;
     wreck.seenAt = NOW;
@@ -725,7 +699,7 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   });
 
   it('the storm still outranks it', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit({ ring: { cx: 5000, cy: 0, r: 100 } }), crippled)).toBe('ringRun');
   });
 });
@@ -876,13 +850,6 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     expect(choosePosture(sit, t, 'ringRun')).toBe('ringRun');
   });
 
-  it('forager on a fleet hull farms; duelist on the same hull does not', () => {
-    const m = mind('forager');
-    foldView(m, view({ contacts: [contact('d1', 100, 0, 'droneSmall')] }), 1000);
-    const t = onlyTrack(m);
-    expect(choosePosture(situation({ now: NOW, profile: profileOf('forager'), stats: stats('warspite') }), t)).toBe('farm');
-    expect(choosePosture(situation({ now: NOW, profile: profileOf('duelist'), stats: stats('bismarck') }), t)).not.toBe('farm');
-  });
 });
 
 // --- spending ---------------------------------------------------------------
@@ -1307,7 +1274,7 @@ describe('ai/utility — track persistence (built as the chaff counter; the jamm
   function anonAt(now: number, firstSeenAt: number): BotTrack {
     return {
       id: null, x: 400, y: 0, heading: null, speed: null, seenAt: now,
-      live: false, sunk: false, cls: null, fleet: false, firstSeenAt, hits: 0,
+      live: false, sunk: false, cls: null, firstSeenAt, hits: 0,
       vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     };
   }
@@ -1381,7 +1348,7 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       expect(row.oddsThreshold).toBe(1);
       expect(row.leansIn).toBe(false);
       expect(row.holdsInCover).toBe(false);
-      expect(row.targetWeights).toEqual({ captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 });
+      expect(row.targetWeights).toEqual({ captain: 1.0, damaged: 1.0, isolated: 1.0 });
       expect(row.disengageHpFrac).toBe(CONFIG.bots.disengageHpFrac);
       expect(row.healHpFrac).toBe(CONFIG.bots.healHpFrac);
       // Every appetite entry at or above EAGER, so every equipment verb is

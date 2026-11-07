@@ -112,7 +112,6 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     cls: 'warspite',
     profile: 'raider',
     kills: 0,
-    pveKills: 0,
     end: 'sunkByShip',
     lifeS: 100,
     levelsEarned: 10,
@@ -151,7 +150,6 @@ function result(bots: BotSample[][], over: Partial<MatchSample> = {}): BatchResu
       endedBy: 'fieldCleared' as const,
       winnerClass: 'warspite',
       stormDeaths: 0,
-      killsByVictimTier: {},
       captains: [],
       departedCaptains: [],
       bots: rows,
@@ -566,7 +564,7 @@ const RECORD_FIELDS = [
   'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
   'fogTicksByPosture', 'pressesByAbility', 'activations',
 ] as const;
-const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS', 'droneGroundedTicks', 'droneStormDeaths'] as const;
+const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS'] as const;
 
 const allNumbers = (rec: unknown): boolean =>
   typeof rec === 'object' && rec !== null && Object.values(rec).every((v) => typeof v === 'number' && Number.isFinite(v));
