@@ -3718,3 +3718,45 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - Eric's call, visual only - 2026-11-06 (Story 10.7, R6, epic-10 amendment 13 (c2))
   summary: WITH NO INTEL CAP A RADAR WAKE BLIP CAN FADE BEFORE ITS WATER DOES ABOVE INTEL ~218 - the phosphor is three sweep periods long and the wake lives `CONFIG.vision.wakeLifeMs`; the cover holds only up to about 32.7 RPM. The fastest cards-only build (Iowa, INTEL 215, 32.25 RPM) still covers by 81 ms; about four bonus INTEL points on it break the cover. Same shape as the cycle-69 shortfall that was accepted. The two "at the sweep maximum" phosphor pins were deleted with the cap; the base-rate pins remain.
   evidence: `shared/src/constants.ts` (`vision.wakeLifeMs` comment), `shared/src/sim/indexStats.ts` (`sweepRpm`), `shared/src/__tests__/zone.test.ts`, `client/src/__tests__/wake.test.ts`.
+
+## 2026-11-07 - Story 10.8 The Radio Beacons (cycle 217, 0.19.11, PV 100; epic-10 amendment 14) - review-gate and leftover defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Codex, epic-10 amendment 14 (n))
+  summary: BOT BEACON ELIGIBILITY IS JUDGED BY THE BEACON CENTRE, NOT A REACHABLE FARMING POINT - a beacon whose centre sits just outside the bot's patrol disc but whose paying circle is half inside is ignored.
+  evidence: `server/src/game/ai/` beacon pick (patrol-disc test on the centre); `CONFIG.bots.beaconStandoffFrac`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Blind Hunter, epic-10 amendment 14 (n))
+  summary: NO BEACON-BODY AVOIDANCE IN A COMBAT POSTURE - a bot chasing, fleeing or kiting routes straight through the solid octagon and takes the ramming law.
+  evidence: `server/src/game/ai/` combat steering (no beacon obstacle).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - harness only, shipped radii never reach it - 2026-11-07 (Story 10.8 review gate, Edge Case Hunter, epic-10 amendment 14)
+  summary: A `--tune` RING WHOSE LIVE RADIUS IS AT MOST `CONFIG.beacons.edgeMarginU` COLLAPSES EVERY PICK TO THE RING CENTRE - coincident immovable bodies paying N times. Fix: skip placement and log when `maxRadius < bodyRadiusU`.
+  evidence: beacon placement (`placeBeacons`) and the batch-sim `--tune` ring override.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - later cleanup - 2026-11-07 (Story 10.8, epic-10 amendment 14 (o), amendment 6)
+  summary: `CONFIG.gun` AND THE `'gun'` EQUIPMENT ROW NOW HAVE NO HULL THAT MOUNTS THEM - the drones retired; kept as the catalog record per amendment 6. Full removal is a later cleanup.
+  evidence: `shared/src/constants.ts` (`CONFIG.gun`), the equipment catalog `'gun'` row.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - to be OBSERVED on the 10.8 staging pass and recorded, not solved - 2026-11-07 (Story 10.8, epic-10 amendment 14 (o), amendment 6(g))
+  summary: RADAR NOISE WITHOUT DRONES - the drones were the noise; options are logged under brainstorm #12 / #65. Two drone-anchored radar / wake 'extremes' test assertions were recorded, not re-tuned. Eric's staging pass on the beacons is what closes this.
+  evidence: `_bmad-output/planning-artifacts/brainstorming-session-2026-11-03.md` (#12, #65); the radar and wake tests that lost their drone anchors.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - Eric's pen (Story 10.14 owns the page) - 2026-11-07 (Story 10.8, epic-10 amendment 14)
+  summary: HOW-TO-PLAY: 'Players are worth more, drones are worth less' is stale and the beacons are unexplained.
+  evidence: `client/src/how-to-play/copy.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - PROVISIONAL pending Eric's ruling on the rendered candidate - 2026-11-07 (Story 10.8, epic-10 amendment 14 (q))
+  summary: THE BEACON LOOK - glyph A vs B (`CLIENT_CONFIG.beacons.glyph`; delete the loser at his ruling), `bodyRadiusU` 8 u, and whether the body shows under fog. The ruling and the How-to-Play sentence follow as one commit.
+  evidence: `client/src/config.ts` (`CLIENT_CONFIG.beacons`), `client/src/render/beacons.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - needs Eric to lift the CLAUDE.md hook - 2026-11-07 (Story 10.8, epic-10 amendment 14 (m))
+  summary: `CLAUDE.md`'S SCHEMA SENTENCE IS STALE - it says the schema syncs only the roster, the revealed zone rings, `matchPhase` and `bountyId`; it also carries the 26 beacon fields (`beaconCycle`, `beaconCount`, `bcn0..7 X / Y / SinkT`). The same sentence in `_bmad-output/project-context.md` was amended in this story.
+  evidence: `CLAUDE.md` (Architecture invariants), `server/src/schema/`.

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.11] - 2026-11-07
+
+### Added
+- **Radio beacons.** At the start of each storm cycle (0:00, 4:00 and 8:00) eight, then four, then two beacons appear on every captain's chart at once, placed in open water inside the live ring and away from every ship. At 1:00 a beacon surfaces and broadcasts: every ship within 500 u of it earns XP at 3 levels a minute, shared evenly among the ships in range. After a minute it starts to sink and the signal fades to nothing over the next minute. A surfaced beacon is a real thing in the water: ships bump into it, every weapon can hit it (it has 1000 HP and 100 ARMOR, exactly like a ship), it smokes and burns when hurt, and sinking it early pays 2 levels of XP split like a ship kill — and starts its one-minute sink at once, for everyone to see. Bots sail to beacons and farm them.
+
+### Removed
+- **The drone fleet.** No more PvE drones, drone kills, drone waves or drone XP; the radio beacons are the first-minute objective instead. (Guards may return later if beacons alone prove boring.)
+
+### Changed
+- **Wire:** protocol 99 → 100 (the beacon fields on the room state; the drone-only fields on the sunk row and on contacts are gone).
+
 ## [0.19.10] - 2026-11-06
 
 ### Changed

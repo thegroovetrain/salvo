@@ -2,8 +2,9 @@
 title: 'Story 10.8: The Radio Beacons'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '75089a23'
+final_revision: 'the closing records commit at the PR head on worktree-story-10-8-radio-beacons (code: 69e9fc4e, the review-gate patches)'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -96,17 +97,17 @@ warnings: ['oversized', 'multiple-goals']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/beacons.ts` (+ test) -- new pure module: count per cycle, cycle start, sink start, `beaconStateAt` (phase, rate, sink progress), solid/hittable predicates, body polygon, integer pot split -- one source for all three sides
-- [ ] `shared/src/constants.ts`, `shared/src/sim/shell.ts`, `shared/src/index.ts` -- add `CONFIG.beacons` (counts, rangeU, surfaceMs, floatMs, sinkMs, levelsPerMin, hp, armor, killLevels, edge margin, body size), `TargetKind 'beacon'` in the weapon hit masks; export -- additive wave
-- [ ] `server/src/game/beacons.ts` (+ test) -- `BeaconField`: store, placement on a private seed stream, per-tick payout with carried remainder, damage ledger for the kill split, `beaconChart` snapshot, harness counters -- keeps `world.ts` to glue
-- [ ] `server/src/game/world.ts` -- `tickBeacons` row after `tickXp`, `placeBeacons` row last; `collectBeacons` in `hitTargets`; `damageBeacon` door reached from interception, burst, mine blast, burn zones and ramming; `sm` puffs for a hurt beacon; `targetsGen` bump on early sink; `ShipRecord.beaconXpMs` -- R5–R8, R11–R13
-- [ ] `server/src/rooms/schema/ArenaState.ts`, `ArenaRoom.ts`, `roomOptions.ts` -- flat fields `beaconCycle`, `beaconCount`, `bcn0..7X/Y/SinkT`; `syncBeacons()`; `matchOverride.beacons` -- R9, late joiners
-- [ ] `server/src/__tests__/` -- beacon lifecycle/payout/split/damage-per-weapon matrix/ram/early-sink tests; perception invariants extended (no beacon id in any frame; two-world differential: frames identical except the receiver's own XP fields; schema observer-independent); amend the step-order, `.hp -=` and schema-field pins
-- [ ] `client/src/sim/beaconView.ts`, `client/src/render/beacons.ts`, `client/src/main.ts`, `client/src/sim/contactPass.ts` (+ tests) -- read the schema, render chart marker / water hull / 500 u ring / sinking, append immovable contact bodies for solid beacons -- rendered candidate to Eric BEFORE this is final
-- [ ] `server/src/game/ai/*`, `server/src/game/botPort.ts` (+ tests) -- `BotWorldPort.beacons()`; with no target, sail to a standoff point inside the nearest paying beacon's circle and hold (`farm`), release when gone; never route through the solid centre
-- [ ] `server/src/game/match.ts`, `matchRecord.ts`, `server/scripts/batchsim/*` -- `beaconXpMs` per participant; harness reports beacon XP per hull and hulls-in-range per beacon per tick
-- [ ] Drone retirement (server core → fixtures and bots → harness, smokes, client → shared deletions last) -- delete `drones.ts`, `CONFIG.fleet`/`CONFIG.drones`/`droneTierLevels`, drone hull ids, the `'fleet'` role, `fleetWaves`, `pveKills`, `vcls`/`kcls`, client drone rendering; fixtures that meant "another hull" become role `'captain'` with a real class; tests whose subject was fleet behavior are deleted
-- [ ] `shared/src/index.ts`, `VERSION`, `package.json`, `CHANGELOG.md`, both trackers, `epic-10-context-amendments.md` (14), `epic-10-context.md`, `deferred-work.md`, dated stamp on Story 10.8 in `epics.md` -- closing records; PV 100
+- [x] `shared/src/sim/beacons.ts` (+ test) -- new pure module: count per cycle, cycle start, sink start, `beaconStateAt` (phase, rate, sink progress), solid/hittable predicates, body polygon, integer pot split -- one source for all three sides
+- [x] `shared/src/constants.ts`, `shared/src/sim/shell.ts`, `shared/src/index.ts` -- add `CONFIG.beacons` (counts, rangeU, surfaceMs, floatMs, sinkMs, levelsPerMin, hp, armor, killLevels, edge margin, body size), `TargetKind 'beacon'` in the weapon hit masks; export -- additive wave
+- [x] `server/src/game/beacons.ts` (+ test) -- `BeaconField`: store, placement on a private seed stream, per-tick payout with carried remainder, damage ledger for the kill split, `beaconChart` snapshot, harness counters -- keeps `world.ts` to glue
+- [x] `server/src/game/world.ts` -- `tickBeacons` row after `tickXp`, `placeBeacons` row last; `collectBeacons` in `hitTargets`; `damageBeacon` door reached from interception, burst, mine blast, burn zones and ramming; `sm` puffs for a hurt beacon; `targetsGen` bump on early sink; `ShipRecord.beaconXpMs` -- R5–R8, R11–R13
+- [x] `server/src/rooms/schema/ArenaState.ts`, `ArenaRoom.ts`, `roomOptions.ts` -- flat fields `beaconCycle`, `beaconCount`, `bcn0..7X/Y/SinkT`; `syncBeacons()`; `matchOverride.beacons` -- R9, late joiners
+- [x] `server/src/__tests__/` -- beacon lifecycle/payout/split/damage-per-weapon matrix/ram/early-sink tests; perception invariants extended (no beacon id in any frame; two-world differential: frames identical except the receiver's own XP fields; schema observer-independent); amend the step-order, `.hp -=` and schema-field pins
+- [x] `client/src/sim/beaconView.ts`, `client/src/render/beacons.ts`, `client/src/main.ts`, `client/src/sim/contactPass.ts` (+ tests) -- read the schema, render chart marker / water hull / 500 u ring / sinking, append immovable contact bodies for solid beacons -- rendered candidate to Eric BEFORE this is final
+- [x] `server/src/game/ai/*`, `server/src/game/botPort.ts` (+ tests) -- `BotWorldPort.beacons()`; with no target, sail to a standoff point inside the nearest paying beacon's circle and hold (`farm`), release when gone; never route through the solid centre
+- [x] `server/src/game/match.ts`, `matchRecord.ts`, `server/scripts/batchsim/*` -- `beaconXpMs` per participant; harness reports beacon XP per hull and hulls-in-range per beacon per tick
+- [x] Drone retirement (server core → fixtures and bots → harness, smokes, client → shared deletions last) -- delete `drones.ts`, `CONFIG.fleet`/`CONFIG.drones`/`droneTierLevels`, drone hull ids, the `'fleet'` role, `fleetWaves`, `pveKills`, `vcls`/`kcls`, client drone rendering; fixtures that meant "another hull" become role `'captain'` with a real class; tests whose subject was fleet behavior are deleted
+- [x] `shared/src/index.ts`, `VERSION`, `package.json`, `CHANGELOG.md`, both trackers, `epic-10-context-amendments.md` (14), `epic-10-context.md`, `deferred-work.md`, dated stamp on Story 10.8 in `epics.md` -- closing records; PV 100
 
 **Acceptance Criteria:**
 - Given a started match with beacons on, when each of the first three ring cycles begins, then every client's room state shows that cycle's beacon set at once, and no frame of any observer contains a beacon id, contact or paint.
@@ -119,12 +120,32 @@ warnings: ['oversized', 'multiple-goals']
 
 ## Review Triage Log
 
+### 2026-11-07 — Review pass (Fable Blind Hunter + Fable Edge Case Hunter + Codex gpt-5.6-sol; both hunters build-on-it, Codex fix-first)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 3, low 4)
+- defer: 3: (high 0, medium 1, low 2)
+- reject: 6
+- addressed_findings:
+  - `[medium]` `[patch]` Codex: server body built on float64 placement vs float32 schema x/y — placement is now `Math.fround`-exact (both hunters had traced it to ~0.0005 u; patched anyway so the predicted body equals the server body by construction)
+  - `[medium]` `[patch]` Edge Case Hunter: a standoff that lands inland stalls a bot circling its shore anchor at full ahead — standoff snapped to water, route end at the anchor counts as on station
+  - `[medium]` `[patch]` Edge Case Hunter: a standoff fixed on the far side after a chase routes a bot through the solid body — re-fixed when the bearing from the beacon has swung more than 90°
+  - `[low]` `[patch]` both hunters: three copies of the wire slot count — one shared `BEACON_WIRE_SLOTS`, load-time guard, clamp warning
+  - `[low]` `[patch]` Blind Hunter: a beacon smoked while sinking, a hull does not — puffs only while afloat (R11 "like a ship"; flagged to Eric to flip)
+  - `[low]` `[patch]` Blind Hunter: `WIDEST_BEAM = 35` literal decoupled the nav grid from the hull table — derived with the 35 floor, maps byte-identical
+  - `[low]` `[patch]` Blind Hunter: README advertised the PvE fleet; dead `drones.js` eslint entry; stale `.hp -=` comment — rewritten
+  - deferred (ledger): bot eligibility judged by the beacon centre not the farming point (Codex); bots have no beacon-body avoidance in combat (Blind Hunter); every pick collapses to the centre on a degenerate `--tune` ring (Edge Case Hunter)
+  - rejected: a one-tick jolt for a hull parked on a charted marker at surfacing (same on both sides); carried remainder forfeited at `gone` (ruled n = 0 reset); killer share unpaid with no killer record (the storm precedent, recorded in amendment 14); 25 ms of rate on the destroying tick (midpoint rule pins the exact integral); grind-key collision with a land scrape (victim-private batching only); `damageBeacon` answers true in a weapons-safe room (the hull path's rule)
+  - not a code finding, open for Eric: How-to-Play still says "Players are worth more, drones are worth less" (his pen); the beacon placement is a soft position oracle by the ruled rule (amendment 14(p)); `CLAUDE.md`'s schema sentence is stale (reported, not edited)
+
 ## Design Notes
 
 - **Why not a ShipRecord.** `isParticipant` is `role !== 'fleet'`, and a ship is a contact, paint, wake, storm victim and `sunk` row by default — a new role fails open at ~30 guards. A separate store fails closed: a missed site means "the beacon did not take that damage", which a per-weapon test catches.
 - **Schema.** `beaconCycle: int8` (-1 none), `beaconCount: uint8`, `bcnNX/bcnNY: float32`, `bcnNSinkT: float64` (0 = natural schedule), N = 0..7 → 26 fields, 42 of 63. Cleared = cycle -1 / count 0; stale slots are gated by count. The explicit cycle stops a client pairing old positions with a new cycle's clock.
 - **Payout.** Per beacon: `pot += rateMsPerMs × dt`; `share = floor(pot / n)`; each of n hulls gets `share` via `addXpMs`; `pot -= share × n`.
 - **Known tell, inherent to the ruled split (report to Eric):** a receiver whose own rate halves learns another hull is within 500 u, even in fog.
+- **Known tell 2, inherent to the ruled placement (report to Eric):** at 4:00 / 8:00 the beacon set marks the emptiest water in the ring (max-min from every afloat hull).
+- **Look is PROVISIONAL** (amendment 14(q)): Eric has not ruled on the rendered candidate; glyph A, body 8 u, body under fog shipped as dials.
 - **Waves (orchestrator):** W1 shared additive (Opus) → W2a server beacons (Fable) ∥ W2b client beacons (Opus) → W3 bots + harness (Opus) → W4 drone retirement: server core (Fable), fixtures/bots (Opus), harness/smokes/client (Sonnet), shared deletions last → review gate (Fable hunters + Codex `gpt-5.6-sol`).
 
 ## Verification
@@ -139,3 +160,17 @@ warnings: ['oversized', 'multiple-goals']
 **Manual checks (if no CLI):**
 - Eric's yes on the rendered beacon candidate (artifact page built from the real shared functions and the real render module).
 - Staging pass: radar noise without drones is OBSERVED and recorded, not solved.
+
+## Auto Run Result
+
+**Status:** done (review gate passed; PR to `development` open; Eric's visual ruling and the How-to-Play sentence follow as one commit).
+
+**Summary:** Radio beacons built on all three sides and the drone fleet retired. 8 / 4 / 2 beacons per ring cycle (none at sudden death) placed at 0:00 by the fleet-anchor rule on a private seed stream with the whole 500 u circle inside the live ring; on every chart at once through 26 flat schema fields; surface at 1:00, float a minute at 3 levels/min split evenly among afloat hulls in range (integer-ms carry), sink over a minute with the rate falling to zero; solid and shootable (1000 HP, ARMOR 100) by every weapon, the phosphor burn and the ramming law through the one `damageBeacon` door and the same armor gate as a hull; destroyed = sinks early (public) and pays 2 levels through the kill-pot split; smoke and fire via the existing anonymous `sm` puff while afloat; bots farm from a standoff point; harness and match record carry beacon XP. PV 99 → 100, 0.19.10 → 0.19.11, cycle 217.
+
+**Files changed (headline):** `shared/src/sim/beacons.ts` (new, the one lifecycle), `CONFIG.beacons` + `CONFIG.bots.beaconStandoffFrac`, `TargetKind 'beacon'` on every weapon mask (`HITS_TRIP` for mines); `server/src/game/beacons.ts` (new BeaconField), `world.ts` (glue, `damageBeacon`, `tickBeacons` / `placeBeacons`, ramming branch, burn pass), `ArenaState.ts` + `ArenaRoom.syncBeacons`, `roomOptions.matchOverride.beacons`; `server/src/game/ai/beacons.ts` (new) + port widening; `match.ts` / `matchRecord.ts` `beaconXpMs`; batch-sim beacon readouts; `client/src/sim/beaconView.ts`, `client/src/render/beacons.ts` (new), predicted contact bodies, two stage layers; DELETED `server/src/game/drones.ts`, `client/src/render/aggro.ts`, `CONFIG.fleet` / `CONFIG.drones` / `droneTierLevels`, the drone hull ids, the `'fleet'` role, `fleetWaves`, `pveKills`, `vcls` / `kcls` / `aggro`, drone rendering; README, eslint hygiene.
+
+**Review:** 7 patched, 3 deferred, 6 rejected (triage log above); no confirmed defect in the sim, the wire or the chokepoint.
+
+**Verification:** `npm run check` EXIT 0 after every wave and after the patches (final: shared 1436, server 2708, client 4109, hook 266; lint 0 errors, 3 pre-existing warnings); golden frames unchanged by the beacons (re-recorded once for the dropped `vcls` only); matchSmoke, weaponsSmoke and openingSmoke OK on agent-booted servers after the server and shared cuts; a 2-match bot probe showed every class farming with no beacon contact on approach.
+
+**Residual risks:** Eric's look ruling is open (glyph, body size, fog) and the How-to-Play sentence is stale until he writes it; the receiver's rate-halving tell and the placement oracle are inherent to the ruled design; wakes shrink with the hull set (watch on staging); radar noise without drones is to be OBSERVED on the staging pass and recorded (amendment 6(g)); `CLAUDE.md`'s schema sentence is stale (frozen file — reported).
