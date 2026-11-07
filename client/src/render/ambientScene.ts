@@ -85,7 +85,7 @@ export interface AmbientHull {
   id: string;
   cls: ShipClassId;
   /** The hull's relation to the scene's observer (Story 10.4 — the observer
-   *  is `own`, every rival `enemy`), handed to `contactStyle`. */
+   *  is `own`, every rival `enemy`), handed to `relationStyle`. */
   relation: Relation;
   state: ShipState;
   /** Fixed throttle (helm only steers). Well under full ahead: a menu is a

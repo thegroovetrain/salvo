@@ -11,10 +11,7 @@ import {
   damageMultiplierFor,
   FLASH_WINDOW_MS,
   CONFIG,
-  DRONE_HULL_IDS,
   INDEX_IDS,
-  fleetHullIds,
-  fleetLevels,
   MSG,
   SLOT_COUNT,
   WEAPON_SLOTS,
@@ -150,12 +147,8 @@ describe('shared barrel', () => {
     expect('sweepRpmMax' in CONFIG.vision).toBe(false);
   });
 
-  it('carries the XP economy block (Story 2.6) — the shape, tiers included', () => {
+  it('carries the XP economy block (Story 2.6) — the shape', () => {
     expect(CONFIG.xp.levelMs % CONFIG.tick.simDtMs).toBe(0);
-    for (const id of DRONE_HULL_IDS) {
-      expect(CONFIG.xp.droneTierLevels[id]).toBeGreaterThan(0);
-      expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels);
-    }
     // THE ASSIST SPLIT IS ONE DIAL (Eric answer A1, 2026-08-23): the same
     // number is the per-attacker restart gap, the eligibility window at the
     // sink, and the on-switch, so a second gap dial appearing here would fail
@@ -180,7 +173,7 @@ describe('shared barrel', () => {
       if (!EQUIPMENT_IS_WEAPON[id]) continue;
       expect(CONFIG.xp.assistWindowMs, id).toBeGreaterThan(stats.equipment[id].reloadMs);
     }
-    expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
+    expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'killLevels', 'killerShare', 'levelMs']);
   });
 
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {
@@ -281,7 +274,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.broadside never hits a mine, carries its own range dial and no arc field, and both arc ladders are cap-long', () => {
-    expect(CONFIG.broadside.hits).toEqual(['hull']); // AR44 — never a mine since amendment 200 (only deck guns, by landing)
+    expect(CONFIG.broadside.hits).toEqual(['hull', 'beacon']); // AR44 — never a mine since amendment 200 (only deck guns, by landing)
     // A range field of its own since Story 9.8 (ruling 125) — and still NO
     // arc field: the beams are a twin-sector descriptor, not 'full'.
     expect('rangeU' in CONFIG.broadside).toBe(true);
@@ -316,7 +309,7 @@ describe('shared barrel', () => {
     // `incendiaryRadiusFactor`, `incendiaryDps` and `dazzleSightFactor` are
     // DELETED with the star-shell verbs.
     // AR44 (Story 8.4): NO 'mine' bit — illumination detonates nothing.
-    expect(CONFIG.starShells.hits).toEqual(['hull']);
+    expect(CONFIG.starShells.hits).toEqual(['hull', 'beacon']);
     expect(CONFIG.starShells.arc).toBe('full');
     expect(CONFIG.starShells.damage).toBeGreaterThan(0);
     for (const gone of ['incendiaryRadiusFactor', 'incendiaryDps', 'dazzleSightFactor']) {
@@ -331,7 +324,7 @@ describe('shared barrel', () => {
     expect(CONFIG.phosphorShells.arc).toBe('full');
     // Never a mine (amendment 200, superseding 135(c)): only a deck gun's
     // shell landing on a mine damages one.
-    expect(CONFIG.phosphorShells.hits).toEqual(['hull']);
+    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'beacon']);
     expect('rangeU' in CONFIG.phosphorShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
   });
 
@@ -342,7 +335,7 @@ describe('shared barrel', () => {
     // radius, never the reach.
     expect(fs.rangeU).toBe(TWELFTH * 8);
     expect('rangeUAtV' in fs).toBe(false);
-    expect(fs.hits).toEqual(['hull']); // never a mine
+    expect(fs.hits).toEqual(['hull', 'beacon']); // never a mine
     expect(fs.radiusStepPerTier).toBeGreaterThan(0);
     expect(fs.reloadMs).toBeGreaterThan(0);
     expect(fs.slowFactor).toBeGreaterThan(0); // never a full stop
@@ -386,7 +379,7 @@ describe('shared barrel', () => {
     // ONE reach for the two click shells (ruling 2): the flash has NO rangeU
     // of its own — its row is seeded from CONFIG.foulingShell.rangeU.
     expect('rangeU' in fl).toBe(false);
-    expect(fl.hits).toEqual(['hull']); // never a mine
+    expect(fl.hits).toEqual(['hull', 'beacon']); // never a mine
     expect(fl.arc).toBe('full');
     expect(fl.radius).toBeGreaterThan(0);
     expect(fl.radiusStepPerTier).toBeGreaterThan(0);
@@ -411,7 +404,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.lightTorpedo (R18): runs under mines and carries no chassis duplicate', () => {
-    expect(CONFIG.lightTorpedo.hits).toEqual(['hull']); // AR44 — it runs UNDER a minefield
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'beacon']); // AR44 — it runs UNDER a minefield
     // NO MAX RANGE, and no chassis duplication: hit radius, spawn clearance
     // and the homing acquire/die/update thresholds are the FAMILY's, read from
     // CONFIG.torpedo (epic-8 amendments 84e/84f).
@@ -421,7 +414,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.supercavTorpedo: a slot weapon with a pool and a reload — and no homing dial (amendment 74; Story 10.5)', () => {
-    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'beacon']);
     expect(CONFIG.supercavTorpedo.reloadMs).toBeGreaterThan(0);
     expect(CONFIG.supercavTorpedo.maxAmmo).toBeGreaterThan(0);
     // IT NEVER HOMES: no turn-rate dial exists to give it one.
@@ -713,8 +706,8 @@ describe('shared barrel', () => {
     expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'hunker']);
     expect(DEFAULT_SHIFT).toBe('boost');
     expect(SHELL_FAMILIES).toEqual(['cannon', 'mg', 'flak']);
-    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine']);
-    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance']);
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'beacon']);
+    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']);
     expect([CONFIG.machineGun.arc, CONFIG.flak.arc]).toEqual(['full', 'full']);
     // The retired flat D − 10 dial never comes back under its old name.
     expect('edgeFalloff' in CONFIG.flak).toBe(false);
@@ -729,57 +722,15 @@ describe('shared barrel', () => {
     expect('burstRadius' in CONFIG.machineGun).toBe(false); // direct hit, NO burst
   });
 
-  // NO HARDCODED XP TOTAL (Eric ruling 2026-08-16, epic-6 amendment 24: *"XP
-  // is calculated from fleet comp. No need to hardcode any amount of xp into
-  // the contract."*).
-  //
-  // Amendment 33's `expect(fleetLevels()).toBe(3)` is RETIRED, and it had gone
-  // vacuous on its own terms. It existed because droneMedium paid 1/3 — a
-  // NON-DYADIC rational — so a composition edit could quietly start paying
-  // float dust. The current tiers are 1/4, 1/2, 3/4: all dyadic, so EVERY
-  // integer composition is exactly representable and no total can carry dust.
-  //
-  // So the invariant moves up a level and is pinned where it can still bite:
-  // the TIERS must stay exactly representable. A future tier that is not a
-  // power-of-two fraction (1/3, 1/5, 0.1) reintroduces the exact hazard 33 was
-  // written against, and THIS test is what fails.
-  it('CONFIG.fleet block + the tier-exactness invariant (amendment 24 retires the total pin)', () => {
-    for (const tier of Object.values(CONFIG.xp.droneTierLevels)) {
-      // Dyadic <=> some power-of-two multiple is a whole number. 2^10 is far
-      // past any plausible tier denominator and keeps the check cheap.
-      expect(Number.isInteger(tier * 1024)).toBe(true);
-    }
-    // ...and therefore the derived total is exact, whatever it happens to be.
-    expect(Number.isInteger(fleetLevels() * 1024)).toBe(true);
-    expect(fleetLevels()).toBeGreaterThan(0);
-
-    // fleetHullIds() is the SPAWN ORDER, generated from the composition and
-    // largest-first by contract, so the biggest hull always gets the first
-    // (least-constrained) scatter slot.
-    const hulls = fleetHullIds();
-    const { large, medium, small } = CONFIG.fleet.composition;
-    expect(hulls).toEqual([
-      ...new Array<string>(large).fill('droneLarge'),
-      ...new Array<string>(medium).fill('droneMedium'),
-      ...new Array<string>(small).fill('droneSmall'),
-    ]);
-
-    expect(Object.keys(CONFIG.fleet).sort()).toEqual([
-      'aimScatterU',
-      'composition',
-      'memoryMs',
-      'spawnRetryTicks',
-      'spreadU',
-      'waves',
-    ]);
-    // The wave sizes are a RATIO held against a shrinking field, so each later
-    // wave lands fewer fleets than the one before it — the ratio itself (today
-    // halving) is Eric's dial, not a contract (9.14 gate P2).
-    const waves = CONFIG.fleet.waves;
-    for (let i = 1; i < waves.length; i += 1) {
-      expect(waves[i].atMs, `wave ${i}`).toBeGreaterThan(waves[i - 1].atMs);
-      expect(waves[i].fleets, `wave ${i}`).toBeLessThan(waves[i - 1].fleets);
-      expect(waves[i].fleets, `wave ${i}`).toBeGreaterThan(0);
+  // THE PvE DRONE FLEET IS RETIRED (Story 10.8, Eric 2026-11-06, epic-10
+  // amendment 14): its CONFIG blocks, its XP tiers and every drone hull-id
+  // export are gone — no alias survives on the barrel.
+  it('the drone fleet left no CONFIG block, XP tier or hull-id export behind', () => {
+    for (const gone of ['drones', 'fleet']) expect(gone in CONFIG, gone).toBe(false);
+    expect('droneTierLevels' in CONFIG.xp).toBe(false);
+    const ns = shared as Record<string, unknown>;
+    for (const gone of ['DRONE_HULL_IDS', 'DRONE_SIZE_IDS', 'droneSizeOf', 'droneHullOf', 'fleetHullIds', 'fleetLevels']) {
+      expect(ns[gone], gone).toBeUndefined();
     }
   });
 });

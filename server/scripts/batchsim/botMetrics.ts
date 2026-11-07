@@ -19,6 +19,7 @@
 // imports it.
 
 import {
+  CONFIG,
   hullSilhouette,
   islandDistance,
   isAfloat,
@@ -30,7 +31,6 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
-import { isFleetHull } from '../../src/game/participants.js';
 import { BotReadoutCollector, type BotReadouts, type MatchReadouts } from './botReadouts.js';
 
 /**
@@ -60,10 +60,8 @@ const LAND_CONTACT_SLACK = 1;
 
 /**
  * How a bot's match ended. `sunkByShip` is a PARTICIPANT killer (another bot,
- * or a captain in a mixed lobby); `sunkByFleet` is a PvE fleet hull — those are
- * gun-armed (drones.ts) and really do sink bots, and folding them into the
- * bot-vs-bot column would overstate how lethal the brain is to its peers.
- * Story 9.5 splits two more off the victim's own `lastDamageSrc` (the gate's
+ * or a captain in a mixed lobby; the `sunkByFleet` column retired with the
+ * PvE fleet at Story 10.8). Story 9.5 splits two more off the victim's own `lastDamageSrc` (the gate's
  * server-only stamp of what last took hp — 'contact' is the strike, 'grind'
  * the bleed; both are contact here) and `lastContactWasLand` (which kind of
  * contact that was): `sunkByContact` — the last blow was contact and EITHER
@@ -72,7 +70,7 @@ const LAND_CONTACT_SLACK = 1;
  * was the coast. `sunkByStorm` keeps its meaning: no killer, and the storm
  * was the last thing to bite.
  */
-export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByFleet' | 'sunkByContact' | 'ranAground' | 'sunkByStorm';
+export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByContact' | 'ranAground' | 'sunkByStorm';
 
 /** One boon fit, stamped when its `bn` event fired: the card's catalog id and
  *  sim-seconds since activation. Array order IS build order — `bn` events are
@@ -91,11 +89,8 @@ export interface BotSample extends BotReadouts {
   cls: string;
   profile: string;
   /** Kills against PARTICIPANTS (other bots/captains) — the kill-distribution
-   *  numerator. Counted from `sunk` events, not ShipRecord.kills, because that
-   *  field deliberately counts PvE fleet hulls too (amendment 38). */
+   *  numerator. Counted from `sunk` events as the readouts are. */
   kills: number;
-  /** Kills against PvE fleet hulls (the `forager` profile's whole thesis). */
-  pveKills: number;
   end: BotEnd;
   /** sim-seconds from activation to this bot's sinking (or to the finish). */
   lifeS: number;
@@ -128,6 +123,9 @@ export interface BotSample extends BotReadouts {
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
+  /** Levels of XP RADIO BEACONS paid this bot (Story 10.8 —
+   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`), read at the last afloat tick. */
+  beaconXpLevels: number;
   /** Whole hp this bot TOOK from hull contact (rams and grinds, by any hull)
    *  and from the coast (land strikes and scrapes) — `ShipRecord.
    *  contactDamageTaken` / `landDamageTaken`, the gate's own tallies (Story
@@ -192,7 +190,7 @@ export interface BotSample extends BotReadouts {
  * A hull's main-battery LAYOUT key: turret count × guns per turret, read off
  * the shared `turretMounts` (never a hand table), e.g. `3x3` or `4x2`. A hull
  * whose turrets carried mixed gun counts would read `${n}x${a}+${b}` (none
- * does today); a hull with no battery (a drone) reads `0x0`.
+ * does today); a hull with no battery would read `0x0`.
  */
 export function layoutOf(hullId: HullId): string {
   const mounts = turretMounts(hullId);
@@ -203,7 +201,6 @@ export function layoutOf(hullId: HullId): string {
 /** Mutable per-bot accumulation; frozen into a BotSample at the finish. */
 interface BotTrack {
   kills: number;
-  pveKills: number;
   end: BotEnd;
   lifeS: number;
   ticks: number;
@@ -217,6 +214,7 @@ interface BotTrack {
   shots: number;
   minesLaid: number;
   damageDealt: number;
+  beaconXpLevels: number;
   contactDamageTaken: number;
   landDamageTaken: number;
   landEpisodes: number;
@@ -234,7 +232,6 @@ interface BotTrack {
 function newTrack(): BotTrack {
   return {
     kills: 0,
-    pveKills: 0,
     end: 'alive',
     lifeS: 0,
     ticks: 0,
@@ -246,6 +243,7 @@ function newTrack(): BotTrack {
     shots: 0,
     minesLaid: 0,
     damageDealt: 0,
+    beaconXpLevels: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     landEpisodes: 0,
@@ -329,7 +327,7 @@ export class BotCollector {
     this.readouts = new BotReadoutCollector(botIds);
   }
 
-  /** The match-level 9.13 readouts (endgame stall, drone grounding). */
+  /** The match-level 9.13 readouts (the endgame stall). */
   matchReadouts(): MatchReadouts {
     return this.readouts.matchSample();
   }
@@ -367,8 +365,7 @@ export class BotCollector {
    * is keyed by TYPE-PREFIXED id (`m:`), so a future placeable's id space can
    * never collide with it.
    *
-   * A placement by a NON-BOT (a captain in a mixed lobby, a fleet hull) finds
-   * no track and is silently skipped — the same rule `recordKill` already uses.
+   * A placement by a NON-BOT (a captain in a mixed lobby) finds no track and is silently skipped — the same rule `recordKill` already uses.
    */
   private notePlacements(world: World): void {
     this.creditNew(world.mines.values(), 'm', (t) => { t.minesLaid += 1; });
@@ -407,7 +404,7 @@ export class BotCollector {
   private recordVictim(world: World, id: string, by: string | undefined, tS: number): void {
     const track = this.tracks.get(id);
     if (track === undefined) return;
-    track.end = endCause(world, by, world.ships.get(id));
+    track.end = endCause(by, world.ships.get(id));
     track.lifeS = tS;
     if (track.end === 'sunkByStorm') this.readouts.noteStormDeath(id);
   }
@@ -416,10 +413,6 @@ export class BotCollector {
     const track = this.tracks.get(by);
     const victim = world.ships.get(victimId);
     if (track === undefined || victim === undefined) return;
-    if (isFleetHull(victim)) {
-      track.pveKills += 1;
-      return;
-    }
     track.kills += 1;
     this.readouts.noteKill(by, victim);
   }
@@ -439,7 +432,6 @@ export class BotCollector {
         cls: ship.hullId,
         profile: world.bots.profileOf(id) ?? 'unknown',
         kills: track.kills,
-        pveKills: track.pveKills,
         end: track.end,
         lifeS: Math.round(track.lifeS * 10) / 10,
         levelsEarned: track.levelsEarned,
@@ -448,6 +440,7 @@ export class BotCollector {
         shots: track.shots,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
+        beaconXpLevels: track.beaconXpLevels,
         contactDamageTaken: track.contactDamageTaken,
         landDamageTaken: track.landDamageTaken,
         ticks: track.ticks,
@@ -504,17 +497,13 @@ export function lifeSamples(rows: readonly BotSample[]): number[] {
  *  a last blow of contact ('contact' strike or 'grind' bleed) is a grounding
  *  when nobody is credited AND the contact was the coast, else a ram/grind
  *  kill (a killer, or a wreck — hull contact that credits nobody); otherwise
- *  none = the storm, a fleet hull = PvE, anything else = a participant. A
- *  killer whose record has already gone is treated as a participant — only
- *  fleet hulls are ever removed early. The victim's record is read at the
- *  `sunk` event, where `lastDamageSrc` is the sinking blow's (founderSinking
- *  does not clear it). */
-export function endCause(world: World, by: string | undefined, victim: ShipRecord | undefined): BotEnd {
+ *  none = the storm, anything else = a participant. The victim's record is
+ *  read at the `sunk` event, where `lastDamageSrc` is the sinking blow's
+ *  (founderSinking does not clear it). */
+export function endCause(by: string | undefined, victim: ShipRecord | undefined): BotEnd {
   const contact = victim === undefined ? null : contactEnd(victim, by);
   if (contact !== null) return contact;
-  if (by === undefined) return 'sunkByStorm';
-  const killer = world.ships.get(by);
-  return killer !== undefined && isFleetHull(killer) ? 'sunkByFleet' : 'sunkByShip';
+  return by === undefined ? 'sunkByStorm' : 'sunkByShip';
 }
 
 /** The contact reading of a sinking, or null when the last blow was not
@@ -538,6 +527,7 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
+  track.beaconXpLevels = ship.beaconXpMs / CONFIG.xp.levelMs;
   track.contactDamageTaken = ship.contactDamageTaken;
   track.landDamageTaken = ship.landDamageTaken;
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only

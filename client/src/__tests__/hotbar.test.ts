@@ -1504,7 +1504,7 @@ describe('slotForCard — a fit flash lands on its weapon slot', () => {
 describe("slot 0 is the main battery and slot 1 the SEAT'S Shift, replayed as main.ts derives it", () => {
   /** main.ts's `slotIdsFor`, verbatim (the Shift leg included). */
   function slotIdsFor(stats: EffectiveStats, cards: readonly string[], shift: EquipmentId): (EquipmentId | null)[] {
-    return slotsWithCards(stats, cards, CATALOG, false, shift as never).map((s) => s.equipmentId);
+    return slotsWithCards(stats, cards, CATALOG, shift as never).map((s) => s.equipmentId);
   }
 
   it('every hull mounts the main battery in slot 0 and the picked Shift in slot 1, moving no other slot', () => {
@@ -1525,7 +1525,7 @@ describe("slot 0 is the main battery and slot 1 the SEAT'S Shift, replayed as ma
   it('main.ts really pins the slot from the loadout, not from a literal', () => {
     // The helper above is a copy; this is the pin that keeps the copy honest.
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'), 'utf8');
-    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, shift\)/);
+    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, shift\)/);
   });
 });
 

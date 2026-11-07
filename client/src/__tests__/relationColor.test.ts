@@ -1,11 +1,11 @@
 // Story 10.4 (Eric's ruling R6): the hue wheel is gone — every ship's linework
-// reads ONE relation to the viewer. Own vs enemy, drones unchanged.
+// reads ONE relation to the viewer. Own vs enemy.
 
 import { describe, expect, it } from 'vitest';
-import { DRONE_HULL_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
+import { SHIP_CLASS_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { relationFill, relationOf, relationStroke, relationStyle, scaleValue } from '../render/relationColor.js';
-import { DRONE_STYLE, contactStyle } from '../render/ships.js';
+import { ShipView } from '../render/ships.js';
 import { OWN_ACCENT } from '../ui/ownAccent.js';
 import { cssHex } from '../util/color.js';
 
@@ -44,18 +44,16 @@ describe('relation colors — two tokens, one fill rule', () => {
   });
 });
 
-describe('contactStyle — captains wear the relation, drones keep their greys', () => {
-  it('every captain hull takes its relation style', () => {
+describe('every captain hull draws its outline in its relation stroke', () => {
+  it('for every class and both relations', () => {
     for (const id of SHIP_CLASS_IDS) {
-      expect(contactStyle(id, 'own')).toEqual(relationStyle('own'));
-      expect(contactStyle(id, 'enemy')).toEqual(relationStyle('enemy'));
-    }
-  });
-
-  it('every drone hull keeps DRONE_STYLE whatever the relation', () => {
-    for (const id of DRONE_HULL_IDS) {
-      expect(contactStyle(id, 'own')).toBe(DRONE_STYLE);
-      expect(contactStyle(id, 'enemy')).toBe(DRONE_STYLE);
+      for (const r of ['own', 'enemy'] as const) {
+        const view = new ShipView(relationStyle(r), id);
+        const instructions = view.outline.context.instructions as { action: string; data: { style?: { color?: number } } }[];
+        const strokes = instructions.filter((i) => i.action === 'stroke').map((i) => i.data.style?.color);
+        expect(strokes).toEqual([relationStroke(r)]);
+        view.destroy();
+      }
     }
   });
 });

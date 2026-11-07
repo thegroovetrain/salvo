@@ -18,6 +18,7 @@ import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
 import { BotCollector, hullTouchesLand, layoutOf, lifeSamples, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
+import { buildAggregate, histLine, renderBatchReport, sumHist } from '../report.js';
 import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
 import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
@@ -111,7 +112,6 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     cls: 'warspite',
     profile: 'raider',
     kills: 0,
-    pveKills: 0,
     end: 'sunkByShip',
     lifeS: 100,
     levelsEarned: 10,
@@ -120,6 +120,7 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     shots: 20,
     minesLaid: 0,
     damageDealt: 200,
+    beaconXpLevels: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     ticks: 2000,
@@ -149,7 +150,6 @@ function result(bots: BotSample[][], over: Partial<MatchSample> = {}): BatchResu
       endedBy: 'fieldCleared' as const,
       winnerClass: 'warspite',
       stormDeaths: 0,
-      killsByVictimTier: {},
       captains: [],
       departedCaptains: [],
       bots: rows,
@@ -564,7 +564,7 @@ const RECORD_FIELDS = [
   'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
   'fogTicksByPosture', 'pressesByAbility', 'activations',
 ] as const;
-const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS', 'droneGroundedTicks', 'droneStormDeaths'] as const;
+const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS'] as const;
 
 const allNumbers = (rec: unknown): boolean =>
   typeof rec === 'object' && rec !== null && Object.values(rec).every((v) => typeof v === 'number' && Number.isFinite(v));
@@ -611,6 +611,25 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
 
   it('is deterministic: the same seed gives identical readouts', () => {
     expect(run()).toEqual(first);
+  });
+
+  it('Story 10.8: beacon levels per bot and the field-wide hulls-in-range hist ride the sample and the reports', () => {
+    for (const b of first.bots!) {
+      expect(Number.isFinite(b.beaconXpLevels)).toBe(true);
+      expect(b.beaconXpLevels).toBeGreaterThanOrEqual(0);
+    }
+    const hist = first.beaconInRangeHist!;
+    expect(Array.isArray(hist)).toBe(true);
+    for (const n of hist) expect(Number.isInteger(n) && n >= 0).toBe(true);
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    for (const g of agg.byClass) {
+      const rows = first.bots!.filter((b) => b.cls === g.key);
+      expect(g.beaconLevels.mean).toBeCloseTo(rows.reduce((a, b) => a + b.beaconXpLevels, 0) / rows.length, 9);
+    }
+    expect(sumHist([hist, hist])).toEqual(hist.map((n) => 2 * n));
+    const batch = buildAggregate({ matches: [first], failures: [] }, 0);
+    expect(batch.beaconInRangeHist).toEqual(hist);
+    expect(renderBatchReport('x', batch).some((l) => l.endsWith(histLine(hist)))).toBe(true);
   });
 });
 

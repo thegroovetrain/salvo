@@ -142,7 +142,7 @@ export type ControlFactory = (id: string, seed: number) => CaptainControl;
 // --- control tunables (script behavior, not game balance) -------------------
 const ZONE_SAFETY = 0.8; // steer for the ring center once outside this fraction of the live ring
 const WAYPOINT_REACHED_U = 60; // wander waypoint retarget distance
-const ISLAND_LOOKAHEAD_U = 160; // dronesSmoke huntTick avoidance horizon
+const ISLAND_LOOKAHEAD_U = 160; // the old dronesSmoke huntTick avoidance horizon
 
 // --- un-beach seamanship (Story 3.4, amendment 25) ---------------------------
 // All four numbers are TICK/UNIT counters — no rng, no world accessors beyond

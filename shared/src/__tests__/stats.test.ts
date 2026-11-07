@@ -27,7 +27,6 @@ import {
   BOON_STAT_PATH_SET,
   CATALOG,
   CONFIG,
-  DRONE_SIZE_IDS,
   EQUIPMENT_IDS,
   EQUIPMENT_INT_FIELDS,
   INDEX_IDS,
@@ -359,12 +358,13 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
     },
   );
 
-  it('a hull with NO battery (a PvE drone) carries an inert main-battery row', () => {
-    for (const size of DRONE_SIZE_IDS) {
-      const row = effectiveStats(CONFIG.drones[size]).equipment.mainBattery;
-      expect(row.maxAmmo, size).toBe(0);
-      expect(row.damage, size).toBe(0);
-    }
+  it('a hull with NO battery carries an inert main-battery row', () => {
+    // Every battleship carries one; the PvE drones that did not retired at
+    // Story 10.8 (2026-11-06), so the envelope is stripped here.
+    const { battery: _battery, ...noBattery } = CONFIG.shipClasses.iowa;
+    const row = effectiveStats(noBattery).equipment.mainBattery;
+    expect(row.maxAmmo).toBe(0);
+    expect(row.damage).toBe(0);
   });
 
   // THE THREE MOVED WEAPONS (Story 10.5, Eric 2026-11-05, epic-10 amendment
@@ -714,12 +714,8 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
 describe('THE INDEX MODEL — the authored indices and what the fold derives from them (Story 10.3)', () => {
   const step = (id: LineId): number => (CATALOG[id].tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
 
-  it('zero cards seeds every index from the envelope, on every class AND every drone size', () => {
-    const envelopes = [
-      ...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id]),
-      ...DRONE_SIZE_IDS.map((size) => CONFIG.drones[size]),
-    ];
-    for (const cls of envelopes) {
+  it('zero cards seeds every index from the envelope, on every class', () => {
+    for (const cls of SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id])) {
       const s = effectiveStats(cls);
       for (const k of INDEX_IDS) expect(s[k], k).toBe(cls.index[k]);
     }
@@ -877,10 +873,7 @@ describe('THE INDEX MODEL — the authored indices and what the fold derives fro
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('a PvE fleet envelope (cls.gun present) keeps ONE barrel and its own damage; a captain reads CONFIG.gun.barrels (epic-7 amendment 24 untouched)', () => {
-    const drone = effectiveStats(CONFIG.drones.small).equipment.gun;
-    expect(drone.barrels).toBe(1);
-    expect(drone.damage).toBe(CONFIG.drones.small.gun.damage);
+  it('every hull reads CONFIG.gun.barrels (the PvE envelope\'s one-barrel override retired, Story 10.8)', () => {
     for (const id of SHIP_CLASS_IDS) {
       expect(effectiveStats(CONFIG.shipClasses[id]).equipment.gun.barrels, id).toBe(CONFIG.gun.barrels);
     }

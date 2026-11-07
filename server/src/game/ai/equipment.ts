@@ -421,16 +421,11 @@ const lightTorpedoTactic: EquipmentTactic = torpedoTacticFor('lightTorpedo');
  * CAPTIVE MINES want differently: the trip ring is 144u (not 32u) and the
  * mine fires a torpedo at the first HOSTILE inside it — so laying is
  * PROACTIVE (no rear-arc requirement on the victim: the torpedo does the
- * chasing) and the victim must be a genuine hostile. A NEUTRAL PvE fleet
- * drone walks straight over a captive mine (isCaptiveMineHostile), so a
- * fleet-only target never justifies one — captive mines cannot farm fleet.
+ * chasing) and the victim must be a genuine hostile (every tracked hull is
+ * one since Story 10.8 retired the neutral PvE fleet).
  */
 function captiveMineWant(ctx: TacticContext): boolean {
   const t = ctx.target;
-  // A FLEET-ONLY target never justifies a captive mine, on any posture: the
-  // trip is HOSTILE-ONLY, so a neutral PvE drone walks straight over it. This
-  // clause is deliberate and stays.
-  if (t !== null && t.fleet) return false;
   // WITHDRAWING WITH NOTHING TRACKED: lay anyway, exactly as the base mine
   // does (review gate, cycle 110). Refusing the whole no-target case made
   // CAPTIVE delete the base mine's unconditional withdrawal lay, so a low-hp

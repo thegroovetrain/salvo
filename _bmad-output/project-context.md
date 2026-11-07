@@ -42,7 +42,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - `effectiveStats()` (`shared/src/sim/stats.ts`) is the ONLY legal path from (ship class + upgrade counts) to any derived stat. Never re-derive an upgraded value ad hoc, on either side.
 - `CONFIG` (`shared/src/constants.ts`) is the single source of truth for every gameplay tunable. Client-only feel knobs live in `CLIENT_CONFIG` (`client/src/config.ts`); promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
 - `PROTOCOL_VERSION` (`shared/src/index.ts`, 71 at the Epic 8 close) must be bumped on ANY wire-contract break (`shared/src/types.ts`).
-- Colyseus schema syncs the roster (`ArenaState`/`PlayerMeta`), the map seed/radius, the revealed zone rings, `matchPhase` and `bountyId` — nothing PER-SHIP spatial. All spatial state travels in per-client frames. Never add per-ship spatial fields to the schema.
+- Colyseus schema syncs the roster (`ArenaState`/`PlayerMeta`), the map seed/radius, the revealed zone rings, `matchPhase` and `bountyId` and the live radio beacons (Story 10.8) — nothing PER-SHIP spatial. All spatial state travels in per-client frames. Never add per-ship spatial fields to the schema.
 - `game/world.ts` and `game/match.ts` keep ZERO Colyseus imports; `ArenaRoom` stays a thin adapter. This is what keeps the sim unit-testable.
 - No `Math.random()` or `Date.now()` in sim code — all randomness is seeded `mulberry32` streams; the map rebuilds deterministically from `mapSeed` (islands never travel on the wire); `World` owns the single server clock.
 - Client one-way data flow: net (server mirror) → sim (prediction) → render views. `state.ts` is a leaf; render modules never drive net/sim.

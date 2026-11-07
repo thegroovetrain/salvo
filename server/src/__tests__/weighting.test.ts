@@ -68,15 +68,6 @@ describe('the take ledger — what goes in, and what never does', () => {
     expect(w.takes.size).toBe(0); // ...and not one of them is a take
   });
 
-  it('a FLEET DRONE never appears in the ledger (it never picks a card at all)', () => {
-    const w = bareWorld();
-    const d = w.addShip('fleet-1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
-    w.grantXp(d, 5); // a drone banks nothing, so it can never spend
-    expect(d.bankedLevels).toBe(0);
-    expect(d.offer).toBeNull();
-    expect(w.takes.size).toBe(0);
-  });
-
   it('a DEV SPAWN FIT counts as a take — it goes through the same applyCard', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, [WEAPON]);

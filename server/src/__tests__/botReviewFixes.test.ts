@@ -6,9 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_HORN_ID,
   cellOf,
-  droneHullOf,
   effectiveStats,
   flowDirection,
   isWater,
@@ -311,81 +309,6 @@ describe('P8 (Codex): the next ring\'s flow field is built in the zone hook at t
   });
 });
 
-describe('P9 (Codex): the fleet waypoint fallback is water, and a fleet re-picks at most once per decision cadence', () => {
-  type FleetSeam = { waypoint: Vec2 | null; ashore: boolean };
-  type DroneSeams = { fleets: Map<number, FleetSeam>; pickWaypoint(f: FleetSeam): void };
-  const fleetWorld = (ring: ZoneRing, at: readonly Vec2[]): { w: World; ctl: DroneSeams } => {
-    const w = openWorld(91309, CONFIG.map.playerCap);
-    w.map.islands.push(circleIsland(0, 0, 850));
-    Object.defineProperty(w, 'zoneLiveRing', { get: () => ring });
-    at.forEach((p, i) => {
-      const id = `f${i}`;
-      w.addShip(id, 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, p);
-      w.drones.add(id, 'medium', 1, { x: 0, y: 0 });
-    });
-    return { w, ctl: w.drones as unknown as DroneSeams };
-  };
-
-  it('a live ring whose sample disc is all ashore falls back to its centre SNAPPED to water', () => {
-    // Centre 40 u inside the coast, a sample disc of 16 u: every draw is ashore.
-    const { w, ctl } = fleetWorld({ cx: 0, cy: 810, r: 20 }, [{ x: 0, y: 1000 }]);
-    const fleet = ctl.fleets.get(1)!;
-    ctl.pickWaypoint(fleet);
-    const grid = w.nav.grid;
-    expect(fleet.waypoint).not.toBeNull();
-    expect(isWater(grid, cellOf(grid, fleet.waypoint!.x, fleet.waypoint!.y))).toBe(true);
-    expect(fleet.ashore).toBe(false);
-  });
-
-  it('an unsnappable (deep-ashore) fallback is re-picked at most once per CONFIG.bots.decisionCadenceMs, not per hull evaluation', () => {
-    const { w, ctl } = fleetWorld({ cx: 0, cy: 0, r: 1000 }, [{ x: 950, y: 0 }, { x: -950, y: 0 }, { x: 0, y: 950 }]);
-    let picks = 0;
-    const orig = ctl.pickWaypoint.bind(ctl);
-    ctl.pickWaypoint = (f) => {
-      picks += 1;
-      orig(f);
-    };
-    const ticks = 20;
-    for (let t = 0; t < ticks; t += 1) w.step();
-    expect(picks).toBeGreaterThan(0);
-    expect(picks).toBeLessThanOrEqual(Math.ceil((ticks * CONFIG.tick.simDtMs) / CONFIG.bots.decisionCadenceMs) + 1);
-  });
-});
-
-describe('P12 (Edge Case Hunter): the fleet route is re-based when the lead member changes', () => {
-  it('the lead sinks mid-route: the new lead (already past the first route point) is not sent back to it', () => {
-    const w = openWorld(91312, CONFIG.map.playerCap);
-    w.map.islands.push(circleIsland(0, 0, 350));
-    w.addShip('f0', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: -900, y: 0 });
-    w.drones.add('f0', 'medium', 1, { x: 0, y: 0 });
-    w.addShip('f1', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: -900, y: 200 });
-    w.drones.add('f1', 'medium', 1, { x: 0, y: 200 });
-    type Seams = { fleets: Map<number, { waypoint: Vec2 | null; ashore: boolean; bestDist: number; progressAt: number; route: Vec2[] | null; pickedAt: number }>; routeFleet(f: unknown, wp: Vec2): void };
-    const ctl = w.drones as unknown as Seams;
-    const fleet = ctl.fleets.get(1)!;
-    const wp = { x: 900, y: 0 };
-    fleet.waypoint = wp;
-    fleet.ashore = false;
-    fleet.bestDist = Infinity;
-    fleet.progressAt = w.now;
-    fleet.pickedAt = w.now;
-    ctl.routeFleet(fleet, wp);
-    const route = fleet.route!;
-    expect(route.length).toBeGreaterThanOrEqual(2);
-    const first = { ...route[0] };
-    // The second member stands halfway down the route's first leg: past its first point.
-    const f1 = w.ships.get('f1')!;
-    f1.state.x = (route[0].x + route[1].x) / 2;
-    f1.state.y = (route[0].y + route[1].y) / 2;
-    f1.prevPose = { ...f1.state };
-    expect(dist(f1.state, first)).toBeGreaterThan(120);
-    w.sinkShip('f0');
-    w.step();
-    const now = fleet.route;
-    expect(now === null || dist(now[0], first) > 1).toBe(true);
-  });
-});
-
 describe('P11 (Edge Case Hunter): an odds-gate verdict is HELD for CONFIG.bots.gateHoldMs', () => {
   const tb = effectiveStats(hullEnvelope('bismarck'));
   // A shorter gun than the battleship's: closing -> declined, opening -> shadowed.
@@ -393,7 +316,7 @@ describe('P11 (Edge Case Hunter): an odds-gate verdict is HELD for CONFIG.bots.g
   const at = shorter.equipment.gun.rangeU + 200;
   const tgt = (closing: boolean, over: Partial<RememberedContact> = {}): RememberedContact => ({
     id: 'e1', x: at, y: 0, heading: closing ? Math.PI : 0, speed: 20, seenAt: NOW, live: true, sunk: false,
-    cls: 'yamato', fleet: false, firstSeenAt: 0, hits: 0, vx: null, vy: null, vAt: -1, vSrc: null,
+    cls: 'yamato', firstSeenAt: 0, hits: 0, vx: null, vy: null, vAt: -1, vSrc: null,
     paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1, ...over,
   });
   const sitAt = (now: number): BotSituation =>

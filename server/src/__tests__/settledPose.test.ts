@@ -1,4 +1,4 @@
-// THE SETTLED-POSE SKIP (fix 2026-10-14 — the post-fleet-wave tick cost; see
+// THE SETTLED-POSE SKIP (fix 2026-10-14 — the many-hulls tick cost; see
 // World.settledPoses). A hull whose candidate pose is exactly a pose the
 // island resolver already returned untouched and contact-free skips the
 // resolver — it would get the identical answer. These pins: a still hull far

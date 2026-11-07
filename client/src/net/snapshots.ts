@@ -110,63 +110,13 @@ export class SnapshotBuffer {
 export class ContactStore {
   private buffers = new Map<string, SnapshotBuffer>();
   private lastSeen = new Map<string, number>(); // server time (ms)
-  /** Static per-id hull id (a contact never changes hull mid-life; may be a
-   *  drone id, so this is HullId, not just a pickable ShipClassId). */
+  /** Static per-id hull id (a contact never changes hull mid-life). */
   private classes = new Map<string, HullId>();
-  /**
-   * Ids whose LAST OBSERVED frame carried the self-private `aggro` mark (Story
-   * 5.6, amendment 40) — a PvE fleet ship that has acquired US specifically.
-   *
-   * A SET, NOT A TIMESTAMP, and re-derived on every push: unlike `classes` this
-   * is not static — the server omits the key the moment the hull's memory of us
-   * expires, and the absence IS the de-aggro. A contact that stops appearing in
-   * frames altogether keeps its last mark until prune drops it, which is
-   * correct: its hull view is already fading out on the same beat.
-   */
-  private aggro = new Set<string>();
-  /**
-   * THE HULL MEMO (Story 5.6 follow-up): every hull id we have EVER observed a
-   * contact wearing, NEVER cleared on prune.
-   *
-   * WHY IT EXISTS. `classes` above is deleted the moment a contact ages out, and
-   * amendment 39 left `Contact.cls` as the client's ONLY channel for "is this a
-   * PvE fleet hull" — so a fleet ship you sailed past and then MINED after it
-   * dropped out of your contact set became unidentifiable, and its kill-feed
-   * line read the neutral `UNKNOWN VESSEL` instead of `DRONE`. That is not an
-   * exotic case: laying a trap and waiting is a Mine Layer's whole playstyle.
-   *
-   * WHY REMEMBERING IS HONEST. For that case the client genuinely DID observe
-   * the hull. The memo asserts nothing it did not see — it only declines to
-   * forget. A contact never changes hull mid-life, so a remembered id can never
-   * go stale, and the population is bounded by the ids one match produces.
-   *
-   * WHY IT SURVIVES `SunkEvent.vcls`. The wire field names the victim of YOUR
-   * OWN kills and is absent on every other observer's copy of the row — so the
-   * memo still owns the case `vcls` cannot reach: a fleet sinking you WITNESSED
-   * but were not credited with, on a hull that has since aged out. The two
-   * compose (see net/roomBindings.ts `victimNameRef`) rather than competing.
-   *
-   * WHY IT IS SEPARATE FROM `classes` RATHER THAN `classes` SIMPLY SURVIVING
-   * PRUNE: `classOf` going undefined on prune is LOAD-BEARING elsewhere — it is
-   * the reason render/contacts.ts caches a view's hull id at creation, and
-   * widening it would silently change the plate-offset path. Two questions, two
-   * lifetimes, two maps.
-   *
-   * WHAT IT DELIBERATELY DOES NOT DO: a hull that was NEVER in our bubble and is
-   * not our own kill is still absent here, and its feed line still reads
-   * `UNKNOWN VESSEL`. We truly do not know what we are looking at. Do NOT
-   * "complete" this by inferring drone-ness from an absent roster row either: a
-   * DISCONNECTED captain's row is removed too, and the schema patch races the
-   * `sunk` event in the same frame with no guaranteed ordering (the hazard
-   * epic-4 amendment 221 names for `SunkEvent.bty`) — that would render a
-   * departed captain as `DRONE`, a worse and far more visible wrong.
-   */
-  private everSeenClasses = new Map<string, HullId>();
   /**
    * THE CONTACT'S TURRET ANGLES (Story 10.4): the latest frame's `Contact.tu`,
    * decoded to hull-relative radians (`decodeTurretAngle`), one array per id
    * reused across frames. SNAPPED, not interpolated: a turret moves at most
-   * 90°/s, i.e. 4.5° between 20 Hz frames. Absent for a drone (no `tu`).
+   * 90°/s, i.e. 4.5° between 20 Hz frames. Absent when the row carries no `tu`.
    */
   private turretAngles = new Map<string, number[]>();
   /**
@@ -188,9 +138,6 @@ export class ContactStore {
       buf.push({ t, x: c.x, y: c.y, heading: c.heading, speed: c.speed });
       this.lastSeen.set(c.id, t);
       this.classes.set(c.id, c.cls);
-      this.everSeenClasses.set(c.id, c.cls);
-      if (c.aggro === true) this.aggro.add(c.id);
-      else this.aggro.delete(c.id);
       // An unknown hull id (a malformed row) decodes to no mount angles — never a throw that drops the frame's other contacts.
       const known = (hullEnvelope(c.cls) as unknown) !== undefined;
       pushAngles(this.turretAngles, c.id, known ? c.tu : undefined, (i, q) => decodeTurretAngle(c.cls, i, q));
@@ -199,7 +146,7 @@ export class ContactStore {
   }
 
   /** The contact's turret angles (hull-relative rad, bow to stern) as of its
-   *  last frame, or undefined when it carried none (a drone) or is pruned. */
+   *  last frame, or undefined when it carried none or is pruned. */
   turretAnglesOf(id: string): readonly number[] | undefined {
     return this.turretAngles.get(id);
   }
@@ -218,27 +165,6 @@ export class ContactStore {
    *  the contact is pruned). Everything POSITIONAL reads this. */
   classOf(id: string): HullId | undefined {
     return this.classes.get(id);
-  }
-
-  /**
-   * The hull id this contact was EVER seen wearing — a superset of `classOf`
-   * that survives prune (see `everSeenClasses` for the full reasoning).
-   *
-   * Read it for questions about IDENTITY that outlive sight ("what was that
-   * thing that just went down?"); read `classOf` for anything about the contact
-   * we are currently holding. Superset BY CONSTRUCTION — both maps are written
-   * on the same push — so a caller needs this alone and never a
-   * `classOf(id) ?? …` chain, which would be dead code.
-   */
-  everSeenClassOf(id: string): HullId | undefined {
-    return this.everSeenClasses.get(id);
-  }
-
-  /** Has this contact acquired US, as of its last observed frame? (Story 5.6 —
-   *  self-private by construction: the server only ever sets `aggro` on the
-   *  frame it sends to the observer being hunted.) */
-  aggroOf(id: string): boolean {
-    return this.aggro.has(id);
   }
 
   /** Server time (ms) of the last frame that carried this contact; undefined
@@ -264,7 +190,6 @@ export class ContactStore {
       this.buffers.delete(id);
       this.lastSeen.delete(id);
       this.classes.delete(id);
-      this.aggro.delete(id);
       this.turretAngles.delete(id);
       this.launcherAngles.delete(id);
       removed.push(id);

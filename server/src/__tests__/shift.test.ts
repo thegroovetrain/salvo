@@ -79,12 +79,6 @@ describe('slot 1 is the SEAT\'s Shift (Story 10.4)', () => {
     },
   );
 
-  it('a FLEET drone fits no Shift at all', () => {
-    const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
-    expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
-  });
-
   it('RELOAD leaves the Shift cooldowns alone (Story 10.5, R10); HUNKER\'s window is not a reload either', () => {
     const w = bareWorld();
     const ml = place(w, 'ml', 'warspite', 'instantReload');

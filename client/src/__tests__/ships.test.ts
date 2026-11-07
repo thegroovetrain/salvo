@@ -1,6 +1,6 @@
 // Ship hull styling (render/ships.ts) — Story 10.4 relation colors (Eric's
 // ruling R6): every captain hull wears its RELATION to the viewer (own / enemy),
-// drones wear the drone greys, the amber-hollow fallback stays, and
+// the amber-hollow fallback stays, and
 // ShipView.setColors is the recolor path. Story 10.4 turrets: a captain view
 // carries one turret child per battery mount at its station, pointed by
 // setTurretAngles.
@@ -10,95 +10,25 @@ import type { Graphics } from 'pixi.js';
 import {
   CONFIG,
   DEFAULT_CLASS_ID,
-  DRONE_HULL_IDS,
-  HULL_IDS,
   SHIP_CLASS_IDS,
   hullSilhouette,
   turretMounts,
   turretRest,
   turretStation,
-  type HullId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
-  DRONE_STYLE,
   FALLBACK_STYLE,
-  contactStyle,
-  droneRankTicks,
   hullFlashIntensity,
-  isDroneHull,
   setHullFlashGate,
   ShipView,
 } from '../render/ships.js';
-import { relationStyle, type Relation } from '../render/relationColor.js';
+import { relationStyle } from '../render/relationColor.js';
 import { WorldFlashGate } from '../render/effects.js';
 import { createFlashBudget } from '../render/flashBudget.js';
 import { settings } from '../settings/store.js';
 
 const C = CLIENT_CONFIG.colors;
-const RELATIONS: readonly Relation[] = ['own', 'enemy'];
-
-describe('contactStyle / isDroneHull — drones wear greys, captains their relation', () => {
-  it('routes every drone hull id to the drone greys whatever the relation', () => {
-    for (const hull of DRONE_HULL_IDS) {
-      expect(isDroneHull(hull)).toBe(true);
-      for (const r of RELATIONS) expect(contactStyle(hull, r)).toEqual(DRONE_STYLE);
-    }
-    expect(DRONE_STYLE).toEqual({ stroke: C.droneOutline, fill: C.droneFill });
-  });
-
-  it('routes a captain hull to relationStyle(relation) for both relations', () => {
-    for (const id of SHIP_CLASS_IDS) {
-      expect(isDroneHull(id)).toBe(false);
-      for (const r of RELATIONS) expect(contactStyle(id, r)).toEqual(relationStyle(r));
-    }
-    // The two relations are distinguishable: the whole point of the rule.
-    expect(relationStyle('own').stroke).not.toBe(relationStyle('enemy').stroke);
-  });
-});
-
-// --- STORY 6.3: THE CLIENT'S SECOND PREDICATE, PINNED -------------------------
-//
-// Epic-6 amendment 13. The server's non-combatant answer is a FIELD
-// (`ShipRecord`'s ship-role seam) and that field is not on the wire — zero
-// occurrences in `shared/` — so the client tests the HULL ID instead. Two
-// independent predicates exist by necessity, and `deferred-work.md` has warned
-// since Story 5.6 that they must be kept in step.
-//
-// These pins are what make "in step" enforceable. They are written against
-// shared's own id tables rather than a literal list, so the failure mode is the
-// one that matters: a hull id added SERVER-SIDE (a fourth drone size, a fourth
-// pickable class) without a matching edit here fails a test rather than
-// silently mis-classifying a ship on the water — a new drone hull would render
-// in a personal hue and count as a contestant kill; a new class mistakenly
-// admitted would lose its captain's hue to the greys.
-//
-// Story 6.4's AI captains do NOT move this: a bot carries a real class hull id,
-// so it is a participant that is not a fleet hull, and it renders like any
-// captain. That is exactly what the second pin below asserts.
-describe('isDroneHull — pinned against the shared hull-id tables (amendment 13)', () => {
-  it('admits EXACTLY the shared DRONE_HULL_IDS set, over every hull id that exists', () => {
-    // Not "the three ids I remember" — every id shared declares, partitioned by
-    // shared's own drone table. Adding an id to either table without teaching
-    // this predicate about it breaks here.
-    for (const id of HULL_IDS) {
-      expect(isDroneHull(id)).toBe(DRONE_HULL_IDS.includes(id as (typeof DRONE_HULL_IDS)[number]));
-    }
-    expect(HULL_IDS.filter((id) => isDroneHull(id))).toEqual([...DRONE_HULL_IDS]);
-    expect(DRONE_HULL_IDS).toHaveLength(3);
-  });
-
-  it('never admits a pickable ship class — the shape Story 6.4 relies on', () => {
-    // A bot captain will carry one of these ids, which is why bots need no
-    // change here: a participant that is not a fleet hull keeps its personal
-    // hue, its nameplate and its kill-feed line.
-    for (const id of SHIP_CLASS_IDS) {
-      expect(isDroneHull(id)).toBe(false);
-      for (const r of RELATIONS) expect(contactStyle(id, r)).toEqual(relationStyle(r));
-    }
-    expect(HULL_IDS).toHaveLength(SHIP_CLASS_IDS.length + DRONE_HULL_IDS.length);
-  });
-});
 
 describe('ShipView.setColors — the recolor path', () => {
   it('repaints hull and turrets (fallback → own relation → hollow) without changing turret count', () => {
@@ -245,7 +175,7 @@ describe('the hull flash at motion: \'off\' is unchanged by the budget', () => {
   });
 });
 
-describe('ShipView.draw — bounds match the shared silhouette dims for each class + drone', () => {
+describe('ShipView.draw — bounds match the shared silhouette dims for each class', () => {
   // The silhouette IS the hitbox: ShipView.draw() traces hullSilhouette(id)
   // verbatim (no parallel geometry). Pixi 8 Graphics bounds resolve under jsdom
   // (pure geometry math), so we pin the RENDERED geometry — not just that a view
@@ -258,13 +188,12 @@ describe('ShipView.draw — bounds match the shared silhouette dims for each cla
   // defeated; the stroke-invariant width − height == length − beam holds exactly,
   // and the box never sits inside the hull dims. (Geometry exactness lives in
   // shared/silhouette.test; this pins the client render is wired to it.)
-  const HULL: Record<string, { length: number; beam: number }> = {
-    ...Object.fromEntries(SHIP_CLASS_IDS.map((id) => [id, CONFIG.shipClasses[id].hull])),
-    droneMedium: CONFIG.drones.medium.hull,
-  };
+  const HULL: Record<string, { length: number; beam: number }> = Object.fromEntries(
+    SHIP_CLASS_IDS.map((id) => [id, CONFIG.shipClasses[id].hull]),
+  );
   const STROKE_SLOP = 12; // u — empirical Pixi miter-join stroke inflation at a sharp bow
 
-  for (const id of [...SHIP_CLASS_IDS, 'droneMedium'] as const) {
+  for (const id of SHIP_CLASS_IDS) {
     it(`traces ${id} at its CONFIG hull length/beam (rendered bounds enclose it)`, () => {
       const poly = hullSilhouette(id);
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -280,8 +209,8 @@ describe('ShipView.draw — bounds match the shared silhouette dims for each cla
 
       const view = new ShipView(FALLBACK_STYLE, id);
       // A captain's hull LINE is its outline layer (deck features and secondary
-      // barrels may overhang it, as on the sitting page); a drone's is `hull`.
-      const b = (isDroneHull(id) ? view.hull : view.outline).getLocalBounds();
+      // barrels may overhang it, as on the sitting page).
+      const b = view.outline.getLocalBounds();
       expect(b.width).toBeGreaterThanOrEqual(length - 1e-6); // stroke inflates outward…
       expect(b.height).toBeGreaterThanOrEqual(beam - 1e-6);
       expect(b.width).toBeLessThan(length + STROKE_SLOP); // …but only by the stroke/miter
@@ -294,120 +223,7 @@ describe('ShipView.draw — bounds match the shared silhouette dims for each cla
   }
 });
 
-// --- STORY 7.6: DRONE RANK TICKS ----------------------------------------------
-//
-// Eric, 2026-08-21: *"We actually do need better distinction, size isn't
-// enough."* … *"just use the rank ticks on the silhouette, which is way
-// better."* 1 / 2 / 3 transverse bars on the afterdeck for small / medium /
-// large, in the hull's own greyscale outline colour.
-//
-// THE COUNT IS THE TIER, and the tier is the payout (CONFIG.xp.droneTierLevels
-// pays 1/4, 1/2, 3/4 of a level). These pin the properties a reader depends on:
-// the count, that the marks stay INSIDE the silhouette (so they can neither
-// inflate the hull's box nor reach the nameplate floated above it), and that
-// they are stroked in no colour the drone palette does not already own.
-describe('droneRankTicks — the tier rides the silhouette as a countable mark', () => {
-  const TIER: [HullId, number][] = [
-    ['droneSmall', 1],
-    ['droneMedium', 2],
-    ['droneLarge', 3],
-  ];
-
-  it('gives each fleet tier its own tick COUNT — 1 / 2 / 3, small to large', () => {
-    for (const [id, count] of TIER) expect(droneRankTicks(id)).toHaveLength(count);
-    // …and the ladder is strictly increasing, which is the readable property:
-    // a repeated tick count would be no better than the size it rides.
-    const counts = TIER.map(([id]) => droneRankTicks(id).length);
-    expect(counts).toEqual([...counts].sort((a, b) => a - b));
-    expect(new Set(counts).size).toBe(counts.length);
-  });
-
-  it('covers EVERY drone hull id and NO captain hull', () => {
-    // Derived from the shared tables, so a fourth fleet hull (or a class
-    // mistakenly listed as one) fails here rather than rendering unranked.
-    for (const id of DRONE_HULL_IDS) expect(droneRankTicks(id).length).toBeGreaterThan(0);
-    for (const id of SHIP_CLASS_IDS) expect(droneRankTicks(id)).toEqual([]);
-    expect(HULL_IDS.filter((id) => droneRankTicks(id).length > 0)).toEqual([...DRONE_HULL_IDS]);
-  });
-
-  it('draws every tick INSIDE the hull it rides — aft of amidships, clear of both rails', () => {
-    for (const [id] of TIER) {
-      const poly = hullSilhouette(id);
-      const halfBeam = Math.max(...poly.map((p) => Math.abs(p.y)));
-      const halfLen = Math.max(...poly.map((p) => Math.abs(p.x)));
-      // The chevron's parallel-sided midbody: shoulders at +0.3·halfLen, stern
-      // inset at −0.9·halfLen. Every tick must live in it, so it has full beam
-      // under it and never reads as part of the bow arrowhead.
-      for (const t of droneRankTicks(id)) {
-        expect(t.x).toBeLessThan(0); // abaft amidships
-        expect(t.x).toBeLessThanOrEqual(halfLen * 0.3);
-        expect(t.x).toBeGreaterThanOrEqual(-halfLen * 0.9);
-        expect(t.halfLenU).toBeGreaterThan(0);
-        expect(t.halfLenU).toBeLessThan(halfBeam); // clear fill on both sides
-      }
-    }
-  });
-
-  it('separates adjacent ticks by many times their own stroke width', () => {
-    // 2 vs 3 is only countable if the gap survives the line weight.
-    for (const [id] of TIER) {
-      const xs = droneRankTicks(id).map((t) => t.x);
-      for (let i = 1; i < xs.length; i++) {
-        expect(Math.abs(xs[i] - xs[i - 1])).toBeGreaterThan(CLIENT_CONFIG.droneRank.widthU * 4);
-      }
-    }
-  });
-
-  it('scales with the hull: a bigger fleet hull gets longer, wider-spread ticks', () => {
-    // Every number is a fraction of the silhouette, never a world literal.
-    const small = droneRankTicks('droneSmall');
-    const large = droneRankTicks('droneLarge');
-    expect(large[0].halfLenU).toBeGreaterThan(small[0].halfLenU);
-    expect(Math.abs(large[1].x - large[0].x)).toBeGreaterThan(
-      CONFIG.drones.small.hull.length * CLIENT_CONFIG.droneRank.spacingLengthFrac,
-    );
-  });
-
-  it('NEVER inflates the rendered hull box — the marks are interior, so bounds are untouched', () => {
-    // The silhouette IS the hitbox and the nameplate is floated above the hull's
-    // projected bounding circle: a mark that grew the box would move the plate.
-    const { length, beam } = CONFIG.drones.large.hull;
-    const view = new ShipView(DRONE_STYLE, 'droneLarge');
-    const b = view.hull.getLocalBounds();
-    expect(b.height).toBeLessThan(beam + 12); // the same slop the class bounds test uses
-    expect(b.width).toBeLessThan(length + 12);
-    view.destroy();
-  });
-
-  it('introduces NO new colour — every stroke on a drone hull is `droneOutline`', () => {
-    // Drones are locked greyscale (DESIGN.md:157), so the ticks may not open a
-    // colour channel: they are stroked in the hull's OWN outline colour, which
-    // is why they need no exception to that rule. Read off the rendered Pixi
-    // context rather than trusting the source: this is the assertion that
-    // actually forbids a future `colors.droneRank` token.
-    for (const [id] of TIER) {
-      expect(contactStyle(id, 'enemy')).toEqual(DRONE_STYLE); // greys, whatever the relation
-      const view = new ShipView(contactStyle(id, 'enemy'), id);
-      expect(strokeColorsOf(view)).toEqual([DRONE_STYLE.stroke, DRONE_STYLE.stroke]); // hull, then ticks
-      // …and a recolor carries the ticks with the hull, in one linework family.
-      view.setColors(C.amber, null);
-      expect(strokeColorsOf(view)).toEqual([C.amber, C.amber]);
-      view.destroy();
-    }
-  });
-
-  it('adds the tick pass only for a fleet hull — a captain carries no rank ticks', () => {
-    // Since Story 10.4 a captain hull is the battleship art: its outline layer
-    // is exactly ONE stroke (the hull line) and its deck carries no tick pass.
-    const cap = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
-    expect(strokesOf(cap.outline)).toEqual([C.amber]);
-    expect(droneRankTicks(DEFAULT_CLASS_ID)).toEqual([]);
-    cap.destroy();
-  });
-});
-
-/** Every stroke colour a view's rendered Pixi context actually issues, in draw
- *  order — the hull outline first, then (fleet hulls only) the rank ticks. */
+/** Every stroke colour a view's deck layer actually issues, in draw order. */
 function strokeColorsOf(view: ShipView): number[] {
   return strokesOf(view.hull);
 }
@@ -426,20 +242,13 @@ function strokesOf(g: Graphics): number[] {
 // --- STORY 10.4: TURRETS ------------------------------------------------------
 //
 // A captain hull carries one turret child per mount of its shared battery, at
-// the mount's station on the centreline, rotated by its hull-relative angle; a
-// drone has no battery and carries none.
+// the mount's station on the centreline, rotated by its hull-relative angle.
 describe('ShipView turrets — one child per battery mount, pointed by setTurretAngles', () => {
-  it('gives a captain view one turret per turretMounts(hull) entry and a drone none', () => {
+  it('gives a captain view one turret per turretMounts(hull) entry', () => {
     for (const id of SHIP_CLASS_IDS) {
       const view = new ShipView(relationStyle('own'), id);
       expect(turretMounts(id).length).toBeGreaterThan(0);
       expect(view.turretCount).toBe(turretMounts(id).length);
-      view.destroy();
-    }
-    for (const id of DRONE_HULL_IDS) {
-      const view = new ShipView(DRONE_STYLE, id);
-      expect(view.turretCount).toBe(0);
-      expect(view.turretView(0)).toBeUndefined();
       view.destroy();
     }
   });

@@ -36,7 +36,7 @@ import {
  *  only grants when closing is ruled — on a target beyond the FAR edge of its
  *  mounted gun's doctrine band (ai/doctrine.ts), so the boost closes the gap
  *  to fighting range. Never in `engage`, `kite`, `hold`, `hide` or `farm`
- *  (R13: PvE fleet hunting never boosts in). */
+ *  (R13: farming never boosts in). */
 function chargingIn(ctx: TacticContext): boolean {
   const t = ctx.target;
   if (t === null || ctx.posture !== 'pursue') return false;

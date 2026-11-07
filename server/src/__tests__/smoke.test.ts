@@ -89,16 +89,6 @@ describe('world — wounded smoke band arithmetic (exclusive lower bounds, the h
     expect(sm.map((e) => e.tier).sort()).toEqual([1, 2]);
   });
 
-  it('drones smoke identically to captains (amendment 47)', () => {
-    const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    d.state.x = 0;
-    d.state.y = 0;
-    d.hp = d.stats.maxHp * 0.3;
-    w.step();
-    expect(smokes(w.tickEvents)).toHaveLength(1);
-  });
-
   it('a dead hull emits nothing, whatever its hp reads', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);

@@ -5,8 +5,8 @@
 // (the next ring at its reveal, the collapse ring at its close start — a
 // one-off 25–40 ms build per ring, accepted 2026-10-17) and never per tick.
 //
-// Lives OUTSIDE ai/ so both the bot driver (through the port) and the PvE
-// fleet controller hold the same instance; it reads nothing but the map,
+// Lives OUTSIDE ai/ so the bot driver (through the port) reads one shared
+// instance per map; it reads nothing but the map,
 // which is public (amendment 191). Zero Colyseus, no rng, no clock.
 //
 // ONE PER MAP IDENTITY (`navCacheFor`, a WeakMap). The island list is

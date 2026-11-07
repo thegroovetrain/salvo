@@ -21,7 +21,7 @@
 //
 //   HANDS — one sanitized-shape InputMsg per live bot per tick through
 //   port.submitInput (full sanitizeInput, `fireT: 0`, no privileged path),
-//   exactly as the fleet AI and every human client write intent. Steering
+//   exactly as every human client writes intent. Steering
 //   and firing are therefore emitted EVERY tick; only DELIBERATION (target
 //   reselection, posture, boon spends) is gated, on this bot's
 //   decision-cadence slot (CONFIG.bots.decisionCadenceMs, staggered by id
@@ -71,6 +71,7 @@ function freshStory913Seats(): Required<
     | 'route'
     | 'coverPoint'
     | 'patrolWaypoint'
+    | 'beaconGoal'
     | 'patrolBestU'
     | 'patrolProgressAt'
     | 'hitVolleyAt'
@@ -91,6 +92,7 @@ function freshStory913Seats(): Required<
     route: null,
     coverPoint: null,
     patrolWaypoint: null,
+    beaconGoal: null,
     patrolBestU: Infinity,
     patrolProgressAt: 0,
     hitVolleyAt: new Map(),
@@ -140,7 +142,7 @@ const FROZEN_DECISION: BotDecision = Object.freeze({
 
 /**
  * Drives every enrolled bot through the normal input path. Owned by World
- * (constructed beside FleetController on its own decorrelated seed); still
+ * (constructed on its own decorrelated seed); still
  * zero Colyseus. World calls tick() once per step at the `botsTick` row —
  * immediately before applyInputs, so bot input is consumed the same tick —
  * handing in the per-bot entries it built for this tick.
@@ -249,7 +251,7 @@ export class BotController {
    * Enroll a new bot: roll its class, priority profile and callsign off the
    * controller's seeded stream, create its mind (stagger phase from the id
    * hash), and hand back what World.addBot needs for addShip. The mind's own
-   * rng is decorrelated per enrollment (the FleetController idiom).
+   * rng is decorrelated per enrollment.
    *
    * `hull` (Story 6.5) lets the CALLER pick the class — a caller building a
    * whole field at once deals a balanced spread rather than nineteen

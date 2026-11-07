@@ -220,14 +220,15 @@ async function observe(a, b, ms) {
  * Blips in a window, ATTRIBUTED to `target` when one is given. The `return`
  * radar grammar carries no identity (cycle 105), so attribution is geometric:
  * a paint whose cell-rect center is within ATTRIBUTE_U of the (parked) subject
- * is the subject's. Same reason as assertNoContactsWhile — PvE fleet hulls
- * paint too, and their paints say nothing about a captain-to-captain claim.
+ * is the subject's. Same reason as assertNoContactsWhile — any other hull's
+ * paint says nothing about a captain-to-captain claim.
  */
 // 60u: a hull's rasterized footprint centers within well under a hull length of
 // its own hull (the band phase asserts exactly that bound independently). Wider
-// than this and a PvE fleet hull loitering near the subject is mistaken for it —
-// measured: at 150u the island phase attributed a drone's paint to the subject
-// on a bearing whose `visibilityTo` was a hard 0.
+// than this and another hull loitering near the subject is mistaken for it —
+// measured (against the retired PvE fleet): at 150u the island phase
+// attributed a drone's paint to the subject on a bearing whose `visibilityTo`
+// was a hard 0.
 const ATTRIBUTE_U = 60;
 const blipsIn = (ctx, t0, t1, target) => {
   // A subject with no pose yet makes attribution VACUOUS: every paint fails the
@@ -244,10 +245,9 @@ const blipsIn = (ctx, t0, t1, target) => {
 /**
  * Every fog claim in this smoke is about ONE subject — the other captain —
  * because every predicate is written over `f.dist`, the captain-to-captain
- * separation. The PvE fleet (Story 5.6) sails its own hulls into these rooms
- * and they legitimately enter sight, so counting ANY contact (what this did
- * before) makes the claim false for a reason it never meant to test. Scope it
- * to the subject id.
+ * separation. Any other hull legitimately entering sight (the retired PvE
+ * fleet did, Story 5.6 → 10.8) would make an any-contact count false for a
+ * reason it never meant to test. Scope it to the subject id.
  */
 function assertNoContactsWhile(frames, pred, label, subjectId) {
   const held = frames.filter(pred);
@@ -255,10 +255,8 @@ function assertNoContactsWhile(frames, pred, label, subjectId) {
   assert(bad.length === 0, `${label}: ${bad.length}/${held.length} frames leaked a contact`);
   // ...AND the any-hull half the subject scoping would otherwise have dropped.
   // Scoping to the subject id answers "is B hidden from A", but a perception
-  // regression that leaked a THIRD hull (a PvE fleet ship) past the sight
-  // boundary would sail through it. The honest invariant is not "no fleet
-  // contacts" — fleet hulls legitimately enter sight all the time — it is NO
-  // CONTACT BEYOND SIGHT, for any id, which is exactly what contactSignal
+  // regression that leaked a THIRD hull past the sight boundary would sail
+  // through it. The honest invariant is NO CONTACT BEYOND SIGHT, for any id, which is exactly what contactSignal
   // claims (`d <= sightOf(me)` + LOS, boundary inclusive). Checked over EVERY
   // frame in the window, not just the held ones: the bound does not depend on
   // the phase predicate. Neither smoke client ever fires a star shell, so the
@@ -329,7 +327,7 @@ async function phaseRadarBand(a, b, map, log) {
     // TARGET, so a mis-rasterized (or drifted, or wrong-hull-pose) return in
     // the 60-120u shell is a FAILURE instead of an exclusion.
     // The subject is the only captain in that shell (they parked BAND_STANDOFF apart),
-    // and fleet hulls cannot be attributed directly — their positions are not
+    // and other hulls cannot be attributed directly — their positions are not
     // available to this smoke at all beyond truesight, which is exactly the
     // range this phase lives at — so the annulus is the available oracle.
     const unfiltered = blipsIn(ctx, ctx === a ? obs.w0.a : obs.w0.b, ctx === a ? obs.w1.a : obs.w1.b, null);

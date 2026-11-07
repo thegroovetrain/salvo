@@ -21,7 +21,8 @@
 //     "+100 will be +100% more distance covered per minute".
 //   RUDDER is DELETED (Story 10.6, Eric 2026-11-05, R2): every captain hull
 //     turns at the one baseline `CONFIG.index.turnRate`, seeded in sim/stats.ts
-//     baseStats (a PvE drone envelope authors its own — I5). Nothing derives it.
+//     baseStats (the PvE drone's authored rate, I5, retired at Story 10.8,
+//     2026-11-06). Nothing derives it.
 //   INTEL (ruling 14) — "Radar sweep = 15 RPM × INTEL / 100; INTEL 200 = 30
 //     RPM" — the base IS `CONFIG.vision.sweepRpm` (not restated), UNCAPPED
 //     since Story 10.7, R6 (Eric 2026-11-06, epic-10 amendment 13: there is

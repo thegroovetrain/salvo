@@ -115,7 +115,7 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
                      mainBattery.*, secondaries.*,
-                     gun.* (the drones' gun), machineGun.*, flak.*,
+                     gun.* (the reference deck gun), machineGun.*, flak.*,
                      gunAttenuation.*,
                      broadside.*, torpedo.*,
                      mine.*, starShells.*, boost.*, instantReload.*,

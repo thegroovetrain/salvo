@@ -86,7 +86,7 @@ function bareWorld(seed = 7, opts?: WorldOptions): World {
  *  known heading (speed 0) — the suite's default fixture: [gun, boost,
  *  navalMines, empty x6] covers a 360-degree weapon, an aimed weapon with a
  *  rear placement sector, an ability, and six empty slots in one hull. The
- *  role stays 'captain' so the FleetController never overwrites the scripted
+ *  role stays 'captain' so no AI controller ever overwrites the scripted
  *  inputs.
  *
  *  THE RACK IS A CARD NOW (Story 8.10, amendment 62): the interim spawn seed
@@ -590,17 +590,6 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     }
   });
 
-  it('a FLEET hull spawns gun-only: every other slot empty, no boost (amendment 24)', () => {
-    const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
-    expect(d.loadout).toHaveLength(SLOT_COUNT);
-    expect(d.loadout[SLOT_GUN].equipmentId).toBe('gun');
-    for (let i = 1; i < SLOT_COUNT; i++) {
-      expect(d.loadout[i]).toEqual({ equipmentId: null, state: null });
-    }
-    expect(d.cards).toEqual([]);
-  });
-
   it('respawn (waiting-phase) rebuilds the full loadout from stats', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
@@ -629,13 +618,6 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     expectFreshLoadout(ship, ML_IDS);
   });
 
-  it('a FLEET hull keeps its gun-only fit through a redeploy (the fleet flag is load-bearing)', () => {
-    const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
-    w.resetForMatchStart();
-    expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null }); // no boost grown
-    for (let i = 1; i < SLOT_COUNT; i++) expect(d.loadout[i].equipmentId).toBeNull();
-  });
 });
 
 describe('slotAmmo — slot-aligned fresh wire copies, not live pool references', () => {

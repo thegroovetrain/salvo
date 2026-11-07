@@ -8,7 +8,6 @@
 
 import {
   CONFIG,
-  DRONE_HULL_IDS,
   founderDeadline,
   INDEX_IDS,
   isAfloat,
@@ -71,14 +70,6 @@ function ownCooldowns(ship: ShipRecord, now: number): Pick<OwnShip, 'repairReady
 }
 
 function toOwnShip(ship: ShipRecord, now: number): OwnShip {
-  // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
-  // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
-  // here means a drone record was routed to a client frame — an upstream bug,
-  // so fail loud rather than emit a malformed `cls` (OwnShip.cls is narrowed to
-  // ShipClassId on the wire). Contacts carry drone hull ids via signals.ts.
-  if ((DRONE_HULL_IDS as readonly string[]).includes(ship.hullId)) {
-    throw new Error(`toOwnShip: drone hull id '${ship.hullId}' (ship ${ship.id}) must never reach an OwnShip`);
-  }
   return {
     id: ship.id,
     x: ship.state.x,
@@ -99,14 +90,14 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // the client wedge visually crosses a contact the moment its blip arrives.
     sweep: ship.sweepAngle,
     // OwnShip.cls is a ShipClassId by construction: only human clients receive
-    // an OwnShip, and a player ship's hullId is always its picked class (drone
-    // hull ids exist only on drones, which have no client). Contacts carry the
-    // full HullId instead — that lives in signals.ts's contact row.
+    // an OwnShip, and a player ship's hullId is always its picked class (the
+    // PvE drone hull ids retired at Story 10.8). Contacts carry the full
+    // HullId instead — that lives in signals.ts's contact row.
     cls: ship.hullId as ShipClassId,
     // THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — in the seat GUN's
     // place) — SELF-PRIVATE on exactly the terms `cls` is: it rides `you` and
     // NOTHING else, because which Shift an enemy picked is build information.
-    // The client replays `loadoutFor(stats, false, shift)` from it.
+    // The client replays `loadoutFor(stats, shift)` from it.
     shift: ship.shift,
     // THE TURRETS (Story 10.4, R2/R4) — angle + remaining reload per turret,
     // full precision, SELF-PRIVATE: the client corrects its own predicted
@@ -268,9 +259,8 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
  * The `finished` branch deliberately stays first: a match may still finish
  * while a hull is mid-window. Since the amendment-17 REVERSAL (Eric veto
  * 2026-08-12) the match is held open for sinking CAPTAINS — a captain's own
- * window now always completes before the finish — but a sinking DRONE never
- * delays it, and the match machine's hard safety-net deadline can land a
- * finish regardless of lifecycle state. In both shapes the results flow —
+ * window now always completes before the finish — and the match machine's
+ * hard safety-net deadline can land a finish regardless of lifecycle state. In both shapes the results flow —
  * including this unfogged view — supersedes that hull's remaining window.
  */
 function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {

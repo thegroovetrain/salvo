@@ -124,50 +124,6 @@ describe('ContactStore lifecycle', () => {
     expect(store.get('ok')!.sampleAt(100)!.x).toBe(3);
   });
 
-  it('preserves a drone hull id (HullId, not narrowed to a ship class)', () => {
-    const store = new ContactStore();
-    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneMedium' }]);
-    expect(store.classOf('d')).toBe('droneMedium');
-  });
-
-  it('tracks the self-private `aggro` mark per FRAME — the absence IS the de-aggro', () => {
-    // Story 5.6, amendment 40. Unlike `cls` this is NOT static: the server omits
-    // the key the tick the fleet ship's memory of us expires, so the store has
-    // to re-derive it on every push rather than latch it.
-    const store = new ContactStore();
-    const at = (t: number, aggro?: true) =>
-      store.pushFrame(t, [aggro ? { id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneSmall', aggro } : { id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneSmall' }]);
-    at(100);
-    expect(store.aggroOf('d')).toBe(false);
-    at(150, true);
-    expect(store.aggroOf('d')).toBe(true);
-    at(200); // the key is simply gone — that is the de-aggro
-    expect(store.aggroOf('d')).toBe(false);
-    // An id the store has never heard of is not locked on to us.
-    expect(store.aggroOf('nobody')).toBe(false);
-  });
-
-  it('remembers every hull id it has EVER seen, and never forgets on prune', () => {
-    const store = new ContactStore();
-    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneLarge' }]);
-    expect(store.everSeenClassOf('d')).toBe('droneLarge');
-    store.prune(1000, 100);
-    // `classOf` forgets (it answers "what am I holding?"); the memo does not
-    // (it answers "what was that thing?").
-    expect(store.classOf('d')).toBeUndefined();
-    expect(store.everSeenClassOf('d')).toBe('droneLarge');
-    // Never seen at all is still undefined — the memo invents nothing.
-    expect(store.everSeenClassOf('ghost')).toBeUndefined();
-  });
-
-  it('drops the aggro mark on prune, so a fading ghost cannot hold a bracket', () => {
-    const store = new ContactStore();
-    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneLarge', aggro: true }]);
-    expect(store.aggroOf('d')).toBe(true);
-    store.prune(1000, 100);
-    expect(store.aggroOf('d')).toBe(false);
-  });
-
   // Story 10.4: a contact's turret angles ride `Contact.tu` (whole degrees off
   // each mount's rest bearing); the store hands back the decoded hull-relative
   // angles, per frame.
@@ -183,10 +139,9 @@ describe('ContactStore lifecycle', () => {
     expect(store.turretAnglesOf('a')).toEqual(next.map((q, i) => decodeTurretAngle(DEFAULT_CLASS_ID, i, q)));
   });
 
-  it('has no turret angles for a contact without tu (a drone, or a frame that omits it)', () => {
+  it('has no turret angles for a contact without tu (a frame that omits it)', () => {
     const store = new ContactStore();
-    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneSmall' }, contact('a')]);
-    expect(store.turretAnglesOf('d')).toBeUndefined();
+    store.pushFrame(100, [contact('a')]);
     expect(store.turretAnglesOf('a')).toBeUndefined();
     expect(store.turretAnglesOf('nobody')).toBeUndefined();
     // A captain whose tu goes missing on a later frame drops its reading.

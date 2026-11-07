@@ -10,7 +10,6 @@
 //     radii, walked on the grid; the nearest blocked ray sets the pressure
 //     (1 − hit/reach)², the more open side (the goal's side when the two are
 //     close) sets the sign — replacing the binary ±0.8 nearest-coast kernel.
-//     Shared with the PvE fleet (game/drones.ts imports it).
 //   * GOAL STEERING (192(b)) — a straight bearing when the line is clear on
 //     the grid, else a routed path (A*, string-pulled) built on the decision
 //     cadence and re-planned only when the goal moved
@@ -53,7 +52,7 @@ import type { BotMind, BotPosture, BotSelf, BotWorldPort, BotZonePhase } from '.
 import { FOG_COVER_DENSITY } from './cover.js';
 import { ringDeadband, type BotSituation } from './utility.js';
 
-/** Proportional gain turning heading error into rudder (the fleet AI's) —
+/** Proportional gain turning heading error into rudder —
  *  also the gain on the ray kernel's pressure. */
 export const RUDDER_GAIN = 2;
 /** Rudder magnitude one active point-avoidance term (mine, hull) contributes. */
@@ -81,7 +80,7 @@ export function clampUnit(v: number): number {
 
 /** THE HELM COMPOSITION (192(c)): avoidance claims the helm in proportion to
  *  its own pressure — `track · max(0, 1 − |avoid|) + avoid` (the bots'
- *  helmLeft; the fleet uses the same function). */
+ *  helmLeft). */
 export function composeRudder(track: number, avoid: number): number {
   const helmLeft = Math.max(0, 1 - Math.abs(avoid));
   return clampUnit(track * helmLeft + avoid);
@@ -316,7 +315,7 @@ function routeFor(ctx: NavCtx, goal: Vec2): Vec2[] {
 /** A goal standing on a non-navigable cell is REACHED within one hull
  *  length of its snapped anchor (fix wave P14): the route ends at the anchor,
  *  and steering on for a point ashore only circles it. */
-function reachedAshoreGoal(ctx: NavCtx, goal: Vec2): boolean {
+export function reachedAshoreGoal(ctx: NavCtx, goal: Vec2): boolean {
   const grid = ctx.nav.grid;
   if (isWater(grid, cellOf(grid, goal.x, goal.y))) return false;
   const idx = snapToWater(grid, goal);

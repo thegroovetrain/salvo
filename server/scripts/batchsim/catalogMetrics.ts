@@ -56,7 +56,7 @@
 //    analytically over CONFIG; this measures what actually lands. Damage is
 //    aggregated PER VICTIM PER TICK because a multi-barrel gun click is N
 //    separate bursts (N separate DamageEvents) inside one tick — the "does the
-//    max BARREL click one-shot a 45hp small drone" question is a TICK question,
+//    max BARREL click one-shot a hull" question is a TICK question,
 //    not an event question, and both readings are reported separately.
 
 import { CONFIG, SHIP_CLASS_IDS, type ShellState } from '@salvo/shared';
@@ -75,7 +75,7 @@ function rawSources(): { label: string; amount: number }[] {
     // THE MAIN BATTERY (Story 10.4): one row per distinct per-hull shell
     // damage (R2 — every row a `mainBattery` label, so a 24 and a 27 both
     // classify), its bodyblock, and the secondaries' round. These are the
-    // captain's guns; the `gun` rows below are the drones' cannon now.
+    // captain's guns; the deck-gun `gun` rows are kept for reference (amendment 6).
     ...[...new Set(SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].battery.shellDamage))].map((amount) => ({
       label: 'mainBattery',
       amount,
@@ -112,7 +112,6 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'broadside', amount: CONFIG.broadside.damage },
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
-    { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
     // The storm is a RAMP since 2026-10-07 (Story 9.1): one row per distinct
     // rung, all labelled `storm`, so a bite at any close classifies as storm.
     ...[...new Set(CONFIG.zone.stormDps)].map((dps) => ({ label: 'storm', amount: dps * tickS })),
@@ -175,7 +174,7 @@ export type ClassifiedShell = Pick<ShellState, 'kind' | 'damage' | 'family' | 't
  *  where their damage collides with another source. */
 export function classifyShell(shell: ClassifiedShell): string {
   // Story 10.4: the only `mg` rounds left in play are the SECONDARIES (no
-  // captain or drone mounts the machine gun any more).
+  // hull mounts the machine gun any more).
   if (shell.family === 'mg') return 'secondaries';
   if (shell.family === 'flak') return 'flak';
   // A CAPTIVE MINE's torpedo is filed by its HIT RULE, never its damage: it
@@ -214,8 +213,7 @@ export interface CatalogSample {
    *  defensively (`?? {}`), like `bots` on MatchSample. */
   fitsByClass?: Record<string, Record<string, number>>;
   /** spender label -> boon id -> fits. The label is a bot's PROFILE id (an
-   *  in-game or test-only row), or the ship's role ('captain'; 'fleet' is
-   *  structurally empty — fleet hulls never draw) — so a blind-vacuum run
+   *  in-game or test-only row), or the ship's role ('captain') — so a blind-vacuum run
    *  reads per-test-row and a mixed lobby splits policy from policy. Same
    *  optionality as fitsByClass. */
   fitsByProfile?: Record<string, Record<string, number>>;

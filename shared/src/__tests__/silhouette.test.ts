@@ -1,15 +1,12 @@
 // Pins the shared silhouette registry (Story 1.3): the silhouette IS the
 // hitbox, so this suite guards the geometry everything else derives from —
-// exact normalized dims, bow orientation, centering, the drone chevron trio,
-// and the concave-safety of every polygon query (proved on the two notched
+// exact normalized dims, bow orientation, centering, and the concave-safety of every polygon query (proved on the two notched
 // fixtures in concaveFixtures.ts — the traced battleships have no cavity deep
 // enough to show it).
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DRONE_HULL_IDS,
-  DRONE_SIZE_IDS,
   HULL_IDS,
   SHIP_CLASS_IDS,
   hullEnvelope,
@@ -45,7 +42,6 @@ function extents(poly: readonly Vec2[]): { minX: number; maxX: number; minY: num
 
 describe('hullSilhouette — registry shape', () => {
   it('has a closed polygon (≥3 verts, implicit closure, finite coords) for every hull id', () => {
-    expect(HULL_IDS).toEqual([...SHIP_CLASS_IDS, ...DRONE_HULL_IDS]);
     for (const id of HULL_IDS) {
       const poly = hullSilhouette(id);
       expect(poly.length).toBeGreaterThanOrEqual(3);
@@ -96,30 +92,6 @@ describe('hullSilhouette — bow lies in the +heading direction', () => {
     const uy = Math.sin(heading);
     const forward = Math.max(...world.map((p) => (p.x - pose.x) * ux + (p.y - pose.y) * uy));
     expect(forward).toBeCloseTo(hull.length / 2, 9);
-  });
-});
-
-describe('drone chevrons — legacy traceHull proportions at CONFIG.drones dims', () => {
-  it('droneSmall is the exact chevron at its CONFIG dims (shoulders 0.3·halfLen, stern inset 0.1·halfLen)', () => {
-    const hl = CONFIG.drones.small.hull.length / 2;
-    const hb = CONFIG.drones.small.hull.beam / 2;
-    expect(hullSilhouette('droneSmall')).toEqual([
-      { x: hl, y: 0 },
-      { x: hl * 0.3, y: -hb },
-      { x: -hl + hl * 0.1, y: -hb },
-      { x: -hl, y: 0 },
-      { x: -hl + hl * 0.1, y: hb },
-      { x: hl * 0.3, y: hb },
-    ]);
-  });
-
-  it('all three drone chevrons match their CONFIG.drones hull dims', () => {
-    DRONE_HULL_IDS.forEach((id, i) => {
-      const { hull } = CONFIG.drones[DRONE_SIZE_IDS[i]];
-      const e = extents(hullSilhouette(id));
-      expect(e.maxX - e.minX).toBeCloseTo(hull.length, 9);
-      expect(e.maxY - e.minY).toBeCloseTo(hull.beam, 9);
-    });
   });
 });
 

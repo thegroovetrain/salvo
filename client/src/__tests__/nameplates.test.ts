@@ -1,8 +1,7 @@
 // Truesight nameplates (Story 1.13) — the pure helpers + the latch state
 // machine that render/contacts.ts and main.ts drive. Covers the spec's I/O &
 // Edge-Case Matrix: latch (no plate before resolve → appears on resolve →
-// persists after roster leave), drone verbatim "DRONE"/droneOutline, textSafe
-// relation color (Story 10.4), code-point-safe 14-char mid-ellipsis (incl. surrogate pairs), the
+// persists after roster leave), textSafe relation color (Story 10.4), code-point-safe 14-char mid-ellipsis (incl. surrogate pairs), the
 // uppercase rule + ordering, and the constant-screen-size screenY math.
 //
 // The NameplateLayer's Pixi Text lifecycle isn't exercised here (jsdom has no
@@ -13,7 +12,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Container } from 'pixi.js';
 import { DEFAULT_CLASS_ID, SHIP_CLASS_IDS, hullSilhouette, polygonMaxRadius, type Contact, type HullId } from '@salvo/shared';
-import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
 import { relationStroke, type Relation } from '../render/relationColor.js';
 import {
@@ -73,10 +71,6 @@ beforeEach(() => {
   textLog.length = 0;
 });
 
-const C = CLIENT_CONFIG.colors;
-/** The drone plate's label, read from the resolver — the label is copy, the rule is that it never varies with the roster. */
-const DRONE_TEXT = resolvePlate(null, relationStroke('enemy'), true)!.text;
-const OWN = relationStroke('own');
 const ENEMY = relationStroke('enemy');
 const RELATIONS: readonly Relation[] = ['own', 'enemy'];
 const enemyIs = (): Relation => 'enemy';
@@ -117,36 +111,23 @@ describe('plateText — uppercase + ellipsize (ellipsis BEFORE uppercase)', () =
   });
 });
 
-describe('plateColor — drone verbatim, human text-safe', () => {
-  it('is the droneOutline grey VERBATIM for a drone (never lightened, stroke ignored)', () => {
-    for (const r of RELATIONS) expect(plateColor(relationStroke(r), true)).toBe(C.droneOutline);
-  });
-
+describe('plateColor — text-safe relation stroke', () => {
   it('is the relation stroke\'s text-safe (≥4.5:1) variant for a captain', () => {
-    for (const r of RELATIONS) expect(plateColor(relationStroke(r), false)).toBe(textSafe(relationStroke(r)));
+    for (const r of RELATIONS) expect(plateColor(relationStroke(r))).toBe(textSafe(relationStroke(r)));
   });
 });
 
 describe('resolvePlate — the latch gate', () => {
-  it('a drone always resolves to the one fixed drone label (never its roster name)', () => {
-    expect(DRONE_TEXT.length).toBeGreaterThan(0);
-    expect(resolvePlate('DRONE-07', ENEMY, true)).toEqual({ text: DRONE_TEXT, color: C.droneOutline });
-    // Even if a (bogus) name were present, the drone text stays the fixed label.
-    const bogus = resolvePlate('IMPOSTER', OWN, true);
-    expect(bogus).toEqual({ text: DRONE_TEXT, color: C.droneOutline });
-    expect(bogus!.text).not.toContain('IMPOSTER');
-  });
-
   it('a captain with an unsynced name does NOT resolve (no plate, no id leak)', () => {
-    for (const r of RELATIONS) expect(resolvePlate(null, relationStroke(r), false)).toBeNull();
+    for (const r of RELATIONS) expect(resolvePlate(null, relationStroke(r))).toBeNull();
   });
 
   it('a synced captain resolves to uppercase callsign + text-safe relation color', () => {
-    expect(resolvePlate('ace', ENEMY, false)).toEqual({ text: 'ACE', color: textSafe(ENEMY) });
+    expect(resolvePlate('ace', ENEMY)).toEqual({ text: 'ACE', color: textSafe(ENEMY) });
   });
 
   it('strips control chars so a newline never reaches Pixi as a multi-line plate', () => {
-    const r = resolvePlate('AB\nCD', ENEMY, false);
+    const r = resolvePlate('AB\nCD', ENEMY);
     expect(r?.text).toBe('ABCD');
     expect(r?.text).not.toContain('\n');
   });
@@ -155,16 +136,16 @@ describe('resolvePlate — the latch gate', () => {
     // All-format-char (ZWSP U+200B) or empty/whitespace name → null, so the
     // driver keeps retrying rather than latching an invisible plate that never
     // re-resolves. Format chars are Cf (not stripped), but all-Cf still fails the gate.
-    expect(resolvePlate('​​', ENEMY, false)).toBeNull();
-    expect(resolvePlate('', ENEMY, false)).toBeNull();
-    expect(resolvePlate('   ', ENEMY, false)).toBeNull();
+    expect(resolvePlate('​​', ENEMY)).toBeNull();
+    expect(resolvePlate('', ENEMY)).toBeNull();
+    expect(resolvePlate('   ', ENEMY)).toBeNull();
   });
 
   it('keeps an emoji ZWJ sequence intact (format chars survive)', () => {
     // The ZWJ (U+200D) is a format char but must NOT be stripped — the family
     // emoji is one grapheme built from it. Only true control chars are removed.
     const family = '👨‍👩‍👧‍👦';
-    const r = resolvePlate(family, ENEMY, false);
+    const r = resolvePlate(family, ENEMY);
     expect(r?.text).toBe(family); // ≤ 14 code points, uppercase is a no-op on emoji
     expect(r?.text).toContain('‍');
   });
@@ -173,11 +154,11 @@ describe('resolvePlate — the latch gate', () => {
 describe('latchPlate — resolve once, then persist', () => {
   it('emits no plate before the roster syncs, then the plate on resolve', () => {
     // Frame 1: unresolved human → nothing to set, not yet latched.
-    const f1 = latchPlate(false, null, ENEMY, false);
+    const f1 = latchPlate(false, null, ENEMY);
     expect(f1.plate).toBeNull();
     expect(f1.latched).toBe(false);
     // Frame 2: the name lands → the plate resolves and latches.
-    const f2 = latchPlate(false, 'ACE', ENEMY, false);
+    const f2 = latchPlate(false, 'ACE', ENEMY);
     expect(f2.plate).toEqual({ text: 'ACE', color: textSafe(ENEMY) });
     expect(f2.latched).toBe(true);
   });
@@ -185,14 +166,8 @@ describe('latchPlate — resolve once, then persist', () => {
   it('persists a latched plate even after the player leaves the roster', () => {
     // Already latched; the roster entry vanished (name back to null). The
     // driver sets nothing (keeps the existing Text) and stays latched.
-    const f = latchPlate(true, null, ENEMY, false);
+    const f = latchPlate(true, null, ENEMY);
     expect(f.plate).toBeNull();
-    expect(f.latched).toBe(true);
-  });
-
-  it('latches a drone on the first frame (always resolvable)', () => {
-    const f = latchPlate(false, null, ENEMY, true);
-    expect(f.plate).toEqual({ text: DRONE_TEXT, color: C.droneOutline });
     expect(f.latched).toBe(true);
   });
 });
@@ -218,7 +193,7 @@ describe('plateScreenY — floats above the hull, constant screen font at any zo
 
   it('uses each hull id\'s own silhouette radius (per-class offset)', () => {
     const pad = 6;
-    for (const id of [...SHIP_CLASS_IDS, 'droneSmall'] as const) {
+    for (const id of SHIP_CLASS_IDS) {
       const r = polygonMaxRadius(hullSilhouette(id));
       expect(plateScreenY(0, id, 1, pad)).toBeCloseTo(-r - pad, 9);
     }
@@ -266,12 +241,12 @@ describe('ContactViews plate offset survives prune (no fallback-hull pop)', () =
 // exercises the SAME drivePlate path every contact always uses — the reveal adds
 // no new plate logic, it just means every hull on the ocean reaches it in one
 // frame. What's pinned here is the property the reveal DEPENDS on: nothing in
-// that big a batch gets skipped, drones read "DRONE", humans read their callsign.
+// that big a batch gets skipped, every captain reads their callsign.
 describe('ContactViews — every revealed hull latches a plate in one frame (UX-DR22)', () => {
   const contact = (id: string, cls: Contact['cls']): Contact => ({ id, x: 0, y: 0, heading: 0, speed: 0, cls });
   const camera = { worldToScreen: (p: { x: number; y: number }) => p, zoom: 1 };
 
-  it('resolves a plate for every synced human AND every drone in a big reveal-shaped frame', () => {
+  it('resolves a plate for every synced captain in a big reveal-shaped frame', () => {
     const nameplates = new NameplateLayer(stubLayer());
     const views = new ContactViews(stubLayer(), nameplates);
     const store = new ContactStore();
@@ -281,18 +256,14 @@ describe('ContactViews — every revealed hull latches a plate in one frame (UX-
       h2: { name: 'boss' },
       h3: { name: 'zed' },
     };
-    const droneIds = ['d1', 'd2'];
 
-    store.pushFrame(0, [
-      ...Object.keys(humans).map((id) => contact(id, DEFAULT_CLASS_ID)),
-      ...droneIds.map((id) => contact(id, 'droneSmall')),
-    ]);
+    store.pushFrame(0, Object.keys(humans).map((id) => contact(id, DEFAULT_CLASS_ID)));
 
     const plates = { nameOf: (id: string) => humans[id]?.name ?? null, camera, pad: 8 };
     views.render(store, 0, 0, 16, enemyIs, plates);
 
-    // Nothing in the batch was skipped — every human AND every drone latched.
-    for (const id of [...Object.keys(humans), ...droneIds]) expect(nameplates.has(id)).toBe(true);
+    // Nothing in the batch was skipped — every captain latched.
+    for (const id of Object.keys(humans)) expect(nameplates.has(id)).toBe(true);
 
     // Captains: uppercase callsign in the enemy relation stroke's text-safe variant.
     for (const h of Object.values(humans)) {
@@ -300,11 +271,6 @@ describe('ContactViews — every revealed hull latches a plate in one frame (UX-
       expect(rec).toBeDefined();
       expect(rec!.style.fill).toBe(textSafe(ENEMY));
     }
-
-    // Drones: the fixed drone label (never a roster/session id) in drone-outline grey.
-    const droneRecs = textLog.filter((t) => t.text === DRONE_TEXT);
-    expect(droneRecs).toHaveLength(droneIds.length);
-    for (const r of droneRecs) expect(r.style.fill).toBe(C.droneOutline);
   });
 
   // The deliberate id-leak guard already pinned above (`resolvePlate — the latch
@@ -319,12 +285,11 @@ describe('ContactViews — every revealed hull latches a plate in one frame (UX-
     const store = new ContactStore();
 
     const [first, second] = SHIP_CLASS_IDS;
-    store.pushFrame(0, [contact('ace', first), contact('ghost', second), contact('d1', 'droneSmall')]);
+    store.pushFrame(0, [contact('ace', first), contact('ghost', second)]);
     const plates = { nameOf: (id: string) => (id === 'ace' ? 'ace' : null), camera, pad: 8 };
     views.render(store, 0, 0, 16, enemyIs, plates);
 
     expect(nameplates.has('ace')).toBe(true); // synced human: plates
-    expect(nameplates.has('d1')).toBe(true); // drone: always resolvable
     expect(nameplates.has('ghost')).toBe(false); // unsynced human: no plate, ever
   });
 });

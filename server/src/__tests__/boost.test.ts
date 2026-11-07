@@ -339,19 +339,6 @@ describe('death/respawn state reset (Story 1.6)', () => {
   });
 });
 
-// ---------- drones never activate (actSeq 0 sentinel) ------------------------
-
-describe('drones never activate an ability', () => {
-  it('a drone stays un-boosted across many ticks (its actSeq is always 0)', () => {
-    const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
-    d.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    for (let i = 0; i < 30; i++) w.step();
-    expect(d.boostUntil).toBe(0);
-    expect(d.lastActSeq).toBe(0); // the controller only ever sends actSeq 0
-  });
-});
-
 // ---------- monotonic gate: forged / regressing actSeq ignored ----------------
 
 describe('the actSeq gate is monotonic', () => {

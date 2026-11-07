@@ -11,16 +11,15 @@
 // bow-to-stern span EXACTLY equals the class hull length and max width EXACTLY
 // equals the class beam. The three board-SVG scaffold outlines (torpedoBoat /
 // battleship / mineLayer) are gone with their classes (2026-11-04, Story 10.4,
-// epic-10 amendment 9). Drone polygons are the legacy chevron generated
-// procedurally at CONFIG.drones dims (same proportions as the old client
-// traceHull: shoulders at 0.3·halfLen, stern inset 0.1·halfLen).
+// epic-10 amendment 9). The PvE drone chevrons retired with the fleet at
+// Story 10.8 (2026-11-06).
 //
 // Geometry helpers below are concave-safe (a traced hull is not convex — the
 // knuckles and the stern are real, missable cavities) and pure. Local vert
 // arrays are precomputed once at module load; transformPolygon reuses a
 // caller-provided output array so the 20Hz loop can run allocation-light.
 
-import { CONFIG, DRONE_HULL_IDS, DRONE_SIZE_IDS, SHIP_CLASS_IDS, type Hull, type HullId } from '../constants.js';
+import { CONFIG, SHIP_CLASS_IDS, type Hull, type HullId } from '../constants.js';
 import { segSegClosest } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
 import { HULL_OUTLINES, type TracedPoint } from './hullOutlines.js';
@@ -104,8 +103,7 @@ function simplifySide(side: readonly Vec2[], tol: number): Vec2[] {
  *
  * The vertex ORDER leaves the bow down the +y side first — counter-clockwise
  * in the local frame, the winding the retired board outlines had. (Every
- * consumer is winding-agnostic — the drone chevron runs the other way — so
- * this is a convention, not a requirement.)
+ * consumer is winding-agnostic, so this is a convention, not a requirement.)
  */
 function normalizeTracedOutline(raw: readonly TracedPoint[], hull: Hull): Vec2[] {
   let minX = Infinity;
@@ -138,30 +136,11 @@ function normalizeTracedOutline(raw: readonly TracedPoint[], hull: Hull): Vec2[]
   });
 }
 
-/** The legacy chevron at (length, beam): bow tip, shoulders at 0.3·halfLen, stern inset 0.1·halfLen. */
-function droneChevron(hull: Hull): Vec2[] {
-  const hl = hull.length / 2;
-  const hb = hull.beam / 2;
-  const shoulder = hl * 0.3;
-  const stern = -hl + hl * 0.1;
-  return [
-    { x: hl, y: 0 }, // bow tip
-    { x: shoulder, y: -hb },
-    { x: stern, y: -hb },
-    { x: -hl, y: 0 }, // stern center
-    { x: stern, y: hb },
-    { x: shoulder, y: hb },
-  ];
-}
-
 function buildRegistry(): Record<HullId, readonly Vec2[]> {
   const out = {} as Record<HullId, readonly Vec2[]>;
   for (const id of SHIP_CLASS_IDS) {
     out[id] = normalizeTracedOutline(HULL_OUTLINES[id], CONFIG.shipClasses[id].hull);
   }
-  DRONE_HULL_IDS.forEach((id, i) => {
-    out[id] = droneChevron(CONFIG.drones[DRONE_SIZE_IDS[i]].hull);
-  });
   return out;
 }
 
