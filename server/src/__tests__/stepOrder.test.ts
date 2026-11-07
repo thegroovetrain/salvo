@@ -92,12 +92,20 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'advanceSweeps',
       'processRespawns',
       'tickXp',
+      // Story 10.8's RADIO BEACON payout — directly after tickXp, for
+      // tickXp's own reasons (post-respawn afloat truth, after every damage
+      // row, before the event swap). See the row comment in world.ts.
+      'tickBeacons',
       // Story 5.6's PvE wave scheduler — the second deliberate insertion, and
       // an APPEND rather than a splice: `dronesTick` keeps row 0 immediately
       // before applyInputs (its position is load-bearing), and a hull spawned
       // dead last enters the world at a clean tick boundary. See the row
       // comment in world.ts.
       'spawnFleetWaves',
+      // Story 10.8's RADIO BEACON placement — a second APPEND beside the wave
+      // scheduler: zone-clock driven, it replaces the set on a ring-cycle
+      // change against the tick's settled hull positions.
+      'placeBeacons',
     ]);
   });
 

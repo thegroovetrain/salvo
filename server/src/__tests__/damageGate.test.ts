@@ -708,13 +708,20 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
     }
   });
 
-  it('`mine.hp -=` is the ONE non-hull decrement (amendment 200; the decoy\'s left with Story 10.5)', () => {
+  it('the TWO non-hull decrements are `mine.hp -=` (amendment 200) and `beacon.hp -=` (Story 10.8), each inside its own door', () => {
+    // One hull door, one mine door, one RADIO BEACON door (World.damageBeacon,
+    // Story 10.8 — a beacon is not a ship: no `dmg`, no feed line, it never
+    // enters applyDamage). The decoy's decrement left with Story 10.5.
     const code = WORLD_SRC.split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//'));
     expect(code.filter((l) => /\.hp\s*-=/.test(l)).map((l) => l.trim())).toEqual([
       'victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME',
+      'beacon.hp -= dealt; // THE ONE BEACON-HP DECREMENT IN THE GAME',
       'mine.hp -= amount;',
     ]);
     expect(methodBody('damageMine')).toContain('mine.hp -= amount;');
+    const door = WORLD_SRC.indexOf('  damageBeacon(id: string');
+    expect(door).toBeGreaterThan(-1);
+    expect(WORLD_SRC.slice(door, WORLD_SRC.indexOf('\n  }\n', door))).toContain('beacon.hp -= dealt;');
   });
 });
 

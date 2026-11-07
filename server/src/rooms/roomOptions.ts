@@ -283,6 +283,15 @@ export interface MatchOverride {
    * `botFill` are untouched. Dev-gated with the rest of matchOverride.
    */
   fleetWaves?: boolean;
+  /**
+   * DEV SMOKE ARM (Story 10.8): `false` switches the RADIO BEACONS off — no
+   * beacon is ever placed, nothing is paid and the public chart stays empty
+   * (`beaconCycle` -1, `beaconCount` 0). Only the boolean `false` disables;
+   * absent / anything else is the shipped beacons. It rides into the World as
+   * `WorldOptions.beacons` (sandbox rooms too). Dev-gated with the rest of
+   * matchOverride.
+   */
+  beacons?: boolean;
 }
 
 /**

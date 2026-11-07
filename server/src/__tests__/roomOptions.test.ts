@@ -266,6 +266,20 @@ describe('sanitizeRoomOptions — matchOverride.fleetWaves (the dev no-fleet swi
   });
 });
 
+describe('sanitizeRoomOptions — matchOverride.beacons (the dev no-beacons switch, Story 10.8)', () => {
+  it('beacons: false survives under devEnabled', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, beacons: false } }, true);
+    expect(out.sanitized.matchOverride?.beacons).toBe(false);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { beacons: false } }, false);
+    expect(out.sanitized.matchOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['matchOverride']);
+  });
+});
+
 // --- callsign hardening (Story 2.3 — deferred-work 127/130) ------------------
 
 describe('sanitizeName — options.name is client-supplied and untrusted', () => {

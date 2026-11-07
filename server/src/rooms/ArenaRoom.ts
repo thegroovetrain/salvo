@@ -28,6 +28,7 @@ import {
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World, type ShipRecord } from '../game/world.js';
+import { BEACON_CHART_SLOTS } from '../game/beacons.js';
 
 import { buildFrame } from '../game/frames.js';
 import {
@@ -391,6 +392,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
       fleetWaves: sanitized.matchOverride?.fleetWaves,
+      // beacons (Story 10.8): the same dev-gated door, the same posture.
+      beacons: sanitized.matchOverride?.beacons,
     });
   }
 
@@ -1407,6 +1410,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.releaseDeparted(); // scuttled hulls reaped this tick free their seats
     this.syncRoster();
     this.syncZone();
+    this.syncBeacons();
     this.syncMatch();
     this.syncBounty();
     const phase = this.match?.phase ?? 'waiting';
@@ -1455,6 +1459,30 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // most once per CONFIG.fog.refreshMs).
     const cut = this.world.fogCut;
     if (s.fogCut !== cut) s.fogCut = cut;
+  }
+
+  /**
+   * Mirror THE RADIO BEACON CHART onto the public schema (Story 10.8, R2 /
+   * R9): the cycle, the count, and each live slot's position and early sink
+   * time. STATE-DERIVED from `World.beaconChart` every step with guarded
+   * assigns, exactly like the zone — so a patch goes out only when a set is
+   * placed or cleared or a beacon is destroyed, and a late joiner or a
+   * reconnect reads the current set from plain schema sync. Slots at or past
+   * `beaconCount` are left as they were (the count gates them).
+   */
+  private syncBeacons(): void {
+    const s = this.state;
+    const chart = this.world.beaconChart;
+    const count = Math.min(chart.beacons.length, BEACON_CHART_SLOTS);
+    if (s.beaconCycle !== chart.cycle) s.beaconCycle = chart.cycle;
+    if (s.beaconCount !== count) s.beaconCount = count;
+    const slots = s as unknown as Record<string, number>;
+    for (let i = 0; i < count; i += 1) {
+      const b = chart.beacons[i];
+      if (slots[`bcn${i}X`] !== b.x) slots[`bcn${i}X`] = b.x;
+      if (slots[`bcn${i}Y`] !== b.y) slots[`bcn${i}Y`] = b.y;
+      if (slots[`bcn${i}SinkT`] !== b.sinkT) slots[`bcn${i}SinkT`] = b.sinkT;
+    }
   }
 
   /** Mirror the match lifecycle onto the public schema. Match.countdownEndT
