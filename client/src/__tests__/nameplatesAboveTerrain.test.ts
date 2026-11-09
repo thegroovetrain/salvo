@@ -196,9 +196,9 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
     expect(EVERY_ROOT_PLACED).toBe(true);
   });
 
-  it('the world layers stack ocean → wake → beacon bodies → projectile → mines, and the HUD vignette → hud → foghorn', () => {
+  it('the world layers stack ocean → wake → beacon bodies → projectile → mines → drops, and the HUD vignette → hud → foghorn', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', // the buoy layer went with the buoys (Story 10.5); beacons Story 10.8
+      'ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', 'dropWorld', // the buoy layer went with the buoys (Story 10.5); beacons Story 10.8; drops Story 10.9
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
   });

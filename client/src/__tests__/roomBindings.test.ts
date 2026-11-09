@@ -28,7 +28,7 @@ import { fitDetune, fitTone } from '../audio/tones';
 import { UNKNOWN_VESSEL, killLine, type KillSegment, type NameRef } from '../ui/killFeed';
 import { KILL_LEADER_MARK, bountyKillLine } from '../ui/bounty';
 import { pointToastLine } from '../ui/upgradeToast';
-import { boonFitToastLine } from '../ui/boonCopy';
+import { boonFitToastLine, dropToastLine } from '../ui/boonCopy';
 
 /** A bare ship's stamped cloud life and disc — they ride every `CloudView` (Story 10.6, I6). */
 const CLOUD_SIZE = (({ lifeMs, r0, r1 }) => ({ lifeMs, r0, r1 }))(baseSmokeStats());
@@ -107,6 +107,7 @@ function setup(extra: Record<string, unknown> = {}) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     onOwnStats,
     onOwnSpawn,
@@ -273,6 +274,7 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     colors: vi.fn(() => null),
     ...over,
@@ -396,6 +398,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
@@ -549,6 +552,7 @@ describe('bindRoom own sunk', () => {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
@@ -598,6 +602,7 @@ describe('bindRoom own sunk', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       foulZones: { sync: vi.fn() },
+      drops: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
@@ -661,6 +666,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       foulZones: { sync: vi.fn() },
+      drops: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
@@ -763,6 +769,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       foulZones: { sync: vi.fn() },
+      drops: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
@@ -841,6 +848,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       foulZones: { sync: vi.fn() },
+      drops: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
@@ -1274,6 +1282,7 @@ function setupToasts(spectating = false, held = false) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
@@ -1583,6 +1592,7 @@ function setupWater(
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
@@ -2396,6 +2406,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       foulZones: { sync: vi.fn() },
+      drops: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
@@ -2929,6 +2940,7 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
@@ -3137,5 +3149,59 @@ describe('own-fire correlation (Story 8.15) — the machine gun stream and the f
     const { sink, onShell } = setupWater('flak');
     sink.handler(victimFrame([{ k: 'shell', id: 'f1', x: 0, y: 0, vx: 500, vy: 0, t: 900, w: 'flak' }], {}));
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'f1' }), 'flak', 'flak');
+  });
+});
+
+describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup', () => {
+  const crate = { id: 'd1', x: 10, y: 20, g: [['armor', 3]] };
+
+  it('adopts FrameMsg.drops into the renderer, and an OMITTED key is no crates', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], {}, { drops: [crate] }));
+    expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
+    sink.handler(victimFrame([], {}));
+    expect(deps.drops.sync).toHaveBeenLastCalledWith([]);
+  });
+
+  it('a malformed crate is dropped whole before the renderer sees it', () => {
+    const { sink, deps } = setupWater();
+    const bad = { id: 'd2', x: 0, y: 0, g: [['armor', 3], ['speed', 2]] };
+    sink.handler(victimFrame([], {}, { drops: [bad, crate] }));
+    expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
+  });
+
+  it('a `dp` for the own id toasts the stat row (one roll and a bundle), no tone', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    const g = [['armor', 3]] as const;
+    const bundle = [['armor', 3], ['intel', 1], ['range', 5]] as const;
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: bundle }, { alive: true }));
+    expect(toastLines()).toEqual([dropToastLine(g), dropToastLine(bundle)]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('is suppressed while dead or spectating, and for someone else', () => {
+    document.body.replaceChildren();
+    const { sink } = setupToasts();
+    const g = [['armor', 3]];
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, { alive: false }));
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, null));
+    sink.handler(rewardFrame({ k: 'dp', id: 'other', t: 300, g }, { alive: true }));
+    expect(toastLines()).toEqual([]);
+  });
+
+  it("`tell: 'none'` shows nothing", () => {
+    document.body.replaceChildren();
+    const cfg = CLIENT_CONFIG.drops as { tell: string };
+    const was = cfg.tell;
+    cfg.tell = 'none';
+    try {
+      const { sink } = setupToasts();
+      sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: [['armor', 3]] }, { alive: true }));
+      expect(toastLines()).toEqual([]);
+    } finally {
+      cfg.tell = was;
+    }
   });
 });

@@ -996,6 +996,33 @@ export const CLIENT_CONFIG = {
     redrawZoomFrac: 0.02,
   },
 
+  /**
+   * THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 16, R3/R4) —
+   * render/drops.ts. A crate is drawn at SIGHT only (fogged world layer
+   * `dropWorld`); on radar it is a plain anonymous blip, no client art.
+   * Body and stat glyph in `colors.white` at `glyphAlpha` (the mine marker's
+   * 0.9); the `+n` numeral in `colors.phosphor`. No relation color (a drop has
+   * no owner), no alert tint (not a hazard).
+   *
+   * `variant` and `tell` are CANDIDATE SWITCHES for Eric's rendered page
+   * (task W3): A "crate" (square), B "float" (circle), C "parachute" (circle
+   * with four canopy spokes); the pickup tell a stat-row toast or none. The
+   * losing variants and the losing tell branch are DELETED after his ruling.
+   */
+  drops: {
+    variant: 'A' as 'A' | 'B' | 'C',
+    /** The pickup tell on a `dp` event: a stat-row toast (`+3 ARMOR`) or none. */
+    tell: 'toast' as 'toast' | 'none',
+    /** Body + glyph linework alpha (the mine marker's). */
+    glyphAlpha: 0.9,
+    /** The `+n` numeral's font size in WORLD units (the drop layer is
+     *  camera-scaled): 16 u ≈ 9.3 px at the default framing (0.58 px/u), the
+     *  DESIGN.md 9 px floor; ≈ 14 px at the close limit (0.87 px/u). */
+    numeralPx: 16,
+    /** u — the gap between the three glyph cells of a wreck bundle. */
+    bundleGap: 4,
+  },
+
   /** Own/contact ship view feel constants. */
   ship: {
     flashMs: 130, // ms — hit-flash duration
