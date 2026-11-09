@@ -6,12 +6,13 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintCoverage, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
+  dropPaint,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -103,6 +104,7 @@ function makeMine(overrides: Partial<MineState> = {}): MineState {
 const REGISTRY_KEYS = [
   'contact',
   'mine',
+  'drop', // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner clause, {id,x,y,g}; its radar paint rides the `blip` row (dropPaint), never a row of its own
   'litzone',
   'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
   'foulzone', // Story 9.4: the FOULING SHELL foul zone's contact-like channel, on the burn zone's gate (epic-9 amendment 63)
@@ -139,6 +141,10 @@ const REGISTRY_KEYS = [
   // on the blipGate clause order, no inner bound (amendment 210) (NOT a declared fog
   // exception; identity-free {k,t,a,gx,gy,w,h,bits} coverage masks).
   'wk',
+  // Story 10.9 — the AIRDROP pickup tell: collector-private {k,id,t,g} on the
+  // pt/bn/heal terms (never spectator-public). The drone-drop `dp` of 2026-10-01
+  // left with Story 10.5; this is its successor on the same key.
+  'dp',
 ];
 
 // ---------- row shape ----------------------------------------------------
@@ -347,10 +353,101 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
 
   // RETIRED (Story 7-5 wave 2 / Story 10.5): every `decoy` row pin — the row
   // and the DECOY BUOY are deleted (2026-11-05, epic-10 amendment 11).
-  it('no decoy row exists, and a fabricated k:\'decoy\' or k:\'dp\' world event never dispatches', () => {
+  it('no decoy row exists, and a fabricated k:\'decoy\' world event never dispatches; `drop` is a pseudo-row a world event can never reach', () => {
     expect('decoy' in SIGNAL_REGISTRY).toBe(false);
     expect(signalFor('decoy')).toBeUndefined();
-    expect(signalFor('dp')).toBeUndefined();
+    // Story 10.9: `dp` is a real GameEvent kind again (the collector's own
+    // receipt) and DOES dispatch — to its `id` alone (pinned below); the
+    // crate's sight channel `drop` is scan-driven over World.drops only, so a
+    // forged k:'drop' world event must never materialize a DropView.
+    expect(signalFor('dp')).toBe(SIGNAL_REGISTRY.dp);
+    expect(signalFor('drop')).toBeUndefined();
+  });
+
+  // ---------- Story 10.9 — THE AIRDROPS (epic-10 amendment 16, R3) ----------
+
+  function makeDrop(overrides: Partial<DropState> = {}): DropState {
+    return { id: 'd1', x: 50, y: 0, rolls: [['armor', 2]], ...overrides };
+  }
+
+  it('drop row: [id,x,y,g] — the crate\'s position and its rolls, in that order, `g` the world\'s own roll list; for a spectator too', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const drop = makeDrop({ rolls: [['power', 3], ['intel', 1]] }); // a wreck bundle, 50 u off — inside detect
+    const row = SIGNAL_REGISTRY.drop; // pseudo-row: direct access (not signalFor)
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, drop)).toBe(true);
+    const wire = row.materialize(ctx, drop) as DropView;
+    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'g']);
+    expect(wire).toEqual({ id: 'd1', x: 50, y: 0, g: [['power', 3], ['intel', 1]] });
+    expect('rolls' in (wire as object)).toBe(false); // the store's spelling never rides
+    const spec = specCtx(w);
+    expect(row.visible(spec, drop)).toBe(true); // spectators see every crate
+    expect(Object.keys(row.materialize(spec, drop) as object)).toEqual(['id', 'x', 'y', 'g']);
+  });
+
+  it('drop row gate: the MINE gate minus the owner clause — detected (detect rung + island LOS) OR inside an OWNED lit zone; never radar, nobody is "always" told', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 3100, 0);
+    const row = SIGNAL_REGISTRY.drop;
+    const detectU = SIGHT * CONFIG.vision.detectFactor;
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: detectU - 1 }))).toBe(true); // inside the detect rung
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: detectU + 1 }))).toBe(false); // just outside it
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: RADAR - 10 }))).toBe(false); // radar range is NOT sight — the glyph stays dark (R3)
+    // An island between the observer and the crate blinds the eye.
+    w.map.islands.push(circleIsland(100, 0, 30));
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: 200 }))).toBe(false);
+    w.map.islands.length = 0;
+    // An OWNED lit zone over a far crate reveals it ("lit from above"); somebody else's never does.
+    const far = makeDrop({ x: 2500, y: 0 });
+    expect(row.visible(foggedCtx(w, a), far)).toBe(false);
+    injectZone(w, 'z1', 'a', 2500, 0, 110);
+    expect(row.visible(foggedCtx(w, a), far)).toBe(true);
+    expect(row.visible(foggedCtx(w, b), far)).toBe(false); // b is 600 u off (outside detect) and does not own the zone
+  });
+
+  it('dropPaint (the blip row\'s second subject type): the four blip terms on the crate\'s centre, materialized as the fuzzed DISC rect and NOTHING else; null when the gate fails; a spectator never paints', () => {
+    const w = bareWorld(1);
+    const me = place(w, 'a', 0, 0);
+    me.prevSweepAngle = wrapPositive(-0.02);
+    me.sweepAngle = wrapPositive(0.02);
+    const swept = makeDrop({ x: SIGHT + 300, y: 0 }); // beyond sight, inside radar, on the swept bearing, inside the flat dropout band
+    expect(SIGHT + 300).toBeLessThanOrEqual(CONFIG.vision.dropout.startU);
+    const paint = dropPaint(foggedCtx(w, me), swept)!;
+    expect(paint).not.toBeNull();
+    expect(Object.keys(paint)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']); // the one blip key order (blipShape's)
+    expect(paint.k).toBe('blip');
+    expect(paint.t).toBe(w.now);
+    const disc = paintDiscCoverage(swept.x, swept.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, w.now);
+    expect({ gx: paint.gx, gy: paint.gy, w: paint.w, h: paint.h, bits: paint.bits }).toEqual(disc);
+    for (const forbidden of ['id', 'x', 'y', 'g', 'rolls', 'cls', 'heading', 'src']) expect(forbidden in paint).toBe(false);
+    // The same crate off the swept bearing, beyond radar range, or behind hard cover: no paint.
+    expect(dropPaint(foggedCtx(w, me), makeDrop({ x: -(SIGHT + 300), y: 0 }))).toBeNull(); // bearing π, window around 0
+    expect(dropPaint(foggedCtx(w, me), makeDrop({ x: RADAR + 10, y: 0 }))).toBeNull();
+    // ...and a crate INSIDE the sight bubble still paints (no inner edge, amendment 210).
+    expect(dropPaint(foggedCtx(w, me), makeDrop({ x: 200, y: 0 }))).not.toBeNull();
+    // ...and never for a spectator: the row's caller runs it on the fogged path only,
+    // and the gate itself is the observer's OWN radar (a spectator context has no `me`).
+    const hull = place(w, 'h', SIGHT + 300, 200);
+    const hullPaint = SIGNAL_REGISTRY.blip.materialize(foggedCtx(w, me), hull);
+    expect(Object.keys(hullPaint as object)).toEqual(Object.keys(paint)); // a hull's paint and a crate's: the same shape on the wire
+  });
+
+  it('dp row (Story 10.9): [k,id,t,g] — collector-private AND spectator-private, like pt/bn/heal; proximity is irrelevant', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 20, 0); // hull-to-hull, fully sighted — still never told
+    const e: DropPickupEvent = { k: 'dp', id: 'a', t: w.now, g: [['engines', 2]] };
+    const row = signalFor('dp')!;
+    expect(row).toBe(SIGNAL_REGISTRY.dp);
+    expect(row.visible(foggedCtx(w, a), e)).toBe(true); // the collector alone
+    expect(row.visible(foggedCtx(w, b), e)).toBe(false);
+    expect(row.visible(specCtx(w), e)).toBe(false); // never a spectator (the pt terms, not dmg's)
+    expect(row.visible(specCtx(w, 'a'), e)).toBe(true); // ...unless the spectator IS the collector (a dead-in-active captain's own receipt)
+    const wire = row.materialize(foggedCtx(w, a), e) as DropPickupEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'id', 't', 'g']);
+    expect(wire).toEqual(e);
   });
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
@@ -1217,7 +1314,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // kinds. The three contact/mine/litzone pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'dp'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -1238,6 +1335,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('burnzone')).toBeUndefined(); // Story 8.17: the fifth pseudo-row, never a world event
     expect(signalFor('foulzone')).toBeUndefined(); // Story 9.4: the seventh pseudo-row — a forged k:'foulzone' world event never materializes a FoulZoneView
     expect(signalFor('cloud')).toBeUndefined(); // Story 9.3: the sixth pseudo-row — a forged k:'cloud' world event never materializes a CloudView
+    expect(signalFor('drop')).toBeUndefined(); // Story 10.9: the AIRDROP pseudo-row — a forged k:'drop' world event never materializes a DropView
     expect(signalFor('smoke')).toBeUndefined(); // ...and 8.18's retired key resolves to nothing at all
     expect(SIGNAL_REGISTRY.cloud).toBeDefined();
     // ...but the rows themselves still exist for direct scan-driven access.

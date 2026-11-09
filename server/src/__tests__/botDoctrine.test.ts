@@ -124,7 +124,7 @@ function plot(mind: BotMind, t: RememberedContact): RememberedContact {
 
 /** A view (never folded: viewAt stays -1) carrying only the given rows. */
 function setView(mind: BotMind, over: Partial<PerceptionView>): void {
-  mind.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], ...over };
+  mind.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
 }
 
 function litZone(by: string, x: number, y: number, until: number): LitZoneView {

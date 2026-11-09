@@ -86,6 +86,10 @@ import {
   type BurstEvent,
   type Contact,
   type DamageEvent,
+  type DropPickupEvent,
+  type DropState,
+  type DropView,
+  paintDiscCoverage,
   type FoghornEvent,
   type GameEvent,
   type GhostPaint,
@@ -778,6 +782,33 @@ const mineSignal: SignalSpec<MineState, MineView> = {
 };
 
 /**
+ * `drop` — THE AIRDROP's sight channel (Story 10.9, epic-10 amendment 16,
+ * Eric's R3: "stat glyph at SIGHT ONLY"). Contact-like state (NOT events),
+ * recomputed every tick like mines: a fogged observer sees a crate — its
+ * position AND its rolls `g` — iff the crate's centre is DETECTED
+ * (`pointDetected`: detectFactor × sight + island LOS, fog-tolled) OR sits
+ * inside a lit zone the observer OWNS (`ownZoneCovers`, lit from above).
+ * That is the mine gate MINUS the owner clause: a drop has no owner, so
+ * nobody is "always" told. Spectators see every crate. The crate's radar
+ * paint is NOT here — it rides the `blip` row's own gate as an anonymous
+ * disc rect (`dropPaint`, below), so radar never learns what a return IS.
+ * Materialized `{id,x,y,g}`: `g` is the roll list `[[IndexId, n], …]` the
+ * glyph draws — a field on a row sight already admitted, never a delivery
+ * of its own, so the perception exception count stays SIX.
+ */
+const dropSignal: SignalSpec<DropState, DropView> = {
+  eventType: 'drop',
+  visible(ctx, drop) {
+    if (ctx.mode === 'spectator') return true;
+    return pointDetected(ctx.me, drop, ctx, ctx.now) || ownZoneCovers(ctx, drop);
+  },
+  materialize(_ctx, drop) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,g.
+    return { id: drop.id, x: drop.x, y: drop.y, g: drop.rolls };
+  },
+};
+
+/**
  * `litzone` — contact-like state (NOT events), recomputed every tick exactly
  * like mines (Story 1.7). The OWNER (firer) always sees its own zones; any
  * other fogged observer sees a zone iff its CENTER is within the observer's
@@ -1005,8 +1036,10 @@ const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
  * target's bearing this tick (the half-open window [prev, cur) — wrap-safe,
  * each bearing painted exactly once per revolution). Paints carry position-
  * at-paint-time; the server keeps no blip history (phosphor decay is client
- * render math). ONLY SHIPS PAINT — torpedoes and mines never appear on radar
- * (the ship scan iterates ships only, by construction). A ship inside a lit
+ * render math). ONLY SHIPS AND DROPS PAINT — torpedoes and mines never appear
+ * on radar (the ship scan iterates ships only, by construction; the AIRDROP
+ * is the one non-ship subject, Story 10.9 — see `dropPaint` below: the same
+ * four gate terms, materialized as nothing but the fuzzed disc rect). A ship inside a lit
  * zone the observer OWNS paints too (amendment 210 ruling (a) — the entire
  * sweep; the old "already a FULL contact — never doubled" exclusion of
  * Story 1.7 is retired, so the zone has no term in this row). No cloud term
@@ -1043,6 +1076,33 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     return blipShape(ctx, target.state, target.hullId, target.state.heading);
   },
 };
+
+/**
+ * THE AIRDROP'S RADAR PAINT (Story 10.9, epic-10 amendment 16, R3 — "on
+ * radar it is an anonymous small blip"). The `blip` row's SECOND SUBJECT
+ * TYPE, not a new event kind and not a seventh exception: the crate's centre
+ * runs the IDENTICAL four-term gate a hull runs (`blipGate` — range → swept
+ * this tick → height-aware shadow march → the dropout roll, keyed on the
+ * drop's id), and what leaves is a `BlipEvent` carrying NOTHING but the fuzzed
+ * coverage rect of its DISC (`paintDiscCoverage` — the hull mask's fuzz law
+ * over a disc of `CONFIG.drops.radiusU`, seeded from (tick, centre) with no
+ * identity term). No id, no rolls, no "crate" flag: a client reads a small
+ * round return that never moves and infers a crate by size and stillness, or
+ * does not (that is the ruling). Null when the gate fails — nothing about the
+ * drop is emitted. The caller (perception's drop paint scan) runs this on the
+ * FOGGED path only and only while the radar is on, and merges the result into
+ * the blip subsequence BEFORE its payload-only sort, so a frame's blip order
+ * can never tell a hull's paint from a crate's.
+ *
+ * Exported narrowly so `blipGate` stays module-private: one file owns the
+ * radar gate, and this row comment can state its terms.
+ */
+export function dropPaint(ctx: FoggedSignalContext, drop: DropState): BlipEvent | null {
+  if (!blipGate(ctx, drop, drop.id)) return null;
+  const c = paintDiscCoverage(drop.x, drop.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, ctx.now);
+  // The one blip key order (k,t,gx,gy,w,h,bits) — byte-for-byte blipShape's.
+  return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
+}
 
 // ---------------------------------------------------------------------------
 // `wk` — RADAR WAKES (Story 4.12, amendments 194-196/200/205).
@@ -1767,8 +1827,10 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
  * REPAIR spend — Story 2.1, Eric ruling 2026-07-24 — and RETURNED with the
  * DAMAGE CONTROL strip, 2026-08-04, on strictly tighter terms: no hp amount,
  * no total, no victim id, nothing derivable about another ship.)
+ * `dp` (Story 10.9 — the AIRDROP pickup tell) joins on the pt/bn/heal terms:
+ * the collector alone learns what it just picked up; a spectator never does.
  */
-function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent | HealEvent>(
+function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent | HealEvent | DropPickupEvent>(
   kind: E['k'],
   spectatorPublic: boolean,
 ): SignalSpec<E, E> {
@@ -2038,10 +2100,11 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 18 GameEvent kinds plus
- * the `contact`/`mine`/`litzone`/`burnzone`/`foulzone`/`cloud` pseudo-types.
+ * String-keyed registry of every signal channel — the 19 GameEvent kinds plus
+ * the `contact`/`mine`/`drop`/`litzone`/`burnzone`/`foulzone`/`cloud`
+ * pseudo-types.
  * perception.ts dispatches world events by `e.k` (an emitted kind with no row
- * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/
+ * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/drop/
  * litzone/burnzone/foulzone scans through their rows. Deep-frozen: the map AND every row are frozen —
  * rows are added at authoring time only, each with its required invariant
  * test case.
@@ -2049,6 +2112,10 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
+  // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner
+  // clause (a crate has no owner), `{id,x,y,g}`; its radar paint rides the
+  // `blip` row as a second subject type (`dropPaint`), never this row.
+  drop: dropSignal,
   litzone: litZoneSignal,
   // Story 8.17: the PHOSPHOR burning zone's contact-like frame channel, on
   // the lit zone's gate byte-for-byte (amendment 135(f)). A circle only —
@@ -2083,6 +2150,12 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // an economy act, and "that hull just repaired" must never reach anyone but
   // the hull that spent the level (the spec's no-observer-visible-cue rule).
   heal: selfPrivateSignal<HealEvent>('heal', false),
+  // Story 10.9 (epic-10 amendment 16): the AIRDROP pickup tell — the
+  // collector's own `{k,id,t,g}` receipt, on the pt/bn/heal terms. The world
+  // emits it once per pickup; this row forwards it to the collector ALONE
+  // (never a spectator — what a living hull just gained is its own business,
+  // and nothing about the pickup reaches anyone else: no event, no paint).
+  dp: selfPrivateSignal<DropPickupEvent>('dp', false),
   // Story 4.3 (amendments 15-20): the gunnery conversation — three declared
   // fog exceptions, each with its stated rationale on its row above.
   sp: fallOfShotSignal,
@@ -2117,7 +2190,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 18 GameEvent-kind rows. It excludes the contact/mine/litzone
+ * ONLY the 19 GameEvent-kind rows. It excludes the contact/mine/drop/litzone
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup
@@ -2126,14 +2199,15 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
  * the caller drops the event (nothing spatial leaves the server outside a
  * registry row).
  */
-const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'cloud']);
+const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud']);
 
 export function signalFor(kind: string): SignalSpec | undefined {
   // Pseudo-rows never dispatch from world events ('burnzone' joined in
   // Story 8.17, 'smoke' in
-  // Story 8.18 and its successor 'cloud' in Story 9.3, and 'foulzone' in
-  // Story 9.4, all on the same rule — a fabricated k:'foulzone' world event
-  // must never materialize a FoulZoneView).
+  // Story 8.18 and its successor 'cloud' in Story 9.3, 'foulzone' in
+  // Story 9.4, and 'drop' in Story 10.9, all on the same rule — a fabricated
+  // k:'drop' world event must never materialize a DropView; the drop's
+  // sight channel is scan-driven over World.drops only).
   if (PSEUDO_ROWS.has(kind)) return undefined;
   if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];

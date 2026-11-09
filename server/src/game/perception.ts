@@ -22,7 +22,7 @@
 // seed and the schema cut, so nothing per-observer about fog rides a frame.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 18 GameEvent kinds plus the contact/mine/litzone/burnzone/foulzone/cloud
+// the 19 GameEvent kinds plus the contact/mine/drop/litzone/burnzone/foulzone/cloud
 // frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
@@ -50,9 +50,9 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DropView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, ballisticGateOpen, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
+import { SIGNAL_REGISTRY, ballisticGateOpen, dropPaint, signalFor, sweepMayCrossWake, type FoggedSignalContext, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -74,6 +74,13 @@ export interface PerceptionView {
    *  order). The cloud's seed alone rides here (`{id,x,y,t0}`); it occludes
    *  nothing (Story 9.3 session 2 — a client overlay). */
   clouds: CloudView[];
+  /** Per-observer AIRDROP visibility (Story 10.9 — contact-like, recomputed
+   *  every tick through the `drop` row: spectator always, else the crate's
+   *  centre DETECTED or inside an owned lit zone; in placement order). The
+   *  SIGHTED list only, `{id,x,y,g}` — the crate's radar paint is an anonymous
+   *  blip in `events`, never here. Bots read this list for the same crates a
+   *  human sees (human parity, no wider port). */
+  drops: DropView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -271,6 +278,34 @@ function mineScan(world: World, ctx: SignalContext): MineView[] {
   return out;
 }
 
+/** Per-observer AIRDROP visibility (Story 10.9) — contact-like state exactly
+ *  like mines, recomputed every tick through the `drop` row (spectator always,
+ *  else detected or inside an owned lit zone), in Map-insertion (placement)
+ *  order. The crate's radar paint is NOT here — see dropBlipScan. */
+function dropScan(world: World, ctx: SignalContext): DropView[] {
+  const out: DropView[] = [];
+  const row = SIGNAL_REGISTRY.drop;
+  for (const drop of world.drops.values()) {
+    if (row.visible(ctx, drop)) out.push(row.materialize(ctx, drop));
+  }
+  return out;
+}
+
+/** THE AIRDROPS' RADAR PAINTS (Story 10.9, R3): every crate the observer's
+ *  OWN radar gates this tick (`dropPaint` — the `blip` row's four terms, keyed
+ *  on the drop's id) becomes one anonymous disc-rect blip. FOGGED path only
+ *  (the caller passes a fogged context; spectators have live `drops`, never
+ *  blips). The result is merged into the ship blips BEFORE the payload-only
+ *  sort, so the blip subsequence carries no hull-vs-crate source order. */
+function dropBlipScan(world: World, ctx: FoggedSignalContext): BlipEvent[] {
+  const out: BlipEvent[] = [];
+  for (const drop of world.drops.values()) {
+    const paint = dropPaint(ctx, drop);
+    if (paint !== null) out.push(paint);
+  }
+  return out;
+}
+
 /** Per-observer lit-zone visibility (Story 1.7) — contact-like state exactly
  *  like mines, recomputed every tick through the litzone row, in Map-insertion
  *  (burst) order. Only the radar-gated circle rides here; the firer's
@@ -454,7 +489,12 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   // every forwarded event — is UNTOUCHED: truesight is not radar.
   if (world.radarEnabled) {
     // (The DECOY BUOY's paint and the RADAR BUOY's sweeps — the two non-ship
-    // blip sources — left with the buoys, Story 10.5.)
+    // blip sources — left with the buoys, Story 10.5.) The AIRDROPS (Story
+    // 10.9) are the one non-ship subject today: their anonymous disc paints
+    // join the ship paints HERE, before the payload-only sort, so the merged
+    // subsequence carries no source order. Fogged only — the blip row never
+    // fires unfogged, and neither does this.
+    if (ctx.mode === 'fogged') blips.push(...dropBlipScan(world, ctx));
     events.push(...blips.sort(blipOrder));
     // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
     // — every historical kind keeps its exact position — sorted by wakeOrder
@@ -469,6 +509,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     burnZones: burnZoneScan(world, ctx),
     foulZones: foulZoneScan(world, ctx),
     clouds: cloudScan(world, ctx),
+    drops: dropScan(world, ctx),
   };
 }
 
@@ -481,7 +522,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
   return view(world, foggedContext(world, me));
 }
 
