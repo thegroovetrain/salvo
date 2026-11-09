@@ -781,6 +781,21 @@ export const CONFIG = {
      * the solid body. A harness dial.
      */
     beaconStandoffFrac: 0.6,
+    /**
+     * THE CRATE-PAINT FILTER (Story 10.9, orchestrator ruling 2026-11-09): a
+     * radar return whose fuzzed footprint's LONGEST SIDE (the paint rect's
+     * `max(w, h) × vision.radarCellU`) is below this many u is NEVER folded
+     * into a hostile track — it is an airdrop crate's disc imprint, not a
+     * hull, and a bot that plotted it chased crates. Human parity: a player
+     * reads the same small, still return as "not a ship". Measured
+     * 2026-11-09 over 20,000 random poses / paint clocks on the 9 u lattice:
+     * a 15 u crate's paint (`paintDiscCoverage`) spans 54–81 u (81 u in ~16 %
+     * of paints, never more); a hull's (`paintCoverage`) is ≥ 99 u for
+     * bismarck, ≥ 108 u for yamato / iowa, and ≥ 90 u for warspite except a
+     * ~0.03 % tail at 81 u (one missed paint, recovered next sweep). A
+     * harness dial.
+     */
+    cratePaintMaxU: 85,
   },
 
   /** True ship globals shared by every class (no per-class variation). */
@@ -2959,13 +2974,17 @@ export const CONFIG = {
    * target or a body. An AFLOAT hull whose silhouette comes within `radiusU`
    * of the centre collects it.
    *
-   * ROLL: the stat is uniform over `indices` (the same six as
-   * `offer.exhausted.indices` — ONE array), the amount an integer uniform in
-   * [bonusMin, bonusMax]. A sunk participant leaves ONE wreck pickup of
-   * `wreckRolls` independent rolls (R2 — nothing of the victim's leaks).
+   * ROLL: at SPAWN only the crate's KIND is drawn — its stat, uniform over
+   * `indices` (the same six as `offer.exhausted.indices` — ONE array). The
+   * AMOUNT, an integer uniform in [bonusMin, bonusMax], is rolled at PICKUP
+   * (Eric 2026-11-08: "The bonus is rolled AFTER I pick it up"). A sunk
+   * participant leaves ONE wreck pickup (kind `'wreck'`) that rolls
+   * `wreckRolls` independent stat + amount rolls at pickup (R2 — nothing of
+   * the victim's leaks).
    *
-   * SEEN (R3): the stat and amount at SIGHT only; on radar an anonymous blip
-   * (the crate's disc imprint, `paintDiscCoverage`).
+   * SEEN (R3): the crate shows ONLY its kind (stat or wreck), at SIGHT only
+   * — never an amount; on radar an anonymous blip (the crate's disc imprint,
+   * `paintDiscCoverage`).
    */
   drops: {
     perMinuteRemaining: 2, // drops per minute remaining to `untilMinute`, at each match minute (Eric 2026-11-03, #13)

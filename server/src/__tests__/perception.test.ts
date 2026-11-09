@@ -170,6 +170,7 @@ import {
   type DamageEvent,
   type DropPickupEvent,
   type GameEvent,
+  type DropKind,
   type IndexId,
   type FrameMsg,
   type GhostPaint,
@@ -2879,9 +2880,9 @@ function verifyDrops(w: World, me: ShipRecord, f: FrameMsg): void {
     expect(drop, `drop ${v.id} is a live world drop`).toBeDefined();
     expect(seen.has(v.id), `drop ${v.id} delivered once`).toBe(false);
     seen.add(v.id);
-    expect(Object.keys(v)).toEqual(['id', 'x', 'y', 'g']);
+    expect(Object.keys(v)).toEqual(['id', 'x', 'y', 'c']);
     expect({ x: v.x, y: v.y }).toEqual({ x: drop.x, y: drop.y });
-    expect(v.g).toEqual(drop.rolls);
+    expect(v.c).toBe(drop.kind);
     expect(dropGateOracle(w, me, spectator, drop, 'loose'), `drop ${v.id} delivered to ${me.id} only if its gate passes`).toBe(true);
     if (spectator) continue;
     DROP_SIGHTED.n += 1;
@@ -2892,7 +2893,7 @@ function verifyDrops(w: World, me: ShipRecord, f: FrameMsg): void {
     expect(dropGateOracle(w, me, spectator, drop, 'strict'), `drop ${drop.id} withheld from ${me.id} only if its gate fails`).toBe(false);
     if (!spectator) DROP_WITHHELD.n += 1;
   }
-  // The store-private spelling of the rolls never rides a frame.
+  // No roll exists before pickup (Eric 2026-11-08): the word never rides a frame.
   expect(JSON.stringify(f)).not.toContain('rolls');
 }
 
@@ -4652,32 +4653,32 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       //     steps ahead of its parked beam — painted (an anonymous disc rect)
       //     within the run, never sighted by it;
       //   • `dropFar`: anywhere on the water — withheld from almost everyone;
-      //     carries a WRECK bundle (three rolls) so `g` is exercised at length;
+      //     is a WRECK crate (kind `'wreck'`) so `c` is exercised on both kinds;
       //   • `dropLit`: 20–40 u off `zone0`'s centre when the world laid one —
       //     the zone's owner sees it by the lit zone ALONE when the zone is
       //     beyond its detect rung (the DROP_BY_ZONE arm).
       {
         const drng = mulberry32(0xd90b_0000 + world);
-        const roll = (): [IndexId, number] => [CONFIG.drops.indices[drng.int(0, CONFIG.drops.indices.length - 1)], drng.int(CONFIG.drops.bonusMin, CONFIG.drops.bonusMax)];
-        const seat = (id: string, x: number, y: number, rolls: ReadonlyArray<[IndexId, number]>): void => {
-          w.drops.set(id, { id, x: Math.fround(x), y: Math.fround(y), rolls });
+        const roll = (): IndexId => CONFIG.drops.indices[drng.int(0, CONFIG.drops.indices.length - 1)];
+        const seat = (id: string, x: number, y: number, kind: DropKind): void => {
+          w.drops.set(id, { id, x: Math.fround(x), y: Math.fround(y), kind });
         };
         const a = w.ships.get(ids[0])!.state;
         const ab = drng.float(0, TAU);
         const ad = drng.float(60, 200);
-        seat(`dropNear${world}`, a.x + Math.cos(ab) * ad, a.y + Math.sin(ab) * ad, [roll()]);
+        seat(`dropNear${world}`, a.x + Math.cos(ab) * ad, a.y + Math.sin(ab) * ad, roll());
         const b = w.ships.get(ids[1])!;
         const bb = b.sweepAngle + drng.float(1, 3) * SWEEP_DELTA;
         const bd = drng.float(SIGHT + 100, RADAR - 100);
-        seat(`dropRadar${world}`, b.state.x + Math.cos(bb) * bd, b.state.y + Math.sin(bb) * bd, [roll()]);
+        seat(`dropRadar${world}`, b.state.x + Math.cos(bb) * bd, b.state.y + Math.sin(bb) * bd, roll());
         const fb = drng.float(0, TAU);
         const fd = drng.float(0, w.map.radius * 0.9);
-        seat(`dropFar${world}`, Math.cos(fb) * fd, Math.sin(fb) * fd, [roll(), roll(), roll()]);
+        seat(`dropFar${world}`, Math.cos(fb) * fd, Math.sin(fb) * fd, 'wreck');
         const zone = w.litZones.get('zone0');
         if (zone !== undefined) {
           const zb = drng.float(0, TAU);
           const zd = drng.float(20, 40);
-          seat(`dropLit${world}`, zone.x + Math.cos(zb) * zd, zone.y + Math.sin(zb) * zd, [roll()]);
+          seat(`dropLit${world}`, zone.x + Math.cos(zb) * zd, zone.y + Math.sin(zb) * zd, roll());
         }
       }
       const ledger = new VisitLedger();

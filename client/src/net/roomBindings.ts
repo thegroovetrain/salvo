@@ -1468,14 +1468,13 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
  * it only to the collector), so the id check is defensive. UX only: the
  * authoritative bonus self-syncs on `you.ib`. Dead-gated like `handlePoint`
  * (no toast to a corpse or a results screen). NO TONE (the audio twin map is
- * untouched). The tell is a CANDIDATE switch (`CLIENT_CONFIG.drops.tell`,
- * Eric's pick on the rendered page): the losing branch is deleted after his
- * ruling. A malformed `g` shows nothing.
+ * untouched). The tell is the stat-row toast (Eric 2026-11-08, on the
+ * rendered page) — the rolls are drawn AT PICKUP, so this is the first time
+ * the player learns the amount. A malformed `g` shows nothing.
  */
 function handleDropPickup(e: DropPickupEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
   if (frameIsDeadOrSpectating(f)) return;
-  if (CLIENT_CONFIG.drops.tell !== 'toast') return;
   const g = Array.isArray(e.g) ? e.g.filter((r) => isDropRoll(r)) : [];
   if (g.length > 0) pushUpgradeToast(dropToastLine(g));
 }

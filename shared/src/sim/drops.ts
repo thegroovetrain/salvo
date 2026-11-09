@@ -7,8 +7,12 @@
 // keep-out and the pickup are documented there).
 //
 // A drop is NOT a ship, a target, a body or a bounty: it is a point on the
-// water carrying one roll (or a wreck's bundle of rolls). Nothing here knows
-// about owners, streams or the wire; the caller hands in its own `Rng`.
+// water carrying only its KIND — one index stat, or `'wreck'` for a sunk
+// participant's pickup. The AMOUNT (and, for a wreck, its stats too) is rolled
+// AT PICKUP, never at spawn (Eric 2026-11-08: "The bonus is rolled AFTER I
+// pick it up. I only need to know that it's there, and what type of upgrade
+// it is"). Nothing here knows about owners, streams or the wire; the caller
+// hands in its own `Rng`.
 
 import { CONFIG, type IndexId } from '../constants.js';
 import type { Rng } from '../math/rng.js';
@@ -30,17 +34,20 @@ export interface DropConfig {
 }
 
 /** One roll: `[stat, amount]` — `amount` index points onto `stat`. A tuple
- *  (not an object) because it rides the wire inside `DropView.g` and the
- *  `dp` event. */
+ *  (not an object) because it rides the wire inside the `dp` event. */
 export type DropRoll = readonly [IndexId, number];
 
-/** A drop on the water: its id, its (fround-ed) position and its rolls —
- *  one for an ordinary drop, `wreckRolls` for a wreck pickup (R2). */
+/** What a crate IS — the only thing it shows (Eric 2026-11-08): one index
+ *  stat, or `'wreck'` — a sunk participant's pickup, not limited to one stat. */
+export type DropKind = IndexId | 'wreck';
+
+/** A drop on the water: its id, its (fround-ed) position and its kind. Its
+ *  amount does not exist yet — `rollPickup` draws it when a hull takes it. */
 export interface DropState {
   readonly id: string;
   readonly x: number;
   readonly y: number;
-  readonly rolls: ReadonlyArray<DropRoll>;
+  readonly kind: DropKind;
 }
 
 /**
@@ -82,29 +89,43 @@ function pickIndex(u: number, n: number): number {
   return Math.min(n - 1, Math.floor(u * n));
 }
 
-/**
- * ONE ROLL — exactly TWO `rng.next()` draws, in this order (the stream
- * contract a seeded replay depends on):
- *   1. the stat, uniform over `cfg.indices`;
- *   2. the amount, an integer uniform in [bonusMin, bonusMax] inclusive —
- *      `bonusMin + floor(u × (bonusMax − bonusMin + 1))`, clamped to the top
- *      bound. Derived from `next()` directly rather than `rng.int` so the
- *      spend is explicit HERE (mulberry32's `int` is the same one draw and
- *      formula today; a stub or a future Rng need not be).
- */
-export function rollDrop(rng: Rng, cfg: DropConfig = CONFIG.drops): DropRoll {
-  const stat = cfg.indices[pickIndex(rng.next(), cfg.indices.length)];
-  const span = cfg.bonusMax - cfg.bonusMin + 1;
-  const amount = cfg.bonusMin + pickIndex(rng.next(), span);
-  return [stat, amount];
+/** THE SPAWN-TIME DRAW — exactly ONE `rng.next()`: the crate's stat, uniform
+ *  over `cfg.indices`. (A wreck's kind is `'wreck'`, never drawn.) */
+export function rollKind(rng: Rng, cfg: DropConfig = CONFIG.drops): IndexId {
+  return cfg.indices[pickIndex(rng.next(), cfg.indices.length)];
 }
 
-/** `n` independent rolls (a wreck pickup's bundle, R2), each `rollDrop` in
- *  turn — `2n` draws. A non-positive or non-integer `n` rolls nothing. */
-export function rollBundle(rng: Rng, n: number, cfg: DropConfig = CONFIG.drops): DropRoll[] {
+/** The amount — exactly ONE `rng.next()`: an integer uniform in
+ *  [bonusMin, bonusMax] inclusive, `bonusMin + floor(u × span)` clamped to the
+ *  top bound. Derived from `next()` directly rather than `rng.int` so the
+ *  spend is explicit HERE (mulberry32's `int` is the same one draw today; a
+ *  stub or a future Rng need not be). */
+function rollAmount(rng: Rng, cfg: DropConfig): number {
+  return cfg.bonusMin + pickIndex(rng.next(), cfg.bonusMax - cfg.bonusMin + 1);
+}
+
+/**
+ * ONE FREE ROLL — exactly TWO `rng.next()` draws, in this order (the stream
+ * contract a seeded replay depends on): the stat (`rollKind`), then the
+ * amount. A wreck pickup is `wreckRolls` of these.
+ */
+export function rollDrop(rng: Rng, cfg: DropConfig = CONFIG.drops): DropRoll {
+  const stat = rollKind(rng, cfg);
+  return [stat, rollAmount(rng, cfg)];
+}
+
+/**
+ * THE PICKUP ROLL (Eric 2026-11-08 — rolled AFTER the pickup, never at
+ * spawn). An index kind grants `[[kind, amount]]` — ONE draw, the amount.
+ * `'wreck'` grants `cfg.wreckRolls` independent `rollDrop`s (stat + amount
+ * each, `2 × wreckRolls` draws; a non-positive or non-integer `wreckRolls`
+ * grants nothing).
+ */
+export function rollPickup(rng: Rng, kind: DropKind, cfg: DropConfig = CONFIG.drops): DropRoll[] {
+  if (kind !== 'wreck') return [[kind, rollAmount(rng, cfg)]];
   const rolls: DropRoll[] = [];
-  const count = Number.isInteger(n) && n > 0 ? n : 0;
-  for (let i = 0; i < count; i++) rolls.push(rollDrop(rng, cfg));
+  const n = Number.isInteger(cfg.wreckRolls) && cfg.wreckRolls > 0 ? cfg.wreckRolls : 0;
+  for (let i = 0; i < n; i++) rolls.push(rollDrop(rng, cfg));
   return rolls;
 }
 
@@ -117,9 +138,15 @@ export function dropTouches(drop: Vec2, poly: readonly Vec2[], rU: number): bool
   return pointPolygonDistance(drop, poly) <= rU;
 }
 
+/** FAIL-CLOSED KIND VALIDATOR (the client ingest's gate on `DropView.c`):
+ *  exactly `'wreck'` or one of `indices`; anything else answers false. */
+export function isDropKind(v: unknown, indices: readonly string[] = CONFIG.drops.indices): v is DropKind {
+  return v === 'wreck' || (typeof v === 'string' && indices.includes(v));
+}
+
 /**
- * FAIL-CLOSED ROLL VALIDATOR (the client ingest's gate on `DropView.g` and the
- * `dp` event): a two-element array whose stat is one of `indices` and whose
+ * FAIL-CLOSED ROLL VALIDATOR (the client ingest's gate on the `dp` event's
+ * `g`): a two-element array whose stat is one of `indices` and whose
  * amount is a POSITIVE SAFE INTEGER — a `bonusCount`-acceptable count that is
  * also exactly what was sent, so a fraction, 0, a negative, NaN or ±Infinity
  * is REJECTED, never floored into a value. Anything else answers false.

@@ -39,7 +39,7 @@ const DETECT = SIGHT * CONFIG.vision.detectFactor;
 
 /** One crate at a deliberately non-round position (so its coordinates can be
  *  matched exactly and can never coincide with a cell index or a clock). */
-const CRATE: DropState = Object.freeze({ id: 'drop-7x', x: Math.fround(1237.25), y: Math.fround(-418.75), rolls: [['armor', 2], ['intel', 3]] as const });
+const CRATE: DropState = Object.freeze({ id: 'drop-7x', x: Math.fround(1237.25), y: Math.fround(-418.75), kind: 'armor' });
 
 /** Park a hull's beam just short of the bearing to `p`, so the sweep crosses
  *  it within the first ticks of a run (the perception.test.ts posture). */
@@ -150,7 +150,7 @@ describe('airdrops — the two-world differential (crate on vs off changes only 
         }
         if (id === 'near') {
           if (a.drops !== undefined) ledger.nearDrops += 1;
-          expect(a.drops, `near tick ${tick}: sighted`).toEqual([{ id: CRATE.id, x: CRATE.x, y: CRATE.y, g: CRATE.rolls }]);
+          expect(a.drops, `near tick ${tick}: sighted`).toEqual([{ id: CRATE.id, x: CRATE.x, y: CRATE.y, c: CRATE.kind }]);
           ledger.nearBlips += sa.crateBlips;
         }
         if (id === 'radarOnly') {
@@ -164,7 +164,7 @@ describe('airdrops — the two-world differential (crate on vs off changes only 
       const sa = buildFrame(withCrate, 'far', 'finished');
       const sb = buildFrame(without, 'far', 'finished');
       expect(sa.spec).toBe(true);
-      expect(sa.drops).toEqual([{ id: CRATE.id, x: CRATE.x, y: CRATE.y, g: CRATE.rolls }]);
+      expect(sa.drops).toEqual([{ id: CRATE.id, x: CRATE.x, y: CRATE.y, c: CRATE.kind }]);
       ledger.specDrops += 1;
       ledger.specBlips += sa.events.filter((e) => e.k === 'blip').length;
       const { drops: _d, ...saRest } = sa;
@@ -217,7 +217,7 @@ describe('airdrops — the pickup tell `dp` reaches the collector alone', () => 
     w.respawnEnabled = false;
     const collector = captain(w, 'taker', 0, 0, 0);
     captain(w, 'watch', 0, 200, 0); // 200 u north: sees the taker and the crate
-    const crate: DropState = { id: 'crate-1', x: 400, y: 0, rolls: [['power', 2]] };
+    const crate: DropState = { id: 'crate-1', x: 400, y: 0, kind: 'power' };
     w.drops.set(crate.id, crate);
     w.step();
     const before = { taker: buildFrame(w, 'taker'), watch: buildFrame(w, 'watch') };
@@ -234,7 +234,13 @@ describe('airdrops — the pickup tell `dp` reaches the collector alone', () => 
     const takerDp = taker.events.filter((e): e is GameEvent & { k: 'dp' } => e.k === 'dp');
     expect(takerDp).toHaveLength(1);
     expect(Object.keys(takerDp[0])).toEqual(['k', 'id', 't', 'g']);
-    expect(takerDp[0]).toEqual({ k: 'dp', id: 'taker', t: w.now, g: crate.rolls });
+    // The amount is rolled AT PICKUP (Eric 2026-11-08): one roll of the
+    // crate's kind, its amount within the dials.
+    expect(takerDp[0]).toMatchObject({ k: 'dp', id: 'taker', t: w.now });
+    expect(takerDp[0].g).toHaveLength(1);
+    expect(takerDp[0].g[0][0]).toBe(crate.kind);
+    expect(takerDp[0].g[0][1]).toBeGreaterThanOrEqual(CONFIG.drops.bonusMin);
+    expect(takerDp[0].g[0][1]).toBeLessThanOrEqual(CONFIG.drops.bonusMax);
     // The watcher: no `dp`, no event of any kind at the crate's point, and the
     // row simply gone; the taker is still its plain contact.
     expect(watch.events.filter((e) => e.k === 'dp')).toEqual([]);

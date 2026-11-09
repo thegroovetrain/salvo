@@ -146,6 +146,19 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
   return n === 0 ? null : { x: sx / n, y: sy / n };
 }
 
+/** The paint footprint's LONGEST SIDE in world units — `max(w, h)` lattice
+ *  cells × `radarCellU` (Story 10.9: the crate-paint filter's measure; see
+ *  `CONFIG.bots.cratePaintMaxU`). */
+export function paintLongestSideU(e: GhostPaint): number {
+  return Math.max(e.w, e.h) * CONFIG.vision.radarCellU;
+}
+
+/** Is this radar return too small to be a hull — an airdrop crate's disc
+ *  imprint (Story 10.9, `CONFIG.bots.cratePaintMaxU`)? Never a track. */
+export function isCrateSizedPaint(e: GhostPaint): boolean {
+  return paintLongestSideU(e) < CONFIG.bots.cratePaintMaxU;
+}
+
 /** How many lattice cells a paint lights — the FOOTPRINT a human reads off
  *  the scope (Story 9.13, epic-9 amendment 197): a small return lights a
  *  handful, a hull's silhouette many (the decoy buoy it was cut to spot left

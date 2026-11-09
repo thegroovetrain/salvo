@@ -3153,7 +3153,7 @@ describe('own-fire correlation (Story 8.15) — the machine gun stream and the f
 });
 
 describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup', () => {
-  const crate = { id: 'd1', x: 10, y: 20, g: [['armor', 3]] };
+  const crate = { id: 'd1', x: 10, y: 20, c: 'armor' };
 
   it('adopts FrameMsg.drops into the renderer, and an OMITTED key is no crates', () => {
     const { sink, deps } = setupWater();
@@ -3165,7 +3165,7 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
 
   it('a malformed crate is dropped whole before the renderer sees it', () => {
     const { sink, deps } = setupWater();
-    const bad = { id: 'd2', x: 0, y: 0, g: [['armor', 3], ['speed', 2]] };
+    const bad = { id: 'd2', x: 0, y: 0, c: 'speed' };
     sink.handler(victimFrame([], {}, { drops: [bad, crate] }));
     expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
   });
@@ -3189,19 +3189,5 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, null));
     sink.handler(rewardFrame({ k: 'dp', id: 'other', t: 300, g }, { alive: true }));
     expect(toastLines()).toEqual([]);
-  });
-
-  it("`tell: 'none'` shows nothing", () => {
-    document.body.replaceChildren();
-    const cfg = CLIENT_CONFIG.drops as { tell: string };
-    const was = cfg.tell;
-    cfg.tell = 'none';
-    try {
-      const { sink } = setupToasts();
-      sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: [['armor', 3]] }, { alive: true }));
-      expect(toastLines()).toEqual([]);
-    } finally {
-      cfg.tell = was;
-    }
   });
 });

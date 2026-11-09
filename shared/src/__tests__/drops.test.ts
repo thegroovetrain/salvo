@@ -14,8 +14,10 @@ import {
   mulberry32,
   paintDiscCoverage,
   rasterizeDiscCoverage,
-  rollBundle,
+  isDropKind,
   rollDrop,
+  rollKind,
+  rollPickup,
   totalDropCount,
   type DropConfig,
   type DropPickupEvent,
@@ -83,7 +85,7 @@ describe('dropMinuteAt — the zone clock in minutes', () => {
   });
 });
 
-describe('rollDrop / rollBundle — the roll law', () => {
+describe('rollDrop — one free roll (a wreck pickup is wreckRolls of these)', () => {
   it('every stat is one of cfg.indices and every amount an integer in [bonusMin, bonusMax], both bounds reached', () => {
     const rng = mulberry32(0xd509);
     const stats = new Set<string>();
@@ -125,16 +127,85 @@ describe('rollDrop / rollBundle — the roll law', () => {
   });
 
   it('is deterministic: the same seed rolls the same sequence', () => {
-    expect(rollBundle(mulberry32(42), 50)).toEqual(rollBundle(mulberry32(42), 50));
+    const a = mulberry32(42);
+    const b = mulberry32(42);
+    for (let i = 0; i < 50; i++) expect(rollDrop(a)).toEqual(rollDrop(b));
+  });
+});
+
+describe('rollKind / rollPickup — the kind at spawn, the amount at pickup (Eric 2026-11-08)', () => {
+  it('rollKind spends exactly one next() and covers every index stat', () => {
+    let calls = 0;
+    const base = mulberry32(0x6b1d);
+    const counting: Rng = { ...base, next: () => (calls++, base.next()) };
+    const kinds = new Set<string>();
+    for (let i = 0; i < 2000; i++) kinds.add(rollKind(counting));
+    expect(calls).toBe(2000);
+    for (const k of kinds) expect(D.indices).toContain(k);
+    expect(kinds.size).toBe(D.indices.length);
   });
 
-  it('rollBundle(n) is n independent rollDrops in turn, and nothing for a non-positive or fractional n', () => {
+  it('an index kind grants one roll of that stat, one draw, amount in [bonusMin, bonusMax] with both bounds reached', () => {
+    const rng = mulberry32(0x91c3);
+    const amounts = new Set<number>();
+    for (const kind of D.indices) {
+      for (let i = 0; i < 500; i++) {
+        let calls = 0;
+        const counting: Rng = { ...rng, next: () => (calls++, rng.next()) };
+        const rolls = rollPickup(counting, kind);
+        expect(calls).toBe(1);
+        expect(rolls).toHaveLength(1);
+        const [stat, n] = rolls[0];
+        expect(stat).toBe(kind);
+        expect(Number.isInteger(n)).toBe(true);
+        expect(n).toBeGreaterThanOrEqual(D.bonusMin);
+        expect(n).toBeLessThanOrEqual(D.bonusMax);
+        amounts.add(n);
+      }
+    }
+    expect(amounts.has(D.bonusMin)).toBe(true);
+    expect(amounts.has(D.bonusMax)).toBe(true);
+  });
+
+  it('two pickups of the same kind draw different amounts over many trials (the amount is not fixed by the kind)', () => {
+    const rng = mulberry32(0x5eed);
+    const kind = D.indices[0];
+    let differ = 0;
+    for (let i = 0; i < 200; i++) {
+      if (rollPickup(rng, kind)[0][1] !== rollPickup(rng, kind)[0][1]) differ += 1;
+    }
+    expect(differ).toBeGreaterThan(0);
+  });
+
+  it("'wreck' grants wreckRolls independent rollDrops in turn; a degenerate wreckRolls grants nothing", () => {
     const a = mulberry32(7);
     const b = mulberry32(7);
-    const bundle = rollBundle(a, D.wreckRolls);
-    expect(bundle).toHaveLength(D.wreckRolls);
-    expect(bundle).toEqual(Array.from({ length: D.wreckRolls }, () => rollDrop(b)));
-    for (const n of [0, -1, 1.5, NaN]) expect(rollBundle(mulberry32(7), n)).toEqual([]);
+    const rolls = rollPickup(a, 'wreck');
+    expect(rolls).toHaveLength(D.wreckRolls);
+    expect(rolls).toEqual(Array.from({ length: D.wreckRolls }, () => rollDrop(b)));
+    for (const n of [0, -1, 1.5, NaN]) expect(rollPickup(mulberry32(7), 'wreck', { ...D, wreckRolls: n })).toEqual([]);
+  });
+
+  it('is deterministic: the same seed and kind roll the same grant', () => {
+    for (const kind of [...D.indices, 'wreck' as const]) {
+      expect(rollPickup(mulberry32(42), kind)).toEqual(rollPickup(mulberry32(42), kind));
+    }
+  });
+});
+
+describe('isDropKind — the fail-closed kind gate', () => {
+  it("accepts 'wreck' and every index stat", () => {
+    expect(isDropKind('wreck')).toBe(true);
+    for (const k of D.indices) expect(isDropKind(k)).toBe(true);
+  });
+  it('rejects anything else', () => {
+    for (const v of ['hullRepair', 'WRECK', '', null, undefined, 3, [D.indices[0], 1], { k: 'wreck' }]) {
+      expect(isDropKind(v)).toBe(false);
+    }
+  });
+  it('reads the stat list it is handed', () => {
+    expect(isDropKind(D.indices[0], [])).toBe(false);
+    expect(isDropKind('wreck', [])).toBe(true);
   });
 });
 
@@ -262,12 +333,13 @@ describe('paintDiscCoverage — the crate imprint on the radar grid', () => {
 describe('the wire types', () => {
   it('a FrameMsg without drops and a dp GameEvent type-check', () => {
     const frame: FrameMsg = { t: 0, tick: 0, ackSeq: 0, contacts: [], events: [], mines: [] };
-    const view: DropView = { id: 'd1', x: 1, y: 2, g: [[D.indices[0], 3]] };
-    const withDrops: FrameMsg = { ...frame, drops: [view] };
-    const dp: DropPickupEvent = { k: 'dp', id: 's1', t: 10, g: view.g };
+    const view: DropView = { id: 'd1', x: 1, y: 2, c: D.indices[0] };
+    const wreck: DropView = { id: 'd2', x: 3, y: 4, c: 'wreck' };
+    const withDrops: FrameMsg = { ...frame, drops: [view, wreck] };
+    const dp: DropPickupEvent = { k: 'dp', id: 's1', t: 10, g: [[D.indices[0], 3]] };
     const ev: GameEvent = dp;
     expect(frame.drops).toBeUndefined();
-    expect(withDrops.drops).toHaveLength(1);
+    expect(withDrops.drops).toHaveLength(2);
     expect(ev.k).toBe('dp');
   });
 });

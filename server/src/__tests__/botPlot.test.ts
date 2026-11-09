@@ -18,6 +18,8 @@ import {
   hullEnvelope,
   mulberry32,
   launcherAimPoint,
+  paintCoverage,
+  paintDiscCoverage,
   stepLaunchers,
   type GameEvent,
   type HullId,
@@ -36,6 +38,8 @@ import {
   WAKE_REACH_U,
   fitWakeVelocity,
   foldWakeCells,
+  isCrateSizedPaint,
+  paintLongestSideU,
   paintVelocity,
   predictedAssocRadius,
   predictedPos,
@@ -109,9 +113,12 @@ function cellCentre(x: number, y: number): { x: number; y: number } {
   return { x: (Math.floor(x / CELL) + 0.5) * CELL, y: (Math.floor(y / CELL) + 0.5) * CELL };
 }
 
-/** A one-cell radar paint at (x, y). */
+/** A HULL-SIZED radar paint whose lit-cell centroid is the centre of (x, y)'s
+ *  cell: an 11-cell (99 u) all-lit strip centred on that cell — longer than
+ *  `CONFIG.bots.cratePaintMaxU`, so the fold reads it as a hull, never a crate
+ *  (Story 10.9). The centroid is exactly the one-cell paint's. */
 function blipAt(x: number, y: number, t: number): GameEvent {
-  return { k: 'blip', t, gx: Math.floor(x / CELL), gy: Math.floor(y / CELL), w: 1, h: 1, bits: [1] };
+  return { k: 'blip', t, gx: Math.floor(x / CELL) - 5, gy: Math.floor(y / CELL), w: 11, h: 1, bits: [0x7ff] };
 }
 
 /** A one-cell wake segment at (x, y) in age bucket `a`. */
@@ -929,5 +936,30 @@ describe('ai/tacticKit — the lead solve on an estimated course', () => {
     expect(led.y).toBeCloseTo(400, 9);
     const fixed = aimPoint(mind, sit, anon({ x: 0, y: 400, seenAt: NOW - 2000 }), CONFIG.machineGun.shellSpeed);
     expect(fixed).toEqual({ x: 0, y: 400 });
+  });
+});
+
+describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a crate imprint never becomes a track', () => {
+  const T = 123450; // a fixed paint clock
+  const at = { x: 1003.3, y: -497.1 };
+  const asBlip = (c: { gx: number; gy: number; w: number; h: number; bits: number[] }): GameEvent => ({ k: 'blip', t: NOW, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+
+  it('a crate disc paint is crate-sized and folds into NO track', () => {
+    const crate = paintDiscCoverage(at.x, at.y, CONFIG.drops.radiusU, CELL, T);
+    expect(paintLongestSideU(crate)).toBeLessThan(CONFIG.bots.cratePaintMaxU);
+    expect(isCrateSizedPaint(crate)).toBe(true);
+    const m = mkMind();
+    foldView(m, view([asBlip(crate)]), NOW);
+    expect(m.contacts.size).toBe(0);
+  });
+
+  it('a hull paint of every class is not crate-sized and opens a track', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const hull = paintCoverage(cls, at.x, at.y, 0.3, CELL, T);
+      expect(isCrateSizedPaint(hull), cls).toBe(false);
+      const m = mkMind();
+      foldView(m, view([asBlip(hull)]), NOW);
+      expect(m.contacts.size, cls).toBe(1);
+    }
   });
 });

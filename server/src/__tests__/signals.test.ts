@@ -104,7 +104,7 @@ function makeMine(overrides: Partial<MineState> = {}): MineState {
 const REGISTRY_KEYS = [
   'contact',
   'mine',
-  'drop', // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner clause, {id,x,y,g}; its radar paint rides the `blip` row (dropPaint), never a row of its own
+  'drop', // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner clause, {id,x,y,c}; its radar paint rides the `blip` row (dropPaint), never a row of its own
   'litzone',
   'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
   'foulzone', // Story 9.4: the FOULING SHELL foul zone's contact-like channel, on the burn zone's gate (epic-9 amendment 63)
@@ -367,23 +367,23 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   // ---------- Story 10.9 — THE AIRDROPS (epic-10 amendment 16, R3) ----------
 
   function makeDrop(overrides: Partial<DropState> = {}): DropState {
-    return { id: 'd1', x: 50, y: 0, rolls: [['armor', 2]], ...overrides };
+    return { id: 'd1', x: 50, y: 0, kind: 'armor', ...overrides };
   }
 
-  it('drop row: [id,x,y,g] — the crate\'s position and its rolls, in that order, `g` the world\'s own roll list; for a spectator too', () => {
+  it('drop row: [id,x,y,c] — the crate\'s position and its kind, in that order, `c` the world\'s own kind; for a spectator too', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const drop = makeDrop({ rolls: [['power', 3], ['intel', 1]] }); // a wreck bundle, 50 u off — inside detect
+    const drop = makeDrop({ kind: 'wreck' }); // a wreck crate, 50 u off — inside detect
     const row = SIGNAL_REGISTRY.drop; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, drop)).toBe(true);
     const wire = row.materialize(ctx, drop) as DropView;
-    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'g']);
-    expect(wire).toEqual({ id: 'd1', x: 50, y: 0, g: [['power', 3], ['intel', 1]] });
-    expect('rolls' in (wire as object)).toBe(false); // the store's spelling never rides
+    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'c']);
+    expect(wire).toEqual({ id: 'd1', x: 50, y: 0, c: 'wreck' });
+    expect('rolls' in (wire as object)).toBe(false); // no roll exists before pickup
     const spec = specCtx(w);
     expect(row.visible(spec, drop)).toBe(true); // spectators see every crate
-    expect(Object.keys(row.materialize(spec, drop) as object)).toEqual(['id', 'x', 'y', 'g']);
+    expect(Object.keys(row.materialize(spec, drop) as object)).toEqual(['id', 'x', 'y', 'c']);
   });
 
   it('drop row gate: the MINE gate minus the owner clause — detected (detect rung + island LOS) OR inside an OWNED lit zone; never radar, nobody is "always" told', () => {
@@ -421,7 +421,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(paint.t).toBe(w.now);
     const disc = paintDiscCoverage(swept.x, swept.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, w.now);
     expect({ gx: paint.gx, gy: paint.gy, w: paint.w, h: paint.h, bits: paint.bits }).toEqual(disc);
-    for (const forbidden of ['id', 'x', 'y', 'g', 'rolls', 'cls', 'heading', 'src']) expect(forbidden in paint).toBe(false);
+    for (const forbidden of ['id', 'x', 'y', 'c', 'g', 'kind', 'rolls', 'cls', 'heading', 'src']) expect(forbidden in paint).toBe(false);
     // The same crate off the swept bearing, beyond radar range, or behind hard cover: no paint.
     expect(dropPaint(foggedCtx(w, me), makeDrop({ x: -(SIGHT + 300), y: 0 }))).toBeNull(); // bearing π, window around 0
     expect(dropPaint(foggedCtx(w, me), makeDrop({ x: RADAR + 10, y: 0 }))).toBeNull();

@@ -70,8 +70,8 @@ import {
   dropCountFor,
   dropMinuteAt,
   dropTouches,
-  rollBundle,
-  rollDrop,
+  rollKind,
+  rollPickup,
   hasFoundered,
   hookKinematics,
   isAfloat,
@@ -1428,10 +1428,12 @@ function interceptionAmount(shell: ShellState, stop: Vec2): number {
 /** The airdrop stream's mint constant (XORed into the room-private pseudonym
  *  material) — unused by any other stream (see the spawnPhase roster). */
 const DROP_STREAM_K = 0x5bd1e995;
-/** The wreck sub-stream key base: wreck k draws on
- *  `dropSeed ^ imul(WRECK_DROP_K + k, 0x9e3779b9)`, far from the minute
- *  batches' `m + 1` keys. */
-const WRECK_DROP_K = 0x51ed270b;
+/** The PICKUP sub-stream key base (Eric 2026-11-08 — the amount is rolled at
+ *  pickup): the k-th pickup of this World draws on
+ *  `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)`, far from the minute
+ *  batches' `m + 1` keys. (0x51ed270b, the retired wreck sub-stream key, is
+ *  not reused: a wreck crate now draws nothing at placement.) */
+const PICKUP_DROP_K = 0x3c6ef35f;
 /** The target kinds a crate is collected by: afloat hull outlines only. */
 const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
 
@@ -2009,8 +2011,8 @@ export class World {
    * 0x165667b1, bots 0xc2b2ae35; 0x85ebca6b was the retired PvE fleet's
    * steering stream (Story 10.8), 0x6c078965 the retired drone-drop stream's
    * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
-   * room-private airdrop stream is 0x5bd1e995, its wreck sub-stream key
-   * 0x51ed270b — Story 10.9).
+   * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
+   * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key).
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -2050,18 +2052,23 @@ export class World {
    * like the beacons' (the pseudonym material under its own constant,
    * DROP_STREAM_K = 0x5bd1e995 — unused by any other stream here; see the
    * spawnPhase doc for the roster): a drop's position and stat must not be
-   * predictable from the public map seed. Every MINUTE BATCH draws on its own
-   * sub-stream `dropSeed ^ imul(m + 1, 0x9e3779b9)` and every WRECK PICKUP on
-   * `dropSeed ^ imul(WRECK_DROP_K + k, 0x9e3779b9)` (k = the wreck count), so
-   * a skipped spot or an extra wreck never shifts another batch's draws. The
-   * per-ship `drawRng` is never touched (it would shift later offers).
+   * predictable from the public map seed. Every MINUTE BATCH (positions +
+   * kinds) draws on its own sub-stream `dropSeed ^ imul(m + 1, 0x9e3779b9)`
+   * and every PICKUP (the amount — and a wreck's stats — rolled when a hull
+   * takes the crate, Eric 2026-11-08) on
+   * `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)` (k = the pickup count),
+   * so a skipped spot, an extra wreck or a pickup never shifts another
+   * batch's draws. The per-ship `drawRng` is never touched (it would shift
+   * later offers).
    */
   private readonly dropSeed: number;
   /** The next match minute whose batch has not been scattered yet. */
   private nextDropMinute = 0;
-  /** Wreck pickups placed this World's life — the wreck sub-stream key and
-   *  the id suffix (`drp-w-<k>`: the victim's id never rides the drop id). */
+  /** Wreck pickups placed this World's life — the id suffix (`drp-w-<k>`:
+   *  the victim's id never rides the drop id). */
   private wreckDrops = 0;
+  /** Crates collected this World's life — the pickup sub-stream key. */
+  private dropPickups = 0;
 
   constructor(
     seed: number,
@@ -2939,7 +2946,8 @@ export class World {
     // `alive -> sinking` (Story 5.2): the `sink` edge opens the window. All
     // bookkeeping below fires NOW; only the physical foundering is deferred.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sink', this.now);
-    // THE WRECK PICKUP (Story 10.9, R2): one 3-roll crate at the wreck centre.
+    // THE WRECK PICKUP (Story 10.9, R2): one `'wreck'` crate at the wreck
+    // centre — only once the zone has started (placeWreckDrop's guard).
     this.placeWreckDrop(ship);
     // THE COLLECTOR INVALIDATION (Story 8.4): the wreck leaves every target
     // list built from here on — later shells of the same click pass through it
@@ -7514,7 +7522,7 @@ export class World {
         continue;
       }
       const id = `drp-${minute}-${n}`;
-      this.drops.set(id, { id, x: at.x, y: at.y, rolls: [rollDrop(rng, CONFIG.drops)] });
+      this.drops.set(id, { id, x: at.x, y: at.y, kind: rollKind(rng, CONFIG.drops) });
     }
   }
 
@@ -7554,20 +7562,23 @@ export class World {
 
   /**
    * THE WRECK PICKUP (Story 10.9, R2): a sinking PARTICIPANT leaves one crate
-   * at its centre carrying `wreckRolls` ordinary rolls, on the wreck's own
-   * private sub-stream. No land / keep-out / ring check — the hull was there;
-   * a wreck in the storm is taken by `stormDrops` next tick. Placed whether
-   * or not the schedule is switched off (WorldOptions.drops).
+   * of kind `'wreck'` at its centre — its `wreckRolls` stat + amount rolls are
+   * drawn at PICKUP (`collectDrop`), nothing here. No land / keep-out / ring
+   * check — the hull was there; a wreck in the storm is taken by `stormDrops`
+   * next tick. Placed whether or not the schedule is switched off
+   * (WorldOptions.drops) — but ONLY ONCE THE ZONE HAS STARTED: a sink before
+   * `zoneStartT` is a ready-room / sandbox practice sink (a respawning dev or
+   * practice hull), never a match death, and a crate there would turn
+   * practice sinks into permanent index points.
    */
   private placeWreckDrop(ship: ShipRecord): void {
-    if (!roleIsParticipant(ship)) return;
+    if (this.zoneStartT === null || !roleIsParticipant(ship)) return;
     const k = this.wreckDrops;
     this.wreckDrops += 1;
-    const rng = mulberry32((this.dropSeed ^ Math.imul(WRECK_DROP_K + k, 0x9e3779b9)) >>> 0);
     const id = `drp-w-${k}`;
     const x = Math.fround(ship.state.x);
     const y = Math.fround(ship.state.y);
-    this.drops.set(id, { id, x, y, rolls: rollBundle(rng, CONFIG.drops.wreckRolls, CONFIG.drops) });
+    this.drops.set(id, { id, x, y, kind: 'wreck' });
   }
 
   /**
@@ -7598,19 +7609,25 @@ export class World {
   }
 
   /**
-   * ONE COLLECTION: every roll lands on the hull's `indexBonus` (Story 10.7's
-   * seat, uncapped), then the stats re-fold and settle EXACTLY as
-   * `convertBank` does (pools, reload clocks, mounts, wake) — read its
+   * ONE COLLECTION: the grant is rolled NOW (Eric 2026-11-08 — "the bonus is
+   * rolled AFTER I pick it up"; `rollPickup` on this World's k-th pickup
+   * sub-stream, see `dropSeed`), every roll lands on the hull's `indexBonus`
+   * (Story 10.7's seat, uncapped), then the stats re-fold and settle EXACTLY
+   * as `convertBank` does (pools, reload clocks, mounts, wake) — read its
    * RE-ENTRANCY note: nothing here holds the ship's `stats` / `wake` across
    * the re-fold. The crate is deleted and the collector alone is told (`dp`).
    */
   private collectDrop(ship: ShipRecord, drop: DropState): void {
-    for (const [stat, n] of drop.rolls) ship.indexBonus[stat] += n;
+    const k = this.dropPickups;
+    this.dropPickups += 1;
+    const rng = mulberry32((this.dropSeed ^ Math.imul(PICKUP_DROP_K + k, 0x9e3779b9)) >>> 0);
+    const rolls = rollPickup(rng, drop.kind, CONFIG.drops);
+    for (const [stat, n] of rolls) ship.indexBonus[stat] += n;
     const prevStats = this.refoldCards(ship);
     this.settleRefold(ship, prevStats);
     ship.dropsTaken += 1;
     this.drops.delete(drop.id);
-    this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: drop.rolls });
+    this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: rolls });
   }
 
   /** THE STORM TAKES THE AIRDROPS (Story 10.9; see the STEP_ORDER row): every

@@ -785,15 +785,16 @@ const mineSignal: SignalSpec<MineState, MineView> = {
  * `drop` — THE AIRDROP's sight channel (Story 10.9, epic-10 amendment 16,
  * Eric's R3: "stat glyph at SIGHT ONLY"). Contact-like state (NOT events),
  * recomputed every tick like mines: a fogged observer sees a crate — its
- * position AND its rolls `g` — iff the crate's centre is DETECTED
+ * position AND its kind `c` — iff the crate's centre is DETECTED
  * (`pointDetected`: detectFactor × sight + island LOS, fog-tolled) OR sits
  * inside a lit zone the observer OWNS (`ownZoneCovers`, lit from above).
  * That is the mine gate MINUS the owner clause: a drop has no owner, so
  * nobody is "always" told. Spectators see every crate. The crate's radar
  * paint is NOT here — it rides the `blip` row's own gate as an anonymous
  * disc rect (`dropPaint`, below), so radar never learns what a return IS.
- * Materialized `{id,x,y,g}`: `g` is the roll list `[[IndexId, n], …]` the
- * glyph draws — a field on a row sight already admitted, never a delivery
+ * Materialized `{id,x,y,c}`: `c` is the crate's KIND (an IndexId or
+ * `'wreck'`) the glyph draws — no amount exists until pickup (Eric
+ * 2026-11-08) — a field on a row sight already admitted, never a delivery
  * of its own, so the perception exception count stays SIX.
  */
 const dropSignal: SignalSpec<DropState, DropView> = {
@@ -803,8 +804,8 @@ const dropSignal: SignalSpec<DropState, DropView> = {
     return pointDetected(ctx.me, drop, ctx, ctx.now) || ownZoneCovers(ctx, drop);
   },
   materialize(_ctx, drop) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,g.
-    return { id: drop.id, x: drop.x, y: drop.y, g: drop.rolls };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,c (the mine row's `c`).
+    return { id: drop.id, x: drop.x, y: drop.y, c: drop.kind };
   },
 };
 

@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, type FoghornEvent } from '@salvo/shared';
+import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, type DropKind, type FoghornEvent } from '@salvo/shared';
 import { hullTopSpeed } from './sim/hullKinematics.js';
 import {
   SURFACE,
@@ -48,6 +48,12 @@ const COLORS = {
   amber: 0xffb800,
   storm: 0x7b2fbe,
   stormReadout: 0xb06ee8,
+  /** The ARMOR airdrop crate's pink (Eric 2026-11-09, "make Armor pink").
+   *  Minted for the crate: no pink token existed (the Pride skin is unbuilt)
+   *  and the Regatta's `player-rose` #F8118D is a COMBATANT hue, so reusing it
+   *  would let a crate read as a captain's hull. 6.61:1 on `void` (≥ 3:1
+   *  graphic bar, and ≥ 4.5:1 text-safe). */
+  pink: 0xff4fa3,
   info: 0x38bdf8,
   danger: 0x8b2020,
   denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
@@ -997,30 +1003,48 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 16, R3/R4) —
-   * render/drops.ts. A crate is drawn at SIGHT only (fogged world layer
-   * `dropWorld`); on radar it is a plain anonymous blip, no client art.
-   * Body and stat glyph in `colors.white` at `glyphAlpha` (the mine marker's
-   * 0.9); the `+n` numeral in `colors.phosphor`. No relation color (a drop has
-   * no owner), no alert tint (not a hazard).
+   * THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 16, R3/R4; Eric's
+   * rulings of 2026-11-08 on the rendered page) — render/drops.ts. A crate is
+   * drawn at SIGHT only (fogged world layer `dropWorld`); on radar it is a
+   * plain anonymous blip, no client art. ONE body (the 15 u disc's inscribed
+   * square) with its KIND's glyph inside, outline and glyph both in the kind's
+   * color at `glyphAlpha` (the mine marker's 0.9). NO numerals: the bonus is
+   * rolled AT PICKUP, so a crate shows only WHAT it is (icon + color) and the
+   * amount arrives on the pickup toast. The wreck pickup is ONE crate in its
+   * own color with its own glyph (it is not limited to one stat).
    *
-   * `variant` and `tell` are CANDIDATE SWITCHES for Eric's rendered page
-   * (task W3): A "crate" (square), B "float" (circle), C "parachute" (circle
-   * with four canopy spokes); the pickup tell a stat-row toast or none. The
-   * losing variants and the losing tell branch are DELETED after his ruling.
+   * `kindColors` are ERIC'S (2026-11-09, on the v2 page): armor `pink`,
+   * power `alertOrange`, reload `amber`, engines `info`, intel `phosphor`,
+   * range `stormReadout` (the rung ramp's tier-III purple), wreck `white` —
+   * the FIRST time a stat has a color anywhere in the game. The wreck crate
+   * wears the 'salvage' glyph (a crate under a star; Eric's pick).
+   *
+   * `glow` — Eric 2026-11-09: "give all of them a small glow effect in their
+   * color". A soft underlay under the body square in the kind's color, the
+   * projectile tracer's technique (render/projectiles.ts: a wider, low-alpha
+   * stroke under the hot line — no filter). Drawing only: the pickup disc and
+   * the glyph are untouched.
    */
   drops: {
-    variant: 'A' as 'A' | 'B' | 'C',
-    /** The pickup tell on a `dp` event: a stat-row toast (`+3 ARMOR`) or none. */
-    tell: 'toast' as 'toast' | 'none',
     /** Body + glyph linework alpha (the mine marker's). */
     glyphAlpha: 0.9,
-    /** The `+n` numeral's font size in WORLD units (the drop layer is
-     *  camera-scaled): 16 u ≈ 9.3 px at the default framing (0.58 px/u), the
-     *  DESIGN.md 9 px floor; ≈ 14 px at the close limit (0.87 px/u). */
-    numeralPx: 16,
-    /** u — the gap between the three glyph cells of a wreck bundle. */
-    bundleGap: 4,
+    kindColors: {
+      armor: COLORS.pink,
+      power: COLORS.alertOrange,
+      reload: COLORS.amber,
+      engines: COLORS.info,
+      intel: COLORS.phosphor,
+      range: COLORS.stormReadout,
+      wreck: COLORS.white,
+    } satisfies Record<DropKind, number>,
+    glow: {
+      /** u — how far the glow reaches OUTSIDE the square's line on each side
+       *  (about one line width). Drawn as two passes: the full reach at half
+       *  `alpha`, then half the reach at full `alpha`, so it fades outward. */
+      widthU: 1.5,
+      /** Peak alpha of the glow (its inner pass). */
+      alpha: 0.35,
+    },
   },
 
   /** Own/contact ship view feel constants. */

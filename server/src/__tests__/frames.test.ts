@@ -259,7 +259,7 @@ describe('buildFrame — the `clouds` channel (Story 9.3)', () => {
 });
 
 describe('buildFrame — the `drops` channel (Story 10.9, R3)', () => {
-  it('is OMITTED (not []) when the observer sees no crate, and carries {id,x,y,g} — nothing else — when it does, on BOTH paths, LAST among the optional channels', () => {
+  it('is OMITTED (not []) when the observer sees no crate, and carries {id,x,y,c} — nothing else — when it does, on BOTH paths, LAST among the optional channels', () => {
     const w = makeWorld();
     w.step();
     const quiet = buildFrame(w, 'a');
@@ -268,15 +268,15 @@ describe('buildFrame — the `drops` channel (Story 10.9, R3)', () => {
     // A crate 60 u off `a` (a raw store write — the injectMine posture): inside
     // a's detect rung, no island (delivered; this test pins the wire shape and
     // the channel order, not the gate — that is perception.test.ts's oracle).
-    w.drops.set('d1', { id: 'd1', x: 60, y: 0, rolls: [['armor', 2], ['intel', 1]] });
+    w.drops.set('d1', { id: 'd1', x: 60, y: 0, kind: 'armor' });
     const f = buildFrame(w, 'a');
-    expect(f.drops).toEqual([{ id: 'd1', x: 60, y: 0, g: [['armor', 2], ['intel', 1]] }]);
-    expect(Object.keys(f.drops![0])).toEqual(['id', 'x', 'y', 'g']); // key order is the wire order
-    expect(JSON.stringify(f)).not.toContain('rolls'); // the store's spelling never rides
+    expect(f.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'armor' }]);
+    expect(Object.keys(f.drops![0])).toEqual(['id', 'x', 'y', 'c']); // key order is the wire order
+    expect(JSON.stringify(f)).not.toContain('rolls'); // no roll exists before pickup
     // The spectator path carries the same optional channel on the same rule.
     const spec = buildFrame(w, 'a', 'finished');
     expect(spec.spec).toBe(true);
-    expect(spec.drops).toEqual([{ id: 'd1', x: 60, y: 0, g: [['armor', 2], ['intel', 1]] }]);
+    expect(spec.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'armor' }]);
     // WIRE ORDER of the optional channels (key insertion): litZones,
     // burnZones, foulZones, clouds, then drops LAST — on both paths.
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: w.now + 5000 });

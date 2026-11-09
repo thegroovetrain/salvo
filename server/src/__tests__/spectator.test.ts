@@ -19,6 +19,7 @@ import {
   encodeTurretAngles,
   mulberry32,
   paintCoverage,
+  paintDiscCoverage,
   segPolygonHit,
   wrapPositive,
   type BlipEvent,
@@ -359,7 +360,17 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
         return c.gx === b.gx && c.gy === b.gy && c.w === b.w && c.h === b.h
           && c.bits.length === b.bits.length && c.bits.every((v, i) => v === b.bits[i]);
       });
-      expect(match).toBe(true);
+      // Story 10.9: OR an airdrop crate within radar range whose fuzzed DISC
+      // imprint (paintDiscCoverage at its centre and this tick's clock — the
+      // production shaper, re-run here) is exactly this mask. A wreck crate
+      // sits beside a sinking hull, so both kinds of paint can ride one frame.
+      const dropMatch = [...w.drops.values()].some((drop) => {
+        if (dist(me.state, drop) > RADAR) return false;
+        const c = paintDiscCoverage(drop.x, drop.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, w.now);
+        return c.gx === b.gx && c.gy === b.gy && c.w === b.w && c.h === b.h
+          && c.bits.length === b.bits.length && c.bits.every((v, i) => v === b.bits[i]);
+      });
+      expect(match || dropMatch).toBe(true);
       return;
     }
     case 'shell':
