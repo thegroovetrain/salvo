@@ -38,8 +38,8 @@ import { mixSeed, percentile, summarize } from '../stats.js';
 import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
-import { MatchCollector, botShiftDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
-import { buildAggregate, renderBatchReport } from '../report.js';
+import { BOON_N_MAX, MatchCollector, botShiftDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
+import { buildAggregate, indexSpread, renderBatchReport } from '../report.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
 /** The message a refusal throws (fails the test if nothing is thrown). */
@@ -1463,6 +1463,7 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       boonsFitted: 2, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
       firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2], beaconXpLevels: 0,
+      dropsTaken: 0, indexBonus: {}, indexBonusTotal: 0,
     };
     const match: MatchSample = {
       index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'warspite', stormDeaths: 0,
@@ -1725,5 +1726,42 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
       restore();
     }
     expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
+  });
+});
+
+describe('report — AIRDROPS (Story 10.9)', () => {
+  const stats = CONFIG.drops.indices;
+  function cap(id: string, cls: string, dropsTaken: number, perStat: (i: number) => number): CaptainSample {
+    const indexBonus: Record<string, number> = {};
+    stats.forEach((s, i) => (indexBonus[s] = perStat(i)));
+    return {
+      id, cls, finalLevel: 1, kills: 0, deaths: 0, picks: 0, boonsFitted: 0, cappedLines: 0,
+      boonTimesS: new Array<number | null>(BOON_N_MAX).fill(null), firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1], beaconXpLevels: 0,
+      dropsTaken, indexBonus, indexBonusTotal: Object.values(indexBonus).reduce((a, n) => a + n, 0),
+    };
+  }
+  const match: MatchSample = {
+    index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'yamato', stormDeaths: 0,
+    captains: [cap('cap-1', 'yamato', 3, (i) => i), cap('cap-2', 'yamato', 1, () => 2), cap('cap-3', 'bismarck', 4, (i) => i % 2)],
+    departedCaptains: [],
+  };
+
+  it('aggregates drops taken per captain by class and the per-stat index spread over captains', () => {
+    const agg = buildAggregate({ matches: [match], failures: [] }, 3);
+    expect(agg.dropsByClass.yamato.mean).toBe(2);
+    expect(agg.dropsByClass.bismarck.mean).toBe(4);
+    expect(Object.keys(agg.indexSpread)).toEqual([...stats]);
+    stats.forEach((s, i) => expect(agg.indexSpread[s]).toBe(i + 2 + (i % 2)));
+    expect(indexSpread([])).toEqual(Object.fromEntries(stats.map((s) => [s, 0])));
+  });
+
+  it('prints the drops line and one spread line per stat, deterministically', () => {
+    const agg = buildAggregate({ matches: [match], failures: [] }, 3);
+    const lines = renderBatchReport('x', agg);
+    expect(lines.some((l) => l.includes('bismarck=4.00') && l.includes('yamato=2.00') && /drops/.test(l))).toBe(true);
+    const at = lines.findIndex((l) => /index spread/.test(l));
+    expect(at).toBeGreaterThan(-1);
+    stats.forEach((s, i) => expect(lines[at + 1 + i].trim().split(/\s+/)).toEqual([s, String(i + 2 + (i % 2))]));
+    expect(renderBatchReport('x', buildAggregate({ matches: [match], failures: [] }, 3))).toEqual(lines);
   });
 });

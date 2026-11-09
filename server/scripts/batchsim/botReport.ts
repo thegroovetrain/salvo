@@ -60,6 +60,10 @@ export interface BotGroup {
   kills: Summary;
   /** Levels of XP RADIO BEACONS paid, per bot-match (Story 10.8). */
   beaconLevels: Summary;
+  /** AIRDROPS collected, per bot-match (Story 10.9). */
+  drops: Summary;
+  /** Bonus index points at the end (sum over the random-index stats). */
+  indexBonus: Summary;
   levels: Summary;
   boons: Summary;
   shots: Summary;
@@ -185,6 +189,8 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     n: rows.length,
     kills: summarize(rows.map((r) => r.kills)),
     beaconLevels: summarize(rows.map((r) => r.beaconXpLevels)),
+    drops: summarize(rows.map((r) => r.dropsTaken)),
+    indexBonus: summarize(rows.map((r) => r.indexBonusTotal)),
     levels: summarize(rows.map((r) => r.levelsEarned)),
     boons: summarize(rows.map((r) => r.boonsFitted)),
     shots: summarize(rows.map((r) => r.shots)),
@@ -424,6 +430,10 @@ const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] 
   { head: 'lvl', w: 6, value: (g) => fmt(g.levels.mean, 2) },
   // Story 10.8: levels the RADIO BEACONS paid (part of `lvl`).
   { head: 'bcnLv', w: 7, value: (g) => fmt(g.beaconLevels.mean, 2) },
+  // Story 10.9: AIRDROPS collected, and the bonus index points at the end
+  // (drops + the exhausted hull's levels, Story 10.7).
+  { head: 'drops', w: 6, value: (g) => fmt(g.drops.mean, 2) },
+  { head: 'ib', w: 6, value: (g) => fmt(g.indexBonus.mean, 2) },
   { head: 'boons', w: 6, value: (g) => fmt(g.boons.mean, 2) },
   { head: 'spent%', w: 7, value: (g) => pct(g.spentRate) },
   { head: 'shots', w: 7, value: (g) => fmt(g.shots.mean, 1) },

@@ -323,6 +323,9 @@ export interface Participant {
   /** XP ms this combatant was paid by RADIO BEACONS (Story 10.8 —
    *  `ShipRecord.beaconXpMs`), snapshotted exactly as `damageDealt` is. */
   beaconXpMs: number;
+  /** Airdrops this combatant collected (Story 10.9 — `ShipRecord.dropsTaken`;
+   *  a wreck pickup counts once), snapshotted exactly as `beaconXpMs` is. */
+  dropsTaken: number;
   /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
    *  Shift (Story 10.4 — was the gun), the fitted card ids (fit order, repeats intact), every hand dealt and
    *  the levels still unspent — snapshotted with the tallies at leave and at
@@ -348,6 +351,7 @@ function participantOf(ship: ShipRecord): Participant {
     kills: ship.kills,
     damageDealt: ship.damageDealt,
     beaconXpMs: ship.beaconXpMs,
+    dropsTaken: ship.dropsTaken,
     shift: ship.shift,
     cards: [...ship.cards] as LineId[],
     hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
@@ -1142,6 +1146,7 @@ export class Match {
     p.kills = fresh.kills;
     p.damageDealt = fresh.damageDealt;
     p.beaconXpMs = fresh.beaconXpMs;
+    p.dropsTaken = fresh.dropsTaken;
     p.shift = fresh.shift;
     p.cards = fresh.cards;
     p.hands = fresh.hands;

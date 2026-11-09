@@ -126,6 +126,13 @@ export interface BotSample extends BotReadouts {
   /** Levels of XP RADIO BEACONS paid this bot (Story 10.8 —
    *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`), read at the last afloat tick. */
   beaconXpLevels: number;
+  /** AIRDROPS this bot collected (Story 10.9 — `ShipRecord.dropsTaken`), read
+   *  at the last afloat tick. */
+  dropsTaken: number;
+  /** Bonus index points per random-index stat (`CONFIG.drops.indices` order)
+   *  and their sum — `ShipRecord.indexBonus`, read at the last afloat tick. */
+  indexBonus: Record<string, number>;
+  indexBonusTotal: number;
   /** Whole hp this bot TOOK from hull contact (rams and grinds, by any hull)
    *  and from the coast (land strikes and scrapes) — `ShipRecord.
    *  contactDamageTaken` / `landDamageTaken`, the gate's own tallies (Story
@@ -215,6 +222,9 @@ interface BotTrack {
   minesLaid: number;
   damageDealt: number;
   beaconXpLevels: number;
+  dropsTaken: number;
+  indexBonus: Record<string, number>;
+  indexBonusTotal: number;
   contactDamageTaken: number;
   landDamageTaken: number;
   landEpisodes: number;
@@ -244,6 +254,9 @@ function newTrack(): BotTrack {
     minesLaid: 0,
     damageDealt: 0,
     beaconXpLevels: 0,
+    dropsTaken: 0,
+    indexBonus: {},
+    indexBonusTotal: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     landEpisodes: 0,
@@ -441,6 +454,9 @@ export class BotCollector {
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
         beaconXpLevels: track.beaconXpLevels,
+        dropsTaken: track.dropsTaken,
+        indexBonus: track.indexBonus,
+        indexBonusTotal: track.indexBonusTotal,
         contactDamageTaken: track.contactDamageTaken,
         landDamageTaken: track.landDamageTaken,
         ticks: track.ticks,
@@ -516,6 +532,25 @@ function contactEnd(victim: ShipRecord, by: string | undefined): BotEnd | null {
   return 'ranAground';
 }
 
+/** The random-index stats' bonus points off `ShipRecord.indexBonus`, in
+ *  `CONFIG.drops.indices` order (Story 10.9 harness). */
+export function indexBonusOf(ship: Pick<ShipRecord, 'indexBonus'>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of CONFIG.drops.indices) out[id] = ship.indexBonus[id] ?? 0;
+  return out;
+}
+
+/** The harness's two bonus fields off a record. */
+export function bonusFields(ship: Pick<ShipRecord, 'indexBonus'>): { indexBonus: Record<string, number>; indexBonusTotal: number } {
+  const indexBonus = indexBonusOf(ship);
+  return { indexBonus, indexBonusTotal: bonusTotal(indexBonus) };
+}
+
+/** The sum of a per-stat bonus record. */
+export function bonusTotal(bonus: Record<string, number>): number {
+  return Object.values(bonus).reduce((a, b) => a + b, 0);
+}
+
 /** The last-afloat economy reading (see BotTrack.levelsEarned). */
 function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.levelsEarned = ship.level;
@@ -528,6 +563,10 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
   track.beaconXpLevels = ship.beaconXpMs / CONFIG.xp.levelMs;
+  track.dropsTaken = ship.dropsTaken;
+  const bonus = bonusFields(ship);
+  track.indexBonus = bonus.indexBonus;
+  track.indexBonusTotal = bonus.indexBonusTotal;
   track.contactDamageTaken = ship.contactDamageTaken;
   track.landDamageTaken = ship.landDamageTaken;
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only

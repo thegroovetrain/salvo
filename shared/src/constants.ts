@@ -796,6 +796,20 @@ export const CONFIG = {
      * harness dial.
      */
     cratePaintMaxU: 85,
+    /**
+     * THE LANE NUDGE (Story 10.9, epic-10 amendment 16; server/src/game/ai/
+     * drops.ts): u — how far AHEAD along the bearing a non-combat bot already
+     * wants (idle / patrol / beacon farm in transit) a sighted airdrop may lie
+     * and still be taken as this tick's waypoint. First reading (spec);
+     * Story 10.12 tunes. A harness dial.
+     */
+    dropAheadU: 600,
+    /**
+     * THE LANE NUDGE: u — how far either side of that goal line a sighted
+     * airdrop may lie and still be taken. First reading (spec); Story 10.12
+     * tunes. A harness dial.
+     */
+    dropLaneU: 100,
   },
 
   /** True ship globals shared by every class (no per-class variation). */

@@ -121,6 +121,9 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     minesLaid: 0,
     damageDealt: 200,
     beaconXpLevels: 0,
+    dropsTaken: 0,
+    indexBonus: {},
+    indexBonusTotal: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     ticks: 2000,
@@ -630,6 +633,22 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     const batch = buildAggregate({ matches: [first], failures: [] }, 0);
     expect(batch.beaconInRangeHist).toEqual(hist);
     expect(renderBatchReport('x', batch).some((l) => l.endsWith(histLine(hist)))).toBe(true);
+  });
+
+  it('Story 10.9: drops taken and the bonus index points per bot ride the sample and the by-class table', () => {
+    for (const b of first.bots!) {
+      expect(Number.isInteger(b.dropsTaken) && b.dropsTaken >= 0).toBe(true);
+      expect(Object.keys(b.indexBonus)).toEqual([...CONFIG.drops.indices]);
+      expect(b.indexBonusTotal).toBe(Object.values(b.indexBonus).reduce((a, n) => a + n, 0));
+    }
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    for (const g of agg.byClass) {
+      const rows = first.bots!.filter((b) => b.cls === g.key);
+      expect(g.drops.mean).toBeCloseTo(rows.reduce((a, b) => a + b.dropsTaken, 0) / rows.length, 9);
+      expect(g.indexBonus.mean).toBeCloseTo(rows.reduce((a, b) => a + b.indexBonusTotal, 0) / rows.length, 9);
+    }
+    const header = renderBotReport('x', agg).find((l) => /\bbcnLv\b/.test(l))!;
+    expect(header).toMatch(/\bdrops\b.*\bib\b/);
   });
 });
 
