@@ -231,7 +231,7 @@ describe('SettingsStore — live effect + persistence + reset', () => {
 // --- the uniform ESC law (amendment 23) --------------------------------------
 
 describe('escapeAction — ESC closes the TOPMOST surface, never returns to port', () => {
-  const none = { results: false, refit: false, settings: false };
+  const none = { results: false, settings: false };
 
   it('opens settings only when nothing is open', () => {
     expect(escapeAction(none)).toBe('openSettings');
@@ -241,12 +241,8 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
     expect(escapeAction({ ...none, settings: true })).toBe('closeSettings');
   });
 
-  it('with the refit modal open, ESC closes the REFIT and settings does not open', () => {
-    expect(escapeAction({ ...none, refit: true })).toBe('closeRefit');
-  });
-
   it('the results modal outranks everything — ESC closes it (= SPECTATE)', () => {
-    expect(escapeAction({ results: true, refit: true, settings: true })).toBe('closeResults');
+    expect(escapeAction({ results: true, settings: true })).toBe('closeResults');
     expect(escapeAction({ ...none, results: true })).toBe('closeResults');
   });
 });
@@ -254,7 +250,7 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
 // --- the wheel belongs to an open scrollable surface (Eric 2026-10-01) -------
 
 describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scroll, not a zoom', () => {
-  const none = { results: false, refit: false, settings: false };
+  const none = { results: false, settings: false };
 
   it('claims the wheel while the settings overlay (ESC menu) is open', () => {
     expect(wheelScrollsSurface({ ...none, settings: true })).toBe(true);
@@ -264,9 +260,8 @@ describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scro
     expect(wheelScrollsSurface({ ...none, results: true })).toBe(true);
   });
 
-  it('leaves the wheel to the camera when nothing scrollable is open — the refit modal is not scrollable', () => {
+  it('leaves the wheel to the camera when nothing scrollable is open', () => {
     expect(wheelScrollsSurface(none)).toBe(false);
-    expect(wheelScrollsSurface({ ...none, refit: true })).toBe(false);
   });
 
   // ERIC RULING 2026-08-19 — from spectate, ESC puts the SCORE SCREEN back,
@@ -286,28 +281,23 @@ describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scro
     expect(escapeAction(none, false)).toBe('openSettings');
   });
 
-  // Not a style preference: while ALIVE the refit modal and the helm are live,
-  // and a stray ESC that threw a full-screen score overlay over a moving ship
-  // would be a combat hazard rather than a convenience.
+  // Not a style preference: while ALIVE the helm is live, and a stray ESC that
+  // threw a full-screen score overlay over a moving ship would be a combat
+  // hazard rather than a convenience.
   it('a LIVE player is untouched — ESC still opens settings, never a score screen', () => {
-    expect(escapeAction({ ...none, refit: true }, false)).toBe('closeRefit');
+    expect(escapeAction(none, false)).toBe('openSettings');
     expect(escapeAction({ ...none, settings: true }, false)).toBe('closeSettings');
   });
 });
 
 describe('canOpenSurface — nothing ever stacks, in either direction', () => {
-  it('refuses to open settings over the refit modal or the results screen', () => {
-    expect(canOpenSurface('settings', { results: false, refit: true, settings: false })).toBe(false);
-    expect(canOpenSurface('settings', { results: true, refit: false, settings: false })).toBe(false);
-  });
-
-  it('refuses to open the refit modal over settings', () => {
-    expect(canOpenSurface('refit', { results: false, refit: false, settings: true })).toBe(false);
+  it('refuses to open settings over the results screen', () => {
+    expect(canOpenSurface('settings', { results: true, settings: false })).toBe(false);
   });
 
   it('allows an open when nothing else is up (and re-opening itself is fine)', () => {
-    expect(canOpenSurface('settings', { results: false, refit: false, settings: false })).toBe(true);
-    expect(canOpenSurface('settings', { results: false, refit: false, settings: true })).toBe(true);
+    expect(canOpenSurface('settings', { results: false, settings: false })).toBe(true);
+    expect(canOpenSurface('settings', { results: false, settings: true })).toBe(true);
   });
 });
 

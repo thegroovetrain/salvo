@@ -13,18 +13,19 @@ import {
   tier1Active,
   tier2Active,
 } from '../render/attention.js';
-import { railAmberChannel, railCritical, railPulsing } from '../render/hpGlobe.js';
+import { hullAmberChannel, hullCritical, hullPulsing } from '../render/console/hull.js';
 import { DeniedPulse, PULSE_DURATION_MS, pulseLiveAt } from '../render/deniedFire.js';
 import { easeHold, vignetteAlpha, vignetteHeld } from '../render/zone.js';
 import { RING_LIT_ALPHA, ringSegmentAlpha } from '../ui/chromeBar.js';
 // The Tier-3 chip moved to the HUD bar's XP STRIP with Story 8.6 (ruling 8) —
-// same state machine, same breath, new row.
-import { XP_CHIP_IDLE, chipAlpha, chipDimKeyframe, chipHeld, nextChipState } from '../render/xpStrip.js';
+// same state machine, same breath, new row; Story 10.10 moved it again, to the
+// ship console's bank chip (render/console/level.ts), unchanged.
+import { XP_CHIP_IDLE, chipAlpha, chipDimKeyframe, chipHeld, nextChipState } from '../render/console/level.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-const V = CLIENT_CONFIG.vitals;
+const V = CLIENT_CONFIG.console.hull;
 const Z = CLIENT_CONFIG.zone;
-const X = CLIENT_CONFIG.xpRail;
+const X = CLIENT_CONFIG.console.chip;
 
 /**
  * main.ts's Tier-1 denied input, modelled exactly: the ON-WATER arc pulse OR'd
@@ -44,9 +45,9 @@ describe('tier1Active — the threat channels (amendments 16, 239)', () => {
 
   it('is true in the CRIMSON band, and only there (the rail exports the gate)', () => {
     // Deliberately no second threshold in attention.ts: the rail's own
-    // `railCritical` IS the condition, so the two can never drift apart.
+    // `hullCritical` IS the condition, so the two can never drift apart.
     for (const frac of [0.24, 0.1, 0]) {
-      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(railCritical(frac));
+      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(hullCritical(frac));
       expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(true);
     }
   });
@@ -55,21 +56,21 @@ describe('tier1Active — the threat channels (amendments 16, 239)', () => {
     // The proof amendment 239's change did not move the rail's display grammar:
     // at 40% hull the rail is breathing exactly as it always has, and Tier 1 is
     // nonetheless inactive.
-    expect(railPulsing(0.4)).toBe(true);
+    expect(hullPulsing(0.4)).toBe(true);
     expect(tier1Active({ hpFrac: 0.4, deniedLive: false })).toBe(false);
     for (const frac of [0.49, 0.4, 0.3, 0.26]) {
-      expect(railPulsing(frac)).toBe(true);
+      expect(hullPulsing(frac)).toBe(true);
       expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(false);
     }
   });
 
   it('holds both band edges EXCLUSIVE, matching hpColor', () => {
     // Exactly 25% is amber (not critical); exactly 50% is phosphor (not pulsing).
-    expect(railCritical(V.criticalBelow)).toBe(false);
+    expect(hullCritical(V.criticalBelow)).toBe(false);
     expect(tier1Active({ hpFrac: V.criticalBelow, deniedLive: false })).toBe(false);
     expect(tier1Active({ hpFrac: V.criticalBelow - 1e-9, deniedLive: false })).toBe(true);
-    expect(railPulsing(V.amberBelow)).toBe(false);
-    expect(railPulsing(V.amberBelow - 1e-9)).toBe(true);
+    expect(hullPulsing(V.amberBelow)).toBe(false);
+    expect(hullPulsing(V.amberBelow - 1e-9)).toBe(true);
   });
 
   it('is true while a denied-fire pulse is live, at any hull fraction', () => {
@@ -200,22 +201,22 @@ describe('freezeAtDimKeyframe — Tier 3 under ANY higher tier (amendment 243)',
 
 describe('amberPulseWinner — the amber corollary', () => {
   it('ranks the ring over the amber HP globe (the storm is what kills you)', () => {
-    expect(amberPulseWinner({ ring: true, hpGlobe: true })).toBe('ring');
-    expect(amberPulseWinner({ ring: true, hpGlobe: false })).toBe('ring');
-    expect(amberPulseWinner({ ring: false, hpGlobe: true })).toBe('hpGlobe');
-    expect(amberPulseWinner({ ring: false, hpGlobe: false })).toBe(null);
+    expect(amberPulseWinner({ ring: true, hullGauge: true })).toBe('ring');
+    expect(amberPulseWinner({ ring: true, hullGauge: false })).toBe('ring');
+    expect(amberPulseWinner({ ring: false, hullGauge: true })).toBe('hullGauge');
+    expect(amberPulseWinner({ ring: false, hullGauge: false })).toBe(null);
   });
 
   it('below 25% the rail leaves the amber set entirely and BOTH ambers hold lit', () => {
     // At 40% hull with the ring urgent, the ring pulses and the amber rail holds.
     // At 20% the rail is crimson: it is no longer an amber channel at all, it is
     // Tier 1, under which every Tier-2 channel (the ring included) holds lit.
-    const amberRail = railPulsing(0.4) && !railCritical(0.4);
-    expect(amberPulseWinner({ ring: true, hpGlobe: amberRail })).toBe('ring');
+    const amberRail = hullPulsing(0.4) && !hullCritical(0.4);
+    expect(amberPulseWinner({ ring: true, hullGauge: amberRail })).toBe('ring');
     const crimson = tier1Active({ hpFrac: 0.2, deniedLive: false });
     expect(crimson).toBe(true);
     expect(holdAtLitKeyframe(crimson)).toBe(true);
-    expect(railCritical(0.2)).toBe(true);
+    expect(hullCritical(0.2)).toBe(true);
   });
 });
 
@@ -328,11 +329,11 @@ describe('NULL IS NOT ZERO — a missing hull pins nothing, at any tier', () => 
   }
 
   it('the amber corollary sees no rail either — the ring simply wins', () => {
-    // `railAmberChannel` is a total function of a fraction and a spectate frame
-    // has none: hud.ts passes `hpGlobe: false` as a STATEMENT (there is no hull),
+    // `hullAmberChannel` is a total function of a fraction and a spectate frame
+    // has none: hud.ts passes `hullGauge: false` as a STATEMENT (there is no hull),
     // never as a reading of a zero.
-    expect(amberPulseWinner({ ring: true, hpGlobe: false })).toBe('ring');
-    expect(amberPulseWinner({ ring: false, hpGlobe: false })).toBe(null);
+    expect(amberPulseWinner({ ring: true, hullGauge: false })).toBe('ring');
+    expect(amberPulseWinner({ ring: false, hullGauge: false })).toBe(null);
   });
 });
 
@@ -350,7 +351,7 @@ describe('the SPECTATE path never activates Tier 1', () => {
   });
 
   it('and the amber HP globe is not a channel a spectator can lose', () => {
-    expect(railAmberChannel(0.4)).toBe(true); // ...on a LIVE hull
-    expect(amberPulseWinner({ ring: false, hpGlobe: railAmberChannel(0.4) })).toBe('hpGlobe');
+    expect(hullAmberChannel(0.4)).toBe(true); // ...on a LIVE hull
+    expect(amberPulseWinner({ ring: false, hullGauge: hullAmberChannel(0.4) })).toBe('hullGauge');
   });
 });

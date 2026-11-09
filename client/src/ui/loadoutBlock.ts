@@ -16,7 +16,7 @@
 //   • the tier       `slotTier` (the gun's rung off the fold, amendment 70)
 //   • the ramp       `tierRamp.ts` (the refit card's five tokens)
 //   • the ladders    `cardTierSteps` over `boonStackCount`
-//   • every size     `CLIENT_CONFIG.hudBar` × LOADOUT_SCALE
+//   • every size     `CLIENT_CONFIG.results.loadout` (the retired bar's) × LOADOUT_SCALE
 // No name renders on the row: the glyph is the name. An empty weapon square is
 // the bar's own dashed box and `—`.
 //
@@ -45,7 +45,7 @@ import { boonName, cardTierSteps } from './boonCopy.js';
 import { romanTier, tierTint } from './tierRamp.js';
 import { SECTION_HEAD_CSS, type ResultsOwn } from './results.js';
 
-const B = CLIENT_CONFIG.hudBar;
+const B = CLIENT_CONFIG.results.loadout;
 const C = CLIENT_CONFIG.colors;
 
 /** The row's scale against the live bar (mock `.lo-row { transform: scale(.72) }`). */
@@ -59,7 +59,7 @@ function scaled(v: number): number {
 /** THE 9 PX FLOOR (amendment 43) — no text in the block renders under it. */
 export const LOADOUT_TEXT_FLOOR_PX = 9;
 
-/** Every box size of the row: the bar's (`hudBar`) × LOADOUT_SCALE. The group
+/** Every box size of the row: the retired bar's (`results.loadout`) × LOADOUT_SCALE. The group
  *  gap is the bar's one horizontal gap (mock `.lo-row { gap: 16px }`). */
 export const LOADOUT_PX = {
   slot: scaled(B.slot),

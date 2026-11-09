@@ -33,7 +33,7 @@ import { SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries, ladderValue, loadoutRowSquares } from '../ui/loadoutBlock.js';
 import { ABILITY_SQUARES, HOTBAR_SQUARE_COUNT } from '../render/hotbarSquares.js';
-import { monoTextWidth } from '../ui/refitCardFit.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
   BANNER_HUES,
@@ -474,7 +474,7 @@ describe('showResults — the elimination modal', () => {
 
     it('squares are the bar × .72 and every fitted square wears its glyph', () => {
       open(mockOwn());
-      expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.hudBar.slot * 0.72));
+      expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.results.loadout.slot * 0.72));
       expect(square(0).style.width).toBe(`${LOADOUT_PX.slot}px`);
       // Every fitted square takes its glyph from the ONE glyph source
       // (equipmentIcons.ts), never art drawn by this block.

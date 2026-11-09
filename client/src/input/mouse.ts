@@ -9,16 +9,18 @@
 // Story 2.1 hygiene: fire is CANVAS-TARGET-ONLY — the pointerdown listener
 // still lives on the window (DOM overlays with pointer-events pass water
 // clicks through with the canvas as target), but only events whose target IS
-// the game canvas count a click, so clicking any DOM chrome (refit card, kill
-// feed, results) can never fire the gun. The canvas' contextmenu is
+// the game canvas count a click, so clicking any DOM chrome (an offer card, the
+// kill feed, results) can never fire the gun. The canvas' contextmenu is
 // suppressed (right-click must not pop a browser menu over a knife fight),
-// and an injected lockout predicate (the refit modal — full combat lockout,
-// Eric ruling 2026-07-24) drops even canvas clicks while it holds.
+// and an injected lockout predicate (since Story 10.10, R3: the held start line
+// and the focused overlays ONLY — an offer never locks anything) drops even
+// canvas clicks while it holds.
 //
 // Story 2.2 adds a second injected gate on the same listener: a pointerdown
-// whose position lands on a HOTBAR SLOT is that slot's key-equivalent action
-// and is swallowed here, so a click on the hotbar can never fire the gun at the
-// water beneath it (amendment 11).
+// whose position lands on a CONSOLE element (Story 10.10: a weapon row-button or
+// an ability button — the hotbar's successors) is that element's key-equivalent
+// action and is swallowed here, so a click on a console can never fire the gun
+// at the water beneath it (amendment 11).
 //
 // Story 8.5 adds the RELEASE EDGE beside the click counter, where the prime's
 // auto-revert now happens (UX-DR42: "firing auto-reverts on RELEASE, never on
@@ -44,23 +46,22 @@
 // IS (the button may never come back up, and the click has already fired).
 // `releaseCount` survives as the raw button-0 tally; nothing branches on it.
 //
-// Story 8.7 (ruling 9) adds the OTHER way a hold can end: `endHolds()`, which
-// main.ts calls when the refit window OPENS. The window's lockout has always
-// dropped new presses; this is what closes a stream that was already running
-// when it opened, so no hold — and no prime-revert debt — outlives the window.
+// Story 8.7 (ruling 9) added `endHolds()`, which main.ts called when the refit
+// window OPENED to end a live hold without a pointerup. Story 10.10 retired the
+// window (R3) and, with it, `endHolds()`.
 //
 // Story 8.15 (epic-8 amendment 103) publishes the HOLD ITSELF as a level for
 // the machine gun's stream: `isHeld` is simply "a hold is open"
 // (`activePointerId !== null`), and a PRESS LATCH (`pressedSinceSample`) makes
 // a tap shorter than one 50 ms sample still read as held once — the sampler
 // calls `consumeHeld()` exactly once per input. Every path that ends a hold
-// without a pointerup (blur, `endHolds()` on the refit window opening) also
-// drops the latch, so the next input carries `held: false`.
+// without a pointerup (blur, pointercancel) also drops the latch, so the next
+// input carries `held: false`.
 //
 // Story 10.4 adds the SECONDARIES LEVEL on the RIGHT button (button 2):
 // `secHeld` / `consumeSec()` mirror `isHeld` / `consumeHeld()` — canvas-target
-// only, dropped while locked out, swallowed over a hotbar slot, ended by its
-// pointerup, a pointercancel, a blur or `endHolds()`, with the same press latch
+// only, dropped while locked out, swallowed over a console, ended by its
+// pointerup, a pointercancel or a blur, with the same press latch
 // so a sub-sample tap still yields one `sec: true`. Pointer Events report a
 // SECOND button pressed during a hold as a `pointermove` carrying that
 // `button` (not a pointerdown), so the move handler reads the right button's
@@ -68,8 +69,8 @@
 // stream is never lost. The right button counts no click and opens no
 // prime-revert hold.
 //
-// Review gate C3: a right press over the hotbar is swallowed through the
-// SIDE-EFFECT-FREE hit test (`overHotbar`), never the acting `onSlotPress`, so
+// Review gate C3: a right press over a console is swallowed through the
+// SIDE-EFFECT-FREE hit test (`overConsole`), never the acting `onSlotPress`, so
 // it cannot burn the Shift or a consumable or move the prime. A button-0 chord
 // edge is read off the event's PHYSICAL `buttons` — a chord pointermove always
 // has some button still down, which is what tells it from a plain move — never
@@ -128,7 +129,7 @@ export class MouseInput {
   /** A canvas press was ACCEPTED since the last `consumeHeld()` (Story 8.15):
    *  a tap whose pointerup lands inside one sample window still yields one
    *  `held: true` input. Cleared on read and by every hold-ending path that is
-   *  not a pointerup (blur, `endHolds`). */
+   *  not a pointerup (blur, pointercancel). */
   private pressedSinceSample = false;
   /** The right button is down on the canvas (Story 10.4 — the secondaries). */
   private secDown = false;
@@ -153,19 +154,20 @@ export class MouseInput {
    *   stays pure of the net layer. Resolved lazily AT pointerdown (never
    *   captured); returns 0 until the first sample lands — 0 flows straight
    *   through as InputMsg.fireT's "no claim" sentinel, which is exactly right.
-   * @param isLocked Combat-lockout predicate (the refit modal): while true, NO
-   *   pointerdown counts a click — even on the canvas. Feedback-free by design
-   *   (the modal owns the player's attention; a swallowed click is the ruling).
-   * @param onSlotPress Hotbar gate (Story 2.2, amendment 11): given the
+   * @param isLocked Combat-lockout predicate (the start line / a focused
+   *   overlay — never an offer, Story 10.10 R3): while true, NO pointerdown
+   *   counts a click — even on the canvas. Feedback-free by design (a swallowed
+   *   click is the ruling).
+   * @param onSlotPress Console gate (Story 2.2, amendment 11): given the
    *   pointerdown's screen position, returns true iff the press landed on a
-   *   hotbar slot — in which case it is routed to that slot's key-equivalent
+   *   console element — in which case it is routed to that element's key-equivalent
    *   action by the injector and SWALLOWED here (the gun never fires at the
-   *   water beneath the hotbar). Pixi does not retarget events, so a click over
-   *   the Pixi hotbar has the canvas as its target and would otherwise fire;
+   *   water beneath the console). Pixi does not retarget events, so a click over
+   *   a Pixi console has the canvas as its target and would otherwise fire;
    *   this predicate is that gate, and it keeps the hit-test pure (no Pixi
    *   eventMode / interactivity system).
-   * @param overHotbar The SIDE-EFFECT-FREE twin of `onSlotPress` (review gate
-   *   C3a): true iff the point lies on the hotbar's swallowing chrome. The right
+   * @param overConsole The SIDE-EFFECT-FREE twin of `onSlotPress` (review gate
+   *   C3a): true iff the point lies on a console's swallowing chrome. The right
    *   button asks this one, so a right press there is swallowed and acts on
    *   nothing.
    */
@@ -173,7 +175,7 @@ export class MouseInput {
     private readonly nowServer: () => number = () => 0,
     private readonly isLocked: () => boolean = () => false,
     private readonly onSlotPress: (p: ScreenPoint) => boolean = () => false,
-    private readonly overHotbar: (p: ScreenPoint) => boolean = () => false,
+    private readonly overConsole: (p: ScreenPoint) => boolean = () => false,
   ) {}
 
   private readonly onMove = (e: PointerEvent): void => {
@@ -201,12 +203,12 @@ export class MouseInput {
     }
   }
 
-  /** Accept a right press — the same canvas / lockout / hotbar gates as a
-   *  click, the hotbar asked through the side-effect-free hit test. */
+  /** Accept a right press — the same canvas / lockout / console gates as a
+   *  click, the console asked through the side-effect-free hit test. */
   private secPress(e: PointerEvent): void {
     if (e.target !== this.canvas) return;
     if (this.isLocked()) return;
-    if (this.overHotbar({ x: e.clientX, y: e.clientY })) return;
+    if (this.overConsole({ x: e.clientX, y: e.clientY })) return;
     this.secDown = true;
     this.secPressedSinceSample = true;
   }
@@ -244,10 +246,10 @@ export class MouseInput {
     }
     if (e.button !== 0) return;
     if (e.target !== this.canvas) return; // canvas-target-only: DOM chrome never fires
-    if (this.isLocked()) return; // refit modal — full combat lockout
-    // Hotbar first: a press over a slot IS that slot's action and never a shot
-    // (amendment 11). Suspended-while-modal is already handled above — a locked
-    // click reaches neither the hotbar nor the tube.
+    if (this.isLocked()) return; // the start line / a focused overlay
+    // Console first: a press over a row or button IS its action and never a
+    // shot (amendment 11). A locked click reaches neither the console nor the
+    // tube.
     this.inside = true;
     if (this.onSlotPress({ x: e.clientX, y: e.clientY })) return;
     this.clicks += 1;
@@ -301,30 +303,6 @@ export class MouseInput {
     this.activePointerId = null;
   }
 
-  /**
-   * END EVERY LIVE HOLD, exactly as a pointerup would (Story 8.7, ruling 9).
-   * Called by main.ts's refit-visibility watcher on the window's OPEN edge: the
-   * refit modal is a full combat lockout, but the lockout only ever gated the
-   * PRESS — a stream already running kept its hold open behind the window, and
-   * the pointerup that ends it might land after the player has closed the
-   * window, switched weapons or died, paying an owed prime-revert into a
-   * trigger they are no longer pulling.
-   *
-   * It publishes the hold's own click sequence number, so main.ts's release
-   * poll pays exactly the debt that click armed — the same edge, from a
-   * different cause, which is why it reuses `endHold` rather than inventing a
-   * second ending. Counters are untouched: no click is counted, no button-0
-   * release is tallied (none happened), and the cursor position is left alone.
-   * The keyboard's QUEUED activation presses are deliberately NOT cleared by
-   * the caller: an already-queued press is a press.
-   */
-  endHolds(): void {
-    this.endHold(null);
-    this.pressedSinceSample = false;
-    this.secDown = false;
-    this.secPressedSinceSample = false;
-  }
-
   private readonly onContextMenu = (e: Event): void => {
     e.preventDefault();
   };
@@ -375,7 +353,7 @@ export class MouseInput {
   /**
    * THE HELD-FIRE LEVEL (Story 8.15): true while a canvas hold is open — the
    * pointer that pressed on the water has not come back up, cancelled, or been
-   * ended by a blur or the refit window. Pure read; never clears the latch.
+   * ended by a blur. Pure read; never clears the latch.
    */
   get isHeld(): boolean {
     return this.activePointerId !== null;

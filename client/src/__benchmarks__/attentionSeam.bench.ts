@@ -30,7 +30,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import {
   FLASH_ELEMENTS,
   createFlashBudget,
-  hotbarSlotKey,
+  consoleRowKey,
   regionKey,
   type FlashBudget,
   type FlashVerdict,
@@ -72,7 +72,7 @@ function saturate(budget: FlashBudget, t0: number): void {
       for (let i = 0; i < FB.maxPerSecond; i++) budget.claim(regionKey(x, y, VIEW.w, VIEW.h), t0 + i);
     }
   }
-  const elements = [...Object.values(FLASH_ELEMENTS), hotbarSlotKey(0), hotbarSlotKey(1), hotbarSlotKey(2)];
+  const elements = [...Object.values(FLASH_ELEMENTS), consoleRowKey(0), consoleRowKey(1), consoleRowKey(2)];
   for (const key of elements) for (let i = 0; i < FB.maxPerSecond; i++) budget.claim(key, t0 + i);
 }
 
@@ -148,7 +148,7 @@ describe('attention seam — per-frame tier resolution', () => {
     const t2 = tier2Active({ inStorm: true, ringUrgent: true });
     holdAtLitKeyframe(t1);
     freezeAtDimKeyframe(t1, t2);
-    amberPulseWinner({ ring: true, hpGlobe: hpFrac < 0.5 });
+    amberPulseWinner({ ring: true, hullGauge: hpFrac < 0.5 });
   });
 });
 

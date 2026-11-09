@@ -79,16 +79,34 @@ import { FlashBursts } from './render/flashBurst.js';
 import { FlashWhiteout, whiteoutModel, type WhiteoutScreen } from './ui/flashWhiteout.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
-import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
-import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
+import { amberPulseWinner, freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
+import { consoleAbilityKey, consoleRowKey, createFlashBudget, FLASH_ELEMENTS, type FlashBudget } from './render/flashBudget.js';
 import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './render/hud.js';
-import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
-import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
-import { HudBar, hudBarTopInset, type HudBarView } from './render/hudBar.js';
+import {
+  ABILITY_KINDS,
+  WEAPON_ROW_KINDS,
+  consoleHit,
+  consoleLayout,
+  rowSlot,
+  type ConsoleHit,
+  type ConsoleLayout,
+} from './render/console/layout.js';
+import {
+  abilityModels,
+  consoleReadouts,
+  detentIndexOf,
+  helmKinematics,
+  hoverPreview,
+  hullAmberChannel,
+  hullFraction,
+  hullHoldsLit,
+  weaponRowModels,
+  type PreviewMarks,
+  type Readout,
+} from './render/console/readouts.js';
+import { ShipConsole, consoleMicroScale, type ShipConsoleView } from './render/console/shipConsole.js';
+import { WeaponsConsole, statsTwoLineFlags, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
-import { type HotbarView } from './render/hotbar.js';
-import { slotForCard } from './render/equipmentInfo.js';
-import { xpStripView } from './render/xpStrip.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
@@ -103,17 +121,16 @@ import {
   type KeyboardHooks,
 } from './input/keyboard.js';
 import {
-  UpgradeMenu,
   canLatchSpend,
   frontOfferSignature,
   offerView,
   pickableChoice,
   redrawState,
-  shouldAutoOpen,
   spendOutcome,
   type OfferView,
   type SpendLatch,
-} from './ui/upgradeMenu.js';
+} from './ui/offerCore.js';
+import { OfferGroup } from './ui/offerGroup.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/inputSampler.js';
 import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
@@ -179,7 +196,7 @@ import {
   type ResultsOwn,
   type ResultsView,
 } from './ui/results.js';
-import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction, wheelScrollsSurface } from './ui/settings.js';
+import { SettingsOverlay, canAbandon, escapeAction, wheelScrollsSurface, type OpenSurfaces } from './ui/settings.js';
 import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
@@ -334,17 +351,24 @@ interface Game {
   zone: Zone;
   hud: Hud;
   /**
-   * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the run of squares (Gun ·
-   * Sec · Shift · Q · E · R · C · V since Story 10.5 — the loadout surface, its
-   * full state grammar, hover tooltip and key-equivalent slot clicks), the helm
-   * globe and the XP strip with its banked-level chip. Shown only while conning
-   * a hull in-match.
+   * THE BATTLE CONSOLES (Story 10.10, epic-10 amendments 16 / 17) — the SHIP
+   * console on the left edge (hull, the six indices, the helm, the level) and
+   * the WEAPONS console on the right (five row-buttons, then C · V · Shift).
+   * They replaced the bottom-centre HUD bar. Shown only while conning a hull.
    */
-  hudBar: HudBar;
-  /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
-   *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
-  upgradeMenu: UpgradeMenu;
+  shipConsole: ShipConsole;
+  weaponsConsole: WeaponsConsole;
+  /** Are the consoles on screen this frame (they route presses only then)? */
+  consolesShown: boolean;
+  /** THE OFFER GROUP (ui/offerGroup.ts) — the always-live corner cards that
+   *  replaced the Tab refit band. No lockout: it suspends nothing (R3). */
+  offerGroup: OfferGroup;
+  /** The offer card under the pointer (its line id), or null — written by the
+   *  offer group's hover, read by both consoles' preview (R18). */
+  hoverLine: string | null;
+  /** The consoles' memoised inputs: the layout (per viewport / countdown /
+   *  row growth), the readouts (per own-stats fold) and the hover marks. */
+  consoleCache: ConsoleCache;
   /** The ESC-toggled settings overlay (ui/settings.ts, Story 2.3). A FOCUSED
    *  overlay: while it is open every sim key and canvas click is suppressed —
    *  and the simulation still never pauses. */
@@ -447,8 +471,7 @@ interface Game {
   /** This frame's denied-fire pulse is DEGRADED (its onset was over budget). The
    *  on-water arc/marker draws its flat denied red either way — that mark is the
    *  denial's only visual channel and is never motion-gated, so it IS its own
-   *  degraded form — and the hotbar chip this pulse also drives drops its bloom
-   *  (render/hotbar.ts `degradedSkin`). */
+   *  degraded form. */
   deniedDegraded: boolean;
   /** THE `denied` CUE'S TONE FLOOR (the twin walk, amendment 60) — ONE shared
    *  floor across every `denied` call site (weapon click, predicted ability
@@ -491,32 +514,6 @@ interface Game {
    *  aggregate budget for THAT slot's element key — three slots denying at once
    *  is three separate elements, not one over-budget one). */
   abilityDegraded: boolean[];
-  /** One-shot latch PER LOADOUT SLOT: an ability press was predicted READY on
-   *  the optimistic press edge (the boost-prediction precedent) — consumed into
-   *  the matching activatedPulse for the hotbar's ≤80ms ACTIVATED pop. */
-  abilityActivatedPress: boolean[];
-  /** Rate-limited ACTIVATED pop per loadout slot — the same 80ms/300ms register
-   *  as the denied pulse (DESIGN.md specs the flash in ms, not frames). */
-  activatedPulse: DeniedPulse[];
-  /** This frame's activated-pop state per loadout slot (read by the hotbar). */
-  activatedFlash: boolean[];
-  /** One-shot latch PER LOADOUT SLOT: a boon landed on that slot's category
-   *  (Story 2.9, amendment 51) — consumed into the matching fitPulse. */
-  fitPress: boolean[];
-  /** Rate-limited FIT pulse per loadout slot — the SAME 80ms/300ms register as
-   *  the denied and activated pulses (one DeniedPulse driver per slot, so two
-   *  fits in one refit window can't share a rate floor). */
-  fitPulse: DeniedPulse[];
-  /** This frame's fit-flash state per loadout slot (read by the hotbar). */
-  fitFlash: boolean[];
-  /** The RANK-WIDE fit channel: a shipwide INTEL/SHIP boon belongs to no single
-   *  slot, so the whole stack flashes once on the same 80ms/300ms register. */
-  fitFramePress: boolean;
-  fitFramePulse: DeniedPulse;
-  fitFrameFlash: boolean;
-  /** That rank-wide flash is DEGRADED this frame (over budget on its own
-   *  element key) — it still draws, at the flat degraded weight. */
-  fitFrameDegraded: boolean;
   /**
    * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
    * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
@@ -704,18 +701,56 @@ interface Game {
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
   ownSlots: readonly (EquipmentId | null)[];
-  /** The refit window's visibility on the PREVIOUS render frame — the half of
-   *  the one watcher that owns its open edge (`watchRefitWindow`). (The close
-   *  stamp and the digits' grace left with the kit keys — Story 10.5.) */
-  refitWasOpen: boolean;
-  /**
-   * The refit window has already opened ITSELF this match epoch (amendment 59)
-   * — a latch, never a numeric rise, so a reconnect mid-countdown still opens
-   * and a player who closed it with Tab is never re-opened. Set on the ATTEMPT:
-   * if `handleRefitToggle` refuses (another surface is up), that is the one
-   * attempt this epoch gets.
-   */
-  autoOpenedEpoch: boolean;
+}
+
+/** The consoles' memoised inputs (see `Game.consoleCache`). */
+interface ConsoleCache {
+  /** The fold the readouts were taken off (identity — `applyOwnStats` swaps it). */
+  stats: EffectiveStats | null;
+  slots: readonly (EquipmentId | null)[] | null;
+  readouts: readonly Readout[];
+  /** Per weapon row, ruled order: the line it PRINTS (hover marks applied, at
+   *  the UI tier's counter-scale) takes two lines. */
+  twoLine: boolean[];
+  /** `twoLine` as bits — part of the layout key. */
+  twoLineBits: number;
+  /** The same verdict WITHOUT the hover — what places the offer (O15). */
+  baseTwoLine: boolean[];
+  baseTwoLineBits: number;
+  /** What `twoLine` / `baseTwoLine` were measured off (identity / value). */
+  twoLineReadouts: readonly Readout[] | null;
+  twoLinePreview: PreviewMarks | null;
+  twoLineMicro: number;
+  layout: ConsoleLayout | null;
+  weapons: WeaponsConsoleLayout | null;
+  layoutKey: string;
+  previewLine: string | null;
+  previewStats: EffectiveStats | null;
+  preview: PreviewMarks | null;
+  /** The weapons console's denied flags, reused frame to frame. */
+  denied: { rows: boolean[]; abilities: boolean[] };
+}
+
+function freshConsoleCache(): ConsoleCache {
+  return {
+    stats: null,
+    slots: null,
+    readouts: [],
+    twoLine: WEAPON_ROW_KINDS.map(() => false),
+    twoLineBits: 0,
+    baseTwoLine: WEAPON_ROW_KINDS.map(() => false),
+    baseTwoLineBits: 0,
+    twoLineReadouts: null,
+    twoLinePreview: null,
+    twoLineMicro: Number.NaN,
+    layout: null,
+    weapons: null,
+    layoutKey: '',
+    previewLine: null,
+    previewStats: null,
+    preview: null,
+    denied: { rows: WEAPON_ROW_KINDS.map(() => false), abilities: ABILITY_KINDS.map(() => false) },
+  };
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -840,8 +875,8 @@ function ownStatus(g: Game): OwnStatus {
 }
 
 /**
- * FINDING A: the single entry point for BOTH spend paths (digit picks via
- * handleRefitPick, and the UpgradeMenu card-click callback). Ignores a
+ * FINDING A: the single entry point for BOTH spend paths (Tab+digit picks and
+ * the offer group's card clicks — both via handleOfferPick). Ignores a
  * second spend while one is already in flight — otherwise two rapid spends
  * within one server-tick+RTT (digit 1 then digit 2, or two card clicks) both
  * read the SAME client-side front offer, and the second lands after the
@@ -852,7 +887,7 @@ function ownStatus(g: Game): OwnStatus {
  *
  * Both gates live in the pure `canLatchSpend` — a second spend in flight, and a
  * pick that lands with NO own ship in the mirror (the frame that dropped `you`
- * has arrived but the band's hide is one rAF away): the latter would latch a
+ * has arrived but the group's hide is one rAF away): the latter would latch a
  * pts:0 / empty-signature snapshot that no later frame can ever satisfy, so it
  * is guaranteed to time out and fire a spurious denied pulse. Nothing is
  * spendable in that state, so the pick is dropped without even sending.
@@ -923,9 +958,9 @@ function markSpendAcked(g: Game): void {
  *
  * Returns the card index to PULSE (a failed spend) or null. The pulse itself is
  * deliberately NOT fired here: releasing the latch flips `locked` false, which
- * makes the very next upgradeMenu.update() rebuild the card row — and a pulse
+ * makes the very next offerGroup.update() rebuild the cards — and a pulse
  * painted before that rebuild would be thrown away with the old buttons. The
- * caller pulses AFTER the update (see the render loop).
+ * caller pulses AFTER the update (see syncOfferGroup).
  */
 function updateSpendLatch(g: Game): number | null {
   const inFlight = g.spendInFlight;
@@ -937,82 +972,30 @@ function updateSpendLatch(g: Game): number | null {
 }
 
 /**
- * Per-frame refit-band sync (called from the render loop). Order is load-bearing:
+ * Per-frame OFFER GROUP sync (Story 10.10, called from the render loop). Order
+ * is load-bearing:
  *   1. clear the spend latch once it lands or times out — so a just-cleared
  *      latch un-dims the cards immediately, on this frame;
- *   2. live-swap the band to the next queued offer, auto-closing at 0 levels or
- *      on spectate (currentOfferView → null force-hides);
- *   3. only THEN pulse a REJECTED pick — the un-dim in (2) rebuilds the card
- *      row, and a pulse painted before it would be discarded with the old
- *      buttons — and only into a band that is actually ON SCREEN: the latch
- *      outlives the window (a TAB close, or the you-gone force-hide in (2)),
- *      and pulsing a hidden band paints nothing while consuming the 300ms
- *      same-source floor, swallowing the next honest denial.
- *
- * Step 4 is the WINDOW'S OWN EDGES (Story 8.7, rulings 8-9) — read after (2),
- * so the auto-close that happens inside it is seen on this very frame.
+ *   2. render the group from this frame's view (null hides it: nothing banked,
+ *      no offer, spectating, sinking) at the spine's offer rect;
+ *   3. only THEN pulse a REJECTED pick — the un-dim in (2) rebuilds the cards,
+ *      and a pulse painted before it would be discarded with the old buttons —
+ *      and only into a group that is on screen.
+ * There is no window and no lockout (R3): nothing opens, nothing is suspended.
  */
-function syncRefitBand(g: Game): void {
+function syncOfferGroup(g: Game): void {
   const deniedCard = updateSpendLatch(g);
-  tryAutoOpenRefit(g); // step 1b (Story 8.10): the window may open ITSELF here
-  g.upgradeMenu.update(currentOfferView(g));
-  watchRefitWindow(g);
-  if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
+  g.offerGroup.update(currentOfferView(g), consoleLayoutNow(g).offer, g.uiScale);
+  if (deniedCard !== null && g.offerGroup.visible) g.offerGroup.pulseDenied(deniedCard);
 }
 
 /**
- * THE WINDOW OPENS ITSELF, ONCE PER MATCH (Story 8.10, amendment 59): the first
- * frame that carries the countdown's level-zero offer with the window closed
- * opens it, and nothing after that does.
- *
- * It goes through `handleRefitToggle` — the very path TAB takes — so the
- * surface-stacking guard (never over settings or results) and the bank chip's
- * re-arm are shared rather than re-stated here. The latch is set on the ATTEMPT:
- * if the toggle refuses because another surface is up, that was this epoch's
- * one attempt, which is the conservative direction (a window that keeps trying
- * would fight the surface the player is actually reading).
- *
- * Read BEFORE the per-frame `update()`, so the window it opens renders this
- * frame rather than one behind.
- */
-function tryAutoOpenRefit(g: Game): void {
-  const open = shouldAutoOpen({
-    latched: g.autoOpenedEpoch,
-    phase: publicState(g).matchPhase ?? 'waiting',
-    visible: g.upgradeMenu.visible,
-    hasOffer: currentOfferView(g) !== null,
-  });
-  if (!open) return;
-  g.autoOpenedEpoch = true;
-  handleRefitToggle(g);
-}
-
-/**
- * THE ONE WATCHER over the refit window's visibility, and it is one on purpose:
- * the window opens by two paths, both moving the SAME boolean, so watching it
- * once covers every path. Its OPEN edge (false → true) ends every live mouse
- * HOLD (Story 8.7, ruling 9): the modal's lockout already drops new presses,
- * but a stream that was already running kept its hold — and the prime-revert
- * it owes — open behind the window. The QUEUED ability presses are
- * deliberately left alone: an already-queued press is a press, and it still
- * rides its input. (The CLOSE edge's stamp and the digits' inert grace left
- * with the kit keys — Story 10.5, 2026-11-05: a digit with the window closed
- * does nothing, so there is nothing for it to fall through onto.)
- */
-function watchRefitWindow(g: Game): void {
-  const open = g.upgradeMenu.visible;
-  if (open && !g.refitWasOpen) g.mouse.endHolds();
-  g.refitWasOpen = open;
-}
-
-/**
- * The spend view for THIS frame (null = nothing to show → menu auto-hides).
- * The fourth flag is the third state (Story 5.2, amendment 10): the refit goes
+ * The spend view for THIS frame (null = nothing to show → the group hides).
+ * The fourth flag is the third state (Story 5.2, amendment 10): the offer goes
  * INERT for the whole sinking window — "once sinking, you're done" — while the
  * weapons, the abilities and the horn stay live. This is the ONE seam that
- * closes it, and it is enough: TAB (handleRefitToggle), every digit and card
- * pick (handleRefitPick) and the per-frame band sync (syncRefitBand) all read
- * the refit's state through here.
+ * closes it, and it is enough: every Tab+digit and card pick (handleOfferPick)
+ * and the per-frame sync (syncOfferGroup) read the offer's state through here.
  */
 function currentOfferView(g: Game): OfferView | null {
   const view = baseOfferView(g);
@@ -1040,45 +1023,18 @@ function baseOfferView(g: Game): OfferView | null {
 }
 
 /**
- * TAB — toggle the refit modal (Story 2.1, amendment 1). Opens ONLY when a
- * banked point exists (the existing visibility rule: currentOfferView is null
- * at 0 pts / while spectating — at 0 pts nothing happens); TAB again closes
- * without choosing. Digit picks route through handleRefitPick below.
+ * A PICK — Tab + digit 1–4 or a click on an offer card (Story 10.10, R3): pick
+ * card `choice` and spend. There is NO window to check: the group is always
+ * live while a level is banked, and a pick never suspends anything. The group
+ * rides the queue (amendment 36 — the last spend empties the bank, which makes
+ * currentOfferView() null and hides it). EVERY CHOICE IS AN OFFER INDEX (Story
+ * 8.8), bounded by the offer it was dealt — a SHORT offer shows fewer cards, so
+ * a digit past its count does nothing. A GREYED CARD SENDS NOTHING (Story 8.7,
+ * ruling 10): the client refuses it first, with no MSG.spend, no latch and no
+ * denied pulse. `pickableChoice` is the whole gate, and a locked view (a spend
+ * in flight) is inert.
  */
-function handleRefitToggle(g: Game): void {
-  // No stacking, either direction (amendment 23): the refit modal never opens
-  // over the settings overlay or the results screen. (The chokepoint already
-  // swallows TAB under a focused overlay; this is the policy-side guard.)
-  if (!g.upgradeMenu.visible && !canOpenSurface('refit', openSurfaces(g))) return;
-  const view = currentOfferView(g);
-  if (!view) {
-    g.upgradeMenu.hide();
-    return;
-  }
-  // Opening the refit window re-arms the banked-level chip's breath (amendment
-  // 1's binding replacing the old SPACE touch); closing it deliberately does not.
-  if (!g.upgradeMenu.visible) g.hudBar.rearmBank();
-  g.upgradeMenu.toggle(view);
-}
-
-/**
- * A digit 1–4 pressed WHILE the modal is open (the chokepoint enforces the
- * refit-or-nothing rule; digit meaning was evaluated against modal state at
- * its own keydown): pick card `choice` and spend. The window STAYS OPEN
- * (amendment 36 — it rides the queue; the last spend closes it by emptying the
- * bank, which makes currentOfferView() null). All four digits are live against
- * the ratified four-card offer; a choice past the offer's actual length (a
- * short offer from a small catalog) falls off the end → nothing. A locked view
- * (spend in flight) is inert, exactly like the cards.
- */
-function handleRefitPick(g: Game, choice: number): void {
-  if (!g.upgradeMenu.visible) return;
-  // EVERY CHOICE IS AN OFFER INDEX (Story 8.8), bounded by the offer it was
-  // dealt — a SHORT offer (Story 10.5) shows fewer cards, so a digit past its
-  // count does nothing. A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 /
-  // UX-DR52): the server would refuse it as a silent no-op, so the client
-  // refuses it first, with no MSG.spend, no spend latch and NO denied pulse —
-  // the refusal is already on screen. `pickableChoice` is the whole gate.
+function handleOfferPick(g: Game, choice: number): void {
   if (!pickableChoice(currentOfferView(g), choice)) return;
   trySpend(g, choice);
 }
@@ -1094,21 +1050,22 @@ function resultsKeysArmed(g: Game): boolean {
   return performance.now() - g.resultsShownAt >= CLIENT_CONFIG.results.keyGraceMs;
 }
 
-/** The surfaces the uniform ESC law arbitrates between, topmost-first. */
-function openSurfaces(g: Game): { results: boolean; refit: boolean; settings: boolean } {
-  return { results: resultsVisible(), refit: g.upgradeMenu.visible, settings: g.settingsOverlay.visible };
+/** The surfaces the uniform ESC law arbitrates between, topmost-first (Story
+ *  10.10 retired the refit surface, R3). */
+function openSurfaces(g: Game): OpenSurfaces {
+  return { results: resultsVisible(), settings: g.settingsOverlay.visible };
 }
 
 /**
  * ESC — THE uniform topmost-close law (amendment 23; the decision itself is the
  * pure `escapeAction`). It closes the topmost open surface — results modal
- * (identically to pressing SPECTATE), then the refit modal, then the settings
- * overlay — and only when NOTHING is open does it toggle settings on. ESC never
+ * (identically to pressing SPECTATE), then the settings overlay — and only
+ * when NOTHING is open does it toggle settings on. ESC never
  * returns to port and settings never stacks over another surface.
  *
- * The results arming grace still binds: inside it an ESC the player aimed at the
- * refit modal must not dismiss the just-shown results screen, so the close is
- * simply skipped (the modal stays up and the next ESC lands honestly).
+ * The results arming grace still binds: inside it an ESC the player aimed at
+ * something else must not dismiss the just-shown results screen, so the close
+ * is simply skipped (the modal stays up and the next ESC lands honestly).
  */
 function handleEscape(g: Game): void {
   const action = escapeAction(openSurfaces(g), g.state.spectating);
@@ -1116,8 +1073,7 @@ function handleEscape(g: Game): void {
     if (resultsKeysArmed(g)) closeResultsAsSpectate();
     return;
   }
-  if (action === 'closeRefit') g.upgradeMenu.hide();
-  else if (action === 'closeSettings') g.settingsOverlay.close();
+  if (action === 'closeSettings') g.settingsOverlay.close();
   else if (action === 'reopenResults') reopenResults(g);
   else openSettingsOverlay(g);
 }
@@ -1255,9 +1211,8 @@ const HELD_AXES: Axes = { throttle: 0, rudder: 0 };
  * the instant the gun goes, having never seen them acknowledged on the ladder.
  * Idempotent with the server's own spawn event, which calls the same function.
  *
- * LATCHES: the refit window's one auto-open and the one free redraw (Story
- * 8.10) ride the SAME edge — see `epochLatchReset` in ui/phase.ts for why that
- * is the only edge any of the four belong on.
+ * (The refit window's one auto-open latch rode this edge until Story 10.10
+ * retired the window — the offer group is simply on screen at the countdown.)
  */
 function updateMatchEpoch(g: Game): void {
   const phase = publicState(g).matchPhase ?? 'waiting';
@@ -1267,17 +1222,6 @@ function updateMatchEpoch(g: Game): void {
   if (!epochLatchReset(prev, phase)) return;
   g.score = freshScore();
   resetOwnOrders(g);
-  // THE OPENING'S LATCH (Story 8.10, amendment 59; the 8.10 review, P3)
-  // resets HERE, on the same edge as the score — not on every phase edge. The
-  // window's one auto-open is per MATCH, and a new match's countdown can only
-  // ever follow the previous match's live edge (active → finished → waiting →
-  // countdown), so this arms it in time for the next start line; a fresh `Game`
-  // per join arms it at join. Resetting on every edge re-armed the auto-open on
-  // the `countdown → waiting` edge of a CANCELLED countdown, and the window
-  // flung itself open again at the re-arm. See ui/phase.ts `epochLatchReset`.
-  // (The one free redraw's pip is no latch here since Story 10.7 — it reads
-  // the server's `you.rd`.)
-  g.autoOpenedEpoch = false;
 }
 
 /** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a
@@ -1827,7 +1771,7 @@ function presentResults(g: Game, view: ResultsView): void {
   // `showMatchResults`), so a single latch here needs no second detector to
   // drift against. Latched because a spectating survivor reaches it twice.
   sendMatchEndOnce(g);
-  g.upgradeMenu.hide();
+  g.offerGroup.hide();
   g.whiteout.hide(); // the score screen is never under white (gate fix F7)
   g.settingsOverlay.close();
   g.keyboard.clearKeys();
@@ -2083,7 +2027,7 @@ function endSession(g: Game): void {
   hideResults(); // an elimination modal must not survive the teardown
   destroyResultsAd(); // ...nor the ad column beside it (this exit has no reload)
   hideBanner();
-  g.upgradeMenu.hide();
+  g.offerGroup.hide();
   g.settingsOverlay.close();
 }
 
@@ -2121,7 +2065,7 @@ function setupViewport(
   nowServer: () => number,
   fireLocked: () => boolean,
   onSlotPress: (p: ScreenPoint) => boolean,
-  overHotbar: (p: ScreenPoint) => boolean,
+  overConsole: (p: ScreenPoint) => boolean,
 ): {
   camera: Camera;
   keyboard: KeyboardInput;
@@ -2143,9 +2087,10 @@ function setupViewport(
     slideEaseRate: CLIENT_CONFIG.camera.slideEaseRate,
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
-  // The bar's top inset in REAL px: the UI scale is 1 until applyUiScale runs,
-  // which re-feeds it whenever the scale changes.
-  camera.setBottomInset(hudBarTopInset());
+  // NO BOTTOM INSET (Story 10.10): the consoles stand at the SIDES, and the only
+  // chrome left on a horizontal edge is the chrome bar at the TOP — nothing
+  // covers the bottom of the water any more, so the intel waypoint frames the
+  // radar disc against the full viewport (the camera's inset defaults to 0).
 
   // THE in-match keyboard chokepoint (Story 2.1): one keydown listener owns
   // every sim key through the hooks built in keyboardHooks() below.
@@ -2154,16 +2099,16 @@ function setupViewport(
   // Inject the server-clock estimate so pointerdown can stamp an honest fire
   // time (D1). Lazy thunk: MouseInput is built before the clock exists, so it
   // resolves gRef.clock at click time, never captures it (serverNow() returns
-  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the full
-  // combat lockout — the refit modal, and (Story 6.1) the held start line;
-  // attach() takes the game canvas so ONLY
+  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the combat
+  // lockout — the held start line and the focused overlays (Story 10.10: an
+  // offer never locks anything); attach() takes the game canvas so ONLY
   // canvas-target pointerdowns ever fire (DOM chrome clicks never do) and the
   // canvas contextmenu is suppressed.
-  // `onSlotPress` is the hotbar gate (Story 2.2): a canvas press over a slot is
-  // that slot's key-equivalent action and is swallowed, never a shot.
-  // `overHotbar` is its side-effect-free twin (review gate C3a): the right
-  // button's secondaries are swallowed over the bar and act on nothing.
-  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress, overHotbar);
+  // `onSlotPress` is the console gate (Story 2.2 / 10.10): a canvas press over a
+  // row-button or an ability button is its key-equivalent action and is
+  // swallowed, never a shot. `overConsole` is its side-effect-free twin (review
+  // gate C3a): the right button's secondaries are swallowed over a console.
+  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress, overConsole);
   mouse.attach(stage.app.canvas);
 
   // Guessed-class hull until the first frame confirms/corrects it, in the OWN
@@ -2289,7 +2234,7 @@ function cooldownPressRefused(g: Game | null, id: CooldownAbilityId): boolean {
  * THE chokepoint's hook table (Story 2.1) — every in-match key action routed
  * over the late-bound Game (`getG` is the gRef late-binding — null only during
  * the brief construction gap). P and M fold in here (the old ad-hoc window
- * listener is gone); TAB/ESC/digits drive the refit modal; X/Z step the alive
+ * listener is gone); TAB + 1–4 picks an offer card (Story 10.10); X/Z step the alive
  * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (slot 1) consult
  * the own loadout — weapon-vs-ability via `EQUIPMENT_IS_WEAPON` only — and a
  * weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied); C / V
@@ -2349,11 +2294,11 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     isAbilityDenied: (id) => cooldownPressRefused(getG(), id),
     onAbilityDenied: (id) => denySlot(abilitySquare(id)),
     // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
-    // press and applied the refit-modal suspension; everything else is here.
+    // press and applied the overlay suspension; everything else is here.
     onFoghorn: withG(handleFoghornPress),
-    // Slot keys / clicks AND the refit digits suspend under ANY open surface —
-    // the refit modal as ever, plus (Story 2.3) the settings overlay and the
-    // results modal, which are focused overlays.
+    // Slot keys / clicks suspend under a FOCUSED OVERLAY (Story 2.3: settings,
+    // results) — and since Story 10.10 (R3) under nothing else: an offer
+    // pending suspends no key.
     isModalOpen: () => modalOpen(getG()),
     // ...and the SLOT KEYS alone also suspend at the held start line (Story
     // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
@@ -2362,12 +2307,12 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     isCombatLocked: () => combatLocked(getG()),
     // Focused-overlay rule (amendment 21 + the committed AC): while the settings
     // overlay or the results modal is up EVERY sim key is suppressed — helm
-    // included, unlike the refit modal — and only ESC/Enter still route.
+    // included — and only ESC/Enter still route.
     isOverlayFocused: () => overlayFocused(getG()),
-    onRefitToggle: withG(handleRefitToggle),
+    // TAB + 1–4 (R3): a pick, with no window to check — the group is live.
     onRefitPick: (choice) => {
       const g = getG();
-      if (g) handleRefitPick(g, choice);
+      if (g) handleOfferPick(g, choice);
     },
     onEscape: withG(handleEscape),
     onConfirm: withG(handleConfirm),
@@ -2388,17 +2333,18 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   };
 }
 
-/** True while ANY surface that suspends slot keys/clicks is open. */
+/** True while ANY surface that suspends slot keys/clicks is open — since Story
+ *  10.10 (R3: no combat lockout, no refit window) the focused overlays alone. */
 function modalOpen(g: Game | null): boolean {
-  return g !== null && (g.upgradeMenu.visible || overlayFocused(g));
+  return overlayFocused(g);
 }
 
 /**
- * THE FULL COMBAT LOCKOUT — the refit modal's shipped lockout, now ALSO the
- * held start line (Story 6.1, amendment 8). While it holds, a canvas
- * pointerdown counts no click (input/mouse.ts drops it before the counter ever
- * moves) and the slot keys, the refit digits and F are swallowed at the
- * keyboard chokepoint.
+ * THE COMBAT LOCKOUT — the held start line (Story 6.1, amendment 8) and the
+ * focused overlays; NEVER an offer (Story 10.10, R3 — the refit window's
+ * lockout is gone with the window). While it holds, a canvas pointerdown
+ * counts no click (input/mouse.ts drops it before the counter ever moves) and
+ * the slot keys are swallowed at the keyboard chokepoint.
  *
  * REUSED RATHER THAN INVENTED, and the reuse is the point: this lockout is
  * already specified as *"feedback-free by design"* — a swallowed press, never a
@@ -2411,8 +2357,7 @@ function modalOpen(g: Game | null): boolean {
  * one shot request, so clicks banked against a locked trigger would otherwise
  * cash in as a free shot on the frame the match went live.
  *
- * The helm is deliberately NOT part of it (the refit modal leaves helm/zoom/M/P
- * live and so does this) — the start line's movement lock is `helmAxes`, which
+ * The helm is deliberately NOT part of it — the start line's movement lock is `helmAxes`, which
  * has to reach the PREDICTOR as well as the wire.
  */
 function combatLocked(g: Game | null): boolean {
@@ -2443,19 +2388,18 @@ function overlayFocused(g: Game | null): boolean {
  */
 function handleAbilityPress(g: Game, id: AbilityId, actSeq: number): void {
   // `C` / `V` (Story 10.5): the client's known refusals already ran at the key
-  // (`isAbilityDenied`), so a press that reaches here is predicted READY — the
-  // ACTIVATED pop on its square, nothing else predicted (the cooldown stamp and
-  // the effect both arrive with the server's frame).
+  // (`isAbilityDenied`), so a press that reaches here is predicted READY —
+  // nothing is predicted (the cooldown stamp and the effect both arrive with
+  // the server's frame; Story 10.10 retired the hotbar's ACTIVATED pop).
   if (id !== 'shift') {
-    g.abilityActivatedPress[abilitySquare(id)] = true;
     g.abilityLatch = latchPress(g.abilityLatch, id); // shut until the server answers
     return;
   }
   handleShiftPress(g, actSeq);
 }
 
-/** The Shift's press (slot 1): the pool-based verdict, the activated pop and
- *  the optimistic boost window — Story 1.6's path, unchanged but for the
+/** The Shift's press (slot 1): the pool-based verdict and the optimistic
+ *  boost window — Story 1.6's path, unchanged but for the
  *  dedup source (the ability, Story 10.5). */
 function handleShiftPress(g: Game, actSeq: number): void {
   const slot = SLOT_BOOST;
@@ -2487,17 +2431,14 @@ function handleShiftPress(g: Game, actSeq: number): void {
     playDenied(g);
     return;
   }
-  // Predicted READY: fire the hotbar's ACTIVATED pop on this optimistic press
-  // edge (the boost-prediction precedent — the slot must acknowledge the press
-  // now, not a round trip later). It decays straight into the cooling grammar.
-  g.abilityActivatedPress[slot] = true;
+  // Predicted READY (Story 10.10 retired the hotbar's ACTIVATED pop on this
+  // edge; the Shift button reads the predicted boost window below).
   const id = g.ownSlots[slot];
   // `actSeq` is the value THIS press will ride once the keyboard drains it onto
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
-  // The other two class Shifts (Story 8.15) predict NOTHING beyond the generic
-  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and HUNKER's
+  // The other two class Shifts (Story 8.15) predict NOTHING: INSTANT RELOAD's refilled pools and HUNKER's
   // `hunkerUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
 }
@@ -2557,29 +2498,26 @@ function handleFoghornPress(g: Game): void {
 }
 
 /**
- * The UpgradeMenu's card-click callback: same late-binding as keyboardHooks
- * (gRef isn't assigned until after the Game object literal below), routed
- * through handleRefitPick so a CLICK IS KEY-EQUIVALENT BY CONSTRUCTION — the
- * same FINDING A latch, the same greyed-card refusal, the same denied
- * pulse — and, like a digit pick, a click LEAVES THE WINDOW OPEN (amendment 36).
- * The gun can never fire off it: MouseInput only counts canvas-target clicks,
- * and the modal lockout holds besides.
+ * The offer group's hooks (Story 10.10), late-bound over gRef like the keyboard
+ * hooks: a card CLICK is the same pick Tab+digit makes (handleOfferPick — the
+ * same latch, the same greyed refusal, the same denied pulse); REDRAW is
+ * `tryMulligan`; the hovered card's line is the consoles' preview (R18). The
+ * gun can never fire off a card: MouseInput only counts canvas-target clicks.
  */
-function onSpendClick(getG: () => Game | null): (choice: number) => void {
-  return (choice) => {
-    const g = getG();
-    if (!g) return;
-    handleRefitPick(g, choice);
-  };
-}
-
-/** The REDRAW button's press (Story 8.10) — the same late-bound shape as
- *  `onSpendClick`: the deps are read at press time, never captured at
- *  construction. */
-function onRedrawClick(getG: () => Game | null): () => void {
-  return () => {
-    const g = getG();
-    if (g) tryMulligan(g);
+function offerGroupHooks(getG: () => Game | null): ConstructorParameters<typeof OfferGroup>[0] {
+  return {
+    onPick: (choice) => {
+      const g = getG();
+      if (g) handleOfferPick(g, choice);
+    },
+    onRedraw: () => {
+      const g = getG();
+      if (g) tryMulligan(g);
+    },
+    onHover: (line) => {
+      const g = getG();
+      if (g) g.hoverLine = line;
+    },
   };
 }
 
@@ -2590,9 +2528,7 @@ function onRedrawClick(getG: () => Game | null): () => void {
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
   Game,
-  | 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded' | 'abilityActivatedPress'
-  | 'activatedPulse' | 'activatedFlash' | 'fitPress' | 'fitPulse' | 'fitFlash' | 'fitFramePress'
-  | 'fitFramePulse' | 'fitFrameFlash' | 'fitFrameDegraded'
+  'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded'
 > {
   return {
     // Per hotbar SQUARE (Story 10.5 — the loadout slots, then `C` / `V`).
@@ -2602,33 +2538,7 @@ function abilityFeedbackState(): Pick<
     // Story 4.8: the budget verdict that rides each slot's flash (per-slot, so
     // one over-budget slot never flattens another's mark).
     abilityDegraded: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    // Story 2.2: the mirror-image ACTIVATED channel (per-slot latch + pulse +
-    // this-frame flag), driven off the optimistic ability-press edge.
-    abilityActivatedPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    activatedPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
-    activatedFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    // Story 2.9: the same three-part shape again for the FIT channel, driven off
-    // the server's `bn` receipt (never predicted — a fit is the server's word).
-    fitPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    fitPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
-    fitFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    fitFramePress: false,
-    fitFramePulse: new DeniedPulse(),
-    fitFrameFlash: false,
-    fitFrameDegraded: false,
   };
-}
-
-/**
- * A card landed: latch its FIT flash (Story 2.9). The card resolves to the slot
- * carrying the equipment it addresses; a shipwide ladder (or any card no fitted
- * slot owns) falls through to the rank-wide frame pulse, so no fit is ever
- * presentation-silent (FR22).
- */
-function latchFitFlash(g: Game, cardId: string): void {
-  const slot = slotForCard(g.ownSlots, cardId);
-  if (slot === null) g.fitFramePress = true;
-  else g.fitPress[slot] = true;
 }
 
 /**
@@ -2684,10 +2594,9 @@ function buildGame(
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
   // setupViewport args: the chokepoint hooks, the lazy server-clock thunk for the mouse's
-  // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
-  // The mouse's fire lockout covers EVERY suspending surface (Story 2.3): the
-  // refit modal as ever, plus the settings overlay and the results modal.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleHotbarPress(gRef, p), (p) => hotbarCovers(gRef, p));
+  // pointerdown fire-time stamp (D1, resolved at click time), the combat lockout
+  // (the start line + the focused overlays), and the console press gate + its twin.
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleConsolePress(gRef, p), (p) => consoleCovers(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
   // The `plate` CHART LAYER, not a root — over terrain and hulls, under the
   // reticle; screen-space via applyCamera's inverse (render/stage.ts).
@@ -2768,10 +2677,12 @@ function buildGame(
     radar,
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
-    hudBar: new HudBar(stage.layers.hud),
-    // The third hook is the countdown footer's REDRAW press (Story 8.10),
-    // late-bound over gRef exactly like the card click beside it.
-    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef), flashBudget, onRedrawClick(() => gRef)),
+    shipConsole: new ShipConsole(stage.layers.hud),
+    weaponsConsole: new WeaponsConsole(stage.layers.hud),
+    consolesShown: false,
+    offerGroup: new OfferGroup(offerGroupHooks(() => gRef), flashBudget),
+    hoverLine: null,
+    consoleCache: freshConsoleCache(),
     settingsOverlay,
     score: freshScore(),
     scorePhase: 'waiting',
@@ -2804,10 +2715,6 @@ function buildGame(
     // The kit is DEFAULT_KIT only until the first own-ship frame replaces it
     // with the seat's own (Story 10.1 — the wire, never localStorage).
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
-    refitWasOpen: false,
-    // Story 8.10: a per-MATCH latch, and a fresh Game is built per join — so
-    // a join is already a reset, and `updateMatchEpoch` owns every later one.
-    autoOpenedEpoch: false,
   };
   gRef = g;
   armWorldFlashBudget(g, camera, flashBudget);
@@ -3055,10 +2962,11 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // toast, no tone — because the window opens itself on it. Read per event
     // off the polled plane through the same `atStartLine` every other lock uses.
     heldAtStartLine: () => atStartLine(g),
-    // Story 2.9: the fitted boon's CATEGORY decides which slot flashes (amendment
-    // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
-    // slot, so the whole stack takes one rank-wide pulse instead.
-    onBoonFitted: (cardId) => latchFitFlash(g, cardId),
+    // Story 2.9's per-slot / rank-wide FIT flash retired with the hotbar
+    // (Story 10.10): the consoles draw no FIT flash. A fit still never lands
+    // silent (FR22) — the `◆ … FITTED` receipt toasts it and the console's
+    // readouts change in place.
+    onBoonFitted: () => {},
     // Story 2.9: the click-time own-fire latch (see ownFireWeapon) — the only
     // honest way to tell an own CANNON shell from an own GUN shell, since the
     // ballistic wire shape says neither.
@@ -3249,7 +3157,7 @@ function renderOwn(
   renderFiring(g, pose, status, aim, cursor, ownZones, nowMs);
   // ONE attention read per frame, taken AFTER renderFiring drove the denied
   // pulses and shared by every consumer (the chrome bar's amber ring segment and
-  // the HP globe here, the storm vignette back in renderAlive, the XP bank chip
+  // the hull gauge here, the storm vignette back in renderAlive, the bank chip
   // below): two reads — or one taken before the pulses were driven — could
   // disagree inside a single frame.
   const attn = frameAttention(g, status, inStorm, bar.ring.urgent, nowMs);
@@ -3257,36 +3165,24 @@ function renderOwn(
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP globe breathes on it).
   //
-  // THE BAR GOES FIRST (Story 8.6, ruling 10): the bar is the surface the
-  // player's eye is on, and it is laid out before the chrome that frames it.
-  // It no longer FEEDS the chrome — epic-8 amendment 38 re-hung IN STORM and the
-  // victim tells under the chrome bar, which hud.ts lays out itself, so no bar
-  // edge crosses this seam any more.
-  updateHudBar(g, status, pose, bar.ring.urgent, attn.freeze, now / 1000, nowMs);
+  // THE CONSOLES GO FIRST (the bar's rule, Story 8.6 ruling 10): they are the
+  // surfaces the player's eye is on, laid out before the chrome that frames them.
+  updateConsoles(g, status, pose, bar.ring.urgent, attn.freeze, now / 1000, nowMs);
   g.hud.update(status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   return attn.tier1;
 }
 
 /**
- * THE HUD BAR, one call (Story 8.6). It shows while the player is CONNING a
- * hull in-match — the held start line and the dev/sandbox ready room included
- * (dimmed at the line, see `dim` in the view) and, Story 5.2, the WHOLE sinking
- * window: amendment 10 keeps every fitted slot activatable all the way down, so
- * the surface those slots live on stays on screen. It dies with the hull at
- * FOUNDER (spectate / reveal) and on return to port.
+ * THE BATTLE CONSOLES, one call (Story 10.10). They show while the player is
+ * CONNING a hull in-match — the held start line and the dev/sandbox ready room
+ * included (the weapons console dimmed at the line, see `dim`) and the WHOLE
+ * sinking window: amendment 10 keeps every fitted slot activatable all the way
+ * down, so the surfaces those slots live on stay on screen. They die with the
+ * hull at FOUNDER (spectate / reveal) and on return to port.
  *
- * THE XP STRIP RIDES WITH IT through the sinking window, which is a CHANGE from
- * the old bottom-left rail's `status.alive` gate (ruling 10, Eric's veto item):
- * the bar is ONE object, and splitting its visibility by member is exactly how
- * the three corners drifted apart. No promise is broken by that — `refitable`
- * requires `!sinking` as well as a materialized front offer (the server leaves
- * `you.offer` standing at sink-entry, so the offer alone would still read as
- * refitable), which empties the cue line: the strip reports the bank without
- * offering a TAB that opens nothing.
- *
- * Called after renderFiring so this frame's denied pulse is resolved.
+ * Called after renderFiring so this frame's denied pulses are resolved.
  */
-function updateHudBar(
+function updateConsoles(
   g: Game,
   status: OwnStatus,
   pose: RenderPose,
@@ -3296,183 +3192,263 @@ function updateHudBar(
   nowMs: number,
 ): void {
   if (!conning(status)) {
-    g.hudBar.hide();
+    hideConsoles(g);
     return;
   }
-  // Hover reads the pointer ONLY while it is inside the window (the aim path
-  // keeps using the last known position regardless — see MouseInput).
-  // Hover + hit-test run in the HUD's own (scaled) coordinate space, so the raw
-  // screen cursor is divided by the same factor the root container multiplies by.
-  const cursor = g.mouse.pointerInside ? hudPoint(g, g.mouse.screenPos) : null;
-  const view = hudBarView(g, status, pose, ringUrgent, freeze);
-  g.hudBar.update(view, hudWidth(g), hudHeight(g), cursor, nowSec, nowMs, g.uiScale);
+  const layout = consoleLayoutNow(g);
+  const readouts = consoleReadoutsNow(g);
+  const preview = hoverMarksNow(g);
+  const frame: ConsoleFrame = { status, pose, readouts, preview, ringUrgent, freeze, nowSec, nowMs };
+  g.shipConsole.update(shipConsoleView(g, frame), layout.ship);
+  g.weaponsConsole.update(weaponsConsoleView(g, frame), g.consoleCache.weapons!);
+  g.consolesShown = true;
 }
 
-/** THE BAR'S WHOLE FRAME, assembled in ONE place: the four members' inputs
- *  derived here and nowhere else, so render/hudBar.ts stays a composer and
- *  never re-interprets own-ship state. */
-function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: boolean, freeze: boolean): HudBarView {
-  return {
-    slots: hotbarView(g, status),
-    hp: {
-      hp: status.hp,
-      maxHp: status.stats.maxHp,
-      repairHp: status.repairHp,
-      alive: status.alive,
-      sinking: status.sinking,
-    },
-    // THE AMBER COROLLARY's globe half. The fraction comes from `railFraction`
-    // — the same derivation the seam's Tier-1 read and the chrome bar's own
-    // resolution take — so the corollary and the tier can never disagree about
-    // which band the hull is in.
-    hpHold: hpGlobeHoldsLit(railFraction(status.hp, status.stats.maxHp), ringUrgent),
-    helm: helmGlobeView(g, status, pose),
-    xp: xpStripView(g.state.net.you ?? null, status.sinking),
-    freeze,
-    // Any suspending surface: the two slot groups dim to 38%, keys AND clicks
-    // off. Story 6.1 folds the held start line in through the same lockout the
-    // modal uses, so the fit stays legible at the line — you can read what you
-    // are sailing with — while reading unmistakably as not-yet-yours. The
-    // globes and the strip deliberately stay at full (ruling 9).
-    dim: combatLocked(g),
-  };
+/** One frame's shared console inputs. */
+interface ConsoleFrame {
+  status: OwnStatus;
+  pose: RenderPose;
+  readouts: readonly Readout[];
+  preview: PreviewMarks | null;
+  ringUrgent: boolean;
+  freeze: boolean;
+  nowSec: number;
+  nowMs: number;
 }
 
-/** The helm globe's inputs, derived exactly as the retired telegraph cluster
- *  derived them: the ORDERED detent off the helm axes' throttle (the dead-helm
- *  `HELD_AXES` at the start line included), the ACTUAL signed speed off the
- *  predicted pose, and the ladder's denominators off `EffectiveStats` — the
- *  boost's cap is applied inside the globe by the ONE shared speed mutator. */
-function helmBoost(status: OwnStatus): Pick<HelmGlobeInput, 'boostFactor' | 'boostActive'> {
-  return { boostFactor: CONFIG.boost.factor, boostActive: status.boostActive };
+/** Both consoles gone with the hull (founder / spectate / port). */
+function hideConsoles(g: Game): void {
+  g.shipConsole.hide();
+  g.weaponsConsole.hide();
+  g.consolesShown = false;
 }
 
-function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeInput {
+/** A TRANSIENT pose gap: both consoles hidden, their breathing state kept. */
+function hideConsolesTransient(g: Game): void {
+  g.shipConsole.hideTransient();
+  g.weaponsConsole.hideTransient();
+  g.consolesShown = false;
+}
+
+/**
+ * EVERY CONSOLE NUMBER (O7), off the own fold — memoised on the fold's
+ * identity (`applyOwnStats` swaps `ownStats` / `ownSlots` together whenever the
+ * class, the cards, the Shift or the index bonus change), so a frame with
+ * nothing new reuses the same array and the consoles redraw nothing.
+ */
+function consoleReadoutsNow(g: Game): readonly Readout[] {
+  const c = g.consoleCache;
+  if (c.stats === g.ownStats && c.slots === g.ownSlots) return c.readouts;
+  c.stats = g.ownStats;
+  c.slots = g.ownSlots;
+  c.readouts = consoleReadouts({ stats: g.ownStats, loadout: g.ownSlots, cards: g.state.net.you?.cards ?? NO_CARDS, cls: g.ownClass });
+  return c.readouts;
+}
+
+/**
+ * THE ROWS' MEASURED GROWTH (the spine's input): each row's stats line as the
+ * console PRINTS it — the hover marks applied, at the UI tier's counter-scale —
+ * measured again only when the fold, the hover's marks (memoised on
+ * `g.hoverLine`, so a hover IS part of this key) or the UI scale moved. The
+ * hover-free verdict rides beside it: it alone places the offer group (O15),
+ * so a hover cannot flip the dock out from under the pointer.
+ */
+function statsTwoLineNow(g: Game): void {
+  const c = g.consoleCache;
+  const readouts = consoleReadoutsNow(g);
+  const preview = hoverMarksNow(g);
+  const micro = consoleMicroScale(g.uiScale);
+  if (c.twoLineReadouts === readouts && c.twoLinePreview === preview && c.twoLineMicro === micro) return;
+  if (c.twoLineReadouts !== readouts || c.twoLineMicro !== micro) {
+    c.baseTwoLineBits = statsTwoLineFlags(readouts, null, micro, c.baseTwoLine);
+  }
+  c.twoLineBits = statsTwoLineFlags(readouts, preview, micro, c.twoLine);
+  c.twoLineReadouts = readouts;
+  c.twoLinePreview = preview;
+  c.twoLineMicro = micro;
+}
+
+/**
+ * THE LAYOUT (the pure spine), recomputed only when the logical viewport, the
+ * countdown flag (REDRAW in the offer header) or a row's growth changes — the
+ * consoles and the offer group draw from, and the press gate hit-tests against,
+ * this ONE object.
+ */
+function consoleLayoutNow(g: Game): ConsoleLayout {
+  statsTwoLineNow(g); // the rows' growth (fold · hover · UI tier) is part of the key
+  const c = g.consoleCache;
+  const w = hudWidth(g);
+  const h = hudHeight(g);
+  const countdown = (publicState(g).matchPhase ?? 'waiting') === 'countdown';
+  const key = `${w}|${h}|${countdown ? 1 : 0}|${c.twoLineBits}|${c.baseTwoLineBits}`;
+  if (c.layout !== null && key === c.layoutKey) return c.layout;
+  c.layoutKey = key;
+  c.layout = consoleLayout(w, h, { countdown, statsTwoLine: c.twoLine, placementTwoLine: c.baseTwoLine });
+  c.weapons = { ...c.layout.weapons, abilities: c.layout.abilities };
+  return c.layout;
+}
+
+/** THE HOVER PREVIEW (R18): the hovered offer card's marks — a REAL re-fold of
+ *  `effectiveStats` with the card (`hoverPreview`), memoised on (line, fold).
+ *  A REFUSED card (the shared `pickRefusal` over the replayed slot ids — the
+ *  refusal `offerView` greys it on) previews nothing: no amber lie. */
+function hoverMarksNow(g: Game): PreviewMarks | null {
+  const c = g.consoleCache;
+  if (c.previewLine === g.hoverLine && c.previewStats === g.ownStats) return c.preview;
+  c.previewLine = g.hoverLine;
+  c.previewStats = g.ownStats;
+  const you = g.state.net.you;
+  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT }, g.hoverLine, g.ownSlots) : null;
+  return c.preview;
+}
+
+/** The ship console's frame — the sources the HP globe, the helm globe and the
+ *  XP strip read, unchanged: the hull off `status`, the helm off the predicted
+ *  pose and the helm axes, the level verbatim off `you`. */
+function shipConsoleView(g: Game, f: ConsoleFrame): ShipConsoleView {
+  const { status, pose } = f;
+  const you = g.state.net.you;
   const axes = helmAxes(g);
+  const frac = hullFraction(status.hp, status.stats.maxHp);
+  // THE AMBER COROLLARY's hull half: held lit when the ring outranks it.
+  const hullWins = amberPulseWinner({ ring: f.ringUrgent, hullGauge: hullAmberChannel(frac) }) === 'hullGauge';
   return {
+    hp: status.hp,
+    maxHp: status.stats.maxHp,
+    repairHp: status.repairHp,
+    hullHold: hullHoldsLit(frac, hullWins),
+    readouts: f.readouts,
+    preview: f.preview,
     headingRad: pose.heading,
     speed: pose.speed,
     orderedDetent: detentIndexOf(axes.throttle),
     rudder: axes.rudder,
-    kin: status.stats.kinematics,
-    // THE FOLD'S FIRST STAGE, as the predictor steps it: the Shift's boost on
-    // the base, so the needle's denominator is the cap the hull has.
-    ...helmBoost(status),
+    // The boost's cap through the ONE shared mutator, as the predictor steps it.
+    kin: helmKinematics(status.stats.kinematics, CONFIG.boost.factor, status.boostActive),
+    lvl: you?.lvl ?? 0,
+    xp: you?.xp ?? 0,
+    pts: you?.pts ?? 0,
+    freeze: f.freeze,
+    nowSec: f.nowSec,
+    nowMs: f.nowMs,
+    uiScale: g.uiScale,
   };
 }
 
-/**
- * Per-slot denied state for the hotbar: the per-slot latch (predicted ability
- * denials + unmatched SERVER denials on any slot — Story 1.10) OR, for the
- * SELECTED weapon, this frame's denied-fire click pulse. Same wiring the
- * retired chip row used, re-pointed at the hotbar's denied grammar.
- */
-function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
-  return g.abilityFlash.map((flash, slot) => {
-    const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
-    return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
-  });
+/** The weapons console's frame — the sources the hotbar read: the loadout and
+ *  pools off `status`, the PREDICTED turrets / launchers / heat, the own racks
+ *  and cooldown stamps (never predicted) against the server-clock estimate. */
+function weaponsConsoleView(g: Game, f: ConsoleFrame): WeaponsConsoleView {
+  const { status } = f;
+  return {
+    rows: weaponRowModels(weaponsInput(g, f)),
+    abilities: abilityModels(abilitiesInput(g, status)),
+    preview: f.preview,
+    nowSec: f.nowSec,
+    nowMs: f.nowMs,
+    motion: settings.current.motion,
+    uiScale: g.uiScale,
+    denied: consoleDenied(g, status),
+    // The held start line (and a focused overlay): the controls dim, keys AND
+    // clicks off — NEVER an offer (R3).
+    dim: combatLocked(g),
+  };
 }
 
-/**
- * The BUDGET VERDICT for each of those denied chips, in the same shape and off
- * the same two sources — so the flag can never describe a different pulse than
- * the flash beside it. A weapon-click denial lights BOTH the on-water arc and
- * the primed slot's chip; the arc's mark is already its own flat, never-motion-
- * gated form, so the chip is where that element's `'degrade'` verdict is
- * actually visible (bloom dropped, border and icon untouched).
- */
-function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
-  return g.abilityDegraded.map((degraded, slot) => {
-    const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
-    return degraded || (isWeapon && slot === status.primedSlot && g.deniedDegraded);
-  });
-}
-
-/**
- * The slot stack's half of the bar's frame (the squares, the key chips, the
- * wipe and the tooltip). `dim` is set here for shape's sake and OVERWRITTEN by
- * the HudBar from the bar-wide `dim` — one predicate, applied once (ruling 9).
- */
-function hotbarView(g: Game, status: OwnStatus): HotbarView {
+/** The five rows' inputs (readouts.ts `WeaponsInput`). */
+function weaponsInput(g: Game, f: ConsoleFrame): Parameters<typeof weaponRowModels>[0] {
+  const { status } = f;
   const you = g.state.net.you;
   return {
-    loadout: status.loadout,
-    // Story 10.5: the `C` / `V` cooldown stamps off the own block — never
-    // predicted — against the same server-clock estimate as every `…Until`.
-    abilityReadyAt: { repair: you?.repairReadyAt, smoke: you?.smokeReadyAt },
-    serverNowMs: g.clock.serverNow(),
-    ammo: status.ammo,
-    // Story 10.6: the `Q` tube pips off the PREDICTED launchers (a fired tube
-    // empties on the click, as the turret does) and the `E` rack pips off the
-    // own block's racks.
-    launchers: g.ownLaunchers.states,
-    racks: you?.racks,
-    // Eric 2026-11-05: the gun square's per-turret pips, off the predicted battery.
-    turrets: g.ownBattery.turrets,
-    stats: status.stats,
-    // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).
-    cls: status.cls,
-    primedSlot: status.primedSlot,
-    denied: hotbarDenied(g, status),
-    deniedDegraded: hotbarDeniedDegraded(g, status),
-    activated: g.activatedFlash,
-    // Dim-not-grey is the shipped "this slot cannot act" register (hotbar
-    // amendment 16); no new one is invented, and no slot flashes DENIED,
-    // because no press gets through.
-    dim: combatLocked(g),
-    motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
-    // Story 2.9 — the build, felt on the slot: the accrued list + `◆n` marks
-    // (server-authoritative `you.cards`, rendered verbatim), the ACTIVE ability
-    // windows (amendment 48), and this frame's fit flashes. `nowSec` is the
-    // shared server-clock estimate the ACTIVE outline breathes on.
-    cards: g.state.net.you?.cards ?? [],
-    activeMsLeft: activeWindows(g, status),
-    fit: g.fitFlash,
-    fitFrame: g.fitFrameFlash,
-    fitFrameDegraded: g.fitFrameDegraded,
-    nowSec: g.clock.serverNow() / 1000,
-    // Story 8.15 (UX-DR52): the live hold, for the machine gun's held-fire drain.
-    held: g.mouse.isHeld,
-    // Story 10.4: the predicted secondaries heat + lock, for the heat square.
-    sec: { heat: g.ownBattery.heat, locked: g.ownBattery.locked },
+    stats: status.stats, cards: you?.cards ?? NO_CARDS, cls: status.cls, loadout: status.loadout, ammo: status.ammo,
+    turrets: g.ownBattery.turrets, launchers: g.ownLaunchers.states, racks: you?.racks ?? [],
+    sec: { heat: g.ownBattery.heat, locked: g.ownBattery.locked }, primedSlot: status.primedSlot, readouts: f.readouts,
   };
 }
+
+/** The three buttons' inputs (readouts.ts `AbilitiesInput`). */
+function abilitiesInput(g: Game, status: OwnStatus): Parameters<typeof abilityModels>[0] {
+  const you = g.state.net.you;
+  return {
+    stats: status.stats, cards: you?.cards ?? NO_CARDS, shift: you?.shift ?? DEFAULT_SHIFT, nowMs: g.clock.serverNow(),
+    repairReadyAt: you?.repairReadyAt, smokeReadyAt: you?.smokeReadyAt,
+    shiftAmmo: status.ammo[SLOT_BOOST] ?? null, shiftActiveMsLeft: activeWindows(g, status)[SLOT_BOOST] ?? 0,
+  };
+}
+
+/** The square each ability button speaks for (C · V · Shift). */
+const ABILITY_BUTTON_SQUARE: readonly number[] = ABILITY_KINDS.map((k) => (k === 'shift' ? SLOT_BOOST : abilitySquare(k)));
+
+/**
+ * Per row-button / ability button denied state: the per-square latch
+ * (predicted ability denials + unmatched SERVER denials — Story 1.10) OR, for
+ * the SELECTED weapon, this frame's denied-fire click pulse. The hotbar's
+ * wiring, re-pointed at the consoles; written into the cache's reused arrays.
+ */
+function consoleDenied(g: Game, status: OwnStatus): { rows: boolean[]; abilities: boolean[] } {
+  const d = g.consoleCache.denied;
+  for (let i = 0; i < WEAPON_ROW_KINDS.length; i++) d.rows[i] = squareDenied(g, status, rowSlot(WEAPON_ROW_KINDS[i]));
+  for (let i = 0; i < ABILITY_KINDS.length; i++) d.abilities[i] = squareDenied(g, status, ABILITY_BUTTON_SQUARE[i]);
+  return d;
+}
+
+function squareDenied(g: Game, status: OwnStatus, square: number | null): boolean {
+  if (square === null) return false;
+  const id = status.loadout[square] ?? null;
+  const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+  return g.abilityFlash[square] === true || (isWeapon && square === status.primedSlot && g.deniedFlash);
+}
+
+/** The flash-budget element each per-square pulse claims (Story 10.10, O10):
+ *  a weapon row's `consoleRow(i)`, an ability button's `consoleAbility(i)`. */
+function squareFlashKey(square: number): string {
+  const ability = square === SLOT_BOOST ? 'shift' : abilityAtSquare(square);
+  if (ability !== null) return consoleAbilityKey(ABILITY_KINDS.indexOf(ability));
+  const row = WEAPON_ROW_KINDS.findIndex((k) => rowSlot(k) === square);
+  return consoleRowKey(row >= 0 ? row : square);
+}
+
+const SQUARE_FLASH_KEYS: readonly string[] = Array.from({ length: HOTBAR_SQUARE_COUNT }, (_, s) => squareFlashKey(s));
 
 /**
  * A pointerdown landed somewhere on the canvas (input/mouse.ts's injected
- * hotbar gate, amendment 11). If it fell on a hotbar ROW, hand it to the SAME
- * keyboard slot-action entry the slot keys use — ONE decision path: that method
- * already owns the modal suspension, the fail-closed fitted check, the ability
- * FIFO (cap feedback included), and the weapon prime toggle, so a click cannot
- * drift from its key. The press is reported SWALLOWED either way — over the
- * hotbar is never a shot, even when the action turns out inert (unfitted slot,
- * modal open). The HP GLOBE swallows too, with no action at all (Eric
- * 2026-09-30); the helm globe stays water. A press anywhere else returns false
- * and fires as ever.
+ * console gate, amendment 11). If it fell on a console, hand it to the SAME
+ * keyboard entry the keys use — ONE decision path (the suspension, the
+ * fail-closed fitted check, the ability FIFO, the prime toggle), so a click
+ * cannot drift from its key. The press is reported SWALLOWED either way — a
+ * console is never a shot. The ship console swallows with no action (as the HP
+ * globe did), and so do the MAIN BATTERY / SECONDARIES rows (LMB / RMB are
+ * their keys — O9). A press anywhere else returns false and fires as ever.
  */
-/** A click on hotbar square `square` IS that square's key (Story 10.5): a `C` /
- *  `V` square presses its cooldown ability, every slot square its slot. */
-function squareAction(keyboard: KeyboardInput, square: number): void {
-  const ability = abilityAtSquare(square);
-  if (ability === null) keyboard.slotAction(square);
-  else keyboard.abilityAction(ability);
+function handleConsolePress(g: Game | null, p: ScreenPoint): boolean {
+  const hit = consoleHitAt(g, p);
+  if (hit === null) return false;
+  consoleAction(g!.keyboard, hit);
+  return true;
 }
 
-function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
-  if (!g) return false;
-  // A press on the HP GLOBE is swallowed with no slot action (Eric 2026-09-30):
-  // `hotbarPress` shares the hover's hit-test, so chrome is chrome both ways.
-  return g.hudBar.press(hudPoint(g, p), (square) => squareAction(g.keyboard, square));
+/** Would a press at `p` be swallowed by a console? Acts on nothing (review
+ *  gate C3a — the right button's gate). */
+function consoleCovers(g: Game | null, p: ScreenPoint): boolean {
+  return consoleHitAt(g, p) !== null;
 }
 
-/** Would a press at `p` be swallowed by the hotbar? Acts on nothing (review
- *  gate C3a — the right button's gate; a left press goes through
- *  handleHotbarPress, which acts). */
-function hotbarCovers(g: Game | null, p: ScreenPoint): boolean {
-  return g !== null && g.hudBar.covers(hudPoint(g, p));
+/** The console element under a raw screen point — only while the consoles are
+ *  on screen, against the very layout they were drawn from. */
+function consoleHitAt(g: Game | null, p: ScreenPoint): ConsoleHit | null {
+  if (g === null || !g.consolesShown || g.consoleCache.layout === null) return null;
+  return consoleHit(g.consoleCache.layout, hudPoint(g, p));
+}
+
+/** A console press IS its key: Q / E / R rows toggle their slot's prime, C / V
+ *  press their ability, the Shift button its slot; the rest swallow. */
+function consoleAction(keyboard: KeyboardInput, hit: ConsoleHit): void {
+  if (hit.kind === 'ability') {
+    if (hit.ability === 'shift') keyboard.slotAction(SLOT_BOOST);
+    else keyboard.abilityAction(hit.ability);
+    return;
+  }
+  if (hit.kind === 'slot' && hit.slot !== null && hit.row !== 'mainBattery') keyboard.slotAction(hit.slot);
 }
 
 /**
@@ -3508,11 +3484,9 @@ function claimPulseFlash(g: Game, key: string, pulse: DeniedPulse, live: boolean
  * ratified floor scopes as ELEMENTS (render/flashBudget.ts FLASH_ELEMENTS).
  *
  * Deliberately OUTSIDE renderFiring's alive gate: a dead press is denied too and
- * must still pulse, and a spend is legal while dead (the hotbar is simply hidden
- * there). The ACTIVATED pop and the per-slot FIT pulse are NOT claimed — the
- * story's element list names the denied pulses, the hotbar frame and the zone
- * reveal, and inventing budget membership for a channel is exactly the kind of
- * unratified widening the tier/budget split forbids.
+ * must still pulse, and a spend is legal while dead (the consoles are simply
+ * hidden there). Story 10.10 retired the hotbar's ACTIVATED pop and FIT pulse
+ * (nothing on the consoles drew them) and the FIT frame's budget key.
  */
 function drivePulses(g: Game, nowMs: number): void {
   for (let s = 0; s < g.abilityPulse.length; s++) {
@@ -3522,20 +3496,8 @@ function drivePulses(g: Game, nowMs: number): void {
     // denied visuals (nothing is aimed).
     g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
     g.abilityDeniedPress[s] = false;
-    g.abilityDegraded[s] = claimPulseFlash(g, hotbarSlotKey(s), g.abilityPulse[s], g.abilityFlash[s], nowMs, g.abilityDegraded[s]);
-    // The ACTIVATED pop rides the identical register (Story 2.2).
-    g.activatedFlash[s] = g.activatedPulse[s].update(g.abilityActivatedPress[s], nowMs);
-    g.abilityActivatedPress[s] = false;
-    // ...and so does the FIT flash (Story 2.9): the boon landing on this slot's
-    // family.
-    g.fitFlash[s] = g.fitPulse[s].update(g.fitPress[s], nowMs);
-    g.fitPress[s] = false;
+    g.abilityDegraded[s] = claimPulseFlash(g, SQUARE_FLASH_KEYS[s], g.abilityPulse[s], g.abilityFlash[s], nowMs, g.abilityDegraded[s]);
   }
-  g.fitFrameFlash = g.fitFramePulse.update(g.fitFramePress, nowMs);
-  g.fitFramePress = false;
-  g.fitFrameDegraded = claimPulseFlash(
-    g, FLASH_ELEMENTS.hotbarFrame, g.fitFramePulse, g.fitFrameFlash, nowMs, g.fitFrameDegraded,
-  );
 }
 
 function renderFiring(
@@ -4224,12 +4186,12 @@ function anyDeniedLive(g: Game, nowMs: number): boolean {
  *  NULL IS NOT ZERO: with no hull (no maxHp — spectate, the respawn gap) the HP
  *  input is `null`, never 0, or a missing hull would pin every Tier-2 channel
  *  lit and freeze the Tier-3 chip for the rest of the match. The fraction itself
- *  comes from the rail's own `railFraction`, so the seam and the band the player
- *  sees are the same number. */
+ *  comes from the hull gauge's own `hullFraction`, so the seam and the band the
+ *  player sees are the same number. */
 function ownTier1(g: Game, status: OwnStatus, nowMs: number): boolean {
   const maxHp = status.stats.maxHp;
   return tier1Active({
-    hpFrac: maxHp > 0 ? railFraction(status.hp, maxHp) : null,
+    hpFrac: maxHp > 0 ? hullFraction(status.hp, maxHp) : null,
     deniedLive: anyDeniedLive(g, nowMs),
   });
 }
@@ -4315,7 +4277,7 @@ function renderAlive(
     // gap is TRANSIENT (the pose returns next frame), so the XP chip's breathing
     // state survives it: a full hide() would reset it and re-arm a decayed
     // chip's 10s window off a gap the player never saw (see hideTransient).
-    g.hudBar.hideTransient();
+    hideConsolesTransient(g);
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
   updateContactFx(g, pose, nowMs);
@@ -4475,8 +4437,8 @@ function enterSpectateVisuals(g: Game): void {
   }
   g.firing.hide();
   g.aimPreview.hide(); // nothing is aimed from a sunk hull
-  g.hudBar.hide(); // the whole bar dies with the hull at FOUNDER (Story 8.6)
-  g.upgradeMenu.hide(); // the refit modal never lingers into spectate
+  hideConsoles(g); // both consoles die with the hull at FOUNDER
+  g.offerGroup.hide(); // the offer group never lingers into spectate
   // Hand the zoom to the spectate factor: the alive user zoom resets to the
   // base framing so the spectate wheel path behaves exactly as it always has.
   // Any debounced zoom re-bake still in flight dies with it (fog is off here).
@@ -4663,7 +4625,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
 
 /**
  * THE UI-scale seam. The accessibility scale multiplies the Pixi HUD ROOT
- * (`stage.layers.hud` — the vitals + hotbar container) and divides the layout
+ * (`stage.layers.hud` — the consoles' container) and divides the layout
  * inputs fed to it, so every screen-space HUD element grows/shrinks together
  * while staying anchored to the real viewport corners. It must NEVER touch
  * `app.stage`: the WORLD is not chrome, and scaling it would change how much
@@ -4677,10 +4639,6 @@ function applyUiScale(g: Game): void {
   const factor = scaleFactor(effectiveScale(settings.current, g.stage.app.screen.width));
   if (factor === g.uiScale) return;
   g.uiScale = factor;
-  // The bar scales with the HUD layer, so its real-px inset does too
-  // (amendment 208: the intel waypoint keeps the radar disc above it). The
-  // moved flag is ignored: the ring-fed fog hysteresis (feedCameraRing) re-bakes.
-  g.camera.setBottomInset(hudBarTopInset() * factor);
   g.stage.layers.hud.scale.set(factor);
   setUiScaleVar(factor);
 }
@@ -4781,11 +4739,6 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // sinking captain is emphatically not spectating (frames.ts's
       // `spectates()` is `isSunk`-based, so the window stays fogged and keeps
       // `you`), so helm, aim and trigger keep riding the wire all the way down.
-      // The window's edges, observed BEFORE this tick's mouse hold is sampled
-      // (review patch P3): a stream that was live when the refit opened could
-      // otherwise contribute one more sample before the next render frame ran
-      // `endHolds()`. Idempotent — the render frame still runs it too.
-      watchRefitWindow(g);
       if (g.state.spectating) return;
       const { aim, aimDist } = tickAim(g);
       // THE RELEASE EDGE RUNS FIRST, before the wire slot is read: a hold that
@@ -4842,7 +4795,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
       else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
       g.flashBursts.render(nowMs); // FLASH SHELLS discs age on the frame clock they spawned on
-      syncRefitBand(g);
+      syncOfferGroup(g);
       g.contactViews.render(
         g.contacts,
         now - CLIENT_CONFIG.net.interpDelayMs,

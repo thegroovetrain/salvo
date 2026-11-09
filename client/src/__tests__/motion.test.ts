@@ -6,12 +6,12 @@ import { describe, it, expect } from 'vitest';
 import { ShakeDriver, shakeMagnitude } from '../render/shake.js';
 import { vignetteAlpha } from '../render/zone.js';
 import { effectPeakAlpha, isJuiceEffect } from '../render/effects.js';
-import { slotFlags, slotSkin, type HotbarView } from '../render/hotbar.js';
-import { hullFillAlpha, hullPulseHz } from '../render/hpGlobe.js';
+import { rowSkin } from '../render/console/weaponsConsole.js';
+import { hullFillAlpha, hullPulseHz } from '../render/console/hull.js';
 import { motionIntensity, motionScaled } from '../settings/store.js';
 import { hullLook } from '../render/ships.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { CONFIG, DEFAULT_CLASS_ID, effectiveStats } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 
 /** A deterministic rng so the shake offset is a pure function of magnitude. */
 const RNG = (): number => 0;
@@ -62,7 +62,7 @@ describe('storm vignette — the PULSE is motion, the hazard is information', ()
 // breathing is motion, the fill itself (height + threshold color + base alpha)
 // is information and survives at every level.
 describe('HP rail pulse — the BREATHING is motion, the hull reading is information', () => {
-  const V = CLIENT_CONFIG.vitals;
+  const V = CLIENT_CONFIG.console.hull;
   const CRITICAL = 0.2; // 20% hull — well inside the pulsing band
   const PEAK = Math.PI / 2; // the phase where the breath is at its crest
 
@@ -71,7 +71,7 @@ describe('HP rail pulse — the BREATHING is motion, the hull reading is informa
       hullFillAlpha(CRITICAL, p, motionScaled(V.pulseAmp, 'off')),
     );
     expect(new Set(samples).size).toBe(1);
-    expect(samples[0]).toBe(V.railFillAlpha);
+    expect(samples[0]).toBe(V.fillAlpha);
     expect(samples[0]).toBeGreaterThan(0); // the hull reading never disappears
   });
 
@@ -118,43 +118,26 @@ describe('one-shot effects — juice is gated, markers are not', () => {
   });
 });
 
-describe('hotbar — the ACTIVATED pop is juice; DENIED never is', () => {
-  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
-
-  function view(motion: 'full' | 'reduced' | 'off'): HotbarView {
-    return {
-      loadout: ['gun', 'heavyTorpedo', 'boost', null],
-      ammo: [null, null, null, null],
-      stats,
-      primedSlot: 0,
-      denied: [false, false, true, false],
-      activated: [false, false, true, false],
-      dim: false,
-      motion,
-    };
-  }
-
-  it('suppresses the pop at motion=off and keeps the denial at every level', () => {
-    expect(slotFlags(view('full'), 2)).toEqual({ denied: true, activated: true });
-    expect(slotFlags(view('reduced'), 2)).toEqual({ denied: true, activated: true });
-    expect(slotFlags(view('off'), 2)).toEqual({ denied: true, activated: false });
-  });
-
-  it('scales the slot GLOW amplitude, never the state colors', () => {
-    const full = slotSkin('selected');
-    const off = slotSkin('selected', 0);
+// Story 10.10: the hotbar squares retired into the weapons console's
+// row-buttons; the same rule rides the row skins — the GLOW is motion, the
+// state edge (and the denied red) is information and survives motion=off.
+describe('weapons console — the GLOW is motion; the state edge and DENIED never are', () => {
+  it('scales the row GLOW amplitude, never the state colors', () => {
+    const full = rowSkin('readied', false, 'full');
+    const off = rowSkin('readied', false, 'off');
     expect(off.glowPx).toBe(0);
     expect(off.glowAlpha).toBe(0);
     expect(off.border).toBe(full.border); // the state channel is untouched
     expect(off.washAlpha).toBe(full.washAlpha);
-    const half = slotSkin('selected', 0.5);
-    expect(half.glowPx).toBeCloseTo(full.glowPx / 2, 9);
+    const half = rowSkin('readied', false, 'reduced');
+    expect(half.glowPx).toBeCloseTo(full.glowPx * motionIntensity('reduced'), 9);
   });
 
-  it('the DENIED skin keeps its red edge even with motion off (never silence)', () => {
-    const denied = slotSkin('denied', 0);
-    expect(denied.border).toBe(slotSkin('denied').border);
-    expect(denied.borderWidth).toBe(slotSkin('denied').borderWidth);
+  it('the DENIED edge keeps its red even with motion off (never silence)', () => {
+    const denied = rowSkin('ready', true, 'off');
+    expect(denied.border).toBe(rowSkin('ready', true, 'full').border);
+    expect(denied.width).toBe(rowSkin('ready', true, 'full').width);
+    expect(denied.border).not.toBe(rowSkin('ready', false, 'off').border);
   });
 });
 

@@ -1,11 +1,10 @@
 // THE ABSOLUTE TIER RAMP — one source for every DOM surface that tints a tier.
 //
 // Moved out of `upgradeMenu.ts` (Story 8.21) so the refit card and the results
-// modal's LOADOUT block read the SAME five strings; `upgradeMenu.ts` re-exports
-// `LINEAGE_TIERS` so its existing importers are untouched. The rationale for the
-// ramp itself (the loot-tier convention, Eric ruling 2026-08-19; ABSOLUTE, not
-// normalized) stays on the re-export in `upgradeMenu.ts`. The Pixi bar's twin is
-// `TIER_COLORS` in `render/hotbar.ts` — the same five tokens as numbers.
+// modal's LOADOUT block read the SAME five strings. The ramp itself is the
+// loot-tier convention (Eric ruling 2026-08-19; ABSOLUTE, not normalized).
+// Story 10.10 deleted `upgradeMenu.ts` and the Pixi bar (`render/hotbar.ts`)
+// whose `TIER_COLORS` twin carried the same five tokens as numbers.
 
 import { CLIENT_CONFIG } from '../config.js';
 

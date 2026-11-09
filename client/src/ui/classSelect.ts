@@ -45,7 +45,7 @@ import { CARD_INNER_PX } from './loadoutGrammar.js';
 import { pipFill } from '../util/pips.js';
 import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import { registerCss } from './theme.js';
-import { monoTextWidth } from './refitCardFit.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 import { CLASS_DISPLAY_NAMES } from './classNames.js';
 import {
   LOADOUT_KEY_COL_PX,

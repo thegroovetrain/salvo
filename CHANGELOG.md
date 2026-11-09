@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.19.12] - 2026-11-09
+
+### Added
+- **The ship console.** The left edge of the screen now shows your ship: the hull as a big percent over a ten-segment bar (green, amber under half, red under a quarter, with a lighter segment for HULL REPAIR still coming in), your six numbers ARMOR, POWER, RELOAD, ENGINES, INTEL and RANGE with a five-bar ladder for the cards you hold, the helm (heading, speed, the engine telegraph and the rudder) and your level with its track and the banked-level chip.
+- **The weapons console.** The right edge shows your weapons as five tall buttons: Main Battery, Secondaries, Torpedo, Mines and Special. Each says READY, ARMED or LOCKED, shows its tier and its key, has its own reload clock for every turret, tube and mine rack with the seconds counting down inside, and lists its damage, range and reload underneath. Your held mines show as pips beside each rack, and the secondaries show their heat bar. Click a Torpedo, Mines or Special button to ready it, same as its key. Under them are three big buttons for C (HULL REPAIR), V (SMOKE SCREEN) and your Shift ability.
+- **The offer group.** Level-up cards now sit as small cards on the right edge, between the kill feed and the weapons console, whenever you have a level to spend. Click a card, or hold Tab and press 1 to 4, to take it. At the countdown the REDRAW button sits under them.
+
+### Changed
+- **No lockout.** Picking an upgrade never stops your guns, your keys or your ship: the cards are always there while you have levels to spend, and nothing opens or closes.
+- **Damage is shown against an average hull.** Every DAMAGE number on the weapons console is what that weapon deals to a ship with 100 ARMOR, so your POWER shows up in it. The game's damage itself is unchanged.
+- **Hover a card to see what it does.** Hovering an offer card turns every number it would change amber on both consoles, with an arrow and the new value.
+- **The top row is restyled.** The match bar (afloat, kills, clock, ring, kill leader) and the kill feed keep their content and their places, in the consoles' smaller type, with a thin line under the match bar.
+
+### Removed
+- **The bottom bar.** The HP and helm globes, the weapon squares and the XP strip at the bottom of the screen are gone; the consoles replace them.
+- **The Tab window.** Tab no longer opens a refit window; it only picks a card when held with 1 to 4. Pressing 1 to 4 on its own does nothing.
+- **The level-up toast.** No more `LEVEL UP — TAB TO REFIT` message; the cards appearing on the right edge are the signal.
+
 ## [0.19.11] - 2026-11-07
 
 ### Added
