@@ -66,6 +66,12 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(offerView(ownShip({ pts: 0, offer: [] }), false, false, false)).toBeNull();
   });
 
+  it('fails CLOSED on an offer longer than the ruled size (no view, no card past the grid)', () => {
+    const over = [...OFFER, 'power'].slice(0, CONFIG.offer.size + 1);
+    expect(over.length).toBeGreaterThan(CONFIG.offer.size);
+    expect(offerView(ownShip({ offer: over }), false, false, false)).toBeNull();
+  });
+
   it('resolves the front offer to four cards with the ratified copy', () => {
     const view = offerView(ownShip(), false, false, false);
     expect(view?.options.map((o) => o.id)).toEqual(OFFER);

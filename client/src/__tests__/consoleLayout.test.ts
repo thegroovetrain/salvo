@@ -6,8 +6,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { CLIENT_CONFIG } from '../config.js';
-import { monoCharWidth } from '../util/monoMeasure.js';
+import { monoCharWidth, monoTextWidth } from '../util/monoMeasure.js';
 import {
+  OFFER_TOP,
   STATS_LINE_W,
   WEAPON_ROW_KINDS,
   ABILITY_KINDS,
@@ -86,7 +87,7 @@ describe('consoleLayout — on screen, nothing overlapping (O2, O14)', () => {
         });
 
         it(`${tag}: the offer clears the weapons console by the ruled gap`, () => {
-          expect(l.offerClear).toBe(true);
+          expect(l.offerPlacement).toBe('right');
           expect(bottom(l.offer.frame) + K.offer.clearGap).toBeLessThanOrEqual(l.weapons.frame.y);
         });
       }
@@ -107,9 +108,71 @@ describe('consoleLayout — on screen, nothing overlapping (O2, O14)', () => {
     }
   });
 
-  it('reports — never throws — a viewport the offer cannot clear', () => {
-    const l = consoleLayout(1366 / 1.25, 768 / 1.25, { countdown: true });
-    expect(typeof l.offerClear).toBe('boolean');
+});
+
+/** The short LOGICAL viewports (O15): 1600×900 at the 125 % tier (= 1280×720)
+ *  and the ratified 125 % floor, 1280×614. */
+const SHORT = [{ w: 1600 / 1.25, h: 900 / 1.25 }, { w: 1280, h: 614 }];
+const MINES_ROW = WEAPON_ROW_KINDS.indexOf('mines');
+
+/** The widest chrome-bar row the match prints, on the bar's own width model. */
+const CHROME_ROW_W = monoTextWidth('12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34', CLIENT_CONFIG.chromeBar.fontSize, CLIENT_CONFIG.chromeBar.letterSpacing);
+
+describe('consoleLayout — the constrained-height dock (O15)', () => {
+  it('keeps the offer on the right edge where it clears (the floor and the reference)', () => {
+    for (const vp of VIEWPORTS) {
+      for (const countdown of [false, true]) {
+        expect(consoleLayout(vp.w, vp.h, { countdown, statsTwoLine: GROWTH.mainBattery }).offerPlacement).toBe('right');
+      }
+    }
+  });
+
+  for (const vp of SHORT) {
+    for (const countdown of [false, true]) {
+      for (const [name, statsTwoLine] of [['main battery', GROWTH.mainBattery], ['captive mines', WEAPON_ROW_KINDS.map((_, i) => i === MINES_ROW)]] as const) {
+        const tag = `${vp.w}×${vp.h} countdown=${countdown} ${name} grown`;
+        const l = consoleLayout(vp.w, vp.h, { countdown, statsTwoLine });
+
+        it(`${tag}: the offer cannot clear the weapons console on the right, so it docks top-left`, () => {
+          expect(OFFER_TOP + l.offer.frame.h + K.offer.clearGap).toBeGreaterThan(l.weapons.frame.y);
+          expect(l.offerPlacement).toBe('topLeft');
+          expect(l.offer.frame.x).toBe(K.sideInset);
+          expect(l.offer.frame.w).toBe(K.width);
+        });
+
+        it(`${tag}: every rect is inside the frame`, () => {
+          for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
+        });
+
+        it(`${tag}: offer, ship console, weapons console and ability buttons never overlap`, () => {
+          // The weapons frame holds its ability buttons (rows + C · V · Shift).
+          for (const a of l.abilities) expect(inside(a, l.weapons.frame.x + l.weapons.frame.w, bottom(l.weapons.frame))).toBe(true);
+          const blocks = [l.offer.frame, weaponsBlock(l), l.ship.frame];
+          for (let i = 0; i < blocks.length; i++) {
+            for (let j = i + 1; j < blocks.length; j++) expect(overlaps(blocks[i], blocks[j]), `${i}/${j}`).toBe(false);
+          }
+          expect(bottom(l.offer.frame) + K.offer.clearGap).toBeLessThanOrEqual(l.ship.frame.y);
+        });
+
+        it(`${tag}: the docked offer stays clear of the centred chrome bar, the ship console of its clearance`, () => {
+          expect(l.offer.frame.x + l.offer.frame.w).toBeLessThan(vp.w / 2 - CHROME_ROW_W / 2);
+          expect(l.ship.frame.y).toBeGreaterThanOrEqual(K.ship.topClearance);
+          expect(l.ship.frame.h).toBeGreaterThanOrEqual(SHIP_CONSOLE_MIN_H);
+        });
+      }
+    }
+  }
+
+  it('places the offer by the HOVER-FREE growth, so a hover cannot flip the dock under the pointer', () => {
+    // At the floor's countdown, every growable row grown would push the offer
+    // off the right edge; with the hover-free flags none, it stays put.
+    const vp = FLOOR;
+    const grown = consoleLayout(vp.w, vp.h, { countdown: true, statsTwoLine: GROWTH.everyGrowable });
+    const hovered = consoleLayout(vp.w, vp.h, { countdown: true, statsTwoLine: GROWTH.everyGrowable, placementTwoLine: GROWTH.none });
+    const plain = consoleLayout(vp.w, vp.h, { countdown: true, statsTwoLine: GROWTH.none });
+    expect(grown.offerPlacement).toBe('topLeft');
+    expect(hovered.offerPlacement).toBe(plain.offerPlacement);
+    expect(hovered.weapons.frame.h).toBe(grown.weapons.frame.h);
   });
 });
 
@@ -268,6 +331,12 @@ describe('statsNeedTwoLines — the measured growth hook', () => {
   it('keeps a line that fits the row on one line, and grows the first glyph over', () => {
     expect(statsNeedTwoLines('X'.repeat(fit))).toBe(false);
     expect(statsNeedTwoLines('X'.repeat(fit + 1))).toBe(true);
+  });
+
+  it('measures at the counter-scale the line is DRAWN at (the 90 % UI tier)', () => {
+    const line = 'X'.repeat(Math.floor(256 / glyph)); // ~256 px at 100 %
+    expect(statsNeedTwoLines(line, 1)).toBe(false);
+    expect(statsNeedTwoLines(line, 1 / 0.9)).toBe(true);
   });
 });
 

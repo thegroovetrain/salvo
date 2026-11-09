@@ -1946,6 +1946,10 @@ export const CLIENT_CONFIG = {
       redrawH: 30,
       redrawW: 112,
       clearGap: 12,
+      /** O15 (gate ruling 2026-11-09): on a viewport too short for the
+       *  right-edge stack the group DOCKS TOP-LEFT at (`sideInset`, this) —
+       *  the kill feed's own top edge, on the free corner. */
+      dockTop: 16,
       /** The card face (ui/offerGroup.ts): the glyph box and the glyph in it,
        *  the inner padding. */
       glyphBox: 28,

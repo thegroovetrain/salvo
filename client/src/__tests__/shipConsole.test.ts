@@ -72,6 +72,14 @@ describe('consoleMicroScale — the 9 px registers never shrink below the floor'
 });
 
 describe('ShipConsole — the Pixi composition', () => {
+  it('keeps the last heading on an unreadable one (no re-assign, no NaN on the glass)', () => {
+    const c = build();
+    c.update(view({ headingRad: 0 }), LAYOUT);
+    const shown = c.headingReadout;
+    c.update(view({ headingRad: Number.NaN }), LAYOUT);
+    expect(c.headingReadout).toBe(shown);
+  });
+
   it('starts hidden and shows on its first frame, with the hull percent off the view', () => {
     const c = build();
     expect(c.visible).toBe(false);

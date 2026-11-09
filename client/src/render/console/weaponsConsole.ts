@@ -29,8 +29,19 @@ import { traceDashed } from '../../util/poly.js';
 import { tierRampColor } from '../../ui/tierRamp.js';
 import { drawEquipmentIcon } from '../equipmentIcons.js';
 import { keyChipGlyphColor } from '../keyChip.js';
-import { inRect, rowSlot, type AbilityRect, type ConsoleHit, type ConsoleLayout, type Rect, type WeaponRowRect } from './layout.js';
-import type { AbilityModel, AbilityState, MountClock, PreviewMark, PreviewMarks, RowState, WeaponRowModel } from './readouts.js';
+import {
+  WEAPON_ROW_KINDS,
+  inRect,
+  rowSlot,
+  statsNeedTwoLines,
+  type AbilityRect,
+  type ConsoleHit,
+  type ConsoleLayout,
+  type Rect,
+  type WeaponRowRect,
+} from './layout.js';
+import { rowStats } from './readouts.js';
+import type { AbilityModel, AbilityState, MountClock, PreviewMark, PreviewMarks, Readout, RowState, WeaponRowModel } from './readouts.js';
 
 const C = CLIENT_CONFIG.colors;
 const K = CLIENT_CONFIG.console;
@@ -130,6 +141,30 @@ export function consoleChipWidth(glyph: string): number {
 export function markedValue(value: string, mark: PreviewMark | undefined): { text: string; amber: boolean } {
   if (mark === undefined) return { text: value, amber: false };
   return { text: `${mark.value}${mark.direction === 'up' ? '▲' : '▼'}`, amber: true };
+}
+
+/** Pure: the one-line stats text a row PRINTS (`DAMAGE 27×2 · RANGE 950 ·
+ *  RELOAD 9.5S`) — each value in its hover form (`8.0S▼`) under a mark, the
+ *  same tokens `statTokens` lays out — what the spine measures for growth. */
+export function printedStatsLine(stats: readonly Readout[], preview: PreviewMarks | null): string {
+  let line = '';
+  stats.forEach((r, i) => {
+    const v = markedValue(r.value, preview?.get(r.key)).text;
+    line += `${i > 0 ? ' · ' : ''}${r.label === '' ? v : `${r.label} ${v}`}`;
+  });
+  return line;
+}
+
+/** Pure: every weapon row's two-line verdict on the line it PRINTS (hover
+ *  marks applied) at the counter-scale it is DRAWN at, written into `out`
+ *  (ruled row order); returns the verdicts as bits. */
+export function statsTwoLineFlags(readouts: readonly Readout[], preview: PreviewMarks | null, micro: number, out: boolean[]): number {
+  let bits = 0;
+  WEAPON_ROW_KINDS.forEach((kind, i) => {
+    out[i] = statsNeedTwoLines(printedStatsLine(rowStats(kind, readouts), preview), micro);
+    if (out[i]) bits |= 1 << i;
+  });
+  return bits;
 }
 
 /** Pure: the tier numeral — `II→III` amber under a marked tier, else the ramp. */

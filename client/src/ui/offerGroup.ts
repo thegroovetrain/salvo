@@ -89,6 +89,28 @@ interface CardEls {
   greyed: boolean;
 }
 
+/** What the re-arm reads of a card: refused (greyed) or disabled (locked). */
+export interface RearmCard {
+  greyed: boolean;
+  disabled: boolean;
+}
+
+/** Pure: after a rebuild, the LIVE card a parked pointer is over (`isHovered`
+ *  by index), or null — a refused or locked card is inert and never re-arms. */
+export function rearmChoice(cards: readonly RearmCard[], isHovered: (i: number) => boolean): number | null {
+  const i = cards.findIndex((c, k) => !c.greyed && !c.disabled && isHovered(k));
+  return i < 0 ? null : i;
+}
+
+/** The live DOM's answer: is the pointer over this element now? */
+function pointerOver(e: HTMLElement): boolean {
+  try {
+    return e.matches(':hover');
+  } catch {
+    return false;
+  }
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, css: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   e.style.cssText = css;
@@ -239,6 +261,9 @@ export class OfferGroup {
   constructor(
     private readonly hooks: OfferGroupHooks,
     private readonly budget?: FlashBudget,
+    /** Is the pointer over an element (the re-arm's probe; a seam for jsdom,
+     *  which has no `:hover`). */
+    private readonly isHovered: (e: HTMLElement) => boolean = pointerOver,
   ) {}
 
   get visible(): boolean {
@@ -293,10 +318,26 @@ export class OfferGroup {
     for (const c of this.cards) c.root.remove();
     this.redrawBtn?.remove();
     this.redrawBtn = null;
+    this.redrawPip = null;
     this.renderHeader(view, layout);
     this.cards = view.options.map((card, i) => this.makeCard(card, i, view.locked, layout));
     for (const c of this.cards) root.appendChild(c.root);
     if (layout.redraw !== null && view.redraw !== 'hidden') this.makeRedraw(view, layout);
+    this.rearmHover(view);
+  }
+
+  /** The new buttons under a PARKED pointer get no mouseenter: re-arm the
+   *  glow and the preview on the live card it is over, if any. */
+  private rearmHover(view: OfferView): void {
+    const els = this.cards;
+    const i = rearmChoice(
+      els.map((c) => ({ greyed: c.greyed, disabled: c.root.disabled })),
+      (k) => this.isHovered(els[k].root),
+    );
+    if (i === null) return;
+    paintCard(els[i], true);
+    this.hovered = i;
+    this.hooks.onHover(view.options[i].id);
   }
 
   private renderHeader(view: OfferView, layout: OfferLayout): void {
@@ -331,6 +372,8 @@ export class OfferGroup {
   private wireCard(els: CardEls, line: string, choice: number): void {
     const btn = els.root;
     btn.addEventListener('mouseenter', () => {
+      // A refused card is INERT: no glow, no preview (it would be an amber lie).
+      if (els.greyed) return;
       paintCard(els, true);
       this.hovered = choice;
       this.hooks.onHover(line);

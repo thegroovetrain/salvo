@@ -37,6 +37,7 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   isMineEquipment,
+  pickRefusal,
   rackCapacity,
   rackCount,
   slotsWithCards,
@@ -340,10 +341,13 @@ export function previewReadouts(current: readonly Readout[], next: readonly Read
   return marks;
 }
 
-/** Pure: the marks a hovered card line paints (null: nothing hovered, or an
- *  unknown class). The incoming numbers are a REAL re-fold with the card. */
-export function hoverPreview(you: ReadoutShip, line: string | null): PreviewMarks | null {
+/** Pure: the marks a hovered card line paints (null: nothing hovered, an
+ *  unknown class, or — given the own replayed slot ids — a card the shared
+ *  `pickRefusal` refuses, the very refusal that greys it). The incoming
+ *  numbers are a REAL re-fold with the card. */
+export function hoverPreview(you: ReadoutShip, line: string | null, ownSlots?: readonly (EquipmentId | null)[]): PreviewMarks | null {
   if (line === null) return null;
+  if (ownSlots !== undefined && pickRefusal(you.cards, ownSlots, line) !== null) return null;
   const cur = shipReadouts(you);
   const next = shipReadouts(you, line);
   return cur === null || next === null ? null : previewReadouts(cur, next);
@@ -456,22 +460,26 @@ export function clockNumeral(msLeft: number): string {
   return String(Math.ceil(msLeft / 1000));
 }
 
-/** Pure: one ring off a remaining time against the weapon's folded reload. */
+/** Pure: one ring off a remaining time against the weapon's folded reload. An
+ *  unreadable time (NaN) reads NOT ready, with an empty ring — fail closed. */
 export function mountClock(msLeft: number, reloadMs: number, group = 0): MountClock {
-  const ready = !(msLeft > 0);
-  const progress = ready ? 1 : reloadMs > 0 ? Math.min(1, Math.max(0, 1 - msLeft / reloadMs)) : 0;
+  const ready = Number.isFinite(msLeft) ? msLeft <= 0 : false;
+  const progress = ready ? 1 : reloadMs > 0 && !Number.isNaN(msLeft) ? Math.min(1, Math.max(0, 1 - msLeft / reloadMs)) : 0;
   return { group, ready, progress, msLeft: ready ? 0 : msLeft, numeral: ready ? '' : clockNumeral(msLeft) };
 }
 
 /** A shot that is neither loaded nor loading (behind the one in the breech). */
 const IDLE_CLOCK: MountClock = { group: 0, ready: false, progress: 0, msLeft: 0, numeral: '' };
 
-/** Pure: the special's rounds — `n` loaded, the next one loading, the rest idle. */
+/** Pure: the special's rounds — `n` loaded, the next one loading, the rest
+ *  idle. No ammo state yet (a fitted special before its first frame) reads
+ *  every round idle — NOT ready, never a READY the server has not said. */
 function shotClocks(ammo: WeaponAmmo | null, max: number, reloadMs: number): MountClock[] {
-  const n = ammo?.n ?? 0;
-  return Array.from({ length: Math.max(1, max) }, (_, k) => {
-    if (k < n) return mountClock(0, reloadMs);
-    return k === n ? mountClock(ammo?.reloadMsLeft ?? 0, reloadMs) : IDLE_CLOCK;
+  const length = Math.max(1, max);
+  if (ammo === null) return Array.from({ length }, () => IDLE_CLOCK);
+  return Array.from({ length }, (_, k) => {
+    if (k < ammo.n) return mountClock(0, reloadMs);
+    return k === ammo.n ? mountClock(ammo.reloadMsLeft, reloadMs) : IDLE_CLOCK;
   });
 }
 

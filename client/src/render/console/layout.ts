@@ -22,10 +22,14 @@
 // one measure, on the mono model (util/monoMeasure.ts), that callers use to
 // produce it.
 //
-// THE OFFER'S CLEARANCE is a REPORTED fact, never a throw: `offerClear` says
-// whether `offer.bottom + clearGap ≤ weapons.top` held. The tests pin it true
-// at 1366×768 and 1920×1080; a viewport the HUD cannot fit (the 125 % UI tier
-// on a 768 px screen leaves 614 logical px) must still render, not crash.
+// THE OFFER'S PLACEMENT (plan O15, gate ruling 2026-11-09): the offer is laid
+// on the right edge first (under the kill feed); when `offer.bottom + clearGap`
+// would pass the weapons console's top — the short logical viewports of the
+// 125 % UI tier (1280×720, the ratified floor 1280×614) — it DOCKS TOP-LEFT,
+// the one free corner, and the ship console's top drops under it.
+// `offerPlacement` reports which, never an overlap. The placement reads the
+// HOVER-FREE growth (`opts.placementTwoLine`), so a hover that grows a row
+// cannot flip the dock out from under the pointer that is hovering.
 
 import { INDEX_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
@@ -120,17 +124,23 @@ export interface ConsoleLayout {
   weapons: WeaponsConsoleLayout;
   abilities: AbilityRect[];
   offer: OfferLayout;
-  /** `offer.bottom + clearGap ≤ weapons.top` held (see the header). */
-  offerClear: boolean;
+  /** Where the offer group sits (see the header): the right edge, or docked
+   *  top-left on a viewport too short for the right-edge stack. */
+  offerPlacement: OfferPlacement;
   /** The clear water between the two consoles (px). */
   centerClear: number;
 }
+
+export type OfferPlacement = 'right' | 'topLeft';
 
 export interface ConsoleLayoutOpts {
   /** The countdown: the offer group carries REDRAW. */
   countdown?: boolean;
   /** Per weapon row (ruled order): its stats line needs two lines. */
   statsTwoLine?: readonly boolean[];
+  /** The same flags WITHOUT the hover marks — what decides the offer's
+   *  placement (defaults to `statsTwoLine`). */
+  placementTwoLine?: readonly boolean[];
 }
 
 // --- the measure ------------------------------------------------------------------
@@ -138,9 +148,10 @@ export interface ConsoleLayoutOpts {
 /** The width a stats line has: the row less its side padding. */
 export const STATS_LINE_W = K.width - 2 * ROW.padX;
 
-/** Pure: does this stats-line text overflow one line at the 9 px register? */
-export function statsNeedTwoLines(text: string): boolean {
-  return monoTextWidth(text, K.type.stats, K.type.statsTracking) > STATS_LINE_W;
+/** Pure: does this stats-line text overflow one line at the 9 px register,
+ *  drawn at `micro` (the 9 px registers' counter-scale below 100 % UI scale)? */
+export function statsNeedTwoLines(text: string, micro = 1): boolean {
+  return monoTextWidth(text, K.type.stats, K.type.statsTracking) * micro > STATS_LINE_W;
 }
 
 // --- the weapons console -------------------------------------------------------
@@ -228,9 +239,9 @@ const GAP_GROWTH = SECTION_SEAMS * (GROW.sectionGap - K.sectionGap) + ROW_SEAMS 
  * allows"), never taller than THIS viewport's column, never shorter than its
  * minimum. A taller viewport keeps the floor's height (bottom-anchored, air above).
  */
-export function shipConsoleHeight(screenH: number): number {
+export function shipConsoleHeight(screenH: number, top: number = SHIP.topClearance): number {
   const floorCol = SHIP.floorH - K.bottomInset - SHIP.topClearance;
-  const col = screenH - K.bottomInset - SHIP.topClearance;
+  const col = screenH - K.bottomInset - Math.max(SHIP.topClearance, top);
   return Math.max(SHIP_CONSOLE_MIN_H, Math.min(floorCol, col));
 }
 
@@ -339,10 +350,12 @@ function levelBlock(x: number, bottom: number, f: ShipFill): Pick<ShipConsoleLay
   return { levelRow, bankChip, track };
 }
 
-/** Pure: the ship console, bottom-anchored on the left edge (O6 + R20). */
-export function shipLayout(screenH: number): ShipConsoleLayout {
+/** Pure: the ship console, bottom-anchored on the left edge (O6 + R20);
+ *  `ceiling` is the highest its frame may reach (the chrome bar's clearance,
+ *  or under a docked offer group). */
+export function shipLayout(screenH: number, ceiling: number = SHIP.topClearance): ShipConsoleLayout {
   const x = K.sideInset;
-  const h = shipConsoleHeight(screenH);
+  const h = shipConsoleHeight(screenH, ceiling);
   const f = shipFill(h);
   const top = screenH - K.bottomInset - h;
   const hullLine = { x, y: top, w: K.width, h: SHIP.hullLine };
@@ -376,36 +389,51 @@ export const OFFER_TOP = K.killFeed.top + K.killFeed.clearance + K.killFeed.gap;
  * it". (O3 drew it as a footer under the grid; at 1366×768 that footer cannot
  * clear the weapons console by the ruled 12 px: 178 + 192 + 12 = 382 > 376.)
  */
-export function offerLayout(screenW: number, countdown: boolean): OfferLayout {
-  const x = screenW - K.sideInset - K.width;
+export function offerLayout(screenW: number, countdown: boolean, placement: OfferPlacement = 'right'): OfferLayout {
+  const docked = placement === 'topLeft';
+  const x = docked ? K.sideInset : screenW - K.sideInset - K.width;
+  const top = docked ? OFFER.dockTop : OFFER_TOP;
   const headerH = countdown ? OFFER.redrawH : OFFER.header;
-  const header = { x, y: OFFER_TOP, w: K.width, h: headerH };
-  const gridY = OFFER_TOP + headerH;
+  const header = { x, y: top, w: K.width, h: headerH };
+  const gridY = top + headerH;
   const cards: Rect[] = [];
   for (let i = 0; i < 4; i++) {
     const col = i % 2;
     const row = Math.floor(i / 2);
     cards.push({ x: x + col * (OFFER.cardW + OFFER.gap), y: gridY + row * (OFFER.cardH + OFFER.gap), w: OFFER.cardW, h: OFFER.cardH });
   }
-  const redraw = countdown ? { x: x + K.width - OFFER.redrawW, y: OFFER_TOP, w: OFFER.redrawW, h: OFFER.redrawH } : null;
+  const redraw = countdown ? { x: x + K.width - OFFER.redrawW, y: top, w: OFFER.redrawW, h: OFFER.redrawH } : null;
   const h = headerH + 2 * OFFER.cardH + OFFER.gap;
-  return { frame: { x, y: OFFER_TOP, w: K.width, h }, header, cards, redraw };
+  return { frame: { x, y: top, w: K.width, h }, header, cards, redraw };
+}
+
+/** Pure: O15 — the right edge when the offer clears the (hover-free) weapons
+ *  console's top by the ruled gap there, else docked top-left. */
+export function offerPlacement(screenW: number, screenH: number, countdown: boolean, twoLine: readonly boolean[]): OfferPlacement {
+  const right = offerLayout(screenW, countdown, 'right').frame;
+  const weaponsTop = screenH - K.bottomInset - weaponsConsoleHeight(twoLine);
+  return right.y + right.h + OFFER.clearGap <= weaponsTop ? 'right' : 'topLeft';
 }
 
 // --- the whole spine -----------------------------------------------------------
 
 /** Pure: every console rect for a logical viewport. */
 export function consoleLayout(screenW: number, screenH: number, opts: ConsoleLayoutOpts = {}): ConsoleLayout {
-  const { weapons, abilities } = weaponsLayout(screenW, screenH, opts.statsTwoLine ?? []);
-  const ship = shipLayout(screenH);
-  const offer = offerLayout(screenW, opts.countdown === true);
+  const twoLine = opts.statsTwoLine ?? [];
+  const countdown = opts.countdown === true;
+  const { weapons, abilities } = weaponsLayout(screenW, screenH, twoLine);
+  const placement = offerPlacement(screenW, screenH, countdown, opts.placementTwoLine ?? twoLine);
+  const offer = offerLayout(screenW, countdown, placement);
+  // Under a docked offer the ship console's top drops below it by the same gap.
+  const shipTop = placement === 'topLeft' ? offer.frame.y + offer.frame.h + OFFER.clearGap : SHIP.topClearance;
+  const ship = shipLayout(screenH, shipTop);
   return {
     screen: { w: screenW, h: screenH },
     ship,
     weapons,
     abilities,
     offer,
-    offerClear: offer.frame.y + offer.frame.h + OFFER.clearGap <= weapons.frame.y,
+    offerPlacement: placement,
     centerClear: weapons.frame.x - (ship.frame.x + ship.frame.w),
   };
 }

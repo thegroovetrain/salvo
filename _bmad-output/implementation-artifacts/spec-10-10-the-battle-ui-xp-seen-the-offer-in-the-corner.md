@@ -108,6 +108,8 @@ warnings: ['oversized', 'multiple-goals', 'design-gate']
 
 - 2026-11-09, the sitting's gate (Fable Blind Hunter ×2 + Codex gpt-5.6-sol ×2, on the brief + spec and then on the candidate page): patch 13 (brief: grey on HUD text, RING CLOSES IN, real hover state, R6/R7 opened as explorations, twin turrets, toast kill, Shift generic, placeholder labels, game stat words; spec: pulse clause, copy gate, rate gate; page: game stat words DAMAGE / RANGE / BLAST RADIUS, three non-token colors, discrete outline bands, folded C/V cooldowns, helm needle, TAB token, 1:1 scale toggle, collision note), reject 6 (bands-as-identity, secondaries DMG 3, add-ons not gold, countdown Q/E/R empty, sparse countdown chrome bar — the real bar is hidden pre-live, click-must-pick on a mock), defer 0, intent_gap 0, bad_spec 0.
 
+- 2026-11-09, the build's gate (Fable Blind Hunter BUILD-ON-IT, Fable Edge Case Hunter FIX-FIRST-small, Codex gpt-5.6-sol FIX-FIRST, on `git diff 47b3bfa1 HEAD -- client/src`): patch 5 (stats line measured at the counter-scale with hover marks; top-left dock of the offer group on short logical viewports, O15; hover re-armed after a rebuild; greyed cards inert on hover; latent guards ×4 folded in), defer 2 (ledger: a NaN `readyAt` reads as a frozen cooling button; NaN hp / pts prints — the server never sends them), reject 1 (Tab native under a focused overlay, O16), intent_gap 0, bad_spec 0. Severity: medium 2 (overflow, overlap), low 3.
+
 ## Auto Run Result
 
 Status: blocked

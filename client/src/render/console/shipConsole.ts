@@ -412,9 +412,15 @@ class HelmInstrument {
     });
   }
 
+  /** The HDG readout as drawn (test seam). */
+  get headingReadout(): string {
+    return this.hdg.text;
+  }
+
   private readouts(v: ShipConsoleView, relaid: boolean): void {
     const hdg = Math.round((v.headingRad * 1800) / Math.PI);
-    if (hdg !== this.lastHdg || relaid) {
+    // An unreadable heading keeps the last one drawn: no per-frame string.
+    if (Number.isFinite(hdg) && (hdg !== this.lastHdg || relaid)) {
       this.lastHdg = hdg;
       setText(this.hdg, headingText(v.headingRad));
     }
@@ -639,6 +645,11 @@ export class ShipConsole {
 
   get visible(): boolean {
     return this.root.visible;
+  }
+
+  /** The HDG readout as drawn (test seam). */
+  get headingReadout(): string {
+    return this.helm.headingReadout;
   }
 
   get hullText(): string {

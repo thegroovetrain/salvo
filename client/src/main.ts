@@ -88,7 +88,6 @@ import {
   consoleHit,
   consoleLayout,
   rowSlot,
-  statsNeedTwoLines,
   type ConsoleHit,
   type ConsoleLayout,
 } from './render/console/layout.js';
@@ -101,13 +100,12 @@ import {
   hullAmberChannel,
   hullFraction,
   hullHoldsLit,
-  rowStats,
   weaponRowModels,
   type PreviewMarks,
   type Readout,
 } from './render/console/readouts.js';
-import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
-import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
+import { ShipConsole, consoleMicroScale, type ShipConsoleView } from './render/console/shipConsole.js';
+import { WeaponsConsole, statsTwoLineFlags, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
@@ -711,10 +709,18 @@ interface ConsoleCache {
   stats: EffectiveStats | null;
   slots: readonly (EquipmentId | null)[] | null;
   readouts: readonly Readout[];
-  /** Per weapon row, ruled order: its stats line takes two lines. */
+  /** Per weapon row, ruled order: the line it PRINTS (hover marks applied, at
+   *  the UI tier's counter-scale) takes two lines. */
   twoLine: boolean[];
   /** `twoLine` as bits — part of the layout key. */
   twoLineBits: number;
+  /** The same verdict WITHOUT the hover — what places the offer (O15). */
+  baseTwoLine: boolean[];
+  baseTwoLineBits: number;
+  /** What `twoLine` / `baseTwoLine` were measured off (identity / value). */
+  twoLineReadouts: readonly Readout[] | null;
+  twoLinePreview: PreviewMarks | null;
+  twoLineMicro: number;
   layout: ConsoleLayout | null;
   weapons: WeaponsConsoleLayout | null;
   layoutKey: string;
@@ -732,6 +738,11 @@ function freshConsoleCache(): ConsoleCache {
     readouts: [],
     twoLine: WEAPON_ROW_KINDS.map(() => false),
     twoLineBits: 0,
+    baseTwoLine: WEAPON_ROW_KINDS.map(() => false),
+    baseTwoLineBits: 0,
+    twoLineReadouts: null,
+    twoLinePreview: null,
+    twoLineMicro: Number.NaN,
     layout: null,
     weapons: null,
     layoutKey: '',
@@ -3223,8 +3234,7 @@ function hideConsolesTransient(g: Game): void {
  * EVERY CONSOLE NUMBER (O7), off the own fold — memoised on the fold's
  * identity (`applyOwnStats` swaps `ownStats` / `ownSlots` together whenever the
  * class, the cards, the Shift or the index bonus change), so a frame with
- * nothing new reuses the same array and the consoles redraw nothing. The rows'
- * two-line stats verdict rides the same memo (the spine's measured growth).
+ * nothing new reuses the same array and the consoles redraw nothing.
  */
 function consoleReadoutsNow(g: Game): readonly Readout[] {
   const c = g.consoleCache;
@@ -3232,19 +3242,30 @@ function consoleReadoutsNow(g: Game): readonly Readout[] {
   c.stats = g.ownStats;
   c.slots = g.ownSlots;
   c.readouts = consoleReadouts({ stats: g.ownStats, loadout: g.ownSlots, cards: g.state.net.you?.cards ?? NO_CARDS, cls: g.ownClass });
-  let bits = 0;
-  WEAPON_ROW_KINDS.forEach((kind, i) => {
-    c.twoLine[i] = statsNeedTwoLines(statsLineText(rowStats(kind, c.readouts)));
-    if (c.twoLine[i]) bits |= 1 << i;
-  });
-  c.twoLineBits = bits;
   return c.readouts;
 }
 
-/** The one-line stats text a row prints (`DAMAGE 27×2 · RANGE 950 · RELOAD 9.5S`)
- *  — what the spine measures to decide a row's growth. */
-function statsLineText(stats: readonly Readout[]): string {
-  return stats.map((r) => (r.label === '' ? r.value : `${r.label} ${r.value}`)).join(' · ');
+/**
+ * THE ROWS' MEASURED GROWTH (the spine's input): each row's stats line as the
+ * console PRINTS it — the hover marks applied, at the UI tier's counter-scale —
+ * measured again only when the fold, the hover's marks (memoised on
+ * `g.hoverLine`, so a hover IS part of this key) or the UI scale moved. The
+ * hover-free verdict rides beside it: it alone places the offer group (O15),
+ * so a hover cannot flip the dock out from under the pointer.
+ */
+function statsTwoLineNow(g: Game): void {
+  const c = g.consoleCache;
+  const readouts = consoleReadoutsNow(g);
+  const preview = hoverMarksNow(g);
+  const micro = consoleMicroScale(g.uiScale);
+  if (c.twoLineReadouts === readouts && c.twoLinePreview === preview && c.twoLineMicro === micro) return;
+  if (c.twoLineReadouts !== readouts || c.twoLineMicro !== micro) {
+    c.baseTwoLineBits = statsTwoLineFlags(readouts, null, micro, c.baseTwoLine);
+  }
+  c.twoLineBits = statsTwoLineFlags(readouts, preview, micro, c.twoLine);
+  c.twoLineReadouts = readouts;
+  c.twoLinePreview = preview;
+  c.twoLineMicro = micro;
 }
 
 /**
@@ -3254,28 +3275,30 @@ function statsLineText(stats: readonly Readout[]): string {
  * this ONE object.
  */
 function consoleLayoutNow(g: Game): ConsoleLayout {
-  consoleReadoutsNow(g); // the rows' growth is part of the key
+  statsTwoLineNow(g); // the rows' growth (fold · hover · UI tier) is part of the key
   const c = g.consoleCache;
   const w = hudWidth(g);
   const h = hudHeight(g);
   const countdown = (publicState(g).matchPhase ?? 'waiting') === 'countdown';
-  const key = `${w}|${h}|${countdown ? 1 : 0}|${c.twoLineBits}`;
+  const key = `${w}|${h}|${countdown ? 1 : 0}|${c.twoLineBits}|${c.baseTwoLineBits}`;
   if (c.layout !== null && key === c.layoutKey) return c.layout;
   c.layoutKey = key;
-  c.layout = consoleLayout(w, h, { countdown, statsTwoLine: c.twoLine });
+  c.layout = consoleLayout(w, h, { countdown, statsTwoLine: c.twoLine, placementTwoLine: c.baseTwoLine });
   c.weapons = { ...c.layout.weapons, abilities: c.layout.abilities };
   return c.layout;
 }
 
 /** THE HOVER PREVIEW (R18): the hovered offer card's marks — a REAL re-fold of
- *  `effectiveStats` with the card (`hoverPreview`), memoised on (line, fold). */
+ *  `effectiveStats` with the card (`hoverPreview`), memoised on (line, fold).
+ *  A REFUSED card (the shared `pickRefusal` over the replayed slot ids — the
+ *  refusal `offerView` greys it on) previews nothing: no amber lie. */
 function hoverMarksNow(g: Game): PreviewMarks | null {
   const c = g.consoleCache;
   if (c.previewLine === g.hoverLine && c.previewStats === g.ownStats) return c.preview;
   c.previewLine = g.hoverLine;
   c.previewStats = g.ownStats;
   const you = g.state.net.you;
-  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT }, g.hoverLine) : null;
+  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT }, g.hoverLine, g.ownSlots) : null;
   return c.preview;
 }
 

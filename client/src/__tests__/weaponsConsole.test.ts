@@ -7,13 +7,16 @@
 import { describe, it, expect } from 'vitest';
 import { Container, Graphics, Text } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { consoleLayout, rowSlot, WEAPON_ROW_KINDS, type WeaponRowKind } from '../render/console/layout.js';
+import { STATS_LINE_W, consoleLayout, rowSlot, WEAPON_ROW_KINDS, type WeaponRowKind } from '../render/console/layout.js';
+import { monoCharWidth } from '../util/monoMeasure.js';
 import type { AbilityModel, MountClock, PreviewMark, Readout, WeaponRowModel } from '../render/console/readouts.js';
 import {
   WeaponsConsole,
   extraMarks,
   markedValue,
+  printedStatsLine,
   statTokens,
+  statsTwoLineFlags,
   type WeaponsConsoleLayout,
   type WeaponsConsoleView,
 } from '../render/console/weaponsConsole.js';
@@ -270,5 +273,31 @@ describe('dim', () => {
     expect(layer.children[0].alpha).toBe(CLIENT_CONFIG.console.dimAlpha);
     c.update(view(), LAYOUT);
     expect(layer.children[0].alpha).toBe(1);
+  });
+});
+
+describe('statsTwoLineFlags — the spine measures the line the console PRINTS', () => {
+  const T = CLIENT_CONFIG.console.type;
+  const glyph = monoCharWidth(T.stats, T.statsTracking);
+  // One torpedo stats field whose printed line sits just inside one line.
+  const fit = Math.floor(STATS_LINE_W / glyph);
+  const value = 'X'.repeat(fit - 'DAMAGE '.length - 1);
+  const key = 'row.torpedo.damage';
+  const readouts: Readout[] = [{ key, label: 'DAMAGE', value, raw: 1, role: 'stat' }];
+  const row = WEAPON_ROW_KINDS.indexOf('torpedo');
+
+  it('a row that fits stays one line; a hover mark that lengthens it past the width grows it', () => {
+    const out: boolean[] = [];
+    expect(statsTwoLineFlags(readouts, null, 1, out)).toBe(0);
+    expect(out[row]).toBe(false);
+    const marks = new Map([[key, { key, value: `${value}XX`, raw: 2, from: 1, direction: 'up' as const }]]);
+    expect(printedStatsLine(readouts, marks)).toContain(markedValue(value, marks.get(key)).text);
+    expect(statsTwoLineFlags(readouts, marks, 1, out)).toBe(1 << row);
+    expect(out[row]).toBe(true);
+  });
+
+  it('grows the same row at the 90 % tier counter-scale', () => {
+    const out: boolean[] = [];
+    expect(statsTwoLineFlags(readouts, null, 1 / 0.9, out)).toBe(1 << row);
   });
 });

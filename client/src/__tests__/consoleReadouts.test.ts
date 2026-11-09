@@ -12,6 +12,7 @@ import {
   EQUIPMENT_IDS,
   EQUIPMENT_STAT_FIELDS,
   INDEX_IDS,
+  SLOT_COUNT,
   damageMultiplierFor,
   effectiveStats,
   initialRacks,
@@ -171,6 +172,13 @@ describe('hoverPreview — the incoming values ARE effectiveStats with the card 
     expect(m.raw).toBe(step.next);
   });
 
+  it('a REFUSED card (the shared pickRefusal over the own slots) previews nothing', () => {
+    const full = ['gun', 'boost', 'lightTorpedo', 'navalMines', 'starShells', ...Array.from({ length: SLOT_COUNT - 5 }, () => null)] as const;
+    const you = { ...SHIP, cards: ['lightTorpedo'] };
+    expect(hoverPreview(you, 'heavyTorpedo', full)).toBeNull();
+    expect(hoverPreview(you, 'power', full)).not.toBeNull();
+  });
+
   it('nothing hovered → no marks', () => {
     expect(hoverPreview(SHIP, null)).toBeNull();
   });
@@ -283,6 +291,20 @@ describe('clocks and abilities', () => {
     expect(clockNumeral(6100)).toBe('7');
     expect(mountClock(0, 9000)).toMatchObject({ ready: true, progress: 1, numeral: '' });
     expect(mountClock(4500, 9000).progress).toBeCloseTo(0.5, 9);
+  });
+
+  it('an unreadable remaining time reads NOT ready (fail closed), with a finite ring', () => {
+    const c = mountClock(Number.NaN, 9000);
+    expect(c.ready).toBe(false);
+    expect(Number.isFinite(c.progress)).toBe(true);
+    expect(c.numeral).toBe('');
+  });
+
+  it('a fitted special with no ammo state yet reads NOT ready', () => {
+    const special = weaponRowModels(weaponsInput(['starShells']))[WEAPON_ROW_KINDS.indexOf('special')];
+    expect(special.id).not.toBeNull();
+    expect(special.clocks.some((c) => c.ready)).toBe(false);
+    expect(special.state).not.toBe('ready');
   });
 
   it('C · V · Shift in order with their keys; cooling reads off the server stamp', () => {

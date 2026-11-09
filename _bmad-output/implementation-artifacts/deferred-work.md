@@ -3771,3 +3771,13 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - Eric's idea, parked for a later story by his ruling (epic-10 amendment 16 (h), R8) - 2026-11-09 (Story 10.10 design sitting)
   summary: MANUAL MOUNT SELECTION ON THE BARE DIGITS - Eric, verbatim: "I was thinking perhaps that bare digits could be used to select a specific turret or torpedo launcher? Like ~ to go back to 'auto' mode, but i could manually fire my fore turret by pressing 1. Or if I have torpedoes active, I can press 1 to select just my fore turret." A shared fire-pick change (`pickTurret` / `pickTube`) plus an input field (`inputs.ts`, PROTOCOL_VERSION) - not a HUD change; bare digits stay inert in 10.10; Tab+1..4 is the card pick.
   evidence: `shared/src/sim/turrets.ts` (`pickTurret`), `shared/src/sim/launchers.ts` (`pickTube`), `server/src/game/inputs.ts`, `client/src/input/keyboard.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's pen (copy) - 2026-11-09 (Story 10.10 build, cycle 218)
+  summary: THE SETTINGS ROW `(NONE) · GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT` IS FALSE SINCE THE CONSOLES - there is no hotbar tile; a click on the MAIN BATTERY row is swallowed. Needs Eric's wording (or deletion of the row).
+  evidence: `client/src/ui/settings.ts` `bindingRows()`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's call on staging - 2026-11-09 (Story 10.10 build, cycle 218; orchestrator readings, epic-10 amendment 17)
+  summary: CONSOLE READINGS FOR ERIC'S VETO - (1) the FIT flash (the fitted square's frame flash) and the ability ACTIVATED pop were DROPPED, not re-homed: the console shows a fit as the values changing plus the `◆ … FITTED` toast; (2) at 1366×768 the ship console fills its column by growing elements to their caps and then spreading ~160 px of slack into the gaps (~36 px section / ~28 px row) - judge on staging whether that reads "filled"; (3) the weapon-row stat words are the refit card's (`DAMAGE` / `RANGE` / …) so `RANGE` appears on a weapon row and as the RANGE index; (4) REDRAW sits BESIDE the offer header (the footer did not fit at 1366×768 under the weapons console); (5) the kill-leader `YOU ARE THE KILL LEADER` toast and the `◆ … FITTED` receipts still use the top-center toast stack - only the level-up line died (R10).
+  evidence: `client/src/main.ts` (`onBoonFitted` no-op), `client/src/render/console/layout.ts` (`shipFill`, `offerLayout`), `client/src/render/console/readouts.ts` (`rowStatFields`), `client/src/ui/upgradeToast.ts`.

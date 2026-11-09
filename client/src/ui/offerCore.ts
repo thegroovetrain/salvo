@@ -16,6 +16,7 @@
 
 import {
   CATALOG,
+  CONFIG,
   MULLIGAN_CHOICE,
   boonStackCount,
   pickRefusal,
@@ -175,6 +176,9 @@ export function offerView(
   // beside it. With the whole view null the band auto-hides, TAB opens nothing
   // and every digit pick falls through main.ts's own guard.
   if (!you || spectating || sinking || you.pts === 0 || you.offer.length === 0) return null;
+  // Fail closed past the ruled size: the group's grid has `CONFIG.offer.size`
+  // cards, and a key past it has no rect (nor a Tab+digit) to land on.
+  if (you.offer.length > CONFIG.offer.size) return null;
   const lines = resolveCards(you.offer, CATALOG);
   if (lines.length !== you.offer.length) return null; // fail-closed: row k == server slot k
   return {
