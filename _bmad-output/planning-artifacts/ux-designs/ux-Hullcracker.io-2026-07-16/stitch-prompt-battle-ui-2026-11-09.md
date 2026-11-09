@@ -35,27 +35,27 @@ STYLE TOKENS (use exactly these):
 - No sentences anywhere on the HUD. A label is one word or "LABEL value". No tutorial text.
 
 LAYOUT — THE SHIP CONTROL STATION:
-The CENTER of the screen is the ocean and the ships, kept completely clear of UI. Draw the player's own battleship (top-down, cyan linework, about 130 px long) just below center, one enemy battleship (red linework) upper-right trailing grey smoke, a faint radar lattice, a phosphor sweep wedge, a few radar return "blips" in red/blue/green, and the violet storm ring edge entering one corner.
+The CENTER of the screen is the ocean and the ships, kept completely clear of UI. Draw the player's own battleship (top-down, cyan linework, about 130 px long) just below center, one enemy battleship (red linework) upper-right trailing grey smoke, a faint radar lattice, a phosphor sweep wedge, a few anonymous radar-return cells in the game's three signal-strength bands (red = strong, blue = fuzzy, green = faint — strength, never identity; no cyan), and the violet storm ring edge entering one corner.
 The LEFT edge is the SHIP CONSOLE and the RIGHT edge is the WEAPONS CONSOLE: two instrument columns about 280 px wide, like the consoles either side of a captain's chair. The TOP row carries the match status (center) and the kill feed (right). Default to FLOATING instruments — 1 px outlines and bare readouts drawn over the ocean with the water visible behind them, no panel behind the column.
 
 LEFT — SHIP CONSOLE, top to bottom:
-1. HULL: the hull's health as a whole-number percent, large (e.g. "72" with a small "%" and the label HULL). Phosphor at 50% and above, amber below 50%, crimson below 25%. Make it read unmistakably as the ship's health; propose a gauge shape (a straight segmented bar, or the own-hull outline filling/tinting with damage) rather than a round globe.
+1. HULL: the hull's health as a whole-number percent, large (e.g. "72" with a small "%" and the label HULL). Phosphor at 50% and above, amber below 50%, crimson below 25%. Make it read unmistakably as the ship's health. THE GAUGE SHAPE IS OPEN: for this master, use a large numeral over a straight segmented bar; Exploration 3 below asks for the alternatives (own-hull outline tinted by damage; today's round water-fill globe kept for comparison). In every form, passive regen and HULL REPAIR show as a visible upward climb of the gauge.
 2. INDICES: six always-visible stat rows, label left and value right, with five small pips showing how many upgrade cards of that stat are fitted: ARMOR 120 · POWER 95 · RELOAD 105 · ENGINES 95 · INTEL 100 · RANGE 95. 100 is average.
 3. ENGINES: heading "HDG 271°" (15 px), speed "18 KTS", a nine-notch engine telegraph drawn as a short ladder with a hollow phosphor marker for the ordered speed and a solid amber needle for the actual speed, a short rudder track with an amber position tick, and W / S / A / D key chips at the ends.
 4. LEVEL: "LV 4" large (18 px or more, phosphor), a progress track beneath it filling left to right toward the next level, and a 24 px outlined chip with the number of banked, unspent levels (hidden at zero).
 
 RIGHT — WEAPONS CONSOLE, top to bottom:
-1. MOUNTS: a small top-down outline of the player's own ship (bow up, cyan) with every weapon mount drawn at its real position: four main-gun turrets, a fore and an aft torpedo launcher, a stern mine rack. Each mount fills with phosphor as it reloads and sits fully lit when ready; a reloading mount shows a thin clock-style arc. Beside the drawing, one compact row per weapon with its glyph, its key chip and its always-visible stats: MAIN BATTERY (LMB) "DMG 27×2 · REACH 950 · RELOAD 9.5S", TORPEDO (Q) one small reload ring per tube, MINES (E) one pip per mine held, SPECIAL SHELL (R) empty dashed.
-2. SECONDARIES: a heat bar (right mouse button, RMB chip) that fills as the guns heat and turns denied-red when overheated; stats "DMG 3 · REACH 475".
+1. MOUNTS — THE RELOAD FORM IS OPEN; this master uses form (C), Exploration 4 asks for (A) and (B): a small top-down outline of the player's own ship (bow up, cyan) with every weapon mount drawn at its real position: four TWIN main-gun turrets (two barrels each, two forward and two aft), a fore and an aft torpedo launcher, a stern mine rack. Each mount fills with phosphor as it reloads and sits fully lit when ready; a reloading mount shows a thin clock-style arc. Beside the drawing, one compact row per weapon with its glyph, its key chip and its always-visible stats: the main battery (LMB chip) "DMG 27×2 · REACH 950 · RELOAD 9.5S", the torpedo (Q) with one small reload ring per tube, the mines (E) with one pip per mine held, the special shell (R) empty and dashed.
+2. SECONDARIES: a heat bar (right mouse button, RMB chip) that fills as the guns heat and turns denied-red when overheated; stats "DMG 3 · REACH 475" (3 damage per round, reach half the main battery's).
 3. Three 54 px weapon squares Q / E / R with their glyphs and key chips under them, tier numeral bottom-right in the tier color; an empty square shows its weapon family's glyph dimmed. A "readied" square (Q pressed) has an amber outline and an amber-filled key chip.
-4. Three ability squares: C (hull repair) and V (smoke screen), each showing a dark clockwise cooldown wipe with a seconds numeral when cooling, and Shift (speed boost).
+4. Three ability squares: C (hull repair) and V (smoke screen), each showing a dark clockwise cooldown wipe with a seconds numeral when cooling, and Shift — the captain's chosen Shift ability (speed boost here; it may be INSTANT RELOAD or HUNKER instead, so draw a generic ability square carrying the ability's glyph).
 
 TOP ROW:
-- Center: one mono status line "12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 0:47 · ☠ GROOVETRAIN" — numbers phosphor, words muted.
-- Right: a three-line kill feed, 14 px mono uppercase, ship names in red (cyan for the player's own), "SUNK BY" in secondary grey.
+- Center: one mono status line "12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 0:47 · ☠ GROOVETRAIN" — numbers phosphor tabular, words in text-primary #E2E8F0 (never muted or secondary grey: HUD text is load-bearing), the ring segment amber in its last 10 s, the kill leader's name in red.
+- Right: a three-line kill feed, 14 px mono uppercase, ship names in red (cyan for the player's own), "SUNK BY" in text-primary #E2E8F0.
 
 THE UPGRADE OFFER (shown only when a level is banked — show it here with 2 banked levels):
-A compact group of four small cards (about 150×64 px each) in a corner — propose the corner: bottom-right above the weapons console, bottom-left above the ship console, top-left, or a vertical stack on the right edge. Each card: a 28 px glyph box, the upgrade name in 11 px mono uppercase (e.g. ARMOR, LIGHT TORPEDO, SECOND TUBE, SMOKE SCREEN), a tier mark in the tier color it grants, and a key chip reading "TAB+1" … "TAB+4". A header reads "2 LEVELS". No window opens, nothing locks: the player clicks a card or presses Tab plus its digit while still steering and firing. Hovering a card makes it glow in its tier color AND previews its effect on the consoles: the affected readout shows the incoming value beside the current one in that tier color (e.g. ARMOR 120 → 140, with a fifth pip lit hollow).
+A compact group of four small cards (about 150×64 px each) in a corner — propose the corner: bottom-right above the weapons console, bottom-left above the ship console, top-left, or a vertical stack on the right edge. Each card: a 28 px glyph box, the upgrade name in 11 px mono uppercase (e.g. ARMOR, LIGHT TORPEDO, SECOND TUBE, SMOKE SCREEN), a tier mark in the tier color it grants, and a key chip reading "TAB+1" … "TAB+4". A header reads "2 LEVELS". No window opens, nothing locks: the player clicks a card or presses Tab plus its digit while still steering and firing. Hovering a card makes it glow in its tier color AND previews its effect on the consoles: the affected readout shows the incoming value beside the current one in that tier color (e.g. ARMOR 120 → 140 for the first Armor card: phosphor, tier I, with the FIRST pip lit hollow). No level-up toast, banner or center message anywhere: the card's arrival in the group is the only level-up cue. Stat labels and section headings in this prompt are placeholders — keep them short, but they are not final copy.
 
 GUARDRAIL: information noise must never bury the hunt. Every instrument must earn its place; prefer fewer, larger, clearer readouts. The water is the hero.
 ```
@@ -65,13 +65,13 @@ GUARDRAIL: information noise must never bury the hunt. Every instrument must ear
 ## STATE VARIANT A — offer pending, hover preview
 
 ```
-Same screen. The player has 2 banked levels. Show the upgrade group with four cards: ARMOR (tier II color), LIGHT TORPEDO II→III, SECOND TUBE (gold, a one-off), SMOKE SCREEN I→II; header "2 LEVELS"; key chips TAB+1 to TAB+4. The cursor hovers card 1 (ARMOR): the card glows blue (its tier color) and on the ship console the ARMOR row reads "120 → 140" with the incoming value in blue and a fifth pip lit hollow. Everything else keeps running: two turrets are mid-reload on the mounts drawing, the sweep is turning. No overlay, no dimming, no lockout.
+Same screen. The player has 2 banked levels. Show the upgrade group with four cards: ARMOR (the first card: tier I, phosphor), LIGHT TORPEDO II→III (blue → violet), SECOND TUBE (a one-off launcher add-on: gold, no tier numeral), SMOKE SCREEN I→II; header "2 LEVELS"; key chips TAB+1 to TAB+4. The cursor hovers card 1 (ARMOR): the card glows phosphor (its tier color) and on the ship console the ARMOR row reads "120 → 140" with the incoming value in phosphor and the first pip lit hollow. Everything else keeps running: two turrets are mid-reload on the mounts drawing, the sweep is turning. No overlay, no dimming, no lockout.
 ```
 
 ## STATE VARIANT B — hull under 25 %, reloads running
 
 ```
-Same screen in a losing fight. Hull 19 %: the hull gauge is crimson (#8B0000 fill, #FF6666 marker) and breathes slowly (no faster than about one pulse per second). All four turrets are reloading at different points of their clocks; the torpedo tube is reloading; the secondaries heat bar is full and locked in denied red; C (hull repair) shows a cooldown wipe with "41" inside; V is ready. A torpedo wake is visible on the water heading toward the own ship. The level readout and indices are unchanged. Nothing on the consoles flashes; only the hull gauge breathes.
+Same screen in a losing fight. Hull 19 %: the hull gauge is crimson (#8B0000 fill, #FF6666 marker) and breathes as an opacity pulse at about one cycle per second (the game's ratified hull pulse, capped at 1.1 Hz — the one exception to the 2 s breathing rule; never on/off strobing). All four turrets are reloading at different points of their clocks; the torpedo tube is reloading; the secondaries heat bar is full and locked in denied red; C (hull repair) shows a cooldown wipe with "41" inside; V is ready. A torpedo wake is visible on the water heading toward the own ship. The level readout and indices are unchanged. Nothing on the consoles flashes; only the hull gauge breathes.
 ```
 
 ## STATE VARIANT C — countdown with REDRAW
@@ -94,10 +94,24 @@ Same screen, alternative treatment: make the two side consoles SOLID instrument 
 Same screen, generate four variants that differ only in where the four-card upgrade group sits: (1) bottom-right, stacked just above the weapons console's last square; (2) bottom-left, just above the ship console's level readout; (3) top-left, under the top edge, left of the status line; (4) a vertical stack on the right edge between the kill feed and the weapons console. In each, show the "2 LEVELS" header and TAB+1…TAB+4 chips, and keep the screen center clear.
 ```
 
+## OPTIONAL EXPLORATION 3 — the hull gauge
+
+```
+Same screen, generate three variants that differ only in the HULL gauge on the ship console: (1) a large percent numeral over a straight ten-segment bar; (2) the player's own hull drawn small in cyan linework, its interior tinting from phosphor toward crimson as health falls with hairline cracks appearing below 50 % and 25 %, the percent numeral beside it; (3) today's gauge for comparison — a 104 px round glass globe filling with phosphor "water" to the health level, the percent inside. In every variant show the same 72 % state and a thin lighter segment ahead of the fill marking health being repaired.
+```
+
+## OPTIONAL EXPLORATION 4 — the reload form
+
+```
+Same screen, generate three variants that differ only in how the weapons console shows per-mount reload state: (A) the own-hull mount diagram only — every turret, launcher and rack lit or filling at its real station, key chips beside the mounts, the weapon stat rows kept but without reload rings; (B) compact weapon rows only — a row per weapon with one small reload ring per turret or torpedo tube and one pip per mine, no hull drawing; (C) both — the diagram above the rows. Keep everything else identical.
+```
+
 ---
 
 ## Notes for the reconciliation step (not for Stitch)
 
 - Stitch output is reconciled with `DESIGN.md` before anything is committed: tokens, the 9 px floor, sharp corners, dual-coding, the attention tiers and photosensitivity caps.
 - Open rulings this prompt deliberately leaves open (Eric 2026-11-09): the offer's corner (R4), the per-mount reload form (R6), the hull gauge shape (R7), floating vs solid consoles (R12). Everything else in the master prompt is ruled (R1–R3, R5, R9, R10, R13).
-- Strings that already exist in the game and may appear as-is: HULL, ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE, HDG, KTS, LV, REDRAW, LMB, RMB, MATCH STARTING, AFLOAT, KILLS, RING CLOSES, SUNK BY. New strings introduced by this sitting, for Eric's yes: `TAB+1`…`TAB+4` on the key chips and the `2 LEVELS` header.
+- Strings that already exist in the game and may appear as-is: HULL, ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE, HDG, KTS, LV, REDRAW, LMB, RMB, MATCH STARTING, AFLOAT, KILLS, RING CLOSES, SUNK BY, and the card / line names (MAIN BATTERY, LIGHT TORPEDO, SECOND TUBE, SMOKE SCREEN, HULL REPAIR, SPEED BOOST). The capitalized section words in the master prompt (HULL, INDICES, ENGINES, LEVEL, MOUNTS, SECONDARIES) orient Stitch; whether any of them becomes an on-screen label is Eric's call. New strings introduced by this sitting, for Eric's yes: `TAB+1`…`TAB+4` on the key chips, the `2 LEVELS` header, and the stat abbreviations `DMG` / `REACH` / `RELOAD …S` on the weapon rows (the refit card today prints longer row words — the build reuses the card's words unless Eric takes the short forms).
+- Fable Blind Hunter review 2026-11-09 (FIX-FIRST → patched): no muted / secondary grey on HUD text (epic-2 amendment 17), `RING CLOSES IN`, the hover example made a real state (first Armor card = pip one, tier I), the toast kill stated, Shift generic, placeholder labels flagged; its "add-ons wear no tier mark, not gold" was refuted (epic-10 amendment 12(o): launcher / rack cards are GOLD).
+- Cross-model review 2026-11-09 (Codex gpt-5.6-sol, FIX-FIRST → patched): opened R6 / R7 as explorations, named the twin turrets, clarified the band colors as strength not identity and the 1.1 Hz hull pulse as the ratified exception; its "secondaries DMG 3 is wrong" was refuted (amendment 9(c): 3 damage per round).
