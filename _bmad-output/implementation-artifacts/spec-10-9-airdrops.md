@@ -26,6 +26,21 @@ warnings: ['oversized']
 - **R3 Stat glyph at SIGHT ONLY.** Inside truesight the crate shows its stat and amount; on radar it is an anonymous small blip (the same `blip` paint as a hull, one cell, never moving). No new sight-independent wire row. Rejected: glyph at radar range; surprise on pickup.
 - **R4 Crate = 15 u intangible disc.** Not solid, not shootable, never a target or a body; a hull collects it when its silhouette touches the 15 u disc (`pointPolygonDistance ≤ 15`). Rejected: 10 u; 6 u; a solid shootable body.
 
+## Eric's dev-step rulings (2026-11-08, AskUserQuestion on the rendered candidate https://claude.ai/artifact/7aNqNHR8rKMxvCw39z9gMb; literal spec)
+
+- **R5 Crate body = variant A, the square.** Rejected: B float (circle); C parachute.
+- **R6 Pickup tell = the existing phosphor toast** (`+3 ARMOR`; a wreck pickup `+3 ARMOR · +1 INTEL · +5 RANGE`), no tone. Rejected: none; toast + the point tone.
+- **R7 THE AMOUNT IS ROLLED AT PICKUP; A CRATE SHOWS ONLY ITS KIND (ICON + COLOR); THE WRECK PICKUP HAS A UNIQUE ICON AND COLOR.** Eric, verbatim: *"Why are the numerals there? The bonus is rolled AFTER I pick it up. I only need to know that its there, and what type of upgrade it is (icon + color). The one I pick up from a sunk ship should maybe be a unique icon and color, because its not limited to a specific 'type.'"* Model consequence: `DropState.kind: IndexId | 'wreck'`; `DropView {id,x,y,c}`; the roll (`+1..+5`, and the wreck's three stats) happens in `collectDrop` on a pickup sub-stream; the `dp` event carries the rolls. Supersedes this spec's "each carries one random index stat and a random +1..+5" and the W1/W2 `rolls`-at-spawn build. The kind colors and the wreck glyph are shown on a v2 candidate for his pick.
+- **R8 Radar imprint accepted as is:** with the hull's fuzz law a 15 u crate paints a fuzzy blob 5–8 cells across (about 40–70 % of a Bismarck's cell count; measured on the page), not one cell; stillness across sweeps is the tell. Rejected: a sharp 17-cell disc; a single cell.
+
+## Orchestrator rulings at the dev step (Eric may veto any on staging)
+
+- **O1** `spawnDrops` runs AFTER `placeBeacons` (last in `STEP_ORDER`), not before: ring cycles start on minute marks, so the opening batch must test the keep-out against the NEW beacon set.
+- **O2** `dropsLive()` keeps the `xpEnabled` term (the zone clock keeps running in the finished window; no drops after the match ends); the minute clock reads `zoneCfg.beatMs` so a dev `zoneOverride` keeps drops in step with the rings.
+- **O3** The wreck pickup is placed only once the zone has started (`zoneStartT !== null`): a pre-zone sink is a ready-room / sandbox practice sink, and the respawned hull would otherwise collect its own wreck and carry the points into the match (found by the W2a agent). A dev `matchOverride.drops:false` still leaves wreck pickups.
+- **O4** Bots never fold a crate-sized radar return into a hostile track: a return whose fuzzed footprint's longest side is below `CONFIG.bots.cratePaintMaxU` (85 u; a hull paint is ≥ ~99 u even for Warspite, a crate ≤ 72 u) is ignored by the plot — human parity with "a small still return". Found at the gate: farming bots chased crate blips off station.
+- **O5** The crate's disc blip joins the blip subsequence before the payload-only sort (no source-order leak); `drops` is the LAST optional frame channel.
+
 ## Boundaries & Constraints
 
 **Always:**
@@ -121,6 +136,8 @@ warnings: ['oversized']
 - Given a bot idling toward a goal, when a sighted drop lies in its lane, then it steers to it; given the same bot engaged, it does not.
 
 ## Spec Change Log
+
+- 2026-11-08 (dev step, Eric's R7 on the rendered candidate): the drop model moved from rolls-at-spawn to kind-at-spawn / roll-at-pickup. Known-bad state avoided: a crate advertising its amount (Eric: the bonus is rolled after pickup). KEEP: the sight-only `drops` channel, the anonymous disc blip, the `dp` self-private tell, the hard 500 u keep-out, the three-roll wreck.
 
 ## Review Triage Log
 
