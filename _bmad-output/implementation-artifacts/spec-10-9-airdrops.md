@@ -2,7 +2,7 @@
 title: 'Story 10.9: Airdrops'
 type: 'feature'
 created: '2026-11-08'
-status: 'ready-for-dev'
+status: 'in-progress'
 baseline_revision: 'dd14beff'
 review_loop_iteration: 0
 context:
