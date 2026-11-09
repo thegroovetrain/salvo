@@ -2,7 +2,7 @@
 title: 'Story 10.10: The Battle UI — XP Seen, the Offer in the Corner (the full in-game UI/UX pass)'
 type: 'feature'
 created: '2026-11-09'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -112,5 +112,5 @@ warnings: ['oversized', 'multiple-goals', 'design-gate']
 
 ## Auto Run Result
 
-Status: blocked
-Blocking condition: design gate (R14) — Eric's Stitch pass and his pick on the candidate page (corner R4, reload form R6, hull gauge R7, surface R12) are required before the code build starts. Delivered this run: the spec, `stitch-prompt-battle-ui-2026-11-09.md`, `mockups/battle-ui-sitting-2026-11-09.html` (published as a private artifact), epic-10 amendment 16, the ledger entry, the tracker stamps; `npm run check` exit 0 (148 test files); one PR to `development`. Open for Eric's pen: the `RANGE` word collision (weapon row vs the RANGE index), the `TAB+n` chips and `2 LEVELS` header, and the right-mid corner not fitting the `both` reload form at 1366×768.
+Status: in-review
+Blocking condition: none — the design gate (R14) closed the same day with Eric's pick (R15–R20, amendment 17) and the build ran: cycle 218, 0.19.12, PV 100 unchanged (client-only). Waves W1–W3 under `/orchestrate` (Opus builders, Fable + Codex gate), gate patches landed; `npm run check` exit 0 (client 3814 tests); matchSmoke and weaponsSmoke PASS first try; PR #329 to `development` carries the sitting and the build. Eric merges; staging QA of the ship console, the weapons console, the offer group, Tab+1..4 and the hover preview is the gate before main. Open for his pen (ledger): the stale `GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE` settings row; the dropped FIT flash / ACTIVATED pop; the airy 1366×768 ship-console gaps; the `RANGE` word on weapon rows; the top-left dock of the offer on short viewports (O15); REDRAW beside the header.
