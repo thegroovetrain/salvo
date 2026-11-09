@@ -2347,6 +2347,156 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE BATTLE CONSOLES (Story 10.10, Eric 2026-11-09, epic-10 amendments 16 /
+   * 17; the orchestrator plan's O2–O6) — the SHIP console on the left edge,
+   * the WEAPONS console on the right edge and the OFFER GROUP between the kill
+   * feed and the weapons console. They replace the bottom-centre HUD bar, the
+   * Tab refit band and the level-up toast.
+   *
+   * Every size is LOGICAL px (pre-UI-scale, authored at 1080p, fixed — the
+   * bar's rule). The pure spine `render/console/layout.ts` turns these into
+   * rects; nothing else in the game reads a console number from anywhere but
+   * here. The `hull` / `chip` / `tick` sub-blocks carry the ratified timing and
+   * gates the retiring `vitals` / `xpRail` / `hudBar` blocks hold today, by
+   * REFERENCE where the old block already references a shared number.
+   */
+  console: {
+    /** Console width (both consoles and the offer group). */
+    width: 280,
+    /** Gap from the viewport's left / right edges. */
+    sideInset: 18,
+    /** Gap from the viewport's bottom edge — both consoles are bottom-anchored. */
+    bottomInset: 18,
+    /** Gap between the stacked sections of a console. */
+    sectionGap: 12,
+    /** The least clear water between the two consoles at the 1366 floor (O14). */
+    centerClearMin: 700,
+    /** The kill feed's clearance above the offer group: its `top:16px`, up to
+     *  six lines (~150 px), then a 12 px gap — the offer's top edge is
+     *  16 + 150 + 12 = 178. */
+    killFeed: { top: 16, clearance: 150, gap: 12 },
+    /** THE OFFER GROUP (O3): an 18 px header line (the banked count), a 2×2
+     *  grid of 136×64 cards with 8 px gaps, and at the countdown a REDRAW
+     *  button. `clearGap` is the least gap kept above the weapons console. */
+    offer: {
+      header: 18,
+      cardW: 136,
+      cardH: 64,
+      gap: 8,
+      redrawH: 30,
+      redrawW: 112,
+      clearGap: 12,
+    },
+    /** ONE WEAPON ROW-BUTTON (O4): 58 px tall, 66 when its stats line takes two
+     *  lines; 6 px between rows. The three lines' offsets are from the row's
+     *  top edge. `clock` is one per-mount reload ring; `rackPip` one held-mine
+     *  pip beside a rack's ring. */
+    row: {
+      h: 58,
+      grownH: 66,
+      gap: 6,
+      padX: 8,
+      line1Y: 6,
+      line1H: 16,
+      line2Y: 26,
+      line2H: 18,
+      statsY: 46,
+      statsLineH: 9,
+      clock: 18,
+      clockGap: 6,
+      keyChip: 16,
+      rackPip: { w: 4, h: 6, gap: 2 },
+    },
+    /** THE THREE ABILITY BUTTONS (O5) under the rows: 3 × 88 + 2 × 8 = 280.
+     *  `topGap` is the seam between the last row and the buttons. */
+    abilities: { w: 88, h: 54, gap: 8, topGap: 6, progressH: 2 },
+    /** THE SHIP CONSOLE (O6, sizes per Eric's R20 2026-11-09: "fill the
+     *  column, no empty space"), top to bottom: the hull numeral line, the
+     *  10-segment bar, six 28 px index rows each with a five-bar TIER LADDER
+     *  (20×8 bars, 4 px gaps, right-aligned — it replaced the 3×5 pips), the
+     *  helm block, the level block. The `*Gap` values are MINIMUMS: the spine
+     *  grows the section gaps and the index-row gaps evenly until the console
+     *  is as tall as the floor viewport allows (`floorH` − `bottomInset` −
+     *  `topClearance`); on a taller viewport it stays bottom-anchored at that
+     *  height with air above. `topClearance` is the top-centre chrome bar's
+     *  row (its 24 px baseline + 18 px type) plus a gap. */
+    ship: {
+      floorH: 768,
+      topClearance: 60,
+      hullLine: 44,
+      hullBarGap: 6,
+      hullBarH: 14,
+      segments: 10,
+      segmentGap: 2,
+      indexRowH: 28,
+      indexRowGap: 0,
+      indexLabelW: 64,
+      tierBars: 5,
+      tierBar: { w: 20, h: 8, gap: 4 },
+      helmReadoutH: 22,
+      helmGap: 6,
+      ladderW: 200,
+      ladderH: 16,
+      rudderRowH: 12,
+      rudderTrack: 48,
+      levelRowH: 28,
+      trackGap: 4,
+      trackH: 8,
+      bankChip: 28,
+    },
+    /** The helm ladder's marks (O6 (3)): plain / STOP tick lengths, the hollow
+     *  ordered rung, the solid actual needle and the rudder's position tick. */
+    tick: { len: 6, stopLen: 10, rungW: 7, rungH: 10, needleW: 2, rudderW: 2, rudderH: 8 },
+    /** Type sizes (px) per console register. The 9 px registers sit ON the
+     *  mono floor and counter-scale at the 90% UI tier, as the bar's did. */
+    type: {
+      name: 11,
+      state: 9,
+      tier: 9,
+      keyChip: 9,
+      clock: 9,
+      stats: 9,
+      statsTracking: 0.5,
+      abilityState: 11,
+      abilityNumeral: 14,
+      abilityName: 9,
+      // The ship console's registers are R20's (Eric 2026-11-09).
+      hull: 40,
+      hullUnit: 12,
+      label: 9,
+      indexLabel: 11,
+      indexValue: 18,
+      hdg: 18,
+      kts: 11,
+      lv: 22,
+      bankCount: 11,
+      offerHeader: 9,
+      offerName: 11,
+      redraw: 12,
+    },
+    /** THE HULL GAUGE's bands and breath — the HP globe's, carried over. The
+     *  bands REFERENCE shared `CONFIG.damageBands` (exactly one set of band
+     *  numbers may exist — Story 4.4, amendment 41); the breath ramps from
+     *  `pulseMinHz` at the amber line to the shared `settings.pulseCapHz` at
+     *  `pulseFloorFrac`. `pendingAlpha` is the lighter pooled-repair segment. */
+    hull: {
+      amberBelow: CONFIG.damageBands.amberBelow,
+      criticalBelow: CONFIG.damageBands.criticalBelow,
+      pulseMinHz: 0.5,
+      pulseFloorFrac: 0.1,
+      pulseAmp: 0.15,
+      fillAlpha: 0.85,
+      pendingAlpha: 0.35,
+    },
+    /** THE BANK CHIP's breath — the XP strip's, carried over unchanged: a 2.4 s
+     *  cycle that decays to a static chip after 10 s unspent. */
+    chip: { breathSec: 2.4, unspentSec: 10, chipAlpha: 0.85, pulseAmp: 0.15 },
+    /** Below this many ms a reload clock's numeral prints tenths (`1.2`);
+     *  above it whole seconds rounded UP (the cooldown wipe's grammar). */
+    tenthsBelowMs: 2000,
+  },
+
+  /**
    * PHOSPHOR SHELLS BURNING ZONE (Story 8.17, epic-8 amendment 131; body
    * re-made by Story 9.11, epic-9 amendment 154) — render/burnZones.ts. The
    * zone is WHITE FIRE ON THE WATER: a field of `render/fire.ts` flame tongues

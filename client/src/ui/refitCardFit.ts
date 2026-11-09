@@ -31,18 +31,14 @@
 //     modelled height IS the rendered height.
 
 import { CLIENT_CONFIG } from '../config.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
+
+// The mono type model (MONO_ADVANCE_EM and the four measures) moved to
+// util/monoMeasure.ts in Story 10.10; re-exported here unchanged so every
+// caller of this module keeps its import until the band is deleted.
+export { MONO_ADVANCE_EM, monoCharWidth, monoTextWidth, monoWrapLines, widestToken } from '../util/monoMeasure.js';
 
 const R = CLIENT_CONFIG.refit;
-
-/**
- * Mono advance width, in em — THE model constant.
- *
- * Geist Mono (the declared face) advances 0.6 em exactly; the fallback stack
- * ('ui-monospace', SFMono-Regular, Menlo, monospace) tops out at Menlo's
- * 1233/2048 = 0.6021 em. 0.605 covers the whole declared stack with a little
- * room, so a card that fits the model fits the render on every fallback too.
- */
-export const MONO_ADVANCE_EM = 0.605;
 
 /**
  * The card's type register — the letter-spacings, line boxes and border the mock
@@ -156,51 +152,6 @@ function microFactor(sizePx: number, uiScale: number): number {
   return cardRegisterSize(sizePx, uiScale) / sizePx;
 }
 
-/** Advance width (px) of one glyph at a size + letter-spacing. */
-export function monoCharWidth(fontPx: number, letterSpacingPx = 0): number {
-  return fontPx * MONO_ADVANCE_EM + letterSpacingPx;
-}
-
-/** Rendered width (px) of a mono string. Counts CODE POINTS, not UTF-16 units. */
-export function monoTextWidth(text: string, fontPx: number, letterSpacingPx = 0): number {
-  return [...text].length * monoCharWidth(fontPx, letterSpacingPx);
-}
-
-/**
- * Line count a mono string wraps to inside `boxW`. Greedy, whitespace-only
- * breaks (the conservative bound — see the header), with a hard chunk break for
- * any single token wider than the box (what `overflow-wrap:anywhere` does).
- * Empty text occupies no lines.
- */
-export function monoWrapLines(text: string, fontPx: number, letterSpacingPx: number, boxW: number): number {
-  const perLine = Math.max(1, Math.floor(boxW / monoCharWidth(fontPx, letterSpacingPx)));
-  let lines = 0;
-  let used = 0;
-  for (const word of text.split(/\s+/)) {
-    const w = [...word].length;
-    if (w === 0) continue;
-    if (used > 0 && used + 1 + w <= perLine) {
-      used += 1 + w;
-      continue;
-    }
-    lines += 1;
-    used = w;
-    while (used > perLine) {
-      lines += 1;
-      used -= perLine;
-    }
-  }
-  return lines;
-}
-
-/** Widest single unbreakable token (px) in a whitespace-separated string — the
- *  horizontal half of the law: a token wider than the box is what makes text
- *  paint outside it when word-breaking is off. */
-export function widestToken(text: string, fontPx: number, letterSpacingPx = 0): number {
-  let widest = 0;
-  for (const word of text.split(/\s+/)) widest = Math.max(widest, monoTextWidth(word, fontPx, letterSpacingPx));
-  return widest;
-}
 
 /**
  * The card's INNER content box (px) — the fixed card minus its ASYMMETRIC
