@@ -27,7 +27,6 @@ import { CLIENT_CONFIG } from '../config';
 import { fitDetune, fitTone } from '../audio/tones';
 import { UNKNOWN_VESSEL, killLine, type KillSegment, type NameRef } from '../ui/killFeed';
 import { KILL_LEADER_MARK, bountyKillLine } from '../ui/bounty';
-import { pointToastLine } from '../ui/upgradeToast';
 import { boonFitToastLine } from '../ui/boonCopy';
 
 /** A bare ship's stamped cloud life and disc — they ride every `CloudView` (Story 10.6, I6). */
@@ -1314,11 +1313,13 @@ describe('frameIsDeadOrSpectating — the amendment 37 gate', () => {
 });
 
 describe('bindRoom reward toasts', () => {
-  it('a LIVE captain gets the level-up toast + point tone', () => {
+  // STORY 10.10 (R10): THE LEVEL-UP TOAST IS KILLED — the offer group's
+  // arrival is the cue. The point ping stays (its visual twin is the group).
+  it('a LIVE captain gets the point tone and NO level-up toast (R10)', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
-    expect(toastLines()).toEqual([pointToastLine()]);
+    expect(toastLines()).toEqual([]);
     expect(play).toHaveBeenCalledWith('point');
   });
 
@@ -1336,11 +1337,10 @@ describe('bindRoom reward toasts', () => {
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('...and a `pt` on LIVE water still toasts and pings, byte for byte', () => {
+  it('...and a `pt` on LIVE water still pings', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts(false, false);
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
-    expect(toastLines()).toEqual([pointToastLine()]);
     expect(play).toHaveBeenCalledWith('point');
   });
 

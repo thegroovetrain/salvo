@@ -223,7 +223,28 @@ export const FLASH_ELEMENTS: { readonly [k: string]: string } = {
   foghornChevron: 'e:foghornChevron',
   /** The refit/upgrade menu's denied-pick flash. */
   refitDenied: 'e:refitDenied',
+  /** Prefix for the WEAPONS console's per-row denied pulses (Story 10.10) —
+   *  use `consoleRowKey(i)`: each row-button carries its own budget, as each
+   *  hotbar square did. */
+  consoleRow: 'e:consoleRow',
+  /** Prefix for the three ability buttons' denied pulses (Story 10.10) — use
+   *  `consoleAbilityKey(i)`. */
+  consoleAbility: 'e:consoleAbility',
+  /** The offer group's denied-pick flash (Story 10.10 — the band's
+   *  `refitDenied`, re-homed on the corner group). */
+  offerDenied: 'e:offerDenied',
 };
+
+/** The element key for one weapons-console row's denied pulse (row index in
+ *  the ruled order MB · SEC · TORP · MINES · SPECIAL). */
+export function consoleRowKey(row: number): string {
+  return `${FLASH_ELEMENTS.consoleRow}:${row}`;
+}
+
+/** The element key for one ability button's denied pulse (C · V · Shift). */
+export function consoleAbilityKey(ability: number): string {
+  return `${FLASH_ELEMENTS.consoleAbility}:${ability}`;
+}
 
 /** The element key for one hotbar slot's denied pulse. */
 export function hotbarSlotKey(slot: number): string {

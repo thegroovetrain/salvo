@@ -48,11 +48,11 @@ function withMouse(
   nowServer?: () => number,
   isLocked?: () => boolean,
   onSlotPress?: (p: { x: number; y: number }) => boolean,
-  overHotbar?: (p: { x: number; y: number }) => boolean,
+  overConsole?: (p: { x: number; y: number }) => boolean,
 ): void {
   const canvas = document.createElement('canvas');
   document.body.appendChild(canvas);
-  const m = new MouseInput(nowServer, isLocked, onSlotPress, overHotbar);
+  const m = new MouseInput(nowServer, isLocked, onSlotPress, overConsole);
   m.attach(canvas);
   try {
     run(m, canvas);
@@ -476,7 +476,7 @@ describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)
   // is never called; only the side-effect-free hit test is.
   it('is swallowed over a hotbar slot WITHOUT activating the slot (review C3a)', () => {
     const onSlotPress = vi.fn(() => true);
-    const overHotbar = vi.fn(() => true);
+    const overConsole = vi.fn(() => true);
     withMouse(
       (m, canvas) => {
         fire(canvas, 'pointerdown', { button: 2, buttons: 2, clientX: 5, clientY: 5 });
@@ -488,10 +488,10 @@ describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)
       undefined,
       undefined,
       onSlotPress,
-      overHotbar,
+      overConsole,
     );
     expect(onSlotPress).not.toHaveBeenCalled();
-    expect(overHotbar).toHaveBeenCalled();
+    expect(overConsole).toHaveBeenCalled();
   });
 
   // REVIEW GATE C3(b): a button-0 chord edge is read off the PHYSICAL state

@@ -84,6 +84,9 @@ export interface IndexRowRect extends Rect {
 
 export interface ShipConsoleLayout {
   frame: Rect;
+  /** The sizes this height drew at (R20 corrected, `shipFill`): the index
+   *  value's type size rides here, since a rect cannot carry it. */
+  fill: ShipFill;
   /** The percent numeral line (`72 %` + `HULL`). */
   hullLine: Rect;
   /** The 10-segment bar and its segments, left to right. */
@@ -195,16 +198,29 @@ function weaponsLayout(screenW: number, screenH: number, statsTwoLine: readonly 
 /** One row per index — the shared `INDEX_IDS` (ARMOR … RANGE). */
 const INDEX_COUNT = INDEX_IDS.length;
 
-/** The gaps the R20 fill grows evenly: three section seams + the index seams. */
-const GROWN_GAPS = 3 + (INDEX_COUNT - 1);
+/** The section seams (hull | indices | helm | level) and the index-row seams. */
+const SECTION_SEAMS = 3;
+const ROW_SEAMS = INDEX_COUNT - 1;
+
+const GROW = SHIP.grow;
 
 const HULL_BLOCK = SHIP.hullLine + SHIP.hullBarGap + SHIP.hullBarH;
 const HELM_BLOCK = SHIP.helmReadoutH + SHIP.helmGap + SHIP.ladderH + SHIP.helmGap + SHIP.rudderRowH;
 const LEVEL_BLOCK = SHIP.levelRowH + SHIP.trackGap + SHIP.trackH;
-const INDEX_BLOCK_MIN = INDEX_COUNT * SHIP.indexRowH + (INDEX_COUNT - 1) * SHIP.indexRowGap;
+const INDEX_BLOCK_MIN = INDEX_COUNT * SHIP.indexRowH + ROW_SEAMS * SHIP.indexRowGap;
 
-/** The ship console at its MINIMUM gaps. */
-export const SHIP_CONSOLE_MIN_H = HULL_BLOCK + INDEX_BLOCK_MIN + HELM_BLOCK + LEVEL_BLOCK + 3 * K.sectionGap;
+/** The ship console at its MINIMUM elements and gaps. */
+export const SHIP_CONSOLE_MIN_H = HULL_BLOCK + INDEX_BLOCK_MIN + HELM_BLOCK + LEVEL_BLOCK + SECTION_SEAMS * K.sectionGap;
+
+/** The px every element together can grow by (R20 corrected: elements first). */
+const ELEMENT_GROWTH =
+  INDEX_COUNT * (GROW.indexRowH - SHIP.indexRowH) +
+  (GROW.hullBarH - SHIP.hullBarH) +
+  (GROW.ladderH - SHIP.ladderH) +
+  (GROW.trackH - SHIP.trackH);
+
+/** The px the seams can grow by before they reach their caps. */
+const GAP_GROWTH = SECTION_SEAMS * (GROW.sectionGap - K.sectionGap) + ROW_SEAMS * (GROW.indexRowGap - SHIP.indexRowGap);
 
 /**
  * Pure: the ship console's height on a viewport `screenH` tall — the floor
@@ -218,24 +234,72 @@ export function shipConsoleHeight(screenH: number): number {
   return Math.max(SHIP_CONSOLE_MIN_H, Math.min(floorCol, col));
 }
 
-/** The extra px each grown gap takes at a console height. */
-function gapGrowth(height: number): number {
-  return Math.max(0, height - SHIP_CONSOLE_MIN_H) / GROWN_GAPS;
+/** Every size the ship console draws at one height (R20 corrected). */
+export interface ShipFill {
+  /** 0..1 — how far the elements have grown from their minimum to their max. */
+  grow: number;
+  indexRowH: number;
+  /** The index value's type size (px) — it grows with its row. */
+  indexValuePx: number;
+  tierBarW: number;
+  tierBarH: number;
+  hullBarH: number;
+  ladderW: number;
+  ladderH: number;
+  trackH: number;
+  sectionGap: number;
+  rowGap: number;
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/**
+ * Pure: how the slack between a console height and its minimum is spent —
+ * the ELEMENTS first, all together, to their maxima; then the seams, together,
+ * to their caps; any slack left after both spreads over every seam evenly, so
+ * the console still reaches its height (R20's "the row gaps grow … rather than
+ * leave a hole").
+ */
+export function shipFill(height: number): ShipFill {
+  const slack = Math.max(0, height - SHIP_CONSOLE_MIN_H);
+  const t = ELEMENT_GROWTH > 0 ? clamp01(slack / ELEMENT_GROWTH) : 1;
+  const afterElements = slack - t * ELEMENT_GROWTH;
+  const u = GAP_GROWTH > 0 ? clamp01(afterElements / GAP_GROWTH) : 1;
+  const extra = Math.max(0, afterElements - u * GAP_GROWTH) / (SECTION_SEAMS + ROW_SEAMS);
+  return {
+    grow: t,
+    indexRowH: lerp(SHIP.indexRowH, GROW.indexRowH, t),
+    indexValuePx: Math.round(lerp(K.type.indexValue, GROW.indexValue, t)),
+    tierBarW: lerp(SHIP.tierBar.w, GROW.tierBar.w, t),
+    tierBarH: lerp(SHIP.tierBar.h, GROW.tierBar.h, t),
+    hullBarH: lerp(SHIP.hullBarH, GROW.hullBarH, t),
+    ladderW: lerp(SHIP.ladderW, GROW.ladderW, t),
+    ladderH: lerp(SHIP.ladderH, GROW.ladderH, t),
+    trackH: lerp(SHIP.trackH, GROW.trackH, t),
+    sectionGap: lerp(K.sectionGap, GROW.sectionGap, u) + extra,
+    rowGap: lerp(SHIP.indexRowGap, GROW.indexRowGap, u) + extra,
+  };
 }
 
 /** Five ladder bars, right-aligned in a row. */
-function tierBars(right: number, cy: number): { ladder: Rect; bars: Rect[] } {
-  const b = SHIP.tierBar;
-  const w = SHIP.tierBars * b.w + (SHIP.tierBars - 1) * b.gap;
+function tierBars(right: number, cy: number, f: ShipFill): { ladder: Rect; bars: Rect[] } {
+  const gap = SHIP.tierBar.gap;
+  const w = SHIP.tierBars * f.tierBarW + (SHIP.tierBars - 1) * gap;
   const x = right - w;
-  const y = cy - b.h / 2;
-  const bars = Array.from({ length: SHIP.tierBars }, (_, i) => ({ x: x + i * (b.w + b.gap), y, w: b.w, h: b.h }));
-  return { ladder: { x, y, w, h: b.h }, bars };
+  const y = cy - f.tierBarH / 2;
+  const bars = Array.from({ length: SHIP.tierBars }, (_, i) => ({ x: x + i * (f.tierBarW + gap), y, w: f.tierBarW, h: f.tierBarH }));
+  return { ladder: { x, y, w, h: f.tierBarH }, bars };
 }
 
-function indexRow(x: number, y: number): IndexRowRect {
-  const h = SHIP.indexRowH;
-  const { ladder, bars } = tierBars(x + K.width, y + h / 2);
+function indexRow(x: number, y: number, f: ShipFill): IndexRowRect {
+  const h = f.indexRowH;
+  const { ladder, bars } = tierBars(x + K.width, y + h / 2, f);
   return {
     x,
     y,
@@ -254,21 +318,24 @@ function hullSegments(bar: Rect): Rect[] {
   return Array.from({ length: n }, (_, i) => ({ x: bar.x + i * (w + SHIP.segmentGap), y: bar.y, w, h: bar.h }));
 }
 
-function helmBlock(x: number, y: number): Pick<ShipConsoleLayout, 'helmReadout' | 'ladder' | 'rudder'> {
-  const ladderX = x + (K.width - SHIP.ladderW) / 2;
+function helmBlock(x: number, y: number, f: ShipFill): Pick<ShipConsoleLayout, 'helmReadout' | 'ladder' | 'rudder'> {
+  const ladderX = x + (K.width - f.ladderW) / 2;
   const ladderY = y + SHIP.helmReadoutH + SHIP.helmGap;
-  const rudderY = ladderY + SHIP.ladderH + SHIP.helmGap;
+  const rudderY = ladderY + f.ladderH + SHIP.helmGap;
   return {
     helmReadout: { x, y, w: K.width, h: SHIP.helmReadoutH },
-    ladder: { x: ladderX, y: ladderY, w: SHIP.ladderW, h: SHIP.ladderH },
+    ladder: { x: ladderX, y: ladderY, w: f.ladderW, h: f.ladderH },
     rudder: { x: x + (K.width - SHIP.rudderTrack) / 2, y: rudderY, w: SHIP.rudderTrack, h: SHIP.rudderRowH },
   };
 }
 
-function levelBlock(x: number, y: number): Pick<ShipConsoleLayout, 'levelRow' | 'bankChip' | 'track'> {
+/** The level block, hung from the console's BOTTOM edge — so the track ends
+ *  exactly on the frame whatever the float sum above it came to. */
+function levelBlock(x: number, bottom: number, f: ShipFill): Pick<ShipConsoleLayout, 'levelRow' | 'bankChip' | 'track'> {
+  const track = { x, y: bottom - f.trackH, w: K.width, h: f.trackH };
+  const y = track.y - SHIP.trackGap - SHIP.levelRowH;
   const levelRow = { x, y, w: K.width, h: SHIP.levelRowH };
   const bankChip = { x: x + K.width - SHIP.bankChip, y: y + (SHIP.levelRowH - SHIP.bankChip) / 2, w: SHIP.bankChip, h: SHIP.bankChip };
-  const track = { x, y: y + SHIP.levelRowH + SHIP.trackGap, w: K.width, h: SHIP.trackH };
   return { levelRow, bankChip, track };
 }
 
@@ -276,28 +343,25 @@ function levelBlock(x: number, y: number): Pick<ShipConsoleLayout, 'levelRow' | 
 export function shipLayout(screenH: number): ShipConsoleLayout {
   const x = K.sideInset;
   const h = shipConsoleHeight(screenH);
-  const grow = gapGrowth(h);
+  const f = shipFill(h);
   const top = screenH - K.bottomInset - h;
   const hullLine = { x, y: top, w: K.width, h: SHIP.hullLine };
-  const hullBar = { x, y: top + SHIP.hullLine + SHIP.hullBarGap, w: K.width, h: SHIP.hullBarH };
-  let y = top + HULL_BLOCK + K.sectionGap + grow;
+  const hullBar = { x, y: top + SHIP.hullLine + SHIP.hullBarGap, w: K.width, h: f.hullBarH };
+  let y = hullBar.y + hullBar.h + f.sectionGap;
   const indices: IndexRowRect[] = [];
   for (let i = 0; i < INDEX_COUNT; i++) {
-    indices.push(indexRow(x, y));
-    y += SHIP.indexRowH + SHIP.indexRowGap + grow;
+    indices.push(indexRow(x, y, f));
+    y += f.indexRowH + (i < INDEX_COUNT - 1 ? f.rowGap : f.sectionGap);
   }
-  // The loop added one row seam too many; the section seam replaces it.
-  y += K.sectionGap - SHIP.indexRowGap;
-  const helm = helmBlock(x, y);
-  y += HELM_BLOCK + K.sectionGap + grow;
   return {
     frame: { x, y: top, w: K.width, h },
+    fill: f,
     hullLine,
     hullBar,
     segments: hullSegments(hullBar),
     indices,
-    ...helm,
-    ...levelBlock(x, y),
+    ...helmBlock(x, y, f),
+    ...levelBlock(x, top + h, f),
   };
 }
 

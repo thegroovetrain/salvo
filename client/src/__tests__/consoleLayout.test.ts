@@ -15,6 +15,7 @@ import {
   consoleLayout,
   rowSlot,
   shipConsoleHeight,
+  shipFill,
   statsNeedTwoLines,
   SHIP_CONSOLE_MIN_H,
   type ConsoleLayout,
@@ -219,6 +220,44 @@ describe('the ship console fills the floor column (R20)', () => {
     expect(s.segments).toHaveLength(K.ship.segments);
     expect(s.segments[0].x).toBe(s.hullBar.x);
     expect(bottomRight(s.segments[s.segments.length - 1])).toBeCloseTo(bottomRight(s.hullBar), 9);
+  });
+});
+
+describe('the ship console spends its slack on the ELEMENTS first (R20, corrected)', () => {
+  const G = K.ship.grow;
+  const min = shipFill(SHIP_CONSOLE_MIN_H);
+  const floor = consoleLayout(FLOOR.w, FLOOR.h).ship;
+
+  it('grows no seam while any element is still short of its max', () => {
+    // A height a few px over the minimum: the elements take all of it.
+    const f = shipFill(SHIP_CONSOLE_MIN_H + 20);
+    expect(f.grow).toBeGreaterThan(0);
+    expect(f.grow).toBeLessThan(1);
+    expect(f.sectionGap).toBe(min.sectionGap);
+    expect(f.rowGap).toBe(min.rowGap);
+    expect(f.indexRowH).toBeGreaterThan(min.indexRowH);
+  });
+
+  it('draws every element at its max at the floor viewport', () => {
+    const f = floor.fill;
+    expect(f.grow).toBe(1);
+    expect(floor.indices[0].h).toBe(G.indexRowH);
+    expect(f.indexValuePx).toBe(G.indexValue);
+    expect(floor.indices[0].bars[0].w).toBe(G.tierBar.w);
+    expect(floor.indices[0].bars[0].h).toBe(G.tierBar.h);
+    expect(floor.hullBar.h).toBe(G.hullBarH);
+    expect(floor.ladder.w).toBe(G.ladderW);
+    expect(floor.ladder.h).toBe(G.ladderH);
+    expect(floor.track.h).toBe(G.trackH);
+  });
+
+  it('grows the seams only once the elements are maxed, and still fills the column', () => {
+    const f = floor.fill;
+    expect(f.sectionGap).toBeGreaterThanOrEqual(G.sectionGap);
+    expect(f.rowGap).toBeGreaterThanOrEqual(G.indexRowGap);
+    // Every index row sits one seam below the last: the console is full height.
+    expect(floor.indices[1].y - (floor.indices[0].y + floor.indices[0].h)).toBeCloseTo(f.rowGap, 9);
+    expect(floor.frame.y).toBe(K.ship.topClearance);
   });
 });
 

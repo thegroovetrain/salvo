@@ -2386,6 +2386,18 @@ export const CLIENT_CONFIG = {
       redrawH: 30,
       redrawW: 112,
       clearGap: 12,
+      /** The card face (ui/offerGroup.ts): the glyph box and the glyph in it,
+       *  the inner padding. */
+      glyphBox: 28,
+      glyph: 20,
+      pad: 6,
+      /** Carried over from the retired band's `refit` block, unchanged: a
+       *  refused card's face alpha, the whole group's alpha while a pick is in
+       *  flight, and the denied pulse's life and same-source floor. */
+      greyedAlpha: 0.55,
+      lockedAlpha: 0.38,
+      deniedPulseMs: 80,
+      deniedFloorMs: 300,
     },
     /** ONE WEAPON ROW-BUTTON (O4): 58 px tall, 66 when its stats line takes two
      *  lines; 6 px between rows. The three lines' offsets are from the row's
@@ -2443,6 +2455,26 @@ export const CLIENT_CONFIG = {
       trackGap: 4,
       trackH: 8,
       bankChip: 28,
+      /** R20, CORRECTED (Eric 2026-11-09: "Fill it" — the space FILLED, not
+       *  aired out): the floor viewport's slack goes to the ELEMENTS first, all
+       *  together, up to these maxima (an index row 28 → 44 tall with its value
+       *  18 → 22 px and its ladder bars 20×8 → 28×12; the hull bar 14 → 18; the
+       *  helm ladder 200×16 → 240×20; the level track 8 → 10). Only once every
+       *  element is at its max do the gaps grow — the section seams to
+       *  `sectionGap` and the index-row seams to `indexRowGap` — and only past
+       *  THOSE does any slack left over spread over every seam evenly (R20's
+       *  "the row gaps grow … rather than leave a hole"). */
+      grow: {
+        indexRowH: 44,
+        indexValue: 22,
+        tierBar: { w: 28, h: 12 },
+        hullBarH: 18,
+        ladderW: 240,
+        ladderH: 20,
+        trackH: 10,
+        sectionGap: 16,
+        indexRowGap: 8,
+      },
     },
     /** The helm ladder's marks (O6 (3)): plain / STOP tick lengths, the hollow
      *  ordered rung, the solid actual needle and the rudder's position tick. */
