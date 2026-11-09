@@ -145,6 +145,7 @@ import {
   type LauncherState,
   type RackBank,
   type ShellOutcome,
+  type DropState,
   type ShellState,
   type CloudRecord,
   type ShipClassId,
@@ -1476,6 +1477,12 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
+  /** AIRDROPS (Story 10.9, epic-10 amendment 16): every live crate on the
+   *  water, keyed by id, in placement order. Intangible — never a Target, a
+   *  body, a contact or a storm victim in the ship sense; spawned, collected
+   *  and storm-destroyed by this world's own step rows; read by perception's
+   *  drop scan (sight + the radar disc paint). */
+  readonly drops = new Map<string, DropState>();
   /**
    * THE MULTI-SPECTRAL COUNTERMEASURE clouds (Story 9.3; Eric rulings
    * 2026-10-11, epic-9 amendments 40–47 — 8.18's smoke store's seat), keyed

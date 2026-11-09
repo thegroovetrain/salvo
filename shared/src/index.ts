@@ -3,6 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  101 — Story 10.9 THE AIRDROPS (cycle 218, 0.19.12, epic-10 amendment 16,
+ *  Eric's rulings R1–R4 of 2026-11-08): FrameMsg gains the optional,
+ *  sight-gated contact-like channel `drops` (DropView {id,x,y,g}, `g` the
+ *  crate's `[IndexId, n]` rolls; omitted when empty, the litZones rule) and
+ *  GameEvent gains the self-private `dp` kind (DropPickupEvent {k,id,t,g},
+ *  delivered only to the collector); CONFIG the client reads gains `drops`;
+ *  new shared sim/drops.ts (count law, roll law, `dropTouches`,
+ *  `isDropRoll`) and radarRaster `paintDiscCoverage` (a drop's radar paint
+ *  is a plain anonymous `blip` — no new blip shape on the wire). Perception
+ *  exception count stays SIX.
  *  100 — Story 10.8 THE RADIO BEACONS (Eric 2026-11-06, epic-10 amendment
  *  14, rulings R1–R13): the SCHEMA shape changed — ArenaState gains the flat
  *  public beacon fields (`beaconCycle`, `beaconCount`, `bcn0..7X` / `Y` /
@@ -1023,7 +1033,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 100;
+export const PROTOCOL_VERSION = 101;
 
 // Tunables
 export * from './constants.js';
@@ -1086,3 +1096,4 @@ export * from './sim/cloud.js';
 export * from './sim/fog.js';
 export * from './sim/zone.js';
 export * from './sim/beacons.js';
+export * from './sim/drops.js';
