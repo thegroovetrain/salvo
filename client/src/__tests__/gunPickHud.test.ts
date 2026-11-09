@@ -5,48 +5,28 @@
 //
 // STORY 10.4 retired the seat's GUN PICK (the machine gun / flak gun on slot
 // 0): every captain now mounts the hull's MAIN BATTERY there. What survives
-// here is the Shift square, and the main battery's slot-0 square — its glyph
-// and name resolve, its pool is the hull's turret count, and `ammo[0]` (the
-// battery SUMMARY: turrets ready + the soonest reload) drives the ordinary
-// badge / cooling grammar.
+// here is the Shift, and the main battery's glyph, name and pool (the hull's
+// turret count). Story 10.10 retired the squares; the per-turret clocks are
+// consoleReadouts.test.ts's.
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   LINE_IDS,
   SHIP_CLASS_IDS,
-  SLOT_BOOST,
-  SLOT_COUNT,
-  SLOT_GUN,
   effectiveStats,
   equipmentMaxAmmo,
   initialTurrets,
   type EffectiveStats,
   type ShipClassId,
-  type EquipmentId,
-  type WeaponAmmo,
 } from '@salvo/shared';
 import { glyphPaths } from '../render/equipmentIcons.js';
 import { EQUIPMENT_NAME, equipmentDamage } from '../render/equipmentInfo.js';
-import { slotViewModels, type HotbarView } from '../render/hotbar.js';
+import { abilityModel } from '../render/console/readouts.js';
 import { fireArcKind, weaponRangeU } from '../render/weaponArc.js';
-
-function nine<T>(v: T): T[] {
-  return Array.from({ length: SLOT_COUNT }, () => v);
-}
 
 function stats(cls: ShipClassId = SHIP_CLASS_IDS[0], cards: readonly string[] = []): EffectiveStats {
   return effectiveStats(CONFIG.shipClasses[cls], cards);
-}
-
-/** A bare nine-slot view: the main battery in slot 0 and `shift` in slot 1, full pools. */
-function view(shift: EquipmentId, over: Partial<HotbarView> = {}, cls: ShipClassId = SHIP_CLASS_IDS[0]): HotbarView {
-  const s = stats(cls);
-  const loadout: (EquipmentId | null)[] = ['mainBattery', shift, ...nine<EquipmentId | null>(null).slice(2)];
-  const ammo: (WeaponAmmo | null)[] = loadout.map((id) =>
-    id === null ? null : { n: equipmentMaxAmmo(s, id as never), reloadMsLeft: 0 },
-  );
-  return { loadout, ammo, stats: s, primedSlot: SLOT_GUN, denied: nine(false), activated: nine(false), dim: false, ...over };
 }
 
 describe('the Shift glyphs (amendment 110 — implementer drafts)', () => {
@@ -123,41 +103,25 @@ describe('the main battery on slot 0 (Story 10.4)', () => {
       expect(equipmentMaxAmmo(s, 'mainBattery'), cls).toBe(s.equipment.mainBattery.maxAmmo);
     }
   });
-
-  it('the slot-0 square reads ammo[0] — the battery SUMMARY — through the ordinary pool grammar', () => {
-    for (const cls of SHIP_CLASS_IDS) {
-      const turrets = initialTurrets(cls).length;
-      // All turrets ready: the badge counts them and the square is not cooling.
-      const full = slotViewModels(view('boost', {}, cls))[SLOT_GUN];
-      expect(full.id, cls).toBe('mainBattery');
-      expect(full.badge, cls).toBe(String(turrets));
-      expect(full.state, cls).not.toBe('cooling');
-      // Some turrets reloading: the badge follows the ready count.
-      const partial = view('boost', {}, cls);
-      partial.ammo = [{ n: turrets - 1, reloadMsLeft: 4000 }, ...partial.ammo.slice(1)];
-      expect(slotViewModels(partial)[SLOT_GUN].badge, cls).toBe(String(turrets - 1));
-      // Every turret reloading: the cooling wipe with the soonest reload.
-      const spent = view('boost', {}, cls);
-      spent.ammo = [{ n: 0, reloadMsLeft: 4000 }, ...spent.ammo.slice(1)];
-      const m = slotViewModels(spent)[SLOT_GUN];
-      expect(m.state, cls).toBe('cooling');
-      expect(m.reloadMsLeft, cls).toBe(4000);
-    }
-  });
 });
 
 describe('HUNKER takes the boost\'s ACTIVE grammar (amendment 34)', () => {
-  it('a running cut window makes the Shift square ACTIVE with its seconds', () => {
-    const v = view('hunker', { activeMsLeft: [0, 6400, 0, 0, 0, 0, 0, 0, 0] });
-    v.ammo = [v.ammo[0], { n: 0, reloadMsLeft: 28000 }, ...v.ammo.slice(2)];
-    const m = slotViewModels(v)[SLOT_BOOST];
+  // Story 10.10: the Shift square retired into the weapons console's Shift
+  // ability button; the grammar is the button's (render/console/readouts.ts).
+  function shiftButton(shift: 'hunker' | 'instantReload', reloadMsLeft: number, activeMsLeft: number) {
+    return abilityModel('shift', {
+      stats: stats(), cards: [], shift, nowMs: undefined, repairReadyAt: undefined, smokeReadyAt: undefined,
+      shiftAmmo: { n: 0, reloadMsLeft }, shiftActiveMsLeft: activeMsLeft,
+    });
+  }
+
+  it('a running cut window makes the Shift button ACTIVE with its seconds', () => {
+    const m = shiftButton('hunker', 28000, 6400);
     expect(m.state).toBe('active'); // ACTIVE outranks the cooldown that started with it
-    expect(m.activeMsLeft).toBe(6400);
+    expect(m.msLeft).toBe(6400);
   });
 
-  it('INSTANT RELOAD has no window: a spent charge goes straight to the cooling wipe', () => {
-    const v = view('instantReload');
-    v.ammo = [v.ammo[0], { n: 0, reloadMsLeft: 40000 }, ...v.ammo.slice(2)];
-    expect(slotViewModels(v)[SLOT_BOOST].state).toBe('cooling');
+  it('INSTANT RELOAD has no window: a spent charge goes straight to cooling', () => {
+    expect(shiftButton('instantReload', 40000, 0).state).toBe('cooling');
   });
 });

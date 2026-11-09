@@ -16,7 +16,7 @@
 // (tubes / racks / rounds / capacity) adds HOLLOW amber clocks / pips beyond
 // the current ones. Nothing else changes colour under a hover.
 //
-// Drawing idioms are the retiring hotbar's (render/hotbar.ts): one blurred
+// Drawing idioms are the retired hotbar's (render/hotbar.ts): one blurred
 // glow layer under one linework Graphics, `.text` written only on change, the
 // readied amber wash + filled amber key chip, the 2 px denied edge. Hit-testing
 // is by the layout's rects, never Pixi interaction (O1).
@@ -40,7 +40,7 @@ const T = K.type;
 const MONO = CLIENT_CONFIG.type.mono;
 // Carried from the retiring bar's block (today's values, O5 "today's dimAlpha"):
 // the dim alpha, the one glow blur, the chip's side padding and the hairline.
-const BAR = CLIENT_CONFIG.hudBar;
+const BAR = CLIENT_CONFIG.console;
 
 /** The 9 px registers that counter-scale at the 90 % UI tier (the bar's rule). */
 function microScale(uiScale: number): number {

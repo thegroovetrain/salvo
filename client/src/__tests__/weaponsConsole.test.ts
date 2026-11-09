@@ -267,7 +267,7 @@ describe('dim', () => {
     const layer = new Container();
     const c = new WeaponsConsole(layer);
     c.update(view({ dim: true }), LAYOUT);
-    expect(layer.children[0].alpha).toBe(CLIENT_CONFIG.hudBar.dimAlpha);
+    expect(layer.children[0].alpha).toBe(CLIENT_CONFIG.console.dimAlpha);
     c.update(view(), LAYOUT);
     expect(layer.children[0].alpha).toBe(1);
   });

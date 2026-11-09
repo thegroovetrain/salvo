@@ -1,11 +1,13 @@
 // SCREEN-SPACE HUD CHROME — everything the match draws on the glass that is NOT
-// the bottom-centre HUD bar.
+// a battle console (render/console/, Story 10.10 — they replaced the
+// bottom-centre HUD bar).
 //
 // Story 8.6 emptied this module of the bottom-right own-vitals cluster it was
 // built around: the HP rail, the HDG/KTS readouts, the telegraph ladder, the
 // rudder gauge and the helm key chips all moved into the two globes at the ends
 // of the new bar (render/hpGlobe.ts, render/helmGlobe.ts), and `vitalsLayout`
-// went with them. The cluster is DELETED, not flagged off.
+// went with them. The cluster is DELETED, not flagged off. (Story 10.10 then
+// retired the bar and its globes into the ship console.)
 //
 // What lives here is the chrome that was never part of the cluster and still
 // outlives — or overlays — the hull:
@@ -15,16 +17,16 @@
 //     member of the ratified reveal-HUD SURVIVOR set;
 //   • the match-phase lines and the big countdown numeral;
 //   • the `IN STORM` warning and the victim tells (SLOWED / DAZZLED), which as
-//     of 8.6 are CENTRED above the bar rather than stacked over a corner;
+//     are CENTRED under the chrome bar (epic-8 amendment 38);
 //   • the centre-screen SUNK — RESPAWNING overlay and the spectate banner.
 //
 // THE ATTENTION SEAM. This module still owns ONE amber channel — the chrome
 // bar's ring segment — so the amber corollary is resolved HERE for it, with the
-// seam's own ranked resolver. The HP channel's half of the corollary moved with
-// the globe (`hpGlobeHoldsLit` in render/hpGlobe.ts); both call the SAME
+// seam's own ranked resolver. The HP channel's half of the corollary lives with
+// the hull gauge (`hullHoldsLit` in render/console/hull.ts); both call the SAME
 // `amberPulseWinner`, so the two can never disagree about which amber wins.
 
-import { Container, Text } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import type { EffectiveStats, OwnShip, ShipClassId, EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
@@ -32,7 +34,7 @@ import { motionScaled, settings } from '../settings/store.js';
 // re-derived: amendment 16's hold is ONE behavior with one time constant shape.
 import { easeHold } from './zone.js';
 import { amberPulseWinner, holdAtLitKeyframe } from './attention.js';
-import { railAmberChannel, railFraction } from './hpGlobe.js';
+import { hullAmberChannel, hullFraction } from './console/hull.js';
 import {
   CHROME_BAR_SEGMENTS,
   RING_PULSE_AMP,
@@ -46,7 +48,6 @@ import {
 import type { MatchUx } from '../ui/phase.js';
 
 const C = CLIENT_CONFIG.colors;
-const V = CLIENT_CONFIG.vitals;
 const CB = CLIENT_CONFIG.chromeBar;
 const GREEN = C.phosphor;
 const AMBER = C.amber;
@@ -56,7 +57,7 @@ const AMBER = C.amber;
 const STORM_PURPLE = C.stormReadout;
 // Geist Mono per DESIGN.md — the single mono stack.
 const MONO = CLIENT_CONFIG.type.mono;
-const MARGIN = V.margin;
+const MARGIN = CB.margin;
 
 const OVERLAY_STYLE = { fontFamily: MONO, fontSize: 38, fill: AMBER, letterSpacing: 2 } as const;
 
@@ -94,7 +95,7 @@ export interface OwnStatus {
   /** Slot-aligned equipment ids of the OWN loadout (main.ts's slotIdsFor — the
    *  hull-free `loadoutFor(stats)` with the fitted cards replayed over it since
    *  Story 8.5); null = an unfitted slot. Read by the firing UX and passed
-   *  through to the HOTBAR (render/hotbar.ts owns the loadout surface). Ammo
+   *  through to the WEAPONS console (render/console/weaponsConsole.ts). Ammo
    *  VALUES still come from the server via `ammo`. */
   loadout: readonly (EquipmentId | null)[];
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
@@ -176,16 +177,19 @@ export function tellLine(label: string, msLeft: number): string {
 export const TELL_FIT_MAX_MS = 99_000;
 
 const STORM_STYLE = { fontFamily: MONO, fontSize: 19, fill: STORM_PURPLE, letterSpacing: 2 } as const;
-/** The BR chrome bar's row style (Story 3.3). Per-segment FILL and ALPHA are
- *  set from the composed segments — this carries the family/size/tracking only. */
-const BAR_STYLE = { fontFamily: MONO, fontSize: CB.fontSize, letterSpacing: CB.letterSpacing } as const;
+/** The BR chrome bar's row style (Story 3.3; the consoles' 14/600 register
+ *  since Story 10.10). Per-segment FILL and ALPHA are set from the composed
+ *  segments — this carries the family/size/weight/tracking only. */
+const BAR_STYLE = {
+  fontFamily: MONO, fontSize: CB.fontSize, fontWeight: CB.fontWeight, letterSpacing: CB.letterSpacing,
+} as const;
 const MATCH_LINE_STYLE = { fontFamily: MONO, fontSize: 22, fill: GREEN, letterSpacing: 3 } as const;
 const MATCH_TAG_STYLE = { fontFamily: MONO, fontSize: 18, fill: GREEN, letterSpacing: 3 } as const;
 const COUNTDOWN_STYLE = { fontFamily: MONO, fontSize: 112, fill: GREEN, letterSpacing: 4 } as const;
 const SPECTATE_STYLE = { fontFamily: MONO, fontSize: 28, fill: AMBER, letterSpacing: 3 } as const;
 /** Victim tells (Story 2.9) — phosphor data caps in the one mono stack, never
  *  grey and never a color-only mark. */
-export const TELL_STYLE = { fontFamily: MONO, fontSize: V.tellSize, fill: GREEN, letterSpacing: V.tellSpacing } as const;
+export const TELL_STYLE = { fontFamily: MONO, fontSize: CB.tellSize, fill: GREEN, letterSpacing: CB.tellSpacing } as const;
 
 /**
  * The BR chrome bar row's BOTTOM edge, in logical px. The row's segments are
@@ -197,7 +201,7 @@ const CHROME_BAR_BOTTOM = CB.y + CB.fontSize;
 
 /**
  * Pure: where the `IN STORM` warning's TOP edge sits — centred on the screen,
- * `vitals.stormAbove` BELOW the chrome bar's bottom edge.
+ * `chromeBar.stormAbove` BELOW the chrome bar's bottom edge.
  *
  * EPIC-8 AMENDMENT 38. Story 8.6's first cut hung the satellite column off the
  * HUD bar's top edge; the review gate found that space is exactly where a slot
@@ -207,25 +211,24 @@ const CHROME_BAR_BOTTOM = CB.y + CB.fontSize;
  * changed, and the direction with it.
  */
 export function stormWarnAnchor(screenW: number): { x: number; y: number } {
-  return { x: screenW / 2, y: CHROME_BAR_BOTTOM + V.stormAbove };
+  return { x: screenW / 2, y: CHROME_BAR_BOTTOM + CB.stormAbove };
 }
 
 /**
  * Pure: the TOP tell slot — the top edge of the first victim tell, one satellite
  * line BELOW `IN STORM` (amendment 38 flipped the stack downward). Further tells
- * stack DOWNWARD from here at `vitals.tellGap`, so a single running window
+ * stack DOWNWARD from here at `chromeBar.tellGap`, so a single running window
  * always sits in this slot and the column never shows a hole where the other
  * tell would have been.
  */
 export function tellAnchor(screenW: number): { x: number; y: number } {
-  return { x: screenW / 2, y: stormWarnAnchor(screenW).y + STORM_STYLE.fontSize + V.tellGap };
+  return { x: screenW / 2, y: stormWarnAnchor(screenW).y + STORM_STYLE.fontSize + CB.tellGap };
 }
 
 /**
  * Reload progress in [0,1] for a weapon with `reloadMsLeft` remaining of a
  * `reloadMs` cycle: 0 when idle (no reload running) or just started, → 1 as the
- * next round nears. THE one source for the cooldown wipe (render/cooldownWipe.ts)
- * and the firing arc's sweep-back.
+ * next round nears. THE one source for the firing arc's sweep-back.
  */
 export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
   if (reloadMsLeft <= 0 || reloadMs <= 0) return 0;
@@ -240,6 +243,9 @@ export class Hud {
    *  reveal-HUD SURVIVOR set — they outlive the hull, all the way to return to
    *  port. */
   private readonly barSegs: Text[];
+  /** The 1 px phosphor hairline under the bar's text (Story 10.10, O12) —
+   *  redrawn only when the row re-lays out. */
+  private readonly barRule: Graphics;
   private readonly stormWarn: Text;
   private readonly matchLine: Text;
   private readonly matchTag: Text;
@@ -272,6 +278,9 @@ export class Hud {
     this.overlay.visible = false;
     hudLayer.addChild(this.overlay);
     this.barSegs = this.buildChromeBar();
+    this.barRule = new Graphics();
+    this.barRule.visible = false;
+    hudLayer.addChild(this.barRule);
     this.lastBarFill = this.barSegs.map(() => GREEN);
     this.stormWarn = new Text({ text: 'IN STORM', style: STORM_STYLE });
     this.stormWarn.anchor.set(0.5, 0); // centred, hanging UNDER the chrome bar
@@ -398,6 +407,15 @@ export class Hud {
     for (let i = 0; i < n; i++) this.barSegs[i].text = segs[i].text;
     const at = chromeBarLayout(segs, screenW);
     for (let i = 0; i < n; i++) this.barSegs[i].position.set(at.xs[i], CB.y);
+    this.drawBarRule(at.xs[0] ?? 0, at.width);
+  }
+
+  /** The hairline under the row, spanning exactly its text (Story 10.10, O12). */
+  private drawBarRule(x: number, width: number): void {
+    const y = CHROME_BAR_BOTTOM + CB.hairline.gap;
+    this.barRule.clear();
+    this.barRule.moveTo(x, y).lineTo(x + width, y).stroke({ width: CB.hairline.w, color: GREEN, alpha: CB.hairline.alpha });
+    this.barRule.visible = width > 0;
   }
 
   /**
@@ -437,6 +455,8 @@ export class Hud {
    *  disarm the pulse, so the next urgency window starts from the lit keyframe. */
   private hideChromeBar(): void {
     for (const t of this.barSegs) t.visible = false;
+    this.barRule.visible = false;
+    this.lastBarSig = ''; // the rule redraws (and re-shows) on the next show
     this.ringPhase = 0;
     this.ringHold = 0;
   }
@@ -477,7 +497,7 @@ export class Hud {
       }
       t.visible = line !== '';
       if (!t.visible) continue;
-      t.position.set(at.x, at.y + slot * V.tellGap);
+      t.position.set(at.x, at.y + slot * CB.tellGap);
       slot++;
     }
   }
@@ -527,12 +547,12 @@ export class Hud {
   ): void {
     this.spectateBanner.visible = false;
     // THE AMBER COROLLARY for the ring, resolved ONCE for the frame. The HP
-    // channel's fraction comes from `railFraction` — the same derivation the
-    // seam's Tier-1 read and the globe's own draw take — so the corollary and
-    // the tier can never disagree about which band the hull is in. The GLOBE's
-    // half of the same verdict is `hpGlobeHoldsLit`, over this same resolver.
-    const frac = railFraction(status.hp, status.stats.maxHp);
-    const amber = amberPulseWinner({ ring: bar.ring.urgent, hpGlobe: railAmberChannel(frac) });
+    // channel's fraction comes from `hullFraction` — the same derivation the
+    // seam's Tier-1 read and the hull gauge's own draw take — so the corollary
+    // and the tier can never disagree about which band the hull is in. The
+    // GAUGE's half of the same verdict is `hullHoldsLit`, over this same resolver.
+    const frac = hullFraction(status.hp, status.stats.maxHp);
+    const amber = amberPulseWinner({ ring: bar.ring.urgent, hullGauge: hullAmberChannel(frac) });
     this.updateOverlay(status, screenW, screenH);
     this.drawTells(status, screenW);
     this.drawStormWarn(inStorm, screenW);
@@ -589,8 +609,8 @@ export class Hud {
     // A spectator owns no HP globe at all, so the amber set holds exactly one
     // member and the ring wins whenever its window is open — the corollary is
     // resolved the same way here rather than by short-circuiting past it, and
-    // `hpGlobe: false` is a STATEMENT (there is no hull), not a stale read.
-    this.drawChromeBar(bar, screenW, nowSec, amberPulseWinner({ ring: bar.ring.urgent, hpGlobe: false }) === 'ring');
+    // `hullGauge: false` is a STATEMENT (there is no hull), not a stale read.
+    this.drawChromeBar(bar, screenW, nowSec, amberPulseWinner({ ring: bar.ring.urgent, hullGauge: false }) === 'ring');
     this.drawMatch(match, screenW, screenH);
   }
 }

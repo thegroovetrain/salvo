@@ -48,13 +48,13 @@ function expectStill(d: { dx: number; dy: number }): void {
 // --- the bands are ONE set of numbers (amendment 41) --------------------------
 
 describe('the damage bands are single-sourced from shared CONFIG', () => {
-  it('CLIENT_CONFIG.vitals bands ARE CONFIG.damageBands, not a copy of them', () => {
+  it('CLIENT_CONFIG.console.hull bands ARE CONFIG.damageBands, not a copy of them', () => {
     // The rail (hpColor/railPulsing) and the smoke tier must never be able to
     // fork: exactly one set of band numbers may exist in the codebase, so a
     // future retune of the rail moves the plume with it. This test pins the
     // IDENTITY; the comment in config.ts pins the intent.
-    expect(CLIENT_CONFIG.vitals.amberBelow).toBe(CONFIG.damageBands.amberBelow);
-    expect(CLIENT_CONFIG.vitals.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
+    expect(CLIENT_CONFIG.console.hull.amberBelow).toBe(CONFIG.damageBands.amberBelow);
+    expect(CLIENT_CONFIG.console.hull.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
   });
 });
 

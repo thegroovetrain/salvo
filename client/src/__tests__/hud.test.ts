@@ -30,18 +30,19 @@ import {
   tellSeconds,
   victimWindows,
 } from '../render/hud.js';
-import { HUD_BAR_WIDTH, hudBarLayout } from '../render/hudBar.js';
-import { monoTextWidth } from '../ui/refitCardFit.js';
+import { consoleLayout } from '../render/console/layout.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, chromeBarSegments, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
 import { abilityPressDenied } from '../sim/inputSampler.js';
 import { DeniedPulse } from '../render/deniedFire.js';
 import { settings } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-const V = CLIENT_CONFIG.vitals;
-/** The floor viewport, and the bar top the chrome hangs off there. */
+const V = CLIENT_CONFIG.chromeBar;
+/** The floor viewport, and the clear water between the two battle consoles
+ *  there — the centre column the satellite tells share with IN STORM. */
 const FLOOR = { w: 1366, h: 768 };
-const BAR_TOP = hudBarLayout(FLOOR.w, FLOOR.h).bar.y;
+const CENTER_CLEAR = consoleLayout(FLOOR.w, FLOOR.h).centerClear;
 
 const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
@@ -151,26 +152,26 @@ describe('the satellite column hangs under the CHROME BAR, centred', () => {
     expect(tells.y + V.tellGap).toBeGreaterThan(tells.y);
   });
 
-  it('does not move with the bar — the column is viewport-width only', () => {
-    // The anchors take NO bar edge any more (amendment 38): a short viewport
-    // moves the HUD bar up, and the satellite column stays put under the chrome.
+  it('is viewport-width only — the column takes no console edge', () => {
+    // The anchors take NO bar edge (amendment 38): the satellite column stays
+    // put under the chrome at every viewport height.
     expect(stormWarnAnchor(1280)).toEqual({ x: 640, y: stormWarnAnchor(FLOOR.w).y });
     expect(tellAnchor(1280)).toEqual({ x: 640, y: tellAnchor(FLOOR.w).y });
-    expect(hudBarLayout(1280, 614).bar.y).not.toBe(BAR_TOP); // the bar DID move
   });
 });
 
 describe('the tells fit their box (amendment 47 — the container-fit law)', () => {
-  // The tells are centred over the HUD bar, so the bar's own width is the column
-  // they share with IN STORM. A tell that outran it would paint over the ocean
-  // beside the bar — so the pin measures a deliberately absurd window, not just
+  // The tells are centred between the two battle consoles (Story 10.10), so the
+  // clear water between them at the floor viewport is the column they share
+  // with IN STORM. A tell that outran it would paint over a console — so the
+  // pin measures a deliberately absurd window, not just
   // today's few-second one.
-  it('every reachable tell line fits the bar`s width', () => {
+  it('every reachable tell line fits the clear water between the consoles', () => {
     for (const label of ['SLOWED', 'DAZZLED']) {
       for (const ms of [1, 999, 1000, 9000, 60_000, TELL_FIT_MAX_MS]) {
         const line = tellLine(label, ms);
         const w = monoTextWidth(line, TELL_STYLE.fontSize, TELL_STYLE.letterSpacing);
-        expect(w, `${line} @ ${w}px`).toBeLessThanOrEqual(HUD_BAR_WIDTH);
+        expect(w, `${line} @ ${w}px`).toBeLessThanOrEqual(CENTER_CLEAR);
       }
     }
   });

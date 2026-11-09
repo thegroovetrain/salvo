@@ -1,6 +1,6 @@
 // THE SHIP-CLASS DISPLAY NAMES — a leaf module with no DOM and no render
-// imports, so the Pixi HUD's SHIP tooltip (render/slotTooltip.ts, epic-8
-// amendment 186) can read the same table the class-select screen, home and
+// imports, so a Pixi HUD surface (the SHIP tooltip of epic-8 amendment 186
+// until Story 10.10) can read the same table the class-select screen, home and
 // results print without importing the class-select screen itself.
 // Re-exported by ui/classSelect.ts, its original home.
 //

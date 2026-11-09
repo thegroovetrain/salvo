@@ -209,23 +209,16 @@ export function regionKey(screenX: number, screenY: number, viewW: number, viewH
 export const FLASH_ELEMENTS: { readonly [k: string]: string } = {
   /** The on-water denied-fire pulse (arc + aim marker). */
   deniedArc: 'e:deniedArc',
-  /** Prefix for the per-slot hotbar denied pulses — use `hotbarSlotKey(slot)`,
-   *  so each slot carries its own budget (three slots denying at once is three
-   *  separate elements, not one over-budget one). */
-  hotbarSlot: 'e:hotbarSlot',
-  /** The hotbar's frame-level flash (ready / state change). */
-  hotbarFrame: 'e:hotbarFrame',
   /** The storm's reveal-beat flash on the ring telegraph (Story 3.2's 80ms,
    *  ring-identity keyed — it already never re-fires, and the claim is the
    *  aggregate guarantee on top of that). */
   zoneReveal: 'e:zoneReveal',
   /** The foghorn's bearing chevron one-shot. */
   foghornChevron: 'e:foghornChevron',
-  /** The refit/upgrade menu's denied-pick flash. */
-  refitDenied: 'e:refitDenied',
   /** Prefix for the WEAPONS console's per-row denied pulses (Story 10.10) —
-   *  use `consoleRowKey(i)`: each row-button carries its own budget, as each
-   *  hotbar square did. */
+   *  use `consoleRowKey(i)`: each row-button carries its own budget (three
+   *  rows denying at once is three separate elements, not one over-budget
+   *  one), as each retired hotbar square did. */
   consoleRow: 'e:consoleRow',
   /** Prefix for the three ability buttons' denied pulses (Story 10.10) — use
    *  `consoleAbilityKey(i)`. */
@@ -246,7 +239,3 @@ export function consoleAbilityKey(ability: number): string {
   return `${FLASH_ELEMENTS.consoleAbility}:${ability}`;
 }
 
-/** The element key for one hotbar slot's denied pulse. */
-export function hotbarSlotKey(slot: number): string {
-  return `${FLASH_ELEMENTS.hotbarSlot}:${slot}`;
-}

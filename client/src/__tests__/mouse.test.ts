@@ -1,5 +1,6 @@
-// MouseInput (Story 2.1 hygiene): canvas-target-only click counting, the refit
-// modal's full combat lockout, contextmenu suppression on the canvas, and the
+// MouseInput (Story 2.1 hygiene): canvas-target-only click counting, the
+// combat lockout (overlays / the start line since Story 10.10 retired the refit
+// modal), contextmenu suppression on the canvas, and the
 // original counter/stamp semantics. jsdom (MouseEvent stands in for
 // PointerEvent; `bubbles: true` dispatched ON an element gives the window
 // listener a real e.target, exactly like a browser).
@@ -75,7 +76,7 @@ describe('MouseInput.clickCount — cumulative button-0 CANVAS clicks', () => {
 
   it('a pointerdown on DOM chrome (a non-canvas target) NEVER counts — a card click cannot fire', () => {
     withMouse((m) => {
-      const card = document.createElement('button'); // e.g. a refit card
+      const card = document.createElement('button'); // e.g. an offer card
       document.body.appendChild(card);
       fire(card, 'pointerdown', { button: 0 });
       fire(document.body, 'pointerdown', { button: 0 });
@@ -84,7 +85,7 @@ describe('MouseInput.clickCount — cumulative button-0 CANVAS clicks', () => {
     });
   });
 
-  it('while the lockout predicate holds (refit modal open), even canvas clicks are dropped', () => {
+  it('while the lockout predicate holds (an overlay / the start line), even canvas clicks are dropped', () => {
     let locked = true;
     withMouse(
       (m, canvas) => {
@@ -249,7 +250,7 @@ describe('MouseInput — the injected hotbar gate', () => {
     );
   });
 
-  it('is never consulted while the refit modal holds the lockout (both suspended)', () => {
+  it('is never consulted while the lockout holds (both suspended)', () => {
     let consulted = 0;
     withMouse(
       (m, canvas) => {
@@ -314,70 +315,10 @@ describe('MouseInput.pointerInside — hover presence for the hotbar tooltip', (
   });
 });
 
-// --- Story 8.7, ruling 9: the refit window ENDS a held stream ----------------
-//
-// Opening the refit window is a full combat lockout, and the lockout only ever
-// gated the PRESS: a stream already running (Story 8.14's machine gun, a held
-// trigger of any kind) kept its hold open behind the window, and the pointerup
-// that ended it might land minutes later, on a different life. `endHolds()` is
-// the window's half of that contract — it ends every live hold exactly as a
-// pointerup would, and nothing else: no click is counted, no release is tallied,
-// and the cursor position (the aim path) is untouched.
-
-describe('MouseInput.endHolds — the refit window closing a live stream', () => {
-  it('ends the open hold exactly as its pointerup would have', () => {
-    withMouse((m, canvas) => {
-      fire(canvas, 'pointerdown', { button: 0 });
-      expect(m.clickCount).toBe(1);
-      expect(m.releasedClickSeq).toBe(0); // still held
-      m.endHolds();
-      expect(m.releasedClickSeq).toBe(1); // the hold is over, named by its click
-      expect(m.releaseCount).toBe(0); // …without inventing a button-0 release
-      expect(m.clickCount).toBe(1); // …and without counting a shot
-    });
-  });
-
-  it('is a no-op with no hold open (opening the window over a quiet pointer)', () => {
-    withMouse((m, canvas) => {
-      m.endHolds();
-      expect(m.releasedClickSeq).toBe(0);
-      fire(canvas, 'pointerdown', { button: 0 });
-      fire(canvas, 'pointerup', { button: 0 });
-      expect(m.releasedClickSeq).toBe(1);
-      m.endHolds(); // the hold is already closed — nothing to re-publish
-      expect(m.releasedClickSeq).toBe(1);
-    });
-  });
-
-  it('the stream does NOT resume: the late pointerup closes nothing', () => {
-    withMouse((m, canvas) => {
-      fire(canvas, 'pointerdown', { button: 0 });
-      m.endHolds(); // the window opened mid-hold
-      fire(canvas, 'pointerdown', { button: 0 }); // a second press behind the window…
-      expect(m.clickCount).toBe(2);
-      m.endHolds();
-      expect(m.releasedClickSeq).toBe(2);
-      fire(canvas, 'pointerup', { button: 0 }); // …the real button finally comes up
-      expect(m.releaseCount).toBe(1); // counted as the raw tally…
-      expect(m.releasedClickSeq).toBe(2); // …but it closes no hold: there is none
-    });
-  });
-
-  it('leaves the aim and the hover presence alone', () => {
-    withMouse((m, canvas) => {
-      fire(canvas, 'pointermove', { clientX: 77, clientY: 88 });
-      fire(canvas, 'pointerdown', { button: 0 });
-      m.endHolds();
-      expect(m.screenPos).toEqual({ x: 77, y: 88 });
-      expect(m.pointerInside).toBe(true);
-    });
-  });
-});
-
 // STORY 10.4: the SECONDARIES LEVEL on the right button (button 2). `secHeld`
 // / `consumeSec()` mirror `isHeld` / `consumeHeld()`: the same canvas, lockout
 // and hotbar gates, the same press latch, ended by its own pointerup, a
-// pointercancel, a blur or `endHolds()` — and a right press is never a shot.
+// pointercancel or a blur — and a right press is never a shot.
 describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)', () => {
   it('a right press on the canvas holds the level until its own pointerup', () => {
     withMouse((m, canvas) => {
@@ -430,15 +371,6 @@ describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)
     });
   });
 
-  it('is ended — latch and level — by endHolds()', () => {
-    withMouse((m, canvas) => {
-      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
-      m.endHolds();
-      expect(m.secHeld).toBe(false);
-      expect(m.consumeSec()).toBe(false);
-    });
-  });
-
   it('is ended — latch and level — by a pointercancel', () => {
     withMouse((m, canvas) => {
       fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
@@ -459,7 +391,7 @@ describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)
     });
   });
 
-  it('is ignored while locked out (the refit window)', () => {
+  it('is ignored while locked out (an overlay / the start line)', () => {
     withMouse(
       (m, canvas) => {
         fire(canvas, 'pointerdown', { button: 2, buttons: 2 });

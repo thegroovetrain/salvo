@@ -7,8 +7,8 @@
 // and free per frame (reading a Pixi `Text`'s bounds forces a measure every
 // time its string changes and is unavailable under jsdom).
 //
-// ui/refitCardFit.ts re-exports these names unchanged, so its callers and its
-// tests are untouched until the band is deleted.
+// ui/refitCardFit.ts was deleted with the band (Story 10.10's W3); its callers
+// import from here.
 
 /**
  * Mono advance width, in em — THE model constant.

@@ -35,20 +35,20 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   fireMine: 'the armed mine marker appearing on the chart (render/mines)',
   fireBroadside: 'muzzle flash + the heavier broadside shells in flight (render/effects, projectiles)',
   fireStarShells: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
-  denied: '80ms denied-red edge pulse on the weapon arc/reticle and the slot (render/deniedFire, hotbar)',
-  damage: 'screen shake + the HP globe\'s waterline dropping on the HUD bar (render/shake, hpGlobe)',
+  denied: '80ms denied-red edge pulse on the weapon arc/reticle and on the weapons console\'s row or ability button (render/deniedFire, render/console/weaponsConsole)',
+  damage: 'screen shake + the ship console\'s hull percent and bar dropping (render/shake, render/console/shipConsole)',
   kill: 'the kill-feed line naming your victim (ui/killFeed)',
-  point: 'the banked-level chip + the "TAB TO REFIT" cue at the XP strip\'s tail (render/xpStrip)',
-  fitCommon: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row (ui/upgradeToast, render/hotbar)',
-  fitRare: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row (ui/upgradeToast, render/hotbar)',
-  fitExclusive: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row, plus the doctrine\'s on-water identity (ui/upgradeToast, render/hotbar)',
+  point: 'the ship console\'s banked-level chip + the offer group\'s cards arriving in their corner (render/console/shipConsole, ui/offerGroup)',
+  fitCommon: 'the ◆ FITTED toast + the consoles\' readouts changing to the new values (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
+  fitRare: 'the ◆ FITTED toast + the consoles\' readouts changing to the new values (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
+  fitExclusive: 'the ◆ FITTED toast + the consoles\' readouts changing to the new values, plus the doctrine\'s on-water identity (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
   heal:
-    'the HP globe\'s fill and readout climbing, the pending band draining into it, and the belt square\'s count dropping by one (render/hpGlobe, render/hotbar)',
-  burn: 'the burning zone under your hull + the HP globe\'s fill dropping on the HUD bar (render/burnZones, hpGlobe)',
+    'the ship console\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/shipConsole)',
+  burn: 'the burning zone under your hull + the ship console\'s hull bar dropping (render/burnZones, render/console/shipConsole)',
   hitCall:
     'the Hit Call bloom at the impact point, drawn above the fog so a connection you cannot see still shows (render/effects)',
-  slowed: 'the SLOWED tell + its countdown above the HUD bar (render/hud)',
-  dazzled: 'the DAZZLED tell + its countdown above the HUD bar, plus the shrunken sight hole (render/hud, fog)',
+  slowed: 'the SLOWED tell + its countdown under the chrome bar (render/hud)',
+  dazzled: 'the DAZZLED tell + its countdown under the chrome bar, plus the shrunken sight hole (render/hud, fog)',
   sink: 'the sinking-hull effect + the elimination modal (render/effects, ui/results)',
   // --- THE BOUNTY (Story 4.6, Eric rulings 2026-08-10) ------------------------
   // The cue fires only when the throne lands on YOU, and its twin has to carry
@@ -76,20 +76,20 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
     'the crimson sink ring expanding where the hull went down, plus the kill-feed line naming the loss (render/effects, ui/killFeed)',
   // The band stings are the one place where amendment 49's parked question —
   // "should wounded smoke be voiced?" — answers itself. The smoke tiers and the
-  // HP globe bands are the SAME two thresholds (CONFIG.damageBands), so the
+  // hull gauge's bands (the HP globe's until Story 10.10) are the SAME two thresholds (CONFIG.damageBands), so the
   // sting at each downward crossing IS the moment your own plume starts or
-  // thickens, and the row can name the plume beside the globe without
+  // thickens, and the row can name the plume beside the gauge without
   // stretching. Own smoke rides the ordinary `sm` row with no special case
   // (amendment 46), so the smoking captain really does see their own column.
   hpHurt:
-    'the HP globe turning amber and starting to breathe on the HUD bar (render/hpGlobe), and your own light wounded-smoke plume beginning (render/smoke)',
+    'the ship console\'s hull gauge turning amber and starting to breathe (render/console/shipConsole), and your own light wounded-smoke plume beginning (render/smoke)',
   hpCritical:
-    'the HP globe turning crimson and its pulse accelerating toward the photosensitivity cap (render/hpGlobe), and your own plume thickening to the heavy tier (render/smoke)',
+    'the ship console\'s hull gauge turning crimson and its pulse accelerating toward the photosensitivity cap (render/console/shipConsole), and your own plume thickening to the heavy tier (render/smoke)',
   tick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
   matchStart: 'the phase banner flipping from countdown to the live match (ui/phase)',
   stormWarn: 'the storm vignette closing in + the OUTSIDE tag in the HUD (render/zone, hud)',
-  telegraphUp: 'the ordered detent stepping AHEAD on the helm globe\'s tick arc (render/helmGlobe, input/telegraph)',
-  telegraphDown: 'the ordered detent stepping ASTERN on the helm globe\'s tick arc (render/helmGlobe, input/telegraph)',
+  telegraphUp: 'the ordered detent stepping AHEAD on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
+  telegraphDown: 'the ordered detent stepping ASTERN on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
   // --- HULL CONTACT (Story 9.5, amendment 79) ---------------------------------
   // The scrape says "you are pressed against something and sliding" — which the
   // water already shows: the own hull drawn hard against the other hull or the

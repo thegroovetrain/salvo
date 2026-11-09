@@ -1604,28 +1604,47 @@ export const CLIENT_CONFIG = {
    */
   chromeBar: {
     /** Baseline (px from the top of the logical viewport) of the bar row — the
-     *  slot the retired 3.1 `zoneLine` register held. Deliberately the SAME 24
-     *  as `vitals.margin`: the HUD's one edge margin, so the top-center row and
-     *  the bottom-right cluster sit the same distance off their edges. (Pinned
-     *  by chromeBar.test.ts; config object literals cannot reference their own
-     *  siblings, which is why the number is restated rather than read.) */
+     *  slot the retired 3.1 `zoneLine` register held: the HUD's one edge
+     *  margin (`margin` below). */
     y: 24,
-    /** Row type: mono (CLIENT_CONFIG.type.mono), 18px — a touch under the 20px
-     *  the interim storm line used, because the bar carries four segments where
-     *  that carried one, and comfortably over the 14px micro floor. */
-    fontSize: 18,
+    /** The HUD's top edge margin (px) the match line / match tag hang off
+     *  (render/hud.ts). Carried over from the retired `vitals` block
+     *  (Story 10.10), unchanged. */
+    margin: 24,
+    /** THE SATELLITE COLUMN under the chrome bar (render/hud.ts
+     *  `stormWarnAnchor` / `tellAnchor`) — carried over from the retired
+     *  `vitals` block (Story 10.10), unchanged; epic-8 amendment 38 had already
+     *  hung it off this bar. `stormAbove`: IN STORM's top edge, px BELOW the
+     *  chrome bar's bottom edge — 8 px gap + the DOM banner's ~38 px box
+     *  ("GOING DOWN WITH THE SHIP!", RECONNECTING…) + 8 px, so a sinking
+     *  captain inside the storm reads both lines, stacked. `tellGap`: the
+     *  storm-line-to-first-tell gap and the gap between stacked VICTIM TELLS
+     *  (SLOWED); `tellSize` / `tellSpacing`: the tells' mono size and
+     *  tracking. */
+    stormAbove: 54,
+    tellGap: 22,
+    tellSize: 16,
+    tellSpacing: 1.5,
+    /** Row type: mono (CLIENT_CONFIG.type.mono). STORY 10.10 (R13, the
+     *  orchestrator plan's O12 — same content, same place, the battle
+     *  consoles' register): 18 → 14 px at weight 600, the consoles' value
+     *  register; Geist Mono is monospaced, so the figures stay tabular. */
+    fontSize: 14,
+    fontWeight: '600',
     /** Letter-spacing (px). The bar is a READOUT, not prose — the tracking is
-     *  what makes a dense one-line register scan as separate facts. */
-    letterSpacing: 2,
-    /** Alpha of the bar's LABELS (`AFLOAT` / `KILLS` / the `T+` prefix). The
-     *  labels are dim PHOSPHOR, never grey: amendment 17 retired `textMuted`
-     *  for load-bearing HUD text, and 0.55 is the vitals cluster's own
-     *  dim-phosphor text alpha (hud.ts `TEXT_DIM_ALPHA`, which dims an
-     *  un-selected telegraph rung) — one dim-TEXT register across the HUD. */
-    labelAlpha: 0.55,
-    /** Alpha of the ` · ` separators. Dimmer than the labels: they are
-     *  punctuation, and nothing about them is information. */
+     *  what makes a dense one-line register scan as separate facts. Story
+     *  10.10 scaled it with the type (2 px at 18 → 1.5 px at 14, the same
+     *  ≈ .11 em). */
+    letterSpacing: 1.5,
+    /** Alpha of the ` · ` separators — punctuation, the dimmest mark in the
+     *  row, and nothing about them is information. (Story 10.10 retired the
+     *  dim-phosphor `labelAlpha`: the words are text-primary now, as on the
+     *  consoles.) */
     sepAlpha: 0.35,
+    /** THE HAIRLINE under the row (Story 10.10, O12): a 1 px phosphor rule at
+     *  .25, `gap` px under the type, spanning exactly the row's text — a
+     *  floating mark, no bed (DESIGN.md's Afterimage rule). */
+    hairline: { w: 1, alpha: 0.25, gap: 4 },
     /** FLOOR alpha of the ring segment's amber breath — the trough of the
      *  opacity pulse, whose crest is the LIT keyframe (alpha 1, ui/chromeBar.ts
      *  RING_LIT_ALPHA). Opacity-only breathing: the text, the countdown and the
@@ -1679,6 +1698,24 @@ export const CLIENT_CONFIG = {
      * that is already gone).
      */
     keyGraceMs: 400,
+    /** THE LOADOUT BLOCK's row (ui/loadoutBlock.ts) — the retired HUD bar's
+     *  square geometry (mock `hud-composite-3.html`), carried over from the
+     *  deleted `hudBar` block (Story 10.10) unchanged so the results screen's
+     *  LOADOUT twin keeps its look; the block scales these by its own
+     *  LOADOUT_SCALE. Square, icon box and gap; key chip height / min width /
+     *  glyph padding / seam under the square; the tier numeral's corner inset;
+     *  the chip and tier type (px). */
+    loadout: {
+      slot: 54,
+      icon: 28,
+      slotGap: 8,
+      chipH: 16,
+      chipMinW: 16,
+      chipPadX: 3,
+      chipGap: 5,
+      tierInset: { right: 4, bottom: 2 },
+      type: { chip: 9, tier: 9 },
+    },
   },
 
   /**
@@ -1711,6 +1748,9 @@ export const CLIENT_CONFIG = {
     gutter: 24,
     /** Vertical rhythm (px) between the page's stacked blocks — {spacing.lg}. */
     gap: 24,
+    /** The How-to-Play entry glyph box (px) — the retired HUD bar's icon size
+     *  (`hudBar.icon`, deleted in Story 10.10), unchanged. */
+    glyph: 28,
   },
 
   /**
@@ -1735,376 +1775,6 @@ export const CLIENT_CONFIG = {
      *  `/privacy`, and `client/privacy/index.html` is the Rollup entry that puts
      *  it there. */
     policyHref: '/privacy',
-  },
-
-  /**
-   * WHAT SURVIVES OF THE BOTTOM-LEFT HOTBAR (Story 2.2).
-   *
-   * Story 8.6 moved the slot row onto the HUD BAR and its whole geometry with
-   * it: every size, gap and anchor now lives in `hudBar` (read literally from
-   * `mockups/hud-composite-3.html`, epic-8 amendment 31), and the label column,
-   * the chamfer and the perimeter cooldown track are DELETED outright rather
-   * than parked behind a flag. The dead keys were pruned in that story's config
-   * pass; what is left is the two things the bar did not absorb:
-   *   - `keyChip`, the 22 px mono chip the REFIT DIGITS and the modal share
-   *     (render/keyChip.ts) — the bar's own slot chips are `hudBar.chipH`;
-   *   - `tooltip`, the hover panel, which is still the hotbar's and whose
-   *     UX-DR48 236 px re-cut is Story 8.7's, not this one's.
-   * Colors are NOT here — every stroke/fill reads a CLIENT_CONFIG.colors token.
-   */
-  hotbar: {
-    /** Mono key-chip square (px) — one family with the refit digits / helm keys.
-     *  Grown 16 → 22 so the lifted 14px chip glyph fits. The HUD BAR's own slot
-     *  chips are NOT this: they are `hudBar.chipH`'s mock-literal 16 px. */
-    keyChip: 22,
-    /** Slot tooltip (DESIGN.md Components · Slot Tooltip). */
-    tooltip: {
-      /** Hover dwell (ms) before the panel appears. */
-      delayMs: 250,
-      /** Panel width (px) — {components.slot-tooltip}.width. Grown 236 → 320 for
-       *  the Story 2.3 lift (18px description copy). */
-      width: 320,
-      /** Inner padding (px) and gap between the panel and the hovered slot. */
-      pad: 12,
-      gap: 14,
-      /** Pointer-notch half-height (px). */
-      notch: 7,
-      /** Minimum px between the panel and any viewport edge. */
-      margin: 8,
-    },
-  },
-
-  /**
-   * THE HUD BAR (Story 8.6; BACK TO ONE ROW in Story 9.11) — the ONE
-   * bottom-centre cluster that replaces the three corners (bottom-left hotbar
-   * stack, bottom-right vitals cluster, bottom-left XP rail). Direction B
-   * "TRISTRAM", ratified by Eric 2026-09-11.
-   *
-   * SOURCE: `mockups/hud-composite-3.html`, read literally (epic-8 amendment
-   * 31 — the July 1.6x micro lift does NOT apply to the bar's surfaces, which
-   * is why `slot` is 54 and `type.chip` is 9; amendment 32 lifts the HP globe
-   * from the mock's 96 to the helm globe's 104, so ONE `globe` number serves
-   * both). Story 9.2's two-row D-prime stack (`mockups/hud-consumables-1.html`)
-   * is RETIRED: Eric 2026-10-14 (epic-9 amendment 151) put the bar back on the
-   * literal 8.6 one-row geometry. STORY 10.5 (2026-11-05, epic-10 amendment
-   * 11) retired the framed consumable belt with the kit: `C` (HULL REPAIR) and
-   * `V` (SMOKE) are two more 54 px squares in the one run, after `R`.
-   *
-   * Anatomy of the bar, left to right (the width is DERIVED — render/hudBar.ts
-   * `HUD_BAR_WIDTH`):
-   *   HP globe 104 | 16 | Gun Sec Shift Q E R C V (8 x 54, 7 gaps of 8) | 16 | helm globe 104
-   * with the XP strip's 24 px row 8 px beneath the 104 px main row
-   * (104 + 8 + 24 = 136 tall).
-   *
-   * LOGICAL UNITS: main.ts already divides the screen by the UI scale, so every
-   * number here is pre-scale. The one exception is the 9 px type register,
-   * which `render/hudBar.ts`'s `microScale()` counter-scales at 90% so no mono
-   * glyph ever renders under 9 px (epic-8 amendment 43).
-   *
-   * Colors are NOT here — every stroke/fill reads a `colors` token at an alpha
-   * (UX-DR76: no new token).
-   */
-  hudBar: {
-    /** Px from the viewport floor to the bar's bottom edge (mock `.B-hud`
-     *  `bottom: 18px`). */
-    floor: 18,
-    /** Globe diameter (px) — BOTH globes, epic-8 amendment 32. The mock draws
-     *  the HP globe at 96 and the helm at 104; Eric lifted them to one size. */
-    globe: 104,
-    /** The bar's one horizontal gap (mock `.B-main { gap: 16px }`): globe to
-     *  the run of squares, and the run to the other globe. */
-    globeGap: 16,
-    /** Weapon slot square (px) and the gap between them (mock `.slot`,
-     *  `.B-slots { gap: 8px }`). */
-    slot: 54,
-    slotGap: 8,
-    /** Key chip (mock `.kc`): 16 px tall, 16 px minimum width, 3 px of padding
-     *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`)
-     *  — the same seam under every square. */
-    chipH: 16,
-    chipMinW: 16,
-    chipPadX: 3,
-    chipGap: 5,
-    /** Icon linework box (px) in a square (mock `.slot > svg` 28). */
-    icon: 28,
-    /** Ammo badge square (px) and its top-right overhang on both axes (mock
-     *  `.badge`). */
-    badge: 16,
-    badgeOverhang: 7,
-    /**
-     * THE UNIT PIPS (Story 10.6 — a CANDIDATE for Eric's yes): on `Q` / `E`,
-     * one small pip per torpedo TUBE / per MINE in a rack, stacked bottom-up
-     * in one column per LAUNCHER / RACK along the square's left inside edge
-     * (clear of the 28 px glyph and the bottom-right tier numeral). A filled
-     * pip is ready; the pip a clock is running for fills from its floor as it
-     * reloads. They replace the count badge on those squares. Px.
-     */
-    pips: { w: 3, h: 5, gap: 2, colGap: 2, inset: 4 },
-    /** XP STRIP. `stripGap` is the main row to strip row gap (mock `.B-xp
-     *  { margin-top: 8px }`); `strip` the track's own height (mock `.B-xp
-     *  .hbar.xp { height: 4px }`); `stripRowH` the row the strip's items are
-     *  centred in (the 24 px bank chip is its tallest member); `stripItemGap`
-     *  the LV/track/tail gap (mock `.B-xp { gap: 10px }`); `bankChip` the
-     *  banked-level chip (mock `.B-bank .bank { width: 24px }`); `cueGap` the
-     *  chip to `TAB TO REFIT` gap (mock `.B-bank { gap: 8px }`). */
-    stripGap: 8,
-    strip: 4,
-    stripRowH: 24,
-    stripItemGap: 10,
-    bankChip: 24,
-    cueGap: 8,
-    /** Alpha the run of squares drops to while the refit window is open or
-     *  the start line is held — mock
-     *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
-     *  the XP strip deliberately stay at 1. */
-    dimAlpha: 0.38,
-    /** Gaussian blur reach (px) of the glow layer under the squares — the ONE
-     *  filter that turns each skin's `glowPx` / `glowAlpha` ring into a soft
-     *  bloom (Eric 2026-10-11, epic-9 amendment 39: no emulated shadow glow).
-     *  A feel knob: bigger = softer, wider halos; the per-state reach and peak
-     *  stay the mock's numbers in the skin table. */
-    glowBlurPx: 8,
-    /** Hairline width (px) — every 1 px rule on the bar (square edges,
-     *  rings, chip boxes, the strip's border). */
-    lineW: 1,
-    /** Globe bed alpha over the water — mock `rgba(3,6,5,.7)` on `cardScrim`. */
-    globeBedAlpha: 0.7,
-    /** Waterline rule width (px) across an HP globe's fill. */
-    waterline: 1.5,
-    /**
-     * THE BAR'S TYPE SIZES, in px. These live HERE and not in `type.registers`
-     * deliberately (ruling 11): the ramp's micro registers carry the 1.6x lift
-     * and the bar does not (amendment 31), so putting the bar's 9 px on the
-     * ramp would either break the ramp's pin or re-lift the bar.
-     */
-    type: {
-      /** Key chip glyph (`Shift`, `Q`, `1`) — mock `.kc { font: 9px mono }`. */
-      chip: 9,
-      /** Tier numeral in a square's bottom-right — mock `.tier { font: 600 9px }`. */
-      tier: 9,
-      /** Ammo badge digit — mock `.badge { font: 600 10px }`. Its own register:
-       *  the badge is a COUNT read at a glance against a phosphor border, and
-       *  the mock gives it a px more than the key chips. */
-      badge: 10,
-      /** `LV n` at the strip's head — mock `.B-xp .lv { font: 600 11px }`. */
-      lv: 11,
-      /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`
-       *  (back with the 54 px squares in Story 9.11). */
-      wipe: 18,
-      /** HP globe readout: `72` value, `%` unit, `HULL` label (mock
-       *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9) — back with
-       *  the 104 px globes in Story 9.11. Story 10.3 (ruling 13, the hull as
-       *  a percent): the `%` glyph took the retired ` /250` max label's seat
-       *  and its 10 px dim register — a FEEL KNOB, sized by the rendered
-       *  candidate. */
-      hull: 18,
-      hullPercent: 10,
-      hullLabel: 9,
-      /** Helm globe readout: `271°` value over its `HDG` caption. */
-      hdg: 15,
-      hdgLabel: 9,
-      /** `18 KTS` and the W/S/A/D helm key letters. */
-      kts: 9,
-      helmKey: 9,
-      /** `TAB TO REFIT` at the strip's tail — mock `.cue { font: 9px }`. */
-      cue: 9,
-    },
-    /**
-     * THE HELM TELEGRAPH TICK ARC over the helm globe's crown. Nine detents at
-     * `-arcDeg + stepDeg * i` (i 0..8), 0 deg = 12 o'clock, positive clockwise:
-     * astern LEFT, ahead RIGHT, exactly as the mock draws it.
-     */
-    tick: {
-      arcDeg: 70,
-      stepDeg: 17.5,
-      /** Tick length (px), and the longer STOP tick at i = 4. */
-      len: 6,
-      stopLen: 9,
-      /** The ORDERED detent's hollow rung (px) — the SHAPE channel against the
-       *  solid amber actual-speed needle. */
-      rungW: 7,
-      rungH: 10,
-      /** Actual-speed needle width (px). */
-      needleW: 2,
-    },
-    /** Rudder track along the helm globe's floor: a 48 px hairline with the
-     *  amber position tick riding it. */
-    rudder: { track: 48, tickW: 2, tickH: 8 },
-    /** The TIER numeral's inset from its square's bottom-right corner (mock
-     *  `.tier { right: 4px; bottom: 2px }`). The numeral is anchored (1,1), so
-     *  these are measured from the corner inwards. */
-    tierInset: { right: 4, bottom: 2 },
-    /**
-     * THE COOLDOWN WIPE (ruling 3) — the mock's `.cd` conic gradient, rebuilt
-     * as an angle-uniform polygon (render/cooldownWipe.ts). A perimeter-
-     * fraction sweep would run faster along the sides than through the corners
-     * and read as a different clock, so the sweep is sampled BY ANGLE.
-     */
-    wipe: {
-      /** Interior scrim over the whole cooling square — mock `.slot.cool
-       *  { background: rgba(3,6,5,.55) }` on `cardScrim`. */
-      scrimAlpha: 0.55,
-      /** The dark (not-yet-elapsed) region — mock `.cd`'s `rgba(3,6,5,.86)`. */
-      darkAlpha: 0.86,
-      /** The dimmed icon under the wipe — mock `.slot.cool > svg { opacity: .4 }`. */
-      iconAlpha: 0.4,
-      /** Angular sampling step (deg) of the dark polygon's perimeter run. Every
-       *  crossed CORNER is emitted exactly on top of this, so the silhouette
-       *  survives at any step. */
-      sampleDeg: 5,
-      /** The numeral's drop shadow — mock `.cd { text-shadow: 0 0 6px #000 }`,
-       *  i.e. Pixi `dropShadow` at blur 6, alpha 1, distance 0. */
-      shadowBlur: 6,
-      /** Below this many ms left the numeral reads TENTHS (`1.2`); at or above
-       *  it, whole seconds rounded UP (`7`). */
-      tenthsBelowMs: 2000,
-    },
-  },
-
-  /**
-   * THE REFIT BAND (Story 2.7) — the four-card offer row (UX-DR14 geometry,
-   * TAB semantics per amendment 1). Pure chrome/feel knobs: the gameplay-
-   * authoritative card COUNT lives in shared `CONFIG.offer.size` (it bounds the
-   * server's accepted choice), and everything here only decides how those cards
-   * are drawn. The layout itself is the pure `refitBandLayout()` in
-   * ui/upgradeMenu.ts — DOM positions derive from it, and the layout tests
-   * measure it (never CSS).
-   */
-  refit: {
-    /** Card width (px) — the ratified 216 (UX-DR14), and the mock's `.rc` width. */
-    card: 216,
-    /**
-     * Card height (px) — 236 → 226, the RATIFIED FACE (Story 8.7, ruling 11).
-     *
-     * The interim 236 held a prose anatomy (rarity tag, lineage handrail, a
-     * wrapping rules paragraph). The ratified card in `hud-composite-3.html`
-     * (`.rc`, :160) is a FIVE-ROW STAT BLOCK at a fixed 216×226, and epic-8
-     * amendment 31 binds us to the mock's own numbers rather than to the July
-     * micro-lift: key chip / 40px icon box / uppercase name / cap-rung ladder /
-     * KIND word / five 17px rows / 14px foot, in that order, and nothing else.
-     *
-     * The band anchor is UNCHANGED (amendment 36): the stack still hangs its
-     * LOWEST edge `barGap` above the HUD bar's top, so a shorter card simply
-     * leaves more clear water above the band — which is what `refitTooltip`'s
-     * amendment-37 above/below decision spends.
-     *
-     * 226 → 243, THE SIX-ROW GRID (Story 9.8, Eric 2026-10-13: "Six-row card
-     * grid"). Every gun card now carries a RANGE row, and STAR SHELLS /
-     * PHOSPHOR SHELLS to III and V print six. DESIGN.md sizes the box "to the
-     * catalog's largest card" and pins the row at 17px, so the row pitch is
-     * kept and the card grows by exactly one row (+17).
-     */
-    cardHeight: 243,
-    /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
-     *  wraps at the 1366×768 floor or the 1280×614 logical floor (125% tier). */
-    gap: 20,
-    /**
-     * Card inner padding (px) — the mock's `padding: 10px 12px 8px`. ASYMMETRIC
-     * by design: the top pays for the overhanging key chip, the bottom is tight
-     * because the foot row is the last mark and carries its own height.
-     *
-     * The INNER WIDTH the fit model measures against is `card − 2 × side` = 192.
-     */
-    pad: { top: 10, side: 12, bottom: 8 },
-    /**
-     * Band anchor: the seam (px) between the band's LOWEST edge and the HUD
-     * bar's top edge (epic-8 amendment 36, UX-DR53's "row bottom = hud-bar top
-     * − 8 px"). The band is no longer anchored to a fraction of the viewport:
-     * it hangs off `hudBarLayout().bar.y`, in the same LOGICAL units the bar
-     * uses, so the two surfaces can never overlap however the viewport or the
-     * UI-scale tier moves.
-     *
-     * The band's lowest edge is THE CARD ROW'S BOTTOM: Story 8.8 deleted the
-     * DAMAGE CONTROL strip that used to hang under it, so the row is the last
-     * thing in the band and the 8 px seat is measured off it.
-     * The old below-centre own-hull keep-out is WAIVED by the same amendment,
-     * so the band's top may now sit above the screen centre.
-     */
-    barGap: 8,
-    /** Queue pips: 8px squares, gap, and the pip row's baseline above the cards. */
-    pip: 8,
-    pipGap: 6,
-    pipsAbove: 18,
-    /**
-     * THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendments 60 + 63a) — the seam
-     * above the one `REDRAW` button and the button's own height. They exist
-     * ONLY while `matchPhase === 'countdown'`: the band grows by their sum
-     * (14 + 30 = 44px, `REDRAW_FOOTER_PX` in ui/upgradeMenu.ts) and its BOTTOM
-     * stays `barGap` above the HUD bar, so the 44px is a DELTA taken off the
-     * top — the card row's top moves 380 → 336 at 1366×768. (Amendment 63a:
-     * UX-DR54 / DESIGN.md's 388 → 344 absolutes forgot the 8px bar gap; the
-     * lift is what is ratified, not the numbers.) The button's register is the
-     * ratified mock's `.redraw`: 30px tall, `0 18px` padding, 12px mono — above
-     * the 9px readable floor, so it rides the geometry and never reads
-     * `--hc-micro`.
-     */
-    redrawGap: 14,
-    redrawHeight: 30,
-    /** Key-chip square (px) — the mock's `.rc .kc.big`, 22×22, which is also the
-     *  ONE key-chip family size (hotbar / helm / card digits). It OVERHANGS the
-     *  card's top-left corner by `keyChipOffset`. */
-    keyChip: 22,
-    /** The chip's overhang (px) past the card's top and left edges (mock
-     *  `top:-8;left:-8`). NOT half the chip any more: the ratified chip sits
-     *  proud of the corner rather than centred on it. */
-    keyChipOffset: 8,
-    /** The digit's own type size (px) inside that chip — mock `font-size:11px`. */
-    keyChipSize: 11,
-
-    // --- THE RATIFIED FACE, top-down (mock `.rc`, :160-191) -------------------
-
-    /** The icon box (px) and the glyph inside it — mock `.ci` 40×40 with a 24px
-     *  `<svg>`. A line with no glyph draws the box EMPTY (ruling 11): ladders,
-     *  add-ons and consumables have no linework in 8.7 and none is invented. */
-    iconBox: 40,
-    iconGlyph: 24,
-    /** The line name — mock `.cn { font: 600 15px/1.15 var(--sans) }`, uppercase,
-     *  `nowrap`. `nameSizeLong` is the mock's `.cn.long` step for the one name
-     *  too wide for the 192px inner box at 15px; ui/refitCardFit.ts decides
-     *  which applies, and the fit suite walks every catalog name through it. */
-    nameSize: 15,
-    nameSizeLong: 12.5,
-    /** The LADDER row: its fixed height, the gap between rungs and one rung's
-     *  box (mock `.ladder` / `.ladder i`). The row is rendered EMPTY (but still
-     *  16px tall) for a consumable or an add-on, so the six rows below it sit
-     *  at the same baseline on every card in the row. */
-    ladderH: 16,
-    ladderGap: 3,
-    rungW: 14,
-    rungH: 7,
-    /** The `cur → next` tier numerals beside the ladder — mock `.tl`. */
-    tierSize: 12,
-    /** The stat rows — mock `.rows { grid-template-rows: repeat(5,17px) }`,
-     *  grown to SIX by Eric's 2026-10-13 ruling (Story 9.8) at the same 17px
-     *  pitch, with a `.rw` label/value pair per row. SIX ALWAYS: a line with
-     *  fewer rows keeps them top-aligned and renders the remainder blank, which
-     *  is what keeps the foot on one baseline across the row. */
-    rowH: 17,
-    rowCount: 6,
-    labelSize: 9,
-    valueSize: 11,
-    /** The FOOT — mock `.foot`, 14px tall, blank unless the card is greyed
-     *  (where it carries the boxed `SLOTS FULL` reason word). */
-    footH: 14,
-    footSize: 9,
-    /** Dashed ghost edge behind the row when more offers are queued (px). */
-    ghostOffset: 6,
-    /** Alpha the cards dim to while a spend is in flight (locked). */
-    lockedAlpha: 0.38,
-    /**
-     * Alpha a REFUSED card dims to (Story 8.7, ruling 10) — the mock's
-     * `.rc.grey { opacity:.55 }`. DELIBERATELY ABOVE `lockedAlpha`: a locked
-     * card is transiently inert (a spend is in flight and every card dims), a
-     * GREYED one is a standing refusal the player must still be able to READ —
-     * its name, its rows and its boxed `SLOTS FULL` foot are the whole point.
-     * Dual-coded: the dim is never the only channel (dashed key chip + the
-     * reason word carry it in glyphs).
-     */
-    greyedAlpha: 0.55,
-    /** Denied edge pulse on the PICKED card: the ratified 80ms one-shot with a
-     *  300ms same-source floor (the deniedFire grammar, reused verbatim). */
-    deniedPulseMs: 80,
-    deniedFloorMs: 300,
   },
 
   /**
@@ -2173,19 +1843,21 @@ export const CLIENT_CONFIG = {
     /**
      * THE AMBER RANK — which amber channel pulses when both are live, highest
      * priority first. Two amber channels can be simultaneously active: the
-     * chrome bar's final-10s ring pulse (Tier 2) and the HP GLOBE's amber band
+     * chrome bar's final-10s ring pulse (Tier 2) and the HULL GAUGE's amber band
      * (25-50%, untiered by amendment 239). The corollary says only the
-     * highest-tier active amber pulses, so `ring` outranks `hpGlobe`: at 40%
+     * highest-tier active amber pulses, so `ring` outranks `hullGauge`: at 40%
      * hull with the storm closing in 8 seconds, the storm is what kills you.
-     * Below 25% the globe turns crimson, leaves the amber set entirely and
+     * Below 25% the gauge turns crimson, leaves the amber set entirely and
      * becomes Tier 1 — under which BOTH ambers hold lit, which is how amber
      * keeps meaning "look here" at the climax.
      *
      * Story 8.6 renamed the HP channel `hpRail` -> `hpGlobe` with the surface it
      * names (the 6 px vertical rail became a bowl of water at the HUD bar's left
-     * end, render/hpGlobe.ts). ONE spelling, here and in render/attention.ts.
+     * end). Story 10.10 renamed it `hpGlobe` -> `hullGauge`: the globe retired
+     * into the ship console's segmented hull bar (render/console/hull.ts).
+     * ONE spelling, here and in render/attention.ts.
      */
-    amberRank: ['ring', 'hpGlobe'] as const,
+    amberRank: ['ring', 'hullGauge'] as const,
   },
 
   /**
@@ -2234,119 +1906,6 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * WHAT SURVIVES OF THE BOTTOM-RIGHT OWN-VITALS CLUSTER (Story 2.4).
-   *
-   * Story 8.6 replaced the cluster itself — the `HULL n/n` header, the vertical
-   * HP rail, the telegraph ladder and the rudder gauge — with the HUD BAR's two
-   * globes, and pruned every geometry key those marks owned (frame box, rail
-   * width/track/glow, rudder track + tick, ordered rung, micro-label alpha).
-   * The bar's own sizes live in `hudBar`.
-   *
-   * What is left is the BEHAVIOUR the globes inherited unchanged, which is the
-   * whole point of keeping the block rather than re-minting its numbers under a
-   * new name: the hull ramp and its pulse envelope (render/hpGlobe.ts), the
-   * pending-heal band's alpha (epic-8 amendment 35), the helm-glyph fade
-   * (amendment 26, render/helmGlyphs.ts), and the SATELLITE column — the
-   * viewport margin, IN STORM and the victim tells, which epic-8 amendment 38
-   * re-anchored from the cluster's top edge to the CHROME bar's bottom edge
-   * (render/hud.ts `stormWarnAnchor`).
-   * Colors are NOT here — every stroke reads a `colors` token.
-   */
-  vitals: {
-    /** Gap (px) from the viewport's right / bottom edges. */
-    margin: 24,
-    /** IN STORM's top edge, px BELOW the top-centre chrome bar's bottom edge
-     *  (epic-8 amendment 38 re-anchored the satellite column from the retired
-     *  bottom-right cluster, via 8.6's short-lived HUD-bar anchor, to the chrome
-     *  — the one place no tooltip, card or bar reaches). Story 2.6 deleted the
-     *  amber "PTS ×N — TAB" prompt that used to share the column (amendment 33 —
-     *  the economy moved to its own surface): one line, one offset.
-     *  54, not 24, since 2026-09-17: the DOM banner ("GOING DOWN WITH THE
-     *  SHIP!", RECONNECTING…) now sits under the chrome bar too — 8 px gap +
-     *  its ~38 px box (20 px type + 8 px padding + border) + 8 px — so a
-     *  sinking captain inside the storm reads both lines, stacked. */
-    stormAbove: 54,
-    /** HULL REPAIR's incoming-HP band (cycle 46; the pool is the HULL REPAIR
-     *  card's since Story 8.8): the still-draining paid pool
-     *  (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
-     *  ON TOP of the live fill, in the fill's own color. Dual-coded by
-     *  POSITION + geometry (a distinct band above the fill line), never by hue
-     *  alone, and deliberately STATIC — it adds no new pulse to a rail whose
-     *  breathing is already the accessibility-capped alarm channel. */
-    railPendingAlpha: 0.32,
-    /** BASE fill alpha. This is INFORMATION, not motion: it is exactly what the
-     *  rail holds at motion=off, and the pulse only breathes around it. */
-    railFillAlpha: 0.85,
-    /** Threshold bands as a fraction of maxHp — EXCLUSIVE lower bounds for the
-     *  better color: frac ≥ amberBelow phosphor, ≥ criticalBelow amber, below
-     *  that damageMarker.
-     *
-     *  STORY 4.4 (amendment 41) — THESE ARE NO LONGER LOCAL NUMBERS. The rail's
-     *  own shipped 0.5 / 0.25 were PROMOTED VERBATIM to shared
-     *  `CONFIG.damageBands` the moment the server started deciding wounded smoke
-     *  from them, and this block now REFERENCES that promotion rather than
-     *  restating it. Binding: exactly ONE set of band numbers may exist in the
-     *  codebase, so a future retune of the rail moves the smoke tiers with it and
-     *  the two can never silently fork. Light plume ⇔ this rail has gone amber;
-     *  heavy plume ⇔ it has gone crimson. Do not re-inline the literals. */
-    amberBelow: CONFIG.damageBands.amberBelow,
-    criticalBelow: CONFIG.damageBands.criticalBelow,
-    /** Pulse envelope: the fill breathes only below `amberBelow`, its rate
-     *  ramping linearly from `pulseMinHz` at that fraction to the shared
-     *  photosensitivity ceiling (settings.pulseCapHz) at `pulseFloorFrac` and
-     *  below — accelerating alarm, hard-capped, never a strobe. */
-    pulseMinHz: 0.5,
-    pulseFloorFrac: 0.1,
-    /** Opacity-breathing amplitude (motion-scaled at the callsite). */
-    pulseAmp: 0.15,
-    /** HELM KEY GLYPHS (amendment 26): the W/S and A/D chips at the gauge
-     *  extremes fade PERMANENTLY, per pair, after this many successful inputs.
-     *  Progress lives under its own standalone localStorage key — deliberately
-     *  NOT in the settings store, so RESET SETTINGS cannot resurrect learned
-     *  anatomy. `fadeSec` is the fade-out itself (instant at motion=off). */
-    glyphFadeCount: 3,
-    glyphFadeSec: 0.6,
-    glyphKey: 'hullcracker.helm',
-    /** VICTIM TELLS (Story 2.9): the SLOWED status line (the only tell since
-     *  Story 9.4 retired DAZZLED with FLASH SHELLS) stacked UNDER
-     *  IN STORM, sharing its satellite column (epic-8 amendment 38 — the column
-     *  hangs off the CHROME BAR now, and the tells grow downward from the storm
-     *  line rather than upward toward it). `tellGap` is both the storm-line-to-
-     *  first-tell gap and the gap between stacked tells; the retired `tellAbove`
-     *  measured the old upward stack off the HUD bar's top edge and is gone with
-     *  it. `tellSize` is the mono size the fit pin measures. */
-    tellGap: 22,
-    tellSize: 16,
-    tellSpacing: 1.5,
-  },
-
-  /**
-   * THE BANKED-LEVEL CHIP's BREATH (Story 2.6, amendment 33) — all that is left
-   * of the bottom-left economy satellites.
-   *
-   * Story 8.6 replaced the vertical XP rail with the HUD BAR's full-width XP
-   * STRIP (render/xpStrip.ts) and pruned the rail's geometry (rail width, tag /
-   * chip / cue gaps, chip square): the strip's sizes are `hudBar`'s. The block
-   * KEEPS ITS NAME deliberately — renaming it would touch every pin in
-   * xpStrip.test.ts and attention.test.ts for no behaviour, and the timing
-   * below is unchanged from the rail it outlived. Timing only; every stroke
-   * reads a `colors` token.
-   */
-  xpRail: {
-    /** Breathing cycle (s) of an UNSPENT level chip — 2.4s (≥ the ratified 2s
-     *  floor), i.e. ~0.42 Hz, well under `settings.pulseCapHz`. */
-    breathSec: 2.4,
-    /** How long (s) the chip breathes before decaying to a STATIC chip. The
-     *  information (chip + count + cue line) never decays — only the motion. */
-    unspentSec: 10,
-    /** BASE alpha of the chip's linework/label — what it holds when static and
-     *  at motion=off (information, not motion). */
-    chipAlpha: 0.85,
-    /** Opacity-breathing amplitude (motion-scaled at the callsite). */
-    pulseAmp: 0.15,
-  },
-
-  /**
    * THE BATTLE CONSOLES (Story 10.10, Eric 2026-11-09, epic-10 amendments 16 /
    * 17; the orchestrator plan's O2–O6) — the SHIP console on the left edge,
    * the WEAPONS console on the right edge and the OFFER GROUP between the kill
@@ -2356,9 +1915,10 @@ export const CLIENT_CONFIG = {
    * Every size is LOGICAL px (pre-UI-scale, authored at 1080p, fixed — the
    * bar's rule). The pure spine `render/console/layout.ts` turns these into
    * rects; nothing else in the game reads a console number from anywhere but
-   * here. The `hull` / `chip` / `tick` sub-blocks carry the ratified timing and
-   * gates the retiring `vitals` / `xpRail` / `hudBar` blocks hold today, by
-   * REFERENCE where the old block already references a shared number.
+   * here. The `hull` / `chip` / `tick` / `helmGlyphs` sub-blocks carry the
+   * ratified timing and gates the retired `vitals` / `xpRail` / `hudBar`
+   * blocks held (deleted in Story 10.10's W3), by REFERENCE where the old
+   * block referenced a shared number.
    */
   console: {
     /** Console width (both consoles and the offer group). */
@@ -2431,7 +1991,8 @@ export const CLIENT_CONFIG = {
      *  is as tall as the floor viewport allows (`floorH` − `bottomInset` −
      *  `topClearance`); on a taller viewport it stays bottom-anchored at that
      *  height with air above. `topClearance` is the top-centre chrome bar's
-     *  row (its 24 px baseline + 18 px type) plus a gap. */
+     *  row (its 24 px baseline + its type — 18 px when this was set, 14 px
+     *  since Story 10.10's top-row restyle) plus a gap. */
     ship: {
       floorH: 768,
       topClearance: 60,
@@ -2526,6 +2087,22 @@ export const CLIENT_CONFIG = {
     /** Below this many ms a reload clock's numeral prints tenths (`1.2`);
      *  above it whole seconds rounded UP (the cooldown wipe's grammar). */
     tenthsBelowMs: 2000,
+    /** Carried over from the retired `hudBar` block, unchanged: the alpha the
+     *  weapons console drops to while the start line is held, the Gaussian
+     *  blur reach (px) of the one glow filter under the row-buttons (epic-9
+     *  amendment 39: no emulated shadow glow), a key chip's horizontal glyph
+     *  padding, and the hairline width of every 1 px rule. */
+    dimAlpha: 0.38,
+    glowBlurPx: 8,
+    chipPadX: 3,
+    lineW: 1,
+    /** HELM KEY GLYPHS (amendment 26 — carried over from the retired `vitals`
+     *  block, unchanged): the W/S and A/D chips at the helm's ends fade
+     *  PERMANENTLY, per pair, after `fadeCount` successful inputs, over
+     *  `fadeSec` (instant at motion=off). Progress lives under its own
+     *  standalone localStorage `key` — deliberately NOT in the settings store,
+     *  so RESET SETTINGS cannot resurrect learned anatomy. */
+    helmGlyphs: { fadeCount: 3, fadeSec: 0.6, key: 'hullcracker.helm' },
   },
 
   /**

@@ -22,9 +22,8 @@ import {
   type OwnShip,
   type ShipClass,
 } from '@salvo/shared';
-import { pointToastLine } from '../ui/upgradeToast.js';
 import { ownStatsChanged } from '../net/roomBindings.js';
-import { speedLadderFraction } from '../render/helmGlobe.js';
+import { speedLadderFraction } from '../render/console/helm.js';
 
 /** Story 10.4: no shipped hull sits at the base on every index, and RELOAD
  *  folds into every cooldown — so a pin that reads a CONFIG dial (or a scale
@@ -50,16 +49,6 @@ function ownShip(cls: OwnShip['cls'], cards: string[] = [], shift: OwnShip['shif
     ammo: [], sweep: 0, cls, shift, turrets: initialTurrets(cls), sec: { heat: 0, locked: false }, pts: 0, offer: [], boostUntil: 0, cards, lvl: 0, xp: 0, repairHp: 0, rd: false, ib: {},
   };
 }
-
-describe('point toast line — pure formatting', () => {
-  // Story 2.6 (amendment 33): a LEVEL UP is the only thing that banks a point
-  // now — passive tick or kill — so the toast names the level, with no "banked"
-  // wording and REFIT (not UPGRADE) as the verb. Supersedes the 2.1 copy.
-  it('pointToastLine yields one non-empty, stable prompt line', () => {
-    expect(pointToastLine().length).toBeGreaterThan(0);
-    expect(pointToastLine()).toBe(pointToastLine());
-  });
-});
 
 describe('ownStatsChanged — the recompute gate', () => {
   it('fires on the first frame (no previous you)', () => {

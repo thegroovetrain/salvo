@@ -1,7 +1,8 @@
 // Self-event toast — small DOM text lines (center-top) in phosphor green: the
-// banked-level prompt (pointToastLine) and the fitted-boon receipt
-// (boonFitToastLine, ui/boonCopy.ts). Both line builders are pure (unit-
-// tested); the DOM stack is a thin adapter mirroring ui/killFeed.ts. Lines
+// fitted-boon receipt (boonFitToastLine, ui/boonCopy.ts) and the kill-leader
+// line (main.ts `bountyToastLine`). Story 10.10 (R10) KILLED the banked-level prompt (`pointToastLine`):
+// the offer group's arrival is the level-up cue. The line builders are pure
+// (unit-tested); the DOM stack is a thin adapter mirroring ui/killFeed.ts. Lines
 // expire after ~3s; the stack is capped at 4 so a burst cannot wallpaper the
 // screen — 4, not 3, since cycle 163 (Eric ruling 2026-10-01, epic-8 amendment
 // 227): a large drone's three `◆ … STOCKED` drops plus the same kill's
@@ -16,14 +17,6 @@ const TOAST_ID = 'upgrade-toast';
 const LINE_TTL_MS = 3000;
 const FADE_MS = 600;
 const MAX_LINES = 4;
-
-/** Pure: the toast line for a banked level (Story 2.6 — a LEVEL UP is now the
- *  only thing that banks a point, whether it came from the passive tick or a
- *  kill, so the copy names the level, not the currency; amendment 33's
- *  vocabulary, no "banked" wording). TAB is the refit-modal toggle. */
-export function pointToastLine(): string {
-  return '▲ LEVEL UP — TAB TO REFIT';
-}
 
 function ensureStack(): HTMLDivElement {
   let el = document.getElementById(TOAST_ID) as HTMLDivElement | null;

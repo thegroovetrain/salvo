@@ -27,7 +27,7 @@ import {
   LOADOUT_KEY_TRACKING_EM,
   shiftChipWidth,
 } from '../ui/classSelect.js';
-import { monoTextWidth } from '../ui/refitCardFit.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 import { pipFill } from '../util/pips.js';
 import { indexWord } from '../ui/boonCopy.js';
 import { CLIENT_CONFIG } from '../config.js';

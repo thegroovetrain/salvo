@@ -19,7 +19,7 @@
 
 import { CLIENT_CONFIG } from '../config.js';
 
-const V = CLIENT_CONFIG.vitals;
+const V = CLIENT_CONFIG.console.helmGlyphs;
 
 /** The two independently-fading helm key pairs. */
 export type HelmPair = 'ws' | 'ad';
@@ -42,7 +42,7 @@ export function zeroHelmProgress(): HelmProgress {
  *  showing a coach mark again is harmless, hiding it wrongly is not). */
 function coerceCount(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return 0;
-  return Math.min(V.glyphFadeCount, Math.floor(v));
+  return Math.min(V.fadeCount, Math.floor(v));
 }
 
 /** Pure: a fully-valid HelmProgress from ANY stored payload (garbage, a
@@ -54,13 +54,13 @@ export function sanitizeHelmProgress(raw: unknown): HelmProgress {
 
 /** Pure: has this pair earned its permanent fade? */
 export function pairFaded(progress: HelmProgress, pair: HelmPair): boolean {
-  return progress[pair] >= V.glyphFadeCount;
+  return progress[pair] >= V.fadeCount;
 }
 
 /** Pure: the progress after ONE successful input on `pair` (capped, so a
  *  long-serving captain never overflows the stored count). */
 export function countHelmInput(progress: HelmProgress, pair: HelmPair): HelmProgress {
-  return { ...progress, [pair]: Math.min(V.glyphFadeCount, progress[pair] + 1) };
+  return { ...progress, [pair]: Math.min(V.fadeCount, progress[pair] + 1) };
 }
 
 /** Pure: the per-pair MAX of two progress records. Fade progress only ever moves
@@ -98,7 +98,7 @@ export function glyphFadeAlpha(
 ): number {
   if (!faded) return 1;
   if (!animate || fadeStartSec === null) return 0;
-  const t = (nowSec - fadeStartSec) / V.glyphFadeSec;
+  const t = (nowSec - fadeStartSec) / V.fadeSec;
   if (t <= 0) return 1;
   return t >= 1 ? 0 : 1 - t;
 }
@@ -109,7 +109,7 @@ export function glyphFadeAlpha(
 export function loadHelmProgress(): HelmProgress {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(V.glyphKey);
+    raw = localStorage.getItem(V.key);
   } catch {
     return zeroHelmProgress();
   }
@@ -132,7 +132,7 @@ export function loadHelmProgress(): HelmProgress {
 export function saveHelmProgress(p: HelmProgress): HelmProgress {
   const merged = mergeHelmProgress(loadHelmProgress(), p);
   try {
-    localStorage.setItem(V.glyphKey, JSON.stringify(merged));
+    localStorage.setItem(V.key, JSON.stringify(merged));
   } catch {
     // the fade just won't survive this browser's next reload
   }

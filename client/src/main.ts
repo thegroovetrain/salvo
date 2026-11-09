@@ -109,7 +109,6 @@ import {
 import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
 import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
-import { slotForCard } from './render/equipmentInfo.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
@@ -199,7 +198,7 @@ import {
   type ResultsOwn,
   type ResultsView,
 } from './ui/results.js';
-import { SettingsOverlay, canAbandon, escapeAction, wheelScrollsSurface } from './ui/settings.js';
+import { SettingsOverlay, canAbandon, escapeAction, wheelScrollsSurface, type OpenSurfaces } from './ui/settings.js';
 import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
@@ -474,8 +473,7 @@ interface Game {
   /** This frame's denied-fire pulse is DEGRADED (its onset was over budget). The
    *  on-water arc/marker draws its flat denied red either way — that mark is the
    *  denial's only visual channel and is never motion-gated, so it IS its own
-   *  degraded form — and the hotbar chip this pulse also drives drops its bloom
-   *  (render/hotbar.ts `degradedSkin`). */
+   *  degraded form. */
   deniedDegraded: boolean;
   /** THE `denied` CUE'S TONE FLOOR (the twin walk, amendment 60) — ONE shared
    *  floor across every `denied` call site (weapon click, predicted ability
@@ -518,32 +516,6 @@ interface Game {
    *  aggregate budget for THAT slot's element key — three slots denying at once
    *  is three separate elements, not one over-budget one). */
   abilityDegraded: boolean[];
-  /** One-shot latch PER LOADOUT SLOT: an ability press was predicted READY on
-   *  the optimistic press edge (the boost-prediction precedent) — consumed into
-   *  the matching activatedPulse for the hotbar's ≤80ms ACTIVATED pop. */
-  abilityActivatedPress: boolean[];
-  /** Rate-limited ACTIVATED pop per loadout slot — the same 80ms/300ms register
-   *  as the denied pulse (DESIGN.md specs the flash in ms, not frames). */
-  activatedPulse: DeniedPulse[];
-  /** This frame's activated-pop state per loadout slot (read by the hotbar). */
-  activatedFlash: boolean[];
-  /** One-shot latch PER LOADOUT SLOT: a boon landed on that slot's category
-   *  (Story 2.9, amendment 51) — consumed into the matching fitPulse. */
-  fitPress: boolean[];
-  /** Rate-limited FIT pulse per loadout slot — the SAME 80ms/300ms register as
-   *  the denied and activated pulses (one DeniedPulse driver per slot, so two
-   *  fits in one refit window can't share a rate floor). */
-  fitPulse: DeniedPulse[];
-  /** This frame's fit-flash state per loadout slot (read by the hotbar). */
-  fitFlash: boolean[];
-  /** The RANK-WIDE fit channel: a shipwide INTEL/SHIP boon belongs to no single
-   *  slot, so the whole stack flashes once on the same 80ms/300ms register. */
-  fitFramePress: boolean;
-  fitFramePulse: DeniedPulse;
-  fitFrameFlash: boolean;
-  /** That rank-wide flash is DEGRADED this frame (over budget on its own
-   *  element key) — it still draws, at the flat degraded weight. */
-  fitFrameDegraded: boolean;
   /**
    * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
    * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
@@ -1067,10 +1039,10 @@ function resultsKeysArmed(g: Game): boolean {
   return performance.now() - g.resultsShownAt >= CLIENT_CONFIG.results.keyGraceMs;
 }
 
-/** The surfaces the uniform ESC law arbitrates between, topmost-first. Since
- *  Story 10.10 there is no refit surface (R3), so its slot is always false. */
-function openSurfaces(g: Game): { results: boolean; refit: boolean; settings: boolean } {
-  return { results: resultsVisible(), refit: false, settings: g.settingsOverlay.visible };
+/** The surfaces the uniform ESC law arbitrates between, topmost-first (Story
+ *  10.10 retired the refit surface, R3). */
+function openSurfaces(g: Game): OpenSurfaces {
+  return { results: resultsVisible(), settings: g.settingsOverlay.visible };
 }
 
 /**
@@ -1080,9 +1052,9 @@ function openSurfaces(g: Game): { results: boolean; refit: boolean; settings: bo
  * when NOTHING is open does it toggle settings on. ESC never
  * returns to port and settings never stacks over another surface.
  *
- * The results arming grace still binds: inside it an ESC the player aimed at the
- * refit modal must not dismiss the just-shown results screen, so the close is
- * simply skipped (the modal stays up and the next ESC lands honestly).
+ * The results arming grace still binds: inside it an ESC the player aimed at
+ * something else must not dismiss the just-shown results screen, so the close
+ * is simply skipped (the modal stays up and the next ESC lands honestly).
  */
 function handleEscape(g: Game): void {
   const action = escapeAction(openSurfaces(g), g.state.spectating);
@@ -1090,7 +1062,6 @@ function handleEscape(g: Game): void {
     if (resultsKeysArmed(g)) closeResultsAsSpectate();
     return;
   }
-  if (action === 'closeRefit') return; // unreachable: there is no refit surface (R3)
   if (action === 'closeSettings') g.settingsOverlay.close();
   else if (action === 'reopenResults') reopenResults(g);
   else openSettingsOverlay(g);
@@ -2406,19 +2377,18 @@ function overlayFocused(g: Game | null): boolean {
  */
 function handleAbilityPress(g: Game, id: AbilityId, actSeq: number): void {
   // `C` / `V` (Story 10.5): the client's known refusals already ran at the key
-  // (`isAbilityDenied`), so a press that reaches here is predicted READY — the
-  // ACTIVATED pop on its square, nothing else predicted (the cooldown stamp and
-  // the effect both arrive with the server's frame).
+  // (`isAbilityDenied`), so a press that reaches here is predicted READY —
+  // nothing is predicted (the cooldown stamp and the effect both arrive with
+  // the server's frame; Story 10.10 retired the hotbar's ACTIVATED pop).
   if (id !== 'shift') {
-    g.abilityActivatedPress[abilitySquare(id)] = true;
     g.abilityLatch = latchPress(g.abilityLatch, id); // shut until the server answers
     return;
   }
   handleShiftPress(g, actSeq);
 }
 
-/** The Shift's press (slot 1): the pool-based verdict, the activated pop and
- *  the optimistic boost window — Story 1.6's path, unchanged but for the
+/** The Shift's press (slot 1): the pool-based verdict and the optimistic
+ *  boost window — Story 1.6's path, unchanged but for the
  *  dedup source (the ability, Story 10.5). */
 function handleShiftPress(g: Game, actSeq: number): void {
   const slot = SLOT_BOOST;
@@ -2450,17 +2420,14 @@ function handleShiftPress(g: Game, actSeq: number): void {
     playDenied(g);
     return;
   }
-  // Predicted READY: fire the hotbar's ACTIVATED pop on this optimistic press
-  // edge (the boost-prediction precedent — the slot must acknowledge the press
-  // now, not a round trip later). It decays straight into the cooling grammar.
-  g.abilityActivatedPress[slot] = true;
+  // Predicted READY (Story 10.10 retired the hotbar's ACTIVATED pop on this
+  // edge; the Shift button reads the predicted boost window below).
   const id = g.ownSlots[slot];
   // `actSeq` is the value THIS press will ride once the keyboard drains it onto
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
-  // The other two class Shifts (Story 8.15) predict NOTHING beyond the generic
-  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and HUNKER's
+  // The other two class Shifts (Story 8.15) predict NOTHING: INSTANT RELOAD's refilled pools and HUNKER's
   // `hunkerUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
 }
@@ -2550,9 +2517,7 @@ function offerGroupHooks(getG: () => Game | null): ConstructorParameters<typeof 
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
   Game,
-  | 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded' | 'abilityActivatedPress'
-  | 'activatedPulse' | 'activatedFlash' | 'fitPress' | 'fitPulse' | 'fitFlash' | 'fitFramePress'
-  | 'fitFramePulse' | 'fitFrameFlash' | 'fitFrameDegraded'
+  'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded'
 > {
   return {
     // Per hotbar SQUARE (Story 10.5 — the loadout slots, then `C` / `V`).
@@ -2562,33 +2527,7 @@ function abilityFeedbackState(): Pick<
     // Story 4.8: the budget verdict that rides each slot's flash (per-slot, so
     // one over-budget slot never flattens another's mark).
     abilityDegraded: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    // Story 2.2: the mirror-image ACTIVATED channel (per-slot latch + pulse +
-    // this-frame flag), driven off the optimistic ability-press edge.
-    abilityActivatedPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    activatedPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
-    activatedFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    // Story 2.9: the same three-part shape again for the FIT channel, driven off
-    // the server's `bn` receipt (never predicted — a fit is the server's word).
-    fitPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    fitPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
-    fitFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
-    fitFramePress: false,
-    fitFramePulse: new DeniedPulse(),
-    fitFrameFlash: false,
-    fitFrameDegraded: false,
   };
-}
-
-/**
- * A card landed: latch its FIT flash (Story 2.9). The card resolves to the slot
- * carrying the equipment it addresses; a shipwide ladder (or any card no fitted
- * slot owns) falls through to the rank-wide frame pulse, so no fit is ever
- * presentation-silent (FR22).
- */
-function latchFitFlash(g: Game, cardId: string): void {
-  const slot = slotForCard(g.ownSlots, cardId);
-  if (slot === null) g.fitFramePress = true;
-  else g.fitPress[slot] = true;
 }
 
 /**
@@ -3012,10 +2951,11 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // toast, no tone — because the window opens itself on it. Read per event
     // off the polled plane through the same `atStartLine` every other lock uses.
     heldAtStartLine: () => atStartLine(g),
-    // Story 2.9: the fitted boon's CATEGORY decides which slot flashes (amendment
-    // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
-    // slot, so the whole stack takes one rank-wide pulse instead.
-    onBoonFitted: (cardId) => latchFitFlash(g, cardId),
+    // Story 2.9's per-slot / rank-wide FIT flash retired with the hotbar
+    // (Story 10.10): the consoles draw no FIT flash. A fit still never lands
+    // silent (FR22) — the `◆ … FITTED` receipt toasts it and the console's
+    // readouts change in place.
+    onBoonFitted: () => {},
     // Story 2.9: the click-time own-fire latch (see ownFireWeapon) — the only
     // honest way to tell an own CANNON shell from an own GUN shell, since the
     // ballistic wire shape says neither.
@@ -3348,7 +3288,7 @@ function shipConsoleView(g: Game, f: ConsoleFrame): ShipConsoleView {
   const axes = helmAxes(g);
   const frac = hullFraction(status.hp, status.stats.maxHp);
   // THE AMBER COROLLARY's hull half: held lit when the ring outranks it.
-  const hullWins = amberPulseWinner({ ring: f.ringUrgent, hpGlobe: hullAmberChannel(frac) }) === 'hpGlobe';
+  const hullWins = amberPulseWinner({ ring: f.ringUrgent, hullGauge: hullAmberChannel(frac) }) === 'hullGauge';
   return {
     hp: status.hp,
     maxHp: status.stats.maxHp,
@@ -3521,11 +3461,9 @@ function claimPulseFlash(g: Game, key: string, pulse: DeniedPulse, live: boolean
  * ratified floor scopes as ELEMENTS (render/flashBudget.ts FLASH_ELEMENTS).
  *
  * Deliberately OUTSIDE renderFiring's alive gate: a dead press is denied too and
- * must still pulse, and a spend is legal while dead (the hotbar is simply hidden
- * there). The ACTIVATED pop and the per-slot FIT pulse are NOT claimed — the
- * story's element list names the denied pulses, the hotbar frame and the zone
- * reveal, and inventing budget membership for a channel is exactly the kind of
- * unratified widening the tier/budget split forbids.
+ * must still pulse, and a spend is legal while dead (the consoles are simply
+ * hidden there). Story 10.10 retired the hotbar's ACTIVATED pop and FIT pulse
+ * (nothing on the consoles drew them) and the FIT frame's budget key.
  */
 function drivePulses(g: Game, nowMs: number): void {
   for (let s = 0; s < g.abilityPulse.length; s++) {
@@ -3536,19 +3474,7 @@ function drivePulses(g: Game, nowMs: number): void {
     g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
     g.abilityDeniedPress[s] = false;
     g.abilityDegraded[s] = claimPulseFlash(g, SQUARE_FLASH_KEYS[s], g.abilityPulse[s], g.abilityFlash[s], nowMs, g.abilityDegraded[s]);
-    // The ACTIVATED pop rides the identical register (Story 2.2).
-    g.activatedFlash[s] = g.activatedPulse[s].update(g.abilityActivatedPress[s], nowMs);
-    g.abilityActivatedPress[s] = false;
-    // ...and so does the FIT flash (Story 2.9): the boon landing on this slot's
-    // family.
-    g.fitFlash[s] = g.fitPulse[s].update(g.fitPress[s], nowMs);
-    g.fitPress[s] = false;
   }
-  g.fitFrameFlash = g.fitFramePulse.update(g.fitFramePress, nowMs);
-  g.fitFramePress = false;
-  g.fitFrameDegraded = claimPulseFlash(
-    g, FLASH_ELEMENTS.hotbarFrame, g.fitFramePulse, g.fitFrameFlash, nowMs, g.fitFrameDegraded,
-  );
 }
 
 function renderFiring(

@@ -46,23 +46,22 @@
 // IS (the button may never come back up, and the click has already fired).
 // `releaseCount` survives as the raw button-0 tally; nothing branches on it.
 //
-// Story 8.7 (ruling 9) adds the OTHER way a hold can end: `endHolds()`, which
-// main.ts called when the refit window OPENED. Story 10.10 retired the window
-// (R3), so nothing calls it today; it stays the one way to end a hold without
-// a pointerup.
+// Story 8.7 (ruling 9) added `endHolds()`, which main.ts called when the refit
+// window OPENED to end a live hold without a pointerup. Story 10.10 retired the
+// window (R3) and, with it, `endHolds()`.
 //
 // Story 8.15 (epic-8 amendment 103) publishes the HOLD ITSELF as a level for
 // the machine gun's stream: `isHeld` is simply "a hold is open"
 // (`activePointerId !== null`), and a PRESS LATCH (`pressedSinceSample`) makes
 // a tap shorter than one 50 ms sample still read as held once — the sampler
 // calls `consumeHeld()` exactly once per input. Every path that ends a hold
-// without a pointerup (blur, `endHolds()` on the refit window opening) also
-// drops the latch, so the next input carries `held: false`.
+// without a pointerup (blur, pointercancel) also drops the latch, so the next
+// input carries `held: false`.
 //
 // Story 10.4 adds the SECONDARIES LEVEL on the RIGHT button (button 2):
 // `secHeld` / `consumeSec()` mirror `isHeld` / `consumeHeld()` — canvas-target
 // only, dropped while locked out, swallowed over a console, ended by its
-// pointerup, a pointercancel, a blur or `endHolds()`, with the same press latch
+// pointerup, a pointercancel or a blur, with the same press latch
 // so a sub-sample tap still yields one `sec: true`. Pointer Events report a
 // SECOND button pressed during a hold as a `pointermove` carrying that
 // `button` (not a pointerdown), so the move handler reads the right button's
@@ -130,7 +129,7 @@ export class MouseInput {
   /** A canvas press was ACCEPTED since the last `consumeHeld()` (Story 8.15):
    *  a tap whose pointerup lands inside one sample window still yields one
    *  `held: true` input. Cleared on read and by every hold-ending path that is
-   *  not a pointerup (blur, `endHolds`). */
+   *  not a pointerup (blur, pointercancel). */
   private pressedSinceSample = false;
   /** The right button is down on the canvas (Story 10.4 — the secondaries). */
   private secDown = false;
@@ -304,31 +303,6 @@ export class MouseInput {
     this.activePointerId = null;
   }
 
-  /**
-   * END EVERY LIVE HOLD, exactly as a pointerup would (Story 8.7, ruling 9).
-   * Was called by main.ts's refit-visibility watcher on the window's OPEN edge
-   * (the window retired with Story 10.10; nothing calls it today): the refit
-   * modal was a full combat lockout, but the lockout only ever gated the
-   * PRESS — a stream already running kept its hold open behind the window, and
-   * the pointerup that ends it might land after the player has closed the
-   * window, switched weapons or died, paying an owed prime-revert into a
-   * trigger they are no longer pulling.
-   *
-   * It publishes the hold's own click sequence number, so main.ts's release
-   * poll pays exactly the debt that click armed — the same edge, from a
-   * different cause, which is why it reuses `endHold` rather than inventing a
-   * second ending. Counters are untouched: no click is counted, no button-0
-   * release is tallied (none happened), and the cursor position is left alone.
-   * The keyboard's QUEUED activation presses are deliberately NOT cleared by
-   * the caller: an already-queued press is a press.
-   */
-  endHolds(): void {
-    this.endHold(null);
-    this.pressedSinceSample = false;
-    this.secDown = false;
-    this.secPressedSinceSample = false;
-  }
-
   private readonly onContextMenu = (e: Event): void => {
     e.preventDefault();
   };
@@ -379,7 +353,7 @@ export class MouseInput {
   /**
    * THE HELD-FIRE LEVEL (Story 8.15): true while a canvas hold is open — the
    * pointer that pressed on the water has not come back up, cancelled, or been
-   * ended by a blur or the refit window. Pure read; never clears the latch.
+   * ended by a blur. Pure read; never clears the latch.
    */
   get isHeld(): boolean {
     return this.activePointerId !== null;

@@ -29,7 +29,6 @@ import {
   offerView,
   pickableChoice,
   redrawState,
-  shouldAutoOpen,
   spendLatchReleased,
   spendOutcome,
   type OfferView,
@@ -247,33 +246,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 });
 
-// --- THE OPENING's two pure rules (Story 8.10) ----------------------------------
-
-describe('shouldAutoOpen — the window opens itself once per match (amendment 59)', () => {
-  const at = (over: Partial<Parameters<typeof shouldAutoOpen>[0]> = {}) =>
-    shouldAutoOpen({ latched: false, phase: 'countdown', visible: false, hasOffer: true, ...over });
-
-  it('opens on the first countdown frame that carries an offer', () => {
-    expect(at()).toBe(true);
-  });
-
-  it('never opens twice: the latch is "not yet THIS match", not a numeric rise', () => {
-    expect(at({ latched: true })).toBe(false);
-  });
-
-  it('opens for a RECONNECT whose very first frame already reads pts 1', () => {
-    // There is no edge to see — the offer is simply there — which is exactly
-    // why the rule is a latch over the epoch and not a rise over `pts`.
-    expect(at({ latched: false })).toBe(true);
-  });
-
-  it('never opens off the countdown, over an open window, or with nothing to show', () => {
-    expect(at({ phase: 'waiting' })).toBe(false);
-    expect(at({ phase: 'active' })).toBe(false);
-    expect(at({ visible: true })).toBe(false);
-    expect(at({ hasOffer: false })).toBe(false);
-  });
-});
+// --- THE COUNTDOWN's REDRAW pip (Story 8.10 / 10.7) ------------------------------
 
 describe('redrawState — the REDRAW pip reads the server flag (Story 10.7, R4)', () => {
   it('is unspent in the countdown while the own row says the redraw is unused', () => {

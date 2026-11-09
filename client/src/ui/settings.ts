@@ -104,6 +104,11 @@ export interface BindingRow {
  * two cooldown abilities, and the right button is the secondaries alone
  * (amendment 11(s): it never cancels a readied weapon).
  *
+ * STORY 10.10 (2026-11-09, epic-10 amendments 16–17, R3) folded the two refit
+ * rows into one: there is no refit window any more, Tab is the HELD MODIFIER
+ * and Tab + a digit (numpad aliased, unchanged) takes that card from the
+ * offer group; Tab alone and bare digits do nothing.
+ *
  * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story
  * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
  * Shift, so `Q / E` + `R` are one `Q / E / R` row and SHIFT has its own. The
@@ -123,8 +128,7 @@ export function bindingRows(): BindingRow[] {
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE MAIN BATTERY, OR THE READIED WEAPON' },
     { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD)' },
-    { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
-    { keys: '1 – 4 (+ NUMPAD)', action: 'PICK A REFIT CARD' },
+    { keys: 'TAB + 1 – 4 (+ NUMPAD)', action: 'TAKE AN UPGRADE' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
     { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
     { keys: 'M', action: 'MUTE' },
@@ -132,12 +136,12 @@ export function bindingRows(): BindingRow[] {
   ];
 }
 
-/** Which surfaces are currently up, topmost-first in the ratified order. */
+/** Which surfaces are currently up, topmost-first in the ratified order.
+ *  (Story 10.10 retired the Tab refit modal — the offer group is never a
+ *  surface ESC closes.) */
 export interface OpenSurfaces {
   /** The elimination / game-end results modal. */
   results: boolean;
-  /** The TAB refit modal. */
-  refit: boolean;
   /** This overlay. */
   settings: boolean;
 }
@@ -145,14 +149,13 @@ export interface OpenSurfaces {
 /** What ESC does, given the open surfaces. */
 export type EscapeAction =
   | 'closeResults'
-  | 'closeRefit'
   | 'closeSettings'
   | 'openSettings'
   | 'reopenResults';
 
 /**
  * Pure: THE uniform ESC law (amendment 23). ESC closes the TOPMOST open surface
- * — results modal, then refit modal, then this overlay — and only opens/toggles
+ * — results modal, then this overlay — and only opens/toggles
  * settings when nothing is open at all. Consequences of note, all encoded here:
  *   • settings NEVER opens over another surface (no stacking, ever);
  *   • ESC never returns to port — closing the results modal equals pressing
@@ -176,15 +179,13 @@ export type EscapeAction =
  */
 export function escapeAction(open: OpenSurfaces, spectating = false): EscapeAction {
   if (open.results) return 'closeResults';
-  if (open.refit) return 'closeRefit';
   if (open.settings) return 'closeSettings';
   return spectating ? 'reopenResults' : 'openSettings';
 }
 
 /**
- * Pure: may a surface OPEN right now? Nothing stacks — the refit modal cannot
- * open over settings and settings cannot open over the refit modal or the
- * results screen (the I/O matrix's "Never stack" row, both directions).
+ * Pure: may a surface OPEN right now? Nothing stacks — settings cannot open
+ * over the results screen (the I/O matrix's "Never stack" row).
  */
 export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces): boolean {
   return !Object.entries(open).some(([k, v]) => v && k !== surface);
@@ -197,8 +198,7 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
  * never a zoom (Eric 2026-10-01, cycle 162: *"if the ESC menu is open in-game,
  * the scroll wheel does NOT zoom in/out … the intent of the user when that is
  * open is to scroll that menu"*; the results half is the cycle-100 review
- * finding this generalizes). The refit modal is NOT scrollable and is not in
- * this set — zoom stays live under it. The one `window` wheel listener
+ * finding this generalizes). The one `window` wheel listener
  * (main.ts bindWheelZoom) consults this before touching either zoom path.
  */
 export function wheelScrollsSurface(open: OpenSurfaces): boolean {

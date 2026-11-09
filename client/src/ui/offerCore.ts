@@ -12,7 +12,7 @@
 //     `canLatchSpend`, `spendLatchReleased`, `spendOutcome`.
 //
 // MOVED, NOT REWRITTEN: every function and its doc comment are the band's,
-// verbatim; ui/upgradeMenu.ts re-exports them until it is deleted.
+// verbatim (ui/upgradeMenu.ts itself was deleted in the same story).
 
 import {
   CATALOG,
@@ -197,20 +197,6 @@ export function pickableChoice(view: OfferView | null, choice: number): boolean 
   if (view === null || view.locked) return false;
   if (!Number.isInteger(choice) || choice < 0 || choice >= view.options.length) return false;
   return !view.options[choice].greyed;
-}
-
-/**
- * Pure: may the refit window OPEN ITSELF this frame (Story 8.10, amendment 59)?
- *
- * The window opens once per match epoch, on the first frame that carries a
- * level-zero offer while the match is in `countdown`. The latch is "not yet
- * THIS epoch", never a numeric rise, which is exactly what makes a reconnect
- * mid-countdown (whose very first frame already reads `pts 1`) open too — and
- * what makes a player who closed it with Tab stay closed, because main.ts sets
- * the latch on the attempt, not on the result.
- */
-export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: boolean; hasOffer: boolean }): boolean {
-  return !s.latched && s.phase === 'countdown' && !s.visible && s.hasOffer;
 }
 
 /**

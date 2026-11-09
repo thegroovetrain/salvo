@@ -33,7 +33,7 @@ import { boonFitToastLine } from '../ui/boonCopy';
 const CLOUD_SIZE = (({ lifeMs, r0, r1 }) => ({ lifeMs, r0, r1 }))(baseSmokeStats());
 
 // The feed and toast COPY is owned by the pure line builders (killLine,
-// bountyKillLine, pointToastLine, boonFitToastLine — each unit-tested beside
+// bountyKillLine, boonFitToastLine — each unit-tested beside
 // its module). This suite pins the ROUTING: which refs, which builder, which
 // line reaches the DOM — so it compares against the builders, never a literal.
 const lineText = (segs: KillSegment[]): string => segs.map((s) => s.text).join('');
