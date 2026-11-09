@@ -2,7 +2,7 @@
 title: 'Story 10.10: The Battle UI — XP Seen, the Offer in the Corner (the full in-game UI/UX pass)'
 type: 'feature'
 created: '2026-11-09'
-status: 'draft'
+status: 'blocked'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -103,6 +103,11 @@ warnings: ['oversized', 'multiple-goals', 'design-gate']
 **Manual checks:**
 - The candidate page shows every open dimension (R4 four corners, R6 three forms, R7 gauges, R12 two surfaces) and the four states; every register ≥ 9 px at the 1366×768 frame; the center of the frame holds only water and the ship.
 
+## Review Triage Log
+
+- 2026-11-09, the sitting's gate (Fable Blind Hunter ×2 + Codex gpt-5.6-sol ×2, on the brief + spec and then on the candidate page): patch 13 (brief: grey on HUD text, RING CLOSES IN, real hover state, R6/R7 opened as explorations, twin turrets, toast kill, Shift generic, placeholder labels, game stat words; spec: pulse clause, copy gate, rate gate; page: game stat words DAMAGE / RANGE / BLAST RADIUS, three non-token colors, discrete outline bands, folded C/V cooldowns, helm needle, TAB token, 1:1 scale toggle, collision note), reject 6 (bands-as-identity, secondaries DMG 3, add-ons not gold, countdown Q/E/R empty, sparse countdown chrome bar — the real bar is hidden pre-live, click-must-pick on a mock), defer 0, intent_gap 0, bad_spec 0.
+
 ## Auto Run Result
 
-(filled by HALT)
+Status: blocked
+Blocking condition: design gate (R14) — Eric's Stitch pass and his pick on the candidate page (corner R4, reload form R6, hull gauge R7, surface R12) are required before the code build starts. Delivered this run: the spec, `stitch-prompt-battle-ui-2026-11-09.md`, `mockups/battle-ui-sitting-2026-11-09.html` (published as a private artifact), epic-10 amendment 16, the ledger entry, the tracker stamps; `npm run check` exit 0 (148 test files); one PR to `development`. Open for Eric's pen: the `RANGE` word collision (weapon row vs the RANGE index), the `TAB+n` chips and `2 LEVELS` header, and the right-mid corner not fitting the `both` reload form at 1366×768.

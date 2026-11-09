@@ -75,7 +75,7 @@ header p { margin: 0; color: var(--muted); max-width: 90ch; }
 .kc.am { border-color: var(--g-amber); background: var(--g-amber); color: var(--g-void); font-weight: 600; }
 .kc.rd { border-color: var(--g-denied); color: var(--g-denied); }
 .kc2 { display: inline-flex; border: 1px solid rgba(122,132,150,.6); height: 16px; font-size: 9px; letter-spacing: .04em; color: var(--g-t2); line-height: 14px; }
-.kc2 span { padding: 0 4px; }
+.kc2 span { padding: 0 4px; color: var(--g-t1); }
 .kc2 span + span { border-left: 1px solid rgba(122,132,150,.6); color: var(--g-t1); font-weight: 600; }
 
 /* top row */
@@ -170,13 +170,13 @@ header p { margin: 0; color: var(--muted); max-width: 90ch; }
 .heat.lock i { background: repeating-linear-gradient(135deg, rgba(255,59,59,.75) 0 3px, rgba(255,59,59,.2) 3px 6px); }
 .slots { display: flex; gap: 10px; }
 .sw { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.sq { position: relative; width: 54px; height: 54px; border: 1px solid rgba(192,192,192,.28); color: rgba(159,179,168,.85); display: flex; align-items: center; justify-content: center; }
+.sq { position: relative; width: 54px; height: 54px; border: 1px solid rgba(192,192,192,.28); color: rgba(192,192,192,.6); display: flex; align-items: center; justify-content: center; }
 .sq.sm { width: 44px; height: 44px; }
 .sq > svg { position: relative; }
 .sq.ready { border-color: rgba(0,255,136,.45); color: rgba(0,255,136,.85); box-shadow: 0 0 10px rgba(0,255,136,.15); }
 .sq.empty { border-style: dashed; border-color: rgba(122,132,150,.45); color: rgba(122,132,150,.45); }
 .sq.sel { border-color: var(--g-amber); color: var(--g-amber); box-shadow: 0 0 14px rgba(255,184,0,.4), inset 0 0 14px rgba(255,184,0,.22); }
-.sq .cd { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: var(--g-t1); text-shadow: 0 0 4px #000, 0 0 2px #000; }
+.sq .cd { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: var(--g-t1); text-shadow: 0 0 4px #050807, 0 0 2px #050807; }
 .sq .tier { position: absolute; right: 3px; bottom: 1px; font-size: 9px; font-weight: 600; letter-spacing: .02em; }
 .sq.prev { box-shadow: 0 0 10px var(--tc); border-color: var(--tc); }
 
@@ -190,7 +190,7 @@ header p { margin: 0; color: var(--muted); max-width: 90ch; }
 .ocard { position: relative; height: 64px; border: 1px solid color-mix(in srgb, var(--tc) 55%, transparent); padding: 5px 6px; display: grid; grid-template-rows: 30px 1fr; gap: 4px; cursor: pointer; }
 .ocard .top { display: flex; gap: 6px; align-items: center; }
 .ocard .gb { width: 30px; height: 30px; flex: none; border: 1px solid rgba(192,192,192,.22); color: var(--tc); display: flex; align-items: center; justify-content: center; }
-.ocard .nm { font-size: 11px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: .03em; line-height: 1.1; }
+.ocard .nm { font-size: 11px; font-weight: 600; color: var(--g-t1); text-transform: uppercase; letter-spacing: .03em; line-height: 1.1; }
 .ocard .bot { display: flex; align-items: center; justify-content: space-between; }
 .ocard .tm { font-size: 9px; font-weight: 600; letter-spacing: .04em; }
 .ocard .one { display: inline-block; width: 8px; height: 8px; background: var(--g-amber); }
@@ -216,6 +216,7 @@ header p { margin: 0; color: var(--muted); max-width: 90ch; }
   <div class="dial"><span>Reload form (R6)</span><div class="seg" data-k="reload"><button data-v="diagram">Diagram</button><button data-v="rows">Rows</button><button data-v="both">Both</button></div></div>
   <div class="dial"><span>Hull gauge (R7)</span><div class="seg" data-k="hull"><button data-v="numeral">Numeral</button><button data-v="bar">Bar</button><button data-v="outline">Outline</button><button data-v="globe">Globe</button></div></div>
   <div class="dial"><span>Frame</span><div class="seg" data-k="frame"><button data-v="1920">1920 × 1080</button><button data-v="1366">1366 × 768</button></div></div>
+  <div class="dial"><span>Scale</span><div class="seg" data-k="scale"><button data-v="fit">Fit to window</button><button data-v="1:1">1:1 (scroll)</button></div></div>
   <div class="readout" aria-live="polite"><span>center clear: <b id="clear">–</b></span><span>overlap: <b id="overlap">–</b></span></div>
 </section>
 
@@ -224,9 +225,12 @@ header p { margin: 0; color: var(--muted); max-width: 90ch; }
 <section class="notes">
   <h2>What each toggle decides</h2>
   <ul>
-    <li><b>Offer corner</b> (R4, open): where the always-live card group sits while a level is banked. Hover a card to see the consoles re-value; click a card to pin its preview.</li>
+    <li><b>Offer corner</b> (R4, open): where the always-live card group sits while a level is banked. Hover a card to see the consoles re-value; click a card to pin its preview (mock only — in the game a click PICKS the card).</li>
     <li><b>Reload form</b> (R6, render all three): the own hull from above with every mount at its real station, rows with one clock per turret and tube, or both.</li>
     <li><b>Hull gauge</b> (R7, open): a large percent, a segmented bar, the own hull tinting and cracking, or today's globe for comparison.</li>
+    <li><b>Collision</b>: the right-mid corner does not fit the <b>both</b> reload form in the 1366 frame, in both offer-bearing states (offer pending and countdown); the overlap readout names it.</li>
+    <li>Stat words are the game's card words (DAMAGE / RANGE / BLAST RADIUS / RELOAD / SPEED); RANGE on a weapon row shares its word with the RANGE index — Eric's call.</li>
+    <li><b>Scale</b>: Fit shrinks the frame to the window width (the 9 px registers go below 9 px on a narrow browser); 1:1 keeps true pixels and the stage scrolls sideways.</li>
     <li><b>Surface</b> (R12): floating 1 px linework over the water, or solid near-opaque edge strips.</li>
     <li>In <b>Offer pending</b> the ship holds LIGHT TORPEDO II, NAVAL MINES I and SMOKE SCREEN I, so the four cards read their real next tiers; the preview on card 1 is applied at load.</li>
     <li>The clocks cycle on a 10 s loop so the reload fill is visible; the real main-battery reload is the 9.5 s the console prints. Add <code>?still</code> to the address to freeze them.</li>
@@ -10204,8 +10208,8 @@ var CYCLE = 10000;
 
 // ---------- hash state ----------
 var KEYS = { state: ['fight', 'offer', 'low', 'countdown'], surface: ['floating', 'solid'], corner: ['br', 'bl', 'tl', 'rmid'],
-  reload: ['diagram', 'rows', 'both'], hull: ['numeral', 'bar', 'outline', 'globe'], frame: ['1920', '1366'] };
-var S = { state: 'fight', surface: 'floating', corner: 'br', reload: 'diagram', hull: 'numeral', frame: '1920' };
+  reload: ['diagram', 'rows', 'both'], hull: ['numeral', 'bar', 'outline', 'globe'], frame: ['1920', '1366'], scale: ['fit', '1:1'] };
+var S = { state: 'fight', surface: 'floating', corner: 'br', reload: 'diagram', hull: 'numeral', frame: '1920', scale: 'fit' };
 function readHash() {
   var h = location.hash.replace(/^#/, '');
   h.split('&').forEach(function (kv) {
@@ -10235,7 +10239,8 @@ function readouts(cards) {
     mCap: hasM ? nm.maxAmmo + st.rackBonus : 0,
     secDmg: String(HC.CONFIG.secondaries.damage), secReach: String(Math.round(st.secondaryRangeU)),
     qTier: hasT ? lt.tier : null, eTier: hasM ? nm.tier : null,
-    vTier: held(cards, 'smokeScreen') || null, cTier: held(cards, 'hullRepair') || null
+    vTier: held(cards, 'smokeScreen') || null, cTier: held(cards, 'hullRepair') || null,
+    cCd: Math.round(st.repair.cooldownMs / 1000), vCd: Math.round(st.smoke.cooldownMs / 1000)
   };
   INDEX_IDS.forEach(function (k) { r[k] = String(st[k]); });
   return r;
@@ -10274,10 +10279,6 @@ function stat(label, k) { return '<span class="stat">' + label + ' ' + val(k) + 
 
 // hull color bands: phosphor ≥ 50, amber < 50, crimson < 25
 function band(hp) { return hp < 25 ? { fill: T.dmg, text: T.dmgm, line: T.dmgm } : hp < 50 ? { fill: T.amber, text: T.amber, line: T.amber } : { fill: T.ph, text: T.ph, line: T.ph }; }
-function mix(a, b, t) {
-  var pa = [1, 3, 5].map(function (i) { return parseInt(a.substr(i, 2), 16); }), pb = [1, 3, 5].map(function (i) { return parseInt(b.substr(i, 2), 16); });
-  return 'rgb(' + pa.map(function (v, i) { return Math.round(v + (pb[i] - v) * t); }).join(',') + ')';
-}
 function regenSvg(on, color) {
   if (!on) return '';
   return '<svg class="regen" width="10" height="14" viewBox="0 0 10 14" aria-hidden="true"><path d="M1 6 L5 1.5 L9 6 M5 1.5 V13" fill="none" stroke="' + color + '" stroke-width="1.4"/></svg>';
@@ -10309,7 +10310,7 @@ function hullOutline(sc, b) {
   var k = 1.55, s = HC.hullArtSvg(CLS, 'own', { pxPerU: k, hullPx: 1.5 });
   var vb = s.match(/viewBox="([^"]+)"/)[1].split(' ').map(Number);
   var w = vb[2] * k, h = vb[3] * k;
-  var tint = sc.hp >= 50 ? mix(T.amber, T.ph, (sc.hp - 50) / 50) : mix(T.dmg, T.amber, sc.hp / 50);
+  var tint = b.fill; // discrete bands: phosphor >= 50, amber < 50, crimson < 25
   var tinted = s.replace(/fill="#[0-9a-fA-F]{6}"/g, 'fill="' + tint + '"').replace(/stroke="#[0-9a-fA-F]{6}"/g, 'stroke="none"');
   var n = sc.hp < 25 ? 4 : sc.hp < 50 ? 2 : 0;
   var cr = '<svg class="cr" width="' + w + '" height="' + h + '" viewBox="' + vb.join(' ') + '">' +
@@ -10349,7 +10350,7 @@ function helmHtml() {
   var rungs = '';
   for (var i = 0; i < 9; i++) rungs += '<i class="rung' + (i === 4 ? ' stop' : '') + '" style="left:' + (i * 12.5) + '%"></i>';
   return '<div class="blk"><div class="helm1"><span><span class="lbl">HDG </span><span class="big">045°</span></span><span><span class="big">18</span><span class="lbl"> KTS</span></span></div>' +
-    '<div class="tele"><span class="kc">S</span><div class="ladder">' + rungs + '<i class="ord" style="left:' + (7 * 12.5) + '%"></i><i class="act" style="left:' + (6.6 * 12.5) + '%"></i></div><span class="kc">W</span></div>' +
+    '<div class="tele"><span class="kc">S</span><div class="ladder">' + rungs + '<i class="ord" style="left:' + (7 * 12.5) + '%"></i><i class="act" style="left:' + (50 + 50 * 18 / 28.5) + '%"></i></div><span class="kc">W</span></div>' +
     '<div class="tele"><span class="kc">A</span><div class="rud"><i class="c"></i><i class="t" style="left:31px"></i></div><span class="kc">D</span></div></div>';
 }
 function xpHtml(sc) {
@@ -10425,9 +10426,9 @@ function diagramHtml(sc, callouts) {
   ab += '<span class="ab" style="left:' + (cx + 34) + 'px;top:' + cy + 'px"><span class="kc">LMB</span></span>';
   var co = '';
   if (callouts) {
-    co += '<div class="co" style="top:' + cy + 'px">' + stat('DMG', 'mbDmg') + stat('REACH', 'mbReach') + stat('RELOAD', 'mbReload') + '</div>';
-    co += '<div class="co" style="top:' + (sy(HC.launcherStation(CLS, 0).x) + 2) + 'px">' + (V.R.tDmg !== null || (V.I && V.I.tDmg) ? stat('DMG', 'tDmg') + stat('SPEED', 'tSpd') + stat('RELOAD', 'tReload') : '<span class="stat">—</span>') + '</div>';
-    co += '<div class="co" style="top:' + (sternY - 4) + 'px">' + (V.R.mDmg !== null || (V.I && V.I.mDmg) ? stat('DMG', 'mDmg') + stat('BLAST', 'mBlast') + stat('RELOAD', 'mReload') : '<span class="stat">—</span>') + '</div>';
+    co += '<div class="co" style="top:' + cy + 'px">' + stat('DAMAGE', 'mbDmg') + stat('RANGE', 'mbReach') + stat('RELOAD', 'mbReload') + '</div>';
+    co += '<div class="co" style="top:' + (sy(HC.launcherStation(CLS, 0).x) + 2) + 'px">' + (V.R.tDmg !== null || (V.I && V.I.tDmg) ? stat('DAMAGE', 'tDmg') + stat('SPEED', 'tSpd') + stat('RELOAD', 'tReload') : '<span class="stat">—</span>') + '</div>';
+    co += '<div class="co" style="top:' + (sternY - 4) + 'px">' + (V.R.mDmg !== null || (V.I && V.I.mDmg) ? stat('DAMAGE', 'mDmg') + stat('BLAST RADIUS', 'mBlast') + stat('RELOAD', 'mReload') : '<span class="stat">—</span>') + '</div>';
   }
   var svg = '<svg class="d" width="280" height="' + H + '" viewBox="0 0 280 ' + H + '" aria-hidden="true">' +
     '<g transform="translate(' + cx + ' ' + cy + ') rotate(-90) scale(' + k + ')">' + nested + '</g>' + lines + '</svg>';
@@ -10449,14 +10450,14 @@ function rowsHtml(sc, rings) {
   }
   var tFit = V.R.tDmg !== null || (V.I && V.I.tDmg), mFit = V.R.mDmg !== null || (V.I && V.I.mDmg);
   return '<div class="blk" style="gap:9px">' +
-    row('mainBattery', false, 'MAIN BATTERY', '<span class="kc">LMB</span>', mb, stat('DMG', 'mbDmg') + stat('REACH', 'mbReach') + stat('RELOAD', 'mbReload')) +
-    row('lightTorpedo', V.R.tDmg === null, 'TORPEDO', '<span class="kc' + (sc.qReadied ? ' am' : '') + '">Q</span>', tb, tFit ? stat('DMG', 'tDmg') + stat('SPEED', 'tSpd') + stat('RELOAD', 'tReload') : '—') +
-    row('navalMines', V.R.mDmg === null, 'MINES', '<span class="kc">E</span>', mn, mFit ? stat('DMG', 'mDmg') + stat('BLAST', 'mBlast') + stat('RELOAD', 'mReload') : '—') +
+    row('mainBattery', false, 'MAIN BATTERY', '<span class="kc">LMB</span>', mb, stat('DAMAGE', 'mbDmg') + stat('RANGE', 'mbReach') + stat('RELOAD', 'mbReload')) +
+    row('lightTorpedo', V.R.tDmg === null, 'TORPEDO', '<span class="kc' + (sc.qReadied ? ' am' : '') + '">Q</span>', tb, tFit ? stat('DAMAGE', 'tDmg') + stat('SPEED', 'tSpd') + stat('RELOAD', 'tReload') : '—') +
+    row('navalMines', V.R.mDmg === null, 'MINES', '<span class="kc">E</span>', mn, mFit ? stat('DAMAGE', 'mDmg') + stat('BLAST RADIUS', 'mBlast') + stat('RELOAD', 'mReload') : '—') +
     (rings ? row('starShells', true, 'SPECIAL', '<span class="kc">R</span>', '<i class="empt"></i>', '—') : '') + '</div>';
 }
 function secHtml(sc) {
   return '<div class="blk"><div class="wh"><span class="kc' + (sc.secLocked ? ' rd' : '') + '">RMB</span><div class="heat' + (sc.secLocked ? ' lock' : '') + '"><i style="width:' + (sc.sec * 100) + '%"></i></div>' +
-    '<span class="ws" style="padding-left:4px">' + stat('DMG', 'secDmg') + stat('REACH', 'secReach') + '</span></div></div>';
+    '<span class="ws" style="padding-left:4px">' + stat('DAMAGE', 'secDmg') + stat('RANGE', 'secReach') + '</span></div></div>';
 }
 function square(o) {
   var cls = 'sq' + (o.sm ? ' sm' : '') + (o.empty ? ' empty' : o.sel ? ' sel' : o.cd ? '' : ' ready') + (o.prev ? ' prev' : '');
@@ -10478,8 +10479,8 @@ function slotsHtml(sc) {
     square({ g: 'navalMines', key: 'E', empty: V.R.eTier === null && !ePrev, tier: V.R.eTier, prev: ePrev, prevTier: ePrev ? V.I.eTier : 0 }) +
     square({ g: 'starShells', key: 'R', empty: true }) + '</div>';
   var cvs = '<div class="slots">' +
-    square({ g: 'repair', key: 'C', sm: true, cd: sc.c, cdMax: 75, tier: V.R.cTier }) +
-    square({ g: 'smoke', key: 'V', sm: true, cd: sc.v, cdMax: 57, tier: V.R.vTier, prev: vPrev, prevTier: vPrev ? V.I.vTier : 0 }) +
+    square({ g: 'repair', key: 'C', sm: true, cd: sc.c, cdMax: V.R.cCd, tier: V.R.cTier }) +
+    square({ g: 'smoke', key: 'V', sm: true, cd: sc.v, cdMax: V.R.vCd, tier: V.R.vTier, prev: vPrev, prevTier: vPrev ? V.I.vTier : 0 }) +
     square({ g: 'boost', key: 'SHIFT', sm: true }) + '</div>';
   return qer + cvs;
 }
@@ -10618,11 +10619,12 @@ function placeAbs() {
   off.style.top = Math.round(top + Math.max(0, (bottom - top - h) / 2)) + 'px';
   off.dataset.zh = z.H;
 }
-function scale() { var z = size(); return Math.min(1, stage.clientWidth / z.W); }
+function scale() { var z = size(); return S.scale === '1:1' ? 1 : Math.min(1, stage.clientWidth / z.W); }
 function fit() {
   var z = size(), k = scale();
   frameEl.style.transform = 'scale(' + k + ')';
-  stage.style.height = Math.round(z.H * k) + 'px';
+  stage.style.overflowX = S.scale === '1:1' ? 'auto' : 'hidden';
+  stage.style.height = Math.round(z.H * k) + (S.scale === '1:1' ? 16 : 0) + 'px';
 }
 function rectIn(el) {
   if (!el) return null;
