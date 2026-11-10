@@ -284,7 +284,7 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the burn
  * zone's gate, `{id,x,y,r,until,by}` each), then `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
  * `{id,x,y,t0}` each; 8.18's `smoke` seat), then `drops` (Story 10.9 — the
- * SIGHTED airdrops, `{id,x,y,g}` each, through the `drop` row: spectator
+ * SIGHTED airdrops, `{id,x,y,c}` each, through the `drop` row: spectator
  * always, else detected or inside an owned lit zone; a crate's radar paint
  * is an anonymous blip in `events`, never a key here). The DECOY BUOYS' `decoys`
  * channel left with Story 10.5. FOG HAS NO CHANNEL (Story 9.10):

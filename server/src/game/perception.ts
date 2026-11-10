@@ -77,7 +77,7 @@ export interface PerceptionView {
   /** Per-observer AIRDROP visibility (Story 10.9 — contact-like, recomputed
    *  every tick through the `drop` row: spectator always, else the crate's
    *  centre DETECTED or inside an owned lit zone; in placement order). The
-   *  SIGHTED list only, `{id,x,y,g}` — the crate's radar paint is an anonymous
+   *  SIGHTED list only, `{id,x,y,c}` — the crate's radar paint is an anonymous
    *  blip in `events`, never here. Bots read this list for the same crates a
    *  human sees (human parity, no wider port). */
   drops: DropView[];

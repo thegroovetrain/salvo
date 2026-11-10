@@ -2,7 +2,7 @@
 title: 'Story 10.9: Airdrops'
 type: 'feature'
 created: '2026-11-08'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'dd14beff'
 review_loop_iteration: 0
 context:
@@ -45,6 +45,8 @@ warnings: ['oversized']
 - **O5** The crate's disc blip joins the blip subsequence before the payload-only sort (no source-order leak); `drops` is the LAST optional frame channel.
 
 ## Boundaries & Constraints
+
+> **Model note (R7, 2026-11-08):** wherever this contract says a crate "carries" a stat and a +1..+5 or a `g` list, read: a crate carries its KIND (`DropView.c`); the rolls happen at pickup and ride only the collector's `dp` event. The W2d re-cut is the built truth.
 
 **Always:**
 - Shared layering: the drop model (`DropState`, rolls, count law `2 × (12 − minute)`, schedule, roll law) is pure in `shared/src/sim/drops.ts`; every number in `CONFIG.drops`; both sides and the harness read it. No `Math.random` / `Date.now`.

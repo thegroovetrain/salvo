@@ -2114,7 +2114,7 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
   // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner
-  // clause (a crate has no owner), `{id,x,y,g}`; its radar paint rides the
+  // clause (a crate has no owner), `{id,x,y,c}`; its radar paint rides the
   // `blip` row as a second subject type (`dropPaint`), never this row.
   drop: dropSignal,
   litzone: litZoneSignal,

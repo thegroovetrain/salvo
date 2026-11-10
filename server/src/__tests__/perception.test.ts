@@ -2831,7 +2831,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   expect(JSON.stringify(f)).not.toContain('bornAt');
   for (const d of f.denied ?? []) verifyDenied(me, d);
   // THE AIRDROPS (Story 10.9, R3): the sighted channel is delivered EXACTLY
-  // when the drop gate passes, `{id,x,y,g}` and nothing else; the crate's
+  // when the drop gate passes, `{id,x,y,c}` and nothing else; the crate's
   // position rides no other frame field (its radar paint is a fuzzed rect
   // the completeness oracle below attributes).
   verifyDrops(w, me, f);
@@ -2864,8 +2864,8 @@ function dropGateOracle(w: World, me: ShipRecord, spectator: boolean, d: { x: nu
 
 /**
  * THE DROP CHANNEL, both directions: every delivered row names a live world
- * drop the gate admits, carries EXACTLY {id,x,y,g} in that order with the
- * world's own rolls (deep-equal — the stat glyph is a field on a sight-gated
+ * drop the gate admits, carries EXACTLY {id,x,y,c} in that order with the
+ * world's own kind (deep-equal — the kind glyph is a field on a sight-gated
  * row, never a delivery of its own), and no drop is delivered twice; and the
  * converse — every world drop the STRICT gate admits appears. A frame with no
  * `drops` key is a frame of zero sighted drops (the litZones omission rule).

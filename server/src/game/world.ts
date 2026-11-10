@@ -7534,7 +7534,12 @@ export class World {
    * after `placeAttempts` rejections.
    */
   private pickDropSpot(rng: Rng, ring: ZoneRing): Vec2 | null {
-    const radius = Math.max(0, ring.r - CONFIG.drops.radiusU);
+    // A ring too small to hold a whole crate places none (review gate, Codex
+    // 2026-11-09): clamping the domain to zero would park a crate on the
+    // centre with its disc in the storm — reachable only under a dev
+    // `zoneOverride` (production rings never shrink below 15 u before 12:00).
+    const radius = ring.r - CONFIG.drops.radiusU;
+    if (!(radius >= 0)) return null;
     for (let i = 0; i < CONFIG.drops.placeAttempts; i += 1) {
       const r = radius * Math.sqrt(rng.next());
       const a = rng.next() * Math.PI * 2;

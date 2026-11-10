@@ -185,6 +185,19 @@ describe('placement (R1 — inside the live ring, off the land, outside every li
     }
   });
 
+  it('a ring too small to hold a whole crate places none (the domain is never clamped to the centre)', () => {
+    const w = bareWorld();
+    w.map.radius = D.radiusU / 2; // ring 0 is the map: smaller than one crate
+    seatBeacon(w, 0, { x: 5000, y: 5000 }); // starts the zone; the beacon is far away, so only the ring size refuses
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(() => w.step()).not.toThrow();
+      expect(w.drops.size).toBe(0);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('is deterministic on the private stream: same seeds → same crates; another pseudonymSeed → different', () => {
     const scatter = (pseudonymSeed: number): DropState[] => {
       const w = new World(4242, CONFIG.map.playerCap, CONFIG.zone, { pseudonymSeed });
