@@ -1591,6 +1591,19 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE HUD BED (epic-10 amendment 18 R24, Eric 2026-11-10: "all these areas
+   * at least need some translucent backgrounds so I can read them over the
+   * radar returns"): the dark-glass bed under the DOM and Pixi HUD surfaces
+   * outside the consoles — the `cardScrim` token at `alpha`, a `edgeW` px
+   * `hairline` edge, square corners (render/hudBed.ts). `chromePad` is the
+   * chrome bar bed's reach past its text row; `feedPadX`/`feedPadY` the
+   * kill feed's per-line bed padding and `feedGap` the water between two
+   * lines' beds — sized so six bedded lines still fit the feed's clearance
+   * above the offer group (`console.killFeed.clearance`).
+   */
+  hudBed: { alpha: 0.78, edgeW: 1, chromePad: 8, feedPadX: 8, feedPadY: 1, feedGap: 3 },
+
+  /**
    * THE BR CHROME BAR (Story 3.3, amendments 19–21) — the one restrained mono
    * row top-center: `n AFLOAT · n KILLS · T+mm:ss · <ring readout>`. Everything
    * it shows is data the client already holds (roster alive/kills, zoneStartT,
@@ -1921,40 +1934,51 @@ export const CLIENT_CONFIG = {
    * block referenced a shared number.
    */
   console: {
-    /** Console width (both consoles and the offer group). */
+    /** The ship console's and the offer group's content width. */
     width: 280,
-    /** Gap from the viewport's left / right edges. */
+    /** Gap from the viewport's left / right edges to a console's BED edge. */
     sideInset: 18,
-    /** Gap from the viewport's bottom edge — both consoles are bottom-anchored. */
+    /** Gap from the viewport's bottom edge to a console's BED edge — both
+     *  consoles are bottom-anchored. */
     bottomInset: 18,
-    /** Gap between the stacked sections of a console. */
-    sectionGap: 12,
-    /** The least clear water between the two consoles at the 1366 floor (O14). */
+    /** THE BED (epic-10 amendment 18 R24, Eric 2026-11-10: "all these areas
+     *  at least need some translucent backgrounds so I can read them over the
+     *  radar returns"): every console sits on the dark-glass bed of
+     *  `CLIENT_CONFIG.hudBed`, reaching this far past its content on every
+     *  side (render/console/layout.ts `bedOf`). */
+    bedPad: 10,
+    /** The least clear water between the two consoles' beds (O14), held at
+     *  the three reference screens at the 100 % tier. */
     centerClearMin: 700,
     /** The kill feed's clearance above the offer group: its `top:16px`, up to
-     *  six lines (~150 px), then a 12 px gap — the offer's top edge is
+     *  six lines (~150 px), then a 12 px gap — the offer's BED top edge is
      *  16 + 150 + 12 = 178. */
     killFeed: { top: 16, clearance: 150, gap: 12 },
-    /** THE OFFER GROUP (O3): an 18 px header line (the banked count), a 2×2
-     *  grid of 136×64 cards with 8 px gaps, and at the countdown a REDRAW
-     *  button. `clearGap` is the least gap kept above the weapons console. */
+    /** THE OFFER GROUP (R22, Eric 2026-11-10: "this was supposed to be
+     *  vertically stacked, not a box?"): a 22 px header line (the banked
+     *  count; at the countdown it grows to REDRAW's 30 px with REDRAW at its
+     *  right), a 6 px seam, then FOUR 280 × 56 cards stacked with 6 px gaps.
+     *  `clearGap` is the least gap kept between its bed and the weapons
+     *  console's. */
     offer: {
-      header: 18,
-      cardW: 136,
-      cardH: 64,
-      gap: 8,
+      header: 22,
+      headerGap: 6,
+      cardW: 280,
+      cardH: 56,
+      gap: 6,
       redrawH: 30,
       redrawW: 112,
       clearGap: 12,
       /** O15 (gate ruling 2026-11-09): on a viewport too short for the
-       *  right-edge stack the group DOCKS TOP-LEFT at (`sideInset`, this) —
-       *  the kill feed's own top edge, on the free corner. */
+       *  right-edge stack the group DOCKS TOP-LEFT with its bed at
+       *  (`sideInset`, this) — the kill feed's own top edge, on the free
+       *  corner. */
       dockTop: 16,
-      /** The card face (ui/offerGroup.ts): the glyph box and the glyph in it,
-       *  the inner padding. */
-      glyphBox: 28,
-      glyph: 20,
-      pad: 6,
+      /** The card face (ui/offerGroup.ts): the 32 px glyph box and the glyph
+       *  in it, the inner padding (the box sits centred on the 56 px card). */
+      glyphBox: 32,
+      glyph: 22,
+      pad: 12,
       /** Carried over from the retired band's `refit` block, unchanged: a
        *  refused card's face alpha, the whole group's alpha while a pick is in
        *  flight, and the denied pulse's life and same-source floor. */
@@ -1963,54 +1987,63 @@ export const CLIENT_CONFIG = {
       deniedPulseMs: 80,
       deniedFloorMs: 300,
     },
-    /** ONE WEAPON ROW-BUTTON (O4): 58 px tall, 66 when its stats line takes two
-     *  lines; 6 px between rows. The three lines' offsets are from the row's
-     *  top edge. `clock` is one per-mount reload ring; `rackPip` one held-mine
-     *  pip beside a rack's ring. */
-    row: {
-      h: 58,
-      grownH: 66,
-      gap: 6,
+    /** ONE WEAPON CELL-BUTTON (R23, Eric 2026-11-10: "two columns … This whole
+     *  thing should be a box, not mismatched sizes and shit; uniform"). Every
+     *  cell is `w` wide; the box is 2 × `w` + `colGap`. Top to bottom inside a
+     *  cell: `padY`, the header line (NAME · state word · tier · key chip),
+     *  `lineGap`, the mount line (`clock` px rings with the seconds numeral
+     *  inside, the mines' `rackPip`s, the secondaries' `heatH` bar),
+     *  `statsGap`, then `statLines` stat lines of `statLineH`, ONE STAT PER
+     *  LINE (LABEL left, value right), `padY`. The cell height H is DERIVED
+     *  from these (layout.ts `CELL_H`); `statLines` is the most stat fields a
+     *  cell prints (readouts.ts `rowStatFields`, pinned by a relation test).
+     *  `w` is the widest header the catalog can print (the longest family
+     *  weapon name, ARMED, a hovered `II→III`, the chip) at the text rule's
+     *  sizes — the test measures it. */
+    cell: {
+      w: 280,
+      colGap: 8,
+      rowGap: 8,
       padX: 8,
-      line1Y: 6,
-      line1H: 16,
-      line2Y: 26,
-      line2H: 18,
-      statsY: 46,
-      statsLineH: 9,
-      clock: 18,
+      padY: 6,
+      headerH: 22,
+      lineGap: 4,
+      mountH: 34,
+      statsGap: 2,
+      statLineH: 20,
+      statLines: 3,
+      clock: 32,
       clockGap: 6,
-      keyChip: 16,
-      rackPip: { w: 4, h: 6, gap: 2 },
+      keyChip: 18,
+      rackPip: { w: 6, h: 9, gap: 2 },
+      heatH: 12,
     },
-    /** THE THREE ABILITY BUTTONS (O5) under the rows: 3 × 88 + 2 × 8 = 280.
-     *  `topGap` is the seam between the last row and the buttons. */
-    abilities: { w: 88, h: 54, gap: 8, topGap: 6, progressH: 2 },
-    /** THE SHIP CONSOLE (O6, sizes per Eric's R20 2026-11-09: "fill the
-     *  column, no empty space"), top to bottom: the hull numeral line, the
-     *  10-segment bar, six 28 px index rows each with a five-bar TIER LADDER
-     *  (20×8 bars, 4 px gaps, right-aligned — it replaced the 3×5 pips), the
-     *  helm block, the level block. The `*Gap` values are MINIMUMS: the spine
-     *  grows the section gaps and the index-row gaps evenly until the console
-     *  is as tall as the floor viewport allows (`floorH` − `bottomInset` −
-     *  `topClearance`); on a taller viewport it stays bottom-anchored at that
-     *  height with air above. `topClearance` is the top-centre chrome bar's
-     *  row (its 24 px baseline + its type — 18 px when this was set, 14 px
-     *  since Story 10.10's top-row restyle) plus a gap. */
+    /** THE THREE ABILITY BUTTONS (O5, R23) spanning the weapons box's full
+     *  width beneath both columns, equal widths, `gap` apart; `topGap` is the
+     *  seam between the columns and the buttons. */
+    abilities: { h: 64, gap: 8, topGap: 8, progressH: 2 },
+    /** THE SHIP CONSOLE (O6; R21, Eric 2026-11-10: "You put WAY too much
+     *  margin between the elements … Takes up *way* too much real estate"):
+     *  COMPACT — fixed spacing, its height the sum of these parts,
+     *  bottom-anchored with the water above. Top to bottom: the hull numeral
+     *  line over the 10-segment bar; six index rows each with a five-bar TIER
+     *  LADDER (R20, right-aligned); the helm block; the level block — the
+     *  sections `sectionGap` apart. `topClearance` is the top-centre chrome
+     *  bar's row plus a gap: nothing of the consoles reaches above it. */
     ship: {
-      floorH: 768,
       topClearance: 60,
+      sectionGap: 14,
       hullLine: 44,
       hullBarGap: 6,
       hullBarH: 14,
       segments: 10,
       segmentGap: 2,
-      indexRowH: 28,
-      indexRowGap: 0,
-      indexLabelW: 64,
+      indexRowH: 30,
+      indexRowGap: 4,
+      indexLabelW: 88,
       tierBars: 5,
-      tierBar: { w: 20, h: 8, gap: 4 },
-      helmReadoutH: 22,
+      tierBar: { w: 20, h: 10, gap: 4 },
+      helmReadoutH: 24,
       helmGap: 6,
       ladderW: 200,
       ladderH: 16,
@@ -2020,56 +2053,44 @@ export const CLIENT_CONFIG = {
       trackGap: 4,
       trackH: 8,
       bankChip: 28,
-      /** R20, CORRECTED (Eric 2026-11-09: "Fill it" — the space FILLED, not
-       *  aired out): the floor viewport's slack goes to the ELEMENTS first, all
-       *  together, up to these maxima (an index row 28 → 44 tall with its value
-       *  18 → 22 px and its ladder bars 20×8 → 28×12; the hull bar 14 → 18; the
-       *  helm ladder 200×16 → 240×20; the level track 8 → 10). Only once every
-       *  element is at its max do the gaps grow — the section seams to
-       *  `sectionGap` and the index-row seams to `indexRowGap` — and only past
-       *  THOSE does any slack left over spread over every seam evenly (R20's
-       *  "the row gaps grow … rather than leave a hole"). */
-      grow: {
-        indexRowH: 44,
-        indexValue: 22,
-        tierBar: { w: 28, h: 12 },
-        hullBarH: 18,
-        ladderW: 240,
-        ladderH: 20,
-        trackH: 10,
-        sectionGap: 16,
-        indexRowGap: 8,
-      },
     },
     /** The helm ladder's marks (O6 (3)): plain / STOP tick lengths, the hollow
      *  ordered rung, the solid actual needle and the rudder's position tick. */
     tick: { len: 6, stopLen: 10, rungW: 7, rungH: 10, needleW: 2, rudderW: 2, rudderH: 8 },
-    /** Type sizes (px) per console register. The 9 px registers sit ON the
-     *  mono floor and counter-scale at the 90% UI tier, as the bar's did. */
+    /** Type sizes (px) per console register — THE TEXT RULE (epic-10
+     *  amendment 18 R23, Eric 2026-11-10: "How many times do I need to call
+     *  you out for the tiny text? Every time? Stop it!"), authored at the
+     *  1920×1080 reference before the viewport factor: every readable VALUE
+     *  ≥ 17 px / 600 (the hull numeral bigger), every LABEL ≥ 14 px, key chips
+     *  and tier numerals ≥ 12 px. Never shrunk to fit — the box grows. */
     type: {
-      name: 11,
-      state: 9,
-      tier: 9,
-      keyChip: 9,
-      clock: 9,
-      stats: 9,
-      statsTracking: 0.5,
-      abilityState: 11,
-      abilityNumeral: 14,
-      abilityName: 9,
-      // The ship console's registers are R20's (Eric 2026-11-09).
+      // values
+      statValue: 17,
+      clock: 17,
+      abilityState: 17,
+      abilityNumeral: 17,
       hull: 40,
-      hullUnit: 12,
-      label: 9,
-      indexLabel: 11,
-      indexValue: 18,
-      hdg: 18,
-      kts: 11,
+      hullUnit: 17,
+      indexValue: 20,
+      hdg: 20,
+      kts: 17,
       lv: 22,
-      bankCount: 11,
-      offerHeader: 9,
-      offerName: 11,
-      redraw: 12,
+      bankCount: 17,
+      // labels
+      name: 14,
+      state: 14,
+      statLabel: 14,
+      abilityName: 14,
+      label: 14,
+      indexLabel: 14,
+      offerHeader: 14,
+      offerName: 14,
+      offerTier: 14,
+      redraw: 14,
+      // chips and tier numerals
+      tier: 12,
+      keyChip: 12,
+      offerChip: 12,
     },
     /** THE HULL GAUGE's bands and breath — the HP globe's, carried over. The
      *  bands REFERENCE shared `CONFIG.damageBands` (exactly one set of band
@@ -2107,6 +2128,12 @@ export const CLIENT_CONFIG = {
      *  standalone localStorage `key` — deliberately NOT in the settings store,
      *  so RESET SETTINGS cannot resurrect learned anatomy. */
     helmGlyphs: { fadeCount: 3, fadeSec: 0.6, key: 'hullcracker.helm' },
+    /** THE VIEWPORT FACTOR (epic-10 amendment 18 R25, Eric 2026-11-10: "on my
+     *  13" macbook pro, all of the UI elements are far too big"): the whole HUD
+     *  is authored at the `refW` × `refH` reference and scales by
+     *  clamp(min(w ÷ refW, h ÷ refH), min, max), times the settings tier
+     *  (settings/store.ts `viewportScale` / `hudScale`). */
+    viewport: { refW: 1920, refH: 1080, min: 0.75, max: 1.0 },
   },
 
   /**

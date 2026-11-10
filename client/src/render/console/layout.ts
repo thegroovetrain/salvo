@@ -1,45 +1,52 @@
-// THE CONSOLE LAYOUT SPINE (Story 10.10, epic-10 amendments 16 / 17; plan
-// O2–O6, the ship console's sizes per Eric's R20) — ONE pure function from the
-// logical viewport to every rect the two battle consoles and the offer group
-// draw in, plus the hit test that routes a press on them.
+// THE CONSOLE LAYOUT SPINE (Story 10.10, epic-10 amendments 16 / 17 / 18) —
+// ONE pure function from the logical viewport to every rect the two battle
+// consoles and the offer group draw in, plus the hit test that routes a press
+// on them.
 //
-//   ┌ kill feed (DOM) ┐                                   top-right
-//   │                 │
-//   ├ OFFER GROUP ────┤  178 = 16 + 150 + 12
-//   │ header · 2×2    │
-//   │                 │
-//   SHIP    (center: water, ship, world — nothing of ours)   WEAPONS
-//   console                                                  console
-//   (left, bottom-anchored)                       (right, bottom-anchored)
+//   ┌ kill feed (DOM) ┐                                       top-right
+//   ├ OFFER GROUP ────┤  bed top 178 = 16 + 150 + 12
+//   │ header [REDRAW] │
+//   │ card 1          │  four 280 × 56 cards, stacked (R22)
+//   │ …  card 4       │
+//   SHIP           (center: water, ship, world)     ┌ WEAPONS ─────────────┐
+//   console                                         │ MAIN BATTERY │ Q     │
+//   (left, compact,                                 │              │ E     │
+//    bottom-anchored)                               │ SECONDARIES  │ R     │
+//                                                   │  C  ·  V  ·  Shift   │
+//                                                   └──────────────────────┘
 //
-// LOGICAL px: the HUD layer is scaled by the UI-scale setting, so a caller
-// passes `screen / uiScale` exactly as it did for the bar's `hudBarLayout`.
-// Every size comes from `CLIENT_CONFIG.console`; this module mints none.
+// LOGICAL px: the HUD layer is scaled by the HUD factor (viewport × UI tier),
+// so a caller passes `screen / factor`. Every size comes from
+// `CLIENT_CONFIG.console`; this module mints none.
 //
-// MEASURED GROWTH: a weapon row is 58 px, or 66 when its stats line does not
-// fit one line. The spine stays pure by taking that verdict as an input
-// (`opts.statsTwoLine`, one flag per row) — `statsNeedTwoLines` below is the
-// one measure, on the mono model (util/monoMeasure.ts), that callers use to
-// produce it.
+// EVERY SURFACE SITS ON A BED (R24): `frame` is a surface's content box and
+// `bed` that box grown by `bedPad` on every side. The BED's outer edge sits on
+// the insets (18 px from the side and bottom edges; the offer's at the kill
+// feed's clearance), so the visible box is where the inset says.
 //
-// THE OFFER'S PLACEMENT (plan O15, gate ruling 2026-11-09): the offer is laid
-// on the right edge first (under the kill feed); when `offer.bottom + clearGap`
-// would pass the weapons console's top — the short logical viewports of the
-// 125 % UI tier (1280×720, the ratified floor 1280×614) — it DOCKS TOP-LEFT,
-// the one free corner, and the ship console's top drops under it.
-// `offerPlacement` reports which, never an overlap. The placement reads the
-// HOVER-FREE growth (`opts.placementTwoLine`), so a hover that grows a row
-// cannot flip the dock out from under the pointer that is hovering.
+// R21 — the ship console is COMPACT: fixed spacing, its height the sum of its
+// parts, bottom-anchored with the water above. R23 — the weapons console is ONE
+// uniform two-column box: MAIN BATTERY over SECONDARIES on the left, Q / E / R
+// on the right, both columns sharing one top and one bottom, every cell one
+// width; the three ability buttons span the full width beneath. The cell
+// height H is DERIVED from the right-column cell's content (header, mount line,
+// the stat lines one per line), never a number that could clip.
+//
+// THE OFFER'S PLACEMENT (plan O15): the offer stacks on the right edge first
+// (under the kill feed); when its bed + `clearGap` would pass the weapons
+// console's bed — a short logical viewport (the 125 % UI tier, a 720 px tall
+// screen) — it DOCKS TOP-LEFT, the one free corner. `offerPlacement` reports
+// which, never an overlap.
 
 import { INDEX_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
-import { monoTextWidth } from '../../util/monoMeasure.js';
 
 const K = CLIENT_CONFIG.console;
-const ROW = K.row;
+const CELL = K.cell;
 const SHIP = K.ship;
 const OFFER = K.offer;
 const AB = K.abilities;
+const PAD = K.bedPad;
 
 export interface Rect {
   x: number;
@@ -48,28 +55,34 @@ export interface Rect {
   h: number;
 }
 
-/** The five weapon rows, top to bottom — the ruled order (R17). */
+/** The five weapon cells — the ruled order (R17); the first two are the left
+ *  column, the last three the right (R23). */
 export const WEAPON_ROW_KINDS = ['mainBattery', 'secondaries', 'torpedo', 'mines', 'special'] as const;
 export type WeaponRowKind = (typeof WEAPON_ROW_KINDS)[number];
+
+/** The left column's cells, top to bottom (R23). */
+const LEFT_KINDS: readonly WeaponRowKind[] = ['mainBattery', 'secondaries'];
+/** The right column's cells, top to bottom (R23). */
+const RIGHT_KINDS: readonly WeaponRowKind[] = ['torpedo', 'mines', 'special'];
 
 /** The three ability buttons, left to right (O5). */
 export const ABILITY_KINDS = ['repair', 'smoke', 'shift'] as const;
 export type AbilityKind = (typeof ABILITY_KINDS)[number];
 
-/** One weapon row-button and its three lines (O4). */
+/** One weapon cell-button and its lines (R23). */
 export interface WeaponRowRect extends Rect {
   kind: WeaponRowKind;
-  /** Line 1: name · state word · tier · key chip. */
-  line1: Rect;
-  /** Line 2: the per-mount clocks (or the secondaries' heat bar). */
-  line2: Rect;
-  /** Line 3: the stats line — one 9 px line, or two when `twoLine`. */
-  stats: Rect;
-  twoLine: boolean;
+  /** NAME · state word · tier · key chip. */
+  header: Rect;
+  /** The per-mount clocks (or the secondaries' heat bar). */
+  mounts: Rect;
+  /** One rect per stat line — LABEL left, value right (R23: one per line). */
+  statLines: Rect[];
 }
 
 export interface WeaponsConsoleLayout {
   frame: Rect;
+  bed: Rect;
   rows: WeaponRowRect[];
 }
 
@@ -88,9 +101,7 @@ export interface IndexRowRect extends Rect {
 
 export interface ShipConsoleLayout {
   frame: Rect;
-  /** The sizes this height drew at (R20 corrected, `shipFill`): the index
-   *  value's type size rides here, since a rect cannot carry it. */
-  fill: ShipFill;
+  bed: Rect;
   /** The percent numeral line (`72 %` + `HULL`). */
   hullLine: Rect;
   /** The 10-segment bar and its segments, left to right. */
@@ -99,7 +110,7 @@ export interface ShipConsoleLayout {
   indices: IndexRowRect[];
   /** HDG / KTS readout line. */
   helmReadout: Rect;
-  /** The 200 px horizontal telegraph (astern LEFT, ahead RIGHT). */
+  /** The horizontal telegraph (astern LEFT, ahead RIGHT). */
   ladder: Rect;
   /** The rudder track (centered under the ladder). */
   rudder: Rect;
@@ -111,8 +122,11 @@ export interface ShipConsoleLayout {
 
 export interface OfferLayout {
   frame: Rect;
+  /** The dark-glass bed behind the header and the stack (drawn in CSS). */
+  bed: Rect;
   /** The header line (`2 LEVELS`), and — at the countdown — REDRAW at its right. */
   header: Rect;
+  /** The four cards, stacked top to bottom (R22). */
   cards: Rect[];
   /** The REDRAW button, or null outside the countdown. */
   redraw: Rect | null;
@@ -127,7 +141,7 @@ export interface ConsoleLayout {
   /** Where the offer group sits (see the header): the right edge, or docked
    *  top-left on a viewport too short for the right-edge stack. */
   offerPlacement: OfferPlacement;
-  /** The clear water between the two consoles (px). */
+  /** The clear water between the two consoles' beds (px). */
   centerClear: number;
 }
 
@@ -136,72 +150,74 @@ export type OfferPlacement = 'right' | 'topLeft';
 export interface ConsoleLayoutOpts {
   /** The countdown: the offer group carries REDRAW. */
   countdown?: boolean;
-  /** Per weapon row (ruled order): its stats line needs two lines. */
-  statsTwoLine?: readonly boolean[];
-  /** The same flags WITHOUT the hover marks — what decides the offer's
-   *  placement (defaults to `statsTwoLine`). */
-  placementTwoLine?: readonly boolean[];
 }
 
-// --- the measure ------------------------------------------------------------------
-
-/** The width a stats line has: the row less its side padding. */
-export const STATS_LINE_W = K.width - 2 * ROW.padX;
-
-/** Pure: does this stats-line text overflow one line at the 9 px register,
- *  drawn at `micro` (the 9 px registers' counter-scale below 100 % UI scale)? */
-export function statsNeedTwoLines(text: string, micro = 1): boolean {
-  return monoTextWidth(text, K.type.stats, K.type.statsTracking) * micro > STATS_LINE_W;
+/** Pure: a content box grown by the bed padding on every side. */
+export function bedOf(frame: Rect): Rect {
+  return { x: frame.x - PAD, y: frame.y - PAD, w: frame.w + 2 * PAD, h: frame.h + 2 * PAD };
 }
 
 // --- the weapons console -------------------------------------------------------
 
-function rowHeight(twoLine: boolean): number {
-  return twoLine ? ROW.grownH : ROW.h;
-}
+/** One cell's width — every cell is this wide (R23: uniform). */
+export const CELL_W = CELL.w;
 
-/** The weapons console's height for a set of row growth flags (rows + abilities). */
-export function weaponsConsoleHeight(statsTwoLine: readonly boolean[] = []): number {
-  let h = 0;
-  WEAPON_ROW_KINDS.forEach((_, i) => {
-    h += rowHeight(statsTwoLine[i] === true) + (i > 0 ? ROW.gap : 0);
-  });
-  return h + AB.topGap + AB.h;
-}
+/** The weapons box's content width: two cells and the column gap. */
+export const WEAPONS_W = 2 * CELL_W + CELL.colGap;
 
-function weaponRow(kind: WeaponRowKind, x: number, y: number, twoLine: boolean): WeaponRowRect {
-  const innerX = x + ROW.padX;
-  const innerW = K.width - 2 * ROW.padX;
+/** The y offsets inside a cell, from its top edge. */
+const HEADER_Y = CELL.padY;
+const MOUNTS_Y = HEADER_Y + CELL.headerH + CELL.lineGap;
+const STATS_Y = MOUNTS_Y + CELL.mountH + CELL.statsGap;
+
+/**
+ * H — a right-column cell's height, DERIVED from its content: the header, the
+ * mount line and `statLines` stat lines, one per line, inside the padding.
+ */
+export const CELL_H = STATS_Y + CELL.statLines * CELL.statLineH + CELL.padY;
+
+/** The two columns' shared height: three right cells and their two gaps. */
+export const COLUMN_H = RIGHT_KINDS.length * CELL_H + (RIGHT_KINDS.length - 1) * CELL.rowGap;
+
+/** A left cell's height: two of them and one gap make the right column's
+ *  height, so both columns end level (R23). */
+export const LEFT_CELL_H = (COLUMN_H - (LEFT_KINDS.length - 1) * CELL.rowGap) / LEFT_KINDS.length;
+
+/** The weapons console's content height: the columns, then C · V · Shift. */
+export const WEAPONS_H = COLUMN_H + AB.topGap + AB.h;
+
+function weaponCell(kind: WeaponRowKind, x: number, y: number, h: number): WeaponRowRect {
+  const innerX = x + CELL.padX;
+  const innerW = CELL_W - 2 * CELL.padX;
+  const statLines = Array.from({ length: CELL.statLines }, (_, k) => ({ x: innerX, y: y + STATS_Y + k * CELL.statLineH, w: innerW, h: CELL.statLineH }));
   return {
     kind,
     x,
     y,
-    w: K.width,
-    h: rowHeight(twoLine),
-    line1: { x: innerX, y: y + ROW.line1Y, w: innerW, h: ROW.line1H },
-    line2: { x: innerX, y: y + ROW.line2Y, w: innerW, h: ROW.line2H },
-    stats: { x: innerX, y: y + ROW.statsY, w: innerW, h: ROW.statsLineH * (twoLine ? 2 : 1) },
-    twoLine,
+    w: CELL_W,
+    h,
+    header: { x: innerX, y: y + HEADER_Y, w: innerW, h: CELL.headerH },
+    mounts: { x: innerX, y: y + MOUNTS_Y, w: innerW, h: CELL.mountH },
+    statLines,
   };
 }
 
-function weaponsLayout(screenW: number, screenH: number, statsTwoLine: readonly boolean[]): {
-  weapons: WeaponsConsoleLayout;
-  abilities: AbilityRect[];
-} {
-  const x = screenW - K.sideInset - K.width;
-  const h = weaponsConsoleHeight(statsTwoLine);
-  const top = screenH - K.bottomInset - h;
-  const rows: WeaponRowRect[] = [];
-  let y = top;
-  WEAPON_ROW_KINDS.forEach((kind, i) => {
-    const row = weaponRow(kind, x, y, statsTwoLine[i] === true);
-    rows.push(row);
-    y += row.h + ROW.gap;
-  });
-  const abTop = rows[rows.length - 1].y + rows[rows.length - 1].h + AB.topGap;
-  const abilities = ABILITY_KINDS.map((kind, i) => ({ kind, x: x + i * (AB.w + AB.gap), y: abTop, w: AB.w, h: AB.h }));
-  return { weapons: { frame: { x, y: top, w: K.width, h }, rows }, abilities };
+function column(kinds: readonly WeaponRowKind[], x: number, top: number, h: number): WeaponRowRect[] {
+  return kinds.map((kind, i) => weaponCell(kind, x, top + i * (h + CELL.rowGap), h));
+}
+
+function weaponsLayout(screenW: number, screenH: number): { weapons: WeaponsConsoleLayout; abilities: AbilityRect[] } {
+  const x = screenW - K.sideInset - PAD - WEAPONS_W;
+  const top = screenH - K.bottomInset - PAD - WEAPONS_H;
+  const left = column(LEFT_KINDS, x, top, LEFT_CELL_H);
+  const right = column(RIGHT_KINDS, x + CELL_W + CELL.colGap, top, CELL_H);
+  const byKind = new Map([...left, ...right].map((r) => [r.kind, r]));
+  const rows = WEAPON_ROW_KINDS.map((k) => byKind.get(k)!);
+  const abTop = top + COLUMN_H + AB.topGap;
+  const abW = (WEAPONS_W - (ABILITY_KINDS.length - 1) * AB.gap) / ABILITY_KINDS.length;
+  const abilities = ABILITY_KINDS.map((kind, i) => ({ kind, x: x + i * (abW + AB.gap), y: abTop, w: abW, h: AB.h }));
+  const frame = { x, y: top, w: WEAPONS_W, h: WEAPONS_H };
+  return { weapons: { frame, bed: bedOf(frame), rows }, abilities };
 }
 
 // --- the ship console ----------------------------------------------------------
@@ -209,108 +225,27 @@ function weaponsLayout(screenW: number, screenH: number, statsTwoLine: readonly 
 /** One row per index — the shared `INDEX_IDS` (ARMOR … RANGE). */
 const INDEX_COUNT = INDEX_IDS.length;
 
-/** The section seams (hull | indices | helm | level) and the index-row seams. */
-const SECTION_SEAMS = 3;
-const ROW_SEAMS = INDEX_COUNT - 1;
-
-const GROW = SHIP.grow;
-
 const HULL_BLOCK = SHIP.hullLine + SHIP.hullBarGap + SHIP.hullBarH;
+const INDEX_BLOCK = INDEX_COUNT * SHIP.indexRowH + (INDEX_COUNT - 1) * SHIP.indexRowGap;
 const HELM_BLOCK = SHIP.helmReadoutH + SHIP.helmGap + SHIP.ladderH + SHIP.helmGap + SHIP.rudderRowH;
 const LEVEL_BLOCK = SHIP.levelRowH + SHIP.trackGap + SHIP.trackH;
-const INDEX_BLOCK_MIN = INDEX_COUNT * SHIP.indexRowH + ROW_SEAMS * SHIP.indexRowGap;
 
-/** The ship console at its MINIMUM elements and gaps. */
-export const SHIP_CONSOLE_MIN_H = HULL_BLOCK + INDEX_BLOCK_MIN + HELM_BLOCK + LEVEL_BLOCK + SECTION_SEAMS * K.sectionGap;
-
-/** The px every element together can grow by (R20 corrected: elements first). */
-const ELEMENT_GROWTH =
-  INDEX_COUNT * (GROW.indexRowH - SHIP.indexRowH) +
-  (GROW.hullBarH - SHIP.hullBarH) +
-  (GROW.ladderH - SHIP.ladderH) +
-  (GROW.trackH - SHIP.trackH);
-
-/** The px the seams can grow by before they reach their caps. */
-const GAP_GROWTH = SECTION_SEAMS * (GROW.sectionGap - K.sectionGap) + ROW_SEAMS * (GROW.indexRowGap - SHIP.indexRowGap);
-
-/**
- * Pure: the ship console's height on a viewport `screenH` tall — the floor
- * viewport's available column (R20: "use the full height the floor viewport
- * allows"), never taller than THIS viewport's column, never shorter than its
- * minimum. A taller viewport keeps the floor's height (bottom-anchored, air above).
- */
-export function shipConsoleHeight(screenH: number, top: number = SHIP.topClearance): number {
-  const floorCol = SHIP.floorH - K.bottomInset - SHIP.topClearance;
-  const col = screenH - K.bottomInset - Math.max(SHIP.topClearance, top);
-  return Math.max(SHIP_CONSOLE_MIN_H, Math.min(floorCol, col));
-}
-
-/** Every size the ship console draws at one height (R20 corrected). */
-export interface ShipFill {
-  /** 0..1 — how far the elements have grown from their minimum to their max. */
-  grow: number;
-  indexRowH: number;
-  /** The index value's type size (px) — it grows with its row. */
-  indexValuePx: number;
-  tierBarW: number;
-  tierBarH: number;
-  hullBarH: number;
-  ladderW: number;
-  ladderH: number;
-  trackH: number;
-  sectionGap: number;
-  rowGap: number;
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-/**
- * Pure: how the slack between a console height and its minimum is spent —
- * the ELEMENTS first, all together, to their maxima; then the seams, together,
- * to their caps; any slack left after both spreads over every seam evenly, so
- * the console still reaches its height (R20's "the row gaps grow … rather than
- * leave a hole").
- */
-export function shipFill(height: number): ShipFill {
-  const slack = Math.max(0, height - SHIP_CONSOLE_MIN_H);
-  const t = ELEMENT_GROWTH > 0 ? clamp01(slack / ELEMENT_GROWTH) : 1;
-  const afterElements = slack - t * ELEMENT_GROWTH;
-  const u = GAP_GROWTH > 0 ? clamp01(afterElements / GAP_GROWTH) : 1;
-  const extra = Math.max(0, afterElements - u * GAP_GROWTH) / (SECTION_SEAMS + ROW_SEAMS);
-  return {
-    grow: t,
-    indexRowH: lerp(SHIP.indexRowH, GROW.indexRowH, t),
-    indexValuePx: Math.round(lerp(K.type.indexValue, GROW.indexValue, t)),
-    tierBarW: lerp(SHIP.tierBar.w, GROW.tierBar.w, t),
-    tierBarH: lerp(SHIP.tierBar.h, GROW.tierBar.h, t),
-    hullBarH: lerp(SHIP.hullBarH, GROW.hullBarH, t),
-    ladderW: lerp(SHIP.ladderW, GROW.ladderW, t),
-    ladderH: lerp(SHIP.ladderH, GROW.ladderH, t),
-    trackH: lerp(SHIP.trackH, GROW.trackH, t),
-    sectionGap: lerp(K.sectionGap, GROW.sectionGap, u) + extra,
-    rowGap: lerp(SHIP.indexRowGap, GROW.indexRowGap, u) + extra,
-  };
-}
+/** The ship console's content height — the sum of its parts, fixed spacing (R21). */
+export const SHIP_CONSOLE_H = HULL_BLOCK + INDEX_BLOCK + HELM_BLOCK + LEVEL_BLOCK + 3 * SHIP.sectionGap;
 
 /** Five ladder bars, right-aligned in a row. */
-function tierBars(right: number, cy: number, f: ShipFill): { ladder: Rect; bars: Rect[] } {
-  const gap = SHIP.tierBar.gap;
-  const w = SHIP.tierBars * f.tierBarW + (SHIP.tierBars - 1) * gap;
+function tierBars(right: number, cy: number): { ladder: Rect; bars: Rect[] } {
+  const B = SHIP.tierBar;
+  const w = SHIP.tierBars * B.w + (SHIP.tierBars - 1) * B.gap;
   const x = right - w;
-  const y = cy - f.tierBarH / 2;
-  const bars = Array.from({ length: SHIP.tierBars }, (_, i) => ({ x: x + i * (f.tierBarW + gap), y, w: f.tierBarW, h: f.tierBarH }));
-  return { ladder: { x, y, w, h: f.tierBarH }, bars };
+  const y = cy - B.h / 2;
+  const bars = Array.from({ length: SHIP.tierBars }, (_, i) => ({ x: x + i * (B.w + B.gap), y, w: B.w, h: B.h }));
+  return { ladder: { x, y, w, h: B.h }, bars };
 }
 
-function indexRow(x: number, y: number, f: ShipFill): IndexRowRect {
-  const h = f.indexRowH;
-  const { ladder, bars } = tierBars(x + K.width, y + h / 2, f);
+function indexRow(x: number, y: number): IndexRowRect {
+  const h = SHIP.indexRowH;
+  const { ladder, bars } = tierBars(x + K.width, y + h / 2);
   return {
     x,
     y,
@@ -329,89 +264,82 @@ function hullSegments(bar: Rect): Rect[] {
   return Array.from({ length: n }, (_, i) => ({ x: bar.x + i * (w + SHIP.segmentGap), y: bar.y, w, h: bar.h }));
 }
 
-function helmBlock(x: number, y: number, f: ShipFill): Pick<ShipConsoleLayout, 'helmReadout' | 'ladder' | 'rudder'> {
-  const ladderX = x + (K.width - f.ladderW) / 2;
+function helmBlock(x: number, y: number): Pick<ShipConsoleLayout, 'helmReadout' | 'ladder' | 'rudder'> {
   const ladderY = y + SHIP.helmReadoutH + SHIP.helmGap;
-  const rudderY = ladderY + f.ladderH + SHIP.helmGap;
+  const rudderY = ladderY + SHIP.ladderH + SHIP.helmGap;
   return {
     helmReadout: { x, y, w: K.width, h: SHIP.helmReadoutH },
-    ladder: { x: ladderX, y: ladderY, w: f.ladderW, h: f.ladderH },
+    ladder: { x: x + (K.width - SHIP.ladderW) / 2, y: ladderY, w: SHIP.ladderW, h: SHIP.ladderH },
     rudder: { x: x + (K.width - SHIP.rudderTrack) / 2, y: rudderY, w: SHIP.rudderTrack, h: SHIP.rudderRowH },
   };
 }
 
-/** The level block, hung from the console's BOTTOM edge — so the track ends
- *  exactly on the frame whatever the float sum above it came to. */
-function levelBlock(x: number, bottom: number, f: ShipFill): Pick<ShipConsoleLayout, 'levelRow' | 'bankChip' | 'track'> {
-  const track = { x, y: bottom - f.trackH, w: K.width, h: f.trackH };
-  const y = track.y - SHIP.trackGap - SHIP.levelRowH;
+function levelBlock(x: number, y: number): Pick<ShipConsoleLayout, 'levelRow' | 'bankChip' | 'track'> {
   const levelRow = { x, y, w: K.width, h: SHIP.levelRowH };
   const bankChip = { x: x + K.width - SHIP.bankChip, y: y + (SHIP.levelRowH - SHIP.bankChip) / 2, w: SHIP.bankChip, h: SHIP.bankChip };
+  const track = { x, y: y + SHIP.levelRowH + SHIP.trackGap, w: K.width, h: SHIP.trackH };
   return { levelRow, bankChip, track };
 }
 
-/** Pure: the ship console, bottom-anchored on the left edge (O6 + R20);
- *  `ceiling` is the highest its frame may reach (the chrome bar's clearance,
- *  or under a docked offer group). */
-export function shipLayout(screenH: number, ceiling: number = SHIP.topClearance): ShipConsoleLayout {
-  const x = K.sideInset;
-  const h = shipConsoleHeight(screenH, ceiling);
-  const f = shipFill(h);
-  const top = screenH - K.bottomInset - h;
+/** Pure: the ship console, compact and bottom-anchored on the left edge (R21). */
+export function shipLayout(screenH: number): ShipConsoleLayout {
+  const x = K.sideInset + PAD;
+  const top = screenH - K.bottomInset - PAD - SHIP_CONSOLE_H;
   const hullLine = { x, y: top, w: K.width, h: SHIP.hullLine };
-  const hullBar = { x, y: top + SHIP.hullLine + SHIP.hullBarGap, w: K.width, h: f.hullBarH };
-  let y = hullBar.y + hullBar.h + f.sectionGap;
+  const hullBar = { x, y: top + SHIP.hullLine + SHIP.hullBarGap, w: K.width, h: SHIP.hullBarH };
+  let y = hullBar.y + hullBar.h + SHIP.sectionGap;
   const indices: IndexRowRect[] = [];
   for (let i = 0; i < INDEX_COUNT; i++) {
-    indices.push(indexRow(x, y, f));
-    y += f.indexRowH + (i < INDEX_COUNT - 1 ? f.rowGap : f.sectionGap);
+    indices.push(indexRow(x, y));
+    y += SHIP.indexRowH + (i < INDEX_COUNT - 1 ? SHIP.indexRowGap : SHIP.sectionGap);
   }
+  const helm = helmBlock(x, y);
+  const frame = { x, y: top, w: K.width, h: SHIP_CONSOLE_H };
   return {
-    frame: { x, y: top, w: K.width, h },
-    fill: f,
+    frame,
+    bed: bedOf(frame),
     hullLine,
     hullBar,
     segments: hullSegments(hullBar),
     indices,
-    ...helmBlock(x, y, f),
-    ...levelBlock(x, top + h, f),
+    ...helm,
+    ...levelBlock(x, y + HELM_BLOCK + SHIP.sectionGap),
   };
 }
 
 // --- the offer group -----------------------------------------------------------
 
-/** The offer group's top edge: under the kill feed's clearance (O2). */
+/** The offer group's BED top edge: under the kill feed's clearance (O2). */
 export const OFFER_TOP = K.killFeed.top + K.killFeed.clearance + K.killFeed.gap;
 
+/** The four cards, stacked from `y` (R22). */
+function offerCards(x: number, y: number): Rect[] {
+  return Array.from({ length: 4 }, (_, i) => ({ x, y: y + i * (OFFER.cardH + OFFER.gap), w: OFFER.cardW, h: OFFER.cardH }));
+}
+
 /**
- * Pure: the offer group (O3). At the countdown REDRAW sits at the RIGHT END OF
- * THE HEADER LINE, which grows to the button's height — R10's "REDRAW beside
- * it". (O3 drew it as a footer under the grid; at 1366×768 that footer cannot
- * clear the weapons console by the ruled 12 px: 178 + 192 + 12 = 382 > 376.)
+ * Pure: the offer group (R22) — the header line, then the four cards in ONE
+ * column. At the countdown REDRAW sits at the RIGHT END OF THE HEADER LINE,
+ * which grows to the button's height (R10's "REDRAW beside it").
  */
 export function offerLayout(screenW: number, countdown: boolean, placement: OfferPlacement = 'right'): OfferLayout {
   const docked = placement === 'topLeft';
-  const x = docked ? K.sideInset : screenW - K.sideInset - K.width;
-  const top = docked ? OFFER.dockTop : OFFER_TOP;
+  const x = docked ? K.sideInset + PAD : screenW - K.sideInset - PAD - OFFER.cardW;
+  const top = (docked ? OFFER.dockTop : OFFER_TOP) + PAD;
   const headerH = countdown ? OFFER.redrawH : OFFER.header;
-  const header = { x, y: top, w: K.width, h: headerH };
-  const gridY = top + headerH;
-  const cards: Rect[] = [];
-  for (let i = 0; i < 4; i++) {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    cards.push({ x: x + col * (OFFER.cardW + OFFER.gap), y: gridY + row * (OFFER.cardH + OFFER.gap), w: OFFER.cardW, h: OFFER.cardH });
-  }
-  const redraw = countdown ? { x: x + K.width - OFFER.redrawW, y: top, w: OFFER.redrawW, h: OFFER.redrawH } : null;
-  const h = headerH + 2 * OFFER.cardH + OFFER.gap;
-  return { frame: { x, y: top, w: K.width, h }, header, cards, redraw };
+  const header = { x, y: top, w: OFFER.cardW, h: headerH };
+  const cards = offerCards(x, top + headerH + OFFER.headerGap);
+  const redraw = countdown ? { x: x + OFFER.cardW - OFFER.redrawW, y: top, w: OFFER.redrawW, h: OFFER.redrawH } : null;
+  const last = cards[cards.length - 1];
+  const frame = { x, y: top, w: OFFER.cardW, h: last.y + last.h - top };
+  return { frame, bed: bedOf(frame), header, cards, redraw };
 }
 
-/** Pure: O15 — the right edge when the offer clears the (hover-free) weapons
- *  console's top by the ruled gap there, else docked top-left. */
-export function offerPlacement(screenW: number, screenH: number, countdown: boolean, twoLine: readonly boolean[]): OfferPlacement {
-  const right = offerLayout(screenW, countdown, 'right').frame;
-  const weaponsTop = screenH - K.bottomInset - weaponsConsoleHeight(twoLine);
+/** Pure: O15 — the right edge when the offer's bed clears the weapons
+ *  console's bed by the ruled gap there, else docked top-left. */
+export function offerPlacement(screenW: number, screenH: number, countdown: boolean): OfferPlacement {
+  const right = offerLayout(screenW, countdown, 'right').bed;
+  const weaponsTop = screenH - K.bottomInset - 2 * PAD - WEAPONS_H;
   return right.y + right.h + OFFER.clearGap <= weaponsTop ? 'right' : 'topLeft';
 }
 
@@ -419,36 +347,34 @@ export function offerPlacement(screenW: number, screenH: number, countdown: bool
 
 /** Pure: every console rect for a logical viewport. */
 export function consoleLayout(screenW: number, screenH: number, opts: ConsoleLayoutOpts = {}): ConsoleLayout {
-  const twoLine = opts.statsTwoLine ?? [];
   const countdown = opts.countdown === true;
-  const { weapons, abilities } = weaponsLayout(screenW, screenH, twoLine);
-  const placement = offerPlacement(screenW, screenH, countdown, opts.placementTwoLine ?? twoLine);
-  const offer = offerLayout(screenW, countdown, placement);
-  // Under a docked offer the ship console's top drops below it by the same gap.
-  const shipTop = placement === 'topLeft' ? offer.frame.y + offer.frame.h + OFFER.clearGap : SHIP.topClearance;
-  const ship = shipLayout(screenH, shipTop);
+  const { weapons, abilities } = weaponsLayout(screenW, screenH);
+  const placement = offerPlacement(screenW, screenH, countdown);
+  const ship = shipLayout(screenH);
   return {
     screen: { w: screenW, h: screenH },
     ship,
     weapons,
     abilities,
-    offer,
+    offer: offerLayout(screenW, countdown, placement),
     offerPlacement: placement,
-    centerClear: weapons.frame.x - (ship.frame.x + ship.frame.w),
+    centerClear: weapons.bed.x - (ship.bed.x + ship.bed.w),
   };
 }
 
 // --- hit testing ---------------------------------------------------------------
 
-/** What a press on a console landed on. A weapon row carries its loadout slot
+/** What a press on a console landed on. A weapon cell carries its loadout slot
  *  (`null` for the slotless secondaries) and its kind — O9: a press on the
- *  LMB / RMB rows does nothing but is still swallowed. */
+ *  LMB / RMB cells does nothing but is still swallowed. `ship` is a press on a
+ *  console's bed between its buttons (or anywhere on the ship console): it is
+ *  swallowed and acts on nothing, as the HP globe did. */
 export type ConsoleHit =
   | { kind: 'slot'; row: WeaponRowKind; slot: number | null }
   | { kind: 'ability'; ability: AbilityKind }
   | { kind: 'ship' };
 
-/** The loadout slot each row presses (shared SLOT_GUN 0, the Q / E / R
+/** The loadout slot each cell presses (shared SLOT_GUN 0, the Q / E / R
  *  family slots 2 / 3 / 4 — `FAMILY_SLOT`), null for the secondaries. */
 const ROW_SLOT: Readonly<Record<WeaponRowKind, number | null>> = {
   mainBattery: 0,
@@ -458,7 +384,7 @@ const ROW_SLOT: Readonly<Record<WeaponRowKind, number | null>> = {
   special: 4,
 };
 
-/** Pure: the slot a weapon row presses. */
+/** Pure: the slot a weapon cell presses. */
 export function rowSlot(kind: WeaponRowKind): number | null {
   return ROW_SLOT[kind];
 }
@@ -468,12 +394,11 @@ export function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
 }
 
-/** Pure: the console element under a LOGICAL point, or null (the water). The
- *  ship console swallows as `ship` with no action, as the HP globe did. */
+/** Pure: the console element under a LOGICAL point, or null (the water). */
 export function consoleHit(layout: ConsoleLayout, p: { x: number; y: number }): ConsoleHit | null {
   const row = layout.weapons.rows.find((r) => inRect(p, r));
   if (row !== undefined) return { kind: 'slot', row: row.kind, slot: rowSlot(row.kind) };
   const ab = layout.abilities.find((r) => inRect(p, r));
   if (ab !== undefined) return { kind: 'ability', ability: ab.kind };
-  return inRect(p, layout.ship.frame) ? { kind: 'ship' } : null;
+  return inRect(p, layout.ship.bed) || inRect(p, layout.weapons.bed) ? { kind: 'ship' } : null;
 }

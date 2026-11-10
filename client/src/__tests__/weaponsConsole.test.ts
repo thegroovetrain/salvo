@@ -1,4 +1,4 @@
-// THE WEAPONS CONSOLE (Story 10.10, R17 / R18; plan O4 / O5 / O7) — the Pixi
+// THE WEAPONS CONSOLE (Story 10.10, R17 / R18 / R23 / R24; plan O4 / O5 / O7, F2 / F4) — the Pixi
 // painter instantiated under jsdom and read back: what it shows for a row
 // model (texts, marks, colours) and what a press on its rects routes to.
 // Contracts, not pins: the models are hand-built so each rule is exercised in
@@ -6,24 +6,38 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container, Graphics, Text } from 'pixi.js';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, SLOT_FAMILIES, effectiveStats, familyMembers, FAMILY_SLOT, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { STATS_LINE_W, consoleLayout, rowSlot, WEAPON_ROW_KINDS, type WeaponRowKind } from '../render/console/layout.js';
-import { monoCharWidth } from '../util/monoMeasure.js';
-import type { AbilityModel, MountClock, PreviewMark, Readout, WeaponRowModel } from '../render/console/readouts.js';
+import { consoleLayout, rowSlot, WEAPON_ROW_KINDS, type WeaponRowKind } from '../render/console/layout.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
+import { EQUIPMENT_NAME } from '../render/equipmentInfo.js';
+import { romanTier } from '../ui/tierRamp.js';
+import {
+  ROW_STATE_WORD,
+  ROW_KEY_GLYPH,
+  consoleReadouts,
+  weaponRowModels,
+  type AbilityModel,
+  type MountClock,
+  type PreviewMark,
+  type Readout,
+  type WeaponRowModel,
+} from '../render/console/readouts.js';
 import {
   WeaponsConsole,
+  consoleChipWidth,
   extraMarks,
+  floorScale,
   markedValue,
-  printedStatsLine,
-  statTokens,
-  statsTwoLineFlags,
+  statLines,
   type WeaponsConsoleLayout,
   type WeaponsConsoleView,
 } from '../render/console/weaponsConsole.js';
 
 const C = CLIENT_CONFIG.colors;
-const PIP = CLIENT_CONFIG.console.row.rackPip;
-const CLOCK_R = CLIENT_CONFIG.console.row.clock / 2;
+const K = CLIENT_CONFIG.console;
+const PIP = K.cell.rackPip;
+const CLOCK_R = K.cell.clock / 2;
 
 const KEYS: Record<WeaponRowKind, string> = { mainBattery: 'LMB', secondaries: 'RMB', torpedo: 'Q', mines: 'E', special: 'R' };
 const NAMES: Record<WeaponRowKind, string> = { mainBattery: 'MAIN BATTERY', secondaries: 'SECONDARIES', torpedo: 'HEAVY TORPEDO', mines: 'NAVAL MINES', special: 'STAR SHELLS' };
@@ -67,7 +81,7 @@ function withRow(i: number, r: WeaponRowModel): WeaponRowModel[] {
 }
 
 const LAYOUT = ((): WeaponsConsoleLayout => {
-  const l = consoleLayout(1366, 768);
+  const l = consoleLayout(1920, 1080);
   return { ...l.weapons, abilities: l.abilities };
 })();
 
@@ -92,24 +106,33 @@ function paint(v: WeaponsConsoleView) {
   const console = new WeaponsConsole(layer);
   console.update(v, LAYOUT);
   const root = layer.children[0] as Container;
-  const ops = opsOf(root.children[1] as Graphics);
+  const bed = opsOf(root.children[0] as Graphics);
+  const ops = opsOf(root.children[2] as Graphics);
   const texts = root.children.filter((c): c is Text => c instanceof Text && c.visible && c.text !== '');
-  const inRow = (i: number) => texts.filter((t) => t.y >= LAYOUT.rows[i].y && t.y < LAYOUT.rows[i].y + LAYOUT.rows[i].h);
-  return { console, root, ops, texts, inRow, words: texts.map((t) => t.text) };
+  const inRow = (i: number) => {
+    const r = LAYOUT.rows[i];
+    return texts.filter((t) => t.x >= r.x && t.x <= r.x + r.w && t.y >= r.y && t.y < r.y + r.h);
+  };
+  return { console, root, bed, ops, texts, inRow, words: texts.map((t) => t.text) };
 }
 
 const fillOf = (t: Text): number => t.style.fill as number;
 
-describe('the five rows in the ruled order, each with its key chip', () => {
-  it('draws MB · SEC · TORP · MINES · SPECIAL top to bottom with LMB / RMB / Q / E / R', () => {
+describe('the five cells, each with its key chip, on one bed', () => {
+  it('draws every weapon in its own cell with LMB / RMB / Q / E / R', () => {
     const p = paint(view());
     WEAPON_ROW_KINDS.forEach((kind, i) => {
       const words = p.inRow(i).map((t) => t.text);
       expect(words).toContain(NAMES[kind]);
       expect(words).toContain(KEYS[kind]);
     });
-    const ys = WEAPON_ROW_KINDS.map((k) => p.texts.find((t) => t.text === NAMES[k])!.y);
-    expect([...ys].sort((a, b) => a - b)).toEqual(ys);
+  });
+
+  it('draws the dark-glass bed (R24) over the layout`s bed rect, beneath the linework', () => {
+    const p = paint(view());
+    const b = LAYOUT.bed;
+    const fills = p.bed.filter((o) => o.action === 'fill' && o.color === C.cardScrim).flatMap((o) => o.rects);
+    expect(fills).toContainEqual([b.x, b.y, b.w, b.h]);
   });
 
   it('three ability buttons carry their key chips C / V / Shift', () => {
@@ -126,7 +149,7 @@ describe('the per-mount clocks', () => {
     expect(numerals.map((t) => t.text)).toEqual(['7']);
     const discs = p.ops.filter((o) => o.action === 'fill' && o.color === C.phosphor).flatMap((o) => o.circles);
     const rowRect = LAYOUT.rows[0];
-    expect(discs.filter((c) => c[1] > rowRect.y && c[1] < rowRect.y + rowRect.h && c[2] === CLOCK_R)).toHaveLength(1);
+    expect(discs.filter((c) => c[0] > rowRect.x && c[0] < rowRect.x + rowRect.w && c[1] > rowRect.y && c[1] < rowRect.y + rowRect.h && c[2] === CLOCK_R)).toHaveLength(1);
   });
 });
 
@@ -222,13 +245,100 @@ describe('the hover preview (R18)', () => {
   });
 });
 
-describe('the stats line wraps only when the spine grew the row', () => {
+describe('ONE STAT PER LINE (R23)', () => {
   const r = row('special', { stats: [stat('special', 'damage', 'DAMAGE', '200', 200), stat('special', 'blastRadius', 'BLAST RADIUS', '48', 48), stat('special', 'reloadMs', 'RELOAD', '14.3S', 14300)] });
-  it('one line keeps every field on line 0; two lines put the overflow on line 1', () => {
-    expect(statTokens(r, null, 120, false).every((t) => t.line === 0)).toBe(true);
-    const two = statTokens(r, null, 120, true);
-    expect(two.some((t) => t.line === 1)).toBe(true);
-    expect(two.filter((t) => t.line === 1)[0].label.startsWith('·')).toBe(false);
+
+  it('prints each stat on its own line: the label left, the value right-aligned, never joined', () => {
+    expect(statLines(r, null).map((l) => [l.label, l.value])).toEqual(r.stats.map((x) => [x.label, x.value]));
+    const p = paint(view({ rows: withRow(4, r) }));
+    const cell = LAYOUT.rows[4];
+    r.stats.forEach((x, k) => {
+      const line = cell.statLines[k];
+      const label = p.inRow(4).find((t) => t.text === x.label)!;
+      const value = p.inRow(4).find((t) => t.text === x.value)!;
+      expect(label.x).toBe(line.x);
+      expect(value.anchor.x).toBe(1);
+      expect(value.x).toBe(line.x + line.w);
+      expect(label.y).toBe(value.y);
+      expect(label.y).toBe(line.y + line.h / 2);
+    });
+    expect(p.words.some((w) => w.includes(' · '))).toBe(false);
+  });
+
+  it('draws every readable text at or above the text rule (values 17 / 600, labels 14, chips 12)', () => {
+    const p = paint(view({ rows: withRow(4, r) }));
+    for (const t of p.texts) expect(t.style.fontSize, t.text).toBeGreaterThanOrEqual(12);
+    for (const x of r.stats) {
+      const v = p.inRow(4).find((t) => t.text === x.value)!;
+      expect(v.style.fontSize).toBeGreaterThanOrEqual(17);
+      expect(v.style.fontWeight).toBe('600');
+      expect(p.inRow(4).find((t) => t.text === x.label)!.style.fontSize).toBeGreaterThanOrEqual(14);
+    }
+    expect(p.inRow(4).find((t) => t.text === NAMES.special)!.style.fontSize).toBeGreaterThanOrEqual(14);
+  });
+});
+
+/** Every family weapon fitted alone in its slot, with its readouts and rows. */
+function fittedAlone(): { id: EquipmentId; readouts: Readout[]; rows: WeaponRowModel[] }[] {
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [], CATALOG);
+  return SLOT_FAMILIES.flatMap((family) => familyMembers(family).map((id) => {
+    const loadout: (EquipmentId | null)[] = [];
+    loadout[FAMILY_SLOT[family]] = id;
+    const readouts = consoleReadouts({ stats, loadout, cards: [], cls: DEFAULT_CLASS_ID });
+    const rows = weaponRowModels({
+      stats, cards: [], cls: DEFAULT_CLASS_ID, loadout, ammo: [], turrets: [], launchers: [], racks: [],
+      sec: { heat: 0, locked: false }, primedSlot: -1, readouts,
+    });
+    return { id, readouts, rows };
+  }));
+}
+
+const SLOTLESS_INPUT = ((): Parameters<typeof weaponRowModels>[0] => {
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [], CATALOG);
+  return {
+    stats, cards: [], cls: DEFAULT_CLASS_ID, loadout: [], ammo: [], turrets: [], launchers: [], racks: [],
+    sec: { heat: 0, locked: false }, primedSlot: -1, readouts: [],
+  };
+})();
+
+describe('every printable header and stat line FITS its cell at the text rule (the box grows, never the text shrinks)', () => {
+  const T = K.type;
+  const header = LAYOUT.rows[2].header;
+  const line = LAYOUT.rows[2].statLines[0];
+  /** The widest hovered tier mark the ramp can print (`II→III`). */
+  const widestTier = Math.max(...[1, 2, 3, 4].map((t) => monoTextWidth(`${romanTier(t)}→${romanTier(t + 1)}`, T.tier)));
+  /** The state words a FAMILY cell can print (LOCKED is the secondaries' alone). */
+  const widestState = Math.max(...(['empty', 'ready', 'cooling', 'readied'] as const).map((st) => monoTextWidth(ROW_STATE_WORD[st], T.state)));
+
+  it('the longest weapon name of each family, its widest state word and a hovered tier, beside its chip', () => {
+    // The slotless cells: their own names, every state word, a hovered tier.
+    for (const kind of ['mainBattery', 'secondaries'] as const) {
+      const name = weaponRowModels(SLOTLESS_INPUT).find((m) => m.kind === kind)!.name;
+      const w = monoTextWidth(name, T.name) + Math.max(...Object.values(ROW_STATE_WORD).map((x) => monoTextWidth(x, T.state))) + widestTier + consoleChipWidth(ROW_KEY_GLYPH[kind]) + 3 * K.cell.padX;
+      expect(w, kind).toBeLessThanOrEqual(header.w);
+    }
+    for (const family of SLOT_FAMILIES) {
+      const kind = WEAPON_ROW_KINDS.find((k) => rowSlot(k) === FAMILY_SLOT[family])!;
+      for (const id of familyMembers(family)) {
+        const w = monoTextWidth(EQUIPMENT_NAME[id].toUpperCase(), T.name) + widestState + widestTier + consoleChipWidth(ROW_KEY_GLYPH[kind]) + 3 * K.cell.padX;
+        expect(w, id).toBeLessThanOrEqual(header.w);
+      }
+    }
+  });
+
+  it('every stat line a fitted weapon prints — label, gap, hovered value — fits one line', () => {
+    for (const { id, readouts } of fittedAlone()) {
+      for (const r of readouts.filter((x) => x.role === 'stat')) {
+        const w = monoTextWidth(r.label, T.statLabel) + K.cell.padX + monoTextWidth(`${r.value}▲`, T.statValue);
+        expect(w, `${id} ${r.key}`).toBeLessThanOrEqual(line.w);
+      }
+    }
+  });
+
+  it('no cell carries more stats than it has lines', () => {
+    for (const { id, rows } of fittedAlone()) {
+      for (const m of rows) expect(m.stats.length, `${id} ${m.kind}`).toBeLessThanOrEqual(K.cell.statLines);
+    }
   });
 });
 
@@ -276,28 +386,21 @@ describe('dim', () => {
   });
 });
 
-describe('statsTwoLineFlags — the spine measures the line the console PRINTS', () => {
-  const T = CLIENT_CONFIG.console.type;
-  const glyph = monoCharWidth(T.stats, T.statsTracking);
-  // One torpedo stats field whose printed line sits just inside one line.
-  const fit = Math.floor(STATS_LINE_W / glyph);
-  const value = 'X'.repeat(fit - 'DAMAGE '.length - 1);
-  const key = 'row.torpedo.damage';
-  const readouts: Readout[] = [{ key, label: 'DAMAGE', value, raw: 1, role: 'stat' }];
-  const row = WEAPON_ROW_KINDS.indexOf('torpedo');
+describe('floorScale — the mono floor under the HUD factor', () => {
+  const FLOOR = CLIENT_CONFIG.settings.monoFloorPx;
 
-  it('a row that fits stays one line; a hover mark that lengthens it past the width grows it', () => {
-    const out: boolean[] = [];
-    expect(statsTwoLineFlags(readouts, null, 1, out)).toBe(0);
-    expect(out[row]).toBe(false);
-    const marks = new Map([[key, { key, value: `${value}XX`, raw: 2, from: 1, direction: 'up' as const }]]);
-    expect(printedStatsLine(readouts, marks)).toContain(markedValue(value, marks.get(key)).text);
-    expect(statsTwoLineFlags(readouts, marks, 1, out)).toBe(1 << row);
-    expect(out[row]).toBe(true);
+  it('leaves a register alone wherever it renders at or above the floor', () => {
+    expect(floorScale(K.type.keyChip, 1)).toBe(1);
+    expect(floorScale(K.type.statValue, K.viewport.min)).toBe(1);
   });
 
-  it('grows the same row at the 90 % tier counter-scale', () => {
-    const out: boolean[] = [];
-    expect(statsTwoLineFlags(readouts, null, 1 / 0.9, out)).toBe(1 << row);
+  it('holds a chip ON the floor at the smallest HUD factor × the smallest tier, never above it', () => {
+    const f = K.viewport.min * (Math.min(...CLIENT_CONFIG.settings.scaleTiers) / 100);
+    expect(K.type.keyChip * f * floorScale(K.type.keyChip, f)).toBeCloseTo(Math.max(FLOOR, K.type.keyChip * f), 9);
+  });
+
+  it('fails to 1 on an unreadable factor', () => {
+    expect(floorScale(12, Number.NaN)).toBe(1);
+    expect(floorScale(12, 0)).toBe(1);
   });
 });

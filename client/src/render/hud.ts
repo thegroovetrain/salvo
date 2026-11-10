@@ -35,6 +35,7 @@ import { motionScaled, settings } from '../settings/store.js';
 import { easeHold } from './zone.js';
 import { amberPulseWinner, holdAtLitKeyframe } from './attention.js';
 import { hullAmberChannel, hullFraction } from './console/hull.js';
+import { drawHudBed, type BedRect } from './hudBed.js';
 import {
   CHROME_BAR_SEGMENTS,
   RING_PULSE_AMP,
@@ -200,6 +201,16 @@ export const TELL_STYLE = { fontFamily: MONO, fontSize: CB.tellSize, fill: GREEN
 const CHROME_BAR_BOTTOM = CB.y + CB.fontSize;
 
 /**
+ * Pure: the chrome bar's dark-glass BED (epic-10 amendment 18 R24) — it hugs
+ * the text row (`x` … `x + width`, `chromeBar.y` … its bottom edge) plus
+ * `hudBed.chromePad` on every side, so the hairline under the text sits inside it.
+ */
+export function chromeBarBedRect(x: number, width: number): BedRect {
+  const pad = CLIENT_CONFIG.hudBed.chromePad;
+  return { x: x - pad, y: CB.y - pad, w: width + 2 * pad, h: CHROME_BAR_BOTTOM - CB.y + 2 * pad };
+}
+
+/**
  * Pure: where the `IN STORM` warning's TOP edge sits — centred on the screen,
  * `chromeBar.stormAbove` BELOW the chrome bar's bottom edge.
  *
@@ -246,6 +257,9 @@ export class Hud {
   /** The 1 px phosphor hairline under the bar's text (Story 10.10, O12) —
    *  redrawn only when the row re-lays out. */
   private readonly barRule: Graphics;
+  /** The bar's dark-glass bed (R24), UNDER the text — redrawn with the rule. */
+  private readonly barBed: Graphics;
+  private barBedRect: BedRect | null = null;
   private readonly stormWarn: Text;
   private readonly matchLine: Text;
   private readonly matchTag: Text;
@@ -277,6 +291,9 @@ export class Hud {
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
     hudLayer.addChild(this.overlay);
+    this.barBed = new Graphics(); // added before the text so it draws beneath it
+    this.barBed.visible = false;
+    hudLayer.addChild(this.barBed);
     this.barSegs = this.buildChromeBar();
     this.barRule = new Graphics();
     this.barRule.visible = false;
@@ -416,6 +433,9 @@ export class Hud {
     this.barRule.clear();
     this.barRule.moveTo(x, y).lineTo(x + width, y).stroke({ width: CB.hairline.w, color: GREEN, alpha: CB.hairline.alpha });
     this.barRule.visible = width > 0;
+    this.barBedRect = chromeBarBedRect(x, width);
+    drawHudBed(this.barBed, this.barBedRect);
+    this.barBed.visible = width > 0;
   }
 
   /**
@@ -456,6 +476,7 @@ export class Hud {
   private hideChromeBar(): void {
     for (const t of this.barSegs) t.visible = false;
     this.barRule.visible = false;
+    this.barBed.visible = false;
     this.lastBarSig = ''; // the rule redraws (and re-shows) on the next show
     this.ringPhase = 0;
     this.ringHold = 0;
@@ -465,6 +486,11 @@ export class Hud {
    *  slot, so a hidden bar reads as an empty row rather than stale copy. */
   chromeBarText(): string[] {
     return this.barSegs.map((t) => (t.visible ? t.text : ''));
+  }
+
+  /** The bar's bed rect while it shows, or null (test/debug seam). */
+  chromeBarBed(): BedRect | null {
+    return this.barBed.visible ? this.barBedRect : null;
   }
 
   /** A bar segment's live alpha (test/debug seam — the ring breath). */

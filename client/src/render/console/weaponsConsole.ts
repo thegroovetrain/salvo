@@ -1,15 +1,18 @@
-// THE WEAPONS CONSOLE (Story 10.10, R16 / R17 / R18; plan O4 / O5 / O7) — the
-// right-edge Pixi surface: five tall ROW-BUTTONS (Main Battery · Secondaries ·
-// Torpedo · Mines · Special) and the three ABILITY buttons C · V · Shift under
-// them. A thin painter: every number, word and state arrives in the W1 view
-// model (readouts.ts) and every rect in the W1 spine (layout.ts); nothing here
+// THE WEAPONS CONSOLE (Story 10.10, R16 / R17 / R18 / R23 / R24; plan O4 / O5 /
+// O7, F2 / F4) — the right-edge Pixi surface: ONE uniform two-column box on a
+// dark-glass bed — MAIN BATTERY over SECONDARIES on the left, Q / E / R on the
+// right — and the three ABILITY buttons C · V · Shift spanning its width
+// beneath. A thin painter: every number, word and state arrives in the view
+// model (readouts.ts) and every rect in the spine (layout.ts); nothing here
 // re-derives a stat.
 //
-//   row:  ┌──────────────────────────────────────────────┐
-//   line1 │ NAME   READY  II                       [ Q ] │
-//   line2 │ ◔ ◔ ●  (clocks · rack pips · the heat bar)   │
-//   stats │ DAMAGE 250 · SPEED 47.5 · RELOAD 21.8S       │
-//         └──────────────────────────────────────────────┘
+//   cell:   ┌────────────────────────────────────┐
+//   header  │ NAME   READY  II             [ Q ] │
+//   mounts  │ (5) (5) ●   clocks · pips · heat   │
+//   stat    │ DAMAGE                         250 │  ONE STAT PER LINE (R23):
+//   stat    │ SPEED                         47.5 │  label left, value right,
+//   stat    │ RELOAD                       21.8S │  at the text rule's sizes
+//           └────────────────────────────────────┘
 //
 // THE PREVIEW (R18): a key in `view.preview` turns its number AMBER with an
 // arrow (`new▲` / `new▼`), a marked tier reads `II→III`, and a marked count
@@ -26,36 +29,42 @@ import { CLIENT_CONFIG } from '../../config.js';
 import { motionIntensity, motionScaled, type MotionLevel } from '../../settings/store.js';
 import { monoTextWidth } from '../../util/monoMeasure.js';
 import { traceDashed } from '../../util/poly.js';
+import { drawHudBed } from '../hudBed.js';
 import { tierRampColor } from '../../ui/tierRamp.js';
 import { drawEquipmentIcon } from '../equipmentIcons.js';
 import { keyChipGlyphColor } from '../keyChip.js';
 import {
-  WEAPON_ROW_KINDS,
   inRect,
   rowSlot,
-  statsNeedTwoLines,
   type AbilityRect,
   type ConsoleHit,
   type ConsoleLayout,
   type Rect,
   type WeaponRowRect,
 } from './layout.js';
-import { rowStats } from './readouts.js';
-import type { AbilityModel, AbilityState, MountClock, PreviewMark, PreviewMarks, Readout, RowState, WeaponRowModel } from './readouts.js';
+import type { AbilityModel, AbilityState, MountClock, PreviewMark, PreviewMarks, RowState, WeaponRowModel } from './readouts.js';
 
 const C = CLIENT_CONFIG.colors;
 const K = CLIENT_CONFIG.console;
-const ROW = K.row;
+const CELL = K.cell;
 const AB = K.abilities;
 const T = K.type;
 const MONO = CLIENT_CONFIG.type.mono;
+const MONO_FLOOR = CLIENT_CONFIG.settings.monoFloorPx;
 // Carried from the retiring bar's block (today's values, O5 "today's dimAlpha"):
 // the dim alpha, the one glow blur, the chip's side padding and the hairline.
 const BAR = CLIENT_CONFIG.console;
 
-/** The 9 px registers that counter-scale at the 90 % UI tier (the bar's rule). */
-function microScale(uiScale: number): number {
-  return Number.isFinite(uiScale) && uiScale > 0 && uiScale < 1 ? 1 / uiScale : 1;
+/**
+ * Pure: the scale a `sizePx` register is drawn at under the HUD factor
+ * `uiScale` so it never RENDERS below the mono floor (`monoFloorPx`). The
+ * text rule's sizes clear the floor at every factor but the smallest HUD
+ * factor × the 90 % tier, where only the 12 px chips and tier numerals would
+ * dip under it; 1 everywhere else.
+ */
+export function floorScale(sizePx: number, uiScale: number): number {
+  if (!Number.isFinite(uiScale) || uiScale <= 0 || !(sizePx > 0)) return 1;
+  return Math.max(1, MONO_FLOOR / (sizePx * uiScale));
 }
 
 // --- pure core: skins ------------------------------------------------------------
@@ -132,39 +141,16 @@ export function stateWordColor(state: RowState): number {
   return state === 'locked' ? C.denied : C.phosphor;
 }
 
-/** Pure: a key chip's width — the bar's widening mono box (`LMB`, `Shift`). */
-export function consoleChipWidth(glyph: string): number {
-  return Math.max(ROW.keyChip, monoTextWidth(glyph, T.keyChip) + 2 * BAR.chipPadX);
+/** Pure: a key chip's width — the bar's widening mono box (`LMB`, `Shift`),
+ *  its glyph drawn at `scale` (the mono floor's, `floorScale`). */
+export function consoleChipWidth(glyph: string, scale = 1): number {
+  return Math.max(CELL.keyChip, monoTextWidth(glyph, T.keyChip) * scale + 2 * BAR.chipPadX);
 }
 
 /** Pure: R18 — the text a readout prints and whether it is a preview mark. */
 export function markedValue(value: string, mark: PreviewMark | undefined): { text: string; amber: boolean } {
   if (mark === undefined) return { text: value, amber: false };
   return { text: `${mark.value}${mark.direction === 'up' ? '▲' : '▼'}`, amber: true };
-}
-
-/** Pure: the one-line stats text a row PRINTS (`DAMAGE 27×2 · RANGE 950 ·
- *  RELOAD 9.5S`) — each value in its hover form (`8.0S▼`) under a mark, the
- *  same tokens `statTokens` lays out — what the spine measures for growth. */
-export function printedStatsLine(stats: readonly Readout[], preview: PreviewMarks | null): string {
-  let line = '';
-  stats.forEach((r, i) => {
-    const v = markedValue(r.value, preview?.get(r.key)).text;
-    line += `${i > 0 ? ' · ' : ''}${r.label === '' ? v : `${r.label} ${v}`}`;
-  });
-  return line;
-}
-
-/** Pure: every weapon row's two-line verdict on the line it PRINTS (hover
- *  marks applied) at the counter-scale it is DRAWN at, written into `out`
- *  (ruled row order); returns the verdicts as bits. */
-export function statsTwoLineFlags(readouts: readonly Readout[], preview: PreviewMarks | null, micro: number, out: boolean[]): number {
-  let bits = 0;
-  WEAPON_ROW_KINDS.forEach((kind, i) => {
-    out[i] = statsNeedTwoLines(printedStatsLine(rowStats(kind, readouts), preview), micro);
-    if (out[i]) bits |= 1 << i;
-  });
-  return bits;
 }
 
 /** Pure: the tier numeral — `II→III` amber under a marked tier, else the ramp. */
@@ -189,38 +175,21 @@ function clockCountKey(row: WeaponRowModel): string | null {
   return row.kind === 'mines' ? 'row.mines.racks' : null;
 }
 
-/** One placed token on a stats line. */
-export interface StatToken {
+/** One stat line as printed (R23): the label left, the value right — the
+ *  value in its hover form (`new▲` amber) under a mark. */
+export interface StatLine {
   label: string;
   value: string;
   amber: boolean;
-  x: number;
-  line: number;
-  valueX: number;
 }
 
-/** Pure: the stats line laid out — labels muted, values phosphor (amber when
- *  marked), `·` between fields; wraps onto a second line only when the spine
- *  grew the row (`twoLine`). Positions are relative to the line's left edge. */
-export function statTokens(row: WeaponRowModel, preview: PreviewMarks | null, width: number, twoLine: boolean, micro = 1): StatToken[] {
-  const w = (s: string): number => monoTextWidth(s, T.stats, T.statsTracking) * micro;
-  const out: StatToken[] = [];
-  let x = 0;
-  let line = 0;
-  for (const r of row.stats) {
+/** Pure: a cell's stat lines, ONE STAT PER LINE, in print order — at most the
+ *  `statLines` the cell has room for (readouts.ts never prints more). */
+export function statLines(row: WeaponRowModel, preview: PreviewMarks | null): StatLine[] {
+  return row.stats.slice(0, CELL.statLines).map((r) => {
     const v = markedValue(r.value, preview?.get(r.key));
-    const word = r.label === '' ? '' : `${r.label} `;
-    let label = x > 0 ? `· ${word}` : word;
-    const wrap = twoLine && line === 0 && x > 0 && x + w(label + v.text) > width;
-    if (wrap) {
-      line = 1;
-      x = 0;
-      label = word;
-    }
-    out.push({ label, value: v.text, amber: v.amber, x, line, valueX: x + w(label) });
-    x += w(label + v.text + ' ');
-  }
-  return out;
+    return { label: r.label, value: v.text, amber: v.amber };
+  });
 }
 
 // --- the Pixi shell ---------------------------------------------------------------
@@ -249,6 +218,8 @@ export interface WeaponsConsoleView {
   nowSec: number;
   nowMs: number;
   motion: MotionLevel;
+  /** The HUD factor the layer is drawn at (viewport × UI tier) — the mono
+   *  floor's input (`floorScale`). */
   uiScale: number;
   denied: { rows: boolean[]; abilities: boolean[] };
   dim: boolean;
@@ -256,27 +227,30 @@ export interface WeaponsConsoleView {
 
 export type WeaponsConsoleLayout = ConsoleLayout['weapons'] & { abilities: ConsoleLayout['abilities'] };
 
-/** An empty row's name and glyph alpha (the empty skin's dim icon). */
+/** An empty cell's name and glyph alpha (the empty skin's dim icon). */
 const EMPTY_ALPHA = 0.5;
 /** A cooling clock's elapsed wedge alpha; a ready disc's fill. */
 const WEDGE_ALPHA = 0.35;
 const DISC_ALPHA = 0.9;
-/** The heat bar's height as a share of line 2; its fill alphas; hatch pitch. */
-const HEAT_H = 0.5;
+/** The heat bar's fill alphas; hatch pitch. */
 const HEAT_FILL_ALPHA = 0.85;
 const LOCK_WASH_ALPHA = 0.16;
 const HATCH_PITCH = 4;
-/** Gap between a rack's ring and its pips / between whole racks. */
+/** Gap between a rack's ring and its pips. */
 const RACK_GAP = 4;
+/** An ability button's state word / numeral and name centres, as shares of
+ *  its height (the name sits above the progress hairline). */
+const ABILITY_WORD_AT = 0.42;
+const ABILITY_NAME_AT = 0.78;
 
-/** Where line 2's marks end (`x`) and how many clock numerals they used. */
-interface Line2End {
+/** Where the mount line's marks end (`x`) and how many clock numerals they used. */
+interface MountsEnd {
   x: number;
   n: number;
 }
 
-function text(size: number, weight: '400' | '600', fill: number, anchorX = 0, letterSpacing = 0): Text {
-  const t = new Text({ text: '', style: { fontFamily: MONO, fontSize: size, fontWeight: weight, fill, letterSpacing } });
+function text(size: number, weight: '400' | '600', fill: number, anchorX = 0): Text {
+  const t = new Text({ text: '', style: { fontFamily: MONO, fontSize: size, fontWeight: weight, fill } });
   t.anchor.set(anchorX, 0.5);
   return t;
 }
@@ -291,14 +265,16 @@ function setFill(t: Text, color: number): void {
 
 export class WeaponsConsole {
   private readonly root = new Container();
+  private readonly bedGfx = new Graphics();
   private readonly glowGfx = new Graphics();
   private readonly gfx = new Graphics();
   private readonly rowTexts: RowTexts[] = [];
   private readonly abilityTexts: AbilityTexts[] = [];
   private layout: WeaponsConsoleLayout | null = null;
+  private bedKey = '';
   private breathPhase = 0;
   private lastBreathSec: number | null = null;
-  private micro = 1;
+  private uiScale = 1;
   private preview: PreviewMarks | null = null;
 
   constructor(parent: Container) {
@@ -306,15 +282,16 @@ export class WeaponsConsole {
     const blur = new BlurFilter({ strength: BAR.glowBlurPx, quality: 4 });
     blur.padding = BAR.glowBlurPx * 2;
     this.glowGfx.filters = [blur];
-    this.root.addChild(this.glowGfx, this.gfx);
+    this.root.addChild(this.bedGfx, this.glowGfx, this.gfx);
   }
 
   update(view: WeaponsConsoleView, layout: WeaponsConsoleLayout): void {
     this.root.visible = true;
     this.root.alpha = view.dim ? BAR.dimAlpha : 1;
     this.layout = layout;
-    this.micro = microScale(view.uiScale);
+    this.uiScale = view.uiScale;
     this.preview = view.preview;
+    this.drawBed(layout.bed);
     this.gfx.clear();
     this.glowGfx.clear();
     const breath = 1 - this.breathAmp(view.motion) + this.breathAmp(view.motion) * Math.sin(this.stepBreath(view.nowSec));
@@ -346,7 +323,7 @@ export class WeaponsConsole {
   }
 
   /** Hit-test in LOGICAL px against the last drawn layout (null while hidden):
-   *  a row → its slot (null for the secondaries), a button → its ability. The
+   *  a cell → its slot (null for the secondaries), a button → its ability. The
    *  spine's `consoleHit` routing, restricted to this console's rects. */
   hit(p: { x: number; y: number }): ConsoleHit | null {
     const l = this.layout;
@@ -366,6 +343,14 @@ export class WeaponsConsole {
     if (Number.isFinite(nowSec)) this.lastBreathSec = nowSec;
     this.breathPhase = advanceBreath(this.breathPhase, dt);
     return this.breathPhase;
+  }
+
+  /** R24's dark-glass bed under the whole box — redrawn on a moved rect only. */
+  private drawBed(bed: Rect): void {
+    const key = `${bed.x}|${bed.y}|${bed.w}|${bed.h}`;
+    if (key === this.bedKey) return;
+    this.bedKey = key;
+    drawHudBed(this.bedGfx, bed);
   }
 
   // --- texts ----------------------------------------------------------------------
@@ -405,11 +390,12 @@ export class WeaponsConsole {
     for (const t of [rt.name, rt.state, rt.tier, rt.chip, ...rt.numerals, ...rt.labels, ...rt.values]) t.visible = false;
   }
 
-  private place(t: Text, value: string, x: number, y: number, micro: boolean): void {
+  /** Place a Text; its scale holds it on the mono floor (`floorScale`). */
+  private place(t: Text, value: string, x: number, y: number): void {
     t.visible = value !== '';
     setText(t, value);
     t.position.set(x, y);
-    t.scale.set(micro ? this.micro : 1);
+    t.scale.set(floorScale(t.style.fontSize, this.uiScale));
   }
 
   // --- the outline, glow and key chip ------------------------------------------------
@@ -435,68 +421,68 @@ export class WeaponsConsole {
   /** The key chip at a right edge: filled amber when SELECTED (readied), a
    *  denied hairline while denied, the phosphor hairline otherwise. */
   private drawChip(t: Text, glyph: string, right: number, cy: number, selected: boolean, denied: boolean): void {
-    const w = consoleChipWidth(glyph);
+    const w = consoleChipWidth(glyph, floorScale(T.keyChip, this.uiScale));
     const x = right - w;
-    const y = cy - ROW.keyChip / 2;
+    const y = cy - CELL.keyChip / 2;
     const g = this.gfx;
-    if (selected) g.rect(x, y, w, ROW.keyChip).fill({ color: C.amber, alpha: 1 });
-    else g.rect(x, y, w, ROW.keyChip).stroke({ width: BAR.lineW, color: denied ? C.denied : C.phosphor, alpha: denied ? 1 : 0.55 });
+    if (selected) g.rect(x, y, w, CELL.keyChip).fill({ color: C.amber, alpha: 1 });
+    else g.rect(x, y, w, CELL.keyChip).stroke({ width: BAR.lineW, color: denied ? C.denied : C.phosphor, alpha: denied ? 1 : 0.55 });
     setFill(t, keyChipGlyphColor(selected));
-    this.place(t, glyph, x + w / 2, cy, true);
+    this.place(t, glyph, x + w / 2, cy);
   }
 
-  // --- one weapon row ---------------------------------------------------------------
+  // --- one weapon cell --------------------------------------------------------------
 
   private drawRow(row: WeaponRowModel, rect: WeaponRowRect, denied: boolean, motion: MotionLevel, i: number): void {
     const rt = this.rowTextsAt(i);
     this.drawBox(rect, rowSkin(row.state, denied, motion));
-    this.drawLine1(row, rect.line1, rt, denied);
-    this.drawLine2(row, rect.line2, rt);
+    this.drawHeader(row, rect.header, rt, denied);
+    this.drawMounts(row, rect.mounts, rt);
     this.drawStats(row, rect, rt);
   }
 
-  private drawLine1(row: WeaponRowModel, l: Rect, rt: RowTexts, denied: boolean): void {
+  private drawHeader(row: WeaponRowModel, l: Rect, rt: RowTexts, denied: boolean): void {
     const cy = l.y + l.h / 2;
     const empty = row.state === 'empty';
-    this.place(rt.name, row.name, l.x, cy, false);
+    this.place(rt.name, row.name, l.x, cy);
     rt.name.alpha = empty ? EMPTY_ALPHA : 1;
-    let x = l.x + monoTextWidth(row.name, T.name) + ROW.padX;
+    let x = l.x + monoTextWidth(row.name, T.name) + CELL.padX;
     setFill(rt.state, stateWordColor(row.state));
-    this.place(rt.state, row.stateWord, x, cy, true);
-    if (row.stateWord !== '') x += monoTextWidth(row.stateWord, T.state) * this.micro + ROW.padX;
+    this.place(rt.state, row.stateWord, x, cy);
+    if (row.stateWord !== '') x += monoTextWidth(row.stateWord, T.state) + CELL.padX;
     const tier = tierLabel(row, this.preview);
     setFill(rt.tier, tier.color);
-    this.place(rt.tier, tier.text, x, cy, true);
+    this.place(rt.tier, tier.text, x, cy);
     this.drawChip(rt.chip, row.keyGlyph, l.x + l.w, cy, row.readied, denied);
   }
 
-  private drawLine2(row: WeaponRowModel, l: Rect, rt: RowTexts): void {
-    let end: Line2End = { x: l.x, n: 0 };
+  private drawMounts(row: WeaponRowModel, l: Rect, rt: RowTexts): void {
+    let end: MountsEnd = { x: l.x, n: 0 };
     if (row.heat !== null) this.drawHeat(row.heat.heat, row.heat.locked, l);
     else if (row.state === 'empty') end = this.drawEmptyGlyph(row, l);
     else if (row.kind === 'mines') end = this.drawRacks(row, l, rt);
     else end = this.drawClocks(row.clocks, l, rt);
     const key = clockCountKey(row);
     const extra = key === null ? 0 : extraMarks(this.preview, key);
-    for (let k = 0; k < extra; k++) this.drawHollowClock(end.x + k * (ROW.clock + ROW.clockGap), l.y + l.h / 2);
+    for (let k = 0; k < extra; k++) this.drawHollowClock(end.x + k * (CELL.clock + CELL.clockGap), l.y + l.h / 2);
     for (let k = end.n; k < rt.numerals.length; k++) rt.numerals[k].visible = false;
   }
 
-  private drawClocks(clocks: readonly MountClock[], l: Rect, rt: RowTexts): Line2End {
+  private drawClocks(clocks: readonly MountClock[], l: Rect, rt: RowTexts): MountsEnd {
     const cy = l.y + l.h / 2;
     let x = l.x;
     clocks.forEach((c, k) => {
-      if (k > 0 && c.group !== clocks[k - 1].group) x += ROW.clockGap;
+      if (k > 0 && c.group !== clocks[k - 1].group) x += CELL.clockGap;
       this.drawClock(c, x, cy, rt, k);
-      x += ROW.clock + ROW.clockGap;
+      x += CELL.clock + CELL.clockGap;
     });
     return { x, n: clocks.length };
   }
 
-  /** One 18 px ring: a solid phosphor disc when ready; otherwise a silver
-   *  ring, the elapsed wedge clockwise from 12, the seconds numeral inside. */
+  /** One ring: a solid phosphor disc when ready; otherwise a silver ring, the
+   *  elapsed wedge clockwise from 12, the seconds numeral inside. */
   private drawClock(c: MountClock, x: number, cy: number, rt: RowTexts, k: number): void {
-    const r = ROW.clock / 2;
+    const r = CELL.clock / 2;
     const cx = x + r;
     const g = this.gfx;
     const t = this.pooled(rt.numerals, k, () => text(T.clock, '600', C.textPrimary, 0.5));
@@ -510,35 +496,35 @@ export class WeaponsConsole {
       const a0 = -Math.PI / 2;
       g.moveTo(cx, cy).arc(cx, cy, r, a0, a0 + Math.PI * 2 * c.progress).closePath().fill({ color: C.phosphor, alpha: WEDGE_ALPHA });
     }
-    this.place(t, c.numeral, cx, cy, true);
+    this.place(t, c.numeral, cx, cy);
   }
 
   private drawHollowClock(x: number, cy: number): void {
-    this.gfx.circle(x + ROW.clock / 2, cy, ROW.clock / 2).stroke({ width: BAR.lineW, color: C.amber, alpha: 1 });
+    this.gfx.circle(x + CELL.clock / 2, cy, CELL.clock / 2).stroke({ width: BAR.lineW, color: C.amber, alpha: 1 });
   }
 
   private rackPipsW(n: number): number {
-    return n * (ROW.rackPip.w + ROW.rackPip.gap);
+    return n * (CELL.rackPip.w + CELL.rackPip.gap);
   }
 
   /** Mines: per rack its reload ring, then its held-mine pips (capacity from
    *  the model; a marked capacity adds hollow amber pips). */
-  private drawRacks(row: WeaponRowModel, l: Rect, rt: RowTexts): Line2End {
+  private drawRacks(row: WeaponRowModel, l: Rect, rt: RowTexts): MountsEnd {
     const cy = l.y + l.h / 2;
     const extraCap = extraMarks(this.preview, 'row.mines.capacity');
-    const P = ROW.rackPip;
+    const P = CELL.rackPip;
     let x = l.x;
     row.racks.forEach((rack, k) => {
       const c = row.clocks[k];
       if (c !== undefined) this.drawClock(c, x, cy, rt, k);
-      x += ROW.clock + RACK_GAP;
+      x += CELL.clock + RACK_GAP;
       for (let j = 0; j < rack.capacity + extraCap; j++) {
         const px = x + j * (P.w + P.gap);
         const py = cy - P.h / 2;
         if (j < rack.held) this.gfx.rect(px, py, P.w, P.h).fill({ color: C.phosphor, alpha: DISC_ALPHA });
         else this.gfx.rect(px, py, P.w, P.h).stroke({ width: BAR.lineW, color: j < rack.capacity ? C.textMuted : C.amber, alpha: j < rack.capacity ? 0.6 : 1 });
       }
-      x += this.rackPipsW(rack.capacity + extraCap) + ROW.clockGap;
+      x += this.rackPipsW(rack.capacity + extraCap) + CELL.clockGap;
     });
     return { x, n: Math.min(row.racks.length, row.clocks.length) };
   }
@@ -546,7 +532,7 @@ export class WeaponsConsole {
   /** The secondaries' heat bar: phosphor fill to the heat; LOCKED = the
    *  denied outline, a denied wash and the hatch over the fill. */
   private drawHeat(heat: number, locked: boolean, l: Rect): void {
-    const h = l.h * HEAT_H;
+    const h = CELL.heatH;
     const y = l.y + (l.h - h) / 2;
     const frac = heat > 0 ? Math.min(1, heat) : 0;
     const g = this.gfx;
@@ -574,27 +560,29 @@ export class WeaponsConsole {
     g.stroke({ width: BAR.lineW, color, alpha: 1 });
   }
 
-  /** An empty row: the family glyph, dim, where the first clock would be. */
-  private drawEmptyGlyph(row: WeaponRowModel, l: Rect): Line2End {
+  /** An empty cell: the family glyph, dim, where the first clock would be. */
+  private drawEmptyGlyph(row: WeaponRowModel, l: Rect): MountsEnd {
     if (row.emptyGlyph !== null) {
       const style = { width: 1.5, color: C.textMuted, alpha: EMPTY_ALPHA };
-      drawEquipmentIcon(this.gfx, row.emptyGlyph, l.x + ROW.clock / 2, l.y + l.h / 2, ROW.clock, style);
+      drawEquipmentIcon(this.gfx, row.emptyGlyph, l.x + CELL.clock / 2, l.y + l.h / 2, CELL.clock, style);
     }
-    return { x: l.x + ROW.clock + ROW.clockGap, n: 0 };
+    return { x: l.x + CELL.clock + CELL.clockGap, n: 0 };
   }
 
+  /** R23: ONE STAT PER LINE — the label left in the muted register, the value
+   *  right-aligned in phosphor (amber with its arrow under a hover mark). */
   private drawStats(row: WeaponRowModel, rect: WeaponRowRect, rt: RowTexts): void {
-    const s = rect.stats;
-    const tokens = statTokens(row, this.preview, s.w, rect.twoLine, this.micro);
-    tokens.forEach((tok, k) => {
-      const y = s.y + ROW.statsLineH * tok.line + ROW.statsLineH / 2;
-      const label = this.pooled(rt.labels, k, () => text(T.stats, '400', C.textMuted, 0, T.statsTracking));
-      const value = this.pooled(rt.values, k, () => text(T.stats, '600', C.phosphor, 0, T.statsTracking));
-      this.place(label, tok.label, s.x + tok.x, y, true);
-      setFill(value, tok.amber ? C.amber : C.phosphor);
-      this.place(value, tok.value, s.x + tok.valueX, y, true);
+    const lines = statLines(row, this.preview);
+    lines.forEach((line, k) => {
+      const r = rect.statLines[k];
+      const cy = r.y + r.h / 2;
+      const label = this.pooled(rt.labels, k, () => text(T.statLabel, '400', C.textMuted));
+      const value = this.pooled(rt.values, k, () => text(T.statValue, '600', C.phosphor, 1));
+      this.place(label, line.label, r.x, cy);
+      setFill(value, line.amber ? C.amber : C.phosphor);
+      this.place(value, line.value, r.x + r.w, cy);
     });
-    for (let k = tokens.length; k < rt.labels.length; k++) {
+    for (let k = lines.length; k < rt.labels.length; k++) {
       rt.labels[k].visible = false;
       rt.values[k].visible = false;
     }
@@ -617,22 +605,22 @@ export class WeaponsConsole {
   }
 
   /** O5: the state word (or the seconds numeral) centred, the key chip at the
-   *  top-right corner, the name centred at the foot, the progress hairline
-   *  along the bottom edge while cooling. A marked C / V cooldown prints its
-   *  incoming value amber in place of the word. */
+   *  top-right corner, the name centred below, the progress hairline along the
+   *  bottom edge while cooling. A marked C / V cooldown prints its incoming
+   *  value amber in place of the word. */
   private drawAbility(ab: AbilityModel, r: AbilityRect, skin: ConsoleSkin, denied: boolean, i: number): void {
     const at = this.abilityTextsAt(i);
     this.drawBox(r, skin);
     const cx = r.x + r.w / 2;
-    const midY = r.y + r.h / 2;
+    const wordY = r.y + r.h * ABILITY_WORD_AT;
     const mark = ab.kind === 'shift' ? undefined : this.preview?.get(`ability.${ab.kind}.cooldown`);
     const word = markedValue(ab.stateWord, mark);
     setFill(at.word, word.amber ? C.amber : C.phosphor);
-    this.place(at.word, word.text, cx, midY, false);
-    this.place(at.numeral, word.text === '' ? ab.numeral : '', cx, midY, false);
-    const inset = ROW.padX / 2;
-    this.drawChip(at.chip, ab.keyGlyph, r.x + r.w - inset, r.y + inset + ROW.keyChip / 2, false, denied);
-    this.place(at.name, ab.name, cx, r.y + r.h - AB.progressH - T.abilityName, true);
+    this.place(at.word, word.text, cx, wordY);
+    this.place(at.numeral, word.text === '' ? ab.numeral : '', cx, wordY);
+    const inset = CELL.padX / 2;
+    this.drawChip(at.chip, ab.keyGlyph, r.x + r.w - inset, r.y + inset + CELL.keyChip / 2, false, denied);
+    this.place(at.name, ab.name, cx, r.y + r.h * ABILITY_NAME_AT);
     if (ab.state === 'cooling' && ab.progress > 0) {
       this.gfx.rect(r.x, r.y + r.h - AB.progressH, r.w * Math.min(1, ab.progress), AB.progressH).fill({ color: C.phosphor, alpha: 1 });
     }

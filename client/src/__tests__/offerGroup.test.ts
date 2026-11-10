@@ -51,6 +51,19 @@ function panel(): HTMLElement {
   return document.getElementById('offer-group')!;
 }
 
+/** THE TEXT RULE (epic-10 amendment 18 (f), R23): every label ≥ 14 px and
+ *  every key chip ≥ 12 px at the 1920 reference. */
+const LABEL_FLOOR = 14;
+const CHIP_FLOOR = 12;
+
+function part(root: HTMLElement, name: string): HTMLElement[] {
+  return [...root.querySelectorAll(`[data-part="${name}"]`)] as HTMLElement[];
+}
+
+function px(v: string): number {
+  return Number.parseFloat(v);
+}
+
 function view(you: OwnShip, locked = false): OfferView | null {
   return offerView(you, false, locked, false);
 }
@@ -69,7 +82,76 @@ describe('OfferGroup — the corner group (O3)', () => {
     // The digit token on each chip is its pick index + 1 (the Tab+digit map).
     cards().forEach((b, i) => expect(b.textContent?.endsWith(String(i + 1))).toBe(true));
     expect(panel().querySelector('b')?.textContent).toBe('2');
-    expect(panel().firstElementChild?.textContent).toBe(offerHeaderText(2)); // the header IS the pure line
+    expect(part(panel(), 'header')[0].textContent).toBe(offerHeaderText(2)); // the header IS the pure line
+  });
+
+  it('stacks the four cards in ONE column, each at its spine rect, in rect order (R22)', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    const cs = cards();
+    expect(cs).toHaveLength(4);
+    cs.forEach((b, i) => {
+      // Placed off the spine's rect (relative to the group frame), never re-derived.
+      expect(px(b.style.left)).toBe(LIVE.cards[i].x - LIVE.frame.x);
+      expect(px(b.style.top)).toBe(LIVE.cards[i].y - LIVE.frame.y);
+      expect(px(b.style.width)).toBe(LIVE.cards[i].w);
+    });
+    // A vertical stack: one left edge, each card BELOW the one before it.
+    for (let i = 1; i < cs.length; i++) {
+      expect(px(cs[i].style.left)).toBe(px(cs[0].style.left));
+      expect(px(cs[i].style.top)).toBeGreaterThanOrEqual(px(cs[i - 1].style.top) + px(cs[i - 1].style.height));
+    }
+  });
+
+  it('a card is ONE row: glyph box, name, tier mark, key chip — in that order', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    for (const b of cards()) {
+      const parts = [...b.children].map((c) => (c as HTMLElement).dataset.part);
+      expect(parts[0]).toBe('glyph');
+      expect(parts[1]).toBe('name');
+      expect(['tier', 'oneOff']).toContain(parts[2]);
+      expect(parts[3]).toBe('chip');
+      expect(b.style.flexDirection).toBe('row');
+    }
+  });
+
+  it('THE TEXT RULE: header, names, tier marks and REDRAW at ≥ 14 px, the key chip at ≥ 12 px', () => {
+    const g = new OfferGroup(hooks());
+    g.update({ ...view(ownShip())!, redraw: 'unspent' }, COUNTDOWN, 1);
+    const root = panel();
+    const labels = [...part(root, 'header'), ...part(root, 'name'), ...part(root, 'tier'), ...part(root, 'redraw')];
+    expect(part(root, 'name')).toHaveLength(4);
+    expect(part(root, 'redraw')).toHaveLength(1);
+    for (const e of labels) expect(px(e.style.fontSize), e.dataset.part).toBeGreaterThanOrEqual(LABEL_FLOOR);
+    for (const e of [...part(root, 'header'), ...part(root, 'name'), ...part(root, 'redraw')]) {
+      expect(e.style.fontWeight, e.dataset.part).toBe('600');
+    }
+    for (const e of part(root, 'chip')) expect(px(e.style.fontSize)).toBeGreaterThanOrEqual(CHIP_FLOOR);
+  });
+
+  it('sits on ONE dark-glass bed behind the header and the stack (R24)', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    const beds = part(panel(), 'bed');
+    expect(beds).toHaveLength(1);
+    const bed = beds[0];
+    expect(panel().firstElementChild).toBe(bed); // beneath everything else
+    expect(bed.style.backgroundColor).toMatch(/^rgba\(/); // translucent…
+    expect(bed.style.backgroundColor).not.toMatch(/, 0\)$/); // …not transparent
+    expect(bed.style.borderStyle).toBe('solid');
+    expect(bed.style.pointerEvents).toBe('none'); // the water stays clickable
+    // It sits at the spine's bed rect and covers the header AND the whole stack.
+    expect(px(bed.style.left)).toBe(LIVE.bed.x - LIVE.frame.x);
+    expect(px(bed.style.top)).toBe(LIVE.bed.y - LIVE.frame.y);
+    const [bx, by, bw, bh] = [px(bed.style.left), px(bed.style.top), px(bed.style.width), px(bed.style.height)];
+    for (const e of [part(panel(), 'header')[0], ...cards()]) {
+      const [x, y, w, h] = [px(e.style.left), px(e.style.top), px(e.style.width), px(e.style.height)];
+      expect(x).toBeGreaterThanOrEqual(bx);
+      expect(y).toBeGreaterThanOrEqual(by);
+      expect(x + w).toBeLessThanOrEqual(bx + bw);
+      expect(y + h).toBeLessThanOrEqual(by + bh);
+    }
   });
 
   it('is HIDDEN with nothing banked, and with no view at all (spectate / sinking)', () => {

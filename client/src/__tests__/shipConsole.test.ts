@@ -1,12 +1,12 @@
-// THE SHIP CONSOLE (render/console/shipConsole.ts, Story 10.10 — plan O6 + R20,
-// the hover preview R18). The pure parts (the preview's value text, the 9 px
-// counter-scale) are unit-tested; the Pixi composition is built for real under
+// THE SHIP CONSOLE (render/console/shipConsole.ts, Story 10.10 — plan O6 + R20 /
+// R21 / R24, the hover preview R18). The pure part (the preview's value text)
+// is unit-tested; the Pixi composition is built for real under
 // jsdom with no renderer, as the globe / strip suites did: it shows, reads the
 // hull and the indices off the view model, marks a hovered card's changes in
 // amber and nothing else, and drops its breath on a real hide only.
 
 import { describe, it, expect } from 'vitest';
-import { Container } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, INDEX_IDS, effectiveStats } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { consoleLayout } from '../render/console/layout.js';
@@ -14,7 +14,6 @@ import { hoverPreview, shipReadouts, type PreviewMark, type ReadoutShip } from '
 import {
   PREVIEW_ARROW,
   ShipConsole,
-  consoleMicroScale,
   indexValueText,
   type ShipConsoleView,
 } from '../render/console/shipConsole.js';
@@ -22,7 +21,7 @@ import { HelmGlyphStore } from '../render/helmGlyphs.js';
 
 const C = CLIENT_CONFIG.colors;
 const YOU: ReadoutShip = { cls: DEFAULT_CLASS_ID, cards: [], ib: {}, shift: DEFAULT_SHIFT };
-const LAYOUT = consoleLayout(1366, 768).ship;
+const LAYOUT = consoleLayout(1920, 1080).ship;
 const MAX_HP = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]).maxHp;
 
 function view(over: Partial<ShipConsoleView> = {}): ShipConsoleView {
@@ -63,11 +62,28 @@ describe('indexValueText — the hover preview in place of a value (R18)', () =>
   });
 });
 
-describe('consoleMicroScale — the 9 px registers never shrink below the floor', () => {
-  it('counter-scales only below 100 %', () => {
-    expect(consoleMicroScale(0.9)).toBeCloseTo(1 / 0.9, 9);
-    expect(consoleMicroScale(1)).toBe(1);
-    expect(consoleMicroScale(1.25)).toBe(1);
+describe('ShipConsole — the bed and the text rule (R21 / R23 / R24)', () => {
+  function built(): Container {
+    const layer = new Container();
+    new ShipConsole(layer, new HelmGlyphStore({ ws: 0, ad: 0 })).update(view({ pts: 2 }), LAYOUT);
+    return layer.children[0] as Container;
+  }
+
+  it('draws the dark-glass bed over the layout`s bed rect, first (beneath everything)', () => {
+    const bed = built().children[0] as Graphics;
+    const raw = bed.context.instructions as { action: string; data: { style?: { color?: number }; path?: { instructions: { action: string; data: number[] }[] } } }[];
+    const fills = raw.filter((i) => i.action === 'fill' && i.data.style?.color === C.cardScrim).flatMap((i) => (i.data.path?.instructions ?? []).filter((q) => q.action === 'rect').map((q) => q.data.slice(0, 4)));
+    const b = LAYOUT.bed;
+    expect(fills).toContainEqual([b.x, b.y, b.w, b.h]);
+  });
+
+  it('draws every text at ≥ 14 px (labels) and every value ≥ 17 px / 600, at scale 1', () => {
+    const texts = built().children.filter((c): c is Text => c instanceof Text);
+    for (const t of texts) {
+      expect(t.style.fontSize, t.text).toBeGreaterThanOrEqual(14);
+      expect(t.scale.x, t.text).toBe(1);
+      if (t.style.fontWeight === '600') expect(t.style.fontSize, t.text).toBeGreaterThanOrEqual(17);
+    }
   });
 });
 

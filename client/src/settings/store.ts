@@ -138,6 +138,29 @@ export function effectiveScale(settings: Settings, viewportW: number): UiScale {
   return scaleTierEnabled(settings.uiScale, viewportW) ? settings.uiScale : 100;
 }
 
+/**
+ * Pure: THE VIEWPORT FACTOR (epic-10 amendment 18 R25). The HUD is authored at
+ * the 1920×1080 reference; a smaller viewport shrinks it by the tighter of its
+ * two ratios, clamped to [min, max] (0.75 … 1.0) — it never grows past the
+ * reference and never shrinks text past three quarters. A degenerate viewport
+ * (0, negative, NaN — a canvas not laid out yet) answers 1, the reference.
+ */
+export function viewportScale(w: number, h: number): number {
+  const V = CLIENT_CONFIG.console.viewport;
+  const raw = Math.min(w / V.refW, h / V.refH);
+  if (!(w > 0) || !(h > 0) || !Number.isFinite(raw)) return 1;
+  return Math.min(V.max, Math.max(V.min, raw));
+}
+
+/**
+ * Pure: THE HUD FACTOR — the viewport factor × the settings tier's factor
+ * (the 125 % tier's 1600 px width gate unchanged). One number scales the Pixi
+ * HUD layer and the DOM `--hc-ui-scale` alike.
+ */
+export function hudScale(settings: Settings, viewportW: number, viewportH: number): number {
+  return viewportScale(viewportW, viewportH) * scaleFactor(effectiveScale(settings, viewportW));
+}
+
 /** Pure: does a mono type size survive a scale tier without breaking the 9px
  *  floor? (`monoFloorPx` — no mono type may render below it post-scale.) */
 export function monoFloorOk(px: number, scale: UiScale): boolean {
