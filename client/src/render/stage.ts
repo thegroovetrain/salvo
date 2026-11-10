@@ -171,6 +171,9 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
+  /** AIRDROPS (render/drops.ts, Story 10.9) — fogged and sight-only, like an
+   *  enemy mine: a crate is never on the chart (on radar it is a plain blip). */
+  dropWorld: Container;
   /** RADIO BEACON BODIES on the water (render/beacons.ts, Story 10.8) — fogged
    *  like a hull on the water; under the projectiles so a shell reads over it.
    *  The beacon's broadcast signal is `beaconChart`, above the fog. */
@@ -289,7 +292,7 @@ export type LayerName = keyof StageLayers;
 // keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5)
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', 'dropWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5)
 /** chartRoot, bottom → top: everything above the fog. The legibility contract,
  *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
  *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`

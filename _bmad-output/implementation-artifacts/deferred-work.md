@@ -3782,12 +3782,19 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: CONSOLE READINGS FOR ERIC'S VETO - (1) the FIT flash (the fitted square's frame flash) and the ability ACTIVATED pop were DROPPED, not re-homed: the console shows a fit as the values changing plus the `◆ … FITTED` toast; (2) at 1366×768 the ship console fills its column by growing elements to their caps and then spreading ~160 px of slack into the gaps (~36 px section / ~28 px row) - judge on staging whether that reads "filled"; (3) the weapon-row stat words are the refit card's (`DAMAGE` / `RANGE` / …) so `RANGE` appears on a weapon row and as the RANGE index; (4) REDRAW sits BESIDE the offer header (the footer did not fit at 1366×768 under the weapons console); (5) the kill-leader `YOU ARE THE KILL LEADER` toast and the `◆ … FITTED` receipts still use the top-center toast stack - only the level-up line died (R10).
   evidence: `client/src/main.ts` (`onBoonFitted` no-op), `client/src/render/console/layout.ts` (`shipFill`, `offerLayout`), `client/src/render/console/readouts.ts` (`rowStatFields`), `client/src/ui/upgradeToast.ts`.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-9-airdrops.md`
+  summary: A spectator frame carries every live airdrop crate every tick (the `drop` row is spectator-public like mines) — up to ~84 rows × ~30 B at 20 Hz ≈ 50 KB/s per spectator before the first close, through the results window; correct by the mine model, a bandwidth cost if spectators grow.
+  evidence: `server/src/game/signals.ts` `dropSignal.visible` returns true for `ctx.mode === 'spectator'`; the Blind Hunter's count at the 10.9 gate (24 + 22 + 20 + 18 crates before 4:00).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-9-airdrops.md`
+  summary: A scuttle (disconnect / abandon) pays the assist share of the kill pot to everyone who hit the leaver inside the window but NO killer share and no bounty bonus (Story 6.7: no killer by construction) — Eric's 2026-11-09 gate sentence calls a denied kill "pretty shitty"; the wreck half is ruled (R11), the XP half is his to rule.
+  evidence: `server/src/game/match.ts` `onPlayerLeave` → `world.sinkShip(id)` with no killer; epic-10 amendment 18(n).
+
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
-  status: open - Eric's pen (a card name) - 2026-11-10 (Story 10.10 follow-up, cycle 219; Fable Blind Hunter P1)
+  status: open - Eric's pen (a card name) - 2026-11-10 (Story 10.10 follow-up, cycle 220; Fable Blind Hunter P1)
   summary: `EXPANDED MINE RACKS` WRAPS TO THREE LINES ON THE NARROW OFFER CARD (136×64, 28 px name box, 9 mono chars a line at 14 px) and is clipped top and bottom; every other catalog name fits in two. Pre-existing from PR #329's card face. Options: a shorter card name (Eric's word), or a taller card for the whole stack (changes the face he loved). Not shrunk (the text rule).
   evidence: `client/src/ui/offerGroup.ts` NAME_CSS, `shared/src/sim/catalog.ts` the `expandedMineRacks` line, `monoWrapLines('EXPANDED MINE RACKS', 14, .42, 88)` = 3.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
-  status: open - Eric's call on staging - 2026-11-10 (Story 10.10 follow-up, cycle 219; orchestrator ruling after the Fable gate C1)
+  status: open - Eric's call on staging - 2026-11-10 (Story 10.10 follow-up, cycle 220; orchestrator ruling after the Fable gate C1)
   summary: THE RIGHT OFFER STACK HAS TWO HOMES - under the kill feed at the right edge when the screen is tall enough (16:10 and up, e.g. a 1440×900 fullscreen MacBook), else BESIDE the weapons box (left of it, top-aligned) - because the stack + the kill-feed clearance + the 568 px weapons box need ~1100 logical px and a 16:9 1080p screen or a MacBook browser window (~1440×790) has less. Eric saw and picked the under-the-feed stack; the beside-the-box home is the orchestrator's fallback so RIGHT never silently becomes the bottom row. Veto = pick BOTTOM as the default, or shrink the kill-feed clearance to four lines.
   evidence: `client/src/render/console/layout.ts` `offerPlacement` (`'right' | 'rightBeside'`), `consoleLayout.test.ts` placement contracts at 1920×1080 / 1920×1200 / 1821×1024.

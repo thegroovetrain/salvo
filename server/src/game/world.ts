@@ -67,6 +67,11 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   generateMap,
+  dropCountFor,
+  dropMinuteAt,
+  dropTouches,
+  rollKind,
+  rollPickup,
   hasFoundered,
   hookKinematics,
   isAfloat,
@@ -145,6 +150,7 @@ import {
   type LauncherState,
   type RackBank,
   type ShellOutcome,
+  type DropState,
   type ShellState,
   type CloudRecord,
   type ShipClassId,
@@ -186,7 +192,7 @@ import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
 import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
-import { isSpawnClear, pickFleetAnchor, pickSpawn, type IntelDisc } from './spawn.js';
+import { SPAWN_ISLAND_CLEARANCE, islandClearance, isSpawnClear, pickFleetAnchor, pickSpawn, type IntelDisc } from './spawn.js';
 import { logWarn } from '../log.js';
 import { leadIntercept } from './lead.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
@@ -295,6 +301,15 @@ export interface WorldOptions {
    * HC_DEV_OPTIONS=1).
    */
   beacons?: boolean;
+  /**
+   * THE AIRDROP SWITCH (Story 10.9, epic-10 amendment 18 — a DEV SMOKE ARM).
+   * `false` makes `spawnDrops` a no-op: no SCHEDULED crate is ever scattered.
+   * WRECK PICKUPS are still placed (a sink is not the schedule — spec I/O row
+   * "Dev door"), and collection and the storm sweep run as ever. Absent /
+   * `true` = the shipped schedule. ArenaRoom passes it ONLY from the
+   * dev-gated `matchOverride.drops` (stripped without HC_DEV_OPTIONS=1).
+   */
+  drops?: boolean;
 }
 
 /** The item id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -1165,6 +1180,13 @@ export interface ShipRecord {
    * hull's own `xp` / `lvl` already carry the result, self-privately).
    */
   beaconXpMs: number;
+  /**
+   * AIRDROPS this hull has collected this match (Story 10.9, epic-10
+   * amendment 18) — scheduled crates and wreck pickups alike. HARNESS /
+   * MatchRecord substrate only: never on the wire (the own row's `ib` and the
+   * self-private `dp` already carry the result).
+   */
+  dropsTaken: number;
 }
 
 /**
@@ -1400,6 +1422,22 @@ function interceptionAmount(shell: ShellState, stop: Vec2): number {
 }
 
 // ---------------------------------------------------------------------------
+// THE AIRDROPS (Story 10.9, epic-10 amendment 18) — see World.dropSeed.
+// ---------------------------------------------------------------------------
+
+/** The airdrop stream's mint constant (XORed into the room-private pseudonym
+ *  material) — unused by any other stream (see the spawnPhase roster). */
+const DROP_STREAM_K = 0x5bd1e995;
+/** The PICKUP sub-stream key base (Eric 2026-11-08 — the amount is rolled at
+ *  pickup): the k-th pickup of this World draws on
+ *  `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)`, far from the minute
+ *  batches' `m + 1` keys. (0x51ed270b, the retired wreck sub-stream key, is
+ *  not reused: a wreck crate now draws nothing at placement.) */
+const PICKUP_DROP_K = 0x3c6ef35f;
+/** The target kinds a crate is collected by: afloat hull outlines only. */
+const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
+
+// ---------------------------------------------------------------------------
 // THE FOG DENSITY MEMO (Story 9.10) — see World.fogMemo.
 // ---------------------------------------------------------------------------
 
@@ -1468,6 +1506,30 @@ function memoIndex(origin: number, cell: number, side: number, v: number): numbe
   return i < 0 ? 0 : i >= side ? side - 1 : i;
 }
 
+/**
+ * WAS THIS HULL IN COMBAT? (Story 10.9 review gate — the quitter wreck.) Eric,
+ * 2026-11-09, verbatim: "If a player is about to sink another ship, and that
+ * other ship's player disconnects right before I get the kill, and I get
+ * denied XP and/or a wreck, that'd be pretty shitty. So yeah if they
+ * disconnect out of the blue, nothing, but if the ship was in combat when
+ * they disconnect, wreck."
+ *
+ * In combat = the hull's ASSIST LEDGER (`damageFrom`) holds at least one
+ * entry stamped within `CONFIG.xp.assistWindowMs` of `now` — the same window
+ * that pays assists. The ledger's keys are attacking HULL ids by construction
+ * (creditDamage excludes self-hits and the storm never routes through it).
+ * At window 0 (the split switched off) any entry counts — though the ledger
+ * is then never written, so a scuttle there leaves no crate. Pure: reads only
+ * its arguments.
+ */
+export function inCombat(ship: Pick<ShipRecord, 'damageFrom'>, now: number): boolean {
+  const windowMs = CONFIG.xp.assistWindowMs;
+  for (const tally of ship.damageFrom.values()) {
+    if (windowMs <= 0 || now - tally.at <= windowMs) return true;
+  }
+  return false;
+}
+
 export class World {
   readonly map: GameMap;
   readonly playerCap: number;
@@ -1476,6 +1538,12 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
+  /** AIRDROPS (Story 10.9, epic-10 amendment 18): every live crate on the
+   *  water, keyed by id, in placement order. Intangible — never a Target, a
+   *  body, a contact or a storm victim in the ship sense; spawned, collected
+   *  and storm-destroyed by this world's own step rows; read by perception's
+   *  drop scan (sight + the radar disc paint). */
+  readonly drops = new Map<string, DropState>();
   /**
    * THE MULTI-SPECTRAL COUNTERMEASURE clouds (Story 9.3; Eric rulings
    * 2026-10-11, epic-9 amendments 40–47 — 8.18's smoke store's seat), keyed
@@ -1966,7 +2034,9 @@ export class World {
    * any other stream here (spawn 0x9e3779b9, pseudonym 0x1b873593, draw
    * 0x165667b1, bots 0xc2b2ae35; 0x85ebca6b was the retired PvE fleet's
    * steering stream (Story 10.8), 0x6c078965 the retired drone-drop stream's
-   * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's).
+   * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
+   * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
+   * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key).
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -1998,6 +2068,32 @@ export class World {
    */
   readonly beacons: BeaconField;
 
+  /** THE AIRDROP SWITCH (Story 10.9) — see WorldOptions.drops. False only
+   *  when a dev smoke asked for no scheduled drops. */
+  private readonly dropsEnabled: boolean;
+  /**
+   * THE AIRDROP STREAM SEED (Story 10.9, epic-10 amendment 18). ROOM-PRIVATE
+   * like the beacons' (the pseudonym material under its own constant,
+   * DROP_STREAM_K = 0x5bd1e995 — unused by any other stream here; see the
+   * spawnPhase doc for the roster): a drop's position and stat must not be
+   * predictable from the public map seed. Every MINUTE BATCH (positions +
+   * kinds) draws on its own sub-stream `dropSeed ^ imul(m + 1, 0x9e3779b9)`
+   * and every PICKUP (the amount — and a wreck's stats — rolled when a hull
+   * takes the crate, Eric 2026-11-08) on
+   * `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)` (k = the pickup count),
+   * so a skipped spot, an extra wreck or a pickup never shifts another
+   * batch's draws. The per-ship `drawRng` is never touched (it would shift
+   * later offers).
+   */
+  private readonly dropSeed: number;
+  /** The next match minute whose batch has not been scattered yet. */
+  private nextDropMinute = 0;
+  /** Wreck pickups placed this World's life — the id suffix (`drp-w-<k>`:
+   *  the victim's id never rides the drop id). */
+  private wreckDrops = 0;
+  /** Crates collected this World's life — the pickup sub-stream key. */
+  private dropPickups = 0;
+
   constructor(
     seed: number,
     playerCap: number = CONFIG.map.playerCap,
@@ -2006,8 +2102,13 @@ export class World {
   ) {
     this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
     this.catalog = opts.catalog ?? CATALOG;
+    // The ROOM-PRIVATE entropy every private stream below mints from: the
+    // caller's pseudonym material, or the TEST-ONLY map-seed fallback.
+    const priv = opts.pseudonymSeed ?? (seed ^ 0x1b873593);
     this.beaconsEnabled = opts.beacons !== false;
-    this.beacons = new BeaconField(((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x68e31da4) >>> 0);
+    this.beacons = new BeaconField((priv ^ 0x68e31da4) >>> 0);
+    this.dropsEnabled = opts.drops !== false;
+    this.dropSeed = (priv ^ DROP_STREAM_K) >>> 0;
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -2019,10 +2120,10 @@ export class World {
     this.zoneSeeds = opts.zoneSeeds;
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
-    this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
+    this.pseudonymRng = mulberry32(priv >>> 0);
     // The dropout roll's seed rides the SAME server-private entropy, under its
     // own constant so it is decorrelated from the pseudonym stream (Story 9.8).
-    this.dropoutSeed = ((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x2545f491) >>> 0;
+    this.dropoutSeed = (priv ^ 0x2545f491) >>> 0;
     // Bot decision stream (Story 6.4), decorrelated from every other stream
     // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
     // the roster of constants in use).
@@ -2031,7 +2132,7 @@ export class World {
     // inputs a client holds (it no longer passes `this`).
     this.bots = new BotController(makeBotPort(this, this.zoneCfg), (seed ^ 0xc2b2ae35) >>> 0);
     // Fog stream (Story 9.10): room-private entropy, its own constant — see the field.
-    this.fogRng = mulberry32(((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x3c6ef372) >>> 0);
+    this.fogRng = mulberry32((priv ^ 0x3c6ef372) >>> 0);
     // The fog FIELD (Story 9.10): public weather off the map seed under the
     // same constant (a different mint — the field is derived on both sides
     // from the welcome's `fogSeed`, so it is not a stream).
@@ -2398,7 +2499,7 @@ export class World {
       // AI-captain bots. The Story 4.6 `captainKills` split stays retired.
       kills: 0,
       deaths: 0,
-      damageDealt: 0, beaconXpMs: 0,
+      damageDealt: 0, beaconXpMs: 0, dropsTaken: 0,
     };
     this.enrolShip(rec, p);
     return rec;
@@ -2645,6 +2746,7 @@ export class World {
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
     this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
+    this.drops.clear(); // ...nor a practice-field airdrop / wreck pickup (Story 10.9, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
     this.fogClear(); // ...nor any fog (Story 9.10 — the practice water has none; the cut, clocks and memo epoch reset)
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
@@ -2770,6 +2872,7 @@ export class World {
     ship.deaths = 0;
     ship.damageDealt = 0;
     ship.beaconXpMs = 0;
+    ship.dropsTaken = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
     // a kept one would chain a bogus segment across the map — and start
     // fresh, provisioned from the just-reset base stats. (resetForMatchStart
@@ -2848,8 +2951,13 @@ export class World {
    * different ship still in the room — a DEAD killer (mutual destruction)
    * still gets both; storm (`by` undefined) and self-kills grant nothing by
    * construction. Combat routes damage through here; tests drive it directly.
+   *
+   * `opts.scuttle` marks THE SCUTTLE — the killer-less sink Match.onPlayerLeave
+   * performs for a departing captain (Story 6.7) — and nothing else passes it.
+   * It changes exactly one thing: the wreck crate is left only when the hull
+   * was IN COMBAT (`inCombat`, Eric 2026-11-09 — see placeWreckDrop).
    */
-  sinkShip(id: string, by?: string): void {
+  sinkShip(id: string, by?: string, opts?: { scuttle?: boolean }): void {
     const ship = this.ships.get(id);
     // THE SOLE IDEMPOTENCY LOCK (amendment 1): exactly one `sunk` event per
     // hull per life hangs off this early return. A hull already `sinking`
@@ -2867,6 +2975,11 @@ export class World {
     // `alive -> sinking` (Story 5.2): the `sink` edge opens the window. All
     // bookkeeping below fires NOW; only the physical foundering is deferred.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sink', this.now);
+    // THE WRECK PICKUP (Story 10.9, R2): one `'wreck'` crate at the wreck
+    // centre — only once the zone has started (placeWreckDrop's guards). It
+    // runs BEFORE creditKill clears the assist ledger: a scuttle's in-combat
+    // test reads that ledger.
+    this.placeWreckDrop(ship, opts?.scuttle === true);
     // THE COLLECTOR INVALIDATION (Story 8.4): the wreck leaves every target
     // list built from here on — later shells of the same click pass through it
     // (`deferred-work.md:594`) and homing drops the lock — while its silhouette
@@ -3927,11 +4040,25 @@ export class World {
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
     { name: 'applyStorm', run: (w, ctx) => w.applyStorm(ctx.dt) },
+    // THE STORM TAKES THE AIRDROPS (Story 10.9, epic-10 amendment 18) —
+    // DIRECTLY after applyStorm and against THE SAME live ring: every crate
+    // the ring has closed over (`isOutside`, the hull test's own predicate)
+    // is deleted, so nothing later this tick can collect it and no frame
+    // ships it. Unlike the bite it runs before the first close and with
+    // damage off — a drop outside the ring is simply gone.
+    { name: 'stormDrops', run: (w) => w.stormDrops() },
     // Ballistics + mines both test against post-move hulls (built once):
     // ctx.hulls() materializes the tick's ONE snapshot here, on first access
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hitTargets) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hitTargets) },
+    // AIRDROP COLLECTION (Story 10.9, epic-10 amendment 18, R4) — DIRECTLY
+    // after stepMines: against the tick's post-move, post-storm AFLOAT hull
+    // outlines (the `hull` list of the hitTargets memo — rebuilt after any
+    // sink this tick, so a hull the shells or a mine just sank collects
+    // nothing). The first afloat participant (ship insertion order) whose
+    // silhouette touches a crate takes it: index points, re-fold, `dp`.
+    { name: 'collectDrops', run: (w, ctx) => w.collectDrops(ctx.hitTargets) },
     // PHOSPHOR burning-zone DoT (Story 2.8's seat, Story 8.17's source):
     // against post-move centers, BEFORE the expiry sweep so a zone burns
     // through its final tick. (The dazzle mark left this row with the verb in
@@ -4047,7 +4174,8 @@ export class World {
     // door (`addXpMs`); nothing downstream in the step reads XP.
     { name: 'tickBeacons', run: (w, ctx) => w.tickBeacons(ctx.dtMs) },
     // RADIO BEACON PLACEMENT (Story 10.8, R2 / R10) — DELIBERATE step-order
-    // position: dead LAST, after every row that touches a hull, and
+    // position: LAST but for the airdrop scatter (which must read this set —
+    // Story 10.9), after every row that touches a hull, and
     // zone-clock driven: when the clock enters a new ring cycle the set is
     // REPLACED. Last, so the placement reads every hull's settled end-of-tick
     // position (the max-min spacing and the keep-out discs) and a beacon
@@ -4057,6 +4185,16 @@ export class World {
     // later rows unmoved, unwaked and never collision-resolved.) The room
     // mirrors the new chart onto the schema right after the step.
     { name: 'placeBeacons', run: (w) => w.placeBeacons() },
+    // AIRDROP SCATTER (Story 10.9, epic-10 amendment 18, R1) — DEAD LAST,
+    // DIRECTLY AFTER placeBeacons (not before it): ring cycles begin on
+    // minute marks, so on a cycle's first tick the new set must already be
+    // charted for the HARD KEEP-OUT to read it — scattered first, a batch
+    // would test against the outgoing set and could land inside a new
+    // beacon's circle. Zone-clock driven: every match minute not yet
+    // scattered (a long step catches up in order) places its batch inside
+    // the live ring, clear of land and of every non-gone beacon. A crate
+    // placed last enters the world at a clean tick boundary.
+    { name: 'spawnDrops', run: (w) => w.spawnDrops() },
     // Each ROW is frozen too, not just the container (review finding F2b):
     // Object.freeze on the array alone leaves `STEP_ORDER[i].run` writable, so
     // a shallow freeze would let a row be swapped out from under the identity
@@ -7376,6 +7514,180 @@ export class World {
       }
       return at;
     });
+  }
+
+  /** Are the scheduled AIRDROPS running? Mirrors `beaconsLive`: the match
+   *  is live (`xpEnabled` — so the post-match results window, where the zone
+   *  clock still runs, scatters nothing), the zone clock has started, and no
+   *  dev smoke switched them off. */
+  private dropsLive(): boolean {
+    return this.dropsEnabled && this.xpEnabled && this.zoneStartT !== null;
+  }
+
+  /**
+   * AIRDROP SCATTER (Story 10.9, R1; see the STEP_ORDER row). Every match
+   * minute up to the zone clock's current one that has not been scattered
+   * yet places its batch (`dropCountFor` — none from `untilMinute` on; the
+   * counter still advances), in minute order.
+   */
+  private spawnDrops(): void {
+    const zoneStartT = this.zoneStartT;
+    if (zoneStartT === null || !this.dropsLive()) return;
+    const minute = dropMinuteAt(this.now, zoneStartT, this.zoneCfg.beatMs);
+    for (; this.nextDropMinute <= minute; this.nextDropMinute += 1) {
+      this.scatterBatch(this.nextDropMinute);
+    }
+  }
+
+  /** One minute's batch on its own private sub-stream. A drop that finds no
+   *  spot in `placeAttempts` draws is skipped and LOGGED — never thrown. */
+  private scatterBatch(minute: number): void {
+    const count = dropCountFor(minute, CONFIG.drops);
+    if (count <= 0) return;
+    const rng = mulberry32((this.dropSeed ^ Math.imul(minute + 1, 0x9e3779b9)) >>> 0);
+    const ring = this.zoneLiveRing;
+    for (let n = 0; n < count; n += 1) {
+      const at = this.pickDropSpot(rng, ring);
+      if (at === null) {
+        logWarn('drops.placeSkipped', { tick: this.tick, minute, slot: n, attempts: CONFIG.drops.placeAttempts });
+        continue;
+      }
+      const id = `drp-${minute}-${n}`;
+      this.drops.set(id, { id, x: at.x, y: at.y, kind: rollKind(rng, CONFIG.drops) });
+    }
+  }
+
+  /**
+   * A uniform point in the live ring's disc of radius `r − radiusU` (sqrt-
+   * radius sampling: two draws per attempt), FLOAT32-EXACT like a beacon's,
+   * rejected on land (`islandClearance ≤ SPAWN_ISLAND_CLEARANCE`, the spawn
+   * ring's own test) and inside any live beacon's signal circle (R1). Null
+   * after `placeAttempts` rejections.
+   */
+  private pickDropSpot(rng: Rng, ring: ZoneRing): Vec2 | null {
+    // A ring too small to hold a whole crate places none (review gate, Codex
+    // 2026-11-09): clamping the domain to zero would park a crate on the
+    // centre with its disc in the storm — reachable only under a dev
+    // `zoneOverride` (production rings never shrink below 15 u before 12:00).
+    const radius = ring.r - CONFIG.drops.radiusU;
+    if (!(radius >= 0)) return null;
+    for (let i = 0; i < CONFIG.drops.placeAttempts; i += 1) {
+      const r = radius * Math.sqrt(rng.next());
+      const a = rng.next() * Math.PI * 2;
+      const p = { x: Math.fround(ring.cx + Math.cos(a) * r), y: Math.fround(ring.cy + Math.sin(a) * r) };
+      if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
+      if (this.inBeaconKeepOut(p)) continue;
+      return p;
+    }
+    return null;
+  }
+
+  /** THE HARD KEEP-OUT (R1): `p` lies strictly inside the signal circle
+   *  (`CONFIG.beacons.rangeU`, centre to centre) of a beacon that is charted,
+   *  afloat or sinking — any phase but `gone`. */
+  private inBeaconKeepOut(p: Vec2): boolean {
+    const r2 = CONFIG.beacons.rangeU * CONFIG.beacons.rangeU;
+    for (const b of this.beacons.records) {
+      if (this.beacons.phaseOf(b, this.now) === 'gone') continue;
+      const dx = p.x - b.x;
+      const dy = p.y - b.y;
+      if (dx * dx + dy * dy < r2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * THE WRECK PICKUP (Story 10.9, R2): a sinking PARTICIPANT leaves one crate
+   * of kind `'wreck'` at its centre — its `wreckRolls` stat + amount rolls are
+   * drawn at PICKUP (`collectDrop`), nothing here. No land / keep-out / ring
+   * check — the hull was there; a wreck in the storm is taken by `stormDrops`
+   * next tick. Placed whether or not the schedule is switched off
+   * (WorldOptions.drops) — but ONLY ONCE THE ZONE HAS STARTED: a sink before
+   * `zoneStartT` is a ready-room / sandbox practice sink (a respawning dev or
+   * practice hull), never a match death, and a crate there would turn
+   * practice sinks into permanent index points.
+   *
+   * NOR WHILE RESPAWN IS ON (review gate 2026-11-10): a hull that will respawn
+   * (`respawnEnabled` — the sandbox, and every phase before `active`) is
+   * practicing even after the zone clock starts, and would otherwise sail
+   * back over its own wreck and carry the points into the match.
+   *
+   * A SCUTTLE (`scuttle`, the departing captain's killer-less sink) leaves a
+   * crate ONLY when the hull was IN COMBAT (`inCombat`, Eric 2026-11-09);
+   * a sink by damage (a hull, a mine, a ram, the storm) always does.
+   */
+  private placeWreckDrop(ship: ShipRecord, scuttle: boolean): void {
+    if (this.zoneStartT === null || this.respawnEnabled || !roleIsParticipant(ship)) return;
+    if (scuttle && !inCombat(ship, this.now)) return;
+    const k = this.wreckDrops;
+    this.wreckDrops += 1;
+    const id = `drp-w-${k}`;
+    const x = Math.fround(ship.state.x);
+    const y = Math.fround(ship.state.y);
+    this.drops.set(id, { id, x, y, kind: 'wreck' });
+  }
+
+  /**
+   * AIRDROP COLLECTION (Story 10.9, R4; see the STEP_ORDER row). Drops in
+   * placement order; for each, the afloat hulls in ship insertion order (the
+   * `hull` target list); the first PARTICIPANT whose silhouette is within
+   * `radiusU` of the crate collects it. A sinking / sunk hull is not in the
+   * list (and is re-checked anyway). The list is asked for per drop: the memo
+   * answers at once unless a sink bumped its generation.
+   */
+  private collectDrops(hitTargets: (mask: readonly TargetKind[]) => readonly Target[]): void {
+    // Only while the match is live (review gate 2026-11-10; `dropsLive`'s
+    // `xpEnabled` arm): the results window grants no points, no re-fold, no
+    // `dp` toast.
+    if (!this.xpEnabled || this.drops.size === 0) return;
+    for (const drop of [...this.drops.values()]) {
+      const taker = this.dropTaker(drop, hitTargets(DROP_TAKER_MASK));
+      if (taker !== undefined) this.collectDrop(taker, drop);
+    }
+  }
+
+  /** The first afloat participant whose hull touches `drop`, or undefined. */
+  private dropTaker(drop: DropState, hulls: readonly Target[]): ShipRecord | undefined {
+    for (const t of hulls) {
+      if (t.kind !== 'hull') continue;
+      const ship = this.ships.get(t.id);
+      if (ship === undefined || !isAfloat(ship.lifecycle) || !roleIsParticipant(ship)) continue;
+      if (dropTouches(drop, t.poly, CONFIG.drops.radiusU)) return ship;
+    }
+    return undefined;
+  }
+
+  /**
+   * ONE COLLECTION: the grant is rolled NOW (Eric 2026-11-08 — "the bonus is
+   * rolled AFTER I pick it up"; `rollPickup` on this World's k-th pickup
+   * sub-stream, see `dropSeed`), every roll lands on the hull's `indexBonus`
+   * (Story 10.7's seat, uncapped), then the stats re-fold and settle EXACTLY
+   * as `convertBank` does (pools, reload clocks, mounts, wake) — read its
+   * RE-ENTRANCY note: nothing here holds the ship's `stats` / `wake` across
+   * the re-fold. The crate is deleted and the collector alone is told (`dp`).
+   */
+  private collectDrop(ship: ShipRecord, drop: DropState): void {
+    const k = this.dropPickups;
+    this.dropPickups += 1;
+    const rng = mulberry32((this.dropSeed ^ Math.imul(PICKUP_DROP_K + k, 0x9e3779b9)) >>> 0);
+    const rolls = rollPickup(rng, drop.kind, CONFIG.drops);
+    for (const [stat, n] of rolls) ship.indexBonus[stat] += n;
+    const prevStats = this.refoldCards(ship);
+    this.settleRefold(ship, prevStats);
+    ship.dropsTaken += 1;
+    this.drops.delete(drop.id);
+    this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: rolls });
+  }
+
+  /** THE STORM TAKES THE AIRDROPS (Story 10.9; see the STEP_ORDER row): every
+   *  crate outside the LIVE ring — the ring applyStorm bites outside of — is
+   *  deleted. Nothing to do before the zone starts (the ring is the map). */
+  private stormDrops(): void {
+    if (this.zoneStartT === null || this.drops.size === 0) return;
+    const ring = this.zoneLiveRing;
+    for (const drop of this.drops.values()) {
+      if (isOutside(drop, ring.cx, ring.cy, ring.r)) this.drops.delete(drop.id);
+    }
   }
 
   /**

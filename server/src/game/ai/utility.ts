@@ -86,6 +86,7 @@ import {
   PAINT_STILL_U,
   associatePaint,
   foldWakeCells,
+  isCrateSizedPaint,
   lineBlocked,
   nearestPredicted,
   nextStillSweeps,
@@ -455,8 +456,11 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
  *  inner edge, so a sighted hull also paints) and is skipped — the contact
  *  fold carries it at full confidence, and associating the paint would smear
  *  the sighted plot or open a duplicate anonymous one. A paint merely NEAR a
- *  sighted hull is a different return (a second hull, a decoy) and folds. */
+ *  sighted hull is a different return (a second hull, a decoy) and folds.
+ *  A CRATE-SIZED paint (Story 10.9, `CONFIG.bots.cratePaintMaxU`) is an
+ *  airdrop's disc imprint and never becomes a hostile track. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
+  if (isCrateSizedPaint(e)) return;
   const c = paintCenter(e);
   if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
 }

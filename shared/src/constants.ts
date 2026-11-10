@@ -76,6 +76,16 @@ const HITS_HULL_BEACON: readonly TargetKind[] = ['hull', 'beacon'];
 /** A MINE'S TRIP MASK — hulls only (AR44; R12: never a beacon). */
 const HITS_TRIP: readonly TargetKind[] = ['hull'];
 
+/**
+ * THE SIX STATS A RANDOM INDEX POINT MAY LAND ON (Story 10.7, R5, Eric
+ * 2026-11-06) — never HULL REPAIR / SMOKE SCREEN. Hoisted out of the CONFIG
+ * literal so `offer.exhausted.indices` and `drops.indices` (Story 10.9,
+ * epic-10 amendment 18) are ONE array, never two literals that could drift.
+ * The order is the uniform pick's index order — a wire-free but
+ * seed-load-bearing order (moving an entry changes which stat a seed draws).
+ */
+const RANDOM_INDEX_STATS = ['armor', 'power', 'engines', 'reload', 'range', 'intel'] as const;
+
 export const CONFIG = {
   /**
    * Circular water map. radius = base * sqrt(playerCap / capRef).
@@ -771,6 +781,35 @@ export const CONFIG = {
      * the solid body. A harness dial.
      */
     beaconStandoffFrac: 0.6,
+    /**
+     * THE CRATE-PAINT FILTER (Story 10.9, orchestrator ruling 2026-11-09): a
+     * radar return whose fuzzed footprint's LONGEST SIDE (the paint rect's
+     * `max(w, h) × vision.radarCellU`) is below this many u is NEVER folded
+     * into a hostile track — it is an airdrop crate's disc imprint, not a
+     * hull, and a bot that plotted it chased crates. Human parity: a player
+     * reads the same small, still return as "not a ship". Measured
+     * 2026-11-09 over 20,000 random poses / paint clocks on the 9 u lattice:
+     * a 15 u crate's paint (`paintDiscCoverage`) spans 54–81 u (81 u in ~16 %
+     * of paints, never more); a hull's (`paintCoverage`) is ≥ 99 u for
+     * bismarck, ≥ 108 u for yamato / iowa, and ≥ 90 u for warspite except a
+     * ~0.03 % tail at 81 u (one missed paint, recovered next sweep). A
+     * harness dial.
+     */
+    cratePaintMaxU: 85,
+    /**
+     * THE LANE NUDGE (Story 10.9, epic-10 amendment 18; server/src/game/ai/
+     * drops.ts): u — how far AHEAD along the bearing a non-combat bot already
+     * wants (idle / patrol / beacon farm in transit) a sighted airdrop may lie
+     * and still be taken as this tick's waypoint. First reading (spec);
+     * Story 10.12 tunes. A harness dial.
+     */
+    dropAheadU: 600,
+    /**
+     * THE LANE NUDGE: u — how far either side of that goal line a sighted
+     * airdrop may lie and still be taken. First reading (spec); Story 10.12
+     * tunes. A harness dial.
+     */
+    dropLaneU: 100,
   },
 
   /** True ship globals shared by every class (no per-class variation). */
@@ -2679,7 +2718,7 @@ export const CONFIG = {
     exhausted: {
       indexPoints: 1, // index points per level converted on an exhausted hull (Eric 2026-11-06, R5: "+1 to a random stat")
       // the stats a converted level may land on, picked uniformly (Eric 2026-11-06, R5) — never HULL REPAIR / SMOKE SCREEN
-      indices: ['armor', 'power', 'engines', 'reload', 'range', 'intel'],
+      indices: RANDOM_INDEX_STATS,
     },
   },
 
@@ -2922,6 +2961,54 @@ export const CONFIG = {
     // Picked at ~one battleship half-beam (Yamato 17.8 / Bismarck 16.5 /
     // Warspite 14.5 / Iowa 15.1 u beam → half-beams 8.9 / 8.25 / 7.25 / 7.55 u).
     bodyRadiusU: 8,
+  },
+
+  /**
+   * THE AIRDROPS (Story 10.9, epic-10 amendment 18; brainstorm #13–#23 and
+   * #48–#49 of 2026-11-03, forge premise 5: drops are FLAVOR — litter on
+   * purpose, taken when on your line, never a route; Eric's rulings R1–R4 of
+   * 2026-11-08). Small INTANGIBLE crates on the water, each worth a random
+   * +bonusMin..+bonusMax on one random index stat, folded onto the hull's
+   * existing `indexBonus` (Story 10.7's seat — uncapped). The ONE pure model is
+   * `shared/src/sim/drops.ts`; every number below is read through it.
+   *
+   * SCHEDULE: at every match minute m from 0:00 (the zone clock,
+   * `floor((now − zoneStartT) / zone.beatMs)`) the server scatters
+   * `perMinuteRemaining × (untilMinute − m)` drops — 2 per minute remaining
+   * to 12:00, so 24 at 0:00 … 2 at 11:00 and none from 12:00 on (the total
+   * is `totalDropCount`, derived — never pinned).
+   *
+   * PLACEMENT (R1 — HARD KEEP-OUT): uniform inside the live ring, clear of
+   * land, and NEVER inside any live beacon's signal circle — that distance is
+   * `CONFIG.beacons.rangeU`, read there, never duplicated here. A rejected
+   * draw is re-sampled up to `placeAttempts` times, then skipped (logged,
+   * never thrown).
+   *
+   * PICKUP (R4): a 15 u intangible disc — not solid, not shootable, never a
+   * target or a body. An AFLOAT hull whose silhouette comes within `radiusU`
+   * of the centre collects it.
+   *
+   * ROLL: at SPAWN only the crate's KIND is drawn — its stat, uniform over
+   * `indices` (the same six as `offer.exhausted.indices` — ONE array). The
+   * AMOUNT, an integer uniform in [bonusMin, bonusMax], is rolled at PICKUP
+   * (Eric 2026-11-08: "The bonus is rolled AFTER I pick it up"). A sunk
+   * participant leaves ONE wreck pickup (kind `'wreck'`) that rolls
+   * `wreckRolls` independent stat + amount rolls at pickup (R2 — nothing of
+   * the victim's leaks).
+   *
+   * SEEN (R3): the crate shows ONLY its kind (stat or wreck), at SIGHT only
+   * — never an amount; on radar an anonymous blip (the crate's disc imprint,
+   * `paintDiscCoverage`).
+   */
+  drops: {
+    perMinuteRemaining: 2, // drops per minute remaining to `untilMinute`, at each match minute (Eric 2026-11-03, #13)
+    untilMinute: 12, // the minute from which no drop spawns (12:00 — Eric 2026-11-03, #13)
+    radiusU: 15, // u — the crate disc; a hull silhouette within this of the centre collects it (R4)
+    bonusMin: 1, // index points — the smallest roll (Eric 2026-11-03, "+1..+5")
+    bonusMax: 5, // index points — the largest roll, inclusive
+    wreckRolls: 3, // rolls in a sunk participant's one wreck pickup (R2)
+    placeAttempts: 64, // uniform draws tried per drop before it is skipped (never thrown)
+    indices: RANDOM_INDEX_STATS, // the stats a roll may land on — the exhausted hull's six (R2/#13)
   },
 
   /** Match lifecycle. */

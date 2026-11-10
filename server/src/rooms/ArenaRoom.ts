@@ -392,6 +392,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
       beacons: sanitized.matchOverride?.beacons,
+      // drops (Story 10.9) rides the same dev-gated door, the same way.
+      drops: sanitized.matchOverride?.drops,
     });
   }
 

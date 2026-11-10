@@ -55,8 +55,14 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // epoch once per refresh (see the row comment in world.ts).
       'stepFog',
       'applyStorm',
+      // Story 10.9's STORM SWEEP of the airdrops — directly after applyStorm,
+      // against the same live ring (see the row comment in world.ts).
+      'stormDrops',
       'stepShells',
       'stepMines',
+      // Story 10.9's AIRDROP COLLECTION — directly after stepMines, against
+      // the tick's post-move afloat hull outlines (see world.ts).
+      'collectDrops',
       'applyZoneEffects',
       // Story 9.4's FOUL ZONE stamp — immediately after the burn DoT: against
       // post-move hull OUTLINES (the tick's hull snapshot), before its own
@@ -103,6 +109,11 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // hull positions, and a body placed dead last enters the world at a
       // clean tick boundary. See the row comment in world.ts.
       'placeBeacons',
+      // Story 10.9's AIRDROP SCATTER — the new dead-LAST row, an APPEND
+      // directly AFTER placeBeacons: ring cycles begin on minute marks, so a
+      // cycle's new beacons must already be charted when the batch reads the
+      // hard keep-out (R1). See the row comment in world.ts.
+      'spawnDrops',
     ]);
   });
 

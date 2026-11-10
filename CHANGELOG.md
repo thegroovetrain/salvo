@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.19.13] - 2026-11-10
+## [0.19.14] - 2026-11-10
 
 ### Changed
 - **The ship console is compact.** Same contents, tight spacing, no stretched gaps; it sits bottom-left with water above it.
@@ -9,6 +9,11 @@
 - **The offer cards are the same cards, stacked.** The card face is unchanged; the cards stand in a narrow column instead of a grid. A new setting, OFFER POSITION, puts them on the RIGHT (default), the LEFT, or in a row along the BOTTOM. If the chosen edge has no room on your screen, the cards use the bottom row.
 - **Every HUD area has a background.** The consoles, the offer cards, the match bar and the kill feed sit on dark glass at 70 %, so they read over radar returns while the map still shows through.
 - **The HUD scales with your window.** On a 13-inch laptop the whole HUD is three quarters size; on a 1920×1080 screen it is full size. The UI SCALE setting still applies on top.
+
+## [0.19.13] - 2026-11-10
+
+### Added
+- **Airdrops.** Crates litter the ocean, two per minute remaining to 12:00; sail over one to take a random +1 to +5 on one of your stats (Story 10.9).
 
 ## [0.19.12] - 2026-11-09
 

@@ -490,3 +490,40 @@ describe('RADIO BEACON XP rides the record (Story 10.8)', () => {
     expect(m.endSummary().beaconXpMsByClass).toEqual({ bismarck: 3 * levelMs, yamato: levelMs / 2 });
   });
 });
+
+describe('AIRDROPS taken ride the record (Story 10.9)', () => {
+  it('each participant carries the drops it collected — a captain and a bot alike, the leaver at its leave', () => {
+    const w = bareWorld();
+    const m = new Match(w, TIMINGS, noopHooks());
+    const ctx = { w, m };
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+    w.addShip('bot-1', 'BOT', 'bot', 'bismarck', undefined, undefined);
+    m.notifyRosterChanged();
+    for (let i = 0; i < 100 && m.phase !== 'active'; i++) step(ctx);
+    expect(m.phase).toBe('active');
+    // Crates sat on each hull's centre: the next step's collectDrops takes them.
+    const seat = (id: string, n: number): void => {
+      const s = w.ships.get(id)!.state;
+      for (let k = 0; k < n; k++) w.drops.set(`t-${id}-${k}`, { id: `t-${id}-${k}`, x: s.x, y: s.y, kind: CONFIG.drops.indices[0] });
+    };
+    seat('a', 2);
+    seat('b', 1);
+    seat('bot-1', 3);
+    const before = new Map([...w.ships.values()].map((r) => [r.id, r.dropsTaken]));
+    step(ctx);
+    const taken = (id: string): number => w.ships.get(id)!.dropsTaken - before.get(id)!;
+    expect([taken('a'), taken('b'), taken('bot-1')]).toEqual([2, 1, 3]);
+    const atLeave = w.ships.get('b')!.dropsTaken;
+    const botAtSink = w.ships.get('bot-1')!.dropsTaken;
+    m.onPlayerLeave('b'); // snapshot at the leave
+    w.sinkShip('bot-1', 'a');
+    for (let i = 0; i < 200 && m.phase !== 'finished'; i++) step(ctx);
+    expect(m.phase).toBe('finished');
+    const byId = new Map(buildMatchRecord(m, META).participants.map((p) => [p.id, p]));
+    expect(byId.get('a')!.dropsTaken).toBe(w.ships.get('a')!.dropsTaken);
+    expect(byId.get('b')!.dropsTaken).toBe(atLeave);
+    expect(byId.get('bot-1')!.dropsTaken).toBe(botAtSink);
+    expect(botAtSink).toBeGreaterThanOrEqual(3);
+  });
+});

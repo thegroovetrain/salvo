@@ -830,3 +830,82 @@ export function paintCoverage(
   const sharp = rasterizeHullCoverage(cls, x, y, heading, cellU);
   return fuzzCoverage(sharp, paintSeed(t, x, y, heading), CONFIG.vision.radarFuzz);
 }
+
+// ---------------------------------------------------------------------------
+// THE CRATE IMPRINT (Story 10.9, epic-10 amendment 18, R3; brainstorm #48 /
+// forge premise 5 "paint by imprint"): an airdrop paints on radar as an
+// anonymous blip whose footprint is its DISC, run through the SAME fuzz law as
+// a hull — no new calibration, nothing on the wire that says "crate". A
+// 15 u crate on the shipped 9 u lattice touches a handful of cells (15–21
+// sharp cells, a 4×4 to 5×5 block, by lattice phase); the fuzz's one-cell
+// dilation, stretch and glint then blunt it into a small round return (~25–60
+// cells, median ~40 — a fraction of a battleship's) that never moves — read
+// as a crate by size and stillness alone.
+// ---------------------------------------------------------------------------
+
+/** The cell-space rect of the disc's bounding box, with an all-zero mask. */
+function emptyRectForDisc(x: number, y: number, rU: number, cellU: number): HullCoverage {
+  const gx = Math.floor((x - rU) / cellU);
+  const gy = Math.floor((y - rU) / cellU);
+  const w = Math.floor((x + rU) / cellU) - gx + 1;
+  const h = Math.floor((y + rU) / cellU) - gy + 1;
+  return { gx, gy, w, h, bits: new Array<number>(Math.ceil((w * h) / COVERAGE_WORD)).fill(0) };
+}
+
+/** The disc's degrade ladder (see `rasterizeDiscCoverage`): a one-cell mask,
+ *  or null when the inputs are healthy. `grid` is 0 for a degenerate lattice. */
+function degenerateDisc(x: number, y: number, rU: number, grid: number): HullCoverage | null {
+  const cell = grid === 0 ? 1 : grid;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return centreCellCoverage(0, 0, cell);
+  if (grid === 0 || !Number.isFinite(rU) || rU < 0) return centreCellCoverage(x, y, cell);
+  return null;
+}
+
+/** Distance from `p` to the closed interval [lo, hi] (0 inside). */
+function gapTo(p: number, lo: number, hi: number): number {
+  return p < lo ? lo - p : p > hi ? p - hi : 0;
+}
+
+/**
+ * Project a disc onto the radar grid: every cell of its bounding rect that the
+ * disc TOUCHES (the cell square's nearest point within `rU` of the centre).
+ * Touch-sampling — not the hull's centre-sampling — because a crate is
+ * smaller than three cells: centre-sampling would let the lattice phase decide
+ * whether a 15 u disc lights one cell or nine, while touch-sampling always
+ * lights the cells the crate actually straddles, its own cell included (the
+ * fail-safe), and the mask's rect IS the disc's bounding box.
+ *
+ * Degrades like `rasterizeHullCoverage`: a non-finite centre → the origin's
+ * cell; a degenerate lattice or a non-finite / negative radius → the centre's
+ * one cell.
+ */
+export function rasterizeDiscCoverage(x: number, y: number, rU: number, cellU: number): HullCoverage {
+  const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
+  const degenerate = degenerateDisc(x, y, rU, grid);
+  if (degenerate !== null) return degenerate;
+  const cover = emptyRectForDisc(x, y, rU, grid);
+  const r2 = rU * rU;
+  for (let row = 0; row < cover.h; row++) {
+    const y0 = (cover.gy + row) * grid;
+    const dy = gapTo(y, y0, y0 + grid);
+    for (let col = 0; col < cover.w; col++) {
+      const x0 = (cover.gx + col) * grid;
+      const dx = gapTo(x, x0, x0 + grid);
+      if (dx * dx + dy * dy <= r2) setBit(cover.bits, row * cover.w + col);
+    }
+  }
+  return cover;
+}
+
+/**
+ * THE CRATE'S PAINT, whole: the disc imprint (`rasterizeDiscCoverage`) → the
+ * per-paint fuzz at the shipped `CONFIG.vision.radarFuzz`, seeded from (paint
+ * time, exact centre) through the hull's own `paintSeed` with a zero heading
+ * (a disc has none). Exactly `paintCoverage`'s pipeline with the disc as the
+ * sharp mask, so a drop's return and a hull's return are the same artifact by
+ * construction. Deterministic in (x, y, rU, cellU, t); observer-free.
+ */
+export function paintDiscCoverage(x: number, y: number, rU: number, cellU: number, t: number): HullCoverage {
+  const sharp = rasterizeDiscCoverage(x, y, rU, cellU);
+  return fuzzCoverage(sharp, paintSeed(t, x, y, 0), CONFIG.vision.radarFuzz);
+}

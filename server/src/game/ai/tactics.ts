@@ -127,6 +127,7 @@ import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
 import { probeExit } from './unbeachProbe.js';
 import { beaconGoalOf, onStation } from './beacons.js';
+import { laneDrop } from './drops.js';
 import {
   RUDDER_GAIN,
   avoidHulls,
@@ -620,6 +621,21 @@ function beaconBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): numb
   return goal === null ? idleBearing(ctx, port, sit) : steerToward(ctx, goal.standoff);
 }
 
+/** THE LANE NUDGE (Story 10.9, ai/drops.ts): a target-less bot under way
+ *  takes the nearest sighted crate lying in the lane of the bearing it
+ *  already wants — the direct bearing to it, when the grid line is clear (a
+ *  crate behind land is not "on the line"; the goal's route is kept, so the
+ *  bearing falls straight back once the crate is gone). Never while holding,
+ *  never once stationed on a beacon (a bot does not leave station for a
+ *  crate; one in the lane on the way TO the beacon is taken). */
+function laneNudged(ctx: NavCtx, self: BotSelf, port: BotWorldPort, posture: BotPosture, goal: number): number {
+  const drops = ctx.mind.view?.drops ?? [];
+  if (drops.length === 0 || posture === 'hold') return goal;
+  if (farmingBeacon(ctx.mind, posture, null) && beaconStationed(self, ctx.mind, port)) return goal;
+  const crate = laneDrop(ctx.pos, goal, drops);
+  return crate !== null && lineClear(ctx.nav.grid, ctx.pos, crate) ? bearing(ctx.pos, crate) : goal;
+}
+
 /** A target-less `farm` with a beacon goal — the beacon farm (the only
  *  `farm` since Story 10.8 retired the fleet farm, which had a target). */
 function farmingBeacon(mind: BotMind, posture: BotPosture, target: BotTrack | null): boolean {
@@ -645,7 +661,7 @@ function postureBearing(
   posture: BotPosture,
 ): number {
   if (posture === 'disengage' || posture === 'hide') return fleeBearing(ctx, port, sit, target);
-  if (target === null) return posture === 'farm' ? beaconBearing(ctx, port, sit) : idleBearing(ctx, port, sit);
+  if (target === null) return laneNudged(ctx, self, port, posture, posture === 'farm' ? beaconBearing(ctx, port, sit) : idleBearing(ctx, port, sit));
   if (posture === 'reposition' || posture === 'hold') return idleBearing(ctx, port, sit);
   if (posture === 'pursue') return steerToward(ctx, approachPoint(sit.profile, target, sit));
   if (posture === 'ram') return bearing(ctx.pos, ramPoint(self, sit, target));
