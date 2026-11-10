@@ -3227,8 +3227,8 @@ function consoleReadoutsNow(g: Game): readonly Readout[] {
 }
 
 /**
- * THE LAYOUT (the pure spine), recomputed only when the logical viewport or
- * the countdown flag (REDRAW in the offer header) changes — the consoles and
+ * THE LAYOUT (the pure spine), recomputed only when the logical viewport,
+ * the countdown flag (REDRAW in the offer group) or the offer position changes — the consoles and
  * the offer group draw from, and the press gate hit-tests against, this ONE
  * object.
  */
@@ -3237,10 +3237,12 @@ function consoleLayoutNow(g: Game): ConsoleLayout {
   const w = hudWidth(g);
   const h = hudHeight(g);
   const countdown = (publicState(g).matchPhase ?? 'waiting') === 'countdown';
-  const key = `${w}|${h}|${countdown ? 1 : 0}`;
+  // The player's OFFER POSITION (R26) is in the key: a settings change re-lays.
+  const offerPos = settings.current.offerPos;
+  const key = `${w}|${h}|${countdown ? 1 : 0}|${offerPos}`;
   if (c.layout !== null && key === c.layoutKey) return c.layout;
   c.layoutKey = key;
-  c.layout = consoleLayout(w, h, { countdown });
+  c.layout = consoleLayout(w, h, { countdown, offerPos });
   c.weapons = { ...c.layout.weapons, abilities: c.layout.abilities };
   return c.layout;
 }

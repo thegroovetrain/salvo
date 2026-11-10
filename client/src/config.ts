@@ -1599,9 +1599,11 @@ export const CLIENT_CONFIG = {
    * chrome bar bed's reach past its text row; `feedPadX`/`feedPadY` the
    * kill feed's per-line bed padding and `feedGap` the water between two
    * lines' beds — sized so six bedded lines still fit the feed's clearance
-   * above the offer group (`console.killFeed.clearance`).
+   * above the offer group (`console.killFeed.clearance`). `alpha` is 0.5
+   * (Eric 2026-11-10, round 3: the map reads through, the text stays
+   * legible), down from the first build's .78.
    */
-  hudBed: { alpha: 0.78, edgeW: 1, chromePad: 8, feedPadX: 8, feedPadY: 1, feedGap: 3 },
+  hudBed: { alpha: 0.5, edgeW: 1, chromePad: 8, feedPadX: 8, feedPadY: 1, feedGap: 3 },
 
   /**
    * THE BR CHROME BAR (Story 3.3, amendments 19–21) — the one restrained mono
@@ -1954,31 +1956,40 @@ export const CLIENT_CONFIG = {
      *  six lines (~150 px), then a 12 px gap — the offer's BED top edge is
      *  16 + 150 + 12 = 178. */
     killFeed: { top: 16, clearance: 150, gap: 12 },
-    /** THE OFFER GROUP (R22, Eric 2026-11-10: "this was supposed to be
-     *  vertically stacked, not a box?"): a 22 px header line (the banked
-     *  count; at the countdown it grows to REDRAW's 30 px with REDRAW at its
-     *  right), a 6 px seam, then FOUR 280 × 56 cards stacked with 6 px gaps.
-     *  `clearGap` is the least gap kept between its bed and the weapons
-     *  console's. */
+    /** THE OFFER GROUP (R22; R26, Eric's pick 2026-11-10: the merged card
+     *  face at the "original narrow width", and "a toggle in settings so the
+     *  player can choose if they want the offer to appear on the right, left,
+     *  or bottom"). The face: `cardW` x `cardH` cards — a `glyphBox` px glyph
+     *  box at (`pad`, `pad`), the NAME beside it (two lines allowed), the tier
+     *  numeral bottom-left and the `TAB` `n` chip bottom-right on a `footH`
+     *  line `pad` above the bottom edge.
+     *
+     *  RIGHT / LEFT — the STACK: a `header` px header line (`n LEVELS`), at
+     *  the countdown REDRAW (`redrawW` x `redrawH`) on its own full-width line
+     *  under it (`headerGap` apart), then the four cards stacked `gap` apart.
+     *  RIGHT sits under the kill feed's clearance; LEFT at `ship.topClearance`
+     *  (the chrome bar's). BOTTOM — the ROW: the four cards in one row `gap`
+     *  apart, centred on the screen, bed `bottomInset` off the bottom edge;
+     *  the header in a `bar.headW` slot at its left and REDRAW at its right,
+     *  `bar.gapIn` apart. `clearGap` is the least water kept between the
+     *  offer's bed and a console's. Where a chosen stack cannot keep it (a
+     *  short logical viewport) the group FALLS BACK TO THE BOTTOM ROW (Eric
+     *  2026-11-10, round 3 — the O15 top-left dock is gone). */
     offer: {
       header: 22,
       headerGap: 6,
-      cardW: 280,
-      cardH: 56,
+      cardW: 136,
+      cardH: 64,
       gap: 6,
       redrawH: 30,
       redrawW: 112,
       clearGap: 12,
-      /** O15 (gate ruling 2026-11-09): on a viewport too short for the
-       *  right-edge stack the group DOCKS TOP-LEFT with its bed at
-       *  (`sideInset`, this) — the kill feed's own top edge, on the free
-       *  corner. */
-      dockTop: 16,
-      /** The card face (ui/offerGroup.ts): the 32 px glyph box and the glyph
-       *  in it, the inner padding (the box sits centred on the 56 px card). */
-      glyphBox: 32,
-      glyph: 22,
-      pad: 12,
+      bar: { headW: 100, gapIn: 12 },
+      /** The card face (ui/offerGroup.ts) — the merged face. */
+      glyphBox: 28,
+      glyph: 20,
+      pad: 6,
+      footH: 16,
       /** Carried over from the retired band's `refit` block, unchanged: a
        *  refused card's face alpha, the whole group's alpha while a pick is in
        *  flight, and the denied pulse's life and same-source floor. */
@@ -1987,41 +1998,46 @@ export const CLIENT_CONFIG = {
       deniedPulseMs: 80,
       deniedFloorMs: 300,
     },
-    /** ONE WEAPON CELL-BUTTON (R23, Eric 2026-11-10: "two columns … This whole
-     *  thing should be a box, not mismatched sizes and shit; uniform"). Every
-     *  cell is `w` wide; the box is 2 × `w` + `colGap`. Top to bottom inside a
-     *  cell: `padY`, the header line (NAME · state word · tier · key chip),
-     *  `lineGap`, the mount line (`clock` px rings with the seconds numeral
-     *  inside, the mines' `rackPip`s, the secondaries' `heatH` bar),
-     *  `statsGap`, then `statLines` stat lines of `statLineH`, ONE STAT PER
-     *  LINE (LABEL left, value right), `padY`. The cell height H is DERIVED
-     *  from these (layout.ts `CELL_H`); `statLines` is the most stat fields a
-     *  cell prints (readouts.ts `rowStatFields`, pinned by a relation test).
-     *  `w` is the widest header the catalog can print (the longest family
-     *  weapon name, ARMED, a hovered `II→III`, the chip) at the text rule's
-     *  sizes — the test measures it. */
+    /** ONE WEAPON CELL-BUTTON — W2, Eric's pick (R26) with the never-wrap
+     *  clocks (R27, Eric 2026-11-10: "If they are all on cooldown, they get
+     *  pushed to new lines. That doesn't work."). Every cell is `w` wide; the
+     *  box is 2 x `w` + `colGap`. Top to bottom inside a cell, FIXED heights:
+     *  `padY`; line 1 (`headerH`) NAME · tier numeral · key chip; the MOUNT
+     *  line (`mountH`) — `clock` px rings with the seconds numeral INSIDE
+     *  (`clockTracking` px on a three-character numeral), `clockGap` apart,
+     *  four to the line and nothing else on it; the mines' racks one ring
+     *  each with that rack's `rackPip`s in a short column `rackGap` right of
+     *  it; the secondaries' `heatH` bar instead; then `statLines` stat lines
+     *  of `statLineH` (the left cells print `leftStatLines`), ONE STAT PER
+     *  LINE; `padY`. The cell height H is DERIVED from these (layout.ts
+     *  `CELL_H`) — never grown at runtime. No state word: ready = the solid
+     *  rings, armed = the amber outline + wash + filled chip, locked = the
+     *  denied hatched heat bar + red outline (Eric 2026-11-10, round 3).
+     *  `tierGap` is the seam either side of line 1's tier numeral. */
     cell: {
-      w: 280,
+      w: 200,
       colGap: 8,
       rowGap: 8,
       padX: 8,
       padY: 6,
-      headerH: 22,
-      lineGap: 4,
-      mountH: 34,
-      statsGap: 2,
+      headerH: 20,
+      mountH: 44,
       statLineH: 20,
-      statLines: 3,
-      clock: 32,
+      statLines: 4,
+      leftStatLines: 3,
+      clock: 40,
       clockGap: 6,
+      clockTracking: -0.6,
+      tierGap: 4,
       keyChip: 18,
-      rackPip: { w: 6, h: 9, gap: 2 },
+      rackPip: { w: 6, h: 6, gap: 2 },
+      rackGap: 4,
       heatH: 12,
     },
     /** THE THREE ABILITY BUTTONS (O5, R23) spanning the weapons box's full
      *  width beneath both columns, equal widths, `gap` apart; `topGap` is the
      *  seam between the columns and the buttons. */
-    abilities: { h: 64, gap: 8, topGap: 8, progressH: 2 },
+    abilities: { h: 56, gap: 8, topGap: 8, progressH: 2 },
     /** THE SHIP CONSOLE (O6; R21, Eric 2026-11-10: "You put WAY too much
      *  margin between the elements … Takes up *way* too much real estate"):
      *  COMPACT — fixed spacing, its height the sum of these parts,
@@ -2078,7 +2094,6 @@ export const CLIENT_CONFIG = {
       bankCount: 17,
       // labels
       name: 14,
-      state: 14,
       statLabel: 14,
       abilityName: 14,
       label: 14,

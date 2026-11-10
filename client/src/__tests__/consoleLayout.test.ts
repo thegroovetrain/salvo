@@ -1,17 +1,21 @@
 // THE CONSOLE LAYOUT SPINE (Story 10.10, plan O2–O6 + epic-10 amendment 18's
-// R21–R25, plan F2–F6) — the relations the two consoles and the offer group
-// must hold: nothing overlaps, everything sits on screen, the offer stacks on
-// the right edge (or docks top-left where it cannot), the weapons console is
-// ONE uniform two-column box, the ship console is compact (its height the sum
-// of its parts, whatever the viewport), and every console register meets the
-// text rule. Relations only — no px literal stands in for a contract.
+// R21–R27, plan F2–F6 + round 3's C1/C2) — the relations the two consoles and
+// the offer group must hold: nothing overlaps, everything sits on screen, the
+// offer goes where the player's OFFER POSITION puts it (or falls back to the
+// bottom row where its stack cannot clear), the weapons console is ONE uniform two-column box whose clocks
+// never wrap, the ship console is compact (its height the sum of its parts,
+// whatever the viewport), and every console register meets the text rule.
+// Relations only — no px literal stands in for a contract.
 
 import { describe, it, expect } from 'vitest';
 import { CLIENT_CONFIG } from '../config.js';
 import { monoTextWidth } from '../util/monoMeasure.js';
+import { OFFER_POSITIONS, scaleTierEnabled, type OfferPos } from '../settings/store.js';
 import {
   ABILITY_KINDS,
   CELL_H,
+  CELL_INNER_W,
+  MAX_CLOCKS,
   OFFER_TOP,
   SHIP_CONSOLE_H,
   WEAPON_ROW_KINDS,
@@ -90,27 +94,62 @@ function noBedOverlaps(l: ConsoleLayout): void {
   for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) expect(overlaps(b[i], b[j]), `${i}/${j}`).toBe(false);
 }
 
-const tag = (vp: { w: number; h: number }, countdown: boolean): string => `${vp.w.toFixed(0)}×${vp.h.toFixed(0)} countdown=${countdown}`;
+const tag = (vp: { w: number; h: number }, countdown: boolean, pos: OfferPos = 'right'): string =>
+  `${vp.w.toFixed(0)}×${vp.h.toFixed(0)} countdown=${countdown} offer=${pos}`;
 
-describe('F6 — the placement contract at the three physical screens (100 % tier)', () => {
+/** Does `a` keep at least `gap` of water to `b`? */
+function keepsClear(a: Rect, b: Rect, gap: number): boolean {
+  return right(a) + gap <= b.x || right(b) + gap <= a.x || bottom(a) + gap <= b.y || bottom(b) + gap <= a.y;
+}
+
+/** The offer bed keeps the ruled gap to both consoles' beds. */
+function offerClear(l: ConsoleLayout): void {
+  for (const c of [l.ship.bed, l.weapons.bed]) expect(keepsClear(l.offer.bed, c, K.offer.clearGap), JSON.stringify(l.offer.bed)).toBe(true);
+}
+
+describe('F6 — the placement contract at the three physical screens (100 % tier), every OFFER POSITION', () => {
   for (const vp of AT_100) {
     for (const countdown of [false, true]) {
+      for (const offerPos of OFFER_POSITIONS) {
+        const l = consoleLayout(vp.w, vp.h, { countdown, offerPos });
+
+        it(`${tag(vp, countdown, offerPos)}: every rect, every bed, is inside the frame; nothing overlaps; the offer keeps the gap`, () => {
+          for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
+          noBedOverlaps(l);
+          offerClear(l);
+        });
+
+        it(`${tag(vp, countdown, offerPos)}: the offer sits where the player put it, or falls back to the bottom row`, () => {
+          expect([offerPos, 'bottom']).toContain(l.offerPlacement);
+          if (offerPos !== 'right') expect(l.offerPlacement).toBe(offerPos); // LEFT and BOTTOM hold at 100 %
+        });
+      }
+
       const l = consoleLayout(vp.w, vp.h, { countdown });
 
-      it(`${tag(vp, countdown)}: every rect, every bed, is inside the frame`, () => {
-        for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
-      });
-
-      it(`${tag(vp, countdown)}: the offer, the weapons console and the ship console never overlap`, () => {
-        noBedOverlaps(l);
-      });
-
-      it(`${tag(vp, countdown)}: the offer stacks on the RIGHT edge, under the kill feed, clear of the weapons console`, () => {
-        expect(l.offerPlacement).toBe('right');
+      it(`${tag(vp, countdown)}: RIGHT is the default; on the right edge it stacks under the kill feed, flush with the weapons console`, () => {
+        expect(consoleLayout(vp.w, vp.h, { countdown, offerPos: 'right' })).toEqual(l);
+        if (l.offerPlacement !== 'right') return;
         expect(right(l.offer.bed)).toBe(right(l.weapons.bed));
         expect(right(l.offer.bed)).toBe(vp.w - K.sideInset);
         expect(l.offer.bed.y).toBeGreaterThanOrEqual(OFFER_TOP);
         expect(bottom(l.offer.bed) + K.offer.clearGap).toBeLessThanOrEqual(l.weapons.bed.y);
+      });
+
+      it(`${tag(vp, countdown)}: LEFT stacks on the left edge under the chrome bar, above the ship console`, () => {
+        const o = consoleLayout(vp.w, vp.h, { countdown, offerPos: 'left' });
+        expect(o.offer.bed.x).toBe(K.sideInset);
+        expect(o.offer.bed.y).toBe(K.ship.topClearance);
+        expect(bottom(o.offer.bed) + K.offer.clearGap).toBeLessThanOrEqual(o.ship.bed.y);
+      });
+
+      it(`${tag(vp, countdown)}: BOTTOM lays one row on the bottom inset, between the two consoles`, () => {
+        const o = consoleLayout(vp.w, vp.h, { countdown, offerPos: 'bottom' });
+        expect(bottom(o.offer.bed)).toBeCloseTo(vp.h - K.bottomInset, 9);
+        for (const c of o.offer.cards) expect(c.y).toBe(o.offer.cards[0].y);
+        for (let i = 1; i < 4; i++) expect(o.offer.cards[i].x - right(o.offer.cards[i - 1])).toBe(K.offer.gap);
+        expect(o.offer.bed.x - K.offer.clearGap).toBeGreaterThanOrEqual(right(o.ship.bed));
+        expect(right(o.offer.bed) + K.offer.clearGap).toBeLessThanOrEqual(o.weapons.bed.x);
       });
 
       it(`${tag(vp, countdown)}: the centre clear is reported, bed to bed, and holds the ruled width`, () => {
@@ -136,47 +175,65 @@ describe('F6 — the placement contract at the three physical screens (100 % tie
   });
 });
 
-describe('the constrained-height dock (O15) — the 125 % tier and short screens', () => {
-  /** Every physical screen at the 125 % tier, and a 1280×720 screen at 100 %. */
-  const SHORT = [...PHYSICAL.map((p) => logical(p, Math.max(...TIERS))), logical({ w: 1280, h: 720 })];
+/** The water the bottom row has between the two consoles' beds, less the
+ *  ruled gap on both sides, and the row's own bed width. */
+function rowRoom(vp: { w: number; h: number }, countdown: boolean): { room: number; need: number } {
+  const l = consoleLayout(vp.w, vp.h, { countdown, offerPos: 'bottom' });
+  return { room: l.weapons.bed.x - right(l.ship.bed) - 2 * K.offer.clearGap, need: l.offer.bed.w };
+}
+
+describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 % screens', () => {
+  /** Every physical screen the 125 % tier is SELECTABLE on (its width gate),
+   *  a 1280×720 screen at 100 %, and the ratified 1280×614 floor. */
+  const TIER_125 = PHYSICAL.filter((p) => scaleTierEnabled(Math.max(...TIERS), p.w)).map((p) => logical(p, Math.max(...TIERS)));
+  const SHORT = [...TIER_125, logical({ w: 1280, h: 720 }), logical({ w: 1280, h: 614 })];
 
   for (const vp of SHORT) {
     for (const countdown of [false, true]) {
-      const l = consoleLayout(vp.w, vp.h, { countdown });
+      for (const offerPos of OFFER_POSITIONS) {
+        const l = consoleLayout(vp.w, vp.h, { countdown, offerPos });
 
-      it(`${tag(vp, countdown)}: placed where it clears — never an overlap, never off screen`, () => {
-        for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
-        noBedOverlaps(l);
-        if (l.offerPlacement === 'right') expect(bottom(l.offer.bed) + K.offer.clearGap).toBeLessThanOrEqual(l.weapons.bed.y);
-      });
-
+        it(`${tag(vp, countdown, offerPos)}: the chosen place or the bottom row, on screen, clear of both consoles`, () => {
+          expect([offerPos, 'bottom']).toContain(l.offerPlacement);
+          for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
+          // The row clears wherever the water between the consoles can hold it
+          // (see the reported case below); a stack always clears.
+          const { room, need } = rowRoom(vp, countdown);
+          if (l.offerPlacement === 'bottom' && need > room) return;
+          noBedOverlaps(l);
+          offerClear(l);
+        });
+      }
     }
   }
 
-  it('docked, the offer takes the top-left corner and clears the ship console', () => {
-    const docked = SHORT.flatMap((vp) => [false, true].map((countdown) => consoleLayout(vp.w, vp.h, { countdown }))).filter((l) => l.offerPlacement === 'topLeft');
-    expect(docked.length).toBeGreaterThan(0);
-    for (const l of docked) {
-      expect(l.offer.bed.x).toBe(K.sideInset);
-      expect(l.offer.bed.y).toBe(K.offer.dockTop);
-      expect(bottom(l.offer.bed) + K.offer.clearGap).toBeLessThanOrEqual(l.ship.bed.y);
-    }
-  });
-
-  it('docks exactly when the right-edge stack would not clear the weapons console', () => {
-    for (const vp of SHORT) {
+  it('a stack that cannot clear its console falls back to the row, and only then', () => {
+    for (const vp of [...AT_100, ...SHORT]) {
       for (const countdown of [false, true]) {
-        const l = consoleLayout(vp.w, vp.h, { countdown });
-        const rightBed = bedOf(consoleLayout(vp.w, 4000, { countdown }).offer.frame);
-        const clears = bottom(rightBed) + K.offer.clearGap <= l.weapons.bed.y;
-        expect(l.offerPlacement).toBe(clears ? 'right' : 'topLeft');
+        for (const offerPos of ['right', 'left'] as const) {
+          const l = consoleLayout(vp.w, vp.h, { countdown, offerPos });
+          const stack = bedOf(consoleLayout(vp.w, 4000, { countdown, offerPos }).offer.frame);
+          const under = offerPos === 'right' ? l.weapons.bed : l.ship.bed;
+          const clears = bottom(stack) + K.offer.clearGap <= under.y;
+          expect(l.offerPlacement, tag(vp, countdown, offerPos)).toBe(clears ? offerPos : 'bottom');
+        }
       }
     }
   });
 
-  it('a too-short viewport docks (the dock is reachable)', () => {
+  it('the row has room at every 100 % reference screen, 1280×720 and the 1280×614 floor', () => {
+    const all = [...AT_100, logical({ w: 1280, h: 720 }), logical({ w: 1280, h: 614 })];
+    for (const vp of all) {
+      for (const countdown of [false, true]) {
+        const { room, need } = rowRoom(vp, countdown);
+        expect(need, tag(vp, countdown)).toBeLessThanOrEqual(room);
+      }
+    }
+  });
+
+  it('a short viewport falls back (the fallback is reachable)', () => {
     const vp = logical({ w: 1280, h: 720 });
-    expect(consoleLayout(vp.w, vp.h, { countdown: true }).offerPlacement).toBe('topLeft');
+    expect(consoleLayout(vp.w, vp.h, { countdown: true }).offerPlacement).toBe('bottom');
   });
 });
 
@@ -206,10 +263,13 @@ describe('the weapons console — ONE uniform two-column box (R23)', () => {
     for (const col of [leftCol, rightCol]) for (let i = 1; i < col.length; i++) expect(col[i].y - bottom(col[i - 1])).toBeCloseTo(K.cell.rowGap, 9);
   });
 
-  it('H is derived from a cell`s content: header, mount line and every stat line fit inside it, in order', () => {
+  it('H is derived from a cell`s fullest content: line 1, the mount line and every stat line fit inside it, in order', () => {
     expect(rightCol[0].h).toBe(CELL_H);
+    expect(CELL_H).toBe(2 * K.cell.padY + K.cell.headerH + K.cell.mountH + K.cell.statLines * K.cell.statLineH);
+    for (const c of rightCol) expect(c.statLines).toHaveLength(K.cell.statLines);
+    for (const c of leftCol) expect(c.statLines).toHaveLength(K.cell.leftStatLines);
+    expect(K.cell.leftStatLines).toBeLessThanOrEqual(K.cell.statLines);
     for (const c of l.weapons.rows) {
-      expect(c.statLines).toHaveLength(K.cell.statLines);
       const order = [c.header, c.mounts, ...c.statLines];
       for (const r of order) expect(contains(c, r), `${c.kind} ${JSON.stringify(r)}`).toBe(true);
       for (let i = 1; i < order.length; i++) expect(order[i].y).toBeGreaterThanOrEqual(bottom(order[i - 1]));
@@ -220,8 +280,31 @@ describe('the weapons console — ONE uniform two-column box (R23)', () => {
 
   it('a stat line is tall enough for its value register (one stat per line, never crammed)', () => {
     expect(K.cell.statLineH).toBeGreaterThanOrEqual(K.type.statValue);
-    // The clock's numeral (the tenths form, `1.2`) fits inside its ring.
-    expect(monoTextWidth('9.9', K.type.clock)).toBeLessThanOrEqual(K.cell.clock);
+    expect(K.cell.headerH).toBeGreaterThanOrEqual(K.type.name);
+  });
+
+  it('R27 — FOUR rings and their gaps fit ONE mount line, inside the cell`s inner width; the line is a ring tall', () => {
+    expect(MAX_CLOCKS).toBeGreaterThanOrEqual(4);
+    expect(4 * K.cell.clock + 3 * K.cell.clockGap).toBeLessThanOrEqual(CELL_INNER_W);
+    expect(K.cell.mountH).toBeGreaterThanOrEqual(K.cell.clock);
+    for (const c of l.weapons.rows) expect(c.mounts.w).toBe(CELL_INNER_W);
+  });
+
+  it('R27 — a three-character numeral at the clock register, tracked, fits the ring`s inner chord at its own height', () => {
+    // The ring's inner radius (inside the hairline) and the chord across it
+    // at half the numeral's height off the centre.
+    const rIn = K.cell.clock / 2 - K.lineW;
+    const chord = 2 * Math.sqrt(rIn * rIn - (K.type.clock / 2) ** 2);
+    expect(monoTextWidth('1.8', K.type.clock, K.cell.clockTracking)).toBeLessThanOrEqual(chord);
+    expect(monoTextWidth('99', K.type.clock)).toBeLessThanOrEqual(chord);
+    expect(K.type.clock).toBeGreaterThanOrEqual(17); // never shrunk to fit
+  });
+
+  it('a mines rack — its ring and a four-pip column beside it — twice, fits the line', () => {
+    const P = K.cell.rackPip;
+    const rack = K.cell.clock + K.cell.rackGap + P.w;
+    expect(2 * rack + K.cell.clockGap).toBeLessThanOrEqual(CELL_INNER_W);
+    expect(4 * P.h + 3 * P.gap).toBeLessThanOrEqual(K.cell.mountH);
   });
 
   it('lays the three ability buttons beneath both columns, equal widths, spanning the box', () => {
@@ -295,33 +378,64 @@ describe('the ship console is COMPACT (R21)', () => {
   });
 });
 
-describe('the offer group — a VERTICAL STACK (R22)', () => {
+describe('the offer group — a narrow VERTICAL STACK (R22 / R26) or one ROW (BOTTOM)', () => {
+  /** The 13" MacBook's logical viewport, where RIGHT and LEFT both stack. */
+  const MAC = logical(PHYSICAL[1]);
   for (const countdown of [false, true]) {
-    const l = consoleLayout(REFERENCE.w, REFERENCE.h, { countdown });
-    const o = l.offer;
+    for (const offerPos of ['right', 'left'] as const) {
+      const l = consoleLayout(MAC.w, MAC.h, { countdown, offerPos });
+      const o = l.offer;
 
-    it(`countdown=${countdown}: four cards in ONE column under the header, a gap apart, inside the frame`, () => {
-      expect(o.cards).toHaveLength(4);
-      for (const c of o.cards) {
-        expect(c.x).toBe(o.frame.x);
-        expect(c.w).toBe(o.frame.w);
-        expect(contains(o.frame, c)).toBe(true);
-        expect(c.y).toBeGreaterThanOrEqual(bottom(o.header));
-      }
-      for (let i = 1; i < 4; i++) expect(o.cards[i].y - bottom(o.cards[i - 1])).toBe(K.offer.gap);
-      expect(bottom(o.cards[3])).toBe(bottom(o.frame));
-      expect(o.bed).toEqual(bedOf(o.frame));
-    });
+      it(`${tag(MAC, countdown, offerPos)}: four card-width cards in ONE column under the header, a gap apart, inside the frame`, () => {
+        expect(l.offerPlacement).toBe(offerPos);
+        expect(o.cards).toHaveLength(4);
+        for (const c of o.cards) {
+          expect(c.x).toBe(o.frame.x);
+          expect(c.w).toBe(K.offer.cardW);
+          expect(c.h).toBe(K.offer.cardH);
+          expect(contains(o.frame, c)).toBe(true);
+          expect(c.y).toBeGreaterThanOrEqual(bottom(o.header));
+        }
+        for (let i = 1; i < 4; i++) expect(o.cards[i].y - bottom(o.cards[i - 1])).toBe(K.offer.gap);
+        expect(bottom(o.cards[3])).toBe(bottom(o.frame));
+        expect(o.bed).toEqual(bedOf(o.frame));
+      });
+    }
   }
 
-  it('carries REDRAW only at the countdown, at the right end of the header line, clear of the cards', () => {
-    expect(consoleLayout(REFERENCE.w, REFERENCE.h).offer.redraw).toBeNull();
-    const o = consoleLayout(REFERENCE.w, REFERENCE.h, { countdown: true }).offer;
+  it('the stack carries REDRAW only at the countdown, on its own full-width line under the header, clear of the cards', () => {
+    expect(consoleLayout(MAC.w, MAC.h).offer.redraw).toBeNull();
+    const o = consoleLayout(MAC.w, MAC.h, { countdown: true }).offer;
     const redraw = o.redraw!;
-    expect(right(redraw)).toBe(right(o.header));
-    expect(redraw.y).toBe(o.header.y);
-    expect(redraw.h).toBeLessThanOrEqual(o.header.h);
-    for (const c of o.cards) expect(overlaps(redraw, c)).toBe(false);
+    expect(redraw.x).toBe(o.header.x);
+    expect(redraw.w).toBe(o.header.w);
+    expect(redraw.y).toBeGreaterThanOrEqual(bottom(o.header));
+    for (const c of o.cards) {
+      expect(overlaps(redraw, c)).toBe(false);
+      expect(c.y).toBeGreaterThan(redraw.y);
+    }
+  });
+
+  it('the row: the header slot at its left, REDRAW at its right at the countdown, nothing overlapping, one bed', () => {
+    for (const countdown of [false, true]) {
+      const o = consoleLayout(REFERENCE.w, REFERENCE.h, { countdown, offerPos: 'bottom' }).offer;
+      expect(o.header.x).toBe(o.frame.x);
+      expect(o.cards[0].x).toBeGreaterThan(right(o.header));
+      for (const c of o.cards) expect(contains(o.frame, c)).toBe(true);
+      expect(o.bed).toEqual(bedOf(o.frame));
+      if (!countdown) expect(o.redraw).toBeNull();
+      else {
+        expect(o.redraw!.x).toBeGreaterThan(right(o.cards[3]));
+        expect(right(o.redraw!)).toBe(right(o.frame));
+      }
+    }
+  });
+
+  it('the header holds its widest count at the text rule in every arrangement', () => {
+    const tracking = K.type.offerHeader * 0.18;
+    const widest = monoTextWidth('10 LEVELS', K.type.offerHeader, tracking);
+    expect(widest).toBeLessThanOrEqual(K.offer.cardW);
+    expect(widest).toBeLessThanOrEqual(K.offer.bar.headW);
   });
 });
 
@@ -332,7 +446,7 @@ describe('THE TEXT RULE (R23) — every console register at or above its floor',
   const CLASS: Readonly<Record<keyof typeof K.type, keyof typeof RULE>> = {
     statValue: 'value', clock: 'value', abilityState: 'value', abilityNumeral: 'value', hull: 'value', hullUnit: 'value',
     indexValue: 'value', hdg: 'value', kts: 'value', lv: 'value', bankCount: 'value',
-    name: 'label', state: 'label', statLabel: 'label', abilityName: 'label', label: 'label', indexLabel: 'label',
+    name: 'label', statLabel: 'label', abilityName: 'label', label: 'label', indexLabel: 'label',
     offerHeader: 'label', offerName: 'label', offerTier: 'label', redraw: 'label',
     tier: 'chip', keyChip: 'chip', offerChip: 'chip',
   };

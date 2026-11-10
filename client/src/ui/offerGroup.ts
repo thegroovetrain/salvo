@@ -1,6 +1,7 @@
-// THE OFFER GROUP (Story 10.10, plan O3; R3 / R9 / R10 / R15) — the always-live
-// compact card group on the right edge, between the kill feed and the weapons
-// console. It replaced the Tab refit band and the level-up toast:
+// THE OFFER GROUP (Story 10.10, plan O3; R3 / R9 / R10 / R15 / R26) — the
+// always-live compact card group, where the player's OFFER POSITION puts it
+// (right edge under the kill feed, left edge under the chrome bar, or one row
+// along the bottom). It replaced the Tab refit band and the level-up toast:
 //
 //   • NO LOCKOUT (R3): it opens nothing and suspends nothing. While a level is
 //     banked it simply IS on screen; a card is picked by a CLICK or by TAB + its
@@ -8,20 +9,21 @@
 //   • its ARRIVAL is the level-up cue (R10 — the toast is gone);
 //   • HOVER previews the card on the consoles (R9 / R18): the card's line id is
 //     handed to `onHover`, which main.ts keeps as `g.hoverLine` and re-folds;
-//   • at the COUNTDOWN it carries REDRAW beside its header (R10; the layout
-//     spine puts it there because a footer could not clear the weapons console
-//     at 1366×768).
+//   • at the COUNTDOWN it carries REDRAW (R10) where the spine puts it.
 //
-// THE STACK (epic-10 amendment 18 R22, Eric 2026-11-10: "this was supposed to
-// be vertically stacked, not a box"): the header line, then the four cards in
-// ONE column, each card ONE row — a 32 px glyph box, the NAME (14/600, two
-// lines allowed), the tier mark (14) in the colour of the tier the card GRANTS
-// (amendment 12(o): `II → III`; a one-off add-on is a GOLD square with no
-// numeral), and the two-token key chip `TAB` `n` (12) at the right. Every
-// size honours THE TEXT RULE (labels ≥ 14 px, chips ≥ 12 px at the 1920
-// reference, before the viewport factor). A refused card is dimmed and sends
-// nothing; a pick in flight dims the whole group. The whole group sits on ONE
-// dark-glass bed (R24) behind the header and the stack.
+// THE ARRANGEMENT is the spine's (R22 stack / R26 row): this module lays every
+// card, the header and REDRAW from the layout's rects, whatever their shape.
+//
+// THE CARD FACE is the MERGED face (Eric 2026-11-10: "original narrow width"),
+// unchanged: a 28 px glyph box top-left, the NAME (14/600, two lines allowed)
+// beside it, the tier numeral (14/600) bottom-left in the colour of the tier
+// the card GRANTS (amendment 12(o): `II → III`; a one-off add-on is a GOLD
+// square with no numeral), the two-token key chip `TAB` `n` (12) bottom-right,
+// a 1 px tier-colour outline, the tier glow on hover. Every size honours THE
+// TEXT RULE (labels ≥ 14 px, chips ≥ 12 px at the 1920 reference, before the
+// viewport factor). A refused card is dimmed and sends nothing; a pick in
+// flight dims the whole group. The whole group sits on ONE dark-glass bed
+// (R24) behind the header and the cards.
 //
 // DOM chrome over the canvas (z-index 1000, as the band was). Pointer events
 // live only on the cards and the button, so the water stays clickable around
@@ -50,11 +52,10 @@ const PANEL_ID = 'offer-group';
 const TY = K.type;
 
 /**
- * THE STACK'S FACE (epic-10 amendment 18 R22 / R23's text rule), in logical px
- * at the 1920 reference. The type sizes and the glyph box are the console
- * config's (`console.type.offer*` / `redraw`, `console.offer`); the card-row
- * geometry that is this module's alone — the key chip's box height, the
- * one-off's gold square, the gap between a card's parts — is declared here.
+ * THE MERGED CARD FACE (R26; R23's text rule), in logical px at the 1920
+ * reference. The type sizes and the face box are the console config's
+ * (`console.type.offer*` / `redraw`, `console.offer`); the one-off's gold
+ * square is this module's alone.
  */
 const F = {
   header: TY.offerHeader,
@@ -64,10 +65,9 @@ const F = {
   chip: TY.offerChip,
   glyphBox: O.glyphBox,
   glyph: O.glyph,
-  padX: O.pad,
-  chipH: 20,
-  oneOff: 10,
-  gap: 8,
+  pad: O.pad,
+  footH: O.footH,
+  oneOff: 8,
 } as const;
 
 const PHOSPHOR = 'var(--hc-phosphor)';
@@ -184,16 +184,12 @@ const HEADER_CSS = [
   'white-space:nowrap',
 ].join(';');
 
-/** A card is ONE ROW: glyph · name (grows) · tier mark · key chip. */
+/** The card box; its parts sit at fixed offsets inside it (the merged face). */
 const CARD_CSS = [
   'position:absolute',
   'box-sizing:border-box',
   'margin:0',
-  'display:flex',
-  'flex-direction:row',
-  'align-items:center',
-  `gap:${F.gap}px`,
-  `padding:0 ${F.padX}px`,
+  'padding:0',
   'background-color:transparent',
   'border-width:1px',
   'border-style:solid',
@@ -206,7 +202,9 @@ const CARD_CSS = [
 ].join(';');
 
 const GLYPH_BOX_CSS = [
-  'flex:none',
+  'position:absolute',
+  `left:${F.pad}px`,
+  `top:${F.pad}px`,
   `width:${F.glyphBox}px`,
   `height:${F.glyphBox}px`,
   'box-sizing:border-box',
@@ -217,35 +215,49 @@ const GLYPH_BOX_CSS = [
   'justify-content:center',
 ].join(';');
 
-/** The NAME takes the row's slack and may wrap to TWO lines (never shrinks). */
+/** The NAME beside the glyph box, the box's height, centred; it may wrap to
+ *  TWO lines (never shrinks). */
 const NAME_CSS = [
-  'flex:1 1 auto',
-  'min-width:0',
+  'position:absolute',
+  `left:${F.pad + F.glyphBox + F.pad}px`,
+  `right:${F.pad}px`,
+  `top:${F.pad}px`,
+  `height:${F.glyphBox}px`,
+  'display:flex',
+  'align-items:center',
   `font-size:${F.name}px`,
   'font-weight:600',
-  'line-height:1.15',
+  `line-height:${F.name}px`,
   'letter-spacing:.03em',
   'text-transform:uppercase',
   'overflow:hidden',
-  'display:-webkit-box',
-  '-webkit-box-orient:vertical',
-  '-webkit-line-clamp:2',
 ].join(';');
 
-const TIER_CSS = ['flex:none', `font-size:${F.tier}px`, 'font-weight:600', 'white-space:nowrap'].join(';');
-const ONE_OFF_CSS = ['flex:none', 'display:inline-block', `width:${F.oneOff}px`, `height:${F.oneOff}px`].join(';');
+/** The foot line: the tier numeral bottom-left, the key chip bottom-right. */
+const FOOT_CSS = [
+  'position:absolute',
+  `left:${F.pad}px`,
+  `right:${F.pad}px`,
+  `bottom:${F.pad}px`,
+  `height:${F.footH}px`,
+  'display:flex',
+  'align-items:center',
+  'justify-content:space-between',
+].join(';');
+
+const TIER_CSS = [`font-size:${F.tier}px`, 'font-weight:600', 'letter-spacing:.04em', 'white-space:nowrap'].join(';');
+const ONE_OFF_CSS = ['display:inline-block', `width:${F.oneOff}px`, `height:${F.oneOff}px`].join(';');
 const CHIP_CSS = [
-  'flex:none',
   'display:inline-flex',
   'align-items:center',
-  `height:${F.chipH}px`,
+  `height:${F.footH}px`,
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
   `font-size:${F.chip}px`,
   'letter-spacing:.04em',
 ].join(';');
-const CHIP_TOKEN_CSS = ['padding:0 4px', `line-height:${F.chipH - 2}px`].join(';');
+const CHIP_TOKEN_CSS = ['padding:0 4px', `line-height:${F.footH - 2}px`].join(';');
 
 const REDRAW_CSS = [
   'position:absolute',
@@ -341,7 +353,7 @@ export class OfferGroup {
    *  only when it moved. */
   private position(root: HTMLDivElement, layout: OfferLayout, uiScale: number): void {
     const s = Number.isFinite(uiScale) && uiScale > 0 ? uiScale : 1;
-    const key = `${layout.frame.x}|${layout.frame.y}|${s}|${layout.redraw === null ? 0 : 1}`;
+    const key = `${layout.frame.x}|${layout.frame.y}|${layout.frame.w}|${layout.frame.h}|${s}|${layout.redraw === null ? 0 : 1}`;
     if (key === this.lastPlace) return;
     this.lastPlace = key;
     root.style.left = `${layout.frame.x * s}px`;
@@ -384,7 +396,7 @@ export class OfferGroup {
 
   private renderHeader(view: OfferView, layout: OfferLayout): void {
     const h = this.header!;
-    place(h, { ...layout.header, w: layout.redraw === null ? layout.header.w : layout.redraw.x - layout.header.x }, layout.frame);
+    place(h, layout.header, layout.frame);
     h.style.lineHeight = `${layout.header.h}px`;
     const count = el('b', `color:${PHOSPHOR};font-weight:600`);
     count.textContent = String(view.pts);
@@ -397,7 +409,9 @@ export class OfferGroup {
     btn.type = 'button';
     place(btn, layout.cards[choice], layout.frame);
     const tone = cardTone(card);
-    btn.append(glyphBox(card, tone), nameEl(card), tierEl(card, tone), keyChip(choice));
+    const foot = el('div', FOOT_CSS);
+    foot.append(tierEl(card, tone), keyChip(choice));
+    btn.append(glyphBox(card, tone), nameEl(card), foot);
     const els: CardEls = { root: btn, tone, greyed: card.greyed };
     paintCard(els, false);
     if (locked) btn.style.opacity = String(O.lockedAlpha);

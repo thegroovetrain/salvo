@@ -118,8 +118,18 @@ function numText(v: number): string {
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
+/** The fields with a printer of their own — the stat tables' registers
+ *  (ui/boonCopy.ts `FIELD_FMTS`), bare of the unit the console never prints:
+ *  a turn rate to three decimals (`0.125`), a slow as a percentage (`75%`). */
+const FIELD_TEXT: Readonly<Record<string, (v: number) => string>> = {
+  homingTurnRate: (v) => String(Math.round(v * 1000) / 1000),
+  slowFactor: (v) => `${numText(v * 100)}%`,
+};
+
 function fieldText(field: string, v: number): string {
   if (field === 'damage') return String(v);
+  const own = FIELD_TEXT[field];
+  if (own !== undefined) return own(v);
   return /Ms$/.test(field) ? secsText(v) : numText(v);
 }
 
@@ -168,15 +178,40 @@ function fieldLabels(target: EquipmentId, stats: EffectiveStats): ReadonlyMap<st
 /** The radius-like fields a mine / special row may print, in preference. */
 const RADIUS_FIELDS = ['blastRadius', 'triggerRadius', 'litRadius', 'zoneRadius', 'radius', 'burstRadius'] as const;
 
+/** THE FOURTH LINE of a Q / E / R cell (R26, Eric 2026-11-10: "Q E R need a
+ *  4th available line for stats (torpedo homing, for example)") — the first
+ *  field in this preference the weapon's stat table prints and the head has
+ *  not: the torpedo's HOMING; a mine line's own number (the captive's HOMING,
+ *  the fouling mine's SLOW, the naval mine's TRIGGER RADIUS); a special's
+ *  RANGE, or its ROUNDS where the head already holds its range. A weapon
+ *  with none leaves the line blank (never squeezed). */
+const FOURTH_FIELDS: Readonly<Partial<Record<WeaponRowKind, readonly string[]>>> = {
+  torpedo: ['homingTurnRate'],
+  mines: ['homingTurnRate', 'slowFactor', 'triggerRadius'],
+  special: ['rangeU', 'maxAmmo'],
+};
+
 function carries(stats: EffectiveStats, target: EquipmentId, field: string): boolean {
   return typeof (stats.equipment[target] as unknown as Record<string, unknown>)[field] === 'number';
 }
 
+/** Pure: the head fields a row prints before RELOAD (O4) — every one of them
+ *  carried and named (`has`). */
+function headFields(kind: WeaponRowKind, has: (f: string) => boolean): string[] {
+  const radius = RADIUS_FIELDS.find(has);
+  if (kind === 'mainBattery') return ['damage', 'rangeU'].filter(has);
+  if (kind === 'torpedo') return ['damage', 'speed'].filter(has);
+  if (kind === 'mines') return ['damage', radius ?? ''].filter((f) => f !== '' && has(f));
+  return ['damage', radius ?? ''].filter((f) => f !== '' && has(f)).slice(0, 2);
+}
+
 /**
- * Pure: the fields a weapon row's stats line prints, in order (O4):
- * MAIN BATTERY `DAMAGE · RANGE · RELOAD`; TORPEDO `DAMAGE · SPEED · RELOAD`;
- * MINES `DAMAGE · <its radius> · RELOAD`; SPECIAL the first two of
- * DAMAGE / its radius / RANGE it carries, then RELOAD.
+ * Pure: the fields a weapon cell prints, one per line, in order (O4 / R26):
+ * MAIN BATTERY `DAMAGE · RANGE · RELOAD`; TORPEDO `DAMAGE · SPEED · HOMING ·
+ * RELOAD`; MINES `DAMAGE · <its radius> · <its fourth> · RELOAD`; SPECIAL
+ * `DAMAGE · <its radius>` (the first two it carries) · `RANGE` (or `ROUNDS`)
+ * · RELOAD. The fourth comes from `FOURTH_FIELDS`; a Q / E / R cell prints at
+ * most four, the left cells three.
  */
 export function rowStatFields(kind: WeaponRowKind, target: EquipmentId, stats: EffectiveStats): string[] {
   // A field prints only if the row carries it AND its stat table names it —
@@ -184,13 +219,9 @@ export function rowStatFields(kind: WeaponRowKind, target: EquipmentId, stats: E
   // so its radius is the derived TRIGGER RADIUS the table does print.
   const labels = fieldLabels(target, stats);
   const has = (f: string): boolean => carries(stats, target, f) && labels.has(f);
-  const radius = RADIUS_FIELDS.find(has);
-  let head: string[];
-  if (kind === 'mainBattery') head = ['damage', 'rangeU'];
-  else if (kind === 'torpedo') head = ['damage', 'speed'];
-  else if (kind === 'mines') head = radius === undefined ? ['damage'] : ['damage', radius];
-  else head = ['damage', radius ?? '', 'rangeU'].filter((f) => f !== '' && has(f)).slice(0, 2);
-  return [...head.filter(has), 'reloadMs'];
+  const head = headFields(kind, has);
+  const fourth = (FOURTH_FIELDS[kind] ?? []).find((f) => has(f) && !head.includes(f));
+  return [...head, ...(fourth === undefined ? [] : [fourth]), 'reloadMs'];
 }
 
 // --- consoleReadouts ------------------------------------------------------------
@@ -355,18 +386,10 @@ export function hoverPreview(you: ReadoutShip, line: string | null, ownSlots?: r
 
 // --- the weapon rows (O4) -----------------------------------------------------
 
-/** The row state the outline is drawn in. */
+/** The row state the outline is drawn in. No state WORD prints (Eric
+ *  2026-11-10, round 3): ready = the solid rings, readied = the amber outline,
+ *  wash and filled chip, locked = the red outline and the hatched heat bar. */
 export type RowState = 'empty' | 'ready' | 'cooling' | 'readied' | 'locked';
-
-/** The state word each state prints ('' = none: the clocks say cooling, an
- *  empty row says nothing). */
-export const ROW_STATE_WORD: Readonly<Record<RowState, string>> = {
-  empty: '',
-  ready: 'READY',
-  cooling: '',
-  readied: 'ARMED',
-  locked: 'LOCKED',
-};
 
 /** The key each row and button spells — the keys input binds. */
 export const ROW_KEY_GLYPH: Readonly<Record<WeaponRowKind, string>> = {
@@ -422,7 +445,6 @@ export interface WeaponRowModel {
   /** Empty Q / E / R: the family glyph drawn dim; null otherwise. */
   emptyGlyph: EquipmentId | null;
   state: RowState;
-  stateWord: string;
   /** Q / E / R armed (the filled amber key chip) — independent of `state`. */
   readied: boolean;
   tier: number;
@@ -510,7 +532,7 @@ function rowReady(kind: WeaponRowKind, clocks: readonly MountClock[], racks: rea
 function emptyRow(kind: WeaponRowKind): WeaponRowModel {
   return {
     kind, slot: rowSlot(kind), id: null, name: FAMILY_WORD[kind] ?? '', emptyGlyph: FAMILY_GLYPH[kind] ?? null,
-    state: 'empty', stateWord: '', readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH[kind],
+    state: 'empty', readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH[kind],
     clocks: [], racks: [], heat: null, stats: [],
   };
 }
@@ -519,7 +541,7 @@ function secondariesRow(input: WeaponsInput): WeaponRowModel {
   const state: RowState = input.sec.locked ? 'locked' : 'ready';
   return {
     kind: 'secondaries', slot: null, id: null, name: ROW_NAME.secondaries ?? '', emptyGlyph: null,
-    state, stateWord: ROW_STATE_WORD[state], readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH.secondaries,
+    state, readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH.secondaries,
     clocks: [], racks: [], heat: { heat: input.sec.heat, locked: input.sec.locked }, stats: rowStats('secondaries', input.readouts),
   };
 }
@@ -544,7 +566,7 @@ export function weaponRowModel(kind: WeaponRowKind, input: WeaponsInput): Weapon
   const tier = slotTier(input.stats, input.cards, id);
   return {
     kind, slot, id, name: ROW_NAME[kind] ?? EQUIPMENT_NAME[id].toUpperCase(), emptyGlyph: null,
-    state, stateWord: ROW_STATE_WORD[state], readied, tier, tierNumeral: tier > 0 ? romanTier(tier) : '',
+    state, readied, tier, tierNumeral: tier > 0 ? romanTier(tier) : '',
     keyGlyph: ROW_KEY_GLYPH[kind], clocks, racks, heat: null, stats: rowStats(kind, input.readouts),
   };
 }
@@ -587,6 +609,9 @@ export interface AbilitiesInput {
   shiftActiveMsLeft: number;
 }
 
+/** The one word an ability button prints when ready (it has no ring). */
+export const ABILITY_READY_WORD = 'READY';
+
 /** The key each ability button spells. */
 export const ABILITY_KEY_GLYPH: Readonly<Record<AbilityKind, string>> = { repair: 'C', smoke: 'V', shift: 'Shift' };
 
@@ -609,7 +634,7 @@ export function cooldownState(
 
 function abilityFace(kind: AbilityKind, name: string, state: AbilityState, msLeft: number, progress: number, tier: number): AbilityModel {
   return {
-    kind, keyGlyph: ABILITY_KEY_GLYPH[kind], name, state, stateWord: state === 'ready' ? ROW_STATE_WORD.ready : '',
+    kind, keyGlyph: ABILITY_KEY_GLYPH[kind], name, state, stateWord: state === 'ready' ? ABILITY_READY_WORD : '',
     msLeft, numeral: state === 'ready' ? '' : clockNumeral(msLeft), progress, tier,
   };
 }

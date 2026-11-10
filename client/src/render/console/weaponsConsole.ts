@@ -6,13 +6,18 @@
 // model (readouts.ts) and every rect in the spine (layout.ts); nothing here
 // re-derives a stat.
 //
-//   cell:   ┌────────────────────────────────────┐
-//   header  │ NAME   READY  II             [ Q ] │
-//   mounts  │ (5) (5) ●   clocks · pips · heat   │
-//   stat    │ DAMAGE                         250 │  ONE STAT PER LINE (R23):
-//   stat    │ SPEED                         47.5 │  label left, value right,
-//   stat    │ RELOAD                       21.8S │  at the text rule's sizes
-//           └────────────────────────────────────┘
+//   cell:   ┌──────────────────────────┐  200 px (W2, R26)
+//   line 1  │ HEAVY TORPEDO II     [ Q ] │  NAME · tier · key chip
+//   mounts  │ (12) (3.6) ( ) ( )         │  40 px rings, the seconds INSIDE,
+//   stat    │ DAMAGE                 250 │  four to the line, NOTHING else
+//   stat    │ SPEED                 47.5 │  on it — never wraps (R27)
+//   stat    │ HOMING               0.125 │  ONE STAT PER LINE (R23): label
+//   stat    │ RELOAD               21.8S │  left, value right
+//           └──────────────────────────┘
+//
+// NO STATE WORD (Eric 2026-11-10, round 3): ready = the solid phosphor rings,
+// ARMED = the amber outline + inset wash + filled amber key chip, LOCKED = the
+// red outline + the denied hatched heat bar.
 //
 // THE PREVIEW (R18): a key in `view.preview` turns its number AMBER with an
 // arrow (`new▲` / `new▼`), a marked tier reads `II→III`, and a marked count
@@ -34,6 +39,7 @@ import { tierRampColor } from '../../ui/tierRamp.js';
 import { drawEquipmentIcon } from '../equipmentIcons.js';
 import { keyChipGlyphColor } from '../keyChip.js';
 import {
+  MAX_CLOCKS,
   inRect,
   rowSlot,
   type AbilityRect,
@@ -135,12 +141,6 @@ export function advanceBreath(phase: number, dtSec: number): number {
 
 // --- pure core: words, chips, preview text ----------------------------------------
 
-/** Pure: the state word's colour (READY phosphor · ARMED amber · LOCKED denied). */
-export function stateWordColor(state: RowState): number {
-  if (state === 'readied') return C.amber;
-  return state === 'locked' ? C.denied : C.phosphor;
-}
-
 /** Pure: a key chip's width — the bar's widening mono box (`LMB`, `Shift`),
  *  its glyph drawn at `scale` (the mono floor's, `floorScale`). */
 export function consoleChipWidth(glyph: string, scale = 1): number {
@@ -153,11 +153,32 @@ export function markedValue(value: string, mark: PreviewMark | undefined): { tex
   return { text: `${mark.value}${mark.direction === 'up' ? '▲' : '▼'}`, amber: true };
 }
 
-/** Pure: the tier numeral — `II→III` amber under a marked tier, else the ramp. */
-export function tierLabel(row: WeaponRowModel, preview: PreviewMarks | null): { text: string; color: number } {
+/**
+ * Pure: the tier numeral line 1 prints in `room` px — the ramp numeral, or
+ * under a marked tier the amber hover form: `II→III` where it fits, else
+ * `III▲`, else the bare amber `III` (a long name — SUPERCAV TORPEDO — leaves
+ * line 1 too little room for the full form; the text never shrinks, the form
+ * shortens). `room` defaults to unbounded.
+ */
+export function tierLabel(row: WeaponRowModel, preview: PreviewMarks | null, room = Infinity): { text: string; color: number } {
   const mark = preview?.get(`row.${row.kind}.tier`);
-  if (mark !== undefined) return { text: row.tierNumeral === '' ? mark.value : `${row.tierNumeral}→${mark.value}`, color: C.amber };
-  return { text: row.tierNumeral, color: tierRampColor(row.tier) };
+  if (mark === undefined) return { text: row.tierNumeral, color: tierRampColor(row.tier) };
+  const forms = [...(row.tierNumeral === '' ? [] : [`${row.tierNumeral}→${mark.value}`]), `${mark.value}▲`, mark.value];
+  const text = forms.find((f) => monoTextWidth(f, T.tier) <= room) ?? mark.value;
+  return { text, color: C.amber };
+}
+
+/** Pure: R27 — the letter-spacing a clock numeral prints at: tightened on a
+ *  three-character numeral (`1.8`, `120`) so it sits inside its ring, else 0. */
+export function clockTracking(numeral: string): number {
+  return [...numeral].length >= 3 ? CELL.clockTracking : 0;
+}
+
+/** Pure: R27 — how many rings the mount line draws: the current ones plus a
+ *  preview's hollow extras, never more than `MAX_CLOCKS` (the line never wraps). */
+export function ringsShown(current: number, extra: number): { current: number; extra: number } {
+  const c = Math.min(current, MAX_CLOCKS);
+  return { current: c, extra: Math.max(0, Math.min(extra, MAX_CLOCKS - c)) };
 }
 
 /** Pure: how many HOLLOW amber marks a count key adds beyond the current ones
@@ -184,9 +205,9 @@ export interface StatLine {
 }
 
 /** Pure: a cell's stat lines, ONE STAT PER LINE, in print order — at most the
- *  `statLines` the cell has room for (readouts.ts never prints more). */
-export function statLines(row: WeaponRowModel, preview: PreviewMarks | null): StatLine[] {
-  return row.stats.slice(0, CELL.statLines).map((r) => {
+ *  `max` lines the cell has (readouts.ts never prints more). */
+export function statLines(row: WeaponRowModel, preview: PreviewMarks | null, max: number = CELL.statLines): StatLine[] {
+  return row.stats.slice(0, max).map((r) => {
     const v = markedValue(r.value, preview?.get(r.key));
     return { label: r.label, value: v.text, amber: v.amber };
   });
@@ -196,7 +217,6 @@ export function statLines(row: WeaponRowModel, preview: PreviewMarks | null): St
 
 interface RowTexts {
   name: Text;
-  state: Text;
   tier: Text;
   chip: Text;
   numerals: Text[];
@@ -236,12 +256,17 @@ const DISC_ALPHA = 0.9;
 const HEAT_FILL_ALPHA = 0.85;
 const LOCK_WASH_ALPHA = 0.16;
 const HATCH_PITCH = 4;
-/** Gap between a rack's ring and its pips. */
-const RACK_GAP = 4;
-/** An ability button's state word / numeral and name centres, as shares of
- *  its height (the name sits above the progress hairline). */
-const ABILITY_WORD_AT = 0.42;
-const ABILITY_NAME_AT = 0.78;
+/** An empty cell's family glyph size (px), dim, where the first ring would be. */
+const EMPTY_GLYPH_PX = 24;
+/** The most pips a rack's column holds before the next column starts. */
+const PIPS_PER_COLUMN = 4;
+/** Pure: an ability button's two text centres (y offsets from its top) —
+ *  the state word / numeral just under the key chip's box (so a wide `Shift`
+ *  chip never touches it), the name just above the progress hairline. */
+export function abilityTextYs(h: number): { word: number; name: number } {
+  const chipBottom = CELL.padX / 2 + CELL.keyChip;
+  return { word: chipBottom + T.abilityState / 2, name: h - AB.progressH - T.abilityName / 2 - 1 };
+}
 
 /** Where the mount line's marks end (`x`) and how many clock numerals they used. */
 interface MountsEnd {
@@ -359,14 +384,13 @@ export class WeaponsConsole {
     while (this.rowTexts.length <= i) {
       const rt: RowTexts = {
         name: text(T.name, '600', C.textPrimary),
-        state: text(T.state, '600', C.phosphor),
         tier: text(T.tier, '600', C.phosphor),
         chip: text(T.keyChip, '600', C.phosphor, 0.5),
         numerals: [],
         labels: [],
         values: [],
       };
-      this.root.addChild(rt.name, rt.state, rt.tier, rt.chip);
+      this.root.addChild(rt.name, rt.tier, rt.chip);
       this.rowTexts.push(rt);
     }
     return this.rowTexts[i];
@@ -387,7 +411,7 @@ export class WeaponsConsole {
   private hideRowTexts(i: number): void {
     const rt = this.rowTexts[i];
     if (rt === undefined) return;
-    for (const t of [rt.name, rt.state, rt.tier, rt.chip, ...rt.numerals, ...rt.labels, ...rt.values]) t.visible = false;
+    for (const t of [rt.name, rt.tier, rt.chip, ...rt.numerals, ...rt.labels, ...rt.values]) t.visible = false;
   }
 
   /** Place a Text; its scale holds it on the mono floor (`floorScale`). */
@@ -441,42 +465,44 @@ export class WeaponsConsole {
     this.drawStats(row, rect, rt);
   }
 
+  /** Line 1: NAME left, the tier numeral `tierGap` after it, the key chip
+   *  right — the tier's hover form shortens to the room between (`tierLabel`). */
   private drawHeader(row: WeaponRowModel, l: Rect, rt: RowTexts, denied: boolean): void {
     const cy = l.y + l.h / 2;
-    const empty = row.state === 'empty';
     this.place(rt.name, row.name, l.x, cy);
-    rt.name.alpha = empty ? EMPTY_ALPHA : 1;
-    let x = l.x + monoTextWidth(row.name, T.name) + CELL.padX;
-    setFill(rt.state, stateWordColor(row.state));
-    this.place(rt.state, row.stateWord, x, cy);
-    if (row.stateWord !== '') x += monoTextWidth(row.stateWord, T.state) + CELL.padX;
-    const tier = tierLabel(row, this.preview);
+    rt.name.alpha = row.state === 'empty' ? EMPTY_ALPHA : 1;
+    const x = l.x + monoTextWidth(row.name, T.name) + CELL.tierGap;
+    const chipW = consoleChipWidth(row.keyGlyph, floorScale(T.keyChip, this.uiScale));
+    const tier = tierLabel(row, this.preview, l.x + l.w - chipW - CELL.tierGap - x);
     setFill(rt.tier, tier.color);
     this.place(rt.tier, tier.text, x, cy);
     this.drawChip(rt.chip, row.keyGlyph, l.x + l.w, cy, row.readied, denied);
   }
 
+  /** The MOUNT line (R27): rings, racks or the heat bar — and nothing else. */
   private drawMounts(row: WeaponRowModel, l: Rect, rt: RowTexts): void {
     let end: MountsEnd = { x: l.x, n: 0 };
     if (row.heat !== null) this.drawHeat(row.heat.heat, row.heat.locked, l);
     else if (row.state === 'empty') end = this.drawEmptyGlyph(row, l);
     else if (row.kind === 'mines') end = this.drawRacks(row, l, rt);
     else end = this.drawClocks(row.clocks, l, rt);
-    const key = clockCountKey(row);
-    const extra = key === null ? 0 : extraMarks(this.preview, key);
-    for (let k = 0; k < extra; k++) this.drawHollowClock(end.x + k * (CELL.clock + CELL.clockGap), l.y + l.h / 2);
+    if (row.kind !== 'mines') this.drawHollowClocks(row, end, l);
     for (let k = end.n; k < rt.numerals.length; k++) rt.numerals[k].visible = false;
+  }
+
+  /** A marked count's HOLLOW amber rings after the current ones, inside the
+   *  four the line holds (`ringsShown`). */
+  private drawHollowClocks(row: WeaponRowModel, end: MountsEnd, l: Rect): void {
+    const key = clockCountKey(row);
+    const extra = ringsShown(end.n, key === null ? 0 : extraMarks(this.preview, key)).extra;
+    for (let k = 0; k < extra; k++) this.drawHollowClock(end.x + k * (CELL.clock + CELL.clockGap), l.y + l.h / 2);
   }
 
   private drawClocks(clocks: readonly MountClock[], l: Rect, rt: RowTexts): MountsEnd {
     const cy = l.y + l.h / 2;
-    let x = l.x;
-    clocks.forEach((c, k) => {
-      if (k > 0 && c.group !== clocks[k - 1].group) x += CELL.clockGap;
-      this.drawClock(c, x, cy, rt, k);
-      x += CELL.clock + CELL.clockGap;
-    });
-    return { x, n: clocks.length };
+    const n = ringsShown(clocks.length, 0).current;
+    for (let k = 0; k < n; k++) this.drawClock(clocks[k], l.x + k * (CELL.clock + CELL.clockGap), cy, rt, k);
+    return { x: l.x + n * (CELL.clock + CELL.clockGap), n };
   }
 
   /** One ring: a solid phosphor disc when ready; otherwise a silver ring, the
@@ -496,6 +522,8 @@ export class WeaponsConsole {
       const a0 = -Math.PI / 2;
       g.moveTo(cx, cy).arc(cx, cy, r, a0, a0 + Math.PI * 2 * c.progress).closePath().fill({ color: C.phosphor, alpha: WEDGE_ALPHA });
     }
+    const tracking = clockTracking(c.numeral);
+    if (t.style.letterSpacing !== tracking) t.style.letterSpacing = tracking;
     this.place(t, c.numeral, cx, cy);
   }
 
@@ -503,30 +531,42 @@ export class WeaponsConsole {
     this.gfx.circle(x + CELL.clock / 2, cy, CELL.clock / 2).stroke({ width: BAR.lineW, color: C.amber, alpha: 1 });
   }
 
-  private rackPipsW(n: number): number {
-    return n * (CELL.rackPip.w + CELL.rackPip.gap);
-  }
-
-  /** Mines: per rack its reload ring, then its held-mine pips (capacity from
-   *  the model; a marked capacity adds hollow amber pips). */
+  /** Mines (R27): per rack ONE ring, then its held-mine pips in a short
+   *  column right of it (capacity from the model; a marked capacity adds
+   *  hollow amber pips; a marked rack count adds a hollow ring). */
   private drawRacks(row: WeaponRowModel, l: Rect, rt: RowTexts): MountsEnd {
     const cy = l.y + l.h / 2;
     const extraCap = extraMarks(this.preview, 'row.mines.capacity');
-    const P = CELL.rackPip;
+    const cap = Math.max(0, ...row.racks.map((r) => r.capacity)) + extraCap;
     let x = l.x;
     row.racks.forEach((rack, k) => {
       const c = row.clocks[k];
       if (c !== undefined) this.drawClock(c, x, cy, rt, k);
-      x += CELL.clock + RACK_GAP;
-      for (let j = 0; j < rack.capacity + extraCap; j++) {
-        const px = x + j * (P.w + P.gap);
-        const py = cy - P.h / 2;
-        if (j < rack.held) this.gfx.rect(px, py, P.w, P.h).fill({ color: C.phosphor, alpha: DISC_ALPHA });
-        else this.gfx.rect(px, py, P.w, P.h).stroke({ width: BAR.lineW, color: j < rack.capacity ? C.textMuted : C.amber, alpha: j < rack.capacity ? 0.6 : 1 });
-      }
-      x += this.rackPipsW(rack.capacity + extraCap) + CELL.clockGap;
+      x = this.drawPipColumn(rack.held, rack.capacity, rack.capacity + extraCap, x + CELL.clock + CELL.rackGap, cy) + CELL.clockGap;
     });
+    const extraRacks = extraMarks(this.preview, 'row.mines.racks');
+    for (let k = 0; k < extraRacks; k++) {
+      this.drawHollowClock(x, cy);
+      x = this.drawPipColumn(0, 0, cap, x + CELL.clock + CELL.rackGap, cy) + CELL.clockGap;
+    }
     return { x, n: Math.min(row.racks.length, row.clocks.length) };
+  }
+
+  /** One rack's pips, top to bottom in columns of four, centred on `cy`;
+   *  filled per held mine, muted hollow to `capacity`, amber hollow beyond
+   *  (a hover's rise). Returns the column block's right edge. */
+  private drawPipColumn(held: number, capacity: number, total: number, x: number, cy: number): number {
+    const P = CELL.rackPip;
+    const perCol = Math.min(PIPS_PER_COLUMN, Math.max(1, total));
+    const top = cy - (perCol * P.h + (perCol - 1) * P.gap) / 2;
+    for (let j = 0; j < total; j++) {
+      const px = x + Math.floor(j / PIPS_PER_COLUMN) * (P.w + P.gap);
+      const py = top + (j % PIPS_PER_COLUMN) * (P.h + P.gap);
+      if (j < held) this.gfx.rect(px, py, P.w, P.h).fill({ color: C.phosphor, alpha: DISC_ALPHA });
+      else this.gfx.rect(px, py, P.w, P.h).stroke({ width: BAR.lineW, color: j < capacity ? C.textMuted : C.amber, alpha: j < capacity ? 0.6 : 1 });
+    }
+    const cols = Math.ceil(total / PIPS_PER_COLUMN);
+    return x + cols * (P.w + P.gap) - (cols > 0 ? P.gap : 0);
   }
 
   /** The secondaries' heat bar: phosphor fill to the heat; LOCKED = the
@@ -564,7 +604,7 @@ export class WeaponsConsole {
   private drawEmptyGlyph(row: WeaponRowModel, l: Rect): MountsEnd {
     if (row.emptyGlyph !== null) {
       const style = { width: 1.5, color: C.textMuted, alpha: EMPTY_ALPHA };
-      drawEquipmentIcon(this.gfx, row.emptyGlyph, l.x + CELL.clock / 2, l.y + l.h / 2, CELL.clock, style);
+      drawEquipmentIcon(this.gfx, row.emptyGlyph, l.x + EMPTY_GLYPH_PX / 2, l.y + l.h / 2, EMPTY_GLYPH_PX, style);
     }
     return { x: l.x + CELL.clock + CELL.clockGap, n: 0 };
   }
@@ -572,7 +612,7 @@ export class WeaponsConsole {
   /** R23: ONE STAT PER LINE — the label left in the muted register, the value
    *  right-aligned in phosphor (amber with its arrow under a hover mark). */
   private drawStats(row: WeaponRowModel, rect: WeaponRowRect, rt: RowTexts): void {
-    const lines = statLines(row, this.preview);
+    const lines = statLines(row, this.preview, rect.statLines.length);
     lines.forEach((line, k) => {
       const r = rect.statLines[k];
       const cy = r.y + r.h / 2;
@@ -612,7 +652,8 @@ export class WeaponsConsole {
     const at = this.abilityTextsAt(i);
     this.drawBox(r, skin);
     const cx = r.x + r.w / 2;
-    const wordY = r.y + r.h * ABILITY_WORD_AT;
+    const ys = abilityTextYs(r.h);
+    const wordY = r.y + ys.word;
     const mark = ab.kind === 'shift' ? undefined : this.preview?.get(`ability.${ab.kind}.cooldown`);
     const word = markedValue(ab.stateWord, mark);
     setFill(at.word, word.amber ? C.amber : C.phosphor);
@@ -620,7 +661,7 @@ export class WeaponsConsole {
     this.place(at.numeral, word.text === '' ? ab.numeral : '', cx, wordY);
     const inset = CELL.padX / 2;
     this.drawChip(at.chip, ab.keyGlyph, r.x + r.w - inset, r.y + inset + CELL.keyChip / 2, false, denied);
-    this.place(at.name, ab.name, cx, r.y + r.h * ABILITY_NAME_AT);
+    this.place(at.name, ab.name, cx, r.y + ys.name);
     if (ab.state === 'cooling' && ab.progress > 0) {
       this.gfx.rect(r.x, r.y + r.h - AB.progressH, r.w * Math.min(1, ab.progress), AB.progressH).fill({ color: C.phosphor, alpha: 1 });
     }

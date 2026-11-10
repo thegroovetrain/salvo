@@ -12,10 +12,14 @@ import { offerView, redrawState, type OfferView } from '../ui/offerCore.js';
 import { OfferGroup, REDRAW_LABEL, cardTierMark, offerHeaderText, rearmChoice, type OfferGroupHooks } from '../ui/offerGroup.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { settings } from '../settings/store.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 const OFFER = ['intel', 'armor', 'deckGun', 'navalMines'];
-const LIVE = consoleLayout(1366, 768).offer;
-const COUNTDOWN = consoleLayout(1366, 768, { countdown: true }).offer;
+/** The RIGHT stack on the 13" MacBook's logical viewport (1440×900 ÷ 0.75). */
+const LIVE = consoleLayout(1920, 1200).offer;
+const COUNTDOWN = consoleLayout(1920, 1200, { countdown: true }).offer;
+/** The BOTTOM row (R26) on the reference screen. */
+const ROW = consoleLayout(1920, 1080, { offerPos: 'bottom' }).offer;
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
@@ -103,16 +107,56 @@ describe('OfferGroup — the corner group (O3)', () => {
     }
   });
 
-  it('a card is ONE row: glyph box, name, tier mark, key chip — in that order', () => {
+  it('lays the cards from the ROW`s rects too (BOTTOM, R26): one row, left to right, the header in its slot', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), ROW, 1);
+    const cs = cards();
+    expect(cs).toHaveLength(4);
+    cs.forEach((b, i) => {
+      expect(px(b.style.left)).toBe(ROW.cards[i].x - ROW.frame.x);
+      expect(px(b.style.top)).toBe(ROW.cards[i].y - ROW.frame.y);
+      expect(px(b.style.width)).toBe(ROW.cards[i].w);
+      expect(px(b.style.height)).toBe(ROW.cards[i].h);
+    });
+    for (let i = 1; i < cs.length; i++) {
+      expect(px(cs[i].style.top)).toBe(px(cs[0].style.top));
+      expect(px(cs[i].style.left)).toBeGreaterThanOrEqual(px(cs[i - 1].style.left) + px(cs[i - 1].style.width));
+    }
+    const header = part(panel(), 'header')[0];
+    expect(px(header.style.left)).toBe(ROW.header.x - ROW.frame.x);
+    expect(px(header.style.width)).toBe(ROW.header.w);
+    expect(panel().style.width).toBe(`${ROW.frame.w}px`);
+  });
+
+  it('re-lays when the arrangement changes under the same view (a settings change)', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    g.update(view(ownShip()), ROW, 1);
+    expect(px(cards()[1].style.left)).toBe(ROW.cards[1].x - ROW.frame.x);
+    expect(px(cards()[1].style.top)).toBe(ROW.cards[1].y - ROW.frame.y);
+  });
+
+  it('keeps the MERGED card face: glyph box top-left, the name beside it, the tier mark bottom-left, the TAB n chip bottom-right', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), LIVE, 1);
     for (const b of cards()) {
-      const parts = [...b.children].map((c) => (c as HTMLElement).dataset.part);
-      expect(parts[0]).toBe('glyph');
-      expect(parts[1]).toBe('name');
-      expect(['tier', 'oneOff']).toContain(parts[2]);
-      expect(parts[3]).toBe('chip');
-      expect(b.style.flexDirection).toBe('row');
+      const glyph = part(b, 'glyph')[0];
+      const name = part(b, 'name')[0];
+      const tier = [...part(b, 'tier'), ...part(b, 'oneOff')][0];
+      const chip = part(b, 'chip')[0];
+      for (const e of [glyph, name, tier, chip]) expect(e).toBeDefined();
+      expect(px(glyph.style.width)).toBe(CLIENT_CONFIG.console.offer.glyphBox);
+      expect(px(glyph.style.left)).toBe(px(glyph.style.top));
+      expect(px(name.style.left)).toBeGreaterThan(px(glyph.style.left) + px(glyph.style.width));
+      // the foot line carries the tier first (left) and the chip last (right)
+      const foot = tier.parentElement!;
+      expect(foot).toBe(chip.parentElement);
+      expect(foot.firstElementChild).toBe(tier);
+      expect(foot.lastElementChild).toBe(chip);
+      expect(foot.style.justifyContent).toBe('space-between');
+      expect(foot.style.bottom).not.toBe('');
+      expect(chip.textContent?.startsWith('TAB')).toBe(true);
+      expect(b.style.borderStyle).toBe('solid');
     }
   });
 

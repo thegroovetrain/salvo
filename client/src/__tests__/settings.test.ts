@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
+  OFFER_POSITIONS,
   SettingsStore,
   coerceVolume,
   effectiveScale,
@@ -28,6 +29,8 @@ import {
 import {
   ABANDON_BUTTON_ID,
   CLOSE_BUTTON_ID,
+  OFFER_POS_LABEL,
+  OFFER_POS_OPTIONS,
   RESET_BUTTON_ID,
   SettingsOverlay,
   bindingRows,
@@ -74,6 +77,12 @@ describe('sanitizeSettings — every field falls back independently', () => {
     expect(sanitizeSettings({ motion: 'cinematic' }).motion).toBe('full');
     expect(sanitizeSettings({ uiScale: 150 }).uiScale).toBe(100); // no 150% tier — foreclosed
     expect(sanitizeSettings({ uiScale: 90 }).uiScale).toBe(90);
+  });
+
+  it('the OFFER POSITION (R26) keeps right / left / bottom and sanitizes anything else to right', () => {
+    for (const pos of OFFER_POSITIONS) expect(sanitizeSettings({ offerPos: pos }).offerPos).toBe(pos);
+    for (const bad of ['top', '', 3, null, undefined, { pos: 'left' }]) expect(sanitizeSettings({ offerPos: bad }).offerPos).toBe('right');
+    expect(DEFAULT_SETTINGS.offerPos).toBe('right');
   });
 
   it('clamps + rounds volumes into 0..100', () => {
@@ -474,6 +483,19 @@ describe('SettingsOverlay — DOM shell', () => {
     // the view-only bindings render the reference model, row for row
     const t = panelText();
     for (const r of bindingRows()) expect(t, r.keys).toContain(r.action);
+  });
+
+  it('carries the OFFER POSITION choice row — three options, the stored one selected — and a pick writes through', () => {
+    overlay.open();
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === OFFER_POS_LABEL);
+    expect(row).toBeDefined();
+    const buttons = [...row!.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((b) => b.dataset.value)).toEqual(OFFER_POS_OPTIONS.map((o) => o.value));
+    expect(buttons).toHaveLength(3);
+    expect(buttons.find((b) => b.dataset.value === 'right')!.style.color).toContain('amber');
+    buttons.find((b) => b.dataset.value === 'bottom')!.click();
+    expect(store.current.offerPos).toBe('bottom');
+    expect(loadSettings().offerPos).toBe('bottom');
   });
 
   it('toggle() closes an open overlay (the ESC toggle path)', () => {

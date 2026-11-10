@@ -8,12 +8,11 @@ import { describe, it, expect } from 'vitest';
 import { Container, Graphics, Text } from 'pixi.js';
 import { CATALOG, CONFIG, DEFAULT_CLASS_ID, SLOT_FAMILIES, effectiveStats, familyMembers, FAMILY_SLOT, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { consoleLayout, rowSlot, WEAPON_ROW_KINDS, type WeaponRowKind } from '../render/console/layout.js';
+import { CELL_INNER_W, MAX_CLOCKS, consoleLayout, rowSlot, WEAPON_ROW_KINDS, type WeaponRowKind } from '../render/console/layout.js';
 import { monoTextWidth } from '../util/monoMeasure.js';
 import { EQUIPMENT_NAME } from '../render/equipmentInfo.js';
 import { romanTier } from '../ui/tierRamp.js';
 import {
-  ROW_STATE_WORD,
   ROW_KEY_GLYPH,
   consoleReadouts,
   weaponRowModels,
@@ -25,11 +24,15 @@ import {
 } from '../render/console/readouts.js';
 import {
   WeaponsConsole,
+  abilityTextYs,
+  clockTracking,
   consoleChipWidth,
   extraMarks,
   floorScale,
   markedValue,
+  ringsShown,
   statLines,
+  tierLabel,
   type WeaponsConsoleLayout,
   type WeaponsConsoleView,
 } from '../render/console/weaponsConsole.js';
@@ -49,7 +52,7 @@ const stat = (kind: WeaponRowKind, field: string, label: string, value: string, 
 
 function row(kind: WeaponRowKind, over: Partial<WeaponRowModel> = {}): WeaponRowModel {
   return {
-    kind, slot: rowSlot(kind), id: null, name: NAMES[kind], emptyGlyph: null, state: 'ready', stateWord: 'READY',
+    kind, slot: rowSlot(kind), id: null, name: NAMES[kind], emptyGlyph: null, state: 'ready',
     readied: false, tier: 1, tierNumeral: 'I', keyGlyph: KEYS[kind], clocks: [READY], racks: [], heat: null, stats: [],
     ...over,
   };
@@ -141,6 +144,81 @@ describe('the five cells, each with its key chip, on one bed', () => {
   });
 });
 
+/** The rings drawn inside a cell's mount line: [cx, cy, r]. */
+function ringsIn(ops: Op[], i: number): number[][] {
+  const m = LAYOUT.rows[i].mounts;
+  return ops.flatMap((o) => o.circles).filter((c) => c[0] > m.x && c[0] < m.x + m.w && c[1] >= m.y && c[1] <= m.y + m.h);
+}
+
+describe('NO STATE WORD (Eric 2026-11-10, round 3) — line 1 is NAME · tier · key chip', () => {
+  it('no cell prints READY / ARMED / LOCKED, whatever its state; the ability buttons keep READY', () => {
+    const rows = baseRows();
+    rows[1] = row('secondaries', { clocks: [], state: 'locked', heat: { heat: 0.9, locked: true }, tier: 0, tierNumeral: '' });
+    rows[2] = row('torpedo', { state: 'readied', readied: true });
+    const p = paint(view({ rows }));
+    for (let i = 0; i < 5; i++) for (const w of ['READY', 'ARMED', 'LOCKED']) expect(p.inRow(i).map((t) => t.text), `${i} ${w}`).not.toContain(w);
+    expect(p.words.filter((w) => w === 'READY')).toHaveLength(3); // C · V · Shift
+  });
+
+  it('the tier numeral sits on line 1, right of the name, left of the key chip', () => {
+    const p = paint(view({ rows: withRow(2, row('torpedo', { tier: 2, tierNumeral: 'II' })) }));
+    const line1 = LAYOUT.rows[2].header;
+    const [name, tier, chip] = ['HEAVY TORPEDO', 'II', 'Q'].map((w) => p.inRow(2).find((t) => t.text === w)!);
+    for (const t of [name, tier, chip]) expect(t.y).toBe(line1.y + line1.h / 2);
+    expect(tier.x).toBeGreaterThan(name.x + monoTextWidth('HEAVY TORPEDO', K.type.name));
+    expect(tier.x + monoTextWidth('II', K.type.tier)).toBeLessThan(chip.x);
+  });
+});
+
+describe('R27 — THE CLOCKS NEVER WRAP', () => {
+  it('four reloading turrets: four rings on ONE line, each numeral INSIDE its ring, nothing else on the line', () => {
+    const mb = row('mainBattery', { clocks: [cooling('7'), cooling('4.2'), cooling('9'), cooling('1.8')] });
+    const p = paint(view({ rows: withRow(0, mb) }));
+    const rings = ringsIn(p.ops, 0);
+    expect(rings).toHaveLength(4);
+    for (const c of rings) {
+      expect(c[1]).toBe(rings[0][1]);
+      expect(c[2]).toBe(CLOCK_R);
+      expect(c[0] + c[2]).toBeLessThanOrEqual(LAYOUT.rows[0].mounts.x + LAYOUT.rows[0].mounts.w);
+    }
+    const m = LAYOUT.rows[0].mounts;
+    const onLine = p.inRow(0).filter((t) => t.y >= m.y && t.y <= m.y + m.h);
+    expect(onLine.map((t) => t.text).sort()).toEqual(['1.8', '4.2', '7', '9']);
+    for (const t of onLine) {
+      const ring = rings.find((c) => Math.abs(c[0] - t.x) < 1e-9 && Math.abs(c[1] - t.y) < 1e-9);
+      expect(ring, t.text).toBeDefined(); // centred in its ring
+      expect(t.style.fontSize).toBeGreaterThanOrEqual(17);
+      expect(t.style.fontWeight).toBe('600');
+    }
+  });
+
+  it('a three-character numeral prints tracked tight; one or two characters print untracked', () => {
+    expect(clockTracking('1.8')).toBe(K.cell.clockTracking);
+    expect(clockTracking('12')).toBe(0);
+    const p = paint(view({ rows: withRow(0, row('mainBattery', { clocks: [cooling('1.8'), cooling('12')] })) }));
+    expect(p.inRow(0).find((t) => t.text === '1.8')!.style.letterSpacing).toBe(K.cell.clockTracking);
+    expect(p.inRow(0).find((t) => t.text === '12')!.style.letterSpacing).toBe(0);
+  });
+
+  it('more mounts than the line holds never wrap: the line draws at most MAX_CLOCKS rings, hollow previews included', () => {
+    expect(ringsShown(6, 0)).toEqual({ current: MAX_CLOCKS, extra: 0 });
+    expect(ringsShown(3, 3)).toEqual({ current: 3, extra: MAX_CLOCKS - 3 });
+    const mb = row('mainBattery', { clocks: Array.from({ length: MAX_CLOCKS + 2 }, () => cooling('5')) });
+    const p = paint(view({ rows: withRow(0, mb) }));
+    expect(ringsIn(p.ops, 0)).toHaveLength(MAX_CLOCKS);
+    expect(MAX_CLOCKS * K.cell.clock + (MAX_CLOCKS - 1) * K.cell.clockGap).toBeLessThanOrEqual(CELL_INNER_W);
+  });
+
+  it('every cell is its layout height whatever it holds (fixed from the fullest content, never grown)', () => {
+    const full = row('torpedo', { clocks: [cooling('12'), cooling('3.6'), cooling('9'), cooling('1.1')], stats: [stat('torpedo', 'damage', 'DAMAGE', '250', 250), stat('torpedo', 'speed', 'SPEED', '47.5', 47.5), stat('torpedo', 'homingTurnRate', 'HOMING', '0.125', 0.125), stat('torpedo', 'reloadMs', 'RELOAD', '21.8S', 21800)] });
+    const p = paint(view({ rows: withRow(2, full) }));
+    const r = LAYOUT.rows[2];
+    const outline = p.ops.filter((o) => o.action === 'stroke').flatMap((o) => o.rects).find((x) => x[0] === r.x && x[1] === r.y);
+    expect(outline).toEqual([r.x, r.y, r.w, r.h]);
+    for (const t of p.inRow(2)) expect(t.y).toBeLessThan(r.y + r.h);
+  });
+});
+
 describe('the per-mount clocks', () => {
   it('a cooling turret prints its seconds numeral; a ready one prints none and is a solid disc', () => {
     const mb = row('mainBattery', { clocks: [cooling('7'), READY] });
@@ -153,7 +231,23 @@ describe('the per-mount clocks', () => {
   });
 });
 
-describe('the mines row: one ring per rack + its held-mine pips', () => {
+describe('the mines row: one ring per rack + its held-mine pips in a column beside it', () => {
+  it('two four-mine racks: one ring each, the pips stacked in a short column right of their ring', () => {
+    const mines = row('mines', { clocks: [cooling('9'), cooling('1.4')], racks: [{ rack: 0, held: 3, capacity: 4 }, { rack: 1, held: 0, capacity: 4 }] });
+    const p = paint(view({ rows: withRow(3, mines) }));
+    const rings = ringsIn(p.ops, 3);
+    expect(rings).toHaveLength(2);
+    const isPip = (r: number[]) => r[2] === PIP.w && r[3] === PIP.h;
+    const pips = p.ops.flatMap((o) => o.rects).filter(isPip);
+    expect(pips).toHaveLength(8);
+    for (const [k, ring] of rings.entries()) {
+      const mine = pips.filter((q) => q[0] > ring[0] + ring[2] && (k === rings.length - 1 || q[0] < rings[k + 1][0] - rings[k + 1][2]));
+      expect(mine).toHaveLength(4);
+      expect(new Set(mine.map((q) => q[0])).size).toBe(1); // one column
+      expect(new Set(mine.map((q) => q[1])).size).toBe(4); // four rows
+    }
+  });
+
   it('two captive racks draw 2 × 2 pips, filled per held mine', () => {
     const mines = row('mines', { clocks: [READY, cooling('3')], racks: [{ rack: 0, held: 2, capacity: 2 }, { rack: 1, held: 1, capacity: 2 }] });
     const p = paint(view({ rows: withRow(3, mines) }));
@@ -166,12 +260,13 @@ describe('the mines row: one ring per rack + its held-mine pips', () => {
 });
 
 describe('the secondaries row', () => {
-  it('LOCKED prints the denied state word and hatches the heat fill in denied red', () => {
-    const sec = row('secondaries', { clocks: [], state: 'locked', stateWord: 'LOCKED', heat: { heat: 0.8, locked: true }, tier: 0, tierNumeral: '' });
+  it('LOCKED draws the red outline and hatches the heat fill in denied red — no word', () => {
+    const sec = row('secondaries', { clocks: [], state: 'locked', heat: { heat: 0.8, locked: true }, tier: 0, tierNumeral: '' });
     const p = paint(view({ rows: withRow(1, sec) }));
-    const word = p.inRow(1).find((t) => t.text === 'LOCKED');
-    expect(word).toBeDefined();
-    expect(fillOf(word!)).toBe(C.denied);
+    expect(p.inRow(1).some((t) => t.text === 'LOCKED')).toBe(false);
+    const r = LAYOUT.rows[1];
+    const redOutline = p.ops.filter((o) => o.action === 'stroke' && o.color === C.denied).flatMap((o) => o.rects);
+    expect(redOutline).toContainEqual([r.x, r.y, r.w, r.h]);
     const deniedStrokes = p.ops.filter((o) => o.action === 'stroke' && o.color === C.denied);
     // the row outline, the bar outline and the hatch run
     expect(deniedStrokes.length).toBeGreaterThanOrEqual(3);
@@ -184,11 +279,12 @@ describe('the secondaries row', () => {
 });
 
 describe('a READIED torpedo row', () => {
-  it('reads ARMED in amber, washes amber and fills its key chip amber', () => {
-    const q = row('torpedo', { state: 'readied', stateWord: 'ARMED', readied: true });
+  it('outlines amber, washes amber and fills its key chip amber — no word', () => {
+    const q = row('torpedo', { state: 'readied', readied: true });
     const p = paint(view({ rows: withRow(2, q) }));
-    const armed = p.inRow(2).find((t) => t.text === 'ARMED');
-    expect(fillOf(armed!)).toBe(C.amber);
+    expect(p.inRow(2).some((t) => t.text === 'ARMED')).toBe(false);
+    const r0 = LAYOUT.rows[2];
+    expect(p.ops.filter((o) => o.action === 'stroke' && o.color === C.amber).flatMap((o) => o.rects)).toContainEqual([r0.x, r0.y, r0.w, r0.h]);
     const chip = p.inRow(2).find((t) => t.text === 'Q')!;
     expect(fillOf(chip)).toBe(C.void);
     const r = LAYOUT.rows[2];
@@ -225,6 +321,17 @@ describe('the hover preview (R18)', () => {
     const p = paint(view({ preview }));
     const tier = p.inRow(2).find((t) => t.text === 'I→II');
     expect(fillOf(tier!)).toBe(C.amber);
+  });
+
+  it('a marked tier shortens to the room line 1 leaves — `II→III`, else `III▲`, else `III` — never shrinking the text', () => {
+    const preview = new Map([['row.torpedo.tier', mark('row.torpedo.tier', 'III', 3, 2)]]);
+    const r = row('torpedo', { tier: 2, tierNumeral: 'II' });
+    const w = (t: string): number => monoTextWidth(t, K.type.tier);
+    expect(tierLabel(r, preview).text).toBe('II→III');
+    expect(tierLabel(r, preview, w('II→III') - 1).text).toBe('III▲');
+    expect(tierLabel(r, preview, w('III▲') - 1).text).toBe('III');
+    for (const room of [Infinity, 0]) expect(tierLabel(r, preview, room).color).toBe(C.amber);
+    expect(tierLabel(r, null, 0).text).toBe('II');
   });
 
   it('a marked tube count draws one hollow amber clock beyond the current ones', () => {
@@ -301,27 +408,38 @@ const SLOTLESS_INPUT = ((): Parameters<typeof weaponRowModels>[0] => {
   };
 })();
 
-describe('every printable header and stat line FITS its cell at the text rule (the box grows, never the text shrinks)', () => {
+describe('every printable line 1 and stat line FITS its cell at the text rule (the cell is fixed, never the text shrunk)', () => {
   const T = K.type;
   const header = LAYOUT.rows[2].header;
   const line = LAYOUT.rows[2].statLines[0];
-  /** The widest hovered tier mark the ramp can print (`II→III`). */
-  const widestTier = Math.max(...[1, 2, 3, 4].map((t) => monoTextWidth(`${romanTier(t)}→${romanTier(t + 1)}`, T.tier)));
-  /** The state words a FAMILY cell can print (LOCKED is the secondaries' alone). */
-  const widestState = Math.max(...(['empty', 'ready', 'cooling', 'readied'] as const).map((st) => monoTextWidth(ROW_STATE_WORD[st], T.state)));
+  /** The widest UNHOVERED tier numeral the ramp prints. */
+  const widestTier = Math.max(...[1, 2, 3, 4, 5].map((t) => monoTextWidth(romanTier(t), T.tier)));
+  const line1 = (name: string, glyph: string, tierW: number): number =>
+    monoTextWidth(name, T.name) + 2 * K.cell.tierGap + tierW + consoleChipWidth(glyph);
 
-  it('the longest weapon name of each family, its widest state word and a hovered tier, beside its chip', () => {
-    // The slotless cells: their own names, every state word, a hovered tier.
+  it('the longest weapon name of each family, any tier numeral, beside its chip', () => {
     for (const kind of ['mainBattery', 'secondaries'] as const) {
       const name = weaponRowModels(SLOTLESS_INPUT).find((m) => m.kind === kind)!.name;
-      const w = monoTextWidth(name, T.name) + Math.max(...Object.values(ROW_STATE_WORD).map((x) => monoTextWidth(x, T.state))) + widestTier + consoleChipWidth(ROW_KEY_GLYPH[kind]) + 3 * K.cell.padX;
-      expect(w, kind).toBeLessThanOrEqual(header.w);
+      expect(line1(name, ROW_KEY_GLYPH[kind], 0), kind).toBeLessThanOrEqual(header.w);
     }
     for (const family of SLOT_FAMILIES) {
       const kind = WEAPON_ROW_KINDS.find((k) => rowSlot(k) === FAMILY_SLOT[family])!;
       for (const id of familyMembers(family)) {
-        const w = monoTextWidth(EQUIPMENT_NAME[id].toUpperCase(), T.name) + widestState + widestTier + consoleChipWidth(ROW_KEY_GLYPH[kind]) + 3 * K.cell.padX;
-        expect(w, id).toBeLessThanOrEqual(header.w);
+        expect(line1(EQUIPMENT_NAME[id].toUpperCase(), ROW_KEY_GLYPH[kind], widestTier), id).toBeLessThanOrEqual(header.w);
+      }
+    }
+  });
+
+  it('a hovered tier always finds a form that fits: at worst the bare new numeral', () => {
+    for (const family of SLOT_FAMILIES) {
+      const kind = WEAPON_ROW_KINDS.find((k) => rowSlot(k) === FAMILY_SLOT[family])!;
+      for (const id of familyMembers(family)) {
+        const room = header.w - monoTextWidth(EQUIPMENT_NAME[id].toUpperCase(), T.name) - 2 * K.cell.tierGap - consoleChipWidth(ROW_KEY_GLYPH[kind]);
+        for (let t = 1; t < 5; t++) {
+          const preview = new Map([[`row.${kind}.tier`, { key: `row.${kind}.tier`, value: romanTier(t + 1), raw: t + 1, from: t, direction: 'up' as const }]]);
+          const text = tierLabel(row(kind, { tier: t, tierNumeral: romanTier(t) }), preview, room).text;
+          expect(monoTextWidth(text, T.tier), `${id} ${t}`).toBeLessThanOrEqual(room);
+        }
       }
     }
   });
@@ -335,14 +453,35 @@ describe('every printable header and stat line FITS its cell at the text rule (t
     }
   });
 
-  it('no cell carries more stats than it has lines', () => {
+  it('no cell carries more stats than its column has lines (Q / E / R four, the left cells three)', () => {
     for (const { id, rows } of fittedAlone()) {
-      for (const m of rows) expect(m.stats.length, `${id} ${m.kind}`).toBeLessThanOrEqual(K.cell.statLines);
+      for (const m of rows) {
+        const lines = LAYOUT.rows.find((r) => r.kind === m.kind)!.statLines.length;
+        expect(m.stats.length, `${id} ${m.kind}`).toBeLessThanOrEqual(lines);
+      }
+    }
+  });
+
+  it('R26 — the torpedoes print HOMING on their fourth line (the table`s own word)', () => {
+    for (const { id, rows } of fittedAlone()) {
+      const q = rows.find((m) => m.kind === 'torpedo' && m.id === id);
+      if (q === undefined || id === 'supercavTorpedo') continue;
+      expect(q.stats.map((x) => x.key), id).toContain('row.torpedo.homingTurnRate');
+      expect(q.stats).toHaveLength(K.cell.statLines);
     }
   });
 });
 
 describe('the ability buttons (O5)', () => {
+  it('stacks key chip, state word and name without touching, inside the button, above the hairline', () => {
+    const h = LAYOUT.abilities[0].h;
+    const ys = abilityTextYs(h);
+    const chipBottom = K.cell.padX / 2 + K.cell.keyChip;
+    expect(ys.word - K.type.abilityState / 2).toBeGreaterThanOrEqual(chipBottom);
+    expect(ys.name - K.type.abilityName / 2).toBeGreaterThanOrEqual(ys.word + K.type.abilityState / 2);
+    expect(ys.name + K.type.abilityName / 2).toBeLessThanOrEqual(h - K.abilities.progressH);
+  });
+
   it('ready prints READY; cooling prints its numeral with a progress hairline instead', () => {
     const p = paint(view({ abilities: [ability('repair', { state: 'cooling', stateWord: '', numeral: '12', progress: 0.4 }), ability('smoke'), ability('shift')] }));
     expect(p.words).toContain('12');

@@ -21,6 +21,14 @@ export type MotionLevel = 'full' | 'reduced' | 'off';
 /** The three committed UI-scale tiers (percent). */
 export type UiScale = 90 | 100 | 125;
 
+/** Where the offer group sits (epic-10 amendment 18 R26, Eric 2026-11-10:
+ *  "a toggle in settings so the player can choose if they want the offer to
+ *  appear on the right, left, or bottom"). */
+export type OfferPos = 'right' | 'left' | 'bottom';
+
+/** The three offer positions, in the settings row's order. */
+export const OFFER_POSITIONS: readonly OfferPos[] = ['right', 'left', 'bottom'];
+
 /** The complete, committed v1 settings set (Story 2.3 AC — exactly these). */
 export interface Settings {
   motion: MotionLevel;
@@ -37,6 +45,8 @@ export interface Settings {
   monoAudio: boolean;
   /** Master mute — ONE persisted value, shared with the M key. */
   muted: boolean;
+  /** Where the offer group sits (R26); the right edge by default. */
+  offerPos: OfferPos;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -47,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   effectsVolume: 100,
   monoAudio: false,
   muted: false,
+  offerPos: 'right',
 };
 
 const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
@@ -55,6 +66,10 @@ const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
 
 function coerceMotion(v: unknown): MotionLevel {
   return MOTION_LEVELS.includes(v as MotionLevel) ? (v as MotionLevel) : DEFAULT_SETTINGS.motion;
+}
+
+function coerceOfferPos(v: unknown): OfferPos {
+  return OFFER_POSITIONS.includes(v as OfferPos) ? (v as OfferPos) : DEFAULT_SETTINGS.offerPos;
 }
 
 function coerceScale(v: unknown): UiScale {
@@ -89,6 +104,7 @@ export function sanitizeSettings(raw: unknown, legacyMuted = false): Settings {
     effectsVolume: coerceVolume(o.effectsVolume, DEFAULT_SETTINGS.effectsVolume),
     monoAudio: coerceBool(o.monoAudio, DEFAULT_SETTINGS.monoAudio),
     muted: coerceBool(o.muted, legacyMuted),
+    offerPos: coerceOfferPos(o.offerPos),
   };
 }
 
@@ -284,7 +300,8 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.masterVolume === b.masterVolume &&
     a.effectsVolume === b.effectsVolume &&
     a.monoAudio === b.monoAudio &&
-    a.muted === b.muted
+    a.muted === b.muted &&
+    a.offerPos === b.offerPos
   );
 }
 

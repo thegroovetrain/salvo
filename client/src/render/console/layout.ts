@@ -3,17 +3,16 @@
 // consoles and the offer group draw in, plus the hit test that routes a press
 // on them.
 //
-//   ┌ kill feed (DOM) ┐                                       top-right
-//   ├ OFFER GROUP ────┤  bed top 178 = 16 + 150 + 12
-//   │ header [REDRAW] │
-//   │ card 1          │  four 280 × 56 cards, stacked (R22)
-//   │ …  card 4       │
+//                                              ┌ kill feed (DOM) ┐  top-right
+//                                              │ OFFER (RIGHT)   │  bed top 178 = 16 + 150 + 12
+//                                              │ n LEVELS        │  four 136 × 64 cards,
+//                                              │ [card]…[card]   │  stacked (R22 / R26)
 //   SHIP           (center: water, ship, world)     ┌ WEAPONS ─────────────┐
 //   console                                         │ MAIN BATTERY │ Q     │
 //   (left, compact,                                 │              │ E     │
 //    bottom-anchored)                               │ SECONDARIES  │ R     │
-//                                                   │  C  ·  V  ·  Shift   │
-//                                                   └──────────────────────┘
+//                  [n LEVELS][c1][c2][c3][c4][REDRAW]  C  ·  V  ·  Shift   │
+//                   OFFER (BOTTOM)                  └──────────────────────┘
 //
 // LOGICAL px: the HUD layer is scaled by the HUD factor (viewport × UI tier),
 // so a caller passes `screen / factor`. Every size comes from
@@ -32,14 +31,21 @@
 // height H is DERIVED from the right-column cell's content (header, mount line,
 // the stat lines one per line), never a number that could clip.
 //
-// THE OFFER'S PLACEMENT (plan O15): the offer stacks on the right edge first
-// (under the kill feed); when its bed + `clearGap` would pass the weapons
-// console's bed — a short logical viewport (the 125 % UI tier, a 720 px tall
-// screen) — it DOCKS TOP-LEFT, the one free corner. `offerPlacement` reports
-// which, never an overlap.
+// THE OFFER'S PLACEMENT (R26 — the player's OFFER POSITION; plan O15): RIGHT
+// stacks on the right edge under the kill feed, LEFT stacks on the left edge
+// under the chrome bar, BOTTOM lays the four cards in one row centred along the
+// bottom edge. When the chosen stack cannot keep `clearGap` of water to the
+// console under it — a short logical viewport — it FALLS BACK TO THE BOTTOM
+// ROW (Eric 2026-11-10, round 3: never the top-left corner). `offerPlacement`
+// reports where it went.
+//
+// THE CELL (R26 / R27): line 1 NAME · tier · key chip, the MOUNT line (rings
+// with the seconds INSIDE, four to the line, nothing else on it), then the
+// stat lines one per line — every height fixed, so no cell grows at runtime.
 
 import { INDEX_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
+import type { OfferPos } from '../../settings/store.js';
 
 const K = CLIENT_CONFIG.console;
 const CELL = K.cell;
@@ -69,14 +75,16 @@ const RIGHT_KINDS: readonly WeaponRowKind[] = ['torpedo', 'mines', 'special'];
 export const ABILITY_KINDS = ['repair', 'smoke', 'shift'] as const;
 export type AbilityKind = (typeof ABILITY_KINDS)[number];
 
-/** One weapon cell-button and its lines (R23). */
+/** One weapon cell-button and its lines (R23 / R27). */
 export interface WeaponRowRect extends Rect {
   kind: WeaponRowKind;
-  /** NAME · state word · tier · key chip. */
+  /** Line 1: NAME · tier · key chip. */
   header: Rect;
-  /** The per-mount clocks (or the secondaries' heat bar). */
+  /** The MOUNT line: the per-mount clocks (or the secondaries' heat bar) —
+   *  nothing else on it. */
   mounts: Rect;
-  /** One rect per stat line — LABEL left, value right (R23: one per line). */
+  /** One rect per stat line — LABEL left, value right (R23: one per line);
+   *  four on a right cell, three on a left cell. */
   statLines: Rect[];
 }
 
@@ -122,11 +130,12 @@ export interface ShipConsoleLayout {
 
 export interface OfferLayout {
   frame: Rect;
-  /** The dark-glass bed behind the header and the stack (drawn in CSS). */
+  /** The dark-glass bed behind the header and the cards (drawn in CSS). */
   bed: Rect;
-  /** The header line (`2 LEVELS`), and — at the countdown — REDRAW at its right. */
+  /** The header (`2 LEVELS`): a line above the stack, or the row's left slot. */
   header: Rect;
-  /** The four cards, stacked top to bottom (R22). */
+  /** The four cards: stacked top to bottom (R22), or one row left to right
+   *  (BOTTOM, R26). */
   cards: Rect[];
   /** The REDRAW button, or null outside the countdown. */
   redraw: Rect | null;
@@ -138,18 +147,20 @@ export interface ConsoleLayout {
   weapons: WeaponsConsoleLayout;
   abilities: AbilityRect[];
   offer: OfferLayout;
-  /** Where the offer group sits (see the header): the right edge, or docked
-   *  top-left on a viewport too short for the right-edge stack. */
+  /** Where the offer group went (see the header): the chosen position, or
+   *  the bottom row where the chosen stack cannot clear its console. */
   offerPlacement: OfferPlacement;
   /** The clear water between the two consoles' beds (px). */
   centerClear: number;
 }
 
-export type OfferPlacement = 'right' | 'topLeft';
+export type OfferPlacement = OfferPos;
 
 export interface ConsoleLayoutOpts {
   /** The countdown: the offer group carries REDRAW. */
   countdown?: boolean;
+  /** The player's OFFER POSITION (R26); RIGHT when absent. */
+  offerPos?: OfferPos;
 }
 
 /** Pure: a content box grown by the bed padding on every side. */
@@ -165,14 +176,21 @@ export const CELL_W = CELL.w;
 /** The weapons box's content width: two cells and the column gap. */
 export const WEAPONS_W = 2 * CELL_W + CELL.colGap;
 
-/** The y offsets inside a cell, from its top edge. */
+/** The y offsets inside a cell, from its top edge — fixed lines (R27). */
 const HEADER_Y = CELL.padY;
-const MOUNTS_Y = HEADER_Y + CELL.headerH + CELL.lineGap;
-const STATS_Y = MOUNTS_Y + CELL.mountH + CELL.statsGap;
+const MOUNTS_Y = HEADER_Y + CELL.headerH;
+const STATS_Y = MOUNTS_Y + CELL.mountH;
+
+/** A cell's inner width (inside the side padding). */
+export const CELL_INNER_W = CELL_W - 2 * CELL.padX;
+
+/** R27: the most rings the mount line holds — `clock` px rings `clockGap`
+ *  apart inside the inner width (four). Nothing ever wraps past it. */
+export const MAX_CLOCKS = Math.floor((CELL_INNER_W + CELL.clockGap) / (CELL.clock + CELL.clockGap));
 
 /**
- * H — a right-column cell's height, DERIVED from its content: the header, the
- * mount line and `statLines` stat lines, one per line, inside the padding.
+ * H — a right-column cell's height, DERIVED from its fullest content (R27):
+ * line 1, the mount line and `statLines` stat lines, inside the padding.
  */
 export const CELL_H = STATS_Y + CELL.statLines * CELL.statLineH + CELL.padY;
 
@@ -186,10 +204,10 @@ export const LEFT_CELL_H = (COLUMN_H - (LEFT_KINDS.length - 1) * CELL.rowGap) / 
 /** The weapons console's content height: the columns, then C · V · Shift. */
 export const WEAPONS_H = COLUMN_H + AB.topGap + AB.h;
 
-function weaponCell(kind: WeaponRowKind, x: number, y: number, h: number): WeaponRowRect {
+function weaponCell(kind: WeaponRowKind, x: number, y: number, h: number, lines: number): WeaponRowRect {
   const innerX = x + CELL.padX;
-  const innerW = CELL_W - 2 * CELL.padX;
-  const statLines = Array.from({ length: CELL.statLines }, (_, k) => ({ x: innerX, y: y + STATS_Y + k * CELL.statLineH, w: innerW, h: CELL.statLineH }));
+  const innerW = CELL_INNER_W;
+  const statLines = Array.from({ length: lines }, (_, k) => ({ x: innerX, y: y + STATS_Y + k * CELL.statLineH, w: innerW, h: CELL.statLineH }));
   return {
     kind,
     x,
@@ -202,15 +220,15 @@ function weaponCell(kind: WeaponRowKind, x: number, y: number, h: number): Weapo
   };
 }
 
-function column(kinds: readonly WeaponRowKind[], x: number, top: number, h: number): WeaponRowRect[] {
-  return kinds.map((kind, i) => weaponCell(kind, x, top + i * (h + CELL.rowGap), h));
+function column(kinds: readonly WeaponRowKind[], x: number, top: number, h: number, lines: number): WeaponRowRect[] {
+  return kinds.map((kind, i) => weaponCell(kind, x, top + i * (h + CELL.rowGap), h, lines));
 }
 
 function weaponsLayout(screenW: number, screenH: number): { weapons: WeaponsConsoleLayout; abilities: AbilityRect[] } {
   const x = screenW - K.sideInset - PAD - WEAPONS_W;
   const top = screenH - K.bottomInset - PAD - WEAPONS_H;
-  const left = column(LEFT_KINDS, x, top, LEFT_CELL_H);
-  const right = column(RIGHT_KINDS, x + CELL_W + CELL.colGap, top, CELL_H);
+  const left = column(LEFT_KINDS, x, top, LEFT_CELL_H, CELL.leftStatLines);
+  const right = column(RIGHT_KINDS, x + CELL_W + CELL.colGap, top, CELL_H, CELL.statLines);
   const byKind = new Map([...left, ...right].map((r) => [r.kind, r]));
   const rows = WEAPON_ROW_KINDS.map((k) => byKind.get(k)!);
   const abTop = top + COLUMN_H + AB.topGap;
@@ -309,38 +327,90 @@ export function shipLayout(screenH: number): ShipConsoleLayout {
 
 // --- the offer group -----------------------------------------------------------
 
-/** The offer group's BED top edge: under the kill feed's clearance (O2). */
+/** The offer group's BED top edge on the RIGHT: under the kill feed's clearance (O2). */
 export const OFFER_TOP = K.killFeed.top + K.killFeed.clearance + K.killFeed.gap;
 
 /** The four cards, stacked from `y` (R22). */
-function offerCards(x: number, y: number): Rect[] {
+function stackCards(x: number, y: number): Rect[] {
   return Array.from({ length: 4 }, (_, i) => ({ x, y: y + i * (OFFER.cardH + OFFER.gap), w: OFFER.cardW, h: OFFER.cardH }));
 }
 
-/**
- * Pure: the offer group (R22) — the header line, then the four cards in ONE
- * column. At the countdown REDRAW sits at the RIGHT END OF THE HEADER LINE,
- * which grows to the button's height (R10's "REDRAW beside it").
- */
-export function offerLayout(screenW: number, countdown: boolean, placement: OfferPlacement = 'right'): OfferLayout {
-  const docked = placement === 'topLeft';
-  const x = docked ? K.sideInset + PAD : screenW - K.sideInset - PAD - OFFER.cardW;
-  const top = (docked ? OFFER.dockTop : OFFER_TOP) + PAD;
-  const headerH = countdown ? OFFER.redrawH : OFFER.header;
-  const header = { x, y: top, w: OFFER.cardW, h: headerH };
-  const cards = offerCards(x, top + headerH + OFFER.headerGap);
-  const redraw = countdown ? { x: x + OFFER.cardW - OFFER.redrawW, y: top, w: OFFER.redrawW, h: OFFER.redrawH } : null;
-  const last = cards[cards.length - 1];
-  const frame = { x, y: top, w: OFFER.cardW, h: last.y + last.h - top };
+function finish(frame: Rect, header: Rect, cards: Rect[], redraw: Rect | null): OfferLayout {
   return { frame, bed: bedOf(frame), header, cards, redraw };
 }
 
-/** Pure: O15 — the right edge when the offer's bed clears the weapons
- *  console's bed by the ruled gap there, else docked top-left. */
-export function offerPlacement(screenW: number, screenH: number, countdown: boolean): OfferPlacement {
-  const right = offerLayout(screenW, countdown, 'right').bed;
-  const weaponsTop = screenH - K.bottomInset - 2 * PAD - WEAPONS_H;
-  return right.y + right.h + OFFER.clearGap <= weaponsTop ? 'right' : 'topLeft';
+/**
+ * Pure: the STACK (R22 / R26) with its content box's top-left at (x, top) —
+ * the header line, then the four cards in ONE column. At the countdown REDRAW
+ * takes its own full-width line under the header (136 px cannot hold the
+ * count and the button side by side).
+ */
+function stackLayout(x: number, top: number, countdown: boolean): OfferLayout {
+  const header = { x, y: top, w: OFFER.cardW, h: OFFER.header };
+  let cardsTop = top + OFFER.header + OFFER.headerGap;
+  let redraw: Rect | null = null;
+  if (countdown) {
+    redraw = { x, y: cardsTop, w: OFFER.cardW, h: OFFER.redrawH };
+    cardsTop += OFFER.redrawH + OFFER.headerGap;
+  }
+  const cards = stackCards(x, cardsTop);
+  return finish({ x, y: top, w: OFFER.cardW, h: cardsTop + 4 * OFFER.cardH + 3 * OFFER.gap - top }, header, cards, redraw);
+}
+
+/** Pure: the row's x — centred on the screen; where that would crowd a
+ *  console's bed (the weapons console is the wider), centred in the water
+ *  between the two beds instead. */
+function rowX(screenW: number, w: number): number {
+  const shipRight = K.sideInset + 2 * PAD + K.width;
+  const weaponsLeft = screenW - K.sideInset - 2 * PAD - WEAPONS_W;
+  const centred = (screenW - w) / 2;
+  const clears = centred - PAD - OFFER.clearGap >= shipRight && centred + w + PAD + OFFER.clearGap <= weaponsLeft;
+  return clears ? centred : (shipRight + weaponsLeft - w) / 2;
+}
+
+/**
+ * Pure: the ROW (BOTTOM, R26) — the header slot, the four cards left to
+ * right, REDRAW at the countdown; centred along the bottom edge (`rowX`), its
+ * bed on the bottom inset.
+ */
+function rowLayout(screenW: number, screenH: number, countdown: boolean): OfferLayout {
+  const B = OFFER.bar;
+  const rowW = 4 * OFFER.cardW + 3 * OFFER.gap;
+  const w = B.headW + B.gapIn + rowW + (countdown ? B.gapIn + OFFER.redrawW : 0);
+  const x = rowX(screenW, w);
+  const y = screenH - K.bottomInset - PAD - OFFER.cardH;
+  const header = { x, y, w: B.headW, h: OFFER.cardH };
+  const cx = x + B.headW + B.gapIn;
+  const cards = Array.from({ length: 4 }, (_, i) => ({ x: cx + i * (OFFER.cardW + OFFER.gap), y, w: OFFER.cardW, h: OFFER.cardH }));
+  const redraw = countdown ? { x: cx + rowW + B.gapIn, y: y + (OFFER.cardH - OFFER.redrawH) / 2, w: OFFER.redrawW, h: OFFER.redrawH } : null;
+  return finish({ x, y, w, h: OFFER.cardH }, header, cards, redraw);
+}
+
+/** Pure: the offer group at a placement (no clearance check — see `offerPlacement`). */
+export function offerLayout(screenW: number, screenH: number, countdown: boolean, placement: OfferPlacement = 'right'): OfferLayout {
+  if (placement === 'bottom') return rowLayout(screenW, screenH, countdown);
+  if (placement === 'left') return stackLayout(K.sideInset + PAD, K.ship.topClearance + PAD, countdown);
+  return stackLayout(screenW - K.sideInset - PAD - OFFER.cardW, OFFER_TOP + PAD, countdown);
+}
+
+/** Pure: does `a` keep at least `gap` of water to `b` (or sit apart from it)? */
+function keepsClear(a: Rect, b: Rect, gap: number): boolean {
+  return a.x + a.w + gap <= b.x || b.x + b.w + gap <= a.x || a.y + a.h + gap <= b.y || b.y + b.h + gap <= a.y;
+}
+
+/** Pure: is a bed on screen and `clearGap` clear of both consoles' beds? */
+function offerFits(bed: Rect, screenW: number, screenH: number, consoles: readonly Rect[]): boolean {
+  const onScreen = bed.x >= 0 && bed.y >= 0 && bed.x + bed.w <= screenW && bed.y + bed.h <= screenH;
+  return onScreen && consoles.every((c) => keepsClear(bed, c, OFFER.clearGap));
+}
+
+/** Pure: R26 — the chosen stack where its bed clears both consoles' beds by
+ *  the ruled gap, else the BOTTOM ROW (round 3: the fallback is the row, never
+ *  a fourth place). BOTTOM is always the row. */
+export function offerPlacement(screenW: number, screenH: number, countdown: boolean, pos: OfferPos = 'right'): OfferPlacement {
+  const consoles = [shipLayout(screenH).bed, weaponsLayout(screenW, screenH).weapons.bed];
+  const bed = offerLayout(screenW, screenH, countdown, pos).bed;
+  return pos === 'bottom' || offerFits(bed, screenW, screenH, consoles) ? pos : 'bottom';
 }
 
 // --- the whole spine -----------------------------------------------------------
@@ -349,14 +419,14 @@ export function offerPlacement(screenW: number, screenH: number, countdown: bool
 export function consoleLayout(screenW: number, screenH: number, opts: ConsoleLayoutOpts = {}): ConsoleLayout {
   const countdown = opts.countdown === true;
   const { weapons, abilities } = weaponsLayout(screenW, screenH);
-  const placement = offerPlacement(screenW, screenH, countdown);
+  const placement = offerPlacement(screenW, screenH, countdown, opts.offerPos ?? 'right');
   const ship = shipLayout(screenH);
   return {
     screen: { w: screenW, h: screenH },
     ship,
     weapons,
     abilities,
-    offer: offerLayout(screenW, countdown, placement),
+    offer: offerLayout(screenW, screenH, countdown, placement),
     offerPlacement: placement,
     centerClear: weapons.bed.x - (ship.bed.x + ship.bed.w),
   };
