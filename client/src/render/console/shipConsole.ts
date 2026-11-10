@@ -1,6 +1,7 @@
-// THE SHIP CONSOLE (Story 10.10, plan O6 with Eric's R20; epic-10 amendments
-// 16 / 17) — the left-edge Pixi surface that replaced the HP globe, the helm
-// globe and the XP strip. Top to bottom, bottom-anchored on the left edge:
+// THE SHIP CONSOLE (Story 10.10, plan O6 with Eric's R20 / R21 / R24; epic-10
+// amendments 16 / 17 / 18) — the left-edge Pixi surface that replaced the HP
+// globe, the helm globe and the XP strip. COMPACT (R21), on a dark-glass bed
+// (R24), top to bottom, bottom-anchored on the left edge:
 //
 //   HULL    the percent numeral in its band colour over a 10-segment bar
 //           (filled segments in the band colour, the pooled HULL REPAIR climb
@@ -32,6 +33,7 @@ import { motionAllowed, motionScaled, settings } from '../../settings/store.js';
 import { monoTextWidth } from '../../util/monoMeasure.js';
 import { indexWord } from '../../ui/boonCopy.js';
 import { easeHold } from '../zone.js';
+import { drawHudBed } from '../hudBed.js';
 import { glyphFadeAlpha, helmGlyphs, type HelmGlyphStore, type HelmPair } from '../helmGlyphs.js';
 import {
   READOUT_KEY,
@@ -71,7 +73,7 @@ const CH = K.chip;
 const TK = K.tick;
 const MONO = CLIENT_CONFIG.type.mono;
 
-/** The 9 px label register's tracking (the sitting's `.lbl`, .16em). */
+/** The label register's tracking (the sitting's `.lbl`, .16em). */
 const LABEL_TRACKING = TY.label * 0.16;
 /** Line alphas on existing tokens (the sitting's CSS, read literally). */
 const A = {
@@ -122,13 +124,10 @@ export interface ShipConsoleView {
   nowSec: number;
   /** Monotonic frame clock, ms (the freeze ease). */
   nowMs: number;
+  /** The HUD factor (viewport × UI tier). Not read: every register here is a
+   *  text-rule size (≥ 14 px) that clears the mono floor at the smallest HUD
+   *  factor, so nothing counter-scales (consoleLayout.test.ts pins that). */
   uiScale: number;
-}
-
-/** Pure: the 9 px registers' counter-scale below 100 % UI scale (they sit on
- *  the mono floor and must not shrink under it). */
-export function consoleMicroScale(uiScale: number): number {
-  return Number.isFinite(uiScale) && uiScale > 0 && uiScale < 1 ? 1 / uiScale : 1;
 }
 
 /** Pure: the text an index value prints — the plain value, or under a
@@ -173,23 +172,22 @@ class HullGauge {
     root.addChild(this.bed, this.pending, this.fill, this.num, this.unit, this.label);
   }
 
-  update(v: ShipConsoleView, l: ShipConsoleLayout, micro: number): void {
+  update(v: ShipConsoleView, l: ShipConsoleLayout): void {
     const frac = hullFraction(v.hp, v.maxHp);
     const pend = repairFraction(v.hp, v.repairHp, v.maxHp);
     const relaid = l !== this.layout;
-    if (relaid) this.relayout(l, micro);
+    if (relaid) this.relayout(l);
     this.readout(v, frac, relaid);
     this.drawFill(l, frac, pend, relaid);
     this.breathe(frac, v.nowSec, v.hullHold);
   }
 
-  private relayout(l: ShipConsoleLayout, micro: number): void {
+  private relayout(l: ShipConsoleLayout): void {
     this.layout = l;
     this.bed.clear();
     for (const s of l.segments) this.bed.rect(s.x, s.y, s.w, s.h).stroke({ width: 1, color: C.silver, alpha: A.segEdge });
     const base = l.hullLine.y + l.hullLine.h;
     this.num.position.set(l.hullLine.x, base);
-    this.label.scale.set(micro);
     this.label.position.set(l.hullLine.x + l.hullLine.w, base);
   }
 
@@ -293,7 +291,6 @@ class IndexRows {
     l.indices.forEach((row, i) => {
       this.labels[i].position.set(row.label.x, row.y + row.h / 2);
       this.values[i].position.set(row.value.x, row.y + row.h / 2);
-      this.values[i].style.fontSize = l.fill.indexValuePx;
     });
   }
 
@@ -388,28 +385,23 @@ class HelmInstrument {
     root.addChild(this.ticks, this.marks, this.hdgLabel, this.hdg, this.kts, this.ktsLabel, ...this.coach);
   }
 
-  update(v: ShipConsoleView, l: ShipConsoleLayout, micro: number): void {
+  update(v: ShipConsoleView, l: ShipConsoleLayout): void {
     const relaid = l !== this.layout;
-    if (relaid) this.relayout(l, micro);
+    if (relaid) this.relayout(l);
     this.readouts(v, relaid);
     this.paintMarks(v, l, relaid);
     this.fadeCoach(v.nowSec);
   }
 
-  private relayout(l: ShipConsoleLayout, micro: number): void {
+  private relayout(l: ShipConsoleLayout): void {
     this.layout = l;
     const base = l.helmReadout.y + l.helmReadout.h;
-    this.hdgLabel.scale.set(micro);
-    this.ktsLabel.scale.set(micro);
     this.hdgLabel.position.set(l.helmReadout.x, base - 3);
-    this.hdg.position.set(l.helmReadout.x + monoTextWidth('HDG', TY.label, LABEL_TRACKING) * micro + 6, base);
+    this.hdg.position.set(l.helmReadout.x + monoTextWidth('HDG', TY.label, LABEL_TRACKING) + 6, base);
     this.ktsLabel.position.set(l.helmReadout.x + l.helmReadout.w, base - 2);
-    this.kts.position.set(this.ktsLabel.x - monoTextWidth('KTS', TY.label, LABEL_TRACKING) * micro - 6, base);
+    this.kts.position.set(this.ktsLabel.x - monoTextWidth('KTS', TY.label, LABEL_TRACKING) - 6, base);
     drawLadderTicks(this.ticks, l.ladder, l.rudder);
-    COACH.forEach((c, i) => {
-      this.coach[i].scale.set(micro);
-      this.coach[i].position.set(...coachPoint(c.end, l));
-    });
+    COACH.forEach((c, i) => this.coach[i].position.set(...coachPoint(c.end, l)));
   }
 
   /** The HDG readout as drawn (test seam). */
@@ -595,14 +587,16 @@ class LevelBlock {
  */
 export class ShipConsole {
   private readonly root = new Container();
+  /** R24's dark-glass bed under the whole console. */
+  private readonly bedGfx = new Graphics();
   private readonly hull: HullGauge;
   private readonly indices: IndexRows;
   private readonly helm: HelmInstrument;
   private readonly level: LevelBlock;
-  private lastMicro = NaN;
   private layout: ShipConsoleLayout | null = null;
 
   constructor(parent: Container, glyphs?: HelmGlyphStore) {
+    this.root.addChild(this.bedGfx);
     this.hull = new HullGauge(this.root);
     this.indices = new IndexRows(this.root);
     this.helm = new HelmInstrument(this.root, glyphs);
@@ -612,19 +606,16 @@ export class ShipConsole {
   }
 
   /** One frame. `layout` is the spine's ship rect set — pass the SAME object
-   *  until the viewport (or the UI scale) changes. */
+   *  until the viewport changes. */
   update(view: ShipConsoleView, layout: ShipConsoleLayout): void {
     if (!this.root.visible) this.helm.seedFaded();
     this.root.visible = true;
-    const micro = consoleMicroScale(view.uiScale);
-    // A UI-scale change re-runs every relayout (the 9 px counter-scale moves).
-    const l = micro === this.lastMicro ? layout : { ...layout };
-    this.lastMicro = micro;
+    if (layout !== this.layout) drawHudBed(this.bedGfx, layout.bed);
     this.layout = layout;
-    this.hull.update(view, l, micro);
-    this.indices.update(view, l);
-    this.helm.update(view, l, micro);
-    this.level.update(view, l);
+    this.hull.update(view, layout);
+    this.indices.update(view, layout);
+    this.helm.update(view, layout);
+    this.level.update(view, layout);
   }
 
   /** Hidden with the hull (founder / spectate / port): the breath state dies

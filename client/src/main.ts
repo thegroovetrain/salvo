@@ -105,8 +105,8 @@ import {
   type PreviewMarks,
   type Readout,
 } from './render/console/readouts.js';
-import { ShipConsole, consoleMicroScale, type ShipConsoleView } from './render/console/shipConsole.js';
-import { WeaponsConsole, statsTwoLineFlags, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
+import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
+import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
@@ -198,7 +198,7 @@ import {
   type ResultsView,
 } from './ui/results.js';
 import { SettingsOverlay, canAbandon, escapeAction, wheelScrollsSurface, type OpenSurfaces } from './ui/settings.js';
-import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
+import { hudScale, motionIntensity, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
   afloatCount,
@@ -713,18 +713,6 @@ interface ConsoleCache {
   stats: EffectiveStats | null;
   slots: readonly (EquipmentId | null)[] | null;
   readouts: readonly Readout[];
-  /** Per weapon row, ruled order: the line it PRINTS (hover marks applied, at
-   *  the UI tier's counter-scale) takes two lines. */
-  twoLine: boolean[];
-  /** `twoLine` as bits — part of the layout key. */
-  twoLineBits: number;
-  /** The same verdict WITHOUT the hover — what places the offer (O15). */
-  baseTwoLine: boolean[];
-  baseTwoLineBits: number;
-  /** What `twoLine` / `baseTwoLine` were measured off (identity / value). */
-  twoLineReadouts: readonly Readout[] | null;
-  twoLinePreview: PreviewMarks | null;
-  twoLineMicro: number;
   layout: ConsoleLayout | null;
   weapons: WeaponsConsoleLayout | null;
   layoutKey: string;
@@ -740,13 +728,6 @@ function freshConsoleCache(): ConsoleCache {
     stats: null,
     slots: null,
     readouts: [],
-    twoLine: WEAPON_ROW_KINDS.map(() => false),
-    twoLineBits: 0,
-    baseTwoLine: WEAPON_ROW_KINDS.map(() => false),
-    baseTwoLineBits: 0,
-    twoLineReadouts: null,
-    twoLinePreview: null,
-    twoLineMicro: Number.NaN,
     layout: null,
     weapons: null,
     layoutKey: '',
@@ -3251,44 +3232,22 @@ function consoleReadoutsNow(g: Game): readonly Readout[] {
 }
 
 /**
- * THE ROWS' MEASURED GROWTH (the spine's input): each row's stats line as the
- * console PRINTS it — the hover marks applied, at the UI tier's counter-scale —
- * measured again only when the fold, the hover's marks (memoised on
- * `g.hoverLine`, so a hover IS part of this key) or the UI scale moved. The
- * hover-free verdict rides beside it: it alone places the offer group (O15),
- * so a hover cannot flip the dock out from under the pointer.
- */
-function statsTwoLineNow(g: Game): void {
-  const c = g.consoleCache;
-  const readouts = consoleReadoutsNow(g);
-  const preview = hoverMarksNow(g);
-  const micro = consoleMicroScale(g.uiScale);
-  if (c.twoLineReadouts === readouts && c.twoLinePreview === preview && c.twoLineMicro === micro) return;
-  if (c.twoLineReadouts !== readouts || c.twoLineMicro !== micro) {
-    c.baseTwoLineBits = statsTwoLineFlags(readouts, null, micro, c.baseTwoLine);
-  }
-  c.twoLineBits = statsTwoLineFlags(readouts, preview, micro, c.twoLine);
-  c.twoLineReadouts = readouts;
-  c.twoLinePreview = preview;
-  c.twoLineMicro = micro;
-}
-
-/**
- * THE LAYOUT (the pure spine), recomputed only when the logical viewport, the
- * countdown flag (REDRAW in the offer header) or a row's growth changes — the
- * consoles and the offer group draw from, and the press gate hit-tests against,
- * this ONE object.
+ * THE LAYOUT (the pure spine), recomputed only when the logical viewport,
+ * the countdown flag (REDRAW in the offer group) or the offer position changes — the consoles and
+ * the offer group draw from, and the press gate hit-tests against, this ONE
+ * object.
  */
 function consoleLayoutNow(g: Game): ConsoleLayout {
-  statsTwoLineNow(g); // the rows' growth (fold · hover · UI tier) is part of the key
   const c = g.consoleCache;
   const w = hudWidth(g);
   const h = hudHeight(g);
   const countdown = (publicState(g).matchPhase ?? 'waiting') === 'countdown';
-  const key = `${w}|${h}|${countdown ? 1 : 0}|${c.twoLineBits}|${c.baseTwoLineBits}`;
+  // The player's OFFER POSITION (R26) is in the key: a settings change re-lays.
+  const offerPos = settings.current.offerPos;
+  const key = `${w}|${h}|${countdown ? 1 : 0}|${offerPos}`;
   if (c.layout !== null && key === c.layoutKey) return c.layout;
   c.layoutKey = key;
-  c.layout = consoleLayout(w, h, { countdown, statsTwoLine: c.twoLine, placementTwoLine: c.baseTwoLine });
+  c.layout = consoleLayout(w, h, { countdown, offerPos });
   c.weapons = { ...c.layout.weapons, abilities: c.layout.abilities };
   return c.layout;
 }
@@ -4641,9 +4600,11 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
  * The fullscreen out-of-zone vignette (`layers.vignette`) is deliberately its
  * own sibling layer and is left alone: it is a full-viewport wash, not chrome.
  * DOM HUD-tier chrome follows through the `--hc-ui-scale` var (ui/theme.ts).
+ * The factor is the VIEWPORT factor × the settings tier (`hudScale`, epic-10
+ * amendment 18 R25), so a resize re-evaluates it every frame.
  */
 function applyUiScale(g: Game): void {
-  const factor = scaleFactor(effectiveScale(settings.current, g.stage.app.screen.width));
+  const factor = hudScale(settings.current, g.stage.app.screen.width, g.stage.app.screen.height);
   if (factor === g.uiScale) return;
   g.uiScale = factor;
   g.stage.layers.hud.scale.set(factor);
@@ -4777,7 +4738,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       stampOwnStream(g, input.sec);
     },
     render: (alpha, frameDt) => {
-      applyUiScale(g); // no-op unless the stored tier or the viewport gate moved
+      applyUiScale(g); // no-op unless the stored tier or the viewport moved
       // THE frame's monotonic timestamp, sampled EXACTLY once: every one-shot
       // pulse driven this frame and every reader of those pulses (the attention
       // seam → the storm vignette's hold) must see the same instant, or a
@@ -5319,7 +5280,7 @@ async function requeueToPort(autoQueue = true): Promise<void> {
     // Re-seed the DOM chrome's UI scale off the new viewport, exactly as boot
     // does — the in-match value was last written by applyUiScale, and only the
     // game loop refreshes it.
-    setUiScaleVar(scaleFactor(effectiveScale(settings.current, shell.stage.app.screen.width)));
+    setUiScaleVar(hudScale(settings.current, shell.stage.app.screen.width, shell.stage.app.screen.height));
     // THE HANDOFF IS INSIDE THE TRY (review gate). This is the last step of the
     // requeue chain and the only one with nothing behind it: a throw out of
     // enterPort/showHome would reject a `void`-ed promise, leaving the player
@@ -5947,7 +5908,7 @@ async function main(): Promise<void> {
   // Live effect: every stored setting is applied at boot and re-applied on every
   // change, so a reload restores exactly what the player left (the AC's
   // "takes effect live, persists across reload").
-  setUiScaleVar(scaleFactor(effectiveScale(settings.current, stage.app.screen.width)));
+  setUiScaleVar(hudScale(settings.current, stage.app.screen.width, stage.app.screen.height));
 
   // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242),
   // and since Story 7.1 the NFR1 frame-budget subject as well. Reachable from

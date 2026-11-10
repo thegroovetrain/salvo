@@ -6,7 +6,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { KILL_LEADER_MARK, bountyClaimLine, bountyKillLine } from '../ui/bounty.js';
-import { killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
+import { MAX_LINES, killFeedHeight, killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
+import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba, textSafe } from '../util/color.js';
 
 describe('ellipsizeName — mid-ellipsize > 14 code points to exactly 14', () => {
@@ -174,6 +175,22 @@ describe('pushKillLine — DOM span building', () => {
     expect(feed().children).toHaveLength(6);
     expect(feed().firstChild!.textContent).toBe('L7'); // newest
     expect(feed().lastChild!.textContent).toBe('L2'); // oldest surviving
+  });
+
+  it('every line sits on its own dark-glass bed (R24): a translucent background + an edge', () => {
+    pushKillLine([{ text: 'ONE' }], () => null);
+    pushKillLine([{ text: 'TWO' }], () => null);
+    for (const line of [...feed().children] as HTMLElement[]) {
+      expect(line.style.backgroundColor).toMatch(/^rgba\(/); // translucent, not transparent
+      expect(line.style.backgroundColor).not.toMatch(/, 0\)$/);
+      expect(line.style.borderStyle).toBe('solid');
+    }
+  });
+
+  it('a FULL bedded feed still fits the clearance the offer group is placed under', () => {
+    expect(killFeedHeight(MAX_LINES)).toBeLessThanOrEqual(CLIENT_CONFIG.console.killFeed.clearance);
+    expect(killFeedHeight(2)).toBeGreaterThan(killFeedHeight(1)); // the beds stack, they don't overlap
+    expect(killFeedHeight(0)).toBe(0);
   });
 
   it('a line lives 8 seconds (fades late, removes at exactly the TTL)', () => {

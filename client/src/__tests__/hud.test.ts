@@ -254,6 +254,24 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
   });
 
+  it('sits on a dark-glass BED that hugs the whole text row and goes with it (R24)', () => {
+    const hud = new Hud(new Container());
+    expect(hud.chromeBarBed()).toBeNull(); // nothing drawn yet
+    drive(hud, bar(), 1);
+    const bed = hud.chromeBarBed()!;
+    const pad = CLIENT_CONFIG.hudBed.chromePad;
+    // It encloses the row's line box (top at chromeBar.y, one line of type)
+    // with the bed padding on every side, and is centered on the row.
+    expect(bed.y).toBe(V.y - pad);
+    expect(bed.y + bed.h).toBe(V.y + V.fontSize + pad);
+    expect(bed.x + bed.w / 2).toBeCloseTo(FLOOR.w / 2, 6);
+    expect(bed.w).toBeGreaterThan(2 * pad);
+    hud.updateSpectate(bar(), MATCH, FLOOR.w, FLOOR.h, 'SUNK — SPECTATING', 2);
+    expect(hud.chromeBarBed()).not.toBeNull(); // it outlives the hull with the row
+    drive(hud, bar({ visible: false }), 3);
+    expect(hud.chromeBarBed()).toBeNull(); // hidden with the row
+  });
+
   it('redraws the row when the match clock ticks', () => {
     const hud = new Hud(new Container());
     drive(hud, bar(), 1);

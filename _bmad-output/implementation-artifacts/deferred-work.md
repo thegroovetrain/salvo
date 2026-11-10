@@ -3788,3 +3788,13 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-9-airdrops.md`
   summary: A scuttle (disconnect / abandon) pays the assist share of the kill pot to everyone who hit the leaver inside the window but NO killer share and no bounty bonus (Story 6.7: no killer by construction) — Eric's 2026-11-09 gate sentence calls a denied kill "pretty shitty"; the wreck half is ruled (R11), the XP half is his to rule.
   evidence: `server/src/game/match.ts` `onPlayerLeave` → `world.sinkShip(id)` with no killer; epic-10 amendment 18(n).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's pen (a card name) - 2026-11-10 (Story 10.10 follow-up, cycle 220; Fable Blind Hunter P1)
+  summary: `EXPANDED MINE RACKS` WRAPS TO THREE LINES ON THE NARROW OFFER CARD (136×64, 28 px name box, 9 mono chars a line at 14 px) and is clipped top and bottom; every other catalog name fits in two. Pre-existing from PR #329's card face. Options: a shorter card name (Eric's word), or a taller card for the whole stack (changes the face he loved). Not shrunk (the text rule).
+  evidence: `client/src/ui/offerGroup.ts` NAME_CSS, `shared/src/sim/catalog.ts` the `expandedMineRacks` line, `monoWrapLines('EXPANDED MINE RACKS', 14, .42, 88)` = 3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's call on staging - 2026-11-10 (Story 10.10 follow-up, cycle 220; orchestrator ruling after the Fable gate C1)
+  summary: THE RIGHT OFFER STACK HAS TWO HOMES - under the kill feed at the right edge when the screen is tall enough (16:10 and up, e.g. a 1440×900 fullscreen MacBook), else BESIDE the weapons box (left of it, top-aligned) - because the stack + the kill-feed clearance + the 568 px weapons box need ~1100 logical px and a 16:9 1080p screen or a MacBook browser window (~1440×790) has less. Eric saw and picked the under-the-feed stack; the beside-the-box home is the orchestrator's fallback so RIGHT never silently becomes the bottom row. Veto = pick BOTTOM as the default, or shrink the kill-feed clearance to four lines.
+  evidence: `client/src/render/console/layout.ts` `offerPlacement` (`'right' | 'rightBeside'`), `consoleLayout.test.ts` placement contracts at 1920×1080 / 1920×1200 / 1821×1024.

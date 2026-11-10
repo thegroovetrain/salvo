@@ -6,9 +6,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
+  OFFER_POSITIONS,
   SettingsStore,
   coerceVolume,
   effectiveScale,
+  hudScale,
   loadSettings,
   monoFloorOk,
   motionAllowed,
@@ -20,12 +22,15 @@ import {
   scaleFactor,
   scaleTierEnabled,
   scaleTierNote,
+  viewportScale,
   volumeGain,
   type Settings,
 } from '../settings/store.js';
 import {
   ABANDON_BUTTON_ID,
   CLOSE_BUTTON_ID,
+  OFFER_POS_LABEL,
+  OFFER_POS_OPTIONS,
   RESET_BUTTON_ID,
   SettingsOverlay,
   bindingRows,
@@ -72,6 +77,12 @@ describe('sanitizeSettings — every field falls back independently', () => {
     expect(sanitizeSettings({ motion: 'cinematic' }).motion).toBe('full');
     expect(sanitizeSettings({ uiScale: 150 }).uiScale).toBe(100); // no 150% tier — foreclosed
     expect(sanitizeSettings({ uiScale: 90 }).uiScale).toBe(90);
+  });
+
+  it('the OFFER POSITION (R26) keeps right / left / bottom and sanitizes anything else to right', () => {
+    for (const pos of OFFER_POSITIONS) expect(sanitizeSettings({ offerPos: pos }).offerPos).toBe(pos);
+    for (const bad of ['top', '', 3, null, undefined, { pos: 'left' }]) expect(sanitizeSettings({ offerPos: bad }).offerPos).toBe('right');
+    expect(DEFAULT_SETTINGS.offerPos).toBe('right');
   });
 
   it('clamps + rounds volumes into 0..100', () => {
@@ -163,6 +174,38 @@ describe('UI scale — tiers, the 1600px gate, and the mono floor', () => {
     expect(scaleFactor(90)).toBeCloseTo(0.9, 9);
     // ...and the floor really bites: the pre-lift 9px size would fail at 90%.
     expect(monoFloorOk(9, 90)).toBe(false);
+  });
+});
+
+describe('the VIEWPORT factor (epic-10 amendment 18 R25) and the HUD factor', () => {
+  const V = CLIENT_CONFIG.console.viewport;
+
+  it('is 1 at the reference, and the tighter ratio below it', () => {
+    expect(viewportScale(V.refW, V.refH)).toBe(1);
+    // The 13-inch MacBook Pro default: its WIDTH is the tighter ratio (1440 ÷ 1920).
+    expect(viewportScale(1440, 900)).toBeCloseTo(Math.max(V.min, 1440 / V.refW), 9);
+    // The TIGHTER of the two ratios rules: a wide-but-short window shrinks by its height.
+    expect(viewportScale(V.refW, 950)).toBeCloseTo(950 / V.refH, 9);
+    expect(viewportScale(1700, V.refH)).toBeCloseTo(1700 / V.refW, 9);
+  });
+
+  it('clamps to [min, max]: never larger than the reference, never smaller than the floor', () => {
+    expect(viewportScale(1366, 768)).toBe(V.min); // 0.711… raw → the floor
+    expect(viewportScale(2560, 1440)).toBe(V.max); // 1.333… raw → never grows past the reference
+  });
+
+  it('answers the reference (1) for a degenerate viewport — never NaN, 0 or Infinity', () => {
+    const cases: [number, number][] = [[0, 0], [0, 1080], [1920, 0], [NaN, 1080], [1920, NaN], [-5, 900], [Infinity, Infinity]];
+    for (const [w, h] of cases) expect(viewportScale(w, h), `${w} x ${h}`).toBe(1);
+  });
+
+  it('the HUD factor is the viewport factor × the settings tier — the 125 % gate unchanged', () => {
+    const at = (uiScale: Settings['uiScale'], w: number, h: number): number => hudScale({ ...DEFAULT_SETTINGS, uiScale }, w, h);
+    expect(at(100, V.refW, V.refH)).toBe(1);
+    expect(at(90, 1440, 900)).toBeCloseTo(viewportScale(1440, 900) * scaleFactor(90), 9);
+    expect(at(125, V.refW, V.refH)).toBeCloseTo(scaleFactor(125), 9);
+    // A stored 125 under the 1600 px gate applies 100, times the viewport.
+    expect(at(125, 1440, 900)).toBeCloseTo(viewportScale(1440, 900), 9);
   });
 });
 
@@ -440,6 +483,19 @@ describe('SettingsOverlay — DOM shell', () => {
     // the view-only bindings render the reference model, row for row
     const t = panelText();
     for (const r of bindingRows()) expect(t, r.keys).toContain(r.action);
+  });
+
+  it('carries the OFFER POSITION choice row — three options, the stored one selected — and a pick writes through', () => {
+    overlay.open();
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === OFFER_POS_LABEL);
+    expect(row).toBeDefined();
+    const buttons = [...row!.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((b) => b.dataset.value)).toEqual(OFFER_POS_OPTIONS.map((o) => o.value));
+    expect(buttons).toHaveLength(3);
+    expect(buttons.find((b) => b.dataset.value === 'right')!.style.color).toContain('amber');
+    buttons.find((b) => b.dataset.value === 'bottom')!.click();
+    expect(store.current.offerPos).toBe('bottom');
+    expect(loadSettings().offerPos).toBe('bottom');
   });
 
   it('toggle() closes an open overlay (the ESC toggle path)', () => {

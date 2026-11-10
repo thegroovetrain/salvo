@@ -7,6 +7,8 @@
 // stack is a thin adapter. Lines expire after a few seconds; the stack is capped
 // so a bloodbath cannot fill the screen.
 
+import { CLIENT_CONFIG } from '../config.js';
+import { hudBedCss } from '../render/hudBed.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
 // Display cap + surrogate-safe mid-ellipsis hoisted to the shared util (Story
 // 1.13) so the feed and the on-water nameplates share one cap source. Re-exported
@@ -19,7 +21,22 @@ const FEED_ID = 'kill-feed';
 // A GLOBAL feed (PV 23) carries every captain's sinking, not just the ones in
 // sight — more traffic needs the headroom (Eric ruling): 8s TTL, 6 lines.
 const LINE_TTL_MS = 8000;
-const MAX_LINES = 6;
+export const MAX_LINES = 6;
+/** The feed's line box (px) — its 14 px register on an 18 px line. */
+const LINE_PX = 18;
+const BED = CLIENT_CONFIG.hudBed;
+
+/**
+ * Pure: the height (logical px) of a feed of `lines` BEDDED lines (epic-10
+ * amendment 18 R24 — each line sits on its own dark-glass bed): the line box,
+ * the bed's padding and edge, and the gaps between beds. The offer group's top
+ * is placed off the feed's clearance, so a full feed must fit inside it.
+ */
+export function killFeedHeight(lines: number): number {
+  if (lines <= 0) return 0;
+  const bedded = LINE_PX + 2 * (BED.feedPadY + BED.edgeW);
+  return lines * bedded + (lines - 1) * BED.feedGap;
+}
 
 /**
  * The feed's neutral stand-in for a vessel whose roster entry is already gone
@@ -71,11 +88,11 @@ function ensureFeed(): HTMLDivElement {
       'display:flex',
       'flex-direction:column',
       'align-items:flex-end',
-      'gap:4px',
+      `gap:${BED.feedGap}px`,
       // Story 10.10 (R13, O12): the battle consoles' 14 px mono register — the
       // micro floor, an 18 px line box and the consoles' .5 px tracking (was
       // 16 px / 1 px since the Story 2.3 lift). Content and place unchanged.
-      'font:400 14px/18px var(--hc-font-mono)',
+      `font:400 14px/${LINE_PX}px var(--hc-font-mono)`,
       'letter-spacing:.5px',
       // Amendment 17: the connective text is load-bearing, so it reads
       // text-primary now — the retired grey is gone from the feed.
@@ -131,7 +148,8 @@ export function pushKillLine(segments: KillSegment[], colorFor: (id: string) => 
   const feed = ensureFeed();
   const line = document.createElement('div');
   renderSegments(line, segments, colorFor);
-  line.style.cssText = 'opacity:0.95;transition:opacity 1.2s ease';
+  // R24: each line on its own dark-glass bed, so it reads over the radar returns.
+  line.style.cssText = `${hudBedCss()};padding:${BED.feedPadY}px ${BED.feedPadX}px;opacity:0.95;transition:opacity 1.2s ease`;
   feed.insertBefore(line, feed.firstChild); // newest on top
   while (feed.children.length > MAX_LINES) feed.removeChild(feed.lastChild as ChildNode);
   setTimeout(() => {

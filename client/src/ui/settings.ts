@@ -20,6 +20,7 @@ import {
   scaleTierEnabled,
   scaleTierNote,
   type MotionLevel,
+  type OfferPos,
   type Settings,
   type SettingsStore,
   type UiScale,
@@ -49,6 +50,17 @@ export const MOTION_OPTIONS: readonly OptionModel<MotionLevel>[] = [
   { value: 'full', label: 'FULL', enabled: true, note: '' },
   { value: 'reduced', label: 'REDUCED', enabled: true, note: '' },
   { value: 'off', label: 'OFF', enabled: true, note: '' },
+];
+
+/** THE OFFER POSITION row (epic-10 amendment 18 R26, Eric 2026-11-10: "a
+ *  toggle in settings so the player can choose if they want the offer to
+ *  appear on the right, left, or bottom"). The row's four words are new
+ *  in-game copy, put to Eric `[Eric may reword]`. */
+export const OFFER_POS_LABEL = 'OFFER POSITION';
+export const OFFER_POS_OPTIONS: readonly OptionModel<OfferPos>[] = [
+  { value: 'right', label: 'RIGHT', enabled: true, note: '' },
+  { value: 'left', label: 'LEFT', enabled: true, note: '' },
+  { value: 'bottom', label: 'BOTTOM', enabled: true, note: '' },
 ];
 
 /**
@@ -601,7 +613,12 @@ export class SettingsOverlay {
     panel.replaceChildren(
       this.makeHeader(),
       makeSection('MOTION', makeChoiceRow('SCREEN MOTION', MOTION_OPTIONS, s.motion, (v) => this.set({ motion: v }))),
-      makeSection('DISPLAY', this.makeScaleRow(s), makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v }))),
+      makeSection(
+        'DISPLAY',
+        this.makeScaleRow(s),
+        makeChoiceRow(OFFER_POS_LABEL, OFFER_POS_OPTIONS, s.offerPos, (v) => this.set({ offerPos: v })),
+        makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v })),
+      ),
       makeSection(
         'AUDIO',
         // Sliders write through WITHOUT a repaint (they own their readout) —

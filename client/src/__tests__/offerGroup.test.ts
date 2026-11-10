@@ -12,10 +12,14 @@ import { offerView, redrawState, type OfferView } from '../ui/offerCore.js';
 import { OfferGroup, REDRAW_LABEL, cardTierMark, offerHeaderText, rearmChoice, type OfferGroupHooks } from '../ui/offerGroup.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { settings } from '../settings/store.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 const OFFER = ['intel', 'armor', 'deckGun', 'navalMines'];
-const LIVE = consoleLayout(1366, 768).offer;
-const COUNTDOWN = consoleLayout(1366, 768, { countdown: true }).offer;
+/** The RIGHT stack on the 13" MacBook's logical viewport (1440×900 ÷ 0.75). */
+const LIVE = consoleLayout(1920, 1200).offer;
+const COUNTDOWN = consoleLayout(1920, 1200, { countdown: true }).offer;
+/** The BOTTOM row (R26) on the reference screen. */
+const ROW = consoleLayout(1920, 1080, { offerPos: 'bottom' }).offer;
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
@@ -51,6 +55,20 @@ function panel(): HTMLElement {
   return document.getElementById('offer-group')!;
 }
 
+/** THE TEXT RULE (epic-10 amendment 18 (f), R23): every label ≥ 14 px and
+ *  every key chip ≥ 12 px at the 1920 reference. */
+const LABEL_FLOOR = 14;
+const CHIP_FLOOR = 12;
+
+function part(root: HTMLElement, name: string): HTMLElement[] {
+  return [...root.querySelectorAll(`[data-part="${name}"]`)] as HTMLElement[];
+}
+
+/** The px a font-size declares; for a `max(a, …)` clamp, its first (floor) term. */
+function px(v: string): number {
+  return Number.parseFloat(v.replace(/^max\(/, ''));
+}
+
 function view(you: OwnShip, locked = false): OfferView | null {
   return offerView(you, false, locked, false);
 }
@@ -69,7 +87,124 @@ describe('OfferGroup — the corner group (O3)', () => {
     // The digit token on each chip is its pick index + 1 (the Tab+digit map).
     cards().forEach((b, i) => expect(b.textContent?.endsWith(String(i + 1))).toBe(true));
     expect(panel().querySelector('b')?.textContent).toBe('2');
-    expect(panel().firstElementChild?.textContent).toBe(offerHeaderText(2)); // the header IS the pure line
+    expect(part(panel(), 'header')[0].textContent).toBe(offerHeaderText(2)); // the header IS the pure line
+  });
+
+  it('stacks the four cards in ONE column, each at its spine rect, in rect order (R22)', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    const cs = cards();
+    expect(cs).toHaveLength(4);
+    cs.forEach((b, i) => {
+      // Placed off the spine's rect (relative to the group frame), never re-derived.
+      expect(px(b.style.left)).toBe(LIVE.cards[i].x - LIVE.frame.x);
+      expect(px(b.style.top)).toBe(LIVE.cards[i].y - LIVE.frame.y);
+      expect(px(b.style.width)).toBe(LIVE.cards[i].w);
+    });
+    // A vertical stack: one left edge, each card BELOW the one before it.
+    for (let i = 1; i < cs.length; i++) {
+      expect(px(cs[i].style.left)).toBe(px(cs[0].style.left));
+      expect(px(cs[i].style.top)).toBeGreaterThanOrEqual(px(cs[i - 1].style.top) + px(cs[i - 1].style.height));
+    }
+  });
+
+  it('lays the cards from the ROW`s rects too (BOTTOM, R26): one row, left to right, the header in its slot', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), ROW, 1);
+    const cs = cards();
+    expect(cs).toHaveLength(4);
+    cs.forEach((b, i) => {
+      expect(px(b.style.left)).toBe(ROW.cards[i].x - ROW.frame.x);
+      expect(px(b.style.top)).toBe(ROW.cards[i].y - ROW.frame.y);
+      expect(px(b.style.width)).toBe(ROW.cards[i].w);
+      expect(px(b.style.height)).toBe(ROW.cards[i].h);
+    });
+    for (let i = 1; i < cs.length; i++) {
+      expect(px(cs[i].style.top)).toBe(px(cs[0].style.top));
+      expect(px(cs[i].style.left)).toBeGreaterThanOrEqual(px(cs[i - 1].style.left) + px(cs[i - 1].style.width));
+    }
+    const header = part(panel(), 'header')[0];
+    expect(px(header.style.left)).toBe(ROW.header.x - ROW.frame.x);
+    expect(px(header.style.width)).toBe(ROW.header.w);
+    expect(panel().style.width).toBe(`${ROW.frame.w}px`);
+  });
+
+  it('re-lays when the arrangement changes under the same view (a settings change)', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    g.update(view(ownShip()), ROW, 1);
+    expect(px(cards()[1].style.left)).toBe(ROW.cards[1].x - ROW.frame.x);
+    expect(px(cards()[1].style.top)).toBe(ROW.cards[1].y - ROW.frame.y);
+  });
+
+  it('keeps the MERGED card face: glyph box top-left, the name beside it, the tier mark bottom-left, the TAB n chip bottom-right', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    for (const b of cards()) {
+      const glyph = part(b, 'glyph')[0];
+      const name = part(b, 'name')[0];
+      const tier = [...part(b, 'tier'), ...part(b, 'oneOff')][0];
+      const chip = part(b, 'chip')[0];
+      for (const e of [glyph, name, tier, chip]) expect(e).toBeDefined();
+      expect(px(glyph.style.width)).toBe(CLIENT_CONFIG.console.offer.glyphBox);
+      expect(px(glyph.style.left)).toBe(px(glyph.style.top));
+      expect(px(name.style.left)).toBeGreaterThan(px(glyph.style.left) + px(glyph.style.width));
+      // the foot line carries the tier first (left) and the chip last (right)
+      const foot = tier.parentElement!;
+      expect(foot).toBe(chip.parentElement);
+      expect(foot.firstElementChild).toBe(tier);
+      expect(foot.lastElementChild).toBe(chip);
+      expect(foot.style.justifyContent).toBe('space-between');
+      expect(foot.style.bottom).not.toBe('');
+      expect(chip.textContent?.startsWith('TAB')).toBe(true);
+      expect(b.style.borderStyle).toBe('solid');
+    }
+  });
+
+  it('THE TEXT RULE: header, names, tier marks and REDRAW at ≥ 14 px, the key chip at ≥ 12 px', () => {
+    const g = new OfferGroup(hooks());
+    g.update({ ...view(ownShip())!, redraw: 'unspent' }, COUNTDOWN, 1);
+    const root = panel();
+    const labels = [...part(root, 'header'), ...part(root, 'name'), ...part(root, 'tier'), ...part(root, 'redraw')];
+    expect(part(root, 'name')).toHaveLength(4);
+    expect(part(root, 'redraw')).toHaveLength(1);
+    for (const e of labels) expect(px(e.style.fontSize), e.dataset.part).toBeGreaterThanOrEqual(LABEL_FLOOR);
+    for (const e of [...part(root, 'header'), ...part(root, 'name'), ...part(root, 'redraw')]) {
+      expect(e.style.fontWeight, e.dataset.part).toBe('600');
+    }
+    for (const e of part(root, 'chip')) expect(px(e.style.fontSize)).toBeGreaterThanOrEqual(CHIP_FLOOR);
+  });
+
+  it('the key chip never paints under the 9 px mono floor: its size lifts as 9 px over the HUD scale', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip())!, LIVE, 1);
+    const chips = part(panel(), 'chip');
+    expect(chips.length).toBeGreaterThan(0);
+    for (const e of chips) expect(e.style.fontSize.replace(/\s+/g, '')).toContain('calc(9px/var(--hc-ui-scale,1))');
+  });
+
+  it('sits on ONE dark-glass bed behind the header and the stack (R24)', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    const beds = part(panel(), 'bed');
+    expect(beds).toHaveLength(1);
+    const bed = beds[0];
+    expect(panel().firstElementChild).toBe(bed); // beneath everything else
+    expect(bed.style.backgroundColor).toMatch(/^rgba\(/); // translucent…
+    expect(bed.style.backgroundColor).not.toMatch(/, 0\)$/); // …not transparent
+    expect(bed.style.borderStyle).toBe('solid');
+    expect(bed.style.pointerEvents).toBe('none'); // the water stays clickable
+    // It sits at the spine's bed rect and covers the header AND the whole stack.
+    expect(px(bed.style.left)).toBe(LIVE.bed.x - LIVE.frame.x);
+    expect(px(bed.style.top)).toBe(LIVE.bed.y - LIVE.frame.y);
+    const [bx, by, bw, bh] = [px(bed.style.left), px(bed.style.top), px(bed.style.width), px(bed.style.height)];
+    for (const e of [part(panel(), 'header')[0], ...cards()]) {
+      const [x, y, w, h] = [px(e.style.left), px(e.style.top), px(e.style.width), px(e.style.height)];
+      expect(x).toBeGreaterThanOrEqual(bx);
+      expect(y).toBeGreaterThanOrEqual(by);
+      expect(x + w).toBeLessThanOrEqual(bx + bw);
+      expect(y + h).toBeLessThanOrEqual(by + bh);
+    }
   });
 
   it('is HIDDEN with nothing banked, and with no view at all (spectate / sinking)', () => {
