@@ -2,8 +2,9 @@
 title: 'Story 10.9: Airdrops'
 type: 'feature'
 created: '2026-11-08'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'dd14beff'
+final_revision: 'the closing records commit at the PR head on worktree-story-10-9-airdrops (code: 9b844420, gate patch 2)'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -180,3 +181,17 @@ warnings: ['oversized']
 
 **Manual checks (if no CLI):**
 - Eric's yes on the rendered crate candidate (artifact page from the real `Drops` module).
+
+## Auto Run Result
+
+**Status:** done (review gate passed; PR to `development` open; Eric's visual rulings taken on three rendered candidates, "v3 looks good").
+
+**Summary:** Airdrop crates built on all three sides. The server scatters 2 × (minutes remaining to 12:00) crates at every match minute (24 … 2, 156 derived), uniform in the live ring, island-clear and ≥ 500 u from every live beacon (R1), on a private seeded stream; a crate carries only its kind (six index stats or 'wreck') as a 15 u intangible disc (R4, R7); an afloat participant hull touching it collects it, the +1..+5 (a wreck: three rolls, R2) is rolled at pickup onto `indexBonus` through the one fold, the collector alone gets the self-private `dp` toast (R6); a hull sunk by damage leaves a wreck crate, a quitter only if in combat (R11); the storm deletes crates outside the ring (R13 keeps the close-minute batch in the outgoing ring); beacons placed over crates leave them (R12). Perception: a sight-gated `drops` channel plus an anonymous fuzzed-disc radar blip under the hull gate (R3/R8); the six exceptions stay six, the invariants are extended. Bots ignore crate-sized returns and steer to a sighted crate in their lane when not in combat; harness + `MatchRecord` count drops taken and the index spread. Client: the square crate per kind in its color with a glow (ARMOR pink, R9), the salvage wreck icon (R10), on a fogged `dropWorld` layer. Cycle 219, 0.19.13, PV 101, epic-10 amendment 18 (renumbered after Story 10.10 landed as cycle 218 mid-run).
+
+**Files changed (headline):** `shared/src/sim/drops.ts` (new), `CONFIG.drops`, `CONFIG.bots.cratePaintMaxU / dropAheadU / dropLaneU`, `paintDiscCoverage`, `DropView` / `DropPickupEvent`, PV 101; `server/src/game/world.ts` (store, `spawnDrops` / `collectDrops` / `stormDrops` rows, wreck pickup, `inCombat`, scuttle flag), `signals.ts` / `perception.ts` / `frames.ts` (drop row, `dropPaint`, `dp` row, `drops` channel), `ai/drops.ts` (new) + `tactics.ts` + `plot.ts` / `utility.ts` (crate filter), `match.ts` / `matchRecord.ts`, `roomOptions.ts` / `ArenaRoom.ts` (`matchOverride.drops`), batchsim readouts; `client/src/sim/dropView.ts` (new), `render/drops.ts` (new), `render/stage.ts` (`dropWorld`), `equipmentIcons.ts` (salvage glyph), `config.ts` (`drops`, `COLORS.pink`), `net/roomBindings.ts`, `ui/boonCopy.ts`; tests in every workspace (shared 1436 → 1470, server 2708 → 2762, client +~40); amendment 18, both trackers, the ledger, VERSION 0.19.13.
+
+**Review:** 6 patched, 2 deferred, 0 rejected (triage log above); no confirmed defect in the chokepoint, the sim rows or the schedule.
+
+**Verification:** `npm run check` EXIT 0 on the merged, patched tree (shared 1470, server 2762, client 145 files; lint 0 errors, 3 pre-existing warnings); matchSmoke, openingSmoke and weaponsSmoke OK before the merge (first try) and OK again after it; a 2-match harness smoke shows bots collecting crates; every gate fix with a test shown red first.
+
+**Residual risks:** the glow is about one pixel at the default zoom (dials exposed; judged on staging); a scuttle pays the assist share but no killer share (existing Story 6.7 rule, Eric's "denied XP" sentence — his to rule); spectator frames carry every live crate (ledger); 10.12 tunes bot appetite; How-to-Play has no airdrop entry (10.14).
