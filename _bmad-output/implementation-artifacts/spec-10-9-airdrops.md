@@ -123,13 +123,13 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution (waves; `/orchestrate` routing in Design Notes):**
-- [ ] W1 `shared/` -- `CONFIG.drops`, `sim/drops.ts`, `paintDiscCoverage`, `DropView` / `dp` types, `FrameMsg.drops?`, PV 101 + changelog, barrel; unit tests on the count law, the roll law (bounds, stat ∈ indices), the disc raster (cell count for 15 u at 9 u cells), `dropTouches`
-- [ ] W2a `server/` sim -- `World.drops` store + private stream, `spawnDrops` / `collectDrops` / `stormDrops` rows, wreck pickup in `sinkShip`, `dropsTaken`, `dp` push, `WorldOptions.drops` + `matchOverride.drops`; `stepOrder.test.ts` pin amended; world tests (schedule incl. catch-up and the 12:00 stop; placement rejections land / keep-out / ring; sail-over → `indexBonus` + refold; sinking hull collects nothing; storm deletes; wreck bundle of 3; skip-and-log)
-- [ ] W2b `server/` perception -- `drop` pseudo-row, `dropScan` (sight + radar paint via `blipGate` + disc rect), `PSEUDO_ROWS`, `dp` self-private row, `optionalChannels`, `PerceptionView.drops`; invariants extended (`CONTACT_LIKE`, `REGISTRY_KEYS`, `verifyDrop`, blip oracle, `EVENT_VERIFIERS.dp`, key-order pins); a two-world differential test: frames identical except the collector's `you.ib` and its `dp`; goldenFrames re-recorded with a dated note
-- [ ] W2c `client/` -- `drops` ingest (fail-closed on a malformed `g`), `Drops` renderer + `dropWorld` layer, `dp` handling scaffold; `Game` field; tests (reconcile add/remove, glyph per stat, malformed entry dropped)
-- [ ] W3 rendered candidate -- throwaway esbuild page under `$CLAUDE_JOB_DIR/tmp` from the real `Drops` module (+ pixi): crate variants A/B/C at game zoom, the wreck bundle, a radar-painted drop beside a hull paint, the pickup tell options (toast `+3 ARMOR` glyph row / none); publish as an artifact; Eric's yes BEFORE the client art and the tell are final
-- [ ] W4 bots + harness + record -- lane nudge in `tactics.ts` + `CONFIG.bots.dropLaneU/dropAheadU`; `dropsTaken` on `MatchRecord` / `CaptainSample` / `BotSample`; report lines; tests (bot steers to a lane drop when idle, ignores it when engaged; record field)
-- [ ] W5 records -- amendment 18, `VERSION` / `package.json` 0.19.13, both trackers, this spec's result; review gate (two Fable hunters + Codex `gpt-5.6-sol`), smokes, PR
+- [x] W1 `shared/` -- `CONFIG.drops`, `sim/drops.ts`, `paintDiscCoverage`, `DropView` / `dp` types, `FrameMsg.drops?`, PV 101 + changelog, barrel; unit tests on the count law, the roll law (bounds, stat ∈ indices), the disc raster (cell count for 15 u at 9 u cells), `dropTouches`
+- [x] W2a `server/` sim -- `World.drops` store + private stream, `spawnDrops` / `collectDrops` / `stormDrops` rows, wreck pickup in `sinkShip`, `dropsTaken`, `dp` push, `WorldOptions.drops` + `matchOverride.drops`; `stepOrder.test.ts` pin amended; world tests (schedule incl. catch-up and the 12:00 stop; placement rejections land / keep-out / ring; sail-over → `indexBonus` + refold; sinking hull collects nothing; storm deletes; wreck bundle of 3; skip-and-log)
+- [x] W2b `server/` perception -- `drop` pseudo-row, `dropScan` (sight + radar paint via `blipGate` + disc rect), `PSEUDO_ROWS`, `dp` self-private row, `optionalChannels`, `PerceptionView.drops`; invariants extended (`CONTACT_LIKE`, `REGISTRY_KEYS`, `verifyDrop`, blip oracle, `EVENT_VERIFIERS.dp`, key-order pins); a two-world differential test: frames identical except the collector's `you.ib` and its `dp`; goldenFrames re-recorded with a dated note
+- [x] W2c `client/` -- `drops` ingest (fail-closed on a malformed `g`), `Drops` renderer + `dropWorld` layer, `dp` handling scaffold; `Game` field; tests (reconcile add/remove, glyph per stat, malformed entry dropped)
+- [x] W3 rendered candidate -- throwaway esbuild page under `$CLAUDE_JOB_DIR/tmp` from the real `Drops` module (+ pixi): crate variants A/B/C at game zoom, the wreck bundle, a radar-painted drop beside a hull paint, the pickup tell options (toast `+3 ARMOR` glyph row / none); publish as an artifact; Eric's yes BEFORE the client art and the tell are final
+- [x] W4 bots + harness + record -- lane nudge in `tactics.ts` + `CONFIG.bots.dropLaneU/dropAheadU`; `dropsTaken` on `MatchRecord` / `CaptainSample` / `BotSample`; report lines; tests (bot steers to a lane drop when idle, ignores it when engaged; record field)
+- [x] W5 records -- amendment 18, `VERSION` / `package.json` 0.19.13, both trackers, this spec's result; review gate (two Fable hunters + Codex `gpt-5.6-sol`), smokes, PR
 
 **Acceptance Criteria:**
 - Given the zone starts, when the match clock crosses minute m < 12, then exactly `2 × (12 − m)` drops are added (minus any logged skips), each inside the live ring, island-clear, ≥ 500 u from every non-gone beacon, with one stat from the six and n ∈ [1, 5].
@@ -145,6 +145,22 @@ warnings: ['oversized']
 - 2026-11-08 (dev step, Eric's R7 on the rendered candidate): the drop model moved from rolls-at-spawn to kind-at-spawn / roll-at-pickup. Known-bad state avoided: a crate advertising its amount (Eric: the bonus is rolled after pickup). KEEP: the sight-only `drops` channel, the anonymous disc blip, the `dp` self-private tell, the hard 500 u keep-out, the three-roll wreck.
 
 ## Review Triage Log
+
+### 2026-11-10 — Review pass (Fable Blind Hunter BUILD-ON-IT · Fable Edge Case Hunter 5 cases · Codex `gpt-5.6-sol` FIX-FIRST on one finding)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 3, low 3)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` Codex (CONFIRMED): a live ring smaller than the crate radius clamped the placement domain to the centre and parked crates in the storm (dev `zoneOverride` only) — `pickDropSpot` now places none below `radiusU`; regression test shown red first.
+  - `[medium]` `[patch]` Both hunters (CONFIRMED, design gap → Eric R11): a quitter's scuttle left a 3-roll wreck crate — now only when the hull was in combat (assist ledger inside `assistWindowMs`); tests red first; Eric's "denied XP" half is on the ledger for his ruling.
+  - `[medium]` `[patch]` Edge Case Hunter (reachable): `collectDrops` ran in the results window (`xpEnabled` false) — gated; test red first.
+  - `[low]` `[patch]` Edge Case Hunter (latent, sandbox): a respawning hull collected its own wreck crate — no wreck crate while `respawnEnabled`; test red first.
+  - `[low]` `[patch]` Edge Case Hunter (latent, `--tune` / fixtures): reversed `bonusMin/Max` or empty `indices` produced a negative amount / an undefined kind — fail-safe guards; tests.
+  - `[low]` `[patch]` Blind Hunter: comment drift `{id,x,y,g}` → `{id,x,y,c}` in frames/perception/signals/tests and a model note in this spec.
+  - Ruled by Eric at the gate, not patched: beacons placed over existing crates are LEFT (R12); a close-minute batch scatters in the outgoing ring as ruled (R13).
+  - Deferred (ledger): spectator frames carry every live crate; the scuttle pays no kill XP (Story 6.7) — Eric's call.
 
 ## Design Notes
 

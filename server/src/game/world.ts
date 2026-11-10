@@ -1506,6 +1506,30 @@ function memoIndex(origin: number, cell: number, side: number, v: number): numbe
   return i < 0 ? 0 : i >= side ? side - 1 : i;
 }
 
+/**
+ * WAS THIS HULL IN COMBAT? (Story 10.9 review gate — the quitter wreck.) Eric,
+ * 2026-11-09, verbatim: "If a player is about to sink another ship, and that
+ * other ship's player disconnects right before I get the kill, and I get
+ * denied XP and/or a wreck, that'd be pretty shitty. So yeah if they
+ * disconnect out of the blue, nothing, but if the ship was in combat when
+ * they disconnect, wreck."
+ *
+ * In combat = the hull's ASSIST LEDGER (`damageFrom`) holds at least one
+ * entry stamped within `CONFIG.xp.assistWindowMs` of `now` — the same window
+ * that pays assists. The ledger's keys are attacking HULL ids by construction
+ * (creditDamage excludes self-hits and the storm never routes through it).
+ * At window 0 (the split switched off) any entry counts — though the ledger
+ * is then never written, so a scuttle there leaves no crate. Pure: reads only
+ * its arguments.
+ */
+export function inCombat(ship: Pick<ShipRecord, 'damageFrom'>, now: number): boolean {
+  const windowMs = CONFIG.xp.assistWindowMs;
+  for (const tally of ship.damageFrom.values()) {
+    if (windowMs <= 0 || now - tally.at <= windowMs) return true;
+  }
+  return false;
+}
+
 export class World {
   readonly map: GameMap;
   readonly playerCap: number;
@@ -2927,8 +2951,13 @@ export class World {
    * different ship still in the room — a DEAD killer (mutual destruction)
    * still gets both; storm (`by` undefined) and self-kills grant nothing by
    * construction. Combat routes damage through here; tests drive it directly.
+   *
+   * `opts.scuttle` marks THE SCUTTLE — the killer-less sink Match.onPlayerLeave
+   * performs for a departing captain (Story 6.7) — and nothing else passes it.
+   * It changes exactly one thing: the wreck crate is left only when the hull
+   * was IN COMBAT (`inCombat`, Eric 2026-11-09 — see placeWreckDrop).
    */
-  sinkShip(id: string, by?: string): void {
+  sinkShip(id: string, by?: string, opts?: { scuttle?: boolean }): void {
     const ship = this.ships.get(id);
     // THE SOLE IDEMPOTENCY LOCK (amendment 1): exactly one `sunk` event per
     // hull per life hangs off this early return. A hull already `sinking`
@@ -2947,8 +2976,10 @@ export class World {
     // bookkeeping below fires NOW; only the physical foundering is deferred.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sink', this.now);
     // THE WRECK PICKUP (Story 10.9, R2): one `'wreck'` crate at the wreck
-    // centre — only once the zone has started (placeWreckDrop's guard).
-    this.placeWreckDrop(ship);
+    // centre — only once the zone has started (placeWreckDrop's guards). It
+    // runs BEFORE creditKill clears the assist ledger: a scuttle's in-combat
+    // test reads that ledger.
+    this.placeWreckDrop(ship, opts?.scuttle === true);
     // THE COLLECTOR INVALIDATION (Story 8.4): the wreck leaves every target
     // list built from here on — later shells of the same click pass through it
     // (`deferred-work.md:594`) and homing drops the lock — while its silhouette
@@ -7575,9 +7606,19 @@ export class World {
    * `zoneStartT` is a ready-room / sandbox practice sink (a respawning dev or
    * practice hull), never a match death, and a crate there would turn
    * practice sinks into permanent index points.
+   *
+   * NOR WHILE RESPAWN IS ON (review gate 2026-11-10): a hull that will respawn
+   * (`respawnEnabled` — the sandbox, and every phase before `active`) is
+   * practicing even after the zone clock starts, and would otherwise sail
+   * back over its own wreck and carry the points into the match.
+   *
+   * A SCUTTLE (`scuttle`, the departing captain's killer-less sink) leaves a
+   * crate ONLY when the hull was IN COMBAT (`inCombat`, Eric 2026-11-09);
+   * a sink by damage (a hull, a mine, a ram, the storm) always does.
    */
-  private placeWreckDrop(ship: ShipRecord): void {
-    if (this.zoneStartT === null || !roleIsParticipant(ship)) return;
+  private placeWreckDrop(ship: ShipRecord, scuttle: boolean): void {
+    if (this.zoneStartT === null || this.respawnEnabled || !roleIsParticipant(ship)) return;
+    if (scuttle && !inCombat(ship, this.now)) return;
     const k = this.wreckDrops;
     this.wreckDrops += 1;
     const id = `drp-w-${k}`;
@@ -7595,7 +7636,10 @@ export class World {
    * answers at once unless a sink bumped its generation.
    */
   private collectDrops(hitTargets: (mask: readonly TargetKind[]) => readonly Target[]): void {
-    if (this.drops.size === 0) return;
+    // Only while the match is live (review gate 2026-11-10; `dropsLive`'s
+    // `xpEnabled` arm): the results window grants no points, no re-fold, no
+    // `dp` toast.
+    if (!this.xpEnabled || this.drops.size === 0) return;
     for (const drop of [...this.drops.values()]) {
       const taker = this.dropTaker(drop, hitTargets(DROP_TAKER_MASK));
       if (taker !== undefined) this.collectDrop(taker, drop);

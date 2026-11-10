@@ -186,6 +186,18 @@ describe('rollKind / rollPickup — the kind at spawn, the amount at pickup (Eri
     for (const n of [0, -1, 1.5, NaN]) expect(rollPickup(mulberry32(7), 'wreck', { ...D, wreckRolls: n })).toEqual([]);
   });
 
+  it('a reversed bonus range (a degenerate --tune / fixture dial) grants bonusMin, never below it', () => {
+    const cfg: DropConfig = { ...D, bonusMin: D.bonusMax + 2, bonusMax: D.bonusMax };
+    for (let seed = 1; seed <= 50; seed++) {
+      expect(rollPickup(mulberry32(seed), D.indices[0], cfg)).toEqual([[D.indices[0], cfg.bonusMin]]);
+    }
+  });
+
+  it('rollKind over an EMPTY indices list throws a clear bug-guard error (never an undefined stat)', () => {
+    const cfg: DropConfig = { ...D, indices: [] };
+    expect(() => rollKind(mulberry32(1), cfg)).toThrow('drops.indices is empty');
+  });
+
   it('is deterministic: the same seed and kind roll the same grant', () => {
     for (const kind of [...D.indices, 'wreck' as const]) {
       expect(rollPickup(mulberry32(42), kind)).toEqual(rollPickup(mulberry32(42), kind));

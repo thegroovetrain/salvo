@@ -24,6 +24,7 @@ import {
   type GameEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { Match } from '../game/match.js';
 import { SPAWN_ISLAND_CLEARANCE, islandClearance } from '../game/spawn.js';
 import { DT, bareWorld, captain, seatBeacon } from './beaconFixture.js';
 
@@ -65,6 +66,43 @@ function halfBeam(): number {
 
 function hullPolyOf(rec: ShipRecord) {
   return transformPolygon(hullSilhouette(rec.hullId), rec.state.x, rec.state.y, rec.state.heading);
+}
+
+/** A world where a sink is a MATCH death: the zone has started and nothing
+ *  respawns (Match.applyPolicy's `active` arm). */
+function liveWorld(): World {
+  const w = bareWorld();
+  w.startZone(w.now);
+  w.respawnEnabled = false;
+  return w;
+}
+
+let shellN = 0;
+/** Land one real contact shell of `damage` from `by` on `victim` (the
+ *  assistSplit fixture's path), so the victim's assist ledger is stamped by
+ *  the production damage seam, at the world's current clock. */
+function hitHull(w: World, by: string, victim: ShipRecord, damage: number): void {
+  const id = `wk-${shellN++}`;
+  w.shells.set(id, {
+    id,
+    ownerId: by,
+    x: victim.state.x - 20,
+    y: victim.state.y,
+    vx: CONFIG.gun.shellSpeed,
+    vy: 0,
+    distLeft: 60,
+    bornAt: w.now,
+    kind: 'shell',
+    family: 'cannon',
+    damage,
+    hitRadius: CONFIG.gun.shellRadius,
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: damage,
+    hits: CONFIG.gun.hits,
+  });
+  for (let t = 0; t < 8 && w.shells.size > 0; t++) w.step();
 }
 
 const STAT = D.indices[0];
@@ -277,6 +315,23 @@ describe('sail-over (collectDrops, R4)', () => {
     expect(grants()).toEqual(grants());
   });
 
+  it('collection runs only while the match is live (xpEnabled): the results window grants nothing', () => {
+    const w = bareWorld();
+    const a = captain(w, 'a', 0, 0);
+    const bonusBefore = { ...a.indexBonus };
+    seatDrop(w, 'd1', 0, 0, STAT);
+    w.xpEnabled = false;
+    w.step();
+    expect(w.drops.has('d1')).toBe(true);
+    expect(a.indexBonus).toEqual(bonusBefore);
+    expect(a.dropsTaken).toBe(0);
+    expect(dpEvents(w)).toEqual([]);
+    w.xpEnabled = true;
+    w.step();
+    expect(w.drops.has('d1')).toBe(false);
+    expect(a.dropsTaken).toBe(1);
+  });
+
   it('a crate out of reach stays on the water', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
@@ -341,8 +396,7 @@ describe('the storm (stormDrops)', () => {
 
 describe('the wreck pickup (sinkShip, R2)', () => {
   it("once the zone has started, a sinking participant leaves ONE crate of kind 'wreck' at its centre", () => {
-    const w = bareWorld();
-    w.startZone(w.now);
+    const w = liveWorld();
     captain(w, 'a', 123.4, -56.7);
     w.sinkShip('a');
     const ws = wrecks(w);
@@ -356,6 +410,7 @@ describe('the wreck pickup (sinkShip, R2)', () => {
   it('wreck pickups are placed even with the schedule switched off', () => {
     const w = bareWorld(1008, { drops: false });
     zoneAfterStep(w, 0);
+    w.respawnEnabled = false;
     captain(w, 'a', 0, 0);
     w.step();
     w.sinkShip('a');
@@ -373,10 +428,89 @@ describe('the wreck pickup (sinkShip, R2)', () => {
   });
 
   it('a bot (an AI captain) leaves one too', () => {
-    const w = bareWorld();
-    w.startZone(w.now);
+    const w = liveWorld();
     const bot = w.addBot(undefined, undefined);
     w.sinkShip(bot.id);
     expect(wrecks(w)).toHaveLength(1);
+  });
+
+  it('a hull that will RESPAWN (sandbox / pre-active practice, respawnEnabled) leaves no crate even after the zone starts', () => {
+    const w = bareWorld();
+    w.startZone(w.now);
+    captain(w, 'a', 0, 0);
+    captain(w, 'b', 500, 0);
+    w.respawnEnabled = true;
+    w.sinkShip('a');
+    expect(wrecks(w)).toHaveLength(0);
+    w.respawnEnabled = false;
+    w.sinkShip('b');
+    expect(wrecks(w)).toHaveLength(1);
+  });
+
+  it('a sink by damage with an EMPTY ledger (the storm) still leaves a crate', () => {
+    const w = liveWorld();
+    const a = captain(w, 'a', 0, 0);
+    expect(a.damageFrom.size).toBe(0);
+    w.sinkShip('a'); // killer-less, NOT a scuttle: the storm's own call
+    expect(wrecks(w)).toHaveLength(1);
+  });
+});
+
+describe('the quitter wreck (Eric 2026-11-09: a scuttle leaves a wreck only IN COMBAT)', () => {
+  const WINDOW = (): number => CONFIG.xp.assistWindowMs;
+
+  it('a captain scuttled with no damage taken leaves NO crate (disconnected out of the blue)', () => {
+    const w = liveWorld();
+    captain(w, 'a', 0, 0);
+    w.sinkShip('a', undefined, { scuttle: true });
+    expect(wrecks(w)).toHaveLength(0);
+  });
+
+  it('a captain hit by another hull 5 s ago and then scuttled leaves ONE wreck crate', () => {
+    expect(WINDOW()).toBeGreaterThan(5000); // the case needs the hit inside the window
+    const w = liveWorld();
+    const a = captain(w, 'a', 0, 0);
+    captain(w, 'b', 0, 1500);
+    hitHull(w, 'b', a, 1);
+    expect(a.damageFrom.has('b')).toBe(true);
+    w.now += 5000; // a clock jump: the case is about the ledger's age, not the sea between
+    w.sinkShip('a', undefined, { scuttle: true });
+    expect(wrecks(w)).toHaveLength(1);
+  });
+
+  it('a captain last hit assistWindowMs + 1 s ago and then scuttled leaves NO crate (the fight is over)', () => {
+    const w = liveWorld();
+    const a = captain(w, 'a', 0, 0);
+    captain(w, 'b', 0, 1500);
+    hitHull(w, 'b', a, 1);
+    expect(a.damageFrom.has('b')).toBe(true);
+    w.now += WINDOW() + 1000;
+    w.sinkShip('a', undefined, { scuttle: true });
+    expect(wrecks(w)).toHaveLength(0);
+  });
+
+  it('through the REAL leave (Match.onPlayerLeave): in combat, a wreck; out of the blue, none', () => {
+    const w = new World(1008);
+    w.map.islands.length = 0;
+    const hooks = { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
+    const m = new Match(w, { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }, hooks);
+    for (const id of ['a', 'b', 'c', 'd']) {
+      w.addShip(id, id.toUpperCase(), 'captain', undefined, undefined, undefined);
+      m.notifyRosterChanged();
+    }
+    for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
+      w.step();
+      m.update();
+    }
+    expect(m.phase).toBe('active');
+    expect(w.respawnEnabled).toBe(false);
+    const a = w.ships.get('a')!;
+    hitHull(w, 'b', a, 1);
+    expect(a.damageFrom.has('b')).toBe(true);
+    m.onPlayerLeave('a'); // in combat
+    m.onPlayerLeave('c'); // never touched
+    const ws = wrecks(w);
+    expect(ws).toHaveLength(1);
+    expect([ws[0].x, ws[0].y]).toEqual([Math.fround(a.state.x), Math.fround(a.state.y)]);
   });
 });

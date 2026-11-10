@@ -90,18 +90,26 @@ function pickIndex(u: number, n: number): number {
 }
 
 /** THE SPAWN-TIME DRAW — exactly ONE `rng.next()`: the crate's stat, uniform
- *  over `cfg.indices`. (A wreck's kind is `'wreck'`, never drawn.) */
+ *  over `cfg.indices`. (A wreck's kind is `'wreck'`, never drawn.) An EMPTY
+ *  `indices` THROWS (review gate 2026-11-10) — a bug guard like
+ *  `KitRollError`, reachable only from a degenerate `--tune` / fixture dial
+ *  (the server's scheduler runs on CONFIG); it never answers an undefined
+ *  stat. */
 export function rollKind(rng: Rng, cfg: DropConfig = CONFIG.drops): IndexId {
+  if (cfg.indices.length === 0) throw new Error('drops.indices is empty');
   return cfg.indices[pickIndex(rng.next(), cfg.indices.length)];
 }
 
 /** The amount — exactly ONE `rng.next()`: an integer uniform in
  *  [bonusMin, bonusMax] inclusive, `bonusMin + floor(u × span)` clamped to the
- *  top bound. Derived from `next()` directly rather than `rng.int` so the
+ *  top bound (`bonusMin` alone when the range is reversed). Derived from `next()` directly rather than `rng.int` so the
  *  spend is explicit HERE (mulberry32's `int` is the same one draw today; a
  *  stub or a future Rng need not be). */
 function rollAmount(rng: Rng, cfg: DropConfig): number {
-  return cfg.bonusMin + pickIndex(rng.next(), cfg.bonusMax - cfg.bonusMin + 1);
+  // span ≥ 1 (review gate 2026-11-10): a REVERSED range (a degenerate
+  // `--tune` / fixture dial) yields `bonusMin`, never a value below it.
+  const span = Math.max(1, cfg.bonusMax - cfg.bonusMin + 1);
+  return cfg.bonusMin + pickIndex(rng.next(), span);
 }
 
 /**

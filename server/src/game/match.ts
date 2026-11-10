@@ -562,7 +562,9 @@ export class Match {
     if (contests && isAfloat(ship.lifecycle)) {
       this.scuttled.add(id); // consumeSinks: this killer-less sunk is no storm death
       this.departed.add(id); // reapDeparted: remove at founder, not before
-      this.world.sinkShip(id); // no killer — credits nobody by construction
+      // No killer — credits nobody by construction. `scuttle`: the wreck crate
+      // is left only if the hull was in combat (Eric 2026-11-09, world.inCombat).
+      this.world.sinkShip(id, undefined, { scuttle: true });
     } else if (!this.departed.has(id)) {
       this.keepCountdownLeaver(id, ship); // before the hull goes (Story 8.21)
       // Not the repeat-leave case: core can route onLeave twice (the
