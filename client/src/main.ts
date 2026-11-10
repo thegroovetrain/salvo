@@ -64,6 +64,7 @@ import { clickInArc, isTorpedoItem, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
+import { Drops } from './render/drops.js';
 import { Beacons, BEACON_COLOR } from './render/beacons.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
@@ -302,6 +303,9 @@ interface Game {
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
+  /** AIRDROPS (render/drops.ts, Story 10.9) — synced from FrameMsg.drops on the
+   *  fogged `dropWorld` layer; sight-only. */
+  drops: Drops;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -2662,6 +2666,7 @@ function buildGame(
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    drops: new Drops(stage.layers.dropWorld),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     foulZones: new FoulZones(stage.layers.litZone),
@@ -4341,6 +4346,7 @@ function renderAlive(
   // timestamp expiry, the PHOSPHOR burning zones too (white fire, flickering),
   // each zone tinted own white / another's by that clock.
   g.mines.render(now / 1000);
+  g.drops.render(now / 1000);
   g.litZones.render(now, now / 1000);
   g.burnZones.render(now, now / 1000);
   g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
@@ -4608,6 +4614,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // bearing must agree (review fix).
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.mines.render(now / 1000); // the shared alert clock, first (Story 9.11)
+  g.drops.render(now / 1000); // spectators see every drop
   g.litZones.render(now, now / 1000); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying

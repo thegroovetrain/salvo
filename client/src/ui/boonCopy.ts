@@ -577,6 +577,13 @@ export function boonFitToastLine(id: string, stack = 1): string {
   return `◆ ${boonName(id, Math.max(0, stack - 1))} FITTED`;
 }
 
+/** Pure: the AIRDROP pickup toast (Story 10.9) — a stat row per roll, the
+ *  amount then the index word (`+3 ARMOR`), a bundle's rolls joined by ` · `.
+ *  A stat row, not a sentence; no other copy. */
+export function dropToastLine(g: ReadonlyArray<readonly [IndexId, number]>): string {
+  return g.map(([stat, n]) => `+${n} ${indexWord(stat)}`).join(' · ');
+}
+
 /** Every authored line id (test seam — the name/kind pins walk this). */
 export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
 

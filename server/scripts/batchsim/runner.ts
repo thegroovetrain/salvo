@@ -40,7 +40,7 @@ import { CONTROL_REGISTRY, type CaptainControl, type ControlFactory } from './co
 import { BOT_PROFILE_SCHEME } from './args.js';
 import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
 import type { BotEngageGate, TestProfileId } from '../../src/game/ai/types.js';
-import { BotCollector, type BotSample } from './botMetrics.js';
+import { BotCollector, bonusFields, type BotSample } from './botMetrics.js';
 import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
 import { PoolCollector, type PoolMatchSample } from './poolReadouts.js';
 import { mixSeed, tally } from './stats.js';
@@ -219,7 +219,17 @@ export interface CaptainSample {
   /** Levels of XP RADIO BEACONS paid this captain (Story 10.8 —
    *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`). */
   beaconXpLevels: number;
+  /** AIRDROPS this captain collected (Story 10.9 — `ShipRecord.dropsTaken`;
+   *  a wreck pickup counts once). */
+  dropsTaken: number;
+  /** Bonus index points at the end per random-index stat
+   *  (`CONFIG.drops.indices` order — `ShipRecord.indexBonus`: drops AND the
+   *  exhausted hull's levels, Story 10.7). */
+  indexBonus: Record<string, number>;
+  /** The sum of `indexBonus`. */
+  indexBonusTotal: number;
 }
+
 
 /**
  * How a harness match concluded: a real MatchEndCause, or 'unresolved' — the
@@ -384,6 +394,8 @@ export class MatchCollector {
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
       beaconXpLevels: ship.beaconXpMs / CONFIG.xp.levelMs,
+      dropsTaken: ship.dropsTaken,
+      ...bonusFields(ship),
     };
   }
 }

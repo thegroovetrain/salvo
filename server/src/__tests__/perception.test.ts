@@ -143,6 +143,7 @@ import {
   coverageHas,
   dropoutPaintP,
   dropoutPaints,
+  isDropRoll,
   FLASH_WINDOW_MS,
   effectiveSight,
   effectiveStats,
@@ -167,7 +168,10 @@ import {
   type Contact,
   type Island,
   type DamageEvent,
+  type DropPickupEvent,
   type GameEvent,
+  type DropKind,
+  type IndexId,
   type FrameMsg,
   type GhostPaint,
   type HealEvent,
@@ -2826,9 +2830,71 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   expect(JSON.stringify(f)).not.toContain('ownerId');
   expect(JSON.stringify(f)).not.toContain('bornAt');
   for (const d of f.denied ?? []) verifyDenied(me, d);
+  // THE AIRDROPS (Story 10.9, R3): the sighted channel is delivered EXACTLY
+  // when the drop gate passes, `{id,x,y,c}` and nothing else; the crate's
+  // position rides no other frame field (its radar paint is a fuzzed rect
+  // the completeness oracle below attributes).
+  verifyDrops(w, me, f);
   verifyBlipOrdering(w, f);
   verifyBlipCompleteness(w, me, f);
   verifyWakeCompleteness(w, me, f);
+}
+
+// ---------- THE AIRDROP ORACLE (Story 10.9, epic-10 amendment 18, R3) ---------
+
+/** Non-vacuity ledgers for the drop arms: a crate delivered by SIGHT to a
+ *  fogged observer, one WITHHELD from a fogged observer (the gate's false
+ *  arm ran), one painted on RADAR (an anonymous disc rect attributed), and
+ *  one delivered by an OWNED LIT ZONE alone (outside detect). */
+const DROP_SIGHTED = { n: 0 };
+const DROP_WITHHELD = { n: 0 };
+const DROP_PAINTED = { n: 0 };
+const DROP_BY_ZONE = { n: 0 };
+
+/** The drop SIGHT gate, independently re-derived — the mine oracle MINUS the
+ *  owner clause (a crate has no owner): spectator always; else the centre
+ *  DETECTED (the detect rung + island LOS, fog-tolled) OR inside a lit zone
+ *  the observer OWNS. Never radar: a crate's radar presence is an anonymous
+ *  blip, never a `drops[]` row. `bound` grants the tolled oracle's dead band
+ *  (delivered → loose passes; withheld → strict fails). */
+function dropGateOracle(w: World, me: ShipRecord, spectator: boolean, d: { x: number; y: number }, bound: Bound): boolean {
+  if (spectator) return true;
+  return detected(w, me, d, bound) || zoneCovers(w, me, d);
+}
+
+/**
+ * THE DROP CHANNEL, both directions: every delivered row names a live world
+ * drop the gate admits, carries EXACTLY {id,x,y,c} in that order with the
+ * world's own kind (deep-equal — the kind glyph is a field on a sight-gated
+ * row, never a delivery of its own), and no drop is delivered twice; and the
+ * converse — every world drop the STRICT gate admits appears. A frame with no
+ * `drops` key is a frame of zero sighted drops (the litZones omission rule).
+ */
+function verifyDrops(w: World, me: ShipRecord, f: FrameMsg): void {
+  const spectator = f.spec === true;
+  const rows = f.drops ?? [];
+  if ('drops' in f) expect(rows.length, 'drops is omitted, never []').toBeGreaterThan(0);
+  const seen = new Set<string>();
+  for (const v of rows) {
+    const drop = w.drops.get(v.id)!;
+    expect(drop, `drop ${v.id} is a live world drop`).toBeDefined();
+    expect(seen.has(v.id), `drop ${v.id} delivered once`).toBe(false);
+    seen.add(v.id);
+    expect(Object.keys(v)).toEqual(['id', 'x', 'y', 'c']);
+    expect({ x: v.x, y: v.y }).toEqual({ x: drop.x, y: drop.y });
+    expect(v.c).toBe(drop.kind);
+    expect(dropGateOracle(w, me, spectator, drop, 'loose'), `drop ${v.id} delivered to ${me.id} only if its gate passes`).toBe(true);
+    if (spectator) continue;
+    DROP_SIGHTED.n += 1;
+    if (!detected(w, me, drop, 'loose') && zoneCovers(w, me, drop)) DROP_BY_ZONE.n += 1;
+  }
+  for (const drop of w.drops.values()) {
+    if (seen.has(drop.id)) continue;
+    expect(dropGateOracle(w, me, spectator, drop, 'strict'), `drop ${drop.id} withheld from ${me.id} only if its gate fails`).toBe(false);
+    if (!spectator) DROP_WITHHELD.n += 1;
+  }
+  // No roll exists before pickup (Eric 2026-11-08): the word never rides a frame.
+  expect(JSON.stringify(f)).not.toContain('rolls');
 }
 
 /**
@@ -2893,6 +2959,20 @@ function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   return out;
 }
 
+/** Gated AIRDROP paints through the observer's OWN radar (Story 10.9, R3):
+ *  the crate's centre through the SAME four-term predicate a hull runs
+ *  (range, swept this tick, shadow-visible, the dropout roll keyed on the
+ *  drop's id), expected as the fuzzed DISC footprint and nothing else. */
+function expectedDropBlips(w: World, me: ShipRecord): ExpectedBlip[] {
+  const out: ExpectedBlip[] = [];
+  for (const drop of w.drops.values()) {
+    if (!blipPredicate(w, me, drop, drop.id)) continue;
+    DROP_PAINTED.n += 1;
+    out.push({ mask: discMaskOracle(drop.x, drop.y, w.now), label: `gated drop ${drop.id}` });
+  }
+  return out;
+}
+
 /**
  * THE RETURN-MODE COMPLETENESS ORACLE (cycle-63 review gate; hardened at the
  * Story 7-5 wave-2 review gate). With no id on the wire, `blipMatchesShip`
@@ -2915,7 +2995,10 @@ function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
   if (!isAfloat(me.lifecycle)) return;
   const unmatched = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
   // (The decoy paints and the RADAR BUOY paints left with the buoys — Story 10.5.)
-  const expected = expectedShipBlips(w, me);
+  // The AIRDROPS (Story 10.9) are the one non-ship subject: each gated crate
+  // is consumed by exactly one blip carrying its fuzzed DISC rect, so a hull
+  // paint can never stand in for a crate paint or the reverse.
+  const expected = [...expectedShipBlips(w, me), ...expectedDropBlips(w, me)];
   for (const exp of expected) {
     const i = unmatched.findIndex((b) => maskEquals(exp.mask, b));
     expect(i, `${exp.label} accounted for by its own blip`).toBeGreaterThanOrEqual(0);
@@ -3316,14 +3399,20 @@ function bridgeOracle(out: Uint8Array, w: number, h: number): void {
 function maskOracle(cls: HullId, x: number, y: number, heading: number, t: number): MaskOracle {
   const s = sharpOracle(cls, x, y, heading);
   const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, heading));
-  let minC = s.w;
-  let minR = s.h;
+  return packOracle(grid, s.w, s.h, s.gx0, s.gy0);
+}
+
+/** The pipeline's tail, shared by the hull and the disc oracles: tight-crop
+ *  the fuzzed padded grid to its lit bbox and pack it LSB-first. */
+function packOracle(grid: Uint8Array, gw: number, gh: number, gx0: number, gy0: number): MaskOracle {
+  let minC = gw;
+  let minR = gh;
   let maxC = -1;
   let maxR = -1;
-  for (let i = 0; i < s.w * s.h; i++) {
+  for (let i = 0; i < gw * gh; i++) {
     if (grid[i] === 0) continue;
-    const row = Math.floor(i / s.w);
-    const col = i % s.w;
+    const row = Math.floor(i / gw);
+    const col = i % gw;
     if (col < minC) minC = col;
     if (col > maxC) maxC = col;
     if (row < minR) minR = row;
@@ -3334,10 +3423,58 @@ function maskOracle(cls: HullId, x: number, y: number, heading: number, t: numbe
   const bits = new Array<number>(Math.ceil((w * h) / 32)).fill(0);
   for (let row = 0; row < h; row++) {
     for (let col = 0; col < w; col++) {
-      if (grid[(row + minR) * s.w + col + minC] === 1) bits[(row * w + col) >>> 5] |= 1 << ((row * w + col) & 31);
+      if (grid[(row + minR) * gw + col + minC] === 1) bits[(row * w + col) >>> 5] |= 1 << ((row * w + col) & 31);
     }
   }
-  return { gx: s.gx0 + minC, gy: s.gy0 + minR, w, h, bits };
+  return { gx: gx0 + minC, gy: gy0 + minR, w, h, bits };
+}
+
+/** Test-local SHARP disc rasterization (Story 10.9 — the AIRDROP's imprint),
+ *  re-derived from the documented contract, never the production
+ *  `rasterizeDiscCoverage`: the disc's bounding-box cell rect, and a cell is
+ *  lit iff the point of its square NEAREST the centre (the centre clamped
+ *  into the square) lies within `r` — TOUCH sampling, so a crate smaller than
+ *  three cells always lights every cell it straddles, its own included.
+ *  Padded 2 cells each side for the fuzz, like `sharpOracle`. */
+function sharpDiscOracle(x: number, y: number, r: number): { grid: Uint8Array; w: number; h: number; gx0: number; gy0: number } {
+  const gx = Math.floor((x - r) / RCELL_U);
+  const gy = Math.floor((y - r) / RCELL_U);
+  const bw = Math.floor((x + r) / RCELL_U) - gx + 1;
+  const bh = Math.floor((y + r) / RCELL_U) - gy + 1;
+  const w = bw + 4;
+  const h = bh + 4;
+  const grid = new Uint8Array(w * h);
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+  for (let row = 0; row < bh; row++) {
+    for (let col = 0; col < bw; col++) {
+      const x0 = (gx + col) * RCELL_U;
+      const y0 = (gy + row) * RCELL_U;
+      const nx = clamp(x, x0, x0 + RCELL_U);
+      const ny = clamp(y, y0, y0 + RCELL_U);
+      if (Math.hypot(nx - x, ny - y) <= r) grid[(row + 2) * w + col + 2] = 1;
+    }
+  }
+  return { grid, w, h, gx0: gx - 2, gy0: gy - 2 };
+}
+
+/** The AIRDROP paint oracle (Story 10.9, R3): sharp disc of the crate radius
+ *  → the SAME fuzz law as a hull, seeded from (paint tick, exact centre, a
+ *  ZERO heading — a disc has none) → tight-crop → LSB-first packing. */
+function discMaskOracle(x: number, y: number, t: number): MaskOracle {
+  const s = sharpDiscOracle(x, y, CONFIG.drops.radiusU);
+  const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, 0));
+  return packOracle(grid, s.w, s.h, s.gx0, s.gy0);
+}
+
+/** True iff `ev` is a legitimate AIRDROP paint: SOME live drop passing the
+ *  blip predicate (keyed on its own id) rasterizes to exactly this disc
+ *  footprint. */
+function blipMatchesDrop(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  for (const drop of w.drops.values()) {
+    if (!blipPredicate(w, me, drop, drop.id)) continue;
+    if (maskEquals(discMaskOracle(drop.x, drop.y, w.now), ev)) return true;
+  }
+  return false;
 }
 
 /** EXACT footprint equality — rect and every mask word. Takes the RECT
@@ -3403,7 +3540,9 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // recomputation, so a real ship's footprint emitted outside every gate —
   // at its true pose, with its true hull — matches no arm and fails (pinned
   // by the directed leak-catch case below the invariant suite).
-  expect(blipMatchesShip(w, me, ev)).toBe(true);
+  // The AIRDROP arm (Story 10.9, R3): a blip may instead be a gated crate's
+  // fuzzed DISC footprint — the same four gate terms, keyed on the drop's id.
+  expect(blipMatchesShip(w, me, ev) || blipMatchesDrop(w, me, ev)).toBe(true);
 }
 
 // shell AND torp share one verifier — with the Story 4.9 fork: a shell
@@ -3851,6 +3990,18 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   // Self-private kinds: each may only ever reach the ship its `id` names.
   dmg: (_w, me, e) => expect((e as DamageEvent).id).toBe(me.id), // victim-private
   pt: (_w, me, e) => expect((e as PointEvent).id).toBe(me.id), // earner-private
+  // THE AIRDROP PICKUP TELL (Story 10.9, epic-10 amendment 18): collector-
+  // private on the pt terms — delivered iff `id` is the observer — and
+  // exactly {k,id,t,g}: the rolls the collector just gained, nothing about
+  // the crate's position (it is gone). Spectator privacy is pinned by the
+  // directed row tests (signals.test.ts) and dropPerception.test.ts.
+  dp: (w, me, e) => {
+    const ev = e as DropPickupEvent;
+    expect(ev.id).toBe(me.id);
+    expect(Object.keys(ev)).toEqual(['k', 'id', 't', 'g']);
+    expect(ev.t).toBe(w.now);
+    for (const roll of ev.g) expect(isDropRoll(roll)).toBe(true);
+  },
   // DAMAGE CONTROL (2026-08-04): healer-private on the pt/bn terms, and the
   // key set IS the severity oracle — a heal may carry NO hp amount, no pool
   // total, no maxHp, nothing another observer could difference against a
@@ -4136,6 +4287,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     RADAR_THROUGH_FOG.n = 0;
     DROPOUT_LEDGER.painted = 0;
     DROPOUT_LEDGER.missed = 0;
+    DROP_SIGHTED.n = 0;
+    DROP_WITHHELD.n = 0;
+    DROP_PAINTED.n = 0;
+    DROP_BY_ZONE.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let fSeen = 0; // epic-10 amendment 5: proves a FLASH-tagged burst reached the oracle
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
@@ -4488,6 +4643,44 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         injectWakeTrack(tw, Math.cos(ang) * rr, Math.sin(ang) * rr, rng.float(0, TAU), rng.int(2, 12), w.now, 5_000);
         w.torpWakes.set(`tw${t}`, tw);
       }
+      // THE AIRDROPS (Story 10.9, R3) — on their OWN stream so every draw
+      // above is untouched (the foul-zone idiom). A raw store write, like
+      // injectMine (production places them through the spawner). Four crates
+      // a world, seated so every drop arm runs non-vacuously:
+      //   • `dropNear`: 60–200 u off ids[0] — inside its detect rung and its
+      //     radar, so it is SIGHTED (and painted when the beam crosses it);
+      //   • `dropRadar`: between sight and radar range off ids[1], 1–3 beam
+      //     steps ahead of its parked beam — painted (an anonymous disc rect)
+      //     within the run, never sighted by it;
+      //   • `dropFar`: anywhere on the water — withheld from almost everyone;
+      //     is a WRECK crate (kind `'wreck'`) so `c` is exercised on both kinds;
+      //   • `dropLit`: 20–40 u off `zone0`'s centre when the world laid one —
+      //     the zone's owner sees it by the lit zone ALONE when the zone is
+      //     beyond its detect rung (the DROP_BY_ZONE arm).
+      {
+        const drng = mulberry32(0xd90b_0000 + world);
+        const roll = (): IndexId => CONFIG.drops.indices[drng.int(0, CONFIG.drops.indices.length - 1)];
+        const seat = (id: string, x: number, y: number, kind: DropKind): void => {
+          w.drops.set(id, { id, x: Math.fround(x), y: Math.fround(y), kind });
+        };
+        const a = w.ships.get(ids[0])!.state;
+        const ab = drng.float(0, TAU);
+        const ad = drng.float(60, 200);
+        seat(`dropNear${world}`, a.x + Math.cos(ab) * ad, a.y + Math.sin(ab) * ad, roll());
+        const b = w.ships.get(ids[1])!;
+        const bb = b.sweepAngle + drng.float(1, 3) * SWEEP_DELTA;
+        const bd = drng.float(SIGHT + 100, RADAR - 100);
+        seat(`dropRadar${world}`, b.state.x + Math.cos(bb) * bd, b.state.y + Math.sin(bb) * bd, roll());
+        const fb = drng.float(0, TAU);
+        const fd = drng.float(0, w.map.radius * 0.9);
+        seat(`dropFar${world}`, Math.cos(fb) * fd, Math.sin(fb) * fd, 'wreck');
+        const zone = w.litZones.get('zone0');
+        if (zone !== undefined) {
+          const zb = drng.float(0, TAU);
+          const zd = drng.float(20, 40);
+          seat(`dropLit${world}`, zone.x + Math.cos(zb) * zd, zone.y + Math.sin(zb) * zd, roll());
+        }
+      }
       const ledger = new VisitLedger();
       for (let tick = 1; tick <= 6; tick++) {
         for (const id of ids) {
@@ -4613,6 +4806,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // ...and the Story 10.5 cooldown pin: a cooling HULL REPAIR / SMOKE rode
     // a real own frame (and, by verifyOwnWindows, no other).
     expect(COOLDOWN_SEEN.n).toBeGreaterThan(0);
+    // THE AIRDROP ARMS (Story 10.9) must each have been EXERCISED: a crate
+    // delivered by sight to a fogged observer, one withheld (the gate's false
+    // arm), one painted on radar as an attributed anonymous disc rect, and
+    // one delivered by an OWNED lit zone alone, outside the detect rung.
+    expect(DROP_SIGHTED.n).toBeGreaterThan(0);
+    expect(DROP_WITHHELD.n).toBeGreaterThan(0);
+    expect(DROP_PAINTED.n).toBeGreaterThan(0);
+    expect(DROP_BY_ZONE.n).toBeGreaterThan(0);
     // THE FOG ARMS (Story 9.10) must each have been EXERCISED: a hull inside
     // geometric sight hidden by toll (verified absent), a hull seen through
     // thin fog, a detect-rung subject hidden, an `sm` hidden inside the halo,
@@ -5119,7 +5320,11 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // own oracle (verifyFoulZone / foulZoneGateOracle). FOG (Story 9.10) HAS
   // NO ROW: the field is public weather and its hiding is the toll inside
   // the sight oracles (fogTollOracle) — the declared exceptions stay at SIX.
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'cloud'];
+  // `drop` (Story 10.9, R3) is the AIRDROP's sight channel — the mine gate
+  // minus the owner clause — with its own oracle (verifyDrops); its radar
+  // paint is an anonymous blip the completeness oracle attributes
+  // (expectedDropBlips), so the declared exceptions STILL stay at SIX.
+  const CONTACT_LIKE = ['contact', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud'];
   // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
@@ -5127,11 +5332,12 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // 4.4 added the anonymous wounded-smoke row 'sm'; Story 4.5 added the
   // bearing-only foghorn row 'fh'; Story 4.12 added the identity-free radar
   // wake row 'wk'; the 2026-10-01 drone drops' self-private 'dp' left with
-  // Story 10.5).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
+  // Story 10.5 and RETURNED with Story 10.9's AIRDROPS as the collector-
+  // private pickup tell, on the pt terms).
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk', 'dp'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the expected channel keys (18 event kinds + contact + mine + litzone + burnzone + foulzone + cloud)', () => {
+  it('has exactly the expected channel keys (19 event kinds + contact + mine + drop + litzone + burnzone + foulzone + cloud)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
     expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(EXPECTED_KEYS.length);
   });

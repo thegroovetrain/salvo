@@ -152,7 +152,8 @@ function withoutOwnXp(frame: FrameMsg, me: string): unknown {
 
 describe('radio beacons — beacons on vs off changes nothing but the receiver\'s own XP', () => {
   it('same seeds, stationary hulls, nobody shooting: every observer\'s frames are identical once the own XP fields are set aside', () => {
-    const build = (beacons: boolean): World => bareWorld(7100, { pseudonymSeed: 4242, beacons });
+    // Scheduled drops OFF in both: this contract is beacons on/off, and drop placement legitimately reads the beacon keep-out.
+    const build = (beacons: boolean): World => bareWorld(7100, { pseudonymSeed: 4242, beacons, drops: false });
     const withB = build(true);
     const without = build(false);
     const ids = ['solo', 'pairA', 'pairB', 'far', 'gone'];

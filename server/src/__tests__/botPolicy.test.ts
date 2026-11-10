@@ -101,17 +101,19 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'yamato'): Contact {
   return { id, x, y, heading: 0, speed: 20, cls };
 }
 
-/** A radar paint: a 2x2 all-lit footprint at absolute cell (gx, gy).
- *  Centroid = ((gx+1) * cell, (gy+1) * cell). */
+/** A HULL-SIZED radar paint: a 12x2 all-lit footprint (108 u — longer than
+ *  `CONFIG.bots.cratePaintMaxU`, so never filtered as a crate, Story 10.9)
+ *  whose centroid is the old 2x2 one at (gx, gy):
+ *  ((gx+1) * cell, (gy+1) * cell). */
 function returnBlip(gx: number, gy: number, t: number): GameEvent {
-  return { k: 'blip', t, gx, gy, w: 2, h: 2, bits: [0b1111] };
+  return { k: 'blip', t, gx: gx - 5, gy, w: 12, h: 2, bits: [0xffffff] };
 }
 
 const CELL = CONFIG.vision.radarCellU;

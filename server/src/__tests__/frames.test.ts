@@ -258,6 +258,40 @@ describe('buildFrame — the `clouds` channel (Story 9.3)', () => {
   });
 });
 
+describe('buildFrame — the `drops` channel (Story 10.9, R3)', () => {
+  it('is OMITTED (not []) when the observer sees no crate, and carries {id,x,y,c} — nothing else — when it does, on BOTH paths, LAST among the optional channels', () => {
+    const w = makeWorld();
+    w.step();
+    const quiet = buildFrame(w, 'a');
+    expect('drops' in quiet).toBe(false); // the litZones / burnZones / foulZones / clouds rule, applied to drops
+    expect('drops' in buildFrame(w, 'a', 'finished')).toBe(false); // the spectator path too: no crates, no key
+    // A crate 60 u off `a` (a raw store write — the injectMine posture): inside
+    // a's detect rung, no island (delivered; this test pins the wire shape and
+    // the channel order, not the gate — that is perception.test.ts's oracle).
+    w.drops.set('d1', { id: 'd1', x: 60, y: 0, kind: 'armor' });
+    const f = buildFrame(w, 'a');
+    expect(f.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'armor' }]);
+    expect(Object.keys(f.drops![0])).toEqual(['id', 'x', 'y', 'c']); // key order is the wire order
+    expect(JSON.stringify(f)).not.toContain('rolls'); // no roll exists before pickup
+    // The spectator path carries the same optional channel on the same rule.
+    const spec = buildFrame(w, 'a', 'finished');
+    expect(spec.spec).toBe(true);
+    expect(spec.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'armor' }]);
+    // WIRE ORDER of the optional channels (key insertion): litZones,
+    // burnZones, foulZones, clouds, then drops LAST — on both paths.
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: w.now + 5000 });
+    w.burnZones.set('b1', { id: 'b1', ownerId: 'a', x: 0, y: 0, r: 60, until: w.now + 5000, dps: 5 });
+    w.foulZones.set('f1', { id: 'f1', ownerId: 'a', x: 0, y: 0, r: 60, until: w.now + 5000 });
+    w.clouds.set('cl1', { id: 'cl1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + 17_000, lifeMs: 17_000, r0: 150, r1: 300 });
+    const order = (frame: Record<string, unknown>): string[] => Object.keys(frame).filter((k) => ['litZones', 'burnZones', 'foulZones', 'clouds', 'drops'].includes(k));
+    expect(order(buildFrame(w, 'a') as unknown as Record<string, unknown>)).toEqual(['litZones', 'burnZones', 'foulZones', 'clouds', 'drops']);
+    expect(order(buildFrame(w, 'a', 'finished') as unknown as Record<string, unknown>)).toEqual(['litZones', 'burnZones', 'foulZones', 'clouds', 'drops']);
+    // Delete the crate: the key is gone again, not [].
+    w.drops.delete('d1');
+    expect('drops' in buildFrame(w, 'a')).toBe(false);
+  });
+});
+
 describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
   it('omits `draft` from `you` at 0 (never undefined, never 0) and carries the EXACT double when positive — never on a contact', () => {
     const w = makeWorld();

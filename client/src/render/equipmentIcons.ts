@@ -583,16 +583,33 @@ const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
   expandedMineRacks,
 };
 
+// --- STORY 10.9 (Eric 2026-11-09) — THE WRECK CRATE's own glyph. The wreck
+// pickup is not one stat ("not limited to a specific type"), so it wears a
+// unique drawing, not an index line's: Eric's pick 'salvage' from the two
+// rendered candidates (the broken-hull draft is deleted).
+
+/** A crate (box with a cross-brace) lower left under a three-line star upper
+ *  right — the "any stat" mark. */
+const WRECK_GLYPH: GlyphPaths = [
+  path([-0.9, -0.1], [0.3, -0.1], [0.3, 0.9], [-0.9, 0.9], [-0.9, -0.1]),
+  path([-0.9, -0.1], [0.3, 0.9]),
+  path([0.15, -0.55], [0.95, -0.55]),
+  path([0.35, -0.9], [0.75, -0.2]),
+  path([0.35, -0.2], [0.75, -0.9]),
+];
+
 /**
  * THE one lookup, over slot content AND card lines (Story 8.7, ruling 1;
  * cycle 162). The id spaces stay DISJOINT — a cooldown ability is answered
  * from its own table first, then an equipment row, then a card line that is
- * neither (a ship ladder, or the CANNON ladder). Null, never a throw: an id
- * with no art (the stub DEPTH CHARGE) is not a crash.
+ * neither (a ship ladder, or the CANNON ladder), then the one drop-only id
+ * `'wreck'` (Story 10.9). Null, never a throw: an id with no art (the stub
+ * DEPTH CHARGE) is not a crash.
  */
 export function glyphPaths(id: string): GlyphPaths | null {
   if (Object.hasOwn(ABILITY_GLYPHS, id)) return ABILITY_GLYPHS[id as CooldownAbilityId];
   if (Object.hasOwn(GLYPHS, id)) return GLYPHS[id as EquipmentId] ?? null;
+  if (id === 'wreck') return WRECK_GLYPH;
   return Object.hasOwn(LINE_GLYPHS, id) ? LINE_GLYPHS[id as LineId] ?? null : null;
 }
 

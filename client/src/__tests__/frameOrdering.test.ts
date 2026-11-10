@@ -70,6 +70,7 @@ function setup(onOwnStats: () => void): {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play: vi.fn() },

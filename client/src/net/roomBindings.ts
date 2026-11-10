@@ -17,12 +17,14 @@ import {
   bonusCount,
   boonStackCount,
   hullEnvelope,
+  isDropRoll,
   type BallisticEvent,
   type BoomEvent,
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
   type DeniedView,
+  type DropPickupEvent,
   type FoghornEvent,
   type CloudView,
   type FrameMsg,
@@ -57,6 +59,8 @@ import type { Smoke } from '../render/smoke.js';
 import type { Fire } from '../render/fire.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
+import type { Drops } from '../render/drops.js';
+import { sanitizeDrops } from '../sim/dropView.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { FoulZones } from '../render/foulZones.js';
@@ -65,7 +69,7 @@ import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pushUpgradeToast } from '../ui/upgradeToast.js';
-import { boonFitToastLine } from '../ui/boonCopy.js';
+import { boonFitToastLine, dropToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
 import type { OwnFire } from '../render/projectiles.js';
 import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
@@ -119,6 +123,9 @@ export interface RoomBindingDeps {
    */
   cameraCenter: () => { x: number; y: number };
   mines: Mines;
+  /** AIRDROPS (render/drops.ts, Story 10.9) — synced contact-like from
+   *  FrameMsg.drops every tick (omitted key = none), sanitized fail-closed. */
+  drops: Pick<Drops, 'sync'>;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
@@ -797,6 +804,9 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // f.t — not a local clock reading: the arming dim measures a server-side
   // window, so both ends of it have to come off the server's own timestamps.
   deps.mines.sync(f.mines, deps.ownMineRings(f.t));
+  // AIRDROPS (Story 10.9), same reconcile, same omitted-key rule — and every
+  // view through the fail-closed gate: a malformed crate is not drawn.
+  deps.drops.sync(sanitizeDrops(f.drops ?? []));
   const ownId = net.sessionId;
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
@@ -1392,6 +1402,7 @@ function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): vo
     case 'pt': handlePoint(e, f, deps); return;
     case 'bn': handleBoonFit(e, deps); return;
     case 'heal': handleHeal(e, deps); return;
+    case 'dp': handleDropPickup(e, f, deps); return;
   }
 }
 
@@ -1451,6 +1462,22 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   // Live `pt` is byte-for-byte unchanged.
   if (deps.heldAtStartLine?.() === true) return;
   deps.audio.play('point');
+}
+
+/**
+ * AN AIRDROP COLLECTED (Story 10.9). `dp` is self-private (perception forwards
+ * it only to the collector), so the id check is defensive. UX only: the
+ * authoritative bonus self-syncs on `you.ib`. Dead-gated like `handlePoint`
+ * (no toast to a corpse or a results screen). NO TONE (the audio twin map is
+ * untouched). The tell is the stat-row toast (Eric 2026-11-08, on the
+ * rendered page) — the rolls are drawn AT PICKUP, so this is the first time
+ * the player learns the amount. A malformed `g` shows nothing.
+ */
+function handleDropPickup(e: DropPickupEvent, f: FrameMsg, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  if (frameIsDeadOrSpectating(f)) return;
+  const g = Array.isArray(e.g) ? e.g.filter((r) => isDropRoll(r)) : [];
+  if (g.length > 0) pushUpgradeToast(dropToastLine(g));
 }
 
 /**

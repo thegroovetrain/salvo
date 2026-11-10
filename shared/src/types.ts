@@ -12,6 +12,7 @@ import type { TurretState } from './sim/turrets.js';
 import type { LauncherState } from './sim/launchers.js';
 import type { RackState } from './sim/racks.js';
 import type { IndexBonus } from './sim/stats.js';
+import type { DropKind, DropRoll } from './sim/drops.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -1366,6 +1367,47 @@ export interface HealEvent {
 }
 
 /**
+ * AN AIRDROP COLLECTED (Story 10.9, epic-10 amendment 18). SELF-PRIVATE: `id`
+ * is the collecting ship's id, and perception forwards the event ONLY to that
+ * observer — the same gate as `pt`/`bn`/`heal` (`selfPrivateSignal`), so
+ * nobody else ever learns who took a crate or what it held. `t` is the server
+ * time of the pickup (ms); `g` is what the crate granted, one `[stat, amount]`
+ * roll for an ordinary drop, `CONFIG.drops.wreckRolls` for a wreck pickup.
+ * Purely UX (the pickup tell — whether the client shows one is Eric's call on
+ * the rendered candidate): the authoritative bonus self-syncs every frame via
+ * OwnShip.ib. KEY ORDER k, id, t, g is load-bearing (msgpack).
+ */
+export interface DropPickupEvent {
+  k: 'dp';
+  id: string; // the collector (= the only observer this is ever delivered to)
+  t: number; // ms — server time of the pickup
+  g: ReadonlyArray<DropRoll>; // the rolls granted, in roll order
+}
+
+/**
+ * AN AIRDROP visible to this viewer (Story 10.9, epic-10 amendment 18, R3),
+ * synced as CONTACT-LIKE state (not an event): FrameMsg.drops is recomputed
+ * per observer every tick, exactly like mines. Sight-gated — a spectator sees
+ * every drop; anyone else only within sight (× detect factor) + island LOS, or
+ * inside their own lit zone. On radar a drop is NEVER this row: it paints as
+ * an anonymous `blip` (the disc imprint), carrying no id, stat or amount (R3).
+ * `c` is the crate's KIND only — the index stat it will land on, or `'wreck'`
+ * for a sunk participant's pickup. No amount rides the wire: it is rolled at
+ * PICKUP (Eric 2026-11-08) and reported to the collector alone in `dp`. The
+ * client ingest drops any entry whose `c` fails `isDropKind`.
+ *
+ * KEY ORDER id, x, y, c IS LOAD-BEARING (msgpack serializes insertion order;
+ * the golden frames and the key-order pins read it — the mine row's `c`
+ * precedent).
+ */
+export interface DropView {
+  id: string;
+  x: number; // u
+  y: number; // u
+  c: DropKind;
+}
+
+/**
  * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
  * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
  * Owner sees ALL own mines always; others see a mine only when it is within
@@ -1593,6 +1635,7 @@ export type GameEvent =
   | PointEvent
   | BoonFitEvent
   | HealEvent
+  | DropPickupEvent
   | SplashEvent
   | HitCallEvent
   | MuzzleEvent
@@ -1622,6 +1665,9 @@ export interface FrameMsg {
   // per-observer COUNTERMEASURE cloud visibility (Story 9.3 — contact-like;
   // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.
   clouds?: CloudView[];
+  // per-observer AIRDROP visibility (Story 10.9 — sight-gated, contact-like;
+  // omitted when none, the litZones rule). Radar sees a drop only as a blip.
+  drops?: DropView[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */
