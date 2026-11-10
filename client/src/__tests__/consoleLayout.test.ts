@@ -196,10 +196,6 @@ describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 %
         it(`${tag(vp, countdown, offerPos)}: the chosen place or the bottom row, on screen, clear of both consoles`, () => {
           expect([offerPos, 'bottom']).toContain(l.offerPlacement);
           for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
-          // The row clears wherever the water between the consoles can hold it
-          // (see the reported case below); a stack always clears.
-          const { room, need } = rowRoom(vp, countdown);
-          if (l.offerPlacement === 'bottom' && need > room) return;
           noBedOverlaps(l);
           offerClear(l);
         });
@@ -228,6 +224,26 @@ describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 %
         const { room, need } = rowRoom(vp, countdown);
         expect(need, tag(vp, countdown)).toBeLessThanOrEqual(room);
       }
+    }
+  });
+
+  it('the countdown row is COMPACT (REDRAW under the header) at 1536×864 and clears both consoles by 12 px; WIDE at 1920×1080 and 1920×1200', () => {
+    const small = { w: 1536, h: 864 };
+    const c = consoleLayout(small.w, small.h, { countdown: true, offerPos: 'bottom' });
+    expect(c.offer.redrawBelowHeader).toBe(true);
+    expect(c.offer.bed.x - right(c.ship.bed)).toBeGreaterThanOrEqual(K.offer.clearGap);
+    expect(c.weapons.bed.x - right(c.offer.bed)).toBeGreaterThanOrEqual(K.offer.clearGap);
+    expect(c.offer.redraw!.y).toBeGreaterThanOrEqual(c.offer.header.y + c.offer.header.h);
+    for (const vp of [{ w: 1920, h: 1080 }, { w: 1920, h: 1200 }]) {
+      const w = consoleLayout(vp.w, vp.h, { countdown: true, offerPos: 'bottom' });
+      expect(w.offer.redrawBelowHeader, tag(vp, true)).toBe(false);
+      expect(w.offer.redraw!.x).toBeGreaterThanOrEqual(right(w.offer.cards[3]));
+    }
+    for (const vp of [small, ...[{ w: 1920, h: 1080 }, { w: 1920, h: 1200 }]]) {
+      const l = consoleLayout(vp.w, vp.h, { countdown: true, offerPos: 'bottom' });
+      for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
+      noBedOverlaps(l);
+      offerClear(l);
     }
   });
 

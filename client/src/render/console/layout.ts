@@ -139,6 +139,9 @@ export interface OfferLayout {
   cards: Rect[];
   /** The REDRAW button, or null outside the countdown. */
   redraw: Rect | null;
+  /** True where the countdown BOTTOM row is in its COMPACT form: REDRAW sits
+   *  under the header text in the left slot, not beside the cards. */
+  redrawBelowHeader: boolean;
 }
 
 export interface ConsoleLayout {
@@ -335,8 +338,8 @@ function stackCards(x: number, y: number): Rect[] {
   return Array.from({ length: 4 }, (_, i) => ({ x, y: y + i * (OFFER.cardH + OFFER.gap), w: OFFER.cardW, h: OFFER.cardH }));
 }
 
-function finish(frame: Rect, header: Rect, cards: Rect[], redraw: Rect | null): OfferLayout {
-  return { frame, bed: bedOf(frame), header, cards, redraw };
+function finish(frame: Rect, header: Rect, cards: Rect[], redraw: Rect | null, redrawBelowHeader = false): OfferLayout {
+  return { frame, bed: bedOf(frame), header, cards, redraw, redrawBelowHeader };
 }
 
 /**
@@ -376,14 +379,22 @@ function rowX(screenW: number, w: number): number {
 function rowLayout(screenW: number, screenH: number, countdown: boolean): OfferLayout {
   const B = OFFER.bar;
   const rowW = 4 * OFFER.cardW + 3 * OFFER.gap;
-  const w = B.headW + B.gapIn + rowW + (countdown ? B.gapIn + OFFER.redrawW : 0);
-  const x = rowX(screenW, w);
   const y = screenH - K.bottomInset - PAD - OFFER.cardH;
-  const header = { x, y, w: B.headW, h: OFFER.cardH };
-  const cx = x + B.headW + B.gapIn;
+  const wideW = B.headW + B.gapIn + rowW + B.gapIn + OFFER.redrawW;
+  const water = screenW - K.sideInset - 2 * PAD - WEAPONS_W - (K.sideInset + 2 * PAD + K.width) - 2 * OFFER.clearGap;
+  // Compact: the wide row (REDRAW beside the cards) does not fit between the
+  // consoles, so REDRAW goes under the header text in a 112-wide left slot.
+  const compact = countdown && wideW + 2 * PAD > water;
+  const headW = compact ? OFFER.redrawW : B.headW;
+  const w = headW + B.gapIn + rowW + (countdown && !compact ? B.gapIn + OFFER.redrawW : 0);
+  const x = rowX(screenW, w);
+  const header = { x, y, w: headW, h: compact ? OFFER.cardH - OFFER.redrawH : OFFER.cardH };
+  const cx = x + headW + B.gapIn;
   const cards = Array.from({ length: 4 }, (_, i) => ({ x: cx + i * (OFFER.cardW + OFFER.gap), y, w: OFFER.cardW, h: OFFER.cardH }));
-  const redraw = countdown ? { x: cx + rowW + B.gapIn, y: y + (OFFER.cardH - OFFER.redrawH) / 2, w: OFFER.redrawW, h: OFFER.redrawH } : null;
-  return finish({ x, y, w, h: OFFER.cardH }, header, cards, redraw);
+  let redraw: Rect | null = null;
+  if (compact) redraw = { x, y: y + OFFER.cardH - OFFER.redrawH, w: OFFER.redrawW, h: OFFER.redrawH };
+  else if (countdown) redraw = { x: cx + rowW + B.gapIn, y: y + (OFFER.cardH - OFFER.redrawH) / 2, w: OFFER.redrawW, h: OFFER.redrawH };
+  return finish({ x, y, w, h: OFFER.cardH }, header, cards, redraw, compact);
 }
 
 /** Pure: the offer group at a placement (no clearance check — see `offerPlacement`). */
