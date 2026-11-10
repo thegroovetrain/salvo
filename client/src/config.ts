@@ -1603,7 +1603,7 @@ export const CLIENT_CONFIG = {
    * (Eric 2026-11-10, round 3: the map reads through, the text stays
    * legible), down from the first build's .78.
    */
-  hudBed: { alpha: 0.5, edgeW: 1, chromePad: 8, feedPadX: 8, feedPadY: 1, feedGap: 3 },
+  hudBed: { alpha: 0.7, edgeW: 1, chromePad: 8, feedPadX: 8, feedPadY: 1, feedGap: 3 },
 
   /**
    * THE BR CHROME BAR (Story 3.3, amendments 19–21) — the one restrained mono
