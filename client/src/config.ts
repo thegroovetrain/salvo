@@ -2030,7 +2030,7 @@ export const CLIENT_CONFIG = {
       clockTracking: -0.6,
       tierGap: 4,
       keyChip: 18,
-      rackPip: { w: 6, h: 6, gap: 2 },
+      rackPip: { w: 10, h: 10, gap: 1 },
       rackGap: 4,
       heatH: 12,
     },

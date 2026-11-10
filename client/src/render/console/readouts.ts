@@ -56,7 +56,7 @@ import {
   type WeaponAmmo,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
-import { abilityName, equipmentStatRows, indexWord } from '../../ui/boonCopy.js';
+import { abilityName, boonName, equipmentStatRows, indexWord } from '../../ui/boonCopy.js';
 import { romanTier } from '../../ui/tierRamp.js';
 import { EQUIPMENT_NAME, lineTier, slotTier } from '../equipmentInfo.js';
 import { rowSlot, WEAPON_ROW_KINDS, ABILITY_KINDS, type AbilityKind, type WeaponRowKind } from './layout.js';
@@ -565,7 +565,7 @@ export function weaponRowModel(kind: WeaponRowKind, input: WeaponsInput): Weapon
   const state: RowState = readied ? 'readied' : ready ? 'ready' : 'cooling';
   const tier = slotTier(input.stats, input.cards, id);
   return {
-    kind, slot, id, name: ROW_NAME[kind] ?? EQUIPMENT_NAME[id].toUpperCase(), emptyGlyph: null,
+    kind, slot, id, name: ROW_NAME[kind] ?? boonName(id).toUpperCase(), emptyGlyph: null,
     state, readied, tier, tierNumeral: tier > 0 ? romanTier(tier) : '',
     keyGlyph: ROW_KEY_GLYPH[kind], clocks, racks, heat: null, stats: rowStats(kind, input.readouts),
   };
