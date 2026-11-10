@@ -3,7 +3,7 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  101 — Story 10.9 THE AIRDROPS (cycle 218, 0.19.12, epic-10 amendment 16,
+ *  101 — Story 10.9 THE AIRDROPS (cycle 219, 0.19.13, epic-10 amendment 18,
  *  Eric's rulings R1–R4 of 2026-11-08): FrameMsg gains the optional,
  *  sight-gated contact-like channel `drops` (DropView {id,x,y,c}, `c` the
  *  crate's KIND only — an IndexId or `'wreck'`; the amount is rolled at

@@ -832,7 +832,7 @@ export function paintCoverage(
 }
 
 // ---------------------------------------------------------------------------
-// THE CRATE IMPRINT (Story 10.9, epic-10 amendment 16, R3; brainstorm #48 /
+// THE CRATE IMPRINT (Story 10.9, epic-10 amendment 18, R3; brainstorm #48 /
 // forge premise 5 "paint by imprint"): an airdrop paints on radar as an
 // anonymous blip whose footprint is its DISC, run through the SAME fuzz law as
 // a hull — no new calibration, nothing on the wire that says "crate". A

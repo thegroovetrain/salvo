@@ -782,7 +782,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
 };
 
 /**
- * `drop` — THE AIRDROP's sight channel (Story 10.9, epic-10 amendment 16,
+ * `drop` — THE AIRDROP's sight channel (Story 10.9, epic-10 amendment 18,
  * Eric's R3: "stat glyph at SIGHT ONLY"). Contact-like state (NOT events),
  * recomputed every tick like mines: a fogged observer sees a crate — its
  * position AND its kind `c` — iff the crate's centre is DETECTED
@@ -1079,7 +1079,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
 };
 
 /**
- * THE AIRDROP'S RADAR PAINT (Story 10.9, epic-10 amendment 16, R3 — "on
+ * THE AIRDROP'S RADAR PAINT (Story 10.9, epic-10 amendment 18, R3 — "on
  * radar it is an anonymous small blip"). The `blip` row's SECOND SUBJECT
  * TYPE, not a new event kind and not a seventh exception: the crate's centre
  * runs the IDENTICAL four-term gate a hull runs (`blipGate` — range → swept
@@ -2151,7 +2151,7 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // an economy act, and "that hull just repaired" must never reach anyone but
   // the hull that spent the level (the spec's no-observer-visible-cue rule).
   heal: selfPrivateSignal<HealEvent>('heal', false),
-  // Story 10.9 (epic-10 amendment 16): the AIRDROP pickup tell — the
+  // Story 10.9 (epic-10 amendment 18): the AIRDROP pickup tell — the
   // collector's own `{k,id,t,g}` receipt, on the pt/bn/heal terms. The world
   // emits it once per pickup; this row forwards it to the collector ALONE
   // (never a spectator — what a living hull just gained is its own business,

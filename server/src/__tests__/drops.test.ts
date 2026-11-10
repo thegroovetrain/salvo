@@ -1,4 +1,4 @@
-// THE AIRDROPS, server sim (Story 10.9, epic-10 amendment 16; Eric's rulings
+// THE AIRDROPS, server sim (Story 10.9, epic-10 amendment 18; Eric's rulings
 // R1–R4 of 2026-11-08). The World's three drop rows — `spawnDrops` (the
 // minute schedule + placement), `collectDrops` (sail-over) and `stormDrops`
 // — and the wreck pickup `sinkShip` leaves. A crate carries only its KIND;

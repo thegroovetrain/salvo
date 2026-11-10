@@ -68,7 +68,7 @@ import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
-import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
+import { pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine, dropToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
 import type { OwnFire } from '../render/projectiles.js';
@@ -1437,7 +1437,9 @@ export function frameIsDeadOrSpectating(f: FrameMsg): boolean {
 }
 
 /**
- * A level banked: prompt toast + a bright "point" ping. Like `upg`/`dmg`, `pt`
+ * A level banked: a bright "point" ping. THE TOAST IS GONE (Story 10.10, R10 —
+ * "The level-up toast is KILLED"): the offer group's arrival in its corner IS
+ * the level-up cue, and it is the ping's visual twin. Like `upg`/`dmg`, `pt`
  * is self-private (perception.ts forwards it only to the earner), so the id
  * check is defensive, not load-bearing. The authoritative bank count rides
  * OwnShip.pts — this is UX only, and must NOT touch the effectiveStats/fog
@@ -1459,7 +1461,6 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   // `TAB TO REFIT` cue is untouched (it is true copy, and Tab does open it).
   // Live `pt` is byte-for-byte unchanged.
   if (deps.heldAtStartLine?.() === true) return;
-  pushUpgradeToast(pointToastLine());
   deps.audio.play('point');
 }
 

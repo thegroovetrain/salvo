@@ -54,7 +54,9 @@ import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
 import { NameplateLayer } from '../render/nameplates.js';
-import { UpgradeMenu, offerView, type OfferView } from '../ui/upgradeMenu.js';
+import { offerView, type OfferView } from '../ui/offerCore.js';
+import { OfferGroup } from '../ui/offerGroup.js';
+import { consoleLayout } from '../render/console/layout.js';
 import { ContactViews } from '../render/contacts.js';
 import { ContactStore } from '../net/snapshots.js';
 import type { Contact } from '@salvo/shared';
@@ -119,8 +121,8 @@ function readIndexHtml(): string {
   throw new Error('client/index.html not found from ' + process.cwd());
 }
 
-/** A minimal spendable refit view, so the band actually mounts and we can read
- *  the rung it declares. Mirrors upgradeMenu.test.ts's own fixture. */
+/** A minimal spendable offer view, so the offer group actually mounts and we
+ *  can read the rung it declares. Mirrors offerGroup.test.ts's own fixture. */
 function refitViewFixture(): OfferView {
   const you: OwnShip = {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
@@ -221,13 +223,13 @@ describe('a plate can never obscure the chrome — both mechanisms, pinned', () 
     expect(STAGE_ROOT_ORDER as readonly string[]).not.toContain('plateRoot');
   });
 
-  it('DOM SIDE: the refit window really does declare a positive z-index, so it '
+  it('DOM SIDE: the offer group really does declare a positive z-index, so it '
     + 'stacks above the canvas the plate is drawn into', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(refitViewFixture());
-    const panel = document.getElementById('upgrade-menu');
-    expect(panel, 'the band mounted').not.toBeNull();
-    expect(Number(panel!.style.zIndex), 'the ratified refit rung').toBeGreaterThan(0);
+    const group = new OfferGroup({ onPick: () => {}, onHover: () => {}, onRedraw: () => {} });
+    group.update(refitViewFixture(), consoleLayout(1366, 768).offer, 1);
+    const panel = document.getElementById('offer-group');
+    expect(panel, 'the group mounted').not.toBeNull();
+    expect(Number(panel!.style.zIndex), 'the ratified offer rung').toBeGreaterThan(0);
     expect(panel!.parentElement, 'a sibling of #app, not a child of the canvas')
       .toBe(document.body);
   });

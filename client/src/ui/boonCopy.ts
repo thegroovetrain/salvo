@@ -569,7 +569,7 @@ function roman(n: number): string {
 
 /**
  * Pure: the "card fitted" toast line (UX-DR23 self-events-only surface, the
- * pointToastLine sibling). Diamond glyph = the accrued-card marker the hotbar
+ * retired pointToastLine's sibling — Story 10.10 killed that prompt). Diamond glyph = the accrued-card marker the hotbar
  * tooltip uses, so the toast and the build readout share one mark. (The
  * consumable `STOCKED` verb left with the kit — Story 10.5.)
  */
@@ -602,8 +602,9 @@ export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
 // remainder BLANK rather than compacting, so the KIND word and the foot sit on
 // one baseline across all four cards in the row.
 
-/** The card's row cap — the six-row grid (Story 9.8; the mock drew five). It is
- *  `CLIENT_CONFIG.refit.rowCount` by value, pinned equal in the fit suite. */
+/** The card's row cap — the six-row grid (Story 9.8; the mock drew five). (The
+ *  refit band's `rowCount` it was pinned equal to retired with the band, Story
+ *  10.10.) */
 export const CARD_STAT_ROWS = 6;
 
 /** ONE row of the face: a label, the value the build has NOW (null on an

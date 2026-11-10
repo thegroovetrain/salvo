@@ -1,4 +1,4 @@
-// THE AIRDROP INGEST GATE (Story 10.9, epic-10 amendment 16) — FrameMsg.drops
+// THE AIRDROP INGEST GATE (Story 10.9, epic-10 amendment 18) — FrameMsg.drops
 // as the renderer may see it. FAIL-CLOSED, per WHOLE VIEW: a crate whose id is
 // not a string, whose position is not finite, or whose KIND `c` is not a
 // `DropKind` (an index stat, or `'wreck'` — the shared `isDropKind`) is

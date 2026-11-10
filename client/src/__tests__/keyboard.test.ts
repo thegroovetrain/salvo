@@ -667,40 +667,123 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
   });
 });
 
-describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension', () => {
+// STORY 10.10 (R3 — Eric: "No lockout, tab is gone (but its still the modifier
+// to quick-select one of them)"): TAB opens nothing. It is a HELD MODIFIER, and
+// only TAB + 1..4 picks an offer card; a bare digit does nothing (R8).
+describe('KeyboardInput — the TAB modifier, the picks (TAB + 1–4), ESC + suspension', () => {
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
-  it('TAB fires onRefitToggle and is preventDefault-ed (no browser focus cycle)', () => {
-    let toggles = 0;
-    kb = new KeyboardInput({ onRefitToggle: () => (toggles += 1) });
+  it('TAB alone does NOTHING — still preventDefault-ed (no browser focus cycle)', () => {
+    const picks: number[] = [];
+    const fired: AbilityId[] = [];
+    kb = new KeyboardInput({
+      onRefitPick: (c) => picks.push(c),
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: (slot) => slot === BOOST,
+      onAbility: (id) => fired.push(id),
+    });
     kb.attach();
-    expect(press('Tab')).toBe(true);
-    expect(toggles).toBe(1);
-    press('Tab', { repeat: true }); // held TAB never machine-guns the modal
-    expect(toggles).toBe(1);
+    expect(press('Tab')).toBe(true); // prevented: focus never walks off the canvas
+    press('Tab', { repeat: true });
+    release('Tab');
+    expect(picks).toEqual([]);
+    expect(fired).toEqual([]);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    expect(kb.pendingActivationCount).toBe(0);
   });
 
-  it('SHIFT+TAB is inert — the browser reverse focus-cycle never toggles the refit modal', () => {
-    // STORY 8.5 MADE SHIFT AN ACTION KEY AND THIS PIN STILL HOLDS: the
-    // shiftKey+Tab special case is evaluated BEFORE the binding lookup, so the
-    // Tab event is prevented and takes no action exactly as it always did. (The
-    // preceding ShiftLeft keydown is a separate event and boosts on its own —
-    // that is the ruling, not a regression.)
-    let toggles = 0;
+  it('TAB + a digit PICKS that card; the modifier ends at Tab\'s keyup', () => {
+    const picks: number[] = [];
+    kb = new KeyboardInput({ onRefitPick: (c) => picks.push(c) });
+    kb.attach();
+    press('Tab');
+    expect(kb.tabHeld).toBe(true);
+    press('Digit1');
+    press('Numpad3');
+    expect(picks).toEqual([0, 2]);
+    release('Tab');
+    expect(kb.tabHeld).toBe(false);
+    press('Digit2'); // Tab is up: a bare digit again
+    expect(picks).toEqual([0, 2]);
+  });
+
+  it('a BARE digit does nothing — no pick, no slot, no ability (still prevented)', () => {
+    const picks: number[] = [];
+    const fired: AbilityId[] = [];
+    kb = new KeyboardInput({
+      onRefitPick: (c) => picks.push(c),
+      isSlotFitted: () => true,
+      isAbilitySlot: () => true,
+      onAbility: (id) => fired.push(id),
+    });
+    kb.attach();
+    for (const code of Object.keys(REFIT_DIGIT_CODES)) expect(press(code), code).toBe(true);
+    expect(picks).toEqual([]);
+    expect(fired).toEqual([]);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    expect(kb.pendingActivationCount).toBe(0);
+  });
+
+  it('a blur or clearKeys drops the TAB modifier (a keyup we never heard cannot arm the digits)', () => {
+    const picks: number[] = [];
+    kb = new KeyboardInput({ onRefitPick: (c) => picks.push(c) });
+    kb.attach();
+    press('Tab');
+    window.dispatchEvent(new Event('blur'));
+    press('Digit1');
+    press('Tab');
+    kb.clearKeys();
+    press('Digit2');
+    expect(picks).toEqual([]);
+  });
+
+  it('a held Tab+digit auto-repeat picks ONCE', () => {
+    const picks: number[] = [];
+    kb = new KeyboardInput({ onRefitPick: (c) => picks.push(c) });
+    kb.attach();
+    press('Tab');
+    press('Digit1');
+    press('Digit1', { repeat: true });
+    expect(picks).toEqual([0]);
+  });
+
+  it('Q / E / R, C / V and Shift all FIRE with the Tab modifier held — an offer never suspends them', () => {
     const presses: AbilityId[] = [];
     kb = new KeyboardInput({
-      onRefitToggle: () => (toggles += 1),
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: (slot) => slot === BOOST,
+      onAbility: (id) => presses.push(id),
+    });
+    kb.attach();
+    press('Tab');
+    press('KeyQ');
+    expect(kb.primedSlot).toBe(Q_SLOT);
+    press('KeyC');
+    press('KeyV');
+    press('ShiftLeft');
+    expect(presses).toEqual(['repair', 'smoke', 'shift']);
+  });
+
+  it('SHIFT+TAB is prevented and boosts nothing — it only holds the modifier', () => {
+    // The shiftKey+Tab special case is evaluated BEFORE the binding lookup, so
+    // the Tab event is prevented and takes no action. (The preceding ShiftLeft
+    // keydown is a separate event and boosts on its own — that is the ruling,
+    // not a regression.)
+    const picks: number[] = [];
+    const presses: AbilityId[] = [];
+    kb = new KeyboardInput({
+      onRefitPick: (c) => picks.push(c),
       isSlotFitted: ALL_FITTED,
       isAbilitySlot: (slot) => slot === BOOST,
       onAbility: (id) => presses.push(id),
     });
     kb.attach();
     expect(press('Tab', { shiftKey: true })).toBe(true); // prevented: focus stays on the canvas
-    expect(toggles).toBe(0); // …but NO action
-    expect(presses).toEqual([]); // …and Shift+Tab is not a boost either
-    press('Tab'); // plain TAB still toggles
-    expect(toggles).toBe(1);
+    expect(presses).toEqual([]); // …and Shift+Tab is not a boost
+    expect(kb.tabHeld).toBe(true);
+    press('Digit4');
+    expect(picks).toEqual([3]);
   });
 
   it('other SHIFTed keys keep their normal behavior (shift is not a native-chord modifier)', () => {
@@ -720,44 +803,17 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(escapes).toBe(1);
   });
 
-  // ONE MEANING (Story 10.5): open, a digit is a card pick; closed, it does
-  // NOTHING — no slot, no ability, no pick (still prevented: a bound key).
-  it('digits PICK while the window is open and do nothing while it is closed', () => {
+  it('a digit beyond the picks is NOT bound and NOT prevented, Tab held or not', () => {
     const picks: number[] = [];
     const fired: AbilityId[] = [];
-    let open = false;
     kb = new KeyboardInput({
-      isModalOpen: () => open,
       onRefitPick: (c) => picks.push(c),
       isSlotFitted: () => true,
       isAbilitySlot: () => true,
       onAbility: (id) => fired.push(id),
     });
     kb.attach();
-    open = true;
-    press('Digit1');
-    press('Digit3');
-    press('Numpad4');
-    expect(picks).toEqual([0, 2, 3]);
-    open = false;
-    for (const code of Object.keys(REFIT_DIGIT_CODES)) expect(press(code), code).toBe(true);
-    expect(picks).toEqual([0, 2, 3]); // nothing new was picked…
-    expect(fired).toEqual([]); // …and nothing was pressed
-    expect(kb.primedSlot).toBe(SLOT_GUN);
-    expect(kb.pendingActivationCount).toBe(0);
-  });
-
-  it('a digit beyond the refit picks is NOT bound and NOT prevented while the window is open', () => {
-    const picks: number[] = [];
-    const fired: AbilityId[] = [];
-    kb = new KeyboardInput({
-      isModalOpen: () => true,
-      onRefitPick: (c) => picks.push(c),
-      isSlotFitted: () => true,
-      isAbilitySlot: () => true,
-      onAbility: (id) => fired.push(id),
-    });
-    kb.attach();
+    press('Tab');
     for (const code of UNBOUND_DIGITS) {
       expect(press(code), code).toBe(false); // unbound since Story 10.1 — not prevented
     }
@@ -766,9 +822,9 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(kb.pendingActivationCount).toBe(0);
   });
 
-  it('slot keys (Q/E/R AND Shift) are SUSPENDED while the modal is open', () => {
-    // UX-DR42, verbatim: "Q/E/R/Shift are suspended while the refit window is
-    // open" — full combat lockout, feedback-free.
+  it('slot keys (Q/E/R AND Shift) are SUSPENDED while a suspending surface (isModalOpen) is up', () => {
+    // Since Story 10.10 main.ts wires isModalOpen to the focused overlays
+    // alone; the suspension itself is unchanged and feedback-free.
     const pressed: AbilityId[] = [];
     let open = true;
     kb = new KeyboardInput({
@@ -792,7 +848,7 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(pressed).toEqual(['shift']);
   });
 
-  it('helm keys stay LIVE while the modal is open (the sim never pauses)', () => {
+  it('helm keys stay LIVE under isModalOpen (the sim never pauses)', () => {
     kb = new KeyboardInput({ isModalOpen: () => true });
     kb.attach();
     press('KeyW');
@@ -857,7 +913,6 @@ describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
       isModalOpen: () => true, // the overlay is a suspending surface too
       isSlotFitted: ALL_FITTED,
       onDetent: () => log.push('detent'),
-      onRefitToggle: () => log.push('refit'),
       onRefitPick: () => log.push('pick'),
       onZoom: () => log.push('zoom'),
       onMute: () => log.push('mute'),
@@ -870,9 +925,10 @@ describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
     return { kb: k, log };
   }
 
-  it('suppresses ALL sim keys — helm INCLUDED, unlike the refit modal', () => {
+  it('suppresses ALL sim keys — helm INCLUDED — and the Tab picks', () => {
     const { kb: k, log } = overlayKb();
     kb = k;
+    press('Tab'); // native under the overlay: never holds the modifier
     for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight', 'Digit1', 'KeyX', 'KeyZ', 'KeyP']) {
       expect(press(code), code).toBe(true); // still preventDefault-ed: focus can't escape
     }
@@ -887,7 +943,7 @@ describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
     // NOT prevented: TAB must traverse focus into the overlay's own buttons.
     expect(press('Tab')).toBe(false);
     expect(press('Tab', { shiftKey: true })).toBe(false);
-    expect(log).toEqual([]); // and it certainly must not toggle the refit modal
+    expect(log).toEqual([]); // and it certainly picks nothing
   });
 
   it('still routes ESC, ENTER and M — dismiss, confirm, and the audio meta-action', () => {
@@ -972,13 +1028,14 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     }
   });
 
-  it('preventDefaults the refit digits whether the window is open or closed', () => {
-    // The window's state decides what a digit DOES, never whether the browser
-    // gets it: focus must not escape the canvas either way.
-    for (const hooks of [{ isModalOpen: () => true }, { isModalOpen: () => false }] as KeyboardHooks[]) {
+  it('preventDefaults the pick digits whether Tab is held or not', () => {
+    // The modifier decides what a digit DOES, never whether the browser gets
+    // it: focus must not escape the canvas either way.
+    for (const holdTab of [true, false]) {
       kb?.detach();
-      kb = new KeyboardInput(hooks);
+      kb = new KeyboardInput();
       kb.attach();
+      if (holdTab) press('Tab');
       for (const code of Object.keys(REFIT_DIGIT_CODES)) expect(press(code), code).toBe(true);
     }
   });
@@ -1017,12 +1074,12 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     expect(honks).toBe(2);
   });
 
-  it('F is SUSPENDED while the refit modal is open (the Q/E/R rule, verbatim)', () => {
+  it('F is SUSPENDED under a suspending surface (isModalOpen — the Q/E/R rule, verbatim)', () => {
     let honks = 0;
     kb = new KeyboardInput({ onFoghorn: () => (honks += 1), isModalOpen: () => true });
     kb.attach();
     expect(press('KeyF')).toBe(true); // prevented — focus never escapes the canvas
-    expect(honks).toBe(0); // ...but inert: a captain picking a card is not conning
+    expect(honks).toBe(0); // ...but inert
   });
 
   it('F is SWALLOWED by a focused overlay (settings / results), like every non-ESC key', () => {
@@ -1136,18 +1193,17 @@ describe('KeyboardInput — chokepoint hygiene', () => {
   });
 
   it('a focused overlay leaves TAB native (focus can reach the overlay controls)', () => {
-    const log: string[] = [];
-    kb = new KeyboardInput({ isOverlayFocused: () => true, onRefitToggle: () => log.push('refit') });
+    kb = new KeyboardInput({ isOverlayFocused: () => true });
     kb.attach();
     expect(press('Tab')).toBe(false);
-    expect(log).toEqual([]);
-    // With no overlay up, TAB is the refit toggle and IS prevented as ever.
-    const other = new KeyboardInput({ isOverlayFocused: () => false, onRefitToggle: () => log.push('refit') });
+    expect(kb.tabHeld).toBe(false);
+    // With no overlay up, TAB is the held modifier and IS prevented as ever.
+    const other = new KeyboardInput({ isOverlayFocused: () => false });
     kb.detach();
     kb = other;
     other.attach();
     expect(press('Tab')).toBe(true);
-    expect(log).toEqual(['refit']);
+    expect(other.tabHeld).toBe(true);
   });
 
   it('the HELM reads dead while a focused overlay is up, even with a rudder key HELD', () => {
@@ -1237,7 +1293,7 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
     expect(capped).toEqual(['shift']);
   });
 
-  it('is SUSPENDED while the refit modal is open (clicks are dead, like the keys)', () => {
+  it('is SUSPENDED under a suspending surface (clicks are dead, like the keys)', () => {
     const presses: AbilityId[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
@@ -1435,39 +1491,29 @@ describe('main.ts routes the empty-slot denial to the SHIPPED denied grammar', (
   });
 });
 
-// --- the OTHER wiring seam: ONE watcher owns the window's two edges ----------
+// --- the wiring seam: NO LOCKOUT (Story 10.10, R3) --------------------------
 //
-// Rulings 8 and 9 are both edge rules on the SAME boolean (`upgradeMenu.visible`),
-// and both of them are wrong if a second site learns to stamp or to end holds.
-// The behaviour is pinned above (refitCloseStamp over the real band, the grace
-// predicate, MouseInput.endHolds); what only the SOURCE can say is that the
-// watcher is singular, lives in the per-frame band sync, and is what feeds the
-// chokepoint's hook.
+// The keyboard suspends Q/E/R/C/V/Shift/F through two hooks main.ts feeds:
+// `isModalOpen` (main's `modalOpen`) and `isCombatLocked` (`combatLocked`). An
+// offer pending must reach NEITHER — "No lockout" — so what only the SOURCE can
+// say is that neither predicate reads the offer surface at all (the refit
+// window's `upgradeMenu.visible` used to sit in `modalOpen`).
 
-describe('main.ts wires ONE refit-visibility watcher (rulings 8 + 9)', () => {
+describe('main.ts suspends nothing for an offer (R3)', () => {
   const MAIN_TS = readFileSync(
     resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'),
     'utf8',
   );
+  const body = (name: string): string => {
+    const at = MAIN_TS.indexOf(`function ${name}(`);
+    expect(at, name).toBeGreaterThanOrEqual(0);
+    return MAIN_TS.slice(at, MAIN_TS.indexOf('\n}\n', at));
+  };
 
-  it('runs the watcher from the per-frame band sync, and ends held streams on the OPEN edge', () => {
-    const sync = MAIN_TS.slice(MAIN_TS.indexOf('function syncRefitBand('));
-    const body = sync.slice(0, 600);
-    expect(body).toContain('watchRefitWindow(g)');
-    const watcher = MAIN_TS.slice(MAIN_TS.indexOf('function watchRefitWindow('), MAIN_TS.length);
-    const watcherBody = watcher.slice(0, 900);
-    expect(watcherBody).toContain('endHolds()'); // ruling 9, on the false→true edge
-    // …and the queued presses are NOT dropped with the stream: an already-armed
-    // ability press is a press (ruling 9, verbatim).
-    expect(watcherBody).not.toContain('clearActivations');
-  });
-
-  // P3: the watcher is idempotent, so the per-tick input build runs it itself
-  // (before the mouse hold is sampled) rather than waiting for the next frame.
-  it('runs the watcher from the per-tick input build', () => {
-    const tick = MAIN_TS.slice(MAIN_TS.indexOf('simTick: () => {'));
-    const build = tick.slice(0, tick.indexOf('g.sampler.sample('));
-    expect(build).toContain('watchRefitWindow(g)');
+  it('neither suspension predicate reads the offer surface', () => {
+    for (const name of ['modalOpen', 'combatLocked']) {
+      expect(body(name), name).not.toMatch(/offerGroup|upgradeMenu|spendInFlight|hoverLine/);
+    }
   });
 });
 
@@ -1565,7 +1611,7 @@ describe('KeyboardInput — C / V press the cooldown abilities (Story 10.5)', ()
     expect(kb.pendingActivationCount).toBe(1);
   });
 
-  it('the refit modal and the start line SUSPEND both keys silently (still prevented)', () => {
+  it('a suspending surface and the start line SUSPEND both keys silently (still prevented)', () => {
     for (const hooks of [{ isModalOpen: () => true }, { isCombatLocked: () => true }] as KeyboardHooks[]) {
       kb?.detach();
       const denied: CooldownAbilityId[] = [];

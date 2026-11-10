@@ -30,7 +30,7 @@ import {
   sceneOwn,
   sceneWelcome,
 } from '../stage/worstCaseScene.js';
-import { railCritical, railPulsing } from '../render/hpGlobe.js';
+import { hullCritical, hullPulsing } from '../render/console/hull.js';
 import { tier1Active, tier2Active, freezeAtDimKeyframe } from '../render/attention.js';
 import { barVisible, chromeBarSegments, ringReadout } from '../ui/chromeBar.js';
 import { KILL_LEADER_MARK } from '../ui/bounty.js';
@@ -76,13 +76,13 @@ describe('staged worst-case scene — Tier 1 (own hull CRITICAL)', () => {
   it('stages the hull inside the CRIMSON band, so Tier 1 is active', () => {
     const frac = hpFracAt(0);
     expect(frac).toBeLessThan(0.25);
-    expect(railCritical(frac)).toBe(true);
-    expect(railPulsing(frac)).toBe(true);
+    expect(hullCritical(frac)).toBe(true);
+    expect(hullPulsing(frac)).toBe(true);
     expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(true);
   });
 
   it('holds the hull critical for the whole scene, not just tick 0', () => {
-    for (const t of [0, 37, 240, 1200, 7777]) expect(railCritical(hpFracAt(t))).toBe(true);
+    for (const t of [0, 37, 240, 1200, 7777]) expect(hullCritical(hpFracAt(t))).toBe(true);
   });
 
   it('stages a denied press too — the OTHER Tier-1 channel', () => {

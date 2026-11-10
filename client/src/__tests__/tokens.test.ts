@@ -13,7 +13,7 @@
 //       NOT the surviving ratified denied ff3b3b) appear nowhere in the scanned
 //       sources, config.ts, or theme.ts.
 //   (c) structure — no mono register sits below the micro floor, and the
-//       vitals group reads its bands from shared CONFIG. (The literal-value
+//       hull gauge (was the vitals group) reads its bands from shared CONFIG. (The literal-value
 //       identity pins were deleted by Story 9.14: a CONST pin is not a rule.)
 //   (d) util/color hardening — the numeric→CSS projectors mask inputs to 24
 //       bits and clamp alpha, so no input yields malformed output.
@@ -154,51 +154,31 @@ describe('(c) the token table\'s structure — counts, derivations, retirements'
     }
   });
 
-  it('pins what Story 8.6 KEPT of the own-vitals group (UX-DR15 + amendments 24-27)', () => {
-    const V = CLIENT_CONFIG.vitals;
-    // THE PRUNE (Story 8.6): the cluster's geometry keys — the frame box, the
-    // 6px rail and its track/glow, the 110px rudder track and its tick, the
-    // hollow ordered rung, the micro-label alpha — went with the marks they
-    // sized. The HUD BAR's own sizes are pinned in hudBar.test.ts against the
-    // mock; what stays here is the BEHAVIOUR the globes inherited unchanged.
-    for (const dead of [
-      'width',
-      'height',
-      'headerH',
-      'railWidth',
-      'railTrackAlpha',
-      'railGlowAlpha',
-      'railGlowPx',
-      'rudderTrack',
-      'rudderTickW',
-      'rudderTickH',
-      'rudderTickHaloPx',
-      'orderedW',
-      'orderedH',
-      'labelAlpha',
-    ]) {
-      expect(V, dead).not.toHaveProperty(dead);
-    }
-    // A BASE fill alpha that is information (what the globe holds at motion=off).
-    expect(V.railFillAlpha).toBeGreaterThan(0.5);
-    // The pending-heal band (epic-8 amendment 35) sits under it, never over.
-    expect(V.railPendingAlpha).toBeLessThan(V.railFillAlpha);
+  it('pins what the hull gauge KEPT of the own-vitals group (UX-DR15 + amendments 24-27)', () => {
+    // Story 10.10 deleted the `vitals` block with the HP globe; the BEHAVIOUR
+    // the gauge inherited unchanged lives in `console.hull` / `console.helmGlyphs`.
+    const H = CLIENT_CONFIG.console.hull;
+    // A BASE fill alpha that is information (what the gauge holds at motion=off).
+    expect(H.fillAlpha).toBeGreaterThan(0.5);
+    // The pending-heal band (epic-8 amendment 35) is lighter than the live fill.
+    expect(H.pendingAlpha).toBeLessThan(H.fillAlpha);
     // Bands: read from shared CONFIG, never a second copy (amendment 41).
-    expect(V.amberBelow).toBe(CONFIG.damageBands.amberBelow);
-    expect(V.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
+    expect(H.amberBelow).toBe(CONFIG.damageBands.amberBelow);
+    expect(H.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
     // Pulse envelope: from pulseMinHz at the band start, ramping UP to the
     // SHARED ceiling at pulseFloorFrac of hull. The ceiling lives once, in the
     // settings group.
-    expect(V.pulseMinHz).toBeGreaterThan(0);
-    expect(V.pulseMinHz).toBeLessThan(CLIENT_CONFIG.settings.pulseCapHz);
-    expect(V.pulseFloorFrac).toBeGreaterThan(0);
-    expect(V.pulseFloorFrac).toBeLessThan(V.amberBelow);
-    expect(V.pulseAmp).toBeGreaterThan(0);
-    expect(V.pulseAmp).toBeLessThan(V.railFillAlpha); // the fill never breathes to nothing
+    expect(H.pulseMinHz).toBeGreaterThan(0);
+    expect(H.pulseMinHz).toBeLessThan(CLIENT_CONFIG.settings.pulseCapHz);
+    expect(H.pulseFloorFrac).toBeGreaterThan(0);
+    expect(H.pulseFloorFrac).toBeLessThan(H.amberBelow);
+    expect(H.pulseAmp).toBeGreaterThan(0);
+    expect(H.pulseAmp).toBeLessThan(H.fillAlpha); // the fill never breathes to nothing
     // Helm glyphs: a whole number of successful inputs per pair, under a standalone key.
-    expect(Number.isInteger(V.glyphFadeCount) && V.glyphFadeCount > 0).toBe(true);
-    expect(V.glyphKey).toBe('hullcracker.helm');
-    expect(V.glyphFadeSec).toBeGreaterThan(0);
+    const G = CLIENT_CONFIG.console.helmGlyphs;
+    expect(Number.isInteger(G.fadeCount) && G.fadeCount > 0).toBe(true);
+    expect(G.key).toBe('hullcracker.helm');
+    expect(G.fadeSec).toBeGreaterThan(0);
   });
 
   it('pins the ONE photosensitivity ceiling shared by every breathing pulse', () => {

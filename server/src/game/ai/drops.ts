@@ -1,4 +1,4 @@
-// THE LANE NUDGE (Story 10.9 "Airdrops", epic-10 amendment 16; spec
+// THE LANE NUDGE (Story 10.9 "Airdrops", epic-10 amendment 18; spec
 // Boundaries "Bots", orchestrator ruling W4-1) — bots take a drop on their
 // line, nothing more (Story 10.12 tunes the appetite).
 //

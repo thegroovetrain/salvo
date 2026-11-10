@@ -1,4 +1,4 @@
-// THE AIRDROPS (Story 10.9, epic-10 amendment 16; Eric's rulings R1–R4 of
+// THE AIRDROPS (Story 10.9, epic-10 amendment 18; Eric's rulings R1–R4 of
 // 2026-11-08) — the ONE drop model. Pure, deterministic, zero I/O: the
 // server's spawner and collector, the client's ingest and the harness all read
 // a drop through THESE functions, so the sides can never disagree about how

@@ -1,4 +1,4 @@
-// THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 16, Eric's R3/R4
+// THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 18, Eric's R3/R4
 // of 2026-11-08 and his crate rulings of the same day). Fed every frame from
 // FrameMsg.drops (contact-like, sight-gated per observer, sanitized
 // fail-closed by sim/dropView.ts before it lands here).

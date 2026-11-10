@@ -80,7 +80,7 @@ const HITS_TRIP: readonly TargetKind[] = ['hull'];
  * THE SIX STATS A RANDOM INDEX POINT MAY LAND ON (Story 10.7, R5, Eric
  * 2026-11-06) — never HULL REPAIR / SMOKE SCREEN. Hoisted out of the CONFIG
  * literal so `offer.exhausted.indices` and `drops.indices` (Story 10.9,
- * epic-10 amendment 16) are ONE array, never two literals that could drift.
+ * epic-10 amendment 18) are ONE array, never two literals that could drift.
  * The order is the uniform pick's index order — a wire-free but
  * seed-load-bearing order (moving an entry changes which stat a seed draws).
  */
@@ -797,7 +797,7 @@ export const CONFIG = {
      */
     cratePaintMaxU: 85,
     /**
-     * THE LANE NUDGE (Story 10.9, epic-10 amendment 16; server/src/game/ai/
+     * THE LANE NUDGE (Story 10.9, epic-10 amendment 18; server/src/game/ai/
      * drops.ts): u — how far AHEAD along the bearing a non-combat bot already
      * wants (idle / patrol / beacon farm in transit) a sighted airdrop may lie
      * and still be taken as this tick's waypoint. First reading (spec);
@@ -2964,7 +2964,7 @@ export const CONFIG = {
   },
 
   /**
-   * THE AIRDROPS (Story 10.9, epic-10 amendment 16; brainstorm #13–#23 and
+   * THE AIRDROPS (Story 10.9, epic-10 amendment 18; brainstorm #13–#23 and
    * #48–#49 of 2026-11-03, forge premise 5: drops are FLAVOR — litter on
    * purpose, taken when on your line, never a route; Eric's rulings R1–R4 of
    * 2026-11-08). Small INTANGIBLE crates on the water, each worth a random

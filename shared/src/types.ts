@@ -1367,7 +1367,7 @@ export interface HealEvent {
 }
 
 /**
- * AN AIRDROP COLLECTED (Story 10.9, epic-10 amendment 16). SELF-PRIVATE: `id`
+ * AN AIRDROP COLLECTED (Story 10.9, epic-10 amendment 18). SELF-PRIVATE: `id`
  * is the collecting ship's id, and perception forwards the event ONLY to that
  * observer — the same gate as `pt`/`bn`/`heal` (`selfPrivateSignal`), so
  * nobody else ever learns who took a crate or what it held. `t` is the server
@@ -1385,7 +1385,7 @@ export interface DropPickupEvent {
 }
 
 /**
- * AN AIRDROP visible to this viewer (Story 10.9, epic-10 amendment 16, R3),
+ * AN AIRDROP visible to this viewer (Story 10.9, epic-10 amendment 18, R3),
  * synced as CONTACT-LIKE state (not an event): FrameMsg.drops is recomputed
  * per observer every tick, exactly like mines. Sight-gated — a spectator sees
  * every drop; anyone else only within sight (× detect factor) + island LOS, or

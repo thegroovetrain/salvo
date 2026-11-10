@@ -2840,7 +2840,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   verifyWakeCompleteness(w, me, f);
 }
 
-// ---------- THE AIRDROP ORACLE (Story 10.9, epic-10 amendment 16, R3) ---------
+// ---------- THE AIRDROP ORACLE (Story 10.9, epic-10 amendment 18, R3) ---------
 
 /** Non-vacuity ledgers for the drop arms: a crate delivered by SIGHT to a
  *  fogged observer, one WITHHELD from a fogged observer (the gate's false
@@ -3990,7 +3990,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   // Self-private kinds: each may only ever reach the ship its `id` names.
   dmg: (_w, me, e) => expect((e as DamageEvent).id).toBe(me.id), // victim-private
   pt: (_w, me, e) => expect((e as PointEvent).id).toBe(me.id), // earner-private
-  // THE AIRDROP PICKUP TELL (Story 10.9, epic-10 amendment 16): collector-
+  // THE AIRDROP PICKUP TELL (Story 10.9, epic-10 amendment 18): collector-
   // private on the pt terms — delivered iff `id` is the observer — and
   // exactly {k,id,t,g}: the rolls the collector just gained, nothing about
   // the crate's position (it is gone). Spectator privacy is pinned by the

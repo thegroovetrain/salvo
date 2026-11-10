@@ -364,7 +364,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(signalFor('drop')).toBeUndefined();
   });
 
-  // ---------- Story 10.9 — THE AIRDROPS (epic-10 amendment 16, R3) ----------
+  // ---------- Story 10.9 — THE AIRDROPS (epic-10 amendment 18, R3) ----------
 
   function makeDrop(overrides: Partial<DropState> = {}): DropState {
     return { id: 'd1', x: 50, y: 0, kind: 'armor', ...overrides };

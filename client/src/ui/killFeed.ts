@@ -72,8 +72,11 @@ function ensureFeed(): HTMLDivElement {
       'flex-direction:column',
       'align-items:flex-end',
       'gap:4px',
-      'font:400 16px var(--hc-font-mono)', // Story 2.3 lift; the micro floor is 14px
-      'letter-spacing:1px',
+      // Story 10.10 (R13, O12): the battle consoles' 14 px mono register — the
+      // micro floor, an 18 px line box and the consoles' .5 px tracking (was
+      // 16 px / 1 px since the Story 2.3 lift). Content and place unchanged.
+      'font:400 14px/18px var(--hc-font-mono)',
+      'letter-spacing:.5px',
       // Amendment 17: the connective text is load-bearing, so it reads
       // text-primary now — the retired grey is gone from the feed.
       'color:var(--hc-text-primary)', // connective base (names override per-span)
@@ -108,7 +111,7 @@ function renderSegments(line: HTMLDivElement, segments: KillSegment[], colorFor:
         // never pulsing, so it is not an animated channel at all and stays
         // out of the attention-tier arbitration and the photosensitivity
         // budget. Radius/alpha are DESIGN.md's glow register, not invented:
-        // 10px is the hotbar ready-weapon glow (the faint end of the
+        // 10px is the (retired) hotbar ready-weapon glow (the faint end of the
         // 10/14/16px ladder in the component inventory) and .4 is the
         // canonical glow alpha from the DESIGN.md "Glow" motif's selected-slot
         // example (the 16px amber bloom at .4).

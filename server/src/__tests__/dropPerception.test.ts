@@ -1,5 +1,5 @@
 // THE AIRDROPS AND THE ANTI-CHEAT CHOKEPOINT (Story 10.9, Eric 2026-11-08,
-// epic-10 amendment 16, ruling R3: "stat glyph at SIGHT ONLY; on radar an
+// epic-10 amendment 18, ruling R3: "stat glyph at SIGHT ONLY; on radar an
 // anonymous small blip").
 //
 // A crate is NOT a ship and NOT public: nothing about it rides the schema, so

@@ -1,4 +1,4 @@
-// THE LANE NUDGE (Story 10.9 "Airdrops", epic-10 amendment 16; spec
+// THE LANE NUDGE (Story 10.9 "Airdrops", epic-10 amendment 18; spec
 // Boundaries "Bots") — a bot takes a SIGHTED crate lying on the line it
 // already sails, in the non-combat bearings only (idle / patrol / beacon farm
 // in transit); never while engaged, never off a beacon station.

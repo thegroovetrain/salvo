@@ -302,7 +302,7 @@ export interface WorldOptions {
    */
   beacons?: boolean;
   /**
-   * THE AIRDROP SWITCH (Story 10.9, epic-10 amendment 16 — a DEV SMOKE ARM).
+   * THE AIRDROP SWITCH (Story 10.9, epic-10 amendment 18 — a DEV SMOKE ARM).
    * `false` makes `spawnDrops` a no-op: no SCHEDULED crate is ever scattered.
    * WRECK PICKUPS are still placed (a sink is not the schedule — spec I/O row
    * "Dev door"), and collection and the storm sweep run as ever. Absent /
@@ -1182,7 +1182,7 @@ export interface ShipRecord {
   beaconXpMs: number;
   /**
    * AIRDROPS this hull has collected this match (Story 10.9, epic-10
-   * amendment 16) — scheduled crates and wreck pickups alike. HARNESS /
+   * amendment 18) — scheduled crates and wreck pickups alike. HARNESS /
    * MatchRecord substrate only: never on the wire (the own row's `ib` and the
    * self-private `dp` already carry the result).
    */
@@ -1422,7 +1422,7 @@ function interceptionAmount(shell: ShellState, stop: Vec2): number {
 }
 
 // ---------------------------------------------------------------------------
-// THE AIRDROPS (Story 10.9, epic-10 amendment 16) — see World.dropSeed.
+// THE AIRDROPS (Story 10.9, epic-10 amendment 18) — see World.dropSeed.
 // ---------------------------------------------------------------------------
 
 /** The airdrop stream's mint constant (XORed into the room-private pseudonym
@@ -1514,7 +1514,7 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
-  /** AIRDROPS (Story 10.9, epic-10 amendment 16): every live crate on the
+  /** AIRDROPS (Story 10.9, epic-10 amendment 18): every live crate on the
    *  water, keyed by id, in placement order. Intangible — never a Target, a
    *  body, a contact or a storm victim in the ship sense; spawned, collected
    *  and storm-destroyed by this world's own step rows; read by perception's
@@ -2048,7 +2048,7 @@ export class World {
    *  when a dev smoke asked for no scheduled drops. */
   private readonly dropsEnabled: boolean;
   /**
-   * THE AIRDROP STREAM SEED (Story 10.9, epic-10 amendment 16). ROOM-PRIVATE
+   * THE AIRDROP STREAM SEED (Story 10.9, epic-10 amendment 18). ROOM-PRIVATE
    * like the beacons' (the pseudonym material under its own constant,
    * DROP_STREAM_K = 0x5bd1e995 — unused by any other stream here; see the
    * spawnPhase doc for the roster): a drop's position and stat must not be
@@ -4009,7 +4009,7 @@ export class World {
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
     { name: 'applyStorm', run: (w, ctx) => w.applyStorm(ctx.dt) },
-    // THE STORM TAKES THE AIRDROPS (Story 10.9, epic-10 amendment 16) —
+    // THE STORM TAKES THE AIRDROPS (Story 10.9, epic-10 amendment 18) —
     // DIRECTLY after applyStorm and against THE SAME live ring: every crate
     // the ring has closed over (`isOutside`, the hull test's own predicate)
     // is deleted, so nothing later this tick can collect it and no frame
@@ -4021,7 +4021,7 @@ export class World {
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hitTargets) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hitTargets) },
-    // AIRDROP COLLECTION (Story 10.9, epic-10 amendment 16, R4) — DIRECTLY
+    // AIRDROP COLLECTION (Story 10.9, epic-10 amendment 18, R4) — DIRECTLY
     // after stepMines: against the tick's post-move, post-storm AFLOAT hull
     // outlines (the `hull` list of the hitTargets memo — rebuilt after any
     // sink this tick, so a hull the shells or a mine just sank collects
@@ -4154,7 +4154,7 @@ export class World {
     // later rows unmoved, unwaked and never collision-resolved.) The room
     // mirrors the new chart onto the schema right after the step.
     { name: 'placeBeacons', run: (w) => w.placeBeacons() },
-    // AIRDROP SCATTER (Story 10.9, epic-10 amendment 16, R1) — DEAD LAST,
+    // AIRDROP SCATTER (Story 10.9, epic-10 amendment 18, R1) — DEAD LAST,
     // DIRECTLY AFTER placeBeacons (not before it): ring cycles begin on
     // minute marks, so on a cycle's first tick the new set must already be
     // charted for the HARD KEEP-OUT to read it — scattered first, a batch

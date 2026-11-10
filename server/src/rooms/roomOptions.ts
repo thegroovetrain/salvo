@@ -284,7 +284,7 @@ export interface MatchOverride {
    */
   beacons?: boolean;
   /**
-   * DEV SMOKE ARM (Story 10.9, epic-10 amendment 16): `false` switches the
+   * DEV SMOKE ARM (Story 10.9, epic-10 amendment 18): `false` switches the
    * SCHEDULED AIRDROPS off — no crate is ever scattered by the minute
    * schedule. Wreck pickups are still placed, and collection and the storm
    * sweep run as ever. Only the boolean `false` disables; absent / anything

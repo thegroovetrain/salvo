@@ -2726,6 +2726,8 @@ So that the ocean has litter worth picking up without ever becoming a chore.
 
 ### Story 10.10: The Battle UI — XP Seen, the Offer in the Corner
 
+*(2026-11-09, epic-10 amendments 16–17, cycle 218, 0.19.12: BUILT as the FULL in-game UI/UX pass — ship console left, weapons console right (the weapon rows are the buttons), the offer group on the right edge mid-height, Tab+1..4 or a click picks with NO combat lockout, every changing number under a hovered card turns amber with an arrow, every weapon shows its damage against an ARMOR-100 hull; the corner was shown as options and Eric picked; Tab survives only as the pick modifier. Supersedes the `[unruled]` marks below.)*
+
 As a captain mid-fight,
 I want to see my XP and level at a glance and take an upgrade without a dialog in my face,
 So that leveling up never costs me the fight I'm in.

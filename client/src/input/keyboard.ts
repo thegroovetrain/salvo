@@ -6,7 +6,7 @@
 // input or DOM button suppressing ALL sim keys while the sim keeps running.
 // Story 2.3 adds the FOCUSED-OVERLAY rule: while the settings overlay or the
 // results modal is up, every bound key but ESC/Enter is swallowed — helm
-// included, unlike the refit modal's partial lockout.
+// included. (There is no partial lockout any more: Story 10.10, R3.)
 // Pre-join surfaces (ui/home.ts, ui/classSelect.ts) keep their own scoped,
 // guarded handlers — this class is attached post-join only.
 //
@@ -18,8 +18,9 @@
 //                  special shell — shared WEAPON_SLOTS, Story 10.5): weapons
 //                  switch-to (prime toggle); a key on an EMPTY weapon slot is
 //                  DENIED on the client (onEmptySlotDenied — epic-8 amendment
-//                  26: a pulse and a tone, nothing on the wire); ALL suspended
-//                  while the refit modal is open
+//                  26: a pulse and a tone, nothing on the wire); suspended
+//                  only by a focused overlay and the held start line — NEVER
+//                  by a pending offer (Story 10.10, R3: no combat lockout)
 //   C / V          the two COOLDOWN ABILITIES (Story 10.5, 2026-11-05, epic-10
 //                  amendment 11): C = HULL REPAIR, V = SMOKE. A TAP through the
 //                  same ability FIFO the Shift uses, carrying the ability's wire
@@ -29,22 +30,23 @@
 //                  Suspended exactly as Q/E/R and Shift are
 //   SHIFT (L/R)    slot 1, the BOOST — a TAP (keydown edge only, so a held
 //                  Shift is ONE press) that activates through the same ability
-//                  FIFO Q/E/R's abilities use. Suspended by the refit modal and
-//                  the combat lock exactly as Q/E/R are (UX-DR42). SHIFT+TAB is
-//                  still the browser's reverse focus-cycle and is evaluated
-//                  FIRST, so Tab keeps its own (prevented-inert) treatment.
+//                  FIFO Q/E/R's abilities use. Suspended by a focused overlay
+//                  and the combat lock exactly as Q/E/R are. SHIFT+TAB is
+//                  evaluated FIRST (prevented, never a focus walk) and only
+//                  holds the Tab modifier.
 //   F              FOGHORN (Story 4.5, amendment 56 — the reservation closed):
 //                  one honk per physical press (edge-gated, so OS auto-repeat
-//                  cannot machine-gun it), suspended with Q/E/R while the refit
-//                  modal is open and swallowed by a focused overlay
-//   TAB            toggles the refit modal (main.ts owns open/close policy)
-//   1–4            pick a refit card while the window is OPEN (top row and
-//                  numpad). With the window closed they do NOTHING (Story 10.5:
-//                  the kit keys left with the kit, and the close grace that
-//                  kept the two meanings apart went with them). Digits 5+ are
-//                  unbound
-//   ESC            closes the TOPMOST open surface (results modal / refit modal
-//                  / settings overlay) and, with nothing open, toggles settings
+//                  cannot machine-gun it), swallowed by a focused overlay
+//   TAB            a HELD MODIFIER (Story 10.10, R3 — Eric: "No lockout, tab
+//                  is gone (but its still the modifier to quick-select one of
+//                  them)"): held from its keydown to its keyup (or a blur /
+//                  clearKeys). Tab ALONE does nothing — still prevented, so it
+//                  never walks focus
+//   TAB + 1–4      pick offer card 1–4 (top row and numpad). A BARE digit does
+//                  NOTHING (R8: bare-digit mount select is ledgered, not
+//                  built). Digits 5+ are unbound
+//   ESC            closes the TOPMOST open surface (results modal / settings
+//                  overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
 //                  match.
 //   ENTER          confirms the topmost surface — the game-end results screen's
@@ -135,27 +137,27 @@ export const SLOT_KEY_CODES: Record<string, number> = {
  *    after it.
  *  • OS AUTO-REPEAT IS DROPPED by `edge()` (`e.repeat === true` never fires the
  *    action), so a Shift held for three seconds is exactly ONE press — the same
- *    rule F and the refit digits obey.
+ *    rule F and the Tab+digit picks obey.
  *  • THE WINDOWS STICKY KEYS PROMPT on five Shift taps in a row is a KNOWN OS
  *    hazard and is ACCEPTED WITH NO MITIGATION (Eric 2026-09-11). Do not add a
  *    tap counter, a rebind offer or a warning: the browser cannot suppress the
  *    OS dialog and every workaround costs the boost its key.
- *  • THE BOOST IS SUSPENDED WHILE THE REFIT WINDOW IS OPEN, and under the
- *    start-line combat lock, exactly like Q/E/R (amendment 56 — Eric: "I can't
- *    use my equipment (like boost) while I have the upgrade window open").
- *    `boostAction`'s `suspended()` guard IS that design, not an accident.
- *  • SHIFT+TAB IS NOT A DESIGNED COMBINATION (amendment 57 — Eric: "Shift is
- *    boost, Tab is ability window"). `onDown` preventDefaults the chord for
- *    browser hygiene (focus must not escape the canvas) and does NOTHING
- *    further; a Shift press fires the boost on its own keydown edge whatever
- *    key follows. Nothing is built or tested for the chord, deliberately.
+ *  • THE BOOST IS SUSPENDED under a focused overlay and the start-line combat
+ *    lock, exactly like Q/E/R — and NEVER by an offer (Story 10.10, R3: there
+ *    is no refit window and no combat lockout; amendment 56's suspension went
+ *    with the window).
+ *  • SHIFT+TAB IS NOT A DESIGNED COMBINATION (amendment 57). `onDown`
+ *    preventDefaults the chord for browser hygiene (focus must not escape the
+ *    canvas) and only HOLDS the Tab modifier, as a bare Tab does; a Shift press
+ *    fires the boost on its own keydown edge whatever key follows.
  */
 export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
 
 /**
- * Digit key → the refit choice it sends (top row + numpad): card indices 0..3,
- * and nothing else. EVERY choice on the wire is an offer index. The digits have
- * ONE meaning since Story 10.5 — with the window closed they do nothing.
+ * Digit key → the offer card it picks WITH TAB HELD (top row + numpad): card
+ * indices 0..3, and nothing else. EVERY choice on the wire is an offer index.
+ * Since Story 10.10 (R3) a digit means something only under the Tab modifier;
+ * a bare digit does nothing.
  */
 export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
@@ -379,46 +381,41 @@ export interface KeyboardHooks {
   onAbilityCapped?: (id: AbilityId) => void;
   /**
    * F — a FOGHORN press edge (Story 4.5, amendment 56). Fires once per physical
-   * press: never on OS auto-repeat, never while a focused overlay is up, and
-   * never while the refit modal is open (F suspends with Q/E/R — a captain
-   * picking a card is not conning). Everything else — alive, spectating,
+   * press: never on OS auto-repeat, never while a focused overlay is up (an
+   * offer pending never suspends it — Story 10.10, R3). Everything else — alive, spectating,
    * cooldown — is main.ts's call, exactly as the slot keys leave the ammo and
    * sinking verdicts to it; the chokepoint only reports the press.
    */
   onFoghorn?: () => void;
-  /** Is the refit modal open? While true: Q/E/R/C/V/Shift/F are suspended and
-   *  digits pick cards; helm/zoom/M/P stay live (UX-DR42). */
+  /** Is a SUSPENDING SURFACE open? Since Story 10.10 (R3 — no combat lockout,
+   *  there is no refit window) that is only a focused overlay: while true
+   *  Q/E/R/C/V/Shift/F are suspended. An offer pending NEVER suspends anything. */
   isModalOpen?: () => boolean;
   /**
    * Is a COMBAT LOCKOUT in force that is NOT a modal (Story 6.1, epic-6
    * amendment 8: the held start line)? While true the slot keys — and the
-   * hotbar clicks routed through the same entry — are swallowed exactly as the
-   * refit modal swallows them: no weapon primes, no ability activates, and
-   * nothing rides an input.
+   * console clicks routed through the same entry — are swallowed: no weapon
+   * primes, no ability activates, and nothing rides an input.
    *
    * SEPARATE FROM `isModalOpen` FOR ONE REASON: THE FOGHORN. Eric's ruling
    * names movement, weapons and radar, and the horn is none of the three, so a
-   * boarding captain may still sound it — while a captain reading refit cards
-   * still may not (that suspension is about not conning, not about a lock).
-   * Folding the start line into `isModalOpen` would have silently taken the
-   * horn with it.
+   * boarding captain may still sound it. Folding the start line into
+   * `isModalOpen` would have silently taken the horn with it.
    */
   isCombatLocked?: () => boolean;
   /**
    * Is a FOCUSED OVERLAY up (Story 2.3: the settings overlay, the results
-   * modal)? While true EVERY sim key is suppressed — helm included, unlike the
-   * refit modal's partial lockout — and only ESC/Enter still route (they are how
+   * modal)? While true EVERY sim key is suppressed — helm included — and only
+   * ESC/Enter still route (they are how
    * the surface is dismissed). Bound keys stay preventDefault-ed so focus can
    * never escape the canvas; the simulation itself never pauses.
    */
   isOverlayFocused?: () => boolean;
-  /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
-   *  open rule and pick/TAB/ESC close rules). */
-  onRefitToggle?: () => void;
-  /** Digit 1–4 while the modal is open — pick card `choice` (0-based). */
+  /** TAB + digit 1–4 — pick offer card `choice` (0-based). main.ts owns the
+   *  pick (no window check: the offer group is always live). */
   onRefitPick?: (choice: number) => void;
-  /** ESC — close the topmost surface (in-match: the refit modal; on the results
-   *  screen main.ts routes it to RETURN TO PORT — UX-DR27). */
+  /** ESC — close the topmost surface (on the results screen main.ts routes it
+   *  to RETURN TO PORT — UX-DR27). */
   onEscape?: () => void;
   /** ENTER — confirm the topmost surface. Inert in-match; on the results screen
    *  main.ts routes it to RETURN TO PORT (UX-DR27), the same path as ESC. */
@@ -480,6 +477,10 @@ export class KeyboardInput {
    * torpedo shot fired the torpedo a second time.
    */
   private releaseRevertSeq: number | null = null;
+  /** THE TAB MODIFIER (Story 10.10, R3): set on Tab's keydown, cleared on its
+   *  keyup, a blur and `clearKeys` — so a Tab released where we never heard it
+   *  can never leave the digits armed. */
+  private tabDown = false;
   /** The binding table: code → handler. Built once; onDown dispatches through
    *  it (a hit is preventDefault-ed, a miss is left native). */
   private readonly bindings: ReadonlyMap<string, (e: KeyboardEvent) => void>;
@@ -511,12 +512,12 @@ export class KeyboardInput {
     });
     bind(Object.keys(REFIT_DIGIT_CODES), this.handleDigitKey);
     // F: the FOGHORN (Story 4.5) — edge-gated so a held key is ONE honk, and
-    // suspended by the refit modal exactly as Q/E/R are (handleSlotKey's rule,
-    // reused rather than re-derived). Space stays BOUND-INERT: prevented (page
+    // suspended by a focused overlay. Space stays BOUND-INERT: prevented (page
     // scroll), no action.
     bind(['KeyF'], this.edge(() => this.handleFoghorn()));
     bind(['Space'], () => undefined);
-    bind(['Tab'], this.edge(() => this.hooks.onRefitToggle?.()));
+    // TAB: the held modifier (R3). It opens nothing; it only arms the digits.
+    bind(['Tab'], this.holdTab);
     bind(['Escape'], this.edge(() => this.hooks.onEscape?.()));
     // ENTER (both keys): confirm the topmost surface — the results screen's
     // RETURN TO PORT (UX-DR27). Bound-inert in-match, and prevented like every
@@ -560,13 +561,14 @@ export class KeyboardInput {
    *
    * SHIFT is deliberately NOT a native-chord modifier (shifted letters must
    * still steer), with ONE exception: SHIFT+TAB is the browser's REVERSE
-   * focus-cycle, not a refit toggle — it is prevented (focus must not escape
-   * the canvas) but takes no action.
+   * focus-cycle — it is prevented (focus must not escape the canvas) and only
+   * holds the Tab modifier (Story 10.10).
    */
   private readonly onDown = (e: KeyboardEvent): void => {
     if (this.nativeKey(e)) return;
     if (e.shiftKey && e.code === 'Tab') {
       e.preventDefault();
+      this.holdTab();
       return;
     }
     const handler = this.bindings.get(e.code);
@@ -636,8 +638,8 @@ export class KeyboardInput {
   };
 
   /**
-   * Q/E/R: the three WEAPON slot keys. Suspended (prevented-inert) while the
-   * refit modal is open — full combat lockout. An unfitted slot is DENIED on
+   * Q/E/R: the three WEAPON slot keys. Suspended (prevented-inert) under a
+   * focused overlay or the start line — never by an offer. An unfitted slot is DENIED on
    * the client since Story 8.5 (onEmptySlotDenied — amendment 26), and the
    * fitted check FAILS CLOSED: no hook means no fitted slots. Ability slots
    * ACTIVATE through the FIFO; weapon slots toggle the prime (switch-to /
@@ -688,7 +690,7 @@ export class KeyboardInput {
 
   /**
    * SHIFT: slot 1's boost tap. The same two suspensions the slot keys obey
-   * (refit modal, combat lock) and the same fail-closed fitted check — but NO
+   * (focused overlay, combat lock) and the same fail-closed fitted check — but NO
    * empty-slot denial: the only hull with an empty slot 1 is a PvE drone
    * (epic-8 amendment 24), which no keyboard is attached to, so a denial there
    * could only ever be a construction-gap artefact. The activate-vs-prime split
@@ -701,9 +703,9 @@ export class KeyboardInput {
   }
 
   /**
-   * `C` / `V` (and a click on their bar squares): one cooldown-ability press
-   * (Story 10.5). The same two suspensions every slot key obeys (refit modal /
-   * focused overlay, combat lock — silent), then the client's known refusal
+   * `C` / `V` (and a click on their ability buttons): one cooldown-ability press
+   * (Story 10.5). The same two suspensions every slot key obeys (focused
+   * overlay, combat lock — silent), then the client's known refusal
    * (`isAbilityDenied` → `onAbilityDenied`, nothing sent), then the ability
    * FIFO, carrying the ability's wire code.
    */
@@ -716,8 +718,8 @@ export class KeyboardInput {
     this.activateAbility(id);
   }
 
-  /** Is a surface suspending the slot keys and hotbar clicks this instant — the
-   *  refit modal / a focused overlay (isModalOpen) or the held start line
+  /** Is a surface suspending the slot keys and console clicks this instant — a
+   *  focused overlay (isModalOpen) or the held start line
    *  (isCombatLocked, Story 6.1)? The lock is deliberately the SECOND read so
    *  the two keep their separate meanings; both are feedback-free. */
   private suspended(): boolean {
@@ -725,10 +727,9 @@ export class KeyboardInput {
   }
 
   /**
-   * F: one honk per press edge. The refit modal suspends it (prevented-inert)
-   * the same way it suspends the slot keys — full combat lockout, and the
-   * foghorn is a broadcast made from the conning position, not from the
-   * refit window.
+   * F: one honk per press edge. A focused overlay suspends it (prevented-inert);
+   * the held start line does NOT (the horn is not a weapon — see
+   * `isCombatLocked`).
    */
   private handleFoghorn(): void {
     if (this.hooks.isModalOpen?.() === true) return;
@@ -736,18 +737,28 @@ export class KeyboardInput {
   }
 
   /**
-   * Digits 1–4: a refit pick (1–4 → card 0..3) while the window is OPEN, read
-   * against the window's state AT THIS KEYDOWN. A GREYED card's digit — or a
-   * digit past a SHORT offer's last card — is swallowed downstream by main.ts's
-   * handleRefitPick, not here (the chokepoint does not know what is on the
-   * cards). With the window closed a digit does nothing (Story 10.5).
+   * Digits 1–4: an offer pick (1–4 → card 0..3) while TAB IS HELD (Story
+   * 10.10, R3), read at this keydown. A GREYED card's digit — or a digit past a
+   * SHORT offer's last card — is swallowed downstream by main.ts's pick, not
+   * here (the chokepoint does not know what is on the cards). A bare digit does
+   * nothing (R8).
    */
   private readonly handleDigitKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
-    if (this.hooks.isModalOpen?.() !== true) return;
+    if (!this.tabDown) return;
     const choice = REFIT_DIGIT_CODES[e.code];
     if (choice !== undefined) this.hooks.onRefitPick?.(choice);
   };
+
+  /** Tab's keydown: hold the modifier (R3). Nothing else — Tab alone is inert. */
+  private readonly holdTab = (): void => {
+    this.tabDown = true;
+  };
+
+  /** Is the Tab modifier held this instant? (main.ts / tests.) */
+  get tabHeld(): boolean {
+    return this.tabDown;
+  }
 
   /**
    * One ability-activation keypress: QUEUE the ability rather than bumping the
@@ -798,6 +809,7 @@ export class KeyboardInput {
 
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
+    if (e.code === 'Tab') this.tabDown = false;
   };
 
   private readonly onBlur = (): void => {
@@ -872,6 +884,7 @@ export class KeyboardInput {
    */
   clearKeys(): void {
     this.keys.clear();
+    this.tabDown = false;
   }
 
   /**
