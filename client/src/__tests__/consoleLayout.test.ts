@@ -1,8 +1,8 @@
 // THE CONSOLE LAYOUT SPINE (Story 10.10, plan O2–O6 + epic-10 amendment 18's
 // R21–R27, plan F2–F6 + round 3's C1/C2) — the relations the two consoles and
 // the offer group must hold: nothing overlaps, everything sits on screen, the
-// offer goes where the player's OFFER POSITION puts it (or falls back to the
-// bottom row where its stack cannot clear), the weapons console is ONE uniform two-column box whose clocks
+// offer goes where the player's OFFER POSITION puts it (or, where its stack
+// cannot clear, beside the weapons box — never the bottom row unless chosen), the weapons console is ONE uniform two-column box whose clocks
 // never wrap, the ship console is compact (its height the sum of its parts,
 // whatever the viewport), and every console register meets the text rule.
 // Relations only — no px literal stands in for a contract.
@@ -119,8 +119,8 @@ describe('F6 — the placement contract at the three physical screens (100 % tie
           offerClear(l);
         });
 
-        it(`${tag(vp, countdown, offerPos)}: the offer sits where the player put it, or falls back to the bottom row`, () => {
-          expect([offerPos, 'bottom']).toContain(l.offerPlacement);
+        it(`${tag(vp, countdown, offerPos)}: the offer sits where the player put it, or beside the weapons box — never the row unless chosen`, () => {
+          expect(offerPos === 'bottom' ? ['bottom'] : [offerPos, 'rightBeside']).toContain(l.offerPlacement);
           if (offerPos !== 'right') expect(l.offerPlacement).toBe(offerPos); // LEFT and BOTTOM hold at 100 %
         });
       }
@@ -182,7 +182,7 @@ function rowRoom(vp: { w: number; h: number }, countdown: boolean): { room: numb
   return { room: l.weapons.bed.x - right(l.ship.bed) - 2 * K.offer.clearGap, need: l.offer.bed.w };
 }
 
-describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 % screens', () => {
+describe('the fallback is BESIDE THE WEAPONS BOX — short and reachable 125 % screens', () => {
   /** Every physical screen the 125 % tier is SELECTABLE on (its width gate),
    *  a 1280×720 screen at 100 %, and the ratified 1280×614 floor. */
   const TIER_125 = PHYSICAL.filter((p) => scaleTierEnabled(Math.max(...TIERS), p.w)).map((p) => logical(p, Math.max(...TIERS)));
@@ -193,8 +193,8 @@ describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 %
       for (const offerPos of OFFER_POSITIONS) {
         const l = consoleLayout(vp.w, vp.h, { countdown, offerPos });
 
-        it(`${tag(vp, countdown, offerPos)}: the chosen place or the bottom row, on screen, clear of both consoles`, () => {
-          expect([offerPos, 'bottom']).toContain(l.offerPlacement);
+        it(`${tag(vp, countdown, offerPos)}: the chosen place or beside the weapons box, on screen, clear of both consoles`, () => {
+          expect(offerPos === 'bottom' ? ['bottom'] : [offerPos, 'rightBeside']).toContain(l.offerPlacement);
           for (const r of allRects(l)) expect(inside(r, vp.w, vp.h), JSON.stringify(r)).toBe(true);
           noBedOverlaps(l);
           offerClear(l);
@@ -203,7 +203,7 @@ describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 %
     }
   }
 
-  it('a stack that cannot clear its console falls back to the row, and only then', () => {
+  it('a stack that cannot clear its console goes beside the weapons box, and only then', () => {
     for (const vp of [...AT_100, ...SHORT]) {
       for (const countdown of [false, true]) {
         for (const offerPos of ['right', 'left'] as const) {
@@ -211,7 +211,7 @@ describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 %
           const stack = bedOf(consoleLayout(vp.w, 4000, { countdown, offerPos }).offer.frame);
           const under = offerPos === 'right' ? l.weapons.bed : l.ship.bed;
           const clears = bottom(stack) + K.offer.clearGap <= under.y;
-          expect(l.offerPlacement, tag(vp, countdown, offerPos)).toBe(clears ? offerPos : 'bottom');
+          expect(l.offerPlacement, tag(vp, countdown, offerPos)).toBe(clears ? offerPos : 'rightBeside');
         }
       }
     }
@@ -247,10 +247,49 @@ describe('the fallback is the BOTTOM ROW (round 3) — short and reachable 125 %
     }
   });
 
-  it('a short viewport falls back (the fallback is reachable)', () => {
+  it('a short viewport falls back beside the weapons box (the fallback is reachable)', () => {
     const vp = logical({ w: 1280, h: 720 });
-    expect(consoleLayout(vp.w, vp.h, { countdown: true }).offerPlacement).toBe('bottom');
+    expect(consoleLayout(vp.w, vp.h, { countdown: true }).offerPlacement).toBe('rightBeside');
   });
+});
+
+describe('RIGHT stays on the right (Eric 2026-11-10) — the stack beside the weapons box where it cannot sit under the kill feed', () => {
+  /** 1920×1080 and 1366×768 (÷ 0.75) beside; 1440×900 (÷ 0.75) under the kill feed. */
+  const CASES = [
+    { vp: { w: 1920, h: 1080 }, right: 'rightBeside' },
+    { vp: { w: 1366 / 0.75, h: 768 / 0.75 }, right: 'rightBeside' },
+    { vp: { w: 1920, h: 1200 }, right: 'right' },
+  ] as const;
+  /** The kill feed's clearance: everything above the offer's top edge on the right. */
+  const FEED_BOTTOM = K.killFeed.top + K.killFeed.clearance;
+
+  for (const { vp, right: want } of CASES) {
+    for (const countdown of [false, true]) {
+      it(`${tag(vp, countdown)}: RIGHT is '${want}', LEFT is 'left', BOTTOM is the row`, () => {
+        const r = consoleLayout(vp.w, vp.h, { countdown, offerPos: 'right' });
+        expect(r.offerPlacement).toBe(want);
+        expect(consoleLayout(vp.w, vp.h, { countdown, offerPos: 'left' }).offerPlacement).toBe('left');
+        const b = consoleLayout(vp.w, vp.h, { countdown, offerPos: 'bottom' });
+        expect(b.offerPlacement).toBe('bottom');
+        for (const c of b.offer.cards) expect(c.y).toBe(b.offer.cards[0].y);
+      });
+
+      it(`${tag(vp, countdown)}: the RIGHT stack is in frame, clears both consoles by the gap, and stays out of the chrome bar's and the kill feed's clearance`, () => {
+        const l = consoleLayout(vp.w, vp.h, { countdown, offerPos: 'right' });
+        const bed = l.offer.bed;
+        expect(inside(bed, vp.w, vp.h)).toBe(true);
+        expect(keepsClear(bed, l.weapons.bed, K.offer.clearGap)).toBe(true);
+        expect(keepsClear(bed, l.ship.bed, K.offer.clearGap)).toBe(true);
+        expect(bed.y).toBeGreaterThanOrEqual(K.ship.topClearance);
+        expect(bed.y).toBeGreaterThan(FEED_BOTTOM);
+        for (const c of l.offer.cards) expect(c.x).toBe(l.offer.frame.x);
+        if (l.offerPlacement !== 'rightBeside') return;
+        expect(right(bed) + K.offer.clearGap).toBeCloseTo(l.weapons.bed.x, 9);
+        expect(bed.y).toBeCloseTo(l.weapons.bed.y, 9);
+        expect(bed.h).toBeLessThan(l.weapons.bed.h);
+      });
+    }
+  }
 });
 
 describe('the weapons console — ONE uniform two-column box (R23)', () => {

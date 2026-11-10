@@ -254,7 +254,9 @@ const CHIP_CSS = [
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
-  `font-size:${F.chip}px`,
+  // Never under the 9 px mono floor: at the smallest HUD factor (0.75 × the
+  // 90 % tier) 12 px would paint at 8.1 px, so the chip lifts there only.
+  `font-size:max(${F.chip}px, calc(9px / var(--hc-ui-scale, 1)))`,
   'letter-spacing:.04em',
 ].join(';');
 const CHIP_TOKEN_CSS = ['padding:0 4px', `line-height:${F.footH - 2}px`].join(';');

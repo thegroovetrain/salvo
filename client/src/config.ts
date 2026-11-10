@@ -1599,9 +1599,9 @@ export const CLIENT_CONFIG = {
    * chrome bar bed's reach past its text row; `feedPadX`/`feedPadY` the
    * kill feed's per-line bed padding and `feedGap` the water between two
    * lines' beds — sized so six bedded lines still fit the feed's clearance
-   * above the offer group (`console.killFeed.clearance`). `alpha` is 0.5
-   * (Eric 2026-11-10, round 3: the map reads through, the text stays
-   * legible), down from the first build's .78.
+   * above the offer group (`console.killFeed.clearance`). `alpha` is 0.7
+   * (Eric 2026-11-10: the beds at 70 %; round 3 had set 0.5 — the map reads
+   * through, the text stays legible), down from the first build's .78.
    */
   hudBed: { alpha: 0.7, edgeW: 1, chromePad: 8, feedPadX: 8, feedPadY: 1, feedGap: 3 },
 

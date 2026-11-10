@@ -35,9 +35,11 @@
 // stacks on the right edge under the kill feed, LEFT stacks on the left edge
 // under the chrome bar, BOTTOM lays the four cards in one row centred along the
 // bottom edge. When the chosen stack cannot keep `clearGap` of water to the
-// console under it — a short logical viewport — it FALLS BACK TO THE BOTTOM
-// ROW (Eric 2026-11-10, round 3: never the top-left corner). `offerPlacement`
-// reports where it went.
+// console under it — a short logical viewport — the SAME stack goes BESIDE
+// THE WEAPONS BOX ('rightBeside'): `clearGap` left of its bed, top-aligned with
+// it (the stack is always shorter than the weapons box). The BOTTOM row is
+// only ever the player's pick, never a fallback (Eric 2026-11-10: RIGHT stays
+// on the right). `offerPlacement` reports where it went.
 //
 // THE CELL (R26 / R27): line 1 NAME · tier · key chip, the MOUNT line (rings
 // with the seconds INSIDE, four to the line, nothing else on it), then the
@@ -151,13 +153,14 @@ export interface ConsoleLayout {
   abilities: AbilityRect[];
   offer: OfferLayout;
   /** Where the offer group went (see the header): the chosen position, or
-   *  the bottom row where the chosen stack cannot clear its console. */
+   *  beside the weapons box where the chosen stack cannot clear its console. */
   offerPlacement: OfferPlacement;
   /** The clear water between the two consoles' beds (px). */
   centerClear: number;
 }
 
-export type OfferPlacement = OfferPos;
+/** The player's OFFER POSITION, or the stack beside the weapons box (the fallback). */
+export type OfferPlacement = OfferPos | 'rightBeside';
 
 export interface ConsoleLayoutOpts {
   /** The countdown: the offer group carries REDRAW. */
@@ -401,6 +404,11 @@ function rowLayout(screenW: number, screenH: number, countdown: boolean): OfferL
 export function offerLayout(screenW: number, screenH: number, countdown: boolean, placement: OfferPlacement = 'right'): OfferLayout {
   if (placement === 'bottom') return rowLayout(screenW, screenH, countdown);
   if (placement === 'left') return stackLayout(K.sideInset + PAD, K.ship.topClearance + PAD, countdown);
+  if (placement === 'rightBeside') {
+    // The stack's bed `clearGap` left of the weapons bed, top-aligned with it.
+    const wb = weaponsLayout(screenW, screenH).weapons.bed;
+    return stackLayout(wb.x - OFFER.clearGap - PAD - OFFER.cardW, wb.y + PAD, countdown);
+  }
   return stackLayout(screenW - K.sideInset - PAD - OFFER.cardW, OFFER_TOP + PAD, countdown);
 }
 
@@ -416,12 +424,16 @@ function offerFits(bed: Rect, screenW: number, screenH: number, consoles: readon
 }
 
 /** Pure: R26 — the chosen stack where its bed clears both consoles' beds by
- *  the ruled gap, else the BOTTOM ROW (round 3: the fallback is the row, never
- *  a fourth place). BOTTOM is always the row. */
+ *  the ruled gap, else the same stack BESIDE THE WEAPONS BOX (Eric 2026-11-10:
+ *  RIGHT stays on the right; LEFT falls there too). BOTTOM is always the row,
+ *  and is never a fallback — save the last-resort guard for a screen too
+ *  small to hold even the beside stack (no ruled viewport reaches it). */
 export function offerPlacement(screenW: number, screenH: number, countdown: boolean, pos: OfferPos = 'right'): OfferPlacement {
+  if (pos === 'bottom') return 'bottom';
   const consoles = [shipLayout(screenH).bed, weaponsLayout(screenW, screenH).weapons.bed];
-  const bed = offerLayout(screenW, screenH, countdown, pos).bed;
-  return pos === 'bottom' || offerFits(bed, screenW, screenH, consoles) ? pos : 'bottom';
+  const fits = (p: OfferPlacement): boolean => offerFits(offerLayout(screenW, screenH, countdown, p).bed, screenW, screenH, consoles);
+  if (fits(pos)) return pos;
+  return fits('rightBeside') ? 'rightBeside' : 'bottom';
 }
 
 // --- the whole spine -----------------------------------------------------------

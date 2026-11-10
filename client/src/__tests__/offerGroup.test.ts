@@ -64,8 +64,9 @@ function part(root: HTMLElement, name: string): HTMLElement[] {
   return [...root.querySelectorAll(`[data-part="${name}"]`)] as HTMLElement[];
 }
 
+/** The px a font-size declares; for a `max(a, …)` clamp, its first (floor) term. */
 function px(v: string): number {
-  return Number.parseFloat(v);
+  return Number.parseFloat(v.replace(/^max\(/, ''));
 }
 
 function view(you: OwnShip, locked = false): OfferView | null {
@@ -172,6 +173,14 @@ describe('OfferGroup — the corner group (O3)', () => {
       expect(e.style.fontWeight, e.dataset.part).toBe('600');
     }
     for (const e of part(root, 'chip')) expect(px(e.style.fontSize)).toBeGreaterThanOrEqual(CHIP_FLOOR);
+  });
+
+  it('the key chip never paints under the 9 px mono floor: its size lifts as 9 px over the HUD scale', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip())!, LIVE, 1);
+    const chips = part(panel(), 'chip');
+    expect(chips.length).toBeGreaterThan(0);
+    for (const e of chips) expect(e.style.fontSize.replace(/\s+/g, '')).toContain('calc(9px/var(--hc-ui-scale,1))');
   });
 
   it('sits on ONE dark-glass bed behind the header and the stack (R24)', () => {
