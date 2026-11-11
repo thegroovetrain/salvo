@@ -1,48 +1,56 @@
-// Queue-lobby smoke (Story 6.1): self-boots the colyseus server on PORT 2603
-// (never the dev server's 2567) and proves the WHOLE production matchmaking
-// handshake over real sockets — the path every real player now takes, which no
-// unit test can reach because it spans two rooms, the matchMaker, and a seat
-// reservation:
+// Queue-lobby smoke (Story 6.1, re-scripted by Story 10.11): self-boots the
+// colyseus server on PORT 2603 (never the dev server's 2567) and proves the
+// WHOLE production matchmaking handshake over real sockets — the path every
+// real player takes, which no unit test can reach because it spans two rooms,
+// the matchMaker, and a seat reservation.
 //
+// SERVER BOOT: this smoke boots its own server with HC_QUEUE_BOT_FILL=6 (BOT
+// FILL ON, a SIX-SECOND hold — long enough to observe "armed, not yet seated",
+// short enough to wait out). To run it against a server you boot yourself, boot
+// with exactly that value: `HC_QUEUE_BOT_FILL=6 HC_DEV_OPTIONS=1`. The smoke
+// FAILS FAST, naming the cause, if the first queueStatus does not read min 1
+// (a server booted with the switch OFF reads min 2). The fill-OFF queue (arms at
+// two captains, seats no bots) is covered by the unit tests (queue.test.ts and
+// the queueFill switch tests), not here.
+//
+// THE STEPS
 //   0. PV GATE — joinOrCreate('queue', {}) with no `pv` is REJECTED at
 //      matchmake time with the human-readable "refresh" message. This is
 //      amendment 5's load-bearing claim: matchMaker.reserveMultipleSeatsFor
 //      never calls callOnAuth, so the ARENA's gate no longer runs for any
 //      queued player and the queue's own door is the only one left.
-//   1. A LONE CAPTAIN WAITS (amendment 4) — one client queues and receives
-//      MSG.queueStatus {n:1, min:2, cap:20, startsInMs:null}. `startsInMs` is
-//      null because the pool has not armed: the queue reports the honest state
-//      instead of running a countdown that cannot fire. We then sit for several
-//      seconds and assert NO seat ever arrives — no match forms for one captain.
-//   2. THE POOL ARMS AT THE SECOND CAPTAIN (amendment 3) — a second client
-//      queues and BOTH clients now see startsInMs non-null, bounded by
-//      CONFIG.match.queueTimerMs. Still no seat: the 2:00 deadline is a real
-//      wait and the cap has not been reached.
-//   3. THE CAP PATH (amendment 2 — "if the lobby fills up to max players, it
-//      should jump right to the 10 second countdown") — clients 3..19 queue
-//      (everyone sees n:19, still armed, still no seat), then the 20th trips
-//      CONFIG.map.playerCap and the queue forms IMMEDIATELY, ignoring the
-//      remaining timer. All 20 receive MSG.seat.
+//   1. A LONE CAPTAIN ARMS THE HOLD (Story 10.11, R2) — one client queues and
+//      receives MSG.queueStatus {n:1, min:1, cap:CONFIG.map.playerCap} with a
+//      numeric startsInMs bounded by the hold. We sit part of the hold and assert
+//      NO seat arrives: one captain arms the timer, it does not skip it.
+//   2. THE DEADLINE SEATS THE LONE CAPTAIN INTO A FULL ARENA (R1, R3) — when the
+//      hold ends the captain IS seated, consumes the seat, and the arena's
+//      roster (the schema `players` map the client receives) holds
+//      CONFIG.map.playerCap entries: one human plus bots. The arena runs the
+//      countdown (armed at one human) and goes `active`.
+//   3. THE CAP PATH (amendment 2) — a fresh cohort: CAP-1 captains queue (all
+//      see n:CAP-1, armed, no seat), then the CAPth trips CONFIG.map.playerCap
+//      and the queue forms IMMEDIATELY, ignoring the remaining hold. The hold
+//      the bound compares against is the server's, learned from startsInMs in
+//      step 1 — not read from CONFIG.
 //   4. ONE ARENA — every captain consumes its reservation and lands in the SAME
 //      arena roomId (the whole point of routing through one pool), receives
 //      MSG.welcome, and leaves the queue room. The LAST captain is deliberately
 //      held back here to set up step 5.
-//   5. THE COUNTDOWN WAITS FOR THE LAST LOADER (amendment 8) — with 19 of 20
-//      aboard the arena SITS in `waiting` with the storm un-anchored; the 20th
+//   5. THE COUNTDOWN WAITS FOR THE LAST LOADER (amendment 8) — with CAP-1 aboard
+//      the arena SITS in `waiting` with the storm un-anchored; the last captain
 //      consuming its seat is what arms the 0:10 countdown, after which the match
 //      goes `active`. A real hold, not a stopwatch: the wait is a small fraction
 //      of match.ts's 20 s boarding backstop, so the backstop cannot be what we
 //      observed.
-//
 //   6. THE SHIFT CROSSES THE SEAT RESERVATION (Story 10.4 — the seat gun's
 //      successor, Story 8.14 amendment 95, inheriting Story 8.2's deck proof)
 //      — the arena's own `client.join` log lines are read off the server's
-//      stdout: one per captain, every one of them carrying the DEFAULT_SHIFT
-//      the queue froze, and not a single deck refusal anywhere (there is no
-//      deck door left to refuse anything). This is the ONE proof that core
-//      carries a reservation's server-only `auth` payload into `client.auth`
-//      before `onJoin` — no in-process unit test reaches it.
-//
+//      stdout: one per captain (the lone captain's arena included), every one of
+//      them carrying the DEFAULT_SHIFT the queue froze, and not a single deck
+//      refusal anywhere. This is the ONE proof that core carries a
+//      reservation's server-only `auth` payload into `client.auth` before
+//      `onJoin` — no in-process unit test reaches it.
 //   7. THE SEAT SHIFT AT THE DIRECT DOOR + THE LEAK SCAN (Story 10.4) — solo
 //      joins prove the sanitizer's matrix over a real socket: every SHIFT_IDS
 //      entry is honoured and rides the OWN frame (`you.shift`), `bogus`
@@ -52,15 +60,8 @@
 //      card-economy keys no client may ever see — the check the retired
 //      poolSmoke used to make, kept alive here.
 //
-// WHY THE CAP PATH AND NOT THE TIMER: CONFIG.match.queueTimerMs (120000) is NOT
-// overridable per-room. StandardQueueRoom builds its policy from
-// defaultQueueConfig() with no options seam at all (StandardQueueRoom.ts:125),
-// and the queue deliberately accepts no dev room options — sanitizeArenaOptions
-// forwards only {name, cls, horn} (Story 10.4 retired `colorPref`). Shortening the wait would mean
-// editing server/src, which this smoke is not allowed to do, so it drives the
-// OTHER form trigger instead: 20 real sockets reaching CONFIG.map.playerCap.
-// That is a stronger proof anyway — it is the only trigger a smoke can exercise
-// end to end without waiting out a two-minute deadline.
+// The hold is set by the server's environment (HC_QUEUE_BOT_FILL, in seconds) —
+// there is no per-room timer option, so the smoke boots with a small value.
 //
 // Run: node server/scripts/queueSmoke.mjs
 import { spawn } from 'node:child_process';
@@ -74,12 +75,17 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT = 2603; // free: matchSmoke/zoneSmoke 2599, reconnect/latency 2601, metrics 2631
 const endpoint = `ws://localhost:${PORT}`;
 
-const MIN = CONFIG.match.minHumans; // 2
-const CAP = CONFIG.map.playerCap; // 20 — the immediate-form trigger
-/** How long a lone captain must sit with no seat before we call it proven. */
-const LONE_WAIT_MS = 4000;
-/** How long an armed-but-not-full pool must sit with no seat. */
-const ARMED_WAIT_MS = 2500;
+/** HC_QUEUE_BOT_FILL the server is booted with, in SECONDS (see the header). */
+const BOT_FILL_SECONDS = 6;
+/** The hold that value means, in ms — the bound a status is checked against. */
+const EXPECTED_HOLD_MS = BOT_FILL_SECONDS * 1000;
+const CAP = CONFIG.map.playerCap; // the immediate-form trigger and the fill target
+/** How long a lone captain sits with no seat before we call "armed, not yet
+ *  seated" proven — comfortably inside the hold. */
+const LONE_WAIT_MS = 2000;
+/** The cap path must trip the cap this far BEFORE its cohort's hold would end,
+ *  or the smoke could not tell the cap from the timer. */
+const CAP_TRIP_MARGIN_MS = 1500;
 /** Mirrors server/src/game/match.ts BOARDING_GRACE_MS — the backstop that arms
  *  the countdown even if a captain never loads. Not importable from a .mjs
  *  smoke without pulling in the server's TS build, so it is restated here and
@@ -114,7 +120,10 @@ function bootServer() {
     // options) but the arena's direct door is dev-gated since Story 6.1, and
     // every other smoke boots this way — kept identical so this script's server
     // is the same server the rest of the suite exercises.
-    env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT), HC_DEV_OPTIONS: '1' },
+    env: {
+      ...process.env, NODE_ENV: 'development', PORT: String(PORT), HC_DEV_OPTIONS: '1',
+      HC_QUEUE_BOT_FILL: String(BOT_FILL_SECONDS), // bot fill ON, six-second hold
+    },
     // stdout is PIPED (it used to be ignored) so step 6 can read the server's
     // own structured log; stderr still passes through for diagnosability.
     stdio: ['ignore', 'pipe', 'inherit'],
@@ -311,49 +320,68 @@ async function provePvGate() {
   return `pv gate: queue rejected a pv-less join with "${rejected.message}"`;
 }
 
-/** Step 1: a lone captain waits, unarmed, and no match forms (amendment 4). */
-async function proveLoneCaptainWaits(a) {
-  await waitFor(() => last(a) !== null, 5000, 'first queueStatus');
-  const s = last(a);
-  assert(s.n === 1, `lone captain sees n=${s.n}, expected 1`);
-  assert(s.min === MIN, `queueStatus min=${s.min}, expected ${MIN}`);
-  assert(s.cap === CAP, `queueStatus cap=${s.cap}, expected ${CAP}`);
-  assert(s.startsInMs === null, `lone captain got a countdown (startsInMs=${s.startsInMs}) — the pool must not arm below min`);
-  // Sit. The 1 Hz tick runs the policy the whole time; nothing may form.
-  await sleep(LONE_WAIT_MS);
-  assert(a.seat === null, 'a LONE captain was seated — no match may form below minHumans');
+/** What a queue status must read under HC_QUEUE_BOT_FILL: ONE captain arms. */
+function assertBotFillOn(s) {
   assert(
-    a.statuses.every((m) => m.startsInMs === null),
-    `an unarmed pool published a countdown: ${JSON.stringify(a.statuses)}`,
+    s.min === 1,
+    `queueStatus min=${s.min}, expected 1 — the server was NOT booted with HC_QUEUE_BOT_FILL=${BOT_FILL_SECONDS} (bot fill ON); this smoke needs it`,
   );
-  return `lone captain: n=1 min=${MIN} cap=${CAP} startsInMs=null, still unseated after ${LONE_WAIT_MS}ms`;
+  assert(s.cap === CAP, `queueStatus cap=${s.cap}, expected ${CAP}`);
 }
 
-/** Step 2: the second captain ARMS the pool for everyone (amendment 3). */
-async function proveArmAtSecond(a, b) {
-  await waitFor(
-    () => [a, b].every((c) => last(c) !== null && last(c).n === 2 && last(c).startsInMs !== null),
-    5000,
-    'both captains see an armed pool',
+/** The first status carrying a numeric countdown, or null. */
+const armedStatus = (ctx) => ctx.statuses.find((m) => typeof m.startsInMs === 'number') ?? null;
+
+/**
+ * Step 1: a lone captain ARMS the hold and is not seated before it ends.
+ * Returns the hold the server applies as learned from the countdown it
+ * published (the cap path compares against THIS, never against CONFIG).
+ */
+async function proveLoneCaptainArms(a) {
+  await waitFor(() => last(a) !== null, 5000, 'first queueStatus');
+  assertBotFillOn(last(a));
+  await waitFor(() => armedStatus(a) !== null, 4000, 'a lone captain armed the pool (numeric startsInMs)');
+  const s = armedStatus(a);
+  assert(s.n === 1, `lone captain sees n=${s.n}, expected 1`);
+  assert(s.startsInMs > 0, `lone captain armed with startsInMs=${s.startsInMs}, expected > 0`);
+  assert(
+    s.startsInMs <= EXPECTED_HOLD_MS,
+    `lone captain startsInMs=${s.startsInMs} exceeds the ${EXPECTED_HOLD_MS}ms hold HC_QUEUE_BOT_FILL=${BOT_FILL_SECONDS} sets`,
   );
-  for (const c of [a, b]) {
-    const s = last(c);
-    assert(s.startsInMs > 0, `${c.name} armed with startsInMs=${s.startsInMs}, expected > 0`);
-    assert(
-      s.startsInMs <= CONFIG.match.queueTimerMs,
-      `${c.name} startsInMs=${s.startsInMs} exceeds queueTimerMs=${CONFIG.match.queueTimerMs}`,
-    );
-  }
-  // The 2:00 deadline is a REAL wait: nothing forms just because min was met.
-  await sleep(ARMED_WAIT_MS);
-  assert(a.seat === null && b.seat === null, 'an armed-but-not-full pool formed a match before its deadline');
-  return `armed at the 2nd captain: both see n=2, startsInMs~${Math.round(last(a).startsInMs / 1000)}s; no seat after ${ARMED_WAIT_MS}ms`;
+  await sleep(LONE_WAIT_MS);
+  assert(a.seat === null, 'the lone captain was seated BEFORE the hold ended — one captain arms the timer, it must not skip it');
+  return {
+    holdMs: s.startsInMs,
+    line: `lone captain: n=1 min=1 cap=${CAP}, armed with startsInMs=${s.startsInMs} (<= ${EXPECTED_HOLD_MS}ms hold), still unseated after ${LONE_WAIT_MS}ms`,
+  };
 }
 
-/** Step 3: fill to CAP; the last joiner trips the immediate form (amendment 2). */
-async function proveCapForms(pool) {
-  // 3..CAP-1 first: still armed, still waiting.
-  for (let i = pool.length; i < CAP - 1; i++) pool.push(await queueUp(`CAPTAIN-${i + 1}`));
+/**
+ * Step 2: the deadline seats the lone captain into an arena filled to the cap
+ * (one human + bots), which counts down and goes active.
+ */
+async function proveDeadlineFillsArena(a, holdMs) {
+  const t0 = Date.now();
+  await waitFor(() => a.seat !== null, holdMs + 8000, 'the lone captain is seated at the deadline');
+  const waited = Date.now() - t0;
+  await board(a);
+  await waitFor(() => a.welcome !== null, 10000, 'welcome for the lone captain');
+  await waitFor(() => a.arena.state?.players?.size === CAP, 15000, `arena roster reaches ${CAP}`);
+  await waitFor(() => phase(a) === 'countdown' || phase(a) === 'active', 10000, 'one human armed the countdown');
+  await waitFor(() => phase(a) === 'active', CONFIG.match.countdown + 15000, 'countdown -> active');
+  return `deadline: the lone captain was seated ${waited}ms after step 1's wait and boarded an arena whose roster holds ${a.arena.state.players.size} (one human + ${CAP - 1} bots); the match went ACTIVE`;
+}
+
+/** Step 3: fill a fresh cohort to CAP; the last joiner trips the immediate form. */
+async function proveCapForms(pool, holdMs) {
+  const cohortStart = Date.now();
+  pool.push(await queueUp('CAPTAIN-1'));
+  await waitFor(() => armedStatus(pool[0]) !== null, 4000, 'the cohort armed');
+  // 2..CAP-1 together: this has to land well inside the hold.
+  const rest = await Promise.all(
+    Array.from({ length: CAP - 2 }, (_, i) => queueUp(`CAPTAIN-${i + 2}`)),
+  );
+  pool.push(...rest);
   await waitFor(
     () => pool.every((c) => last(c) !== null && last(c).n === CAP - 1),
     10000,
@@ -362,16 +390,21 @@ async function proveCapForms(pool) {
   assert(seated(pool) === 0, `a match formed at ${CAP - 1} captains — below cap and before the deadline`);
   const roomIds = new Set(pool.map((c) => c.queue.roomId));
   assert(roomIds.size === 1, `captains scattered across ${roomIds.size} queue rooms: ${[...roomIds].join(',')}`);
+  const spent = Date.now() - cohortStart;
+  assert(
+    spent < holdMs - CAP_TRIP_MARGIN_MS,
+    `queueing ${CAP - 1} captains took ${spent}ms of the ${holdMs}ms hold — too close to tell the cap from the timer`,
+  );
   // The CAP-th captain: form now, ignore the remaining timer.
   const formedAt = Date.now();
   pool.push(await queueUp(`CAPTAIN-${CAP}`));
   await waitFor(() => seated(pool) === CAP, 15000, `all ${CAP} captains seated`);
-  const took = Date.now() - formedAt;
+  const into = Date.now() - cohortStart;
   assert(
-    took < CONFIG.match.queueTimerMs,
-    `the cap form waited ${took}ms — it must ignore the remaining queueTimerMs`,
+    into < holdMs,
+    `the cap form landed ${into}ms into the cohort — past the ${holdMs}ms hold, so the timer could have formed it`,
   );
-  return `cap form: ${CAP - 1} pooled captains stayed unseated; the ${CAP}th trip the cap and all ${CAP} seats landed in ${took}ms (queueTimerMs=${CONFIG.match.queueTimerMs} ignored)`;
+  return `cap form: ${CAP - 1} pooled captains stayed unseated; the ${CAP}th tripped the cap and all ${CAP} seats landed in ${Date.now() - formedAt}ms, ${into}ms into a ${holdMs}ms hold (remaining timer ignored)`;
 }
 
 /**
@@ -519,30 +552,37 @@ async function main() {
   const log = [];
   let leaked = false;
   const pool = [];
+  let lone = null;
   try {
     await waitForServer(15000);
 
     log.push(await step('0 pv gate', 15000, () => provePvGate()));
 
-    log.push(await step('1 lone captain', 30000, async () => {
-      pool.push(await queueUp('ALPHA'));
-      return proveLoneCaptainWaits(pool[0]);
+    let holdMs = EXPECTED_HOLD_MS;
+    log.push(await step('1 lone captain arms the hold', 30000, async () => {
+      lone = await queueUp('ALPHA');
+      const r = await proveLoneCaptainArms(lone);
+      holdMs = r.holdMs;
+      return r.line;
     }));
 
-    log.push(await step('2 arm at the 2nd captain', 30000, async () => {
-      pool.push(await queueUp('BRAVO'));
-      return proveArmAtSecond(pool[0], pool[1]);
-    }));
+    log.push(await step('2 deadline seats the lone captain into a full arena', 60000, () =>
+      proveDeadlineFillsArena(lone, holdMs)));
+    await leaveQuietly(lone.arena); // the lone arena has no other human: it disposes
 
-    log.push(await step(`3 fill to cap (${CAP})`, 90000, () => proveCapForms(pool)));
+    log.push(await step(`3 fill to cap (${CAP})`, 90000, () => proveCapForms(pool, holdMs)));
 
     log.push(await step('4 one arena', 60000, () => proveOneArena(pool)));
     log.push(await step('5 boarding -> active', 90000, () => proveBoardingToActive(pool)));
-    log.push(await step('6 shift rode the seat reservation', 15000, () => proveShiftRodeTheSeat(CAP)));
+    log.push(await step('6 shift rode the seat reservation', 15000, () => proveShiftRodeTheSeat(CAP + 1))); // the cap cohort + the lone captain
     log.push(await step('7 seat shift at the direct door', 120000, () => proveSeatShift()));
 
     console.log('QUEUE SMOKE OK:', { queue: pool[0].queue.roomId, arena: pool[0].arena.roomId, trace: log });
   } finally {
+    if (lone) {
+      await leaveQuietly(lone.arena);
+      await leaveQuietly(lone.queue);
+    }
     for (const c of pool) {
       await leaveQuietly(c.arena);
       await leaveQuietly(c.queue);

@@ -246,8 +246,9 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
         () => void (settled = true),
       );
       await vi.advanceTimersByTimeAsync(0); // let the queue join resolve
-      // Well past WELCOME_TIMEOUT_MS (5s) AND past CONFIG.match.queueTimerMs
-      // (2:00): a pooled captain waits, and an unarmed pool waits indefinitely.
+      // Well past WELCOME_TIMEOUT_MS (5s) AND past CONFIG.match.queueTimerMs:
+      // a pooled captain waits, and with bot fill off (Story 10.11) a pool below
+      // the arm minimum waits indefinitely.
       await vi.advanceTimersByTimeAsync(180_000);
       expect(settled).toBe(false);
       queue.fire(MSG.seat, SEAT);
@@ -282,10 +283,10 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
       if (!queue.has(MSG.queueStatus)) throw new Error('queue handler not yet registered');
     });
     queue.fire(MSG.queueStatus, { n: 1, min: 2, cap: 20, startsInMs: null });
-    queue.fire(MSG.queueStatus, { n: 2, min: 2, cap: 20, startsInMs: 120_000 });
+    queue.fire(MSG.queueStatus, { n: 2, min: 2, cap: 20, startsInMs: CONFIG.match.queueTimerMs });
     expect(seen).toEqual([
       { n: 1, min: 2, cap: 20, startsInMs: null },
-      { n: 2, min: 2, cap: 20, startsInMs: 120_000 },
+      { n: 2, min: 2, cap: 20, startsInMs: CONFIG.match.queueTimerMs },
     ]);
     queue.fire(MSG.seat, SEAT);
     await vi.waitFor(() => {

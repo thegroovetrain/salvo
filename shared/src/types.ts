@@ -114,7 +114,7 @@ export interface RequeueMsg {
  */
 export interface QueueStatusMsg {
   n: number; // captains currently pooled
-  min: number; // captains required to arm (CONFIG.match.minHumans)
+  min: number; // captains required to arm: 1 with the queue's bot fill on, else CONFIG.match.minHumans (Story 10.11)
   cap: number; // captains that trigger an immediate form (CONFIG.map.playerCap)
   startsInMs: number | null; // ms until the match forms; null while unarmed
 }

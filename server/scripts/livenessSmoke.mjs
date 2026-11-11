@@ -50,19 +50,33 @@
 //      otherwise land inside the exact population figures steps 1-7 assert.
 //      (Those steps' own polls carry no `c`, so they are never counted.)
 //
-// WHY THE CAPTAINS NEVER FORM A MATCH: CONFIG.match.minHumans is 2 and the pool
-// then holds for CONFIG.match.queueTimerMs (2:00), which is not overridable
-// (StandardQueueRoom accepts no dev room options). Two captains therefore sit
-// armed for the whole smoke, which is exactly the state steps 3-6 need.
+// SERVER BOOT (Story 10.11): this smoke needs the standard queue's bot fill
+// OFF — HC_QUEUE_BOT_FILL UNSET (or 0). It boots its own server and deletes the
+// variable from the child's environment, so an exported value in your shell
+// cannot leak in. To run it against a server you boot yourself, boot with the
+// variable unset. It FAILS FAST, naming the cause, if the idle /liveness reads
+// queue.min 1 (the signature of a server booted with bot fill ON). Bot fill ON
+// is exercised by queueSmoke.mjs instead.
 //
-// THAT MARGIN IS NOW ASSERTED, NOT ASSUMED. Steps 4-6 all depend on the cohort
+// WHY THE CAPTAINS NEVER FORM A MATCH: with bot fill off the queue arms at
+// CONFIG.match.minHumans (2) captains and then holds for
+// CONFIG.match.queueTimerMs (1:00), which is not overridable (StandardQueueRoom
+// accepts no dev room options). Two captains therefore sit armed for the cohort's
+// minute, which is exactly the state steps 3-6 need.
+//
+// THAT MARGIN IS ASSERTED, NOT ASSUMED. Steps 4-6 all depend on the cohort
 // armed in step 3 still being armed, and the only thing standing between them
-// and a mystery failure was the gap between the smoke's own runtime (~20-40s,
-// most of it deliberate sleeps past the 2s cache) and the 2:00 cohort timer. A
+// and a mystery failure is the gap between the smoke's own runtime (~20s, most
+// of it deliberate sleeps past the 2s cache) and the 1:00 cohort timer. A
 // future step, a slower box or a longer sleep could quietly eat it. So the
-// smoke stamps the arm and, at the end, FAILS if it used more than
+// smoke stamps the arm and, at step 7, FAILS if it used more than
 // ARM_MARGIN_FRACTION of the cohort's life — a loud, diagnosable failure that
 // names the real cause instead of a confusing "the pool disarmed".
+//
+// STEP 8 RIDES A FRESH COHORT: its 30 s presence-TTL wait would not fit inside
+// the first cohort's remaining minute, so between steps 7 and 8 the captains
+// leave (the empty queue room disposes) and two new ones arm a fresh full
+// timer; step 8 then runs inside that one.
 //
 // Then kills its own server process group and verifies port 2607 is free — a
 // leaked listener FAILS the smoke (nonzero exit), it doesn't just warn.
@@ -82,7 +96,7 @@ const endpoint = `ws://localhost:${PORT}`;
 const livenessUrl = `http://localhost:${PORT}/liveness`;
 
 const MIN = CONFIG.match.minHumans; // 2
-const CAP = CONFIG.map.playerCap; // 20
+const CAP = CONFIG.map.playerCap; // 16
 /** Mirrors server/src/liveness.ts LIVENESS_CACHE_MS — restated here because a
  *  .mjs smoke cannot import the server's TS without a build. */
 const CACHE_MS = 2000;
@@ -104,13 +118,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function bootServer() {
   const tsx = path.join(REPO, 'node_modules/.bin/tsx');
+  // Bot fill must be OFF for this smoke (see the header): never inherit it.
+  const { HC_QUEUE_BOT_FILL: _botFill, ...inherited } = process.env;
   return spawn(tsx, ['src/index.ts'], {
     cwd: path.join(REPO, 'server'),
     detached: true, // own process group, so we can kill tsx + its node child
     // HC_DEV_OPTIONS is DELIBERATELY unset: /liveness is a production surface
     // and the solo door is production too, so nothing this smoke drives may
     // depend on a dev gate.
-    env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT) },
+    env: { ...inherited, NODE_ENV: 'development', PORT: String(PORT) },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
 }
@@ -288,6 +304,10 @@ async function proveIdle() {
   assert(body.liveGames === 0, `idle liveGames should be 0, got ${body.liveGames}`);
   // The EMPTY-SERVER answer comes from the server, never from a client literal.
   assert(body.queue.pooled === 0, `idle queue.pooled should be 0, got ${body.queue.pooled}`);
+  assert(
+    body.queue.min !== 1 || MIN === 1,
+    'idle queue.min is 1 — the server was booted with HC_QUEUE_BOT_FILL on; this smoke needs it unset (bot fill off)',
+  );
   assert(body.queue.min === MIN, `idle queue.min should be ${MIN}, got ${body.queue.min}`);
   assert(body.queue.cap === CAP, `idle queue.cap should be ${CAP}, got ${body.queue.cap}`);
   assert(body.queue.deadlineAt === null, `idle queue published a deadline: ${body.queue.deadlineAt}`);
@@ -374,7 +394,7 @@ async function proveDeadlineStable(first) {
  * drains — frozen policy (a deadline later joins could extend is a
  * hostage-cycling vector). So the pool below stays armed underneath while being
  * unable to form, and the ROUTE must stop publishing the countdown: the home
- * screen otherwise read `1 QUEUED · STARTS 1:50`, ticked to `0:00`, and stuck
+ * screen otherwise read `1 QUEUED · STARTS 0:50`, ticked to `0:00`, and stuck
  * there forever with no match possible.
  *
  * Refilling must republish the SAME instant, unmoved — which is also the proof
@@ -541,7 +561,8 @@ async function proveHomeScreenPresence(ttlMs) {
   // wait passes through a brief window where the queue's own client count and its
   // published `pooled` disagree, and the identity would fail for that reason
   // rather than for a presence bug. Name the real cause if it ever happens: this
-  // step finishes ~35s into a 2:00 cohort timer, so it should never.
+  // step finishes ~40s into a fresh 1:00 cohort timer (re-armed just before it),
+  // so it should never.
   assert(
     after.queue.deadlineAt !== null,
     `the step-3 cohort disarmed or formed during the ${Math.round(ttlMs / 1000)}s TTL wait — step 8 has outgrown the ${Math.round(CONFIG.match.queueTimerMs / 1000)}s queue timer; re-arm a fresh cohort before it rather than reading the identity below`,
@@ -622,6 +643,30 @@ async function main() {
         'the cohort disarmed before the last assertion — the margin above is the thing that failed',
       );
       return `margin: used ${Math.round(used / 1000)}s of the ${Math.round(CONFIG.match.queueTimerMs / 1000)}s cohort timer (budget ${Math.round(budget / 1000)}s), still armed`;
+    }));
+
+    // A FRESH COHORT for step 8: its TTL wait outlives what is left of the first
+    // cohort's minute. Everyone leaves (the empty queue room disposes), then two
+    // captains arm a new full timer — asserted fresh, so a reused stale room
+    // fails here with its real cause.
+    log.push(await step('7b re-arm a fresh cohort', 60000, async () => {
+      while (captains.length > 0) await leaveQuietly(captains.pop().queue);
+      const drained = await pollFresh('rearm-drained');
+      assert(drained.queue.pooled === 0, `rearm: pooled=${drained.queue.pooled} after every captain left, expected 0`);
+      captains.push(await queueUp('ECHO'), await queueUp('FOXTROT'));
+      await waitFor(
+        () => captains.every((c) => last(c) !== null && last(c).n === 2 && last(c).startsInMs !== null),
+        8000,
+        'the fresh cohort armed',
+      );
+      const body = await pollFresh('rearm-armed');
+      const remaining = body.queue.deadlineAt - body.serverNow;
+      assert(body.queue.pooled === 2, `rearm: pooled=${body.queue.pooled}, expected 2`);
+      assert(
+        typeof body.queue.deadlineAt === 'number' && remaining > CONFIG.match.queueTimerMs * 0.8,
+        `rearm: the new cohort has only ${remaining}ms left of ${CONFIG.match.queueTimerMs}ms — the old cohort's queue room was reused instead of a fresh one`,
+      );
+      return `fresh cohort: pool drained to 0, two new captains armed a fresh timer (${Math.round(remaining / 1000)}s left)`;
     }));
 
     // LAST, and it must stay last: it introduces home-screen viewers, which live

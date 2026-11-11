@@ -2743,7 +2743,7 @@ So that leveling up never costs me the fight I'm in.
 **And** whether `Tab` survives as an alternate open is Eric's at the spec step `[unruled]`; the hotbar, kill feed and alert row keep their attention-priority placement (Story 4.8)
 **And** client-only unless a wire field is needed; every register ≥ 9 px; the perception invariant is untouched (offers are self-private already).
 
-### Story 10.11: Bots Fill the Standard Queue at 1:00
+### Story 10.11: Bots Fill the Standard Queue at 1:00 *(BUILT 2026-11-10, cycle 222, 0.19.16, PV 101 unchanged, epic-10 amendment 20, `spec-10-11-bots-fill-the-standard-queue-at-1-00.md` — the `[unruled]` marks below are ruled there: fill to the full 16, one captain arms the timer, no bot mark; the whole behavior is the Render switch `HC_QUEUE_BOT_FILL`, a number of seconds, unset or 0 = off)*
 
 As a captain queuing alone,
 I want a match to start within a minute whether or not other people showed up,

@@ -514,12 +514,11 @@ export class Match {
         // survivor goes back to the QUEUE rather than home — Eric took a third
         // option amendment 10 never offered. requeue() is the signal, and it
         // fires IMMEDIATELY BEFORE the collapse it annotates; the disconnect is
-        // unchanged, so an undelivered signal is no worse than today. This does
-        // NOT revive "start anyway with one captain" for STANDARD play: Story
-        // 6-5 discharged the termination question only for a roster that holds
-        // AI captains (they are participants, so last-participant-afloat just
-        // works). A lone human among PvE fleet hulls still has no defined end,
-        // and queue.ts still refuses to form one.
+        // unchanged, so an undelivered signal is no worse than today. Only a
+        // BOT-LESS arena reaches this: a bot-filled one (solo, a bot-filled
+        // private lobby, or the standard queue with its bot fill on — Story
+        // 10.11, epic-10 amendment 20) runs at minHumans 1, so its lone
+        // survivor still has `enough` and plays on against the bots.
         this.hooks.requeue();
         this.hooks.disconnect();
       }
@@ -1160,9 +1159,10 @@ export class Match {
    * PEOPLE, not participants (Story 6.3, amendment 13). This is the ONE count
    * that gates `minHumans` — the gathering window, the countdown arm/cancel and
    * the boarding gate all read it — so it must mean *real connected captains*.
-   * A Story 6.4 AI captain contests the match but MUST NEVER count here: FR34
-   * forbids bot-fill in Standard, and a lobby that "reached 2" on a bot would
-   * start a match nobody asked for.
+   * A Story 6.4 AI captain contests the match but MUST NEVER count here: a
+   * lobby that "reached 2" on a bot would start a match nobody asked for. Bots
+   * fill empty seats (Story 10.11, epic-10 amendment 20, does so for the
+   * standard queue) — they never stand in for the people a countdown needs.
    */
   private humanCount(): number {
     let n = 0;

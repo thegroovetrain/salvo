@@ -584,3 +584,79 @@ describe('private arenas — the lobby-formed room', () => {
     expect(bots(r)).toHaveLength(BOTS);
   });
 });
+
+// --- QUEUE-FORMED BOT FILL (Story 10.11, epic-10 amendment 20) ---------------
+//
+// The standard queue, with its bot fill on, forms its arena with the trust
+// ticket and `botFill` but NO mode. The arena must fill to the cap and arm at
+// one human exactly as a bot-filled private arena does, while staying a
+// STANDARD arena on its listing. An untrusted `botFill` stays inert.
+
+describe('queue-formed arenas — trusted botFill without a mode', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    delete process.env.HC_DEV_OPTIONS;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  type ListedRoom = SoloRoom & { setMetadata: ReturnType<typeof vi.fn> };
+  const queueArena = (opts: RoomOptions): ListedRoom => {
+    const r = new ArenaRoom() as unknown as ListedRoom & Record<string, unknown>;
+    r.lock = vi.fn(() => Promise.resolve());
+    r.unlock = vi.fn(() => Promise.resolve());
+    r.disconnect = vi.fn(() => Promise.resolve());
+    r.broadcast = vi.fn();
+    r.onMessage = vi.fn();
+    r.setTimestep = vi.fn();
+    r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
+    r.clients = [];
+    r.setMetadata = vi.fn(() => Promise.resolve());
+    r.onCreate(opts);
+    return r;
+  };
+  const listedMode = (r: ListedRoom): string | undefined =>
+    (r.setMetadata.mock.calls.at(-1)?.[0] as { mode?: string } | undefined)?.mode;
+  const minHumansOf = (r: SoloRoom): number => (r.match as unknown as { minHumans: number }).minHumans;
+
+  it('fills to playerCap − expectedCaptains bots before the first tick, for any cohort size', () => {
+    for (const captains of [1, 3, CONFIG.map.playerCap - 1, CONFIG.map.playerCap]) {
+      const r = queueArena({ expectedCaptains: captains, botFill: true, lobbyTicket: lobbyTicket() });
+      expect(r.world.tick, String(captains)).toBe(0);
+      expect(r.match?.phase).toBe('waiting');
+      expect(bots(r)).toHaveLength(CONFIG.map.playerCap - captains);
+      expect(r.state.players.size).toBe(CONFIG.map.playerCap - captains);
+    }
+  });
+
+  it('stays a STANDARD arena on its listing (no mode is ever learned)', () => {
+    const r = queueArena({ expectedCaptains: 2, botFill: true, lobbyTicket: lobbyTicket() });
+    expect(listedMode(r)).toBe('standard');
+  });
+
+  it('arms the countdown with ONE human aboard', () => {
+    const r = queueArena({ expectedCaptains: 1, botFill: true, lobbyTicket: lobbyTicket() });
+    expect(minHumansOf(r)).toBe(1);
+    join(r, 'alice');
+    expect(r.match?.phase).toBe('countdown');
+  });
+
+  it('an UNTRUSTED botFill (no ticket, or a guessed one) seats no bots and keeps the CONFIG minHumans', () => {
+    for (const ticket of [undefined, 'guess']) {
+      const r = queueArena({ expectedCaptains: 1, botFill: true, lobbyTicket: ticket } as RoomOptions);
+      expect(bots(r), String(ticket)).toHaveLength(0);
+      expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
+      expect(listedMode(r)).toBe('standard');
+      join(r, 'alice');
+      expect(r.match?.phase).toBe('waiting');
+    }
+  });
+
+  it('the bot-fill-OFF queue bag (expectedCaptains only) is the pre-10.11 arena: no bots', () => {
+    const r = queueArena({ expectedCaptains: 2 });
+    expect(bots(r)).toHaveLength(0);
+    expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
+    expect(listedMode(r)).toBe('standard');
+  });
+});

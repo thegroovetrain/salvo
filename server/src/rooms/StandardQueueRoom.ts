@@ -8,8 +8,11 @@
 // itself (blocking Story 6.5's Solo vs AI, which requires the arena never to
 // fork on mode) and scattered late arrivals into fresh empty rooms once the
 // gathering window closed. The queue pools captains, arms ONE hard deadline at
-// the second captain, and hands the arena a fully-formed roster in a single
-// reservation. The arena never learns the mode — it only ever receives seats.
+// its arm minimum (the FIRST captain when bot fill is on, else
+// CONFIG.match.minHumans — Story 10.11, epic-10 amendment 20, queueFill.ts),
+// and hands the arena a fully-formed roster in a single reservation. The arena
+// never learns the mode — it only ever receives seats (and, with bot fill on,
+// the trusted instruction to fill the empty ones with bots).
 
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, type AuthContext, type Client } from 'colyseus';
 import { CONFIG, MSG, type QueueStatusMsg } from '@salvo/shared';
@@ -17,6 +20,8 @@ import { protocolVersionError, sanitizeShift, type JoinOptions } from './roomOpt
 import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
+import { queueFillSettings, type QueueFillSettings } from './queueFill.js';
+import { lobbyTicket } from './lobbyTicket.js';
 import { createLogger, type Logger } from '../log.js';
 
 /** Telemetry mode tag, mirroring ArenaRoom's MODE. */
@@ -47,6 +52,18 @@ export interface QueueListingMeta {
  * private lobby forms arenas exactly the way the queue does.
  */
 type PooledCaptain = SeatedCaptain;
+
+/**
+ * The arena's create bag for a queue form of `captains` seats. Bot fill OFF:
+ * exactly the pre-10.11 bag, `{ expectedCaptains }`. Bot fill ON (Story 10.11,
+ * epic-10 amendment 20): the trust ticket plus `botFill` — the ticket is what
+ * lets `botFill` through sanitizeRoomOptions, and NO `mode`, so the arena stays
+ * a standard arena (listing tag, /liveness split and MatchRecord.mode).
+ */
+export function queueArenaCreateOptions(captains: number, botFill: boolean): Record<string, unknown> {
+  if (!botFill) return { expectedCaptains: captains };
+  return { expectedCaptains: captains, botFill: true, lobbyTicket: lobbyTicket() };
+}
 
 export class StandardQueueRoom extends Room {
   // No maxClients: the pool may legitimately exceed CONFIG.map.playerCap (the
@@ -92,7 +109,9 @@ export class StandardQueueRoom extends Room {
   private armedAtMs: number | null = null;
   /** True across formMatch's awaits; suppresses re-entrant evaluation. */
   private forming = false;
-  private readonly cfg: QueueConfig = defaultQueueConfig();
+  /** The env switch (queueFill.ts), read ONCE as the room is created. */
+  private readonly fill: QueueFillSettings = queueFillSettings();
+  private readonly cfg: QueueConfig = defaultQueueConfig(this.fill.armMinimum, this.fill.queueTimerMs);
   private log: Logger = createLogger({ mode: MODE });
   /** The listing metadata last written, so a tick that changes nothing writes
    *  nothing (see publishListing). */
@@ -110,7 +129,12 @@ export class StandardQueueRoom extends Room {
     // driver.persist carries it (the same argument as ArenaRoom's mode tag).
     this.publishListing(null);
     this.clock.setInterval(() => this.evaluate(false), TICK_MS);
-    this.log.info('queue.create', { minHumans: this.cfg.minHumans, cap: this.cfg.cap });
+    this.log.info('queue.create', {
+      minHumans: this.cfg.minHumans,
+      cap: this.cfg.cap,
+      botFill: this.fill.botFill,
+      queueTimerMs: this.cfg.queueTimerMs,
+    });
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
@@ -281,18 +305,19 @@ export class StandardQueueRoom extends Room {
     // surplus past `cap` simply stays in this.pool.
     const seated = this.pool.splice(0, count);
     try {
-      // The ONLY room option the queue passes: how many captains it is about
-      // to reserve seats for (Eric ruling 2026-08-14 — the arena boards the
-      // whole group locked down and holds the 10 s countdown until every one
-      // of them has loaded in, so it must know the size of the group it is
-      // waiting for). Explicitly NOT a mode, and not a client-supplied option:
-      // the arena still never learns what kind of queue formed it.
+      // How many captains the queue is about to reserve seats for (Eric ruling
+      // 2026-08-14 — the arena boards the whole group locked down and holds the
+      // 10 s countdown until every one of them has loaded in, so it must know
+      // the size of the group it is waiting for), plus — with bot fill on — the
+      // trusted instruction to fill the rest (queueArenaCreateOptions).
+      // Explicitly NOT a mode, and not a client-supplied option: the arena
+      // still never learns what kind of queue formed it.
       await formArena({
-        createOptions: { expectedCaptains: seated.length },
+        createOptions: queueArenaCreateOptions(seated.length, this.fill.botFill),
         seated,
         log: this.log,
         tag: 'queue',
-        formFields: () => ({ pooled: this.pool.length }),
+        formFields: () => ({ pooled: this.pool.length, botFill: this.fill.botFill }),
       });
     } finally {
       this.forming = false;

@@ -3,9 +3,10 @@
 //
 //   isHuman       — a REAL CONNECTED CAPTAIN. Gates `minHumans` / countdown
 //                   arming, and the wire channels that need a socket at the
-//                   other end. A bot must NEVER count here: FR34 forbids
-//                   bot-fill in Standard, so "enough players to start" has to
-//                   mean people.
+//                   other end. A bot must NEVER count here: "enough players
+//                   to start" means people, even in an arena whose empty
+//                   seats are filled with bots (Story 10.11, epic-10
+//                   amendment 20).
 //   isParticipant — CONTESTS THE MATCH OUTCOME. The win check, placements,
 //                   results rows, the sinking-window hold, the bounty throne,
 //                   the public register's combatant clause.
@@ -47,7 +48,8 @@ export function isParticipant(s: RoleBearing): boolean {
 /**
  * A REAL CONNECTED CAPTAIN — a person. Gates `minHumans`, countdown arming,
  * and the self-private wire channels that need a client to receive them. A bot
- * must never count here (FR34: zero bot-fill in Standard), which is why this is
+ * must never count here, bot-filled arena or not (Story 10.11, epic-10
+ * amendment 20, fills the standard queue's arenas), which is why this is
  * the one predicate written as a positive `=== 'captain'`.
  */
 export function isHuman(s: RoleBearing): boolean {

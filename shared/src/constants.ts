@@ -375,7 +375,7 @@ export const CONFIG = {
 
   /**
    * COMBAT BOTS (Story 6.4, Eric rulings 2026-08-16) — AI CAPTAINS, `role:
-   * 'bot'`: participants that contest the match outcome and never count as humans (FR34: a bot can never arm a countdown). Their
+   * 'bot'`: participants that contest the match outcome and never count as humans, so a bot never arms a countdown. They fill the empty seats of Solo vs AI, bot-filled private lobbies and — when its bot fill is on — the standard queue's arenas (Story 10.11, epic-10 amendment 20). Their
    * ONLY world knowledge is `perception.observe()` and their only output is a
    * validated InputMsg — structurally unable to cheat. Every bot-facing
    * tunable lives HERE, per the CONFIG-is-truth rule; the brain itself is
@@ -3025,13 +3025,17 @@ export const CONFIG = {
     // than deleted — see spec-6-1 Design Notes.
     joinWindow: 0,
     minHumans: 2, // humans required to start the countdown
-    // ms — how long StandardQueueRoom holds a pool once it has armed at minHumans
-    // before forming the match (Eric ruling 2026-08-14: "a 2:00 countdown, and then
-    // the game starts (with a 10 second countdown)"). Reaching CONFIG.map.playerCap
-    // forms the match immediately and ignores the remainder. The deadline is set ONCE
-    // at arm time and is never extended by later joins — that is what closes the
-    // leave/rejoin hostage-cycling vector the 30 s gathering window carried.
-    queueTimerMs: 120000,
+    // ms — how long StandardQueueRoom holds a pool once it has armed before forming
+    // the match. 120000 -> 60000 (Story 10.11, epic-10 amendment 20 — Eric
+    // 2026-10-25: "Solo queue goes down to 1:00 lobby time"). This is the hold with
+    // the queue's bot fill OFF (arming at minHumans); with HC_QUEUE_BOT_FILL set
+    // to a number of seconds the hold is that value instead, one captain arms,
+    // and the arena fills with bots (server/src/rooms/queueFill.ts). Reaching
+    // CONFIG.map.playerCap forms the match immediately and ignores the remainder.
+    // The deadline is set ONCE at arm time and is never extended by later joins —
+    // that is what closes the leave/rejoin hostage-cycling vector the 30 s
+    // gathering window carried.
+    queueTimerMs: 60000,
     fillTo: 16, // harness-only: the batch-sim lobby size (`--set match.fillTo`); ArenaRoom's fill was deleted at amendment 41 — not the lobby cap. 20 → 16 Story 9.8 (Eric 2026-10-13: player count 16)
     // s — results overlay before the room disposes. 10 -> 45 (Story 5.3, epic-5
     // amendment 27): the old ceiling predates there being anything to READ on
