@@ -230,10 +230,11 @@ describe('the solo room — construction', () => {
   });
 
   // Story 10.4: every bot picks A RANDOM SHIFT (the seat pick that replaced
-  // the gun), drawn uniformly off the room's seeded bot-fleet stream, so a
-  // pinned map seed seats a pinned fleet and staging fights every Shift.
-  // Slot 0 is the MAIN BATTERY on every bot (no bot mounts a deck gun) and
-  // slot 1 is the drawn Shift. Never Math.random.
+  // the gun) — since Story 10.12 (R5) a roll weighted by its personality,
+  // dealt by the seeded bot controller at enrollment — so a pinned map seed
+  // seats a pinned fleet and staging fights every Shift. Slot 0 is the MAIN
+  // BATTERY on every bot (no bot mounts a deck gun) and slot 1 is the drawn
+  // Shift. Never Math.random.
   it('seats every bot with a Shift off the SEEDED stream: a pinned seed yields the same Shifts twice, slot 1 mounts it, slot 0 is the main battery, and every Shift appears across a few seeds', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
     const shiftsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.shift);
@@ -255,11 +256,12 @@ describe('the solo room — construction', () => {
   });
 
   // The room's bot-fleet stream (born as the hue stream; the hues are gone
-  // since Story 10.4) alone decides every class and Shift of a pinned seed
-  // (the kit stream that sat beside it left with the kit, Story 10.5). The
-  // relation: replaying the fleet stream ALONE (class shuffle, then one Shift
-  // per bot) reproduces the fleet.
-  it('the bot-fleet stream alone seats the fleet: a replay of the class shuffle and the Shift draws reproduces every class and Shift', () => {
+  // since Story 10.4) alone decides every class of a pinned seed (the kit
+  // stream that sat beside it left with the kit, Story 10.5; the per-bot
+  // Shift draw left it for the controller's own stream, Story 10.12). The
+  // relation: replaying the fleet stream ALONE (the class shuffle) reproduces
+  // the deal.
+  it('the bot-fleet stream alone deals the classes: a replay of the class shuffle reproduces every class', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
     for (const mapSeed of [7, 12345]) {
       const r = soloRoom({ mapSeed });
@@ -270,10 +272,7 @@ describe('the solo room — construction', () => {
         [order[i], order[j]] = [order[j], order[i]];
       }
       bots(r).forEach((b, i) => {
-        const shift = SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)];
-        const at = `seed ${mapSeed} ${b.id}`;
-        expect(b.hullId, at).toBe(order[i % order.length]);
-        expect(r.world.ships.get(b.id)!.shift, at).toBe(shift);
+        expect(b.hullId, `seed ${mapSeed} ${b.id}`).toBe(order[i % order.length]);
       });
     }
   });

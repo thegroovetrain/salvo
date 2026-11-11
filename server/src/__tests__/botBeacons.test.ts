@@ -13,11 +13,13 @@ import { COMBAT_BRAIN } from '../game/ai/tactics.js';
 import {
   beaconGoalOf,
   beaconStandoffU,
+  farmableIn,
   onStation,
   pickBeacon,
   standoffPoint,
 } from '../game/ai/beacons.js';
 import { hullLengthU } from '../game/ai/navigate.js';
+import { profileOf } from '../game/ai/profiles.js';
 import type { BotBeacon, BotMind, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 import { GONE_MS, SURFACE_MS, bareWorld, run, seatBeacon, seatBeacons } from './beaconFixture.js';
 import { circleIsland } from './islandFixture.js';
@@ -85,7 +87,7 @@ function mkBot(w: World, x: number, y: number, heading = 0, hull: HullId = 'bism
 
 /** An ENROLLED bot on a real World (the controller drives it), at a pose. */
 function realBot(w: World, x: number, y: number, heading: number): ShipRecord {
-  const rec = w.addBot('bismarck', 'forager');
+  const rec = w.addBot('bismarck', 'bulwark');
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -192,6 +194,67 @@ describe('ai/beacons — pick, standoff, station', () => {
     expect([g3.x, g3.y]).toEqual([other.x, other.y]);
   });
 
+  it('eligibility is a FARMING POINT inside the disc, not the centre (Story 10.12)', () => {
+    const s = beaconStandoffU();
+    // Centre outside the rim, a farming point inside it: eligible.
+    const overRim = afloat(disc.r + s / 2, 0);
+    expect(farmableIn(overRim, disc)).toBe(true);
+    expect(pickBeacon([overRim], disc, pos)).toBe(overRim);
+    // Every farming point outside the rim: not.
+    const beyond = afloat(disc.r + s + 1, 0);
+    expect(farmableIn(beyond, disc)).toBe(false);
+    expect(pickBeacon([beyond], disc, pos)).toBeNull();
+    // Centre inside a disc too small to hold any farming point: not.
+    const tiny = { cx: 0, cy: 0, r: s / 2 };
+    expect(farmableIn(afloat(0, 0), tiny)).toBe(false);
+    expect(pickBeacon([afloat(0, 0)], tiny, pos)).toBeNull();
+  });
+
+  it('a bot-side standoff OUTSIDE the disc is fixed on the disc-centre side, inside it', () => {
+    const s = beaconStandoffU();
+    const b = afloat(disc.r + s / 2, 0);
+    const bot = { x: disc.r + 3 * s, y: 0 }; // beyond the beacon, outside the disc
+    const g = beaconGoalOf([b], disc, bot, null)!;
+    expect(Math.hypot(g.standoff.x - b.x, g.standoff.y - b.y)).toBeCloseTo(s, 6);
+    expect(Math.hypot(g.standoff.x - disc.cx, g.standoff.y - disc.cy)).toBeLessThanOrEqual(disc.r);
+    expect(g.standoff.x).toBeLessThan(b.x); // toward the centre, not toward the bot
+    // Kept while the bot stays out there (no re-fix churn).
+    expect(beaconGoalOf([b], disc, { x: bot.x, y: bot.y + 50 }, g)).toBe(g);
+  });
+
+  it('a bot-side standoff inside the disc stays on the bot\'s side', () => {
+    const b = afloat(500, 0);
+    const bot = { x: 500, y: 900 };
+    const g = beaconGoalOf([b], disc, bot, null)!;
+    const toBot = { x: bot.x - b.x, y: bot.y - b.y };
+    const toS = { x: g.standoff.x - b.x, y: g.standoff.y - b.y };
+    expect(toBot.x * toS.x + toBot.y * toS.y).toBeGreaterThan(0);
+  });
+
+  it('THE REVEAL: a disc that shrinks to a ring holding none of the beacon\'s farming points releases the goal', () => {
+    const s = beaconStandoffU();
+    const b = afloat(800, 0);
+    const g = beaconGoalOf([b], disc, pos, null)!;
+    expect(g).not.toBeNull();
+    // The revealed next ring becomes the disc: centred away from the beacon,
+    // its rim short of the nearest farming point.
+    const revealed = { cx: -1000, cy: 0, r: 1800 - s - 1 };
+    expect(farmableIn(b, revealed)).toBe(false);
+    expect(beaconGoalOf([b], revealed, pos, g)).toBeNull();
+  });
+
+  it('a kept goal whose standoff the shrunk disc left out is RE-FIXED inside it', () => {
+    const s = beaconStandoffU();
+    const b = afloat(800, 0);
+    const g = beaconGoalOf([b], disc, { x: 2000, y: 0 }, null)!; // fixed on the east side
+    expect(g.standoff.x).toBeGreaterThan(b.x);
+    const shrunk = { cx: 0, cy: 0, r: 800 }; // the beacon's own centre on the rim
+    const g2 = beaconGoalOf([b], shrunk, { x: 2000, y: 0 }, g)!;
+    expect(g2).not.toBe(g);
+    expect(Math.hypot(g2.standoff.x, g2.standoff.y)).toBeLessThanOrEqual(shrunk.r);
+    expect(Math.hypot(g2.standoff.x - b.x, g2.standoff.y - b.y)).toBeCloseTo(s, 6);
+  });
+
   it('on station = inside the range and within the standoff distance (or at the standoff)', () => {
     const g = { x: 0, y: 0, bearing: 0, standoff: { x: beaconStandoffU(), y: 0 } };
     expect(onStation(g, { x: beaconStandoffU() - 1, y: 0 }, 0)).toBe(true);
@@ -209,7 +272,7 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
     const beacon = afloat(1200, 0);
     const port = fakePort(w, [beacon]);
     const rec = mkBot(w, 0, 0, Math.PI / 2); // bow due north, beacon due east
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('farm');
     expect(mind.beaconGoal).not.toBeNull();
@@ -235,7 +298,7 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
     const port = fakePort(w, [afloat(beaconStandoffU() - 20, 0)]);
     const rec = mkBot(w, 0, 0);
     rec.state.speed = 5;
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('farm');
     expect(d.throttle).toBe(0);
@@ -247,7 +310,7 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
     const beacons = [afloat(800, 0)];
     const port = fakePort(w, beacons);
     const rec = mkBot(w, 0, 0);
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('farm');
     beacons[0] = { ...beacons[0], phase: 'gone', rate01: 0 };
@@ -261,27 +324,52 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
   it('ignores a beacon outside the disc it would patrol', () => {
     const w = openWorld(1085);
     const port = fakePort(w, [afloat(w.map.radius + 500, 0)]);
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     COMBAT_BRAIN.decide(mkBot(w, 0, 0), mind, port);
     expect(mind.posture).not.toBe('farm');
   });
 
-  it('a TARGET overrides the farm (combat postures exactly as before)', () => {
+  /** One deliberation of `profile` with a beacon on the chart and a live
+   *  sighted target in reach. */
+  const withTarget = (profile: BotProfileId): ReturnType<typeof mkMind> => {
     const w = openWorld(1086);
     const port = fakePort(w, [afloat(1200, 0)]);
-    const rec = mkBot(w, 0, 0);
-    const mind = mkMind('bulwark');
+    // PARKED: inside the beacon's paying circle (the stay is for a bot that
+    // is collecting, not one still on its way).
+    const bx = 1200 - beaconStandoffU();
+    const rec = mkBot(w, bx, 0);
+    const mind = mkMind(profile);
     const now = port.now;
     const t: RememberedContact = {
-      id: 'tgt', x: 0, y: 300, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
+      id: 'tgt', x: bx, y: 300, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
       cls: 'bismarck', firstSeenAt: now - CONFIG.bots.reactionMs * 4, hits: 0,
-      vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 300, paintAt: -1, missSweptAt: -1,
+      vx: null, vy: null, vAt: -1, vSrc: null, paintX: bx, paintY: 300, paintAt: -1, missSweptAt: -1,
     };
     mind.contacts.set('tgt', t);
     COMBAT_BRAIN.decide(rec, mind, port);
-    expect(mind.targetKey).toBe('tgt');
-    expect(mind.posture).not.toBe('farm');
-    expect(mind.posture).not.toBe('reposition');
+    return mind;
+  };
+
+  it('a TARGET pulls a CONTESTING profile off the farm (Story 10.12, R4: the chain as before)', () => {
+    const contesters = CONFIG.bots.profiles.filter((id) => profileOf(id).contestsBeacon);
+    expect(contesters.length).toBeGreaterThan(0);
+    for (const id of contesters) {
+      const mind = withTarget(id);
+      expect(mind.targetKey, id).toBe('tgt');
+      expect(mind.posture, id).not.toBe('farm');
+      expect(mind.posture, id).not.toBe('reposition');
+    }
+  });
+
+  it('a NON-CONTESTING profile keeps the target AND the farm (Story 10.12, R4: it stays parked)', () => {
+    const stayers = CONFIG.bots.profiles.filter((id) => !profileOf(id).contestsBeacon);
+    expect(stayers.length).toBeGreaterThan(0);
+    for (const id of stayers) {
+      const mind = withTarget(id);
+      expect(mind.targetKey, id).toBe('tgt');
+      expect(mind.beaconGoal, id).not.toBeNull(); // refreshed with a target on the scope
+      expect(mind.posture, id).toBe('farm');
+    }
   });
 });
 

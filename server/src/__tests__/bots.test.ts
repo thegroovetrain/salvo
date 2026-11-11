@@ -23,9 +23,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, abilityCode, effectiveStats, isAfloat } from '@salvo/shared';
+import { CONFIG, SHIFT_IDS, SHIP_CLASS_IDS, abilityCode, effectiveStats, isAfloat, type Rng, type ShiftId } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
+import { profileOf } from '../game/ai/profiles.js';
 import type { BotWorldPort } from '../game/ai/types.js';
 import { isHuman, isParticipant } from '../game/participants.js';
 
@@ -82,10 +83,11 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
     }
   });
 
-  it('profiles: the flat six, in dealing order; callsigns: ~30, unique', () => {
+  it('profiles: the flat five, in dealing order; callsigns: ~30, unique', () => {
     // Story 8.20 (Eric ruling 2026-09-30, R6): personalities are no longer
     // per hull. The order is the dealing order the seeded pick indexes into.
-    expect([...CONFIG.bots.profiles]).toEqual(['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper']);
+    // Story 10.12 (Eric 2026-11-11, R6): `forager` retired.
+    expect([...CONFIG.bots.profiles]).toEqual(['raider', 'duelist', 'bulwark', 'siege', 'trapper']);
     expect(CONFIG.bots.callsigns.length).toBeGreaterThanOrEqual(30);
     expect(new Set(CONFIG.bots.callsigns).size).toBe(CONFIG.bots.callsigns.length);
   });
@@ -109,9 +111,10 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
       expect(SHIP_CLASS_IDS).toContain(rec.hullId);
       // ECONOMY: a bot is a participant that plays the game — it draws from
       // the SAME common pool a human draws from (Story 8.14), on its own
-      // private stream, with the main battery in slot 0 and the default seat
-      // Shift (Story 10.4 — no caller passed one).
-      expect(rec.shift).toBe(DEFAULT_SHIFT);
+      // private stream, with the main battery in slot 0 and the Shift its
+      // enrollment dealt (Story 10.12 — no caller passed one).
+      expect(SHIFT_IDS).toContain(rec.shift);
+      expect(rec.loadout[1].equipmentId).toBe(rec.shift);
       expect(rec.loadout[0].equipmentId).toBe('mainBattery');
       expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     }
@@ -133,7 +136,7 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
     for (const id of ids) expect(table).toContain(w.bots.profileOf(id));
   });
 
-  it('HULL UNLOCK: 600 seeded enrollments put all six personalities on all three hulls', () => {
+  it('HULL UNLOCK: 600 seeded enrollments put every personality on every hull', () => {
     // Story 8.20 (Eric ruling 2026-09-30, R6): any personality on any hull.
     // The controller alone (enroll never touches the port): 600 hulls would
     // not fit a World's arena.
@@ -164,9 +167,71 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
   it('enrollment is deterministic per world seed (the decorrelated stream)', () => {
     const a = botWorld(21, 5);
     const b = botWorld(21, 5);
-    const roll = ({ w, ids }: { w: World; ids: string[] }): Array<[string, string, string | null]> =>
-      ids.map((id) => [w.ships.get(id)!.name, w.ships.get(id)!.hullId, w.bots.profileOf(id)]);
+    const roll = ({ w, ids }: { w: World; ids: string[] }): Array<[string, string, string | null, string]> =>
+      ids.map((id) => [w.ships.get(id)!.name, w.ships.get(id)!.hullId, w.bots.profileOf(id), w.ships.get(id)!.shift]);
     expect(roll(a)).toEqual(roll(b));
+  });
+
+  // THE WEIGHTED SHIFT (Story 10.12, Eric 2026-11-11, R5) is dealt off a
+  // stream of its OWN: the controller stream still carries exactly the class
+  // roll and the personality roll per enrollment, so class / profile /
+  // callsign order are what they were before the Shift was dealt here.
+  it('the Shift draw takes nothing from the controller stream: one class roll and one personality roll per enrollment', () => {
+    const ctl = new BotController({} as BotWorldPort, 31);
+    const seat = ctl as unknown as { rng: Rng };
+    const inner = seat.rng;
+    let draws = 0;
+    seat.rng = {
+      next: () => (draws += 1, inner.next()),
+      float: (a, b) => (draws += 1, inner.float(a, b)),
+      int: (a, b) => (draws += 1, inner.int(a, b)),
+      pick: (arr) => (draws += 1, inner.pick(arr)),
+    };
+    const ref = new BotController({} as BotWorldPort, 31);
+    for (let i = 0; i < 12; i += 1) {
+      const before = draws;
+      const got = ctl.enroll(`bot-${i}`);
+      expect(draws - before).toBe(2); // the class roll + the personality roll
+      const want = ref.enroll(`bot-${i}`);
+      expect(got).toEqual(want);
+      expect(ctl.profileOf(`bot-${i}`)).toBe(ref.profileOf(`bot-${i}`));
+    }
+  });
+
+  it('the dealt Shift is each personality\'s fitting one more often than any other', () => {
+    const ctl = new BotController({} as BotWorldPort, 32);
+    const tally = new Map<string, Map<ShiftId, number>>();
+    for (let i = 0; i < 600; i += 1) {
+      const id = `bot-${i}`;
+      const { shift } = ctl.enroll(id);
+      const p = ctl.profileOf(id)!;
+      const row = tally.get(p) ?? new Map<ShiftId, number>();
+      row.set(shift, (row.get(shift) ?? 0) + 1);
+      tally.set(p, row);
+    }
+    for (const p of CONFIG.bots.profiles) {
+      const row = tally.get(p)!;
+      const fit = profileOf(p).shiftFit;
+      for (const other of SHIFT_IDS) if (other !== fit) expect(row.get(fit) ?? 0, `${p}: ${fit} vs ${other}`).toBeGreaterThan(row.get(other) ?? 0);
+    }
+  });
+
+  it('a caller\'s explicit Shift is FORCED; forcing moves no later enrollment', () => {
+    for (const forced of SHIFT_IDS) {
+      const w = new World(33);
+      w.map.islands.length = 0;
+      expect(w.addBot(undefined, undefined, forced).shift).toBe(forced);
+    }
+    const a = new World(34);
+    a.map.islands.length = 0;
+    const b = new World(34);
+    b.map.islands.length = 0;
+    const first = a.addBot(undefined, undefined);
+    const other = SHIFT_IDS.find((id) => id !== first.shift)!;
+    b.addBot(undefined, undefined, other);
+    const nextA = a.addBot(undefined, undefined);
+    const nextB = b.addBot(undefined, undefined);
+    expect([nextB.name, nextB.hullId, nextB.shift]).toEqual([nextA.name, nextA.hullId, nextA.shift]);
   });
 });
 
@@ -390,7 +455,7 @@ describe('input emission — the same validated path a human uses, same-tick con
   it('a HURT bot in a frozen room presses no cooldown ability; once live it presses its repair once', () => {
     const { w, ids } = botWorld(42, 1);
     const rec = w.ships.get(ids[0])!;
-    rec.hp = Math.floor(rec.stats.maxHp * 0.1); // hurt, well under healHpFrac
+    rec.hp = Math.floor(rec.stats.maxHp * 0.1); // hurt: under every break-off line and short a whole heal
     const repairCode = abilityCode('repair');
     let lastSeq = rec.input.actSeq;
     const pressesOver = (ticks: number, code: number): number => {

@@ -22,6 +22,9 @@
 //   6. THE RING CLAUSES (amendment 200(2)): a target outside the live ring is
 //      never chased (engaged only from where the bot is, if in reach); with
 //      the close under CONFIG.bots.ringOpenMarginMs no fight is opened.
+//   6b. THE BEACON STAYER (Story 10.12, R4): a profile that does not contest
+//      a beacon, with a beacon goal on its mind, stays in `farm` with a
+//      target; raider and duelist (and a bot with no goal) go on below.
 //   7. NO LINE OF FIRE -> pursue (unchanged; wave 2 routes it).
 //   8. (Retired at Story 10.8 with the PvE fleet: the fleet-prize `farm`.
 //      `farm` is now the target-less beacon farm of clause 4 alone.)
@@ -43,6 +46,7 @@
 
 import {
   CONFIG,
+  beaconInRange,
   contactHitDamage,
   effectiveStats,
   hullBumper,
@@ -167,9 +171,22 @@ function engagement(sit: BotSituation, target: BotTrack | null, prev: BotPosture
   if (outsideRing(sit.ring, p)) return lineBlocked(sit, p, sit.islands) ? idle(sit, inp) : 'engage';
   const inReach = Math.hypot(p.x - sit.x, p.y - sit.y) <= ownReachU(sit);
   if (!inReach && closeImminent(sit, inp)) return 'reposition';
+  if (staysOnBeacon(sit, inp)) return 'farm';
   if (lineBlocked(sit, p, sit.islands)) return 'pursue';
   if (inReach) return 'engage';
   return beyondReach(sit, target, p, prev, inp);
+}
+
+/** THE BEACON STAYER (Story 10.12, Eric 2026-11-11, epic-10 amendment 21,
+ *  R4): a profile that does not contest a beacon (`contestsBeacon` false)
+ *  INSIDE its beacon goal's paying circle is not pulled off it by a target — it
+ *  stays in `farm` (the helm keeps station; the guns shoot from there). The
+ *  break-off, ring run and ring clauses still outrank it. */
+function staysOnBeacon(sit: BotSituation, inp: PostureInputs): boolean {
+  const goal = inp.mind?.beaconGoal ?? null;
+  // PARKED AND COLLECTING is the ruling: a stayer still on its way to a
+  // beacon answers a contact like any bot (the paying circle is the test).
+  return !sit.profile.contestsBeacon && goal !== null && beaconInRange(goal.x, goal.y, sit.x, sit.y);
 }
 
 /** Clause 9's far half: the odds gate on a contact beyond own reach. A

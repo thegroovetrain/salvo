@@ -11,7 +11,6 @@ import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type 
 import {
   CONFIG,
   MSG,
-  SHIFT_IDS,
   SHIP_CLASS_IDS,
   BEACON_WIRE_SLOTS,
   isAfloat,
@@ -770,15 +769,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private buildBotFleet(count: number): void {
     const order = this.shuffledClasses();
     for (let i = 0; i < count; i += 1) {
-      // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-      // and each picks A RANDOM SHIFT (Story 10.4 — the seat pick that
-      // replaced the gun): one of SHIFT_IDS drawn UNIFORMLY off the room's
-      // bot-fleet stream, so staging fights every Shift and a pinned map seed
-      // seats a pinned fleet. Never Math.random.
-      // (The bot's KIT stream — Story 10.1 — left with the kit, Story 10.5;
-      // it was its own stream, so this one's draws are unchanged.)
-      const shift = SHIFT_IDS[this.fleetRng.int(0, SHIFT_IDS.length - 1)];
-      const rec = this.world.addBot(order[i % order.length], undefined, shift);
+      // Bots draw from the SAME common pool a captain draws from (Story 8.14).
+      // THE SHIFT is dealt by the bot controller at enrollment, weighted by
+      // the personality it rolled (Story 10.12, Eric 2026-11-11, R5 —
+      // ai/profiles.ts rollShift, off the controller's own seeded Shift
+      // stream), so the room passes none. (It was one uniform draw per bot off
+      // this room's bot-fleet stream from Story 10.4; that stream now carries
+      // only the class shuffle above.) Never Math.random.
+      const rec = this.world.addBot(order[i % order.length], undefined);
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;

@@ -71,6 +71,9 @@ describe('passive regen — the wait, then 2 % of missing per second', () => {
     const bot = w.addBot('bismarck', 'duelist');
     bot.hp = bot.stats.maxHp / 2;
     bot.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2;
+    // HULL REPAIR is cooling, so the bot's own press (Story 10.12: an early
+    // repairer presses the moment the heal fits) adds nothing to the read.
+    bot.repairReadyAt = w.now + CONFIG.regen.outOfCombatMs;
     const botBefore = bot.hp;
     w.step();
     expect(bot.hp).toBeCloseTo(botBefore + regenGain(botBefore, bot.stats.maxHp, DT / 1000), 9);

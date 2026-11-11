@@ -219,7 +219,7 @@ describe('P5 (Codex + Edge Case Hunter): the patrol never picks land, and a zero
     const port = fakePort(w, live);
     port.safe = { cx: 0, cy: 0, r: 0 };
     const rec = mkBot(w, 'yamato', 0, 0, 0);
-    const m = mkMind('forager');
+    const m = mkMind('bulwark');
     const wps = pick(w, port, rec, m, 40);
     const grid = navOf(port).grid;
     let far = 0;
@@ -238,7 +238,7 @@ describe('P5 (Codex + Edge Case Hunter): the patrol never picks land, and a zero
     const port = fakePort(w, { cx: 0, cy: 0, r: 2500 });
     port.next = { cx: 0, cy: 0, r: 450 }; // all of it ashore
     const rec = mkBot(w, 'yamato', 1200, 0, Math.PI);
-    const m = mkMind('forager');
+    const m = mkMind('bulwark');
     const grid = navOf(port).grid;
     for (const p of pick(w, port, rec, m, 20)) {
       if (p !== null) expect(isWater(grid, cellOf(grid, p.x, p.y))).toBe(true);
@@ -420,7 +420,7 @@ describe('P20 (grounding investigation, orchestrator reading under amendment 192
     port.safe = { cx: -1500, cy: 0, r: 400 }; // the patrol lies astern: a turn of more than 90°
     const rec = mkBot(w, 'yamato', 0, 0, 0);
     rec.state.speed = rec.stats.kinematics.maxSpeed;
-    return COMBAT_BRAIN.decide(rec, mkMind('forager'), port, true).throttle;
+    return COMBAT_BRAIN.decide(rec, mkMind('bulwark'), port, true).throttle;
   };
 
   it('a hull turning more than 90° with a ray blocked inside one turn radius turns at cruise, not full ahead', () => {

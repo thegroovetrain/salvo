@@ -2560,15 +2560,17 @@ export class World {
    * not a profile was forced. A forced profile governs the hull (each row is
    * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, shift: ShiftId = DEFAULT_SHIFT): ShipRecord {
+  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, shift?: ShiftId): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
-    const { name, hullId } = this.bots.enroll(id, hull, profile);
-    // A bot sails the DEFAULT SHIFT unless a caller says otherwise (Story
-    // 10.4: the room deals it uniformly off its bot-fleet stream): there is no
-    // deck resolver any more — every participant draws from the one common
-    // pool, so a bot's economy is a captain's economy exactly.
-    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, shift);
+    const enrolled = this.bots.enroll(id, hull, profile);
+    // THE SHIFT (Story 10.12, Eric 2026-11-11, R5): the controller deals it
+    // at enrollment, weighted by the bot's personality (ai/profiles.ts
+    // rollShift); a caller's explicit `shift` FORCES one instead (the
+    // harness's `--shift`). There is no deck resolver any more — every
+    // participant draws from the one common pool, so a bot's economy is a
+    // captain's economy exactly.
+    return this.addShip(id, enrolled.name, 'bot', enrolled.hullId, DEFAULT_HORN_ID, undefined, shift ?? enrolled.shift);
   }
 
   /**

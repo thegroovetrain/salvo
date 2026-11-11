@@ -48,8 +48,9 @@ export interface CliOptions {
    *  that hull. Null = the roster policy deals as usual. */
   botHull: ShipClassId | null;
   /** FORCED SHIFT for every bot (Story 10.4 — the Story 8.15 `--gun` arm's
-   *  successor). Null = production's rule — each bot picks a seeded uniform
-   *  Shift off the match seed (runner.ts botShiftDealer). */
+   *  successor). Null = production's rule — each bot's Shift is the
+   *  controller's personality-weighted roll at enrollment (Story 10.12, R5;
+   *  runner.ts botShiftDealer). */
   botShift: ShiftId | null;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
@@ -143,11 +144,11 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      instance of the randomized-pick measurement design)
   --bot-hull CLASS   force every rolled-path bot onto one hull
                      (${SHIP_CLASS_IDS.join(' | ')}); personalities still roll
-                     among all six, as on any hull. Mono-class arms with tuned
+                     among all five, as on any hull. Mono-class arms with tuned
                      temperaments. Not valid with --bot-profile or --roster even
   --shift SHIFT      force every bot's Shift (${SHIFT_IDS.join(' | ')}).
-                     Without it each bot picks a seeded uniform Shift off the
-                     match seed — production's rule. Needs --bots
+                     Without it each bot's Shift is rolled weighted by its
+                     personality — production's rule. Needs --bots
   --raw              include raw per-match bot rows (builds, pick timing,
                      offers seen, placement) in the --json envelope
   --json PATH        also write the machine-readable report to PATH

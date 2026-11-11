@@ -25,9 +25,7 @@
 import {
   CATALOG,
   CONFIG,
-  SHIFT_IDS,
   SHIP_CLASS_IDS,
-  mulberry32,
   zoneClosedAtMs,
   zoneGroups,
   type ShiftId,
@@ -58,9 +56,9 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
-/** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
- *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
-const BOT_SHIFT_SEED_ORDINAL = 0x6a4e;
+/* (mixSeed ordinal 0x6a4e was the BOT-SHIFT stream, Stories 8.15–10.11;
+ * retired by Story 10.12 — the controller deals a bot's Shift now. Keep it
+ * out of any new band.) */
 
 export interface RunSpec {
   seed: number;
@@ -154,11 +152,11 @@ export function botProfileFor(
  *  seeded stream and the brain drives itself from World's `botsTick` row.
  *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
-export function buildBotLobby(world: World, spec: RunSpec, botCount: number, matchSeed: number, index: number): string[] {
+export function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
-  const shifts = botShiftDealer(spec, matchSeed);
+  const shifts = botShiftDealer(spec);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
@@ -170,8 +168,8 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
     // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-    // and PICK A SHIFT (Story 10.4): the forced --shift, else a seeded uniform
-    // draw — production's rule (see botShiftDealer).
+    // and PICK A SHIFT: the forced --shift, else the controller's weighted
+    // roll at enrollment — production's rule (see botShiftDealer).
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
     ids.push(world.addBot(hull, profile, shifts()).id);
   }
@@ -179,20 +177,17 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
 }
 
 /**
- * THE BOT SHIFT DEAL (Story 10.4 — the Story 8.15 gun deal's successor, on
- * the same seed ordinal). `--shift` forces every bot onto one Shift; without
- * it each bot draws one of SHIFT_IDS UNIFORMLY off a stream seeded from the
- * MATCH seed on its own ordinal — the mirror of ArenaRoom.buildBotFleet's
- * seeded draw, so a harness lobby fights the Shift mix staging fights, and the
- * deal is part of the reproducible run key. A stream of its own, never the
- * World's or the controller's: drawing Shifts must not move any other roll.
- * Exported for the determinism pin.
+ * THE BOT SHIFT DEAL (Story 10.4; Story 10.12, Eric 2026-11-11, R5).
+ * `--shift` forces every bot onto one Shift; without it the dealer hands
+ * World.addBot NO Shift (undefined), so the bot controller's weighted roll at
+ * enrollment stands (ai/profiles.ts rollShift, on the controller's own seeded
+ * Shift stream) — exactly what ArenaRoom.buildBotFleet does, so a harness
+ * lobby fights the Shift mix staging fights. (Until Story 10.12 this drew one
+ * of SHIFT_IDS uniformly off its own match-seed stream.) Exported for the pin.
  */
-export function botShiftDealer(spec: Pick<RunSpec, 'botShift'>, matchSeed: number): () => ShiftId {
+export function botShiftDealer(spec: Pick<RunSpec, 'botShift'>): () => ShiftId | undefined {
   const forced = spec.botShift;
-  if (forced !== undefined) return () => forced;
-  const rng = mulberry32(mixSeed(matchSeed, BOT_SHIFT_SEED_ORDINAL));
-  return () => SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)];
+  return () => forced;
 }
 
 export interface ReachSample {
@@ -516,7 +511,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
   // bot-shaped in the per-tick loop below. The roster policy deals the hull
   // and the test rig deals the profile; buildBotLobby resolves which wins.
-  const botIds = buildBotLobby(world, spec, botCount, matchSeed, index);
+  const botIds = buildBotLobby(world, spec, botCount, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);

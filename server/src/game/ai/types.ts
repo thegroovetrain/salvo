@@ -673,6 +673,24 @@ export interface BotMind {
    * false.
    */
   secResting?: boolean;
+  /**
+   * THE NEXT-TICK POSE (Story 10.12, ai/tactics.ts decide -> ai/battery.ts):
+   * the pose this hull will have when the server steps its turrets THIS tick
+   * — the server steps the hull (STEP_ORDER `stepShips`) before `stepTurrets`
+   * and `fireControl`, so the turret step and the pick both read the
+   * post-move pose. Predicted with the shared `stepShip` from the hull's own
+   * state, its rated kinematics and the helm this same decision submits
+   * (collisions, a live boost and a slow are not modelled). `at` = the
+   * decision's `now`; a stale or absent seat reads as the current pose.
+   */
+  nextPose?: { x: number; y: number; heading: number; speed: number; at: number } | null;
+  /**
+   * THE MINE SWEEP (Story 10.12, ai/battery.ts): the sighted hostile mine
+   * the secondaries are sweeping THIS tick (`at` = the decision's `now`) —
+   * the aim is the mine's, so the main battery does not click on it. A stale
+   * or absent seat = not sweeping.
+   */
+  sweep?: { x: number; y: number; at: number } | null;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

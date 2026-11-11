@@ -73,13 +73,25 @@
 //      every combat consideration below it.
 //   3. POSTURE. engage / pursue / disengage / farm / reposition, per profile.
 //   4. AVOIDANCE — coastlines (since Story 9.13 the graded multi-ray fan on
-//      the nav grid, ai/navigate.ts), the map edge, and MINES THE BOT CAN SEE (a bot
+//      the nav grid, ai/navigate.ts), the map edge, other hulls, SOLID RADIO
+//      BEACONS on the public chart (Story 10.12), and MINES THE BOT CAN SEE (a bot
 //      sinking itself on a mine it was looking at reads as broken, so the mine
 //      bias is not optional). It does not replace the posture bearing, but it
 //      does TAKE THE HELM IN PROPORTION TO ITS OWN PRESSURE rather than merely
 //      nudging a saturated track term: see helmFor for the measurement that
 //      forced that, and for why it is the same defect as the un-beach one seen
 //      one step earlier.
+//
+// THE ARC OPENING (Story 10.12, Eric 2026-11-11, R2 "always angle off"): with
+// its target's plot inside own main-battery reach and a clear line of fire, a
+// hull closing, kiting, holding its band or running on the DIRECT bearing
+// turns the posture's bearing just far enough off the target for every turret
+// to bear (ai/arcs.ts, over the shared arc test). It is part of the POSTURE
+// bearing: the ring clamp and every avoidance term still get the last word.
+// Never while following a route round land or steering for a cover point,
+// never in `ram`, a ring run, the un-beach stages, `hold`, `reposition` or
+// `farm` — and a hull holding station is dead in the water, so it does not
+// turn at all.
 //
 // THE REAR-QUARTER DOGFIGHT (Eric ruling C1) is geometry, not flavour: the
 // torpedo's bow ±30° arc means a hull sitting behind a Torpedo Boat denies its
@@ -109,6 +121,7 @@ import {
   lineClear,
   wrapAngle,
   abilityCode,
+  stepShip,
   type EffectiveStats,
   type EquipmentId,
   type Vec2,
@@ -118,9 +131,10 @@ import { profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor } from './tacticRegistry.js';
 import { chooseCooldownAbility } from './abilities.js';
-import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
+import { distTo, leadPoint, shotReaches, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
-import { secondariesHeld } from './battery.js';
+import { planSecondaries, secTarget, type SecondariesPlan } from './battery.js';
+import { openArcBearing } from './arcs.js';
 import { heldAimOf } from './torpedoMount.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
@@ -130,6 +144,7 @@ import { beaconGoalOf, onStation } from './beacons.js';
 import { laneDrop } from './drops.js';
 import {
   RUDDER_GAIN,
+  avoidBeacons,
   avoidHulls,
   avoidIslands,
   avoidMines,
@@ -621,7 +636,8 @@ function beaconBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): numb
   return goal === null ? idleBearing(ctx, port, sit) : steerToward(ctx, goal.standoff);
 }
 
-/** THE LANE NUDGE (Story 10.9, ai/drops.ts): a target-less bot under way
+/** THE LANE NUDGE (Story 10.9, ai/drops.ts): a target-less bot under way —
+ *  or a beacon farmer in transit, target or not (Story 10.12) —
  *  takes the nearest sighted crate lying in the lane of the bearing it
  *  already wants — the direct bearing to it, when the grid line is clear (a
  *  crate behind land is not "on the line"; the goal's route is kept, so the
@@ -631,15 +647,17 @@ function beaconBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): numb
 function laneNudged(ctx: NavCtx, self: BotSelf, port: BotWorldPort, posture: BotPosture, goal: number): number {
   const drops = ctx.mind.view?.drops ?? [];
   if (drops.length === 0 || posture === 'hold') return goal;
-  if (farmingBeacon(ctx.mind, posture, null) && beaconStationed(self, ctx.mind, port)) return goal;
+  if (farmingBeacon(ctx.mind, posture) && beaconStationed(self, ctx.mind, port)) return goal;
   const crate = laneDrop(ctx.pos, goal, drops);
   return crate !== null && lineClear(ctx.nav.grid, ctx.pos, crate) ? bearing(ctx.pos, crate) : goal;
 }
 
-/** A target-less `farm` with a beacon goal — the beacon farm (the only
- *  `farm` since Story 10.8 retired the fleet farm, which had a target). */
-function farmingBeacon(mind: BotMind, posture: BotPosture, target: BotTrack | null): boolean {
-  return posture === 'farm' && target === null && (mind.beaconGoal ?? null) !== null;
+/** `farm` with a beacon goal — the beacon farm, WITH OR WITHOUT a target
+ *  (Story 10.12, R4: a personality that does not contest a beacon stays
+ *  parked on it and shoots from where it sits; the posture chain decides who
+ *  stays, the helm only reads the posture). */
+function farmingBeacon(mind: BotMind, posture: BotPosture): boolean {
+  return posture === 'farm' && (mind.beaconGoal ?? null) !== null;
 }
 
 /** THE BREAK-OFF (disengage / hide, amendment 199): steer (routed) for the
@@ -651,7 +669,7 @@ function fleeBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, target:
   return wrapAngle(bearing(ctx.pos, plotAt(sit, target)) + Math.PI);
 }
 
-/** The bearing the POSTURE wants, before the storm gets a say. */
+/** The bearing the POSTURE wants, before the arcs and the storm get a say. */
 function postureBearing(
   ctx: NavCtx,
   self: BotSelf,
@@ -661,12 +679,49 @@ function postureBearing(
   posture: BotPosture,
 ): number {
   if (posture === 'disengage' || posture === 'hide') return fleeBearing(ctx, port, sit, target);
-  if (target === null) return laneNudged(ctx, self, port, posture, posture === 'farm' ? beaconBearing(ctx, port, sit) : idleBearing(ctx, port, sit));
+  if (farmingBeacon(ctx.mind, posture)) return laneNudged(ctx, self, port, posture, beaconBearing(ctx, port, sit));
+  if (target === null) return laneNudged(ctx, self, port, posture, idleBearing(ctx, port, sit));
+  return targetBearing(ctx, self, port, sit, target, posture);
+}
+
+/** The posture's bearing ON A TARGET (a `farm` with no beacon goal holds its
+ *  band like `engage`, as before). */
+function targetBearing(ctx: NavCtx, self: BotSelf, port: BotWorldPort, sit: BotSituation, target: BotTrack, posture: BotPosture): number {
   if (posture === 'reposition' || posture === 'hold') return idleBearing(ctx, port, sit);
   if (posture === 'pursue') return steerToward(ctx, approachPoint(sit.profile, target, sit));
   if (posture === 'ram') return bearing(ctx.pos, ramPoint(self, sit, target));
   if (posture === 'kite') return kiteBearing(self.state, plotAt(sit, target), ownReachU(sit));
   return bandBearing(self, sit, target);
+}
+
+/** Is the posture's bearing a DIRECT one on (or off) its target — the legs
+ *  the arc opening applies to? Closing (`pursue`, unless it is following a
+ *  route round land), `kite`, `engage`, and a break-off on the plain
+ *  reciprocal (no cover point to steer for). Everything else — `ram`,
+ *  `hold`, `reposition`, `farm`, a ring run — is not. */
+function directOnTarget(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, posture: BotPosture): boolean {
+  if (posture === 'disengage' || posture === 'hide') return usableCover(ctx.mind, port, sit) === null;
+  if (posture === 'pursue') return (ctx.mind.route?.waypoints.length ?? 0) === 0;
+  return posture === 'kite' || posture === 'engage';
+}
+
+/** Is the target's plot inside own main-battery reach with a clear line of
+ *  fire (the coastline check every flat round takes)? */
+function inGunRange(self: BotSelf, sit: BotSituation, target: BotTrack): boolean {
+  return distTo(sit, target) <= ownReachU(sit) && shotReaches(self, sit, plotAt(sit, target));
+}
+
+/**
+ * THE ARC OPENING (R2, see the header): the posture's bearing `want`, turned
+ * the least it takes for every turret to bear on the target's plot — when the
+ * hull has a battery, the target is in gun range and the bearing is a direct
+ * one. Otherwise `want` untouched. Read AFTER postureBearing, so the route
+ * test sees this tick's route.
+ */
+function arcOpened(ctx: NavCtx, self: BotSelf, port: BotWorldPort, sit: BotSituation, target: BotTrack | null, posture: BotPosture, want: number): number {
+  if (target === null || (self.turrets ?? []).length === 0) return want;
+  if (!directOnTarget(ctx, port, sit, posture) || !inGunRange(self, sit, target)) return want;
+  return openArcBearing(self.hullId, self.state, plotAt(sit, target), want, self.state.heading);
 }
 
 /** THE RAM POINT (Story 9.5, amendment 77): the lead intercept of the target's
@@ -681,7 +736,8 @@ function ramPoint(self: BotSelf, sit: BotSituation, target: BotTrack): Vec2 {
 
 /** The bearing the helm wants, applying the priority order in the header:
  *  the ring run (the target ring's flow field), the un-beach hold, else the
- *  posture's bearing under the land-aware ring clamp (ai/navigate.ts). The
+ *  posture's bearing — with its arcs opened (arcOpened) — under the
+ *  land-aware ring clamp (ai/navigate.ts). The
  *  astern stage never asks: it steers on its captured rudder (see helmFor).
  *
  *  THE HOLD IS DELIBERATELY NOT CLAMPED. It is the un-beach machine's
@@ -701,7 +757,8 @@ function desiredBearing(
   const pos = self.state;
   if (escaping) return ringRunBearing(pos, ctx.nav, ringGoalOf(port));
   if (stage === 'hold') return ctx.mind.unbeach?.holdHeading ?? pos.heading;
-  return ringClamped(pos, sit, postureBearing(ctx, self, port, sit, target, posture), ctx.nav, ringGoalOf(port));
+  const want = postureBearing(ctx, self, port, sit, target, posture);
+  return ringClamped(pos, sit, arcOpened(ctx, self, port, sit, target, posture, want), ctx.nav, ringGoalOf(port));
 }
 
 /** HOLD stations at zero throttle (amendment 199); holding a band
@@ -713,18 +770,20 @@ function throttleFor(posture: BotPosture): number {
 }
 
 /** The helm's base throttle: a beacon farm in transit runs full ahead like
- *  the patrol it replaces (the band-holding cruise is for a target). */
-function baseThrottle(mind: BotMind, posture: BotPosture, target: BotTrack | null): number {
-  if (posture === 'hold' || farmingBeacon(mind, posture, target)) return 1;
+ *  the patrol it replaces (the band-holding cruise is for a `farm` with no
+ *  beacon goal). */
+function baseThrottle(mind: BotMind, posture: BotPosture): number {
+  if (posture === 'hold' || farmingBeacon(mind, posture)) return 1;
   return throttleFor(posture);
 }
 
-/** Dead in the water this tick: HOLD always (amendment 199), and a HIDE that
+/** Dead in the water this tick: HOLD always (amendment 199), a beacon farmer
+ *  on station (target or not — Story 10.12), and a HIDE that
  *  has reached its cover point (the orchestrator's reading under 199 — the
  *  posture stays `hide` and re-evaluates every deliberation). */
-function sitsStill(self: BotSelf, mind: BotMind, port: BotWorldPort, posture: BotPosture, target: BotTrack | null): boolean {
+function sitsStill(self: BotSelf, mind: BotMind, port: BotWorldPort, posture: BotPosture): boolean {
   if (posture === 'hold') return true;
-  if (farmingBeacon(mind, posture, target)) return beaconStationed(self, mind, port);
+  if (farmingBeacon(mind, posture)) return beaconStationed(self, mind, port);
   if (posture !== 'hide') return false;
   return atCover({ x: self.state.x, y: self.state.y, hullLength: hullLengthU(self.hullId) }, mind.coverPoint);
 }
@@ -745,8 +804,8 @@ function beaconStationed(self: BotSelf, mind: BotMind, port: BotWorldPort): bool
  * the plain sum it replaced turned a saturated track TOWARD the land the probe
  * had just found; measured over the 60 s bow-on beaching drill 41.6 % ->
  * 8.0 % ticks in contact). Islands are the graded multi-ray fan on the nav
- * grid (Story 9.13, amendment 192(c)); mines, hulls and the map edge keep
- * their point kernels.
+ * grid (Story 9.13, amendment 192(c)); mines, hulls, solid beacons (Story
+ * 10.12) and the map edge keep their point kernels.
  *
  * THE ASTERN STAGE TAKES NO AVOIDANCE AT ALL: every avoidance term is a
  * FORWARD-sense bias, and rudder authority is scaled by a SIGNED speed, so
@@ -768,7 +827,7 @@ function helmFor(
   const stage0 = updateManoeuvre(self, mind, port);
   if (stage0 === 'astern') return burstHelm(mind);
   const escaping = ringEscaping(sit, posture === 'ringRun');
-  if (!escaping && stage0 === 'none' && sitsStill(self, mind, port, posture, target)) return { throttle: throttleFor('hold'), rudder: 0 };
+  if (!escaping && stage0 === 'none' && sitsStill(self, mind, port, posture)) return { throttle: throttleFor('hold'), rudder: 0 };
   const ctx = navCtxOf(self, mind, port, deliberate);
   const back = stage0 === 'hold' && !escaping ? backingHold(ctx, self, port, sit, target, posture) : null;
   if (back !== null) return back;
@@ -777,8 +836,8 @@ function helmFor(
   const track = clampUnit(angleDiff(self.state.heading, want) * RUDDER_GAIN);
   const avoid =
     avoidIslands(self, ctx.nav.grid, want) + avoidMines(self, mind) + boundaryBias(self.state, port.map.radius)
-    + avoidHulls(self, mind, posture);
-  const base = baseThrottle(mind, posture, target);
+    + avoidHulls(self, mind, posture) + avoidBeacons(self, port);
+  const base = baseThrottle(mind, posture);
   const damped = entryDamped(self, mind, port, want, deliberate);
   return { throttle: damped ? Math.min(base, CRUISE_THROTTLE) : base, rudder: composeRudder(track, avoid) };
 }
@@ -881,25 +940,47 @@ function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
  *  this tick a battery hull still writes its main battery's HELD AIM on its
  *  target (Story 10.4, ai/battery.ts) — the aim is what the turrets chase, so
  *  it is held even while every turret reloads or none bears yet. The
- *  secondaries level (`sec`) rides along on the same aim. */
+ *  secondaries level (`sec`) rides along on the same aim — on a live hull in
+ *  their reach, or, with no shot this tick, on the mine they are SWEEPING
+ *  (Story 10.12: the aim is then the mine's marker). */
 function triggerOf(
   self: BotSelf,
   mind: BotMind,
   sit: BotSituation,
   target: BotTrack | null,
   shot: Shot | null,
+  plan: SecondariesPlan,
 ): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held' | 'sec'> {
-  const sec = secondariesHeld(self, mind, sit, target);
+  const sec = plan.ready && secTarget(sit, target);
   if (shot !== null) {
     const held = shot.held === true;
     return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held, sec };
   }
+  if (plan.sweep !== null) return sweepTrigger(self, mind, plan.sweep);
   // The HELD aim: the battery's — or, while the battery has nothing loaded,
   // the torpedo aim the tactic is waiting on a launcher for (Story 10.6
   // review gate, ai/torpedoMount.ts).
   const hold = target === null ? null : heldAimOf(self, mind, sit, target);
   if (hold !== null) return { aim: hold.aim, aimDist: hold.aimDist, fireSlot: null, held: false, sec };
   return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false, sec };
+}
+
+/** THE SWEEP's trigger (Story 10.12): the aim on the mine's centre, measured
+ *  from the hull centre like every aim, the secondaries held, nothing
+ *  clicked. Stamps the harness readout. */
+function sweepTrigger(self: BotSelf, mind: BotMind, mine: Vec2): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held' | 'sec'> {
+  mind.lastTactic = 'sweep'; // harness readout (Story 10.12)
+  const aimDist = Math.hypot(mine.x - self.state.x, mine.y - self.state.y);
+  return { aim: bearing(self.state, mine), aimDist, fireSlot: null, held: false, sec: true };
+}
+
+/** THE NEXT-TICK POSE (Story 10.12, BotMind.nextPose): where this hull will
+ *  be when the server steps its turrets this tick — the shared `stepShip`
+ *  from its own state under the helm this decision submits, at its rated
+ *  kinematics. Read by the main battery's on-target check (ai/battery.ts). */
+function stampNextPose(self: BotSelf, mind: BotMind, now: number, helm: Helm): void {
+  const next = stepShip({ ...self.state }, helm, self.stats.kinematics, CONFIG.tick.simDtMs / 1000);
+  mind.nextPose = { x: next.x, y: next.y, heading: next.heading, speed: next.speed, at: now };
 }
 
 /**
@@ -962,11 +1043,13 @@ export const COMBAT_BRAIN: BotBrain = {
     const target = resolveTarget(mind);
     const posture = mind.posture;
     const helm = helmFor(self, mind, port, sit, target, posture, deliberate);
+    stampNextPose(self, mind, port.now, helm);
+    const plan = planSecondaries(self, mind, sit, target); // before the shot: a sweep holds the battery's click
     const shot = chooseShot(self, mind, port, sit, target, posture);
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,
-      ...triggerOf(self, mind, sit, target, shot),
+      ...triggerOf(self, mind, sit, target, shot, plan),
       act: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };

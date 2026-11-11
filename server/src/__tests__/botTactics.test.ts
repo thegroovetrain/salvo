@@ -349,7 +349,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(102);
     const port = fakePort(w, { cx: 0, cy: -500, r: 4000 });
     const rec = mkBot(w, 'warspite', 0, 0, Math.PI / 2); // bow due north
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.throttle).toBeGreaterThan(0);
     const wp = mind.patrolWaypoint;
@@ -463,7 +463,7 @@ describe('steering — the priority order is the policy', () => {
     // the hold lets go — the assertion cannot pass by the bot simply idling.
     const port = fakePort(w, { cx: -4000, cy: 0, r: 9000 });
     const rec = mkBot(w, 'warspite', 0, 0, 0); // bow due east
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     rec.landContact = true;
     for (let i = 0; i <= CONFIG.bots.stuckMs / CONFIG.tick.simDtMs; i += 1) {
       COMBAT_BRAIN.decide(rec, mind, port);
@@ -707,6 +707,10 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(108);
     const port = fakePort(w);
     const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due east
+    // The subject is the HULL term alone: a hull with no battery has no arcs
+    // to open (Story 10.12, R2 — botArcs.test.ts owns the angle-off), so the
+    // pursue bearing on a target dead ahead stays the heading.
+    rec.turrets.length = 0;
     const mind = mkMind('raider'); // approachPoint = the plot itself (no rear-quarter offset)
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const bumper = hullBumper('bismarck', 'bismarck'); // two half-lengths + hullBumperU
@@ -946,6 +950,10 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     const R = 1000;
     const port = fakePort(w, { cx: 0, cy: 0, r: R });
     const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due EAST = straight out
+    // The subject is the RING CLAMP on a plain reciprocal: a hull with no
+    // battery has no arcs to open (Story 10.12, R2 — botArcs.test.ts owns the
+    // angle-off), so the control's flee bearing stays dead away.
+    rec.turrets.length = 0;
     rec.hp = rec.stats.maxHp * 0.1; // `raider` disengages
     const k = rec.stats.kinematics;
     const boost = k.maxSpeed * 1.3; // roughly what a boosted raider makes
@@ -1228,15 +1236,17 @@ describe('weapons — every shot is a LEGAL shot', () => {
   });
 
   // HULL REPAIR (`C`) IS A COOLDOWN ABILITY (Story 10.5, epic-10 amendment
-  // 11). Every hull carries it, ready at spawn; the bot presses it on the
-  // belt row's own hurt read and the shared refusal law (sim/abilities.ts).
+  // 11). Every hull carries it, ready at spawn; the bot presses it on its
+  // profile's REPAIR STYLE (Story 10.12, R3 — the duelist is EARLY: the whole
+  // heal of one press fits) and the shared refusal law (sim/abilities.ts).
   it('a hurt bot presses HULL REPAIR (its wire code) when ready; a full hull, or one still cooling, does not', () => {
     const w = openWorld(212);
     const port = fakePort(w);
     const hurt = mkBot(w, 'bismarck', 0, 0, 0);
-    // Under the heal line but over the break-off line: not disengaging, so the
-    // Shift does not answer first.
-    hurt.hp = hurt.stats.maxHp * (profileOf('duelist').healHpFrac - 0.05);
+    expect(profileOf('duelist').repairStyle).toBe('early');
+    // Short exactly one press's whole heal, and over the break-off line: not
+    // disengaging, so the Shift does not answer first.
+    hurt.hp = hurt.stats.maxHp - (hurt.stats.repair.instantHp + hurt.stats.repair.regenHp);
     expect(hurt.hp / hurt.stats.maxHp).toBeGreaterThan(profileOf('duelist').disengageHpFrac);
     expect(COMBAT_BRAIN.decide(hurt, mkMind('duelist'), port).act).toBe(abilityCode('repair'));
     // Inside the cooldown: the press would be refused 'cooling', so it is never made.
@@ -1256,9 +1266,10 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(214);
     const port = fakePort(w);
     const bot = mkBot(w, 'yamato', 0, 0, 0);
-    bot.hp = bot.stats.maxHp * profileOf('bulwark').healHpFrac - bot.stats.repair.regenHp / 2;
+    expect(profileOf('bulwark').repairStyle).toBe('early');
+    // Short exactly one press's whole heal by the bare hp: the bare read says "press".
+    bot.hp = bot.stats.maxHp - (bot.stats.repair.instantHp + bot.stats.repair.regenHp);
     bot.repairHp = bot.stats.repair.regenHp;
-    expect(bot.hp / bot.stats.maxHp).toBeLessThan(profileOf('bulwark').healHpFrac); // the bare read still says "heal"
     expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).act).toBeNull();
     // THE CONTROL: the same hull with nothing draining in does press.
     bot.repairHp = 0;
@@ -1319,7 +1330,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(209);
     const port = fakePort(w);
     const rec = mkBot(w, 'warspite', 0, 0, 0);
-    const mind = mkMind('forager'); // view null, contacts empty
+    const mind = mkMind('bulwark'); // view null, contacts empty
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     // With nothing tracked and no recon buoy (deleted in Story 8.16), a Mine
     // Layer whose prepared lay is not eager requests nothing; nor does a
@@ -1407,7 +1418,7 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
     const w = islandWorld(305, circleIsland(150, 0, 60));
     const port = fakePort(w);
     const rec = mkBot(w, 'warspite', 0, 0, 0);
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     plot(mind, track(port.now, { x: 300, y: 0, speed: 0, cls: 'bismarck' as HullId }));
     COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('pursue');
@@ -1415,7 +1426,7 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
     const clear = openWorld(305);
     const clearPort = fakePort(clear);
     const rec2 = mkBot(clear, 'warspite', 0, 0, 0);
-    const mind2 = mkMind('forager');
+    const mind2 = mkMind('bulwark');
     plot(mind2, track(clearPort.now, { x: 300, y: 0, speed: 0, cls: 'bismarck' as HullId }));
     COMBAT_BRAIN.decide(rec2, mind2, clearPort);
     expect(mind2.posture).toBe('engage');
@@ -1554,11 +1565,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const chase = { x: -450, y: 0, heading: 0, speed: 20 };
     const foul = mkBot(w, 'warspite', 0, 0, 0);
     const foulRack = swapRack(foul, 'foulingMines');
-    const foulMind = mkMind('forager'); // NEUTRAL appetite: the reactive branch
+    const foulMind = mkMind('bulwark'); // NEUTRAL appetite (no mine entry): the reactive branch
     plot(foulMind, track(port.now, chase));
     expect(COMBAT_BRAIN.decide(foul, foulMind, port).fireSlot).toBe(foulRack);
     const base = mkBot(w, 'warspite', 0, 0, 0);
-    const baseMind = mkMind('forager');
+    const baseMind = mkMind('bulwark');
     plot(baseMind, track(port.now, chase));
     expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).not.toBe(slotOf(base, 'navalMines'));
   });
@@ -1839,21 +1850,21 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('PREPARED LAY: CAPTIVE opens the occasion at NEUTRAL appetite — a plain rack stays reactive', () => {
     const w = openWorld(418);
     const port = fakePort(w);
-    // Forager (mine appetite 1.4: neutral, NOT eager) holding CAPTIVE: a
+    // Bulwark (no mine entry: the neutral base, NOT eager) holding CAPTIVE: a
     // 144u-trip torpedo launcher works with nobody following, so it is
     // seeded while safe — the doctrine ADDS the occasion.
     const cap = mkBot(w, 'warspite', 0, 0, 0);
     const capRack = swapRack(cap, 'captiveMines');
-    const capMind = mkMind('forager'); // no contacts -> reposition
+    const capMind = mkMind('bulwark'); // no contacts -> reposition
     viewWithOwnMines(capMind, 0);
     const d = COMBAT_BRAIN.decide(cap, capMind, port);
     expect(d.fireSlot).toBe(capRack);
     expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // captive: FULL reach
-    // The same forager WITHOUT the doctrine does not lay into empty water —
+    // The same bulwark WITHOUT the doctrine does not lay into empty water —
     // a contact mine needs something following you — so it requests nothing
     // (the recon buoy it used to site instead went with the buoy, Story 8.16).
     const plain = mkBot(w, 'warspite', 0, 0, 0);
-    const plainMind = mkMind('forager');
+    const plainMind = mkMind('bulwark');
     viewWithOwnMines(plainMind, 0);
     expect(COMBAT_BRAIN.decide(plain, plainMind, port).fireSlot).toBeNull();
   });
@@ -2030,7 +2041,8 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
       rec.prevPose = { ...rec.state };
     });
 
-    const start = ids.map((id) => ({ ...w.ships.get(id)!.state }));
+    const last = ids.map((id) => ({ ...w.ships.get(id)!.state }));
+    const sailed = ids.map(() => 0);
     let shellsSeen = 0;
     let landTicks = 0;
     let botTicks = 0;
@@ -2047,6 +2059,11 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
         // waiting-phase respawn restores hp, so a last-tick reading could show
         // a full hull that has been shot to pieces twice.
         if (rec.hp < rec.stats.maxHp) hurtSeen += 1;
+        const i = ids.indexOf(id);
+        const stepU = Math.hypot(rec.state.x - last[i].x, rec.state.y - last[i].y);
+        // One tick of sailing, never a respawn's teleport.
+        if (stepU <= rec.stats.kinematics.maxSpeed) sailed[i] += stepU;
+        last[i] = { ...rec.state };
         for (const isle of w.map.islands) {
           if (islandDistance(rec.state, isle) <= 0) {
             landTicks += 1;
@@ -2056,16 +2073,14 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
       }
     }
 
-    // MOVED: every hull is somewhere else, and under way. The bar was 100u
-    // when this fixture ran under the retired silhouette grammar (the test
-    // default before cycle 105 deleted the mode); on the production wire a
-    // bot's radar tracks are identity-free centroids, engagements orbit
-    // tighter, and the slowest hull of this seed covers ~79u in the 30s
-    // window — still unmistakably under way, so the bar moves below that
-    // measurement rather than above a fiction.
-    ids.forEach((id, i) => {
-      const rec = w.ships.get(id)!;
-      expect(Math.hypot(rec.state.x - start[i].x, rec.state.y - start[i].y)).toBeGreaterThan(50);
+    // UNDER WAY: every hull SAILED — the distance covered along its track,
+    // not the net displacement. A hull holding a beam-on orbit in its band
+    // (and, since Story 10.12, one angled off to keep every turret bearing)
+    // can end a 30 s window close to where it began while never having
+    // stopped; where an orbit happens to close is a seed's number, the
+    // sailing is the contract.
+    ids.forEach((_id, i) => {
+      expect(sailed[i]).toBeGreaterThan(50);
     });
     // ACQUIRED + FIRED: clicks were requested and ordnance reached the water.
     const fired = ids.filter((id) => w.ships.get(id)!.input.fireSeq > 0);

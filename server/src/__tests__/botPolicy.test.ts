@@ -133,7 +133,6 @@ const FIXTURE_HULL: Readonly<Record<BotProfileId, ShipClassId>> = {
   duelist: 'bismarck',
   bulwark: 'yamato',
   siege: 'yamato',
-  forager: 'warspite',
   trapper: 'warspite',
 };
 
@@ -246,37 +245,29 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     // Eric ruling C2, carried by the appetite table since the doctrine pass:
     // siege reaches for flares EAGERLY (the shipped staleness trigger).
     expect(appetiteFor(profileOf('siege'), 'starShells')).toBeGreaterThanOrEqual(APPETITE_EAGER);
-    for (const id of ['raider', 'duelist', 'forager', 'trapper'] as const) {
+    for (const id of ['raider', 'duelist', 'trapper'] as const) {
       expect(profileOf('bulwark').disengageHpFrac).toBeLessThan(profileOf(id).disengageHpFrac);
     }
   });
 
-  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): both nudge the band outward and forager breaks off earliest', () => {
+  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): trapper nudges the band outward, still inside its gun reach', () => {
     // Cycle 110's A/B measured the ML dying before its payoff (181.1s afloat
     // vs the random control's 264.0s); Eric ruled these values verbatim —
     // hang back to survive to the payoff. The relations below are the ruling's
     // shape; the dial values themselves are Eric's to retune.
-    // (The ruled 0.45–0.80 / 0.25–0.50 bands retired with every profile
-    // fraction in Story 9.13, amendment 198: both now nudge the gun's band
-    // OUTWARD — hanging back — and lean away at the odds gate, amendment 194.)
-    const forager = profileOf('forager');
-    expect(forager.bandNudge).toBeGreaterThan(0);
+    // (The ruled bands retired with every profile fraction in Story 9.13,
+    // amendment 198: the trapper now nudges the gun's band OUTWARD — hanging
+    // back — and leans away at the odds gate, amendment 194. Its forager
+    // sibling retired in Story 10.12, R6.)
     const trapper = profileOf('trapper');
     expect(trapper.bandNudge).toBeGreaterThan(0);
-    // Forager is now the EARLIEST break-off in the game — survival IS its
-    // plan — and its whole band stays inside its own gun reach (the band is a
-    // fraction of that reach, Story 9.8 ruling 126), so hanging back costs no
-    // firepower.
-    for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
-      expect(forager.disengageHpFrac).toBeGreaterThan(profileOf(id).disengageHpFrac);
-    }
-    expect(CONFIG.bots.gunBand.cannon[1] * (1 + forager.bandNudge)).toBeLessThanOrEqual(1);
+    expect(CONFIG.bots.gunBand.cannon[1] * (1 + trapper.bandNudge)).toBeLessThanOrEqual(1);
   });
 
-  it('THE ODDS GATE IS FLAVORED BY PROFILE (epic-9 amendment 194): raider and duelist lean in, bulwark holds, forager and trapper lean away, siege and trapper lie in wait', () => {
+  it('THE ODDS GATE IS FLAVORED BY PROFILE (epic-9 amendment 194): raider and duelist lean in, bulwark holds, trapper leans away, siege and trapper lie in wait', () => {
     const bar = (id: BotProfileId) => profileOf(id).oddsThreshold;
     for (const id of ['raider', 'duelist'] as const) expect(bar(id)).toBeLessThan(bar('bulwark'));
-    for (const id of ['forager', 'trapper'] as const) expect(bar(id)).toBeGreaterThan(bar('bulwark'));
+    expect(bar('trapper')).toBeGreaterThan(bar('bulwark'));
     const leaners = Object.values(BOT_PROFILES).filter((p) => p.leansIn).map((p) => p.id).sort();
     expect(leaners).toEqual(['duelist', 'raider']);
     const holders = Object.values(BOT_PROFILES).filter((p) => p.holdsInCover).map((p) => p.id).sort();
@@ -474,16 +465,17 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
   });
 
   it('a clear-line target takes the slot from a blocked one that otherwise outscores it', () => {
-    // The measured worst case was a forager's fleet prize behind a rock (the
-    // fleet retired at Story 10.8); the same shape with a HURT track: a hit
-    // history outscores a fresh one, until the rock stands in the way.
-    const m = mind('forager');
+    // The measured worst case was a (since retired) forager's fleet prize
+    // behind a rock (the fleet retired at Story 10.8); the same shape with a
+    // HURT track: a hit history outscores a fresh one, until the rock stands
+    // in the way.
+    const m = mind('trapper');
     m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, hits: 2 }));
     m.contacts.set('openWater', plotTrack({ id: 'openWater', x: 0, y: 400 }));
-    const sit = situation({ profile: profileOf('forager'), stats: stats('warspite'), islands: [ROCK] });
+    const sit = situation({ profile: profileOf('trapper'), stats: stats('warspite'), islands: [ROCK] });
     expect(selectTarget(m, sit)?.id).toBe('openWater');
     // With the rock gone the hurt track wins, exactly as it always did.
-    expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('warspite') }))?.id).toBe('behindRock');
+    expect(selectTarget(m, situation({ profile: profileOf('trapper'), stats: stats('warspite') }))?.id).toBe('behindRock');
   });
 
   it('forces PURSUE over the band postures, so the bot opens the angle', () => {
@@ -1131,7 +1123,7 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
   });
 
   it('Flat build (R11): bulwark at level 0 → armor 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {
-    const bulwark = profileOf('bulwark'); // rounded; favorite upgrade armor (hullPoints + passiveHealing until Story 10.3); favorite weapons broadside + starShells
+    const bulwark = profileOf('bulwark'); // rounded; favorite upgrade armor (hullPoints + passiveHealing until Story 10.3); favorite weapons the shells
     const s = spendState();
     expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite);
     expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(P.weapon);
@@ -1146,26 +1138,23 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     expect(chooseSpend(bulwark, { ...s, offer: ['engines', 'armor'] })).toBe(1);
   });
 
-  it('"gun" favors EVERY ladder of the mounted gun, and style reads only the MOUNTED gun\'s ladders', () => {
-    const forager = profileOf('forager'); // rounded; favorites gun + reload
+  it('a GUN ladder (one with a host row) matches no favorite — the dead `gun` favorite is gone (Story 10.12) — and style reads only the MOUNTED gun\'s ladders', () => {
     const s = spendState({ cards: ['armor'] });
     // The cannon mounted (a hand-built slot 0 — since Story 10.4 a captain
-    // mounts the main battery, the cannon is the drones'): its one ladder is a
-    // favorite and sits at min(U) = 0.
+    // mounts the main battery): its one ladder sits at min(U) = 0.
     const cannon = { ...s, slotIds: slotsOf([], 'gun') };
-    for (const l of ['deckGun']) {
-      expect(cardScore(forager, cannon, l), l).toBe(P.base + P.favorite + P.style);
-    }
-    // No slots supplied = a captain's default slot 0, the MAIN BATTERY (Story
-    // 10.4), which hosts no ladder: the cannon's ladder is out of U.
-    expect(cardScore(forager, s, 'deckGun')).toBe(P.base + P.favorite);
-    // The machine gun mounted: its ladder is the gun favorite and in U...
     const mg = { ...s, slotIds: slotsOf([], 'machineGun') };
-    expect(cardScore(forager, mg, 'machineGun')).toBe(P.base + P.favorite + P.style);
-    // ...and the cannon's ladders leave U (still `gun` family — never dealt here).
-    expect(cardScore(forager, mg, 'deckGun')).toBe(P.base + P.favorite);
-    // A personality without the gun favorite reads a gun ladder as plain + style.
-    expect(cardScore(profileOf('raider'), spendState({ cards: ['engines'] }), 'deckGun')).toBe(P.base);
+    for (const p of Object.values(BOT_PROFILES)) {
+      // The style bonus on a mounted gun's ladder at min(U): a ROUNDED taste's.
+      const style = p.taste.style === 'rounded' ? P.style : 0;
+      expect(cardScore(p, cannon, 'deckGun'), p.id).toBe(P.base + style);
+      // No slots supplied = a captain's default slot 0, the MAIN BATTERY (Story
+      // 10.4), which hosts no ladder: the cannon's ladder is out of U.
+      expect(cardScore(p, s, 'deckGun'), p.id).toBe(P.base);
+      // The machine gun mounted: its ladder is in U, the cannon's leaves it.
+      expect(cardScore(p, mg, 'machineGun'), p.id).toBe(P.base + style);
+      expect(cardScore(p, mg, 'deckGun'), p.id).toBe(P.base);
+    }
   });
 
   it('"weapons" favors a tier copy of a HELD weapon; copy 1 is a weapon card, not an upgrade', () => {
@@ -1352,7 +1341,6 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       expect(row.holdsInCover).toBe(false);
       expect(row.targetWeights).toEqual({ captain: 1.0, damaged: 1.0, isolated: 1.0 });
       expect(row.disengageHpFrac).toBe(CONFIG.bots.disengageHpFrac);
-      expect(row.healHpFrac).toBe(CONFIG.bots.healHpFrac);
       // Every appetite entry at or above EAGER, so every equipment verb is
       // exercised and the read is not shaped by a doctrine preference…
       for (const v of Object.values(row.appetite)) expect(v).toBeGreaterThanOrEqual(APPETITE_EAGER);

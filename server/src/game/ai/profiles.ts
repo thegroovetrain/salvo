@@ -10,7 +10,7 @@
 // `bulwark` and one `siege`, play completely differently and neither is the
 // harder one.
 //
-// SIX PERSONALITIES, ANY HULL (Story 8.20, Eric ruling 2026-09-30, R6). They
+// FIVE PERSONALITIES, ANY HULL (Story 8.20, Eric ruling 2026-09-30, R6). They
 // were two per class until 8.20; a hull is now only stats plus a special, and
 // enrollment deals any personality onto any hull off the seeded stream. The
 // names keep their historical flavor, but NOTHING here is keyed by hull any
@@ -25,13 +25,19 @@
 //   duelist — vs a peer, turn-fight for the REAR QUARTER; guns through the
 //             torpedo reload (a dogfighter).
 //   bulwark — attrition. Holds ground, trades on HP, disengages late.
-//   siege   — standoff. Cannon-led; star shells to resolve stale contacts
+//   siege   — standoff. Gun-led; star shells to resolve stale contacts
 //             into live sight.
-//   forager — farms for a level lead (the radio beacons since Story 10.8;
-//             the PvE fleet before); avoids captains early. Hangs BACK doing
-//             it (Eric ruling 2026-08-20).
 //   trapper — mines astern while withdrawing; prepares its field from
 //             standoff and lets the traps do the closing.
+//
+// (`forager` — beacon farming for a level lead — was RETIRED by Story 10.12,
+// Eric 2026-11-11, R6: "hunting drones is no longer a thing".)
+//
+// THREE PERSONALITY TRAITS (Story 10.12, Eric 2026-11-11, epic-10 amendment
+// 21): `repairStyle` (R3 — when HULL REPAIR is pressed, ai/abilities.ts),
+// `contestsBeacon` (R4 — whether a target pulls the bot off a beacon,
+// ai/posture.ts) and `shiftFit` (R5 — the Shift its weighted roll favors,
+// `rollShift` below).
 //
 // Each row also carries a build TASTE (Eric ruling 2026-09-30, R5, approved
 // verbatim) — the only thing the card scorer in ai/spending.ts reads from a
@@ -61,7 +67,7 @@
 // class. (The one kind distinction a profile drew — participant vs PvE fleet
 // hull — retired with the fleet at Story 10.8.)
 
-import { CONFIG, type EquipmentId, type ShipClassId } from '@salvo/shared';
+import { CONFIG, SHIFT_IDS, type EquipmentId, type Rng, type ShiftId, type ShipClassId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -87,10 +93,10 @@ export interface BotTargetWeights {
  * ship ladders too but no taste favors them (no new dial, I8). Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) DELETED
  * `hullPoints` and `passiveHealing` and RENAMED `armorPiercing` -> `power`
  * (joined in 9.9, epic-9 amendment 157), `speed` -> `engines`, `turning` ->
- * `rudder`, `radarSweep` -> `intel`; `gun` = any gun-ladder line (deckGun —
- * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;
- * the draw only ever offers the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
- * the bot already holds (the spec's "Scorer definitions").
+ * `rudder`, `radarSweep` -> `intel`; `weapons` = a tier copy (2..cap) of an
+ * equipment line the bot already holds (the spec's "Scorer definitions").
+ * (`gun` — any deck-gun ladder — left with those ladders' reach on a captain,
+ * Story 10.4; Story 10.12 deleted the dead favorite.)
  */
 export type UpgradeFavorite =
   | 'armor'
@@ -98,7 +104,6 @@ export type UpgradeFavorite =
   | 'engines'
   | 'intel'
   | 'reload'
-  | 'gun'
   | 'weapons';
 
 /**
@@ -155,12 +160,23 @@ export interface BotProfile {
   targetWeights: BotTargetWeights;
   /** hp fraction below which this profile breaks off. Defaults to
    *  CONFIG.bots.disengageHpFrac; overridden where the profile's identity
-   *  demands it (bulwark trades far longer, raider leaves far earlier). */
+   *  demands it (bulwark trades far longer, raider leaves far earlier). Also
+   *  the LATE repair style's press line (ai/abilities.ts) and the HEALTHY
+   *  read (tacticKit.ts). (`healHpFrac`, the old one-line repair gate,
+   *  retired with Story 10.12, R3.) */
   disengageHpFrac: number;
-  /** hp fraction below which this bot FIRES a stocked HULL REPAIR from its
-   *  belt (epic-8 amendment 49 — it gated the retired -1 heal spend until
-   *  Story 8.8). Defaults to CONFIG.bots.healHpFrac. */
-  healHpFrac: number;
+  /** WHEN HULL REPAIR IS PRESSED (Story 10.12, Eric 2026-11-11, R3) — read by
+   *  ai/abilities.ts. 'early': the moment the whole heal of one press fits
+   *  the missing hull with no waste. 'late': when the bot breaks off. */
+  repairStyle: 'early' | 'late';
+  /** DOES A TARGET PULL IT OFF A BEACON (Story 10.12, Eric 2026-11-11, R4) —
+   *  read by ai/posture.ts. true: it leaves station to fight (raider,
+   *  duelist). false: it stays parked in `farm`, collecting and shooting from
+   *  where it sits. */
+  contestsBeacon: boolean;
+  /** THE FITTING SHIFT (Story 10.12, Eric 2026-11-11, R5): the Shift
+   *  `rollShift` deals with probability CONFIG.bots.shiftFitWeight. */
+  shiftFit: ShiftId;
   /**
    * THE APPETITE TABLE (Eric ruling 2026-08-20) — how PROACTIVELY this
    * captain reaches for each equipment, and the ONLY thing a profile may say
@@ -188,10 +204,9 @@ export interface BotProfile {
 /** CONFIG defaults, named once so a profile row reads as "the default" rather
  *  than as a number that happens to match. */
 const DEFAULT_DISENGAGE = CONFIG.bots.disengageHpFrac;
-const DEFAULT_HEAL = CONFIG.bots.healHpFrac;
 
 /**
- * THE SIX PROFILES. `Record<BotProfileId, BotProfile>` is the completeness
+ * THE FIVE PROFILES. `Record<BotProfileId, BotProfile>` is the completeness
  * gate: BotProfileId is derived from CONFIG.bots.profiles, so adding a
  * profile id there without a row here fails to type-check right at this line.
  */
@@ -204,7 +219,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
       // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
       favoriteUpgrades: ['engines', 'weapons', 'power'],
-      favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
+      favoriteWeapons: ['heavyTorpedo', 'lightTorpedo', 'supercavTorpedo'],
     },
     // Strikes from around half its gun's reach and does not loiter
     // inside knife range — the torpedo opener needs run-out room, and a TB
@@ -217,10 +232,13 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // Isolation and damage dominate: a raider picks off stragglers.
     targetWeights: { captain: 1.0, damaged: 1.6, isolated: 1.8 },
     disengageHpFrac: 0.5, // leaves EARLY — a hit torpedo boat is a dead one
-    healHpFrac: DEFAULT_HEAL,
+    repairStyle: 'early',
+    contestsBeacon: true,
+    shiftFit: 'boost',
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, hunker: 2.0 },
+    // The supercav torpedo reads as the row's torpedo (Story 10.12).
+    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, supercavTorpedo: 2.5, boost: 2.0, instantReload: 2.0, hunker: 2.0 },
   },
   duelist: {
     id: 'duelist',
@@ -230,8 +248,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
       // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
       // 'rudder' dropped with the RUDDER ladder (Story 10.6, Eric 2026-11-05, R2 / I8).
-      favoriteUpgrades: ['gun', 'reload', 'power'],
-      favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
+      // The dead 'gun' favorite deleted (Story 10.12).
+      favoriteUpgrades: ['reload', 'power'],
+      favoriteWeapons: ['heavyTorpedo', 'lightTorpedo', 'supercavTorpedo'],
     },
     // Knife range: inside 0.3 of gun reach the rear-quarter turn-fight is decided by
     // turning and gun cooldown, which is exactly where this profile wins.
@@ -243,10 +262,12 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // Wants a PEER, and does not care whether it is hurt or alone.
     targetWeights: { captain: 1.4, damaged: 0.9, isolated: 0.5 },
     disengageHpFrac: 0.3,
-    healHpFrac: DEFAULT_HEAL,
+    repairStyle: 'early',
+    contestsBeacon: true,
+    shiftFit: 'boost',
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, hunker: 1.5 },
+    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, supercavTorpedo: 1.5, boost: 1.5, instantReload: 1.5, hunker: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
@@ -257,7 +278,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       // 'passiveHealing' (epic-9 amendment 97) left with their lines, Story
       // 10.3 (Eric 2026-11-04, epic-10 amendment 8).
       favoriteUpgrades: ['armor'],
-      favoriteWeapons: ['broadside', 'starShells'],
+      // The never-dealt 'broadside' deleted (Story 10.12); the FOULING and
+      // FLASH shells read as the row's shells.
+      favoriteWeapons: ['starShells', 'foulingShell', 'dazzleShells'],
     },
     // Holds ground at gun-trade range and refuses to be kited out of it.
     // (9.8 fractions retired by amendment 198: were 0.15–0.4)
@@ -267,12 +290,14 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     holdsInCover: false,
     targetWeights: { captain: 1.2, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
-    healHpFrac: 0.6, // and repairs sooner, because HP IS its plan
+    repairStyle: 'early', // HP IS its plan
+    contestsBeacon: false,
+    shiftFit: 'hunker',
     // Bulwark CARRIES star shells and now genuinely uses them — reluctantly
     // (above neutral, below eager: it waits for a plot to go properly cold
     // before spending a 20s flare). The old usesStarShells: false was the
     // capability-keyed-by-hull defect the equipment axis retires.
-    appetite: { broadside: 2.0, starShells: 1.2, phosphorShells: 1.2 },
+    appetite: { starShells: 1.2, phosphorShells: 1.2, foulingShell: 1.2, dazzleShells: 1.2 },
   },
   siege: {
     id: 'siege',
@@ -280,7 +305,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'specialist',
       favoriteUpgrades: ['weapons', 'intel'], // 'radarSweep' until Story 10.3
-      favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
+      // The never-dealt 'broadside' deleted (Story 10.12); the FOULING and
+      // FLASH shells read as the row's shells.
+      favoriteWeapons: ['starShells', 'phosphorShells', 'foulingShell', 'dazzleShells'],
     },
     // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
     // rather than chosen: the old 0.55–0.95 band put the BROADSIDE BARRAGE
@@ -296,46 +323,15 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     holdsInCover: true,
     targetWeights: { captain: 1.2, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
-    healHpFrac: DEFAULT_HEAL,
+    repairStyle: 'late',
+    contestsBeacon: false,
+    shiftFit: 'instantReload',
     // EAGER flares (C2 — the BS DOES use star shells: the eager tier keeps
-    // the shipped 1.5s staleness trigger) leading the broadside; an acquired
+    // the shipped 1.5s staleness trigger); an acquired
     // mine stays at the neutral base, so siege lays only against something
-    // CLOSING — never as trapper's standing plan.
-    appetite: { starShells: 2.4, phosphorShells: 2.4, broadside: 2.2 },
-  },
-  forager: {
-    id: 'forager',
-    spend: 'weighted',
-    taste: {
-      style: 'rounded',
-      favoriteUpgrades: ['gun', 'reload'],
-      favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
-    },
-    // HANGS BACK TO SURVIVE TO THE PAYOFF (Eric ruling 2026-08-20, cycle
-    // 111). The ML *"wants certain things, and when it gets them it is a
-    // powerhouse, it just needs to survive until then"* — and cycle 110's A/B
-    // measured the old 0.20–0.45 band dying for it (181.1s afloat vs the
-    // random control's 264.0s, 1.97 boons vs 2.96). The band now sits from
-    // just under truesight out to a 0.80 standoff: as a fraction of the
-    // mounted gun's own reach (Story 9.8, ruling 126) the whole of it is
-    // inside that reach, so hanging back costs no firepower, only exposure.
-    // (9.8 fractions retired by amendment 198: were 0.45–0.8)
-    bandNudge: 0.1,
-    oddsThreshold: 1.2,
-    leansIn: false,
-    holdsInCover: false,
-    // The one profile that would rather farm than fight (C3: a level lead
-    // first, avoid captains early) — the low captain weight is what lets a
-    // paying beacon outrank a far track.
-    targetWeights: { captain: 0.5, damaged: 0.8, isolated: 0.6 },
-    disengageHpFrac: 0.55, // the EARLIEST break-off in the game — see above
-    healHpFrac: 0.6, // and repairs early: boons are its plan, hp buys the time
-    // A farmer, not a layer: the mine sits barely above neutral (reactive —
-    // it answers a closing chaser, not trapper's standing plan; holding the
-    // CAPTIVE doctrine opens the prepared lay at this tier, but that lives
-    // with the weapon in ai/equipment.ts). (Its radar-buoy entry went with
-    // the buoy in Story 8.16.)
-    appetite: { navalMines: 1.4, captiveMines: 1.4, foulingMines: 1.4 },
+    // CLOSING — never as trapper's standing plan. (The never-dealt
+    // broadside's 2.2 deleted, Story 10.12.)
+    appetite: { starShells: 2.4, phosphorShells: 2.4, foulingShell: 2.4, dazzleShells: 2.4 },
   },
   trapper: {
     id: 'trapper',
@@ -359,7 +355,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     holdsInCover: true,
     targetWeights: { captain: 1.0, damaged: 1.0, isolated: 0.8 },
     disengageHpFrac: 0.45, // breaks off early — the trap fights on without it
-    healHpFrac: 0.6, // and heals early, for the same survive-to-payoff reason
+    repairStyle: 'late',
+    contestsBeacon: false,
+    shiftFit: 'hunker',
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
     // now the eager tier of the ONE shared mine tactic). (Its radar-buoy entry
     // went with the buoy in Story 8.16.)
@@ -373,7 +371,12 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
  * NOT shaped by a doctrine preference: no band nudge, a neutral odds
  * threshold (1.0), no lean-in, no hold (Story 9.13 — the band 0.15–0.55 they
  * carried until amendment 198 retired the fractions), flat target weights, CONFIG
- * default disengage/heal, EVERY appetite entry at or above APPETITE_EAGER (2)
+ * default disengage, the EARLY repair style (Story 10.12: the no-waste press
+ * reads only the hull's own folded heal — no profile line), contesting a
+ * beacon (the chain as it stood before Story 10.12) and SPEED BOOST as the
+ * fitting Shift (the DEFAULT_SHIFT — a row has to name one; the harness deals
+ * a test row's Shift by the same weighted roll unless `--shift` forces one),
+ * EVERY appetite entry at or above APPETITE_EAGER (2)
  * so every equipment verb is exercised (the gun sits at exactly 2 — still the
  * lowest entry, preserving the universal fallback ordering without ever
  * dropping below the ruled floor), and `spend: 'random'` so card performance
@@ -421,7 +424,9 @@ const testRow = (id: TestProfileId): BotProfile => ({
   holdsInCover: false,
   targetWeights: { captain: 1.0, damaged: 1.0, isolated: 1.0 },
   disengageHpFrac: DEFAULT_DISENGAGE,
-  healHpFrac: DEFAULT_HEAL,
+  repairStyle: 'early',
+  contestsBeacon: true,
+  shiftFit: 'boost',
   appetite: { ...TEST_APPETITE },
 });
 
@@ -436,7 +441,7 @@ export const TEST_PROFILES: Readonly<Record<TestProfileId, BotProfile>> = Object
 
 /** THE TEST ROWS STAY HULL-BOUND (Story 8.20): the harness's
  *  `--bot-profile random*` contract is one row per hull, so a forced test row
- *  still governs its bot's hull. The six in-game personalities have none. */
+ *  still governs its bot's hull. The five in-game personalities have none. */
 export const TEST_PROFILE_HULL: Readonly<Record<TestProfileId, ShipClassId>> = Object.freeze({
   randomYamato: 'yamato',
   randomBismarck: 'bismarck',
@@ -472,4 +477,21 @@ export function profileOf(id: AnyProfileId): BotProfile {
   return Object.hasOwn(BOT_PROFILES, id)
     ? BOT_PROFILES[id as BotProfileId]
     : TEST_PROFILES[id as TestProfileId];
+}
+
+/**
+ * THE WEIGHTED SHIFT ROLL (Story 10.12, Eric 2026-11-11, epic-10 amendment
+ * 21, R5): the profile's fitting Shift with probability
+ * CONFIG.bots.shiftFitWeight, else one of the OTHER Shifts uniformly. ONE
+ * draw off `rng`: a draw under the weight deals the fit; the rest of the unit
+ * interval is cut into equal parts, one per other Shift (SHIFT_IDS order).
+ * Pure over the injected stream.
+ */
+export function rollShift(profile: Pick<BotProfile, 'shiftFit'>, rng: Pick<Rng, 'next'>): ShiftId {
+  const w = CONFIG.bots.shiftFitWeight;
+  const u = rng.next();
+  if (u < w) return profile.shiftFit;
+  const others = SHIFT_IDS.filter((id) => id !== profile.shiftFit);
+  const k = Math.floor(((u - w) / (1 - w)) * others.length);
+  return others[Math.min(others.length - 1, Math.max(0, k))];
 }

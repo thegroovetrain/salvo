@@ -958,7 +958,7 @@ describe('controls — the pacifist posture is the SCRIPT, not a deck (Story 8.1
     w.map.islands.length = 0;
     const rec = w.addBot(undefined, undefined);
     expect(SHIP_CLASS_IDS).toContain(rec.hullId as (typeof SHIP_CLASS_IDS)[number]);
-    expect(rec.shift).toBe(DEFAULT_SHIFT);
+    expect(SHIFT_IDS).toContain(rec.shift); // the enrolled, personality-weighted Shift (Story 10.12)
     expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     w.grantXp(rec, 1);
     expect(rec.offer).toHaveLength(CONFIG.offer.size);
@@ -1504,26 +1504,19 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
 
   it('forced: every bot takes the one Shift', () => {
     const forced = SHIFT_IDS[SHIFT_IDS.length - 1];
-    const deal = botShiftDealer({ botShift: forced }, 1234);
+    const deal = botShiftDealer({ botShift: forced });
     for (let i = 0; i < 20; i += 1) expect(deal()).toBe(forced);
   });
 
-  it('unforced: a SEEDED uniform mix — deterministic per match seed, every Shift reached', () => {
-    const draw = (seed: number): string[] => {
-      const deal = botShiftDealer({}, seed);
-      return Array.from({ length: 19 }, () => deal());
-    };
-    expect(draw(mixSeed(7, 0))).toEqual(draw(mixSeed(7, 0)));
-    expect(draw(mixSeed(7, 0))).not.toEqual(draw(mixSeed(7, 1)));
-    const seen = new Set<string>();
-    for (let m = 0; m < 5; m += 1) for (const g of draw(mixSeed(7, m))) seen.add(g);
-    expect([...seen].sort()).toEqual([...SHIFT_IDS].sort());
+  it('unforced: the dealer passes NO Shift, so the controller\'s weighted roll at enrollment stands (Story 10.12, R5)', () => {
+    const deal = botShiftDealer({});
+    for (let i = 0; i < 20; i += 1) expect(deal()).toBeUndefined();
   });
 
-  it('the harness lobby seats the dealt Shift in slot 1 and the main battery in slot 0 — forced, and the seeded mix', () => {
+  it('the harness lobby seats the dealt Shift in slot 1 and the main battery in slot 0 — forced, and the enrolled roll', () => {
     const seated = (spec: { botShift?: ShiftId }, matchSeed: number): { slot0: string[]; shift: string[] } => {
       const world = new World(matchSeed, 20);
-      const ids = buildBotLobby(world, { seed: 1, matches: 1, captains: 0, ...spec }, 12, matchSeed, 0);
+      const ids = buildBotLobby(world, { seed: 1, matches: 1, captains: 0, ...spec }, 12, 0);
       const ships = ids.map((id) => world.ships.get(id)!);
       for (const ship of ships) expect(ship.loadout[SLOT_BOOST].equipmentId).toBe(ship.shift);
       return { slot0: ships.map((sh) => String(sh.loadout[SLOT_GUN].equipmentId)), shift: ships.map((sh) => sh.shift) };
@@ -1533,10 +1526,12 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
     expect(f.shift).toEqual(Array(12).fill(forced));
     // No bot ever mounts a deck gun: slot 0 is the main battery on every captain hull.
     expect(new Set(f.slot0)).toEqual(new Set(['mainBattery']));
-    // Unforced: the dealer's sequence, byte-identical for the same match seed.
+    // Unforced: each bot sails the Shift its own enrollment dealt — the same
+    // World built bare through addBot with no Shift seats the same sequence,
+    // byte-identical for the same match seed.
     const expected = (() => {
-      const deal = botShiftDealer({}, 99);
-      return Array.from({ length: 12 }, () => deal());
+      const world = new World(99, 20);
+      return Array.from({ length: 12 }, () => world.addBot(undefined, undefined).shift);
     })();
     expect(seated({}, 99).shift).toEqual(expected);
     expect(seated({}, 99)).toEqual(seated({}, 99));
