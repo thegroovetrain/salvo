@@ -11,3 +11,4 @@ HULLCRACKER_NOTES.md
 .claude/scheduled_tasks.lock
 .context/
 CLAUDE.local.md
+client/dist-audition/

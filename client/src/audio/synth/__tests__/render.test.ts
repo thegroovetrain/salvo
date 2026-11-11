@@ -173,6 +173,21 @@ describe('Synth.play — distance', () => {
     expect(far.ctx.nodesOf('biquad').length).toBe(nearFilters);
   });
 
+  it('every filter holds its starting coefficients from build time, not only from its scheduled start', () => {
+    // A resonator whose frequency / Q jump while it already carries signal
+    // rings out far too hot; a delayed (distant) shot is where a source can
+    // start a frame before its filter's scheduled values.
+    const { ctx, synth } = setup();
+    synth.play(click, { distance01: 0.8, rand: seeded(2) });
+    const modes = ctx.nodesOf('biquad').filter((b) => b.type === 'bandpass');
+    expect(modes.length).toBe(click.layers[0].modes!.ratios.length);
+    for (const b of ctx.nodesOf('biquad')) {
+      const f = b.frequency as FakeParam;
+      expect(f.value).toBe(f.writes[0].value);
+    }
+    for (const b of modes) expect((b.Q as FakeParam).value).toBe(click.layers[0].modes!.q);
+  });
+
   it('the reverb send rises with distance (wet multiplier)', () => {
     const sendLevel = (d: number) => {
       const { ctx, synth } = setup();

@@ -310,7 +310,13 @@ export class Synth {
     const bq = this.ctx.createBiquadFilter();
     shot.nodes.push(bq);
     bq.type = f.type;
-    if (f.q !== undefined) bq.Q.setValueAtTime(f.q, t);
+    // Settle the coefficients NOW, not only at `t`: a source may start a frame
+    // before its filter's scheduled values (start times and automation times
+    // round to frames differently), and a high-Q resonator whose frequency / Q
+    // jump from the defaults while it already carries signal rings out tens of
+    // dB hot (measured in Chromium: +25 dB on a Q 90 mode bank).
+    if (f.q !== undefined) bq.Q.value = f.q;
+    bq.frequency.value = Math.max(SILENCE, sweepStart(f.freq) * scale);
     applySweep(bq.frequency, f.freq, t, scale);
     return bq;
   }

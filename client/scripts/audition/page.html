@@ -1,0 +1,28 @@
+<title>Sound Audition</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*__AUDITION_CSS__*/</style>
+<div class="wrap">
+  <header class="top">
+    <h1>Sound Audition</h1>
+    <p class="sub">Story 10.13 — candidates</p>
+    <p class="intro">Everything on this page is synthesized live in your browser by the game's own audio code: there are no sound files. Each sound has two or three takes (A, B, C). Play them, then mark the one you want, or "none of these". Click <strong>START SOUND</strong> first: browsers need a click before they will make any sound.</p>
+    <div class="transport">
+      <button type="button" id="start" class="primary">START SOUND</button>
+      <label class="slider volume"><span class="slider-label">Master volume</span><input id="volume" type="range" min="0" max="1" step="0.01" value="0.7"></label>
+      <button type="button" id="stopAll" class="danger">STOP ALL</button>
+      <p id="status" class="status" role="status"></p>
+    </div>
+  </header>
+  <div id="engines"></div>
+  <div id="cues"></div>
+  <section class="card picks" aria-labelledby="picks-title">
+    <h2 id="picks-title">Your picks</h2>
+    <p class="note">Every sound and the pick you marked (a question mark means not picked yet). Copy it and paste it into the chat.</p>
+    <textarea id="summary" readonly rows="6" aria-label="Picks summary"></textarea>
+    <div class="controls">
+      <button type="button" id="copy" class="primary">COPY</button>
+      <p id="copyStatus" class="status" role="status"></p>
+    </div>
+  </section>
+</div>
+<script>/*__AUDITION_JS__*/</script>
