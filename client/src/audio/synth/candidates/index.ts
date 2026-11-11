@@ -4,9 +4,9 @@
 // plays them through the real renderer, and wave B moves only Eric's picks
 // into the game path and deletes the rest.
 //
-// Round 4 (Eric 2026-11-11): NEW_TAKES_GROUP holds the new takes for the
+// Round 5 (Eric 2026-11-11): NEW_TAKES_GROUP holds the new takes for the
 // sounds he marked "none of these"; PICKED_GROUPS hold the slots he has
-// already picked (rounds 2 and 3), kept untouched for reference.
+// already picked (rounds 2 to 4), kept untouched for reference.
 
 import { MAIN_BATTERY, SECONDARIES } from './guns.js';
 import { MINE_DROP, TORPEDO_LAUNCH, TORPEDO_RUN } from './ordnance.js';
@@ -27,16 +27,16 @@ export { STORM_CANDIDATES } from './storm.js';
 export { KLAXON_STEP_S, SINKING_DEMO_S, klaxonStepS } from './round3.js';
 
 export const NEW_TAKES_GROUP: CueGroup = {
-  title: 'Round 4 \u2014 new takes',
+  title: 'Round 5 \u2014 new takes',
   intro: 'These are new takes for the sounds you marked "none of these", made from what you asked for.',
-  slots: [KLAXON, HORN_TROMBONE, HORN_AIRHORN],
+  slots: [KLAXON, HORN_AIRHORN],
 };
 
 export const PICKED_GROUPS: readonly CueGroup[] = [
   {
-    title: 'Round 3 picks',
-    intro: 'New sounds and the selectable horns you picked in round 3.',
-    slots: [AIRDROP_CHIME, KILL_SOUND, CARD_FITTED_SUBTLE, BOUNTY_OMINOUS, HORN_FOGHORN, HORN_WHISTLE, HORN_BELL],
+    title: 'Round 3 and 4 picks',
+    intro: 'New sounds and the selectable horns you picked in rounds 3 and 4.',
+    slots: [AIRDROP_CHIME, KILL_SOUND, CARD_FITTED_SUBTLE, BOUNTY_OMINOUS, HORN_FOGHORN, HORN_WHISTLE, HORN_BELL, HORN_TROMBONE],
   },
   {
     title: 'Weapons, hits and events',

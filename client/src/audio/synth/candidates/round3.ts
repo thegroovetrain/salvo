@@ -204,25 +204,28 @@ export const BOUNTY_OMINOUS: CueSlot = {
 };
 
 /**
- * The round-2 klaxon voice, unchanged in tone (Eric 2026-11-11: "In the last
- * batch you had a Klaxon choice that sounded pretty good, I was hoping you'd
- * just reuse that"). Recovered from the round-2 `bounty` take A at 6b9e8f5a;
- * only the grain onsets differ between the two takes.
+ * The round-2 klaxon voice (Eric 2026-11-11: "you had a Klaxon choice that
+ * sounded pretty good"), recovered from the round-2 `bounty` take A at
+ * 6b9e8f5a. Round 5: "Make the klaxon deeper" — every frequency is scaled by
+ * `pitch` (the scoop, and the band filter by `band`); shape, drive and length
+ * are unchanged.
  */
-function ahOoGah(onsetsMs: readonly number[]): Layer {
+function ahOoGah(pitch: number, band = pitch): Layer {
   return {
-    source: { kind: 'osc', wave: 'square', freq: { from: 220, to: 430, ms: 260 } },
-    filters: [bp(900, 1.5)],
+    source: { kind: 'osc', wave: 'square', freq: { from: 220 * pitch, to: 430 * pitch, ms: 260 } },
+    filters: [bp(900 * band, 1.5)],
     env: { peak: 0.3, attackMs: 20, holdMs: 380, tauMs: 40 },
     drive: 3,
-    grains: { onsetsMs },
+    grains: { onsetsMs: [0] },
   };
 }
+
+const KLAXON_RECIPE = { gain: 1, family: 'klaxon', maxVoices: 4, reverb: 0.15 } as const;
 
 export const KLAXON: CueSlot = {
   id: 'klaxon',
   title: 'Klaxon (hull alarms and your own sinking)',
-  note: 'The klaxon you liked from round 2, one voice for all three: PLAY = the alarm when your hull drops under half; \u00d73 = three of them under a quarter; SINKING = it repeating while everything muffles under rushing water and goes quiet.',
+  note: 'The klaxon you liked, made deeper. One voice for all three: PLAY = the alarm when your hull drops under half; \u00d73 = three of them under a quarter; SINKING = it repeating while everything muffles under rushing water and goes quiet.',
   today: 'hpHurt',
   todayMore: [
     { label: "Today's under-a-quarter sound", tone: 'hpCritical' },
@@ -232,15 +235,22 @@ export const KLAXON: CueSlot = {
   candidates: [
     {
       id: 'A',
-      label: 'Single ah-oo-gah',
-      blurb: 'The round-2 klaxon you liked, one "ah-oo-gah" per alarm.',
-      recipe: { gain: 1, family: 'klaxon', maxVoices: 4, reverb: 0.15, layers: [ahOoGah([0])] },
+      label: 'A little deeper',
+      blurb: 'The same "ah-oo-gah", about four notes lower.',
+      recipe: { ...KLAXON_RECIPE, layers: [ahOoGah(0.79)] },
     },
     {
       id: 'B',
-      label: 'Double ah-oo-gah',
-      blurb: 'The round-2 klaxon exactly as it was: "ah-oo-gah, ah-oo-gah" for each alarm.',
-      recipe: { gain: 1, family: 'klaxon', maxVoices: 4, reverb: 0.15, layers: [ahOoGah([0, 620])] },
+      label: 'Deeper',
+      blurb: 'The same "ah-oo-gah", about seven notes lower: heavier and more serious.',
+      recipe: { ...KLAXON_RECIPE, layers: [ahOoGah(0.67)] },
+    },
+    {
+      id: 'C',
+      label: 'An octave down',
+      blurb: 'The same "ah-oo-gah" a full octave lower: a big, growling ship\u2019s klaxon.',
+      // The band filter falls only to x0.67 so the lowest take keeps its bite on small speakers.
+      recipe: { ...KLAXON_RECIPE, layers: [ahOoGah(0.5, 0.67)] },
     },
   ],
 };

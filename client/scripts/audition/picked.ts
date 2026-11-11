@@ -1,4 +1,4 @@
-// Eric's picks from rounds 2 and 3 (2026-11-11), shown read-only in the "Already
+// Eric's picks from rounds 2 to 4 (2026-11-11), shown read-only in the "Already
 // picked" section. A later wave wires these into the game.
 
 export const ERIC_PICKS: Readonly<Record<string, string>> = {
@@ -39,4 +39,6 @@ export const ERIC_PICKS: Readonly<Record<string, string>> = {
   hornFoghorn: 'B',
   hornWhistle: 'C',
   hornBell: 'A',
+  // round 4
+  hornTrombone: 'B',
 };

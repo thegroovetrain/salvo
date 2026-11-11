@@ -53,7 +53,7 @@ async function bundle() {
     define: {
       __APP_VERSION__: JSON.stringify('audition'),
       __HC_PERF__: 'false',
-      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 round 4`),
+      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 round 5`),
     },
     logLevel: 'warning',
   });
