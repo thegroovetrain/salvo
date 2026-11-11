@@ -3790,7 +3790,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   evidence: `server/src/game/match.ts` `onPlayerLeave` → `world.sinkShip(id)` with no killer; epic-10 amendment 18(n).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
-  status: open - Eric's pen (a card name) - 2026-11-10 (Story 10.10 follow-up, cycle 220; Fable Blind Hunter P1)
+  status: CLOSED 2026-11-10 - Eric renamed the card RACK CAPACITY (epic-10 amendment 19(k), cycle 221, 0.19.15); it fits the two-line name box.
   summary: `EXPANDED MINE RACKS` WRAPS TO THREE LINES ON THE NARROW OFFER CARD (136×64, 28 px name box, 9 mono chars a line at 14 px) and is clipped top and bottom; every other catalog name fits in two. Pre-existing from PR #329's card face. Options: a shorter card name (Eric's word), or a taller card for the whole stack (changes the face he loved). Not shrunk (the text rule).
   evidence: `client/src/ui/offerGroup.ts` NAME_CSS, `shared/src/sim/catalog.ts` the `expandedMineRacks` line, `monoWrapLines('EXPANDED MINE RACKS', 14, .42, 88)` = 3.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.19.15] - 2026-11-10
+
+### Changed
+- **EXPANDED MINE RACKS is now RACK CAPACITY.** Same card, a name that fits the offer card.
+
 ## [0.19.14] - 2026-11-10
 
 ### Changed

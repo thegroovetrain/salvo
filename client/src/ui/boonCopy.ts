@@ -167,7 +167,7 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   aftTorpedoLauncher: 'AFT LAUNCHER', // Eric 2026-11-05 (line id unchanged)
   secondLauncherTube: 'SECOND TUBE', // Eric 2026-11-05 (line id unchanged)
   secondMineRack: 'SECOND MINE RACK',
-  expandedMineRacks: 'EXPANDED MINE RACKS',
+  expandedMineRacks: 'RACK CAPACITY',
 };
 
 /**
@@ -1110,7 +1110,7 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
 /**
  * THE ONE-OFF WEAPON CARDS' ROW (Story 10.6, Eric 2026-11-05, R6 / R7): each
  * prints the ONE mount count its single tier steps, before → after —
- * launchers, tubes per launcher, racks — except EXPANDED MINE RACKS, whose
+ * launchers, tubes per launcher, racks — except RACK CAPACITY (the expandedMineRacks line), whose
  * `rackBonus` is not a count of anything a player holds, so its row prints
  * what it buys: the HELD mine's capacity per rack (`rackCapacity`, the shared
  * one helper). Keyed by the stat path the tier authors, so the row is
