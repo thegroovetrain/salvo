@@ -510,13 +510,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // bot arriving after that snapshot sinks unrecorded (recordSink refuses ids
     // outside it). Building here — before setTimestep below — is what
     // makes "before activate" structural rather than a race.
+    //
+    // TRUSTED BOT FILL — a bot-filled private lobby (cycle 167, ruling 4) or a
+    // bot-filled standard queue (Story 10.11, epic-10 amendment 20): fill the
+    // seats the formed cohort does not take, to CONFIG.map.playerCap — at the
+    // SAME point as solo, so the bots are in the water before activate() for
+    // the same reason. Keyed on `botFill` alone, never on a mode:
+    // sanitizeRoomOptions admits it only under the server's trust ticket.
     if (sanitized.solo) this.buildBotFleet(CONFIG.map.playerCap - 1);
-    // PRIVATE LOBBY BOT FILL (cycle 167, ruling 4): fill the slots the lobby's
-    // captains do not take, to the fixed 20 — at the SAME point as solo, so the
-    // bots are in the water before activate() for the same reason.
-    if (sanitized.mode === 'private' && sanitized.botFill) {
-      this.buildBotFleet(CONFIG.map.playerCap - (sanitized.expectedCaptains ?? 1));
-    }
+    else if (sanitized.botFill) this.buildBotFleet(CONFIG.map.playerCap - (sanitized.expectedCaptains ?? 1));
 
     // LISTING metadata for /liveness (Story 6.6). This is the ONLY place the
     // arena's mode is written down, and it goes on the ROOM LISTING — never
@@ -681,13 +683,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return sanitized.matchOverride?.minHumans ?? ArenaRoom.doorMinHumans(sanitized);
   }
 
-  /** The door's own minHumans: one for solo, and one for a BOT-FILLED private
-   *  arena (cycle 167, ruling 2 — the host may start alone with bot-fill on);
-   *  undefined = the CONFIG default (a private arena without bots needs 2,
-   *  exactly like a standard one). */
+  /** The door's own minHumans: one for solo, and one for any trusted BOT-FILLED
+   *  arena — a private lobby's (cycle 167, ruling 2 — the host may start alone
+   *  with bot-fill on) or the standard queue's (Story 10.11, epic-10 amendment
+   *  20 — one captain arms it); undefined = the CONFIG default (an arena
+   *  without bots needs CONFIG.match.minHumans people). */
   private static doorMinHumans(sanitized: SanitizedRoomOptions): number | undefined {
     if (sanitized.solo) return 1;
-    return sanitized.mode === 'private' && sanitized.botFill ? 1 : undefined;
+    return sanitized.botFill ? 1 : undefined;
   }
 
   /** The listing tag for /liveness: which door formed this room. */
@@ -750,7 +753,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   /**
    * FILL THE ROSTER WITH AI CAPTAINS (Story 6.5) — the whole server side of
    * Solo vs AI. `count` is `CONFIG.map.playerCap - 1` for solo, and
-   * `playerCap - expectedCaptains` for a bot-filled private arena (cycle 167),
+   * `playerCap - expectedCaptains` for a bot-filled private arena (cycle 167)
+   * or a bot-filled standard-queue arena (Story 10.11),
    * so the ocean holds a full lobby either way: the count is DERIVED from the cap rather than
    * being a new constant, which keeps it in step with the spawn lattice (also
    * exactly playerCap candidates) and with the map radius, which is sized off

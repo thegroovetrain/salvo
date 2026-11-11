@@ -7,8 +7,13 @@
 //
 // The adapter's own responsibilities (seat reservation, liveness sends, the
 // JOINING guard) are integration surface and are covered by the queue smoke;
-// what is checked HERE is that no state combination can start a 1-human match,
-// and that the deadline never moves.
+// what is checked HERE is that no state combination forms below the arm
+// minimum, and that the deadline never moves.
+//
+// THE ARM MINIMUM IS A PARAMETER (Story 10.11, epic-10 amendment 20): the
+// room passes CONFIG.match.minHumans when the queue's bot fill is OFF (`CFG`,
+// the pre-10.11 queue every block below the bot-fill one exercises) and 1 when
+// it is ON (`FILL`).
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { CONFIG, PROTOCOL_VERSION } from '@salvo/shared';
@@ -17,7 +22,8 @@ import { defaultQueueConfig, queueStep, type QueueConfig, type QueueState } from
 import { protocolVersionError, sanitizeExpectedCaptains, sanitizeRoomOptions } from '../rooms/roomOptions.js';
 import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 
-const CFG: QueueConfig = defaultQueueConfig();
+const CFG: QueueConfig = defaultQueueConfig(CONFIG.match.minHumans);
+const FILL: QueueConfig = defaultQueueConfig(1);
 const MIN = CFG.minHumans;
 const CAP = CFG.cap;
 const TIMER = CFG.queueTimerMs;
@@ -31,16 +37,69 @@ function step(nowMs: number, pooled: number, armedAtMs: number | null = null, cf
 // --- config projection -------------------------------------------------------
 
 describe('defaultQueueConfig', () => {
-  it('projects CONFIG verbatim — the queue never forks the arena cap', () => {
-    expect(CFG.minHumans).toBe(CONFIG.match.minHumans);
-    expect(CFG.cap).toBe(CONFIG.map.playerCap);
-    expect(CFG.queueTimerMs).toBe(CONFIG.match.queueTimerMs);
+  it('takes the arm minimum and the hold from the caller, and never forks the arena cap', () => {
+    const cfg = defaultQueueConfig(1, 1234);
+    expect(cfg).toEqual({ minHumans: 1, cap: CONFIG.map.playerCap, queueTimerMs: 1234 });
+  });
+
+  it('defaults the hold to CONFIG.match.queueTimerMs', () => {
+    expect(defaultQueueConfig(CONFIG.match.minHumans).queueTimerMs).toBe(CONFIG.match.queueTimerMs);
   });
 });
 
-// --- matrix row: lone captain ------------------------------------------------
+// --- bot fill ON: the arm minimum is one (Story 10.11) -----------------------
 
-describe('lone captain', () => {
+describe('bot fill ON — arm minimum 1', () => {
+  const fill = (nowMs: number, pooled: number, armedAtMs: number | null = null) =>
+    step(nowMs, pooled, armedAtMs, FILL);
+
+  it('a lone captain arms the full timer at join', () => {
+    const d = fill(7000, 1);
+    expect(d.armedAtMs).toBe(7000);
+    expect(d.form).toBe(false);
+    expect(d.startsInMs).toBe(FILL.queueTimerMs);
+  });
+
+  it('a lone captain forms at expiry with formCount 1 (the arena seats the bots)', () => {
+    expect(fill(7000 + FILL.queueTimerMs - 1, 1, 7000).form).toBe(false);
+    const d = fill(7000 + FILL.queueTimerMs, 1, 7000);
+    expect(d.form).toBe(true);
+    expect(d.formCount).toBe(1);
+    expect(d.armedAtMs).toBeNull();
+  });
+
+  it('a pool reaching the cap still forms immediately', () => {
+    const d = fill(7000, FILL.cap, 7000);
+    expect(d.form).toBe(true);
+    expect(d.formCount).toBe(FILL.cap);
+  });
+
+  it('an overflow surplus — even ONE captain — re-arms a fresh full timer', () => {
+    const formed = fill(1000, FILL.cap + 1, 1000);
+    expect(formed.formCount).toBe(FILL.cap);
+    const rearmed = fill(2000, 1, formed.armedAtMs);
+    expect(rearmed.armedAtMs).toBe(2000);
+    expect(rearmed.startsInMs).toBe(FILL.queueTimerMs);
+    expect(fill(2000 + FILL.queueTimerMs - 1, 1, rearmed.armedAtMs).form).toBe(false);
+    expect(fill(2000 + FILL.queueTimerMs, 1, rearmed.armedAtMs).formCount).toBe(1);
+  });
+
+  it('a pool drained to 0 while armed forms nothing, however late', () => {
+    for (const late of [0, 1, FILL.queueTimerMs * 3]) {
+      const d = fill(1000 + FILL.queueTimerMs + late, 0, 1000);
+      expect(d.form).toBe(false);
+      expect(d.formCount).toBe(0);
+    }
+  });
+
+  it('an empty pool never arms', () => {
+    expect(fill(5000, 0).armedAtMs).toBeNull();
+  });
+});
+
+// --- matrix row: lone captain, bot fill OFF ----------------------------------
+
+describe('lone captain — bot fill OFF', () => {
   it('never arms, never forms, and reports no countdown', () => {
     const d = step(1000, 1);
     expect(d.armedAtMs).toBeNull();
@@ -166,16 +225,19 @@ describe('drop below min after arm', () => {
 
 describe('re-join churn', () => {
   it('never moves the deadline across an arbitrary leave/rejoin sequence', () => {
-    // Simulated pool sizes over 30s steps: arm at 2, churn around min, end at 2.
+    // Simulated pool sizes, evenly spread INSIDE the hold: arm at 2, churn
+    // around min, end at 2. The spacing derives from the timer so the whole
+    // sequence stays before the deadline whatever CONFIG holds.
     const churn = [2, 1, 2, 1, 2, 3, 1, 2];
+    const spacing = Math.floor(TIMER / (churn.length + 1));
     let armedAtMs: number | null = null;
     let now = 1000;
     for (const pooled of churn) {
       const d = queueStep({ nowMs: now, pooled, armedAtMs }, CFG);
       armedAtMs = d.armedAtMs;
-      // Never forms early: every step below is inside the deadline.
-      if (now < 1000 + TIMER) expect(d.form).toBe(false);
-      now += 10_000;
+      // Never forms early: every step is inside the deadline.
+      expect(d.form).toBe(false);
+      now += spacing;
     }
     expect(armedAtMs).toBe(1000); // set at the first step, never touched since
   });
@@ -203,7 +265,7 @@ describe('overflow past cap', () => {
     // arena, so the 5 left behind must not inherit the expired remains of the
     // departed cohort's deadline. Without this, a queue room that had once
     // expired would form every later pair INSTANTLY for the rest of its life
-    // and the 2:00 wait would silently evaporate after the first match.
+    // and the queue's wait would silently evaporate after the first match.
     const formed = step(1000, CAP + 5, 1000);
     expect(formed.form).toBe(true);
     expect(formed.armedAtMs).toBeNull();
@@ -242,16 +304,19 @@ describe('startsInMs', () => {
   });
 });
 
-// --- guardrail: nothing may start a 1-human match ----------------------------
+// --- guardrail: nothing forms below the arm minimum --------------------------
 
-describe('min-2 invariant', () => {
-  it('holds across the whole (pooled x elapsed x armed) grid', () => {
+describe('arm-minimum invariant', () => {
+  it.each([
+    ['bot fill OFF', CFG],
+    ['bot fill ON', FILL],
+  ])('holds across the whole (pooled x elapsed x armed) grid — %s', (_label, cfg) => {
     for (const pooled of [0, 1, 2, 3, CAP - 1, CAP, CAP + 7]) {
       for (const elapsed of [0, 1, TIMER - 1, TIMER, TIMER * 3]) {
         for (const armedAtMs of [null, 0]) {
-          const d = queueStep({ nowMs: elapsed, pooled, armedAtMs }, CFG);
+          const d = queueStep({ nowMs: elapsed, pooled, armedAtMs }, cfg);
           if (d.form) {
-            expect(d.formCount).toBeGreaterThanOrEqual(MIN);
+            expect(d.formCount).toBeGreaterThanOrEqual(Math.max(1, cfg.minHumans));
             expect(d.formCount).toBeLessThanOrEqual(CAP);
             expect(d.formCount).toBeLessThanOrEqual(pooled);
           } else {

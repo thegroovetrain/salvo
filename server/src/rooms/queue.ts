@@ -11,13 +11,16 @@
 import { CONFIG } from '@salvo/shared';
 
 export interface QueueConfig {
-  /** Captains required to ARM the pool (CONFIG.match.minHumans). */
+  /** Captains required to ARM the pool — the caller's ARM MINIMUM (Story
+   *  10.11, epic-10 amendment 20): 1 when the standard queue fills with bots,
+   *  CONFIG.match.minHumans when it does not (see queueFill.ts). */
   minHumans: number;
   /** Captains that form the match immediately, ignoring the remaining timer
    *  (CONFIG.map.playerCap — the SAME constant the arena caps at; the queue
    *  must never fork it, see spec-6-1 Boundaries). */
   cap: number;
-  /** ms an armed pool is held before it forms (CONFIG.match.queueTimerMs). */
+  /** ms an armed pool is held before it forms (CONFIG.match.queueTimerMs, or
+   *  the HC_QUEUE_BOT_FILL hold — queueFill.ts). */
   queueTimerMs: number;
 }
 
@@ -41,7 +44,7 @@ export interface QueueState {
    * them (an overflow surplus, or the next arrivals) must get their own full
    * `queueTimerMs`, not the expired remains of someone else's. Without this
    * reset a room that had once expired would form every subsequent pair
-   * INSTANTLY for the rest of its life, and the 2:00 wait would silently
+   * INSTANTLY for the rest of its life, and the queue's wait would silently
    * evaporate after the first match. A griefer cannot abuse the reset: forming
    * requires minHumans AND either the full timer or a full lobby, and it
    * consumes the captains it seats.
@@ -62,14 +65,15 @@ export interface QueueDecision {
   startsInMs: number | null;
 }
 
-/** The shipped queue policy constants. Mirrors game/match.ts's defaultTimings():
- *  CONFIG is the single source of truth, this is just the projection. */
-export function defaultQueueConfig(): QueueConfig {
-  return {
-    minHumans: CONFIG.match.minHumans,
-    cap: CONFIG.map.playerCap,
-    queueTimerMs: CONFIG.match.queueTimerMs,
-  };
+/** The queue policy for a given arm minimum and hold. Mirrors game/match.ts's
+ *  defaultTimings(): the cap is CONFIG's, never forked; the arm minimum and the
+ *  hold are the caller's (StandardQueueRoom reads them from queueFill.ts, so
+ *  this file never touches the environment). */
+export function defaultQueueConfig(
+  armMinimum: number,
+  queueTimerMs: number = CONFIG.match.queueTimerMs,
+): QueueConfig {
+  return { minHumans: armMinimum, cap: CONFIG.map.playerCap, queueTimerMs };
 }
 
 /**
@@ -77,10 +81,13 @@ export function defaultQueueConfig(): QueueConfig {
  * forms when the deadline has passed OR the pool has reached the cap —
  * whichever comes first — but ONLY while the pool still holds `minHumans`.
  *
- * The min check is re-tested at form time on purpose: nothing may start a
- * 1-human standard match (it has no defined termination rule until Story
- * 6-3/6-5), so an expired deadline over a drained pool simply waits, and fires
- * the moment the pool re-reaches min.
+ * The min check is re-tested at form time on purpose: an expired deadline over
+ * a pool drained below the arm minimum simply waits, and fires the moment the
+ * pool re-reaches it. With bot fill OFF the minimum is CONFIG.match.minHumans,
+ * so nothing starts a 1-human bot-less match (a lone human has no one to
+ * fight); with bot fill ON it is 1 (Story 10.11, epic-10 amendment 20), and
+ * the arena seats bots in every empty seat, so a pool drained to 0 is the only
+ * pool that cannot form.
  */
 export function queueStep(state: QueueState, cfg: QueueConfig): QueueDecision {
   const armedAtMs = state.armedAtMs ?? (state.pooled >= cfg.minHumans ? state.nowMs : null);

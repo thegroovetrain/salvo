@@ -26,13 +26,14 @@ warnings: ['oversized']
 - **R3 Bots carry NO mark** — same as Solo vs AI and private lobbies today. Rejected: marked everywhere; marked on results only.
 - **R4 The switch for bot fill is a server ENVIRONMENT VARIABLE settable on Render** (Eric, verbatim: *"I meant to make the switch for bot fill on lobbies something i can set as an environment variable on render"*).
 
+- **R5 `HC_QUEUE_BOT_FILL` IS A NUMBER OF SECONDS** (Eric 2026-11-10, second chat line, verbatim: *"HC_QUEUE_BOT_FILL can be basically number of seconds until queue fills with bots. If set to 0 or unset, then bot autofill should be off."*). Supersedes the first draft's "unset = ON" and its dev-only `HC_QUEUE_TIMER_MS` (dropped: a smoke boots with a small value).
+
 ## Orchestrator rulings (Eric may veto any on staging)
 
-- **O1** The switch is `HC_QUEUE_BOT_FILL`. UNSET or anything but `0` = ON (the ruled behavior is the default, so staging gets it the moment `development` deploys — the Blueprint only syncs from `main`); `0` = OFF. Declared in `render.yaml` on BOTH services as `value: "1"` (the Blueprint is the source of truth; a dashboard-only value is drift).
-- **O2** With the switch OFF the queue is the pre-story queue (arms at `CONFIG.match.minHumans` humans, no bots) but still holds 1:00 — the timer is R-ruled independently of the fill.
+- **O1** A finite value above 0 = bot fill ON with that many seconds as the queue timer; unset, empty, `0`, negative or non-numeric = OFF. Declared in `render.yaml` on BOTH services as `value: "60"` (his 1:00). Consequence to report: the Blueprint syncs from `main`, so staging has no key (OFF) until this file reaches `main` or the key is set on the service by hand.
+- **O2** With the switch OFF the queue is the pre-story queue (arms at `CONFIG.match.minHumans` humans, no bots) holding `CONFIG.match.queueTimerMs`, which becomes 60000 (the story's 1:00).
 - **O3** `CONFIG.match.minHumans` stays 2 and keeps its meaning (no-bot arenas). The queue's arm minimum is derived: 1 when bot fill is on, `CONFIG.match.minHumans` when off. Read once at room creation.
 - **O4** The arena learns `botFill`, never a mode: a TRUSTED `botFill` (the existing `lobbyTicket`) without `mode: 'private'` fills to the cap and arms at one human; the listing tag, `/liveness` split and `MatchRecord.mode` stay `'standard'`.
-- **O5** A dev-only `HC_QUEUE_TIMER_MS`, honoured only with `HC_DEV_OPTIONS=1`, shortens the queue timer so the smokes can script the timer path (amendment 214). Inert in production.
 - **O6** No copy changes. The home button title (`'Deploy alone against other captains'`) stands: bots are unmarked captains (R3). Flagged in the report for Eric.
 
 ## Boundaries & Constraints
@@ -52,7 +53,7 @@ warnings: ['oversized']
 | Cap reached | cap pooled before expiry | forms immediately, zero bots | none |
 | Overflow | cap + k pooled | first cap form; the k re-arm a fresh full timer, then form with bots | none |
 | Pool drains to 0 while armed | last captain leaves | nothing forms; listing publishes no deadline; next joiner's deadline follows the existing cohort rule | none |
-| Fill OFF (`HC_QUEUE_BOT_FILL=0`) | 1 pooled | never arms, never forms (`min 2`); 2 pooled form after the timer with NO bots | none |
+| Fill OFF (`HC_QUEUE_BOT_FILL` unset or `0`) | 1 pooled | never arms, never forms (`min 2`); 2 pooled form after the timer with NO bots | none |
 | Untrusted `botFill` | client-supplied create option, no ticket | stripped into `rejectedKeys`, no bots | silently dropped |
 | Cohort shrinks in arena countdown, fill ON | 2 humans + bots, one leaves | match proceeds (min 1); all humans gone → room disposes as solo does | none |
 
@@ -76,16 +77,15 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution (waves; `/orchestrate` routing in Design Notes):**
-- [ ] W1 `shared/src/constants.ts` + `server/src/rooms/{queue.ts, queueFill.ts (new), StandardQueueRoom.ts, ArenaRoom.ts}` + `server/src/liveness.ts` -- timer 60000; the env switch module (`HC_QUEUE_BOT_FILL`, dev-gated `HC_QUEUE_TIMER_MS`); derived arm minimum; trusted `botFill` create option; arena fill decoupled from mode; stale comments corrected; PV bumped only per the rule above -- the feature
+- [ ] W1 `shared/src/constants.ts` + `server/src/rooms/{queue.ts, queueFill.ts (new), StandardQueueRoom.ts, ArenaRoom.ts}` + `server/src/liveness.ts` -- timer 60000; the env switch module (`HC_QUEUE_BOT_FILL` seconds); derived arm minimum; trusted `botFill` create option; arena fill decoupled from mode; stale comments corrected; PV bumped only per the rule above -- the feature
 - [ ] W1 tests (same agent) -- `queue.test.ts` re-cut around the arm minimum as a parameter (lone arms/forms at min 1; never at min 2; overflow re-arm; drain); a room-level test that fill ON creates the arena with trusted `botFill` and `expectedCaptains` = humans and fill OFF passes neither; arena test: trusted `botFill` without mode → `playerCap − expectedCaptains` bots before the first tick, listing mode `'standard'`, countdown arms at one human, untrusted `botFill` stripped; switch parser unit test; liveness tests on the effective `min` -- the matrix
-- [ ] W2 `server/scripts/{queueSmoke,livenessSmoke,loadTest}.mjs` + client comments -- smokes re-scripted (lone captain arms and, under the dev timer, is seated into a full arena; fill-OFF arm kept where a step needs an unarmed pool or documents the env it needs); `loadTest` header states it runs with `HC_QUEUE_BOT_FILL=0`; client comment drift fixed, tests touching 120_000 follow CONFIG -- scripted scenarios
+- [ ] W2 `server/scripts/{queueSmoke,livenessSmoke,loadTest}.mjs` + client comments -- smokes re-scripted (lone captain arms and, under a short `HC_QUEUE_BOT_FILL`, is seated into a full arena; fill-OFF arm kept where a step needs an unarmed pool or documents the env it needs); `loadTest` header states it runs with the switch off; client comment drift fixed, tests touching 120_000 follow CONFIG -- scripted scenarios
 - [ ] W3 records -- `render.yaml` key on both services with a comment in the file's register, `docs/deploy.md` paragraph, amendment 20, VERSION / `package.json` 0.19.16, both trackers (one-line stamps), `epics.md` stamp, `project-context.md` line, this spec's result
 
 **Acceptance Criteria:**
 - Given fill ON and one pooled captain, when the queue timer expires, then one arena exists holding that captain and `playerCap − 1` bots, its listing mode is `'standard'`, and the match reaches `active`.
 - Given fill ON, when `/liveness` is read with one captain pooled, then `queue.min` is 1 and `deadlineAt` is a future epoch; bots are never counted in `playersOnline`.
-- Given `HC_QUEUE_BOT_FILL=0`, when one captain pools, then no deadline is published and nothing forms; two captains form a bot-less arena after the timer.
-- Given production (`HC_DEV_OPTIONS` unset), when `HC_QUEUE_TIMER_MS` is set, then it is ignored.
+- Given `HC_QUEUE_BOT_FILL` unset or `0`, when one captain pools, then no deadline is published and nothing forms; two captains form a bot-less arena after the timer.
 - Given the tree, when `npm run check` runs, then EXIT 0; `queueSmoke`, `livenessSmoke`, `matchSmoke`, `weaponsSmoke` pass first try against a worktree-booted server.
 
 ## Spec Change Log
@@ -95,7 +95,6 @@ warnings: ['oversized']
 ## Design Notes
 
 - **Why `botFill` and not a mode.** Story 6.5's boundary: the arena never learns which door formed it. "Fill the empty seats" is a roster instruction, like `expectedCaptains`; the ticket already proves the sender is server code.
-- **Why unset = ON.** `render.yaml` reaches Render only from `main`; an opt-in switch would leave staging without the feature it must QA.
 - **Waves (orchestrator):** W1 server + shared + tests (Opus; the trust boundary in `roomOptions`/`ArenaRoom` is already built — reasoning is local) → W2 smokes + client comments (Sonnet, fully specified) ∥ W3 records (Sonnet) → gate (two Fable hunters + Codex `gpt-5.6-sol`).
 
 ## Verification

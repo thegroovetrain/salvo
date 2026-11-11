@@ -335,7 +335,8 @@ export interface RoomOptions extends JoinOptions {
    * PRIVATE LOBBY (cycle 167, Eric ruling 4): fill the empty slots to
    * CONFIG.map.playerCap with combat bots before activation. Honoured ONLY in a
    * bag carrying the server's lobby ticket (see lobbyTicket.ts) — a client bag
-   * naming it is stripped and reported.
+   * naming it is stripped and reported. The standard queue sends it too, with
+   * no `mode`, when its bot fill is on (Story 10.11, epic-10 amendment 20).
    */
   botFill?: boolean;
   /** PRIVATE LOBBY: the arena was formed by a private lobby. Ticket-gated like
