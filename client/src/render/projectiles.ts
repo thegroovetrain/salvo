@@ -464,6 +464,18 @@ export class Projectiles {
     return out;
   }
 
+  /** Every ballistic this store DRAWS, with its wire kind and dead-reckoned
+   *  position at `serverNow` (Story 10.13: the torpedo hum reads it). Read-only;
+   *  the same tracks and the same model `render` places their sprites with. */
+  drawnBallistics(serverNow: number): { id: string; kind: string; x: number; y: number }[] {
+    const out: { id: string; kind: string; x: number; y: number }[] = [];
+    for (const [id, s] of this.live) {
+      const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
+      out.push({ id, kind: s.kind, x: p.x, y: p.y });
+    }
+    return out;
+  }
+
   /** The OWN doctrine modes, fanned in from applyOwnStats (Story 2.9) — the
    *  seam setSightRange established, for the self-private half of ordnance
    *  identity. Stock until the first authoritative `you` lands. */

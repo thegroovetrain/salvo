@@ -176,6 +176,11 @@ export function sanitizeDistance(d01: number | undefined): number {
   return d01 !== undefined && Number.isFinite(d01) ? Math.max(0, Math.min(1, d01)) : 0;
 }
 
+/** A frequency multiplier: finite and positive, else 1 (untransposed). */
+export function sanitizePitch(pitch: number | undefined): number {
+  return pitch !== undefined && Number.isFinite(pitch) && pitch > 0 ? pitch : 1;
+}
+
 /** Non-finite or negative → 0. */
 export function sanitizeDelay(s: number | undefined): number {
   return s !== undefined && Number.isFinite(s) ? Math.max(0, s) : 0;
@@ -375,13 +380,20 @@ function planLayer(layer: Layer, index: number, rand: () => number): GrainPlan[]
 /**
  * Resolve every random choice of one shot. Layers whose `farCut` is below the
  * shot's distance are left out. Deterministic for a given `rand`.
+ *
+ * `pitch` transposes the whole shot: it multiplies every grain's `freqScale`,
+ * which the renderer applies to every oscillator (and FM modulator), every
+ * layer filter and every mode of the shot. Junk → 1. The distance lowpass and
+ * the echo lowpasses are where the shot is HEARD from, not part of its voice,
+ * and are not transposed.
  */
-export function planShot(recipe: CueRecipe, rand: () => number = Math.random, distance01 = 0): ShotPlan {
+export function planShot(recipe: CueRecipe, rand: () => number = Math.random, distance01 = 0, pitch = 1): ShotPlan {
   const d = sanitizeDistance(distance01);
+  const p = sanitizePitch(pitch);
   const grains: GrainPlan[] = [];
   recipe.layers.forEach((layer, i) => {
     if (layer.farCut !== undefined && d > layer.farCut) return;
-    grains.push(...planLayer(layer, i, rand));
+    for (const g of planLayer(layer, i, rand)) grains.push(p === 1 ? g : { ...g, freqScale: g.freqScale * p });
   });
   const echoes = (recipe.echoes ?? []).map((e) => ({
     delayS: jitter(ms(e.delayMs), e.jitter, rand),

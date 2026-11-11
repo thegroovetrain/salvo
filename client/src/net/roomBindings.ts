@@ -70,7 +70,10 @@ import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine, dropToastLine } from '../ui/boonCopy.js';
-import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
+import { fitDetune, fitTone, worldPlacement, type ToneId } from '../audio/tones.js';
+import type { CueId } from '../audio/synth/cues.js';
+import type { CueOptions } from '../audio/context.js';
+import { freshCloudCueState, newClouds, ownHitGain, type CloudCueState } from '../audio/cueEdges.js';
 import type { OwnFire } from '../render/projectiles.js';
 import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
 
@@ -154,6 +157,10 @@ export interface RoomBindingDeps {
      *  tier multiplier, 0..1. The call can silently drop the honk at the mix's
      *  concurrency cap, which is why the chevron never rides on its result. */
     playHorn: (hornId: string, gain: number) => void;
+    /** Story 10.13: a LAYERED cue (Eric's picked recipes, audio/synth/cues.ts).
+     *  World cues carry `pan` + `distance01` from the pure `worldPlacement()`;
+     *  the call may drop the cue under voice pressure, so no mark rides on it. */
+    playCue: (id: CueId, opts?: CueOptions) => void;
   };
   /**
    * THE OWN-FIRE CORRELATION (Story 2.9). CLAIMS the click-time own-fire latch
@@ -450,13 +457,24 @@ interface BindState {
    * within a second of each other and every one of them owes a settle.
    */
   wrecks: { id: string; at: number }[];
+  /** Story 10.13: own gun shells inside `ownGunFloorMs` of each other are ONE
+   *  main-battery report (a turret's salvo leaves together). */
+  ownGun: ToneFloor;
+  /** Story 10.13: the smoke-deploy detector's memory (audio/cueEdges.ts). */
+  smokeCues: CloudCueState;
+  /** Story 10.13: this frame's seen secondary (`w: 'mg'`) shell reveals — the
+   *  only weapon hint an `mz` flash can be paired with (handleMuzzle). */
+  mgReveals: { x: number; y: number }[];
 }
 
 /**
- * The cues that are placed OUT IN THE WORLD (Story 4.7) — the only tones this
- * module ever plays with a pan/gain.
+ * The cues that are placed OUT IN THE WORLD (Story 4.7) — the only cues this
+ * module ever plays with a placement. Story 10.13 moved them onto the layered
+ * path: another ship's gun (`mainBatteryWorld` / `secondariesWorld`, was
+ * `gunReport`), a hit or burst (`steelHit`, was `impact`), a splash, a
+ * witnessed sinking (`sinkWitness`, was `sunkWitness`), and a smoke cloud.
  */
-type WorldToneId = 'gunReport' | 'impact' | 'splash' | 'sunkWitness';
+type WorldCueId = 'mainBatteryWorld' | 'secondariesWorld' | 'steelHit' | 'splash' | 'sinkWitness' | 'smoke';
 
 /**
  * The FLOOR families — which is not the same list as the tone ids, in both
@@ -611,6 +629,9 @@ function freshBindState(): BindState {
     worldTones: worldToneFloors(),
     splashCues: new ImpactDedup(),
     wrecks: [],
+    ownGun: new ToneFloor(CLIENT_CONFIG.audio.ownGunFloorMs),
+    smokeCues: freshCloudCueState(),
+    mgReveals: [],
   };
 }
 
@@ -781,6 +802,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   syncContactLike(f, deps);
+  cueNewClouds(f, deps, s);
   routeVictimTells(f, deps, s);
   trackBurning(f, deps, s);
   routeDenials(f, deps);
@@ -836,6 +858,19 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
   net.foulZones = foulZones;
   net.clouds = clouds; // the HELD list (the match-start edge clears it)
+}
+
+/**
+ * A SMOKE CLOUD DEPLOYED (Story 10.13): a cloud id entering the held set this
+ * frame, own or anybody's, sounds the deploy hiss at the cloud's position. The
+ * cloud is already drawn (render/countermeasure), so the cue says nothing new.
+ * The first frame of a binding only seeds (a reconnect into clouds that were
+ * already on the water is silent), and a cloud first painted long after it was
+ * laid is not a deploy (`smokeCueFreshMs`) — audio/cueEdges.ts `newClouds`.
+ */
+function cueNewClouds(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  const fresh = newClouds(s.smokeCues, deps.state.net.clouds ?? [], f.t, CLIENT_CONFIG.audio.smokeCueFreshMs);
+  for (const c of fresh) worldCueAt('smoke', null, c, f.t, deps);
 }
 
 /** Story 10.4 / 10.6: the own turrets + secondaries heat, and the own torpedo
@@ -916,8 +951,8 @@ export function windowRunning(until: number | undefined, t: number): boolean {
 function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const slowed = windowRunning(f.you?.slowedUntil, f.t) || windowRunning(f.you?.fouledUntil, f.t);
   const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
-  if (slowed && !s.slowed) deps.audio.play('slowed');
-  if (dazzled && !s.dazzled) deps.audio.play('dazzled');
+  if (slowed && !s.slowed) deps.audio.playCue('propFouled');
+  if (dazzled && !s.dazzled) deps.audio.playCue('dazzled');
   s.slowed = slowed;
   s.dazzled = dazzled;
 }
@@ -991,8 +1026,16 @@ function sameList(a: readonly (number | string)[], b: readonly (number | string)
 function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   s.impacts.beginFrame();
   s.splashCues.beginFrame(); // ...and the splash CUE's own same-frame point claim
+  s.mgReveals = mgRevealsOf(f.events); // the `mz` weapon hint (handleMuzzle)
   flushDamage(f, deps, s);
   for (const e of f.events) handleEvent(e, f, deps, s);
+}
+
+/** Pure: this frame's secondary-round (`w: 'mg'`) shell reveal positions. */
+export function mgRevealsOf(events: readonly GameEvent[]): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (const e of events) if (e.k === 'shell' && e.w === 'mg') out.push({ x: e.x, y: e.y });
+  return out;
 }
 
 /** World/combat events (position + fire + hit); the accumulated sensor pulses,
@@ -1002,7 +1045,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
     case 'sunk': handleSunk(e, f.t, deps, s); return;
-    case 'shell': handleShell(e, deps); return;
+    case 'shell': handleShell(e, f.t, deps, s); return;
     case 'torp': handleTorp(e, deps); return;
     case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
     case 'boom': handleBoom(e, f.t, deps, s); return;
@@ -1128,7 +1171,7 @@ function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
  * mono) would permanently rewrite the fallback for every cue after it. A fresh
  * literal per call costs nothing at these rates and cannot be corrupted.
  */
-function unplacedCue(): WorldCue {
+function unplacedCue(): CueOptions {
   return { pan: 0, gain: CLIENT_CONFIG.audio.worldFloorGain };
 }
 
@@ -1230,28 +1273,32 @@ function ownHullFeelsDamage(deps: RoomBindingDeps): boolean {
  * what reaches this client, and re-deciding it here would be a second
  * client-side implementation of a perception rule (audio/tones.ts `worldCue`).
  */
-function worldTone(
-  id: WorldToneId,
+function worldCueAt(
+  id: WorldCueId,
   floor: ToneFloor | null,
   pos: { x: number; y: number } | null,
   t: number,
   deps: RoomBindingDeps,
 ): void {
   if (floor && !floor.request(t)) return;
-  deps.audio.play(id, placeCue(pos, deps, t));
+  deps.audio.playCue(id, placeCue(pos, deps, t));
 }
 
-/** The pan/gain for a world position, or the unplaced fallback. `t` is the
- *  frame's server time, threaded through only so the ear can ask whether we
- *  still have a hull (listenerPos → hasLiveOwnHull). */
-function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): WorldCue {
+/** The pan + distance01 for a world position, or the unplaced fallback. `t`
+ *  is the frame's server time, threaded through only so the ear can ask
+ *  whether we still have a hull (listenerPos → hasLiveOwnHull).
+ *
+ *  ONE LEVEL CURVE (Story 10.13): a layered cue is shaped by its recipe's own
+ *  distance model (quieter, darker, later, wetter — synth/recipe.ts
+ *  `distanceShape`), so no linear gain is passed on top of it. */
+function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): CueOptions {
   if (!pos) return unplacedCue();
   const ear = listenerPos(deps, t);
   // CONFIG.vision.radar — the twelfths ladder's 12/12 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
   // they would re-derive the server's own disclosure decision (audio/tones.ts).
-  return worldCue(pos.x - ear.x, pos.y - ear.y, CONFIG.vision.radar) ?? unplacedCue();
+  return worldPlacement(pos.x - ear.x, pos.y - ear.y, CONFIG.vision.radar) ?? unplacedCue();
 }
 
 /**
@@ -1303,7 +1350,18 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
 function handleMuzzle(e: MuzzleEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.effects.spawnEffect('muzzle', e.x, e.y);
   if (onOwnLiveHull(e.x, e.y, deps, t)) return;
-  worldTone('gunReport', s.worldTones.gunReport, e, t, deps);
+  // Story 10.13: `mz` carries no weapon kind. The one honest hint is a SEEN
+  // secondary round (`w: 'mg'`) revealed in this same frame within a hull
+  // length of the flash — that ship is firing its secondaries; anything else
+  // reads as the main battery. An unseen secondary stream (flash halo beyond
+  // sight) therefore still sounds as the main battery.
+  const cue = mgRevealNear(e.x, e.y, s) ? 'secondariesWorld' : 'mainBatteryWorld';
+  worldCueAt(cue, s.worldTones.gunReport, e, t, deps);
+}
+
+/** Is any of this frame's seen secondary reveals within a hull length of (x, y)? */
+function mgRevealNear(x: number, y: number, s: BindState): boolean {
+  return s.mgReveals.some((p) => near2(x, y, p.x, p.y));
 }
 
 /** Did this happen ON our own hull — one we actually still have? The audio-side
@@ -1363,7 +1421,7 @@ function splashTone(
 ): void {
   if (!floor.request(t)) return;
   if (!s.splashCues.claim(e.x, e.y)) return;
-  worldTone('splash', null, e, t, deps); // the floor is already spent, one line up
+  worldCueAt('splash', null, e, t, deps); // the floor is already spent, one line up
 }
 
 /**
@@ -1387,7 +1445,7 @@ function splashTone(
 function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
   if (e.id !== deps.state.net.sessionId) return;
-  if (s.hitCallTone.request(f.t)) deps.audio.play('hitCall');
+  if (s.hitCallTone.request(f.t)) deps.audio.playCue('hitCall');
 }
 
 /** Self-private reward events: the banked level, the fitted boon, and (cycle
@@ -1416,7 +1474,7 @@ function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): vo
  */
 function handleHeal(e: HealEvent, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
-  deps.audio.play('heal');
+  deps.audio.playCue('repair');
   // ALSO the spend latch's ack, for the same reason `bn` is one (see
   // handleBoonFit): a heal is the OTHER way a spend can land, and every other
   // release clause is an inference off `you` that a same-frame passive bank can
@@ -1461,7 +1519,7 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   // `TAB TO REFIT` cue is untouched (it is true copy, and Tab does open it).
   // Live `pt` is byte-for-byte unchanged.
   if (deps.heldAtStartLine?.() === true) return;
-  deps.audio.play('point');
+  deps.audio.playCue('levelUp');
 }
 
 /**
@@ -1545,7 +1603,7 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
  * two different statements about the same shot, and correlating `mz` back to a
  * shell is impossible by design (it carries no id at all).
  */
-function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
+function handleShell(e: BallisticEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   // The latch is claimed ONCE, and only for a reveal already sitting on our own
   // hull — see the ownFireWeapon dep note (a claim consumes) — and only for a
   // reveal the store has never seen (`firstReveal`).
@@ -1554,8 +1612,30 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   const own = near ? ownShellWeapon(e, claim) : null;
   deps.projectiles.onShell(e, own, claim);
   if (own === 'broadside') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
-  if (own) deps.audio.play(fireTone(shellFireId(own)));
+  if (own) ownShellCue(own, t, deps, s);
 }
+
+/**
+ * Story 10.13 — the own-fire cue a claimed shell weapon reports with (Eric's
+ * picks): a secondary round its own bark; each special-shell line its own
+ * launch; every other gun-family shell (the main battery, and the unclaimed
+ * 'gun' fallback of a salvo's sister shells) the main battery — with a salvo's
+ * shells collapsed to ONE report by the `ownGunFloorMs` floor.
+ */
+function ownShellCue(own: NonNullable<OwnFire>, t: number, deps: RoomBindingDeps, s: BindState): void {
+  const special = SPECIAL_SHELL_CUE[own];
+  if (special) return deps.audio.playCue(special);
+  if (own === 'machineGun') return deps.audio.playCue('secondaries');
+  if (s.ownGun.request(t)) deps.audio.playCue('mainBattery');
+}
+
+/** The special-shell lines, by the equipment that fired. */
+const SPECIAL_SHELL_CUE: Partial<Record<NonNullable<OwnFire>, CueId>> = {
+  starShells: 'starShell',
+  phosphorShells: 'phosphorShell',
+  foulingShell: 'foulingShell',
+  dazzleShells: 'flashShell',
+};
 
 /**
  * Pure-ish: the GENUINE claim behind an own-looking SHELL reveal, or null. The
@@ -1615,18 +1695,6 @@ function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
   return claim ?? 'gun';
 }
 
-/** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
- *  earns its own launch report (Story 2.9: every fitted line is felt), and
- *  PHOSPHOR SHELLS (Story 8.17) and the FOULING SHELL (Story 9.4) report through
- *  the same launch cue (audio/tones FIRE_TONE); anything the claim could not
- *  name falls to the gun crack. */
-function shellFireId(
-  own: OwnFire,
-): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'foulingShell' | 'dazzleShells' {
-  if (own === 'broadside' || own === 'starShells') return own;
-  if (own === 'phosphorShells' || own === 'foulingShell' || own === 'dazzleShells') return own;
-  return 'gun';
-}
 
 /** A steering torpedo re-anchored its track (Story 2.8 — ACOUSTIC HOMING).
  *  Pure render bookkeeping: no tone, no flash, no muzzle heuristic — the fish
@@ -1656,7 +1724,7 @@ function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
   // an unclaimed fish renders the generic straight-runner), so it doubles as
   // the burst-ring authority for a COMMAND DETONATION fish.
   deps.projectiles.onShell(e, own, own);
-  if (near) deps.audio.play(fireTone('heavyTorpedo'));
+  if (near) deps.audio.playCue('torpedoLaunch');
 }
 
 /**
@@ -1754,7 +1822,7 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
   // the most common combat event in the game. The VISUALS above are untouched:
   // only the cue is suppressed. Do not "restore" this.
   if (e.hit !== deps.state.net.sessionId) {
-    worldTone('impact', s.worldTones.impact, e, t, deps);
+    worldCueAt('steelHit', s.worldTones.impact, e, t, deps);
     deps.contactViews.flash(e.hit);
   }
 }
@@ -1798,7 +1866,7 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
   // that never touched us, produced no `dmg` and emitted no `boom` was silenced
   // outright: a ring filling the screen and nothing to hear. The RING above
   // still draws in every case. Do not "restore" the hull ball.
-  if (!inOwnBlast(e.x, e.y, radius, deps)) worldTone('impact', s.worldTones.impact, e, t, deps);
+  if (!inOwnBlast(e.x, e.y, radius, deps)) worldCueAt('steelHit', s.worldTones.impact, e, t, deps);
 }
 
 /**
@@ -2157,7 +2225,7 @@ function sunkCue(
   // A witnessed wreck whose last-known contact has already aged out of the store
   // still sounds, unpanned at the floor (worldTone): we SAW it go down, so the
   // fact is legitimately ours even when the bearing is unavailable.
-  worldTone('sunkWitness', null, pos, t, deps);
+  worldCueAt('sinkWitness', null, pos, t, deps);
 }
 
 /**
@@ -2219,7 +2287,11 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   // amount-0 case real left with the shield — Story 10.5, 2026-11-05.)
   if (!hit) return; // no own damage this frame (the overwhelmingly common case)
   deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.burnZone.burnShakeScale : total);
-  deps.audio.play(allBurn ? 'burn' : 'damage');
+  if (allBurn) return deps.audio.playCue('burning');
+  // Story 10.13: the own-hit level follows the size of the frame's blow — a
+  // secondary round is quiet, a main-battery salvo full (audio/cueEdges.ts).
+  const { ownHitFullHp, ownHitMinGain } = CLIENT_CONFIG.audio;
+  deps.audio.playCue('ownHit', { gain: ownHitGain(total, ownHitFullHp, ownHitMinGain) });
 }
 
 /**

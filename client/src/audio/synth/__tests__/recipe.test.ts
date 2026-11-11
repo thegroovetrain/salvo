@@ -252,6 +252,17 @@ describe('planShot', () => {
     expect(planShot(r, seeded(1), 0.6).grains).toHaveLength(1);
   });
 
+  // Story 10.13: `pitch` transposes the whole shot (the telegraph's ahead /
+  // astern pair) — every grain's frequency multiplier, nothing else.
+  it('pitch multiplies every grain’s freqScale and leaves the rest of the plan alone; junk is 1', () => {
+    const base = planShot(busy, seeded(3));
+    const up = planShot(busy, seeded(3), 0, 1.5);
+    expect(up.grains.map((g) => g.freqScale)).toEqual(base.grains.map((g) => g.freqScale * 1.5));
+    expect(up.grains.map(({ freqScale: _f, ...rest }) => rest)).toEqual(base.grains.map(({ freqScale: _f, ...rest }) => rest));
+    expect(up.echoes).toEqual(base.echoes);
+    for (const junk of [0, -2, NaN, Infinity]) expect(planShot(busy, seeded(3), 0, junk)).toEqual(base);
+  });
+
   it('lengthS is the latest grain end plus the longest echo', () => {
     const plan = planShot(busy, seeded(8));
     const end = Math.max(...plan.grains.map((g) => g.onsetS + g.lengthS));

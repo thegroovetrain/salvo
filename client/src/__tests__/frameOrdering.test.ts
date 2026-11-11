@@ -73,7 +73,7 @@ function setup(onOwnStats: () => void): {
     drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
-    audio: { play: vi.fn() },
+    audio: { play: vi.fn(), playCue: vi.fn() },
     names: (id: string) => id,
     colors: () => null,
     ownBuffer: { push: vi.fn(), clear: vi.fn() },

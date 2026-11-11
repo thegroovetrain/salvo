@@ -55,7 +55,14 @@ export interface PlayOptions {
   delayS?: number;
   /** Per-shot randomness (default Math.random). */
   rand?: () => number;
+  /** Frequency multiplier for the whole shot (see `planShot`); junk → 1. */
+  pitch?: number;
 }
+
+/** What one `playResult` call did: sounded, was dropped on purpose (a cap, a
+ *  zero level, nothing left after the distance cut), or FAILED to build (an
+ *  unsupported node or a throwing factory — the caller may fall back). */
+export type PlayResult = 'played' | 'dropped' | 'failed';
 
 export const DEFAULT_MAX_VOICES = 24;
 
@@ -136,20 +143,25 @@ export class Synth {
    * Never throws.
    */
   play(recipe: CueRecipe, opts: PlayOptions = {}): boolean {
-    if (!this.hasRoom(recipe)) return false;
+    return this.playResult(recipe, opts) === 'played';
+  }
+
+  /** `play`, telling a deliberate drop apart from a build failure. Never throws. */
+  playResult(recipe: CueRecipe, opts: PlayOptions = {}): PlayResult {
+    if (!this.hasRoom(recipe)) return 'dropped';
     const level = sanitizeGain(recipe.gain) * sanitizeGain(opts.gain);
     const d01 = sanitizeDistance(opts.distance01);
-    const plan = planShot(recipe, opts.rand ?? Math.random, d01);
-    if (level <= 0 || plan.grains.length === 0) return false;
+    const plan = planShot(recipe, opts.rand ?? Math.random, d01, opts.pitch);
+    if (level <= 0 || plan.grains.length === 0) return 'dropped';
     const shot: Shot = { nodes: [], sources: [] };
     try {
       this.buildShot(shot, recipe, plan, level, d01, opts);
     } catch {
       teardown(shot, true);
-      return false;
+      return 'failed';
     }
     this.track(shot, recipe.family);
-    return true;
+    return 'played';
   }
 
   private hasRoom(recipe: CueRecipe): boolean {

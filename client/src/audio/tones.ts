@@ -639,6 +639,29 @@ export function worldCue(dxWorld: number, dyWorld: number, reachU: number): Worl
   return { pan, gain };
 }
 
+/** Where a LAYERED world cue (Story 10.13) sits: `worldCue`'s pan, and the
+ *  distance over the same reach as a 0..1 fraction for the recipe's own
+ *  distance shaping (synth/recipe.ts `distanceShape`). */
+export interface WorldPlacement {
+  pan: number;
+  distance01: number;
+}
+
+/**
+ * Pure: the placement of a layered world cue. The pan IS `worldCue`'s (same
+ * math, same cap, same clamp past the reach); `distance01` is the same
+ * distance over the same reach, clamped to 1 past it — clamped, never dropped,
+ * for `worldCue`'s reason. ONE level curve applies to a layered cue: the
+ * recipe's `distanceShape` (quieter, darker, later, wetter with distance); the
+ * legacy linear gain is deliberately NOT multiplied on top. Null for the same
+ * unusable input `worldCue` rejects.
+ */
+export function worldPlacement(dxWorld: number, dyWorld: number, reachU: number): WorldPlacement | null {
+  const cue = worldCue(dxWorld, dyWorld, reachU);
+  if (!cue) return null;
+  return { pan: cue.pan, distance01: Math.min(1, Math.hypot(dxWorld, dyWorld) / reachU) };
+}
+
 /** Which damage band the hull just fell through. */
 export type HpBand = 'hurt' | 'critical';
 

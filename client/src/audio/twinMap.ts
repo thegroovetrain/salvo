@@ -15,6 +15,7 @@
 // it at runtime.
 
 import type { ToneId } from './tones.js';
+import type { CueId } from './synth/cues.js';
 
 /**
  * Every cue the client can SOUND, whichever engine path plays it (Story 4.5).
@@ -26,7 +27,7 @@ import type { ToneId } from './tones.js';
  * `TONE_TWINS` is kept deliberately — the law is unchanged and no call site
  * should have to move for a type widening.
  */
-export type AudioCueId = ToneId | 'foghorn';
+export type AudioCueId = ToneId | 'foghorn' | CueId | 'engine';
 
 /** AudioCueId -> the visual channel that carries the SAME information, muted. */
 export const TONE_TWINS: Record<AudioCueId, string> = {
@@ -106,6 +107,51 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // bearing to yourself is meaningless — which is why both surfaces are named.
   foghorn:
     'the screen-edge bearing chevron pointing down the honk, weighted by volume band (render/foghorn), plus the own-hull bloom for your own honk (render/effects)',
+  // --- THE SOUND PASS (Story 10.13) -------------------------------------------
+  // The layered cues (audio/synth/cues.ts) and the engine. Every one rides a
+  // fact the frame already DRAWS; the ids shared with the tone table above
+  // (splash, denied, hitCall, matchStart, dazzled) keep their rows.
+  mainBattery:
+    'the muzzle flash on your hull + your main-battery shells leaving under dead reckoning (render/effects, projectiles)',
+  secondaries: 'your secondary rounds streaming out from the hull (render/projectiles)',
+  mainBatteryWorld:
+    'the muzzle flash at the shooter\'s position, drawn above the fog inside the flash-rung halo (render/effects `muzzle`)',
+  secondariesWorld:
+    'the muzzle flash at the shooter\'s position plus its secondary rounds in flight beside it (render/effects, projectiles)',
+  torpedoLaunch: 'the torpedo itself + its wake trail on the water (render/projectiles, effects)',
+  torpedoRun: 'the torpedo running close by + its wake ribbon on the water (render/projectiles, wake)',
+  mineDrop: 'the armed mine marker appearing on the chart (render/mines)',
+  starShell: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
+  phosphorShell: 'the phosphor shell in flight + the burning zone it lights (render/projectiles, burnZones)',
+  foulingShell: 'the fouling shell in flight + the foul zone it lays (render/projectiles, foulZones)',
+  flashShell: 'the flash shell in flight + the white flash disc where it bursts (render/projectiles, flashBurst)',
+  steelHit:
+    'the spark hit bloom at the connection, the contracting pierce ring on a punch-through, and the amber burst ring at a gun shell\'s blast point (render/effects)',
+  ownHit:
+    'screen shake sized to the blow + the ship console\'s hull percent and bar dropping (render/shake, render/console/shipConsole)',
+  burning:
+    'the burning zone under your hull + the ship console\'s hull bar dropping (render/burnZones, render/console/shipConsole)',
+  repair:
+    'the ship console\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/shipConsole)',
+  smoke: 'the smoke cloud blooming on the water where it was laid (render/countermeasure)',
+  beacon: 'the radio beacon markers surfacing on the water and the chart (render/beacons)',
+  boostSurge:
+    'the ship console\'s boost state lighting + the wake lengthening behind your hull (render/console/shipConsole, render/wake)',
+  sinkWitness:
+    'the crimson sink ring expanding where the hull went down, plus the kill-feed line naming the loss (render/effects, ui/killFeed)',
+  levelUp:
+    'the ship console\'s banked-level chip + the offer group\'s cards arriving in their corner (render/console/shipConsole, ui/offerGroup)',
+  countdownTick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
+  telegraph:
+    'the ordered detent stepping ahead or astern on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
+  ramGrind:
+    'the own hull drawn pressed against the other hull or the coast, plus the strike sparks where it first touched (render/ships, contactFx)',
+  propFouled: 'the SLOWED tell + its countdown under the chrome bar (render/hud)',
+  // The ENGINE is continuous, not a cue: it follows your helm order and your
+  // speed, both of which the console and the water already show — and another
+  // ship's engine only while that hull is drawn close alongside.
+  engine:
+    'the ordered detent on the ship console\'s helm ladder and the speed readout, plus the wake behind each hull drawn close alongside (render/console/shipConsole, render/wake, render/contacts)',
 };
 
 /** Pure: the visual twin named for a cue (the table is total over AudioCueId). */

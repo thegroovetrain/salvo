@@ -15,6 +15,7 @@ import {
   telegraphTone,
   hpBandEdge,
   worldCue,
+  worldPlacement,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
   audioCues,
@@ -766,5 +767,23 @@ describe('hpBandEdge (Story 4.7) — one sting per DOWNWARD band crossing', () =
       expect(hpBandEdge(bad, 0.1)).toBeNull();
       expect(hpBandEdge(0.6, bad)).toBeNull();
     }
+  });
+});
+
+describe('worldPlacement (Story 10.13) — a layered world cue’s pan and distance', () => {
+  const REACH = CONFIG.vision.radar;
+
+  it('pans exactly as worldCue does, and carries the distance as a fraction of the same reach', () => {
+    for (const [dx, dy] of [[REACH / 2, 0], [-REACH / 4, REACH / 4], [0, 0]]) {
+      const p = worldPlacement(dx, dy, REACH)!;
+      expect(p.pan).toBe(worldCue(dx, dy, REACH)!.pan);
+      expect(p.distance01).toBeCloseTo(Math.hypot(dx, dy) / REACH, 12);
+    }
+  });
+
+  it('clamps past the reach (never dropped) and rejects the input worldCue rejects', () => {
+    expect(worldPlacement(REACH * 3, 0, REACH)!.distance01).toBe(1);
+    expect(worldPlacement(NaN, 0, REACH)).toBeNull();
+    expect(worldPlacement(0, 0, 0)).toBeNull();
   });
 });

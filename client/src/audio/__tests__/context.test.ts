@@ -134,11 +134,15 @@ function setup(): { audio: Audio; ctx: FakeCtx } {
 }
 
 const nodesOf = (ctx: FakeCtx, kind: string): FakeNode[] => ctx.built.filter((n) => n.kind === kind);
-/** The three bus gains, in build order: mono, master, effects (buildBuses). */
+/** The bus gains, in build order (buildBuses): mono, master, the master
+ *  chain's output (Story 10.13 — this fake has no DynamicsCompressor, so the
+ *  chain degrades to its pass-through gain, input === output), effects. */
 const buses = (ctx: FakeCtx) => {
-  const [mono, master, effects] = nodesOf(ctx, 'gain');
-  return { mono, master, effects };
+  const [mono, master, chain, effects] = nodesOf(ctx, 'gain');
+  return { mono, master, chain, effects };
 };
+/** How many gains the bus itself builds; a tone's own gain comes after them. */
+const BUS_GAINS = 4;
 /** The peak the tone's own gain envelope ramps to (playOscillator writes
  *  SILENCE, then the peak, then SILENCE again). */
 const peakOf = (gain: FakeNode): number => (gain.gain as FakeParam).writes[1];
@@ -156,10 +160,11 @@ afterEach(() => {
 });
 
 describe('the bus chain', () => {
-  it('routes effects -> master -> mono -> destination', () => {
+  it('routes effects -> master chain -> master -> mono -> destination', () => {
     const { ctx } = setup();
-    const { mono, master, effects } = buses(ctx);
-    expect(effects.outputs).toEqual([master]);
+    const { mono, master, chain, effects } = buses(ctx);
+    expect(effects.outputs).toEqual([chain]);
+    expect(chain.outputs).toEqual([master]);
     expect(master.outputs).toEqual([mono]);
     expect(mono.outputs).toEqual([ctx.destination]);
   });
@@ -184,7 +189,7 @@ describe('play() without a pan — the pre-4.7 graph, byte for byte', () => {
     audio.play('sunkWitness'); // a spec with no noise layer: one oscillator, one gain
     expect(nodesOf(ctx, 'panner')).toHaveLength(0);
     const [osc] = nodesOf(ctx, 'oscillator');
-    const toneGain = nodesOf(ctx, 'gain')[3]; // after the three buses
+    const toneGain = nodesOf(ctx, 'gain')[BUS_GAINS]; // after the bus gains
     expect(osc.outputs).toEqual([toneGain]);
     expect(toneGain.outputs).toEqual([buses(ctx).effects]);
   });
@@ -192,7 +197,7 @@ describe('play() without a pan — the pre-4.7 graph, byte for byte', () => {
   it('plays at the spec volume exactly — an absent gain is 1, never a re-scale', () => {
     const { audio, ctx } = setup();
     audio.play('sunkWitness');
-    expect(peakOf(nodesOf(ctx, 'gain')[3])).toBe(TONES.sunkWitness.volume);
+    expect(peakOf(nodesOf(ctx, 'gain')[BUS_GAINS])).toBe(TONES.sunkWitness.volume);
   });
 
   it('is silent while muted (no nodes built at all)', () => {
@@ -211,11 +216,12 @@ describe('play() with a pan — the sound map splice', () => {
     const panners = nodesOf(ctx, 'panner');
     expect(panners).toHaveLength(1);
     expect(panners[0].outputs).toEqual([buses(ctx).effects]);
-    const toneGain = nodesOf(ctx, 'gain')[3];
+    const toneGain = nodesOf(ctx, 'gain')[BUS_GAINS];
     expect(toneGain.outputs).toEqual([panners[0]]);
     // ...and the rest of the chain is unchanged, so a panned cue reaches the
     // destination through the same mute/volume/mono controls as every other.
-    expect(buses(ctx).effects.outputs).toEqual([buses(ctx).master]);
+    expect(buses(ctx).effects.outputs).toEqual([buses(ctx).chain]);
+    expect(buses(ctx).chain.outputs).toEqual([buses(ctx).master]);
     expect(buses(ctx).master.outputs).toEqual([buses(ctx).mono]);
     expect(buses(ctx).mono.outputs).toEqual([ctx.destination]);
   });
@@ -249,7 +255,7 @@ describe('play() with a pan — the sound map splice', () => {
       const { audio, ctx } = setup();
       audio.play('gunReport', gain === undefined ? undefined : { gain });
       const gains = nodesOf(ctx, 'gain');
-      return { tone: peakOf(gains[3]), noise: (gains.at(-1)!.gain as FakeParam).writes[0] };
+      return { tone: peakOf(gains[BUS_GAINS]), noise: (gains.at(-1)!.gain as FakeParam).writes[0] };
     };
     const full = levels();
     const half = levels(0.5);
@@ -266,7 +272,7 @@ describe('play() with a pan — the sound map splice', () => {
     (ctx as unknown as { createStereoPanner?: unknown }).createStereoPanner = undefined;
     audio.play('sunkWitness', { pan: 0.9 });
     expect(nodesOf(ctx, 'panner')).toHaveLength(0);
-    expect(nodesOf(ctx, 'gain')[3].outputs).toEqual([buses(ctx).effects]);
+    expect(nodesOf(ctx, 'gain')[BUS_GAINS].outputs).toEqual([buses(ctx).effects]);
   });
 });
 
@@ -280,9 +286,9 @@ describe('the cue knobs sanitise rather than throw or silence', () => {
     audio.play('sunkWitness', { gain: 5 }); // over range -> 1
     audio.play('sunkWitness', { gain: -3 }); // under range -> 0
     const gains = nodesOf(ctx, 'gain');
-    expect(peakOf(gains[3])).toBeCloseTo(TONES.sunkWitness.volume * 0.25, 10);
-    expect(peakOf(gains[4])).toBe(TONES.sunkWitness.volume);
-    expect(peakOf(gains[5])).toBe(0);
+    expect(peakOf(gains[BUS_GAINS])).toBeCloseTo(TONES.sunkWitness.volume * 0.25, 10);
+    expect(peakOf(gains[BUS_GAINS + 1])).toBe(TONES.sunkWitness.volume);
+    expect(peakOf(gains[BUS_GAINS + 2])).toBe(0);
   });
 
   it('a non-finite gain degrades to 1 — the spec plays at its own level', () => {
@@ -290,8 +296,8 @@ describe('the cue knobs sanitise rather than throw or silence', () => {
     audio.play('sunkWitness', { gain: NaN });
     audio.play('sunkWitness', { gain: Infinity });
     const gains = nodesOf(ctx, 'gain');
-    expect(peakOf(gains[3])).toBe(TONES.sunkWitness.volume);
-    expect(peakOf(gains[4])).toBe(TONES.sunkWitness.volume);
+    expect(peakOf(gains[BUS_GAINS])).toBe(TONES.sunkWitness.volume);
+    expect(peakOf(gains[BUS_GAINS + 1])).toBe(TONES.sunkWitness.volume);
   });
 
   it('pan clamps into -1..1', () => {

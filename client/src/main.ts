@@ -112,7 +112,7 @@ import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from 
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
-import type { ToneFloor } from './render/gunneryFeed.js';
+import { ToneFloor } from './render/gunneryFeed.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import {
   KeyboardInput,
@@ -218,6 +218,7 @@ import {
   type ScoreState,
 } from './score.js';
 import { Audio } from './audio/context.js';
+import { EngineMix, sinkingProgress, speedFraction, type EngineFrame, type RemoteHull } from './audio/engineMix.js';
 import {
   audioCues,
   stormEnterEdge,
@@ -529,6 +530,9 @@ interface Game {
   ownFire: OwnFireLatch;
   /** Tone player (audio/context.ts). */
   audio: Audio;
+  /** Story 10.13: the engines, the sink fade and the per-frame edge cues
+   *  (audio/engineMix.ts), driven once per render frame by updateShipAudio. */
+  engineMix: EngineMix;
   /**
    * Host ad-SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
    * every call here is safe to fire and forget. The implementation is ADSENSE
@@ -1337,6 +1341,81 @@ function updateOwnPlate(g: Game, pose: RenderPose): void {
   g.nameplates.place(id, sc.x, plateScreenY(sc.y, g.ownClass, g.camera.zoom, CLIENT_CONFIG.nameplate.padPx), 1);
 }
 
+/** The engine telegraph's click (Story 10.13): one recipe, pitched up for
+ *  ringing ahead and down for astern; the legacy tone keeps its own pair. */
+function telegraphCue(dir: number): { pitch: number; fallback: ReturnType<typeof telegraphTone> } {
+  const { telegraphAheadPitch, telegraphAsternPitch } = CLIENT_CONFIG.audio;
+  return { pitch: dir > 0 ? telegraphAheadPitch : telegraphAsternPitch, fallback: telegraphTone(dir) };
+}
+
+/** The hull-contact scrape (Story 10.13): ContactFx asks every 120 ms while
+ *  grinding; a ~1.5 s shot is started every `grindCuePeriodMs`, so the shots
+ *  overlap into one continuous scrape whose level still follows the bleed. */
+function grindCue(audio: Audio): (gain: number) => void {
+  const period = new ToneFloor(CLIENT_CONFIG.audio.grindCuePeriodMs);
+  return (gain) => {
+    if (period.request(performance.now())) audio.playCue('ramGrind', { gain });
+  };
+}
+
+/** Story 10.13: this frame's ship audio (audio/engineMix.ts decides). */
+function updateShipAudio(g: Game, now: number): void {
+  g.engineMix.update(shipAudioFrame(g, now));
+}
+
+/**
+ * The ENGINE FRAME, from state the client already holds and draws: the own
+ * engine while a hull is conned (alive or sinking, start line and countdown
+ * included — `helmAxes` is the dead helm there), the hulls in the contact
+ * store (the true-sight gate), the drawn ballistics and the beacon set.
+ * The listener is the own hull while we have one, else the camera centre —
+ * roomBindings' `listenerPos` rule.
+ */
+function shipAudioFrame(g: Game, now: number): EngineFrame {
+  const { spectating, matchOver, net } = g.state;
+  const you = net.you;
+  const conned = !spectating && !matchOver && conningFlag(you, now, spectating) === true ? you : null;
+  return {
+    own: conned ? ownEngine(g, conned.speed, now) : null,
+    sinking01: ownSinking01(g, now),
+    sinkCleared: spectating || matchOver || you?.alive === true,
+    listener: conned ? { x: conned.x, y: conned.y } : g.camera.center,
+    hulls: remoteHulls(g, now),
+    drawn: g.projectiles.drawnBallistics(now),
+    beaconCycle: publicState(g).beaconCycle,
+    beaconAfloat: g.beaconViews.some((v) => v.phase === 'afloat'),
+    matchOver,
+  };
+}
+
+/** 0..1 through the own sinking window, or null when not sinking. */
+function ownSinking01(g: Game, now: number): number | null {
+  const you = g.state.net.you;
+  if (!you || !isSinkingNow(you, now, g.state.spectating)) return null;
+  return sinkingProgress(you.sinkingUntil ?? now, now, CONFIG.ship.sinkingWindowMs);
+}
+
+function ownEngine(g: Game, speed: number, now: number): EngineFrame['own'] {
+  return {
+    cls: g.ownClass,
+    throttle: helmAxes(g).throttle,
+    speed01: speedFraction(speed, g.ownStats.kinematics.maxSpeed),
+    boost: now < boostUntilNow(g),
+  };
+}
+
+/** The contact store's hulls at the contact renderer's sample time. */
+function remoteHulls(g: Game, now: number): RemoteHull[] {
+  const out: RemoteHull[] = [];
+  const at = now - CLIENT_CONFIG.net.interpDelayMs;
+  for (const id of g.contacts.ids()) {
+    const p = g.contacts.get(id)?.sampleAt(at);
+    const cls = g.contacts.classOf(id);
+    if (p && cls !== undefined) out.push({ id, cls, x: p.x, y: p.y, speed: p.speed });
+  }
+  return out;
+}
+
 /** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the
  *  public match plane (audio/tones.ts's pure audioCues()). */
 function updateMatchAudioCues(g: Game, now: number): void {
@@ -1364,9 +1443,9 @@ function updateMatchAudioCues(g: Game, now: number): void {
   const result = audioCues(g.audioCueState, phase, sec, g.resumeCueSeed);
   g.audioCueState = result.state;
   if (known) g.resumeCueSeed = false;
-  if (result.tick) g.audio.play('tick');
+  if (result.tick) g.audio.playCue('countdownTick');
   if (result.matchStart) {
-    g.audio.play('matchStart');
+    g.audio.playCue('matchStart');
     g.portal.matchStart(); // same once-per-match live edge as the audio cue
     // The server clears its cloud store at the practice → match boundary
     // (world.ts resetForMatchStart); the client HOLDS every cloud it has seen
@@ -2164,7 +2243,7 @@ function conningNow(g: Game | null): boolean | undefined {
  * 80-300ms after the last one played the tone with no visual at all.
  */
 function playDenied(g: Game): void {
-  if (g.deniedToneFloor.request(performance.now())) g.audio.play('denied');
+  if (g.deniedToneFloor.request(performance.now())) g.audio.playCue('denied');
 }
 
 /**
@@ -2249,7 +2328,7 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       // conning a live ship is a successful W/S input: three of them retire the
       // helm key glyphs for good (Story 2.4, amendment 26).
       if (labeled) recordHelmInput('ws', live);
-      if (live) audio.play(telegraphTone(dir));
+      if (live) audio.playCue('telegraph', telegraphCue(dir));
     },
     // Every labeled rudder press that reaches a LIVE helm counts toward the A/D
     // pair's fade (suppressed presses never arrive here at all).
@@ -2625,7 +2704,7 @@ function buildGame(
     beaconViews: [],
     beaconBodies: new BeaconBodies(),
     beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
-    contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
+    contactFx: new ContactFx(stage.layers.burstFx, grindCue(audio)),
     lastBleedMs: -Infinity,
     camera,
     keyboard,
@@ -2646,7 +2725,7 @@ function buildGame(
     effects,
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
-    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.playCue('mineDrop')),
     drops: new Drops(stage.layers.dropWorld),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
@@ -2691,6 +2770,7 @@ function buildGame(
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
+    engineMix: new EngineMix(audio),
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     hullSoftness: NO_SOFTENING,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
@@ -4752,6 +4832,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
       updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
+      updateShipAudio(g, now); // Story 10.13: engines, sink fade, boost / beacon / torpedo edges
       advanceCameraFrame(g, frameDt);
       renderBeacons(g, now); // public: the same for a captain and a spectator
       // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
