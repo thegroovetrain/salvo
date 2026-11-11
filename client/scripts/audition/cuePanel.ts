@@ -3,8 +3,10 @@
 // "3 in quick series" button where the sound comes in bursts; and today's
 // legacy tone for comparison.
 
-import type { CueCandidate, CueSlot } from '../../src/audio/synth/candidates/index.js';
+import { DEFAULT_HORN_ID } from '@salvo/shared';
+import type { CueCandidate, CueGroup, CueSlot } from '../../src/audio/synth/candidates/index.js';
 import { TONES } from '../../src/audio/tones.js';
+import { hornVoice } from '../../src/audio/horns.js';
 import { button, h, slider } from './dom.js';
 import type { Picks } from './picks.js';
 import type { Rig } from './rig.js';
@@ -29,15 +31,34 @@ export function cueCard(slot: CueSlot, rig: Rig, picks: Picks): HTMLElement {
   if (slot.world) {
     extras.push(slider('Distance', { min: 0, max: 1, step: 0.01, value: 0, left: 'Near', right: 'Far' }, (v) => (dial.distance = v)).root);
   }
-  const today = slot.today;
-  if (today !== undefined) extras.push(button("Today's sound", () => rig.playTone(TONES[today]), 'ghost'));
+  const today = todayButton(slot, rig);
+  if (today) extras.push(today);
   const rows = slot.candidates.map((c) => candidateRow(slot, c, rig, picks, dial));
   rows.push(noneRow(slot, picks));
   return h('section', { class: 'card', 'aria-labelledby': `t-${slot.id}` }, [
-    h('h2', { id: `t-${slot.id}` }, [slot.title]),
+    h('h3', { id: `t-${slot.id}`, class: 'card-title' }, [slot.title]),
     h('p', { class: 'note' }, [slot.note]),
     h('div', { class: 'controls' }, extras),
     ...rows,
+  ]);
+}
+
+/** "Today's sound": the legacy tone, or the default synthesized foghorn. */
+function todayButton(slot: CueSlot, rig: Rig): HTMLButtonElement | null {
+  const tone = slot.today;
+  if (tone !== undefined) return button("Today's sound", () => rig.playTone(TONES[tone]), 'ghost');
+  const horn = hornVoice(DEFAULT_HORN_ID);
+  if (slot.todayHorn && horn.kind === 'synth') return button("Today's sound", () => rig.playHorn(horn), 'ghost');
+  return null;
+}
+
+/** One heading on the page and the cards under it. */
+export function cueGroup(group: CueGroup, index: number, rig: Rig, picks: Picks): HTMLElement {
+  const id = `group-${index}`;
+  return h('section', { class: 'group', 'aria-labelledby': id }, [
+    h('h2', { id, class: 'group-title' }, [group.title]),
+    h('p', { class: 'intro' }, [group.intro]),
+    ...group.slots.map((slot) => cueCard(slot, rig, picks)),
   ]);
 }
 

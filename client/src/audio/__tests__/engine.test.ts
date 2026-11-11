@@ -13,6 +13,8 @@ import {
   SHAFT_DETUNE,
   SILENCE,
   SPEED_CAP,
+  CLOSE_ALONGSIDE_CUTOFF,
+  closeAlongside01,
   engineTargets,
   remoteEngineTargets,
   type EngineProfile,
@@ -155,6 +157,27 @@ describe('engineTargets — the own-engine arithmetic', () => {
   it('two different profiles give different targets for the same input', () => {
     const input = { throttle: 0.6, speed01: 0.7, boost: false };
     expect(engineTargets(HEAVY, input)).not.toEqual(engineTargets(DEFAULT_ENGINE_PROFILE, input));
+  });
+});
+
+describe('closeAlongside01 — another ship heard only close alongside', () => {
+  it('is monotone non-decreasing in distance and starts at the listener', () => {
+    const ds = steps(0, 1, 40);
+    for (let i = 1; i < ds.length; i++) expect(closeAlongside01(ds[i])).toBeGreaterThanOrEqual(closeAlongside01(ds[i - 1]));
+    expect(closeAlongside01(0)).toBe(0);
+  });
+
+  it('puts the engine at the silence floor at and beyond the cutoff (and on junk)', () => {
+    for (const d of [CLOSE_ALONGSIDE_CUTOFF, 0.5, 1, 7, Infinity, NaN]) {
+      expect(closeAlongside01(d)).toBe(1);
+      const t = remoteEngineTargets(DEFAULT_ENGINE_PROFILE, { speed01: 1, distance01: closeAlongside01(d), pan: 0 });
+      expect(t.gain).toBe(SILENCE);
+    }
+  });
+
+  it('is still audible inside the cutoff', () => {
+    const t = remoteEngineTargets(DEFAULT_ENGINE_PROFILE, { speed01: 1, distance01: closeAlongside01(CLOSE_ALONGSIDE_CUTOFF / 2), pan: 0 });
+    expect(t.gain).toBeGreaterThan(SILENCE);
   });
 });
 

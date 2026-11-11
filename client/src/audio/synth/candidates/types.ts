@@ -27,7 +27,17 @@ export interface CueSlot {
   world?: boolean;
   /** The page offers a "3 in quick series" button. */
   salvo?: boolean;
+  /** "Today's sound" is the default synthesized foghorn (audio/horns.ts), not a tone. */
+  todayHorn?: boolean;
   candidates: CueCandidate[];
+}
+
+/** A heading on the audition page and the slots under it. */
+export interface CueGroup {
+  title: string;
+  /** One plain sentence under the heading. */
+  intro: string;
+  slots: readonly CueSlot[];
 }
 
 export interface EngineCandidate {

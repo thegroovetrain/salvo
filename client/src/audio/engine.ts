@@ -260,6 +260,21 @@ export const REMOTE_IDLE_SHARE = 0.35;
 
 const finiteOr = (v: number, fallback: number): number => (Number.isFinite(v) ? v : fallback);
 
+/** Share of the hearing distance inside which another ship's engine is heard
+ *  at all (Eric 2026-11-11, "make it realistic": your own machinery drowns out
+ *  other ships unless they are close alongside). */
+export const CLOSE_ALONGSIDE_CUTOFF = 1 / 3;
+
+/**
+ * Pure: a steeper distance for `remoteEngineTargets` — the nearest
+ * CLOSE_ALONGSIDE_CUTOFF of the range is stretched over the whole 0..1, so at
+ * and beyond the cutoff the engine is at the edge of hearing (silent).
+ * Monotone; junk is "out of earshot" (1), as in `remoteEngineTargets`.
+ */
+export function closeAlongside01(distance01: number): number {
+  return clamp(finiteOr(distance01, 1) / CLOSE_ALONGSIDE_CUTOFF, 0, 1);
+}
+
 /** Every remote-engine AudioParam target. Pure; junk distance is "out of earshot". */
 export function remoteEngineTargets(profile: EngineProfile, input: RemoteEngineInput): RemoteEngineTargets {
   const speed = clamp(finiteOr(input?.speed01, 0), 0, SPEED_CAP);

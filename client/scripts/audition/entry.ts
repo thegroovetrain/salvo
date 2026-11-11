@@ -3,13 +3,15 @@
 // self-contained HTML file, so every candidate Eric hears is the same recipe
 // data and the same render code the game will ship.
 
-import { CUE_SLOTS } from '../../src/audio/synth/candidates/index.js';
+import { CUE_GROUPS, CUE_SLOTS } from '../../src/audio/synth/candidates/index.js';
 import { byId } from './dom.js';
-import { cueCard } from './cuePanel.js';
+import { cueGroup } from './cuePanel.js';
 import { EnginePanel } from './enginePanel.js';
 import { Picks } from './picks.js';
+import { Meter } from './meter.js';
 import { Rig } from './rig.js';
 import { auditionSelfTest } from './selfTest.js';
+import { statusText } from './status.js';
 
 declare global {
   interface Window {
@@ -17,23 +19,42 @@ declare global {
   }
 }
 
+/** Build time + a short description, injected by soundAudition.mjs. */
+declare const __AUDITION_BUILD__: string;
+
 const PICK_ORDER = ['engines', ...CUE_SLOTS.map((s) => s.id)];
 
 function wireTransport(rig: Rig): void {
   const status = byId<HTMLElement>('status');
   const show = (): void => {
-    status.textContent = rig.running ? 'Sound is on.' : 'Sound is off. Click START SOUND.';
+    status.textContent = statusText(rig.state, rig.pending);
   };
+  rig.onState(show);
   byId<HTMLButtonElement>('start').addEventListener('click', () => {
-    const ctx = rig.start();
-    if (!ctx) status.textContent = 'This browser has no Web Audio support.';
-    ctx?.addEventListener('statechange', show);
+    byId<HTMLElement>('error').hidden = true; // a fresh attempt; a new failure shows again
+    rig.start();
     show();
   });
+  byId<HTMLButtonElement>('testTone').addEventListener('click', () => rig.testTone());
   byId<HTMLButtonElement>('stopAll').addEventListener('click', () => rig.stopAll());
   const vol = byId<HTMLInputElement>('volume');
   vol.addEventListener('input', () => rig.setVolume(Number(vol.value)));
   show();
+}
+
+/** One visible error line, fed by the rig and by anything uncaught on the page. */
+function wireErrors(rig: Rig): void {
+  const line = byId<HTMLElement>('error');
+  const show = (message: string): void => {
+    line.textContent = `Something went wrong. ${message}`;
+    line.hidden = false;
+  };
+  rig.onError(show);
+  window.addEventListener('error', (e) => show(`Page error: ${e.message}`));
+  window.addEventListener('unhandledrejection', (e) => {
+    const r: unknown = e.reason;
+    show(`Unhandled failure: ${r instanceof Error ? r.message : String(r)}`);
+  });
 }
 
 function wireSummary(picks: Picks): void {
@@ -59,12 +80,15 @@ function wireSummary(picks: Picks): void {
 
 function boot(): void {
   const rig = new Rig();
+  wireErrors(rig);
   const picks = new Picks(PICK_ORDER);
   const engines = new EnginePanel(rig, picks);
   byId<HTMLElement>('engines').append(engines.render());
-  byId<HTMLElement>('cues').append(...CUE_SLOTS.map((slot) => cueCard(slot, rig, picks)));
+  byId<HTMLElement>('cues').append(...CUE_GROUPS.map((group, i) => cueGroup(group, i, rig, picks)));
   wireTransport(rig);
   wireSummary(picks);
+  new Meter(rig, byId<HTMLCanvasElement>('meter'), byId<HTMLElement>('meterText'));
+  byId<HTMLElement>('build').textContent = __AUDITION_BUILD__;
 }
 
 window.__auditionSelfTest = auditionSelfTest;

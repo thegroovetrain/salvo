@@ -50,7 +50,11 @@ async function bundle() {
     write: false,
     legalComments: 'none',
     alias: { '@salvo/shared': join(REPO, 'shared', 'src', 'index.ts') },
-    define: { __APP_VERSION__: JSON.stringify('audition'), __HC_PERF__: 'false' },
+    define: {
+      __APP_VERSION__: JSON.stringify('audition'),
+      __HC_PERF__: 'false',
+      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 round 2`),
+    },
     logLevel: 'warning',
   });
   // A literal "</script" inside the bundle would end the inline tag early.

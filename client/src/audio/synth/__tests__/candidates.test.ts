@@ -4,10 +4,11 @@
 // engine set voices every hull with finite targets. Nothing here judges sound.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
-import { CUE_SLOTS, ENGINE_CANDIDATES } from '../candidates/index.js';
+import { CONFIG, DEFAULT_HORN_ID } from '@salvo/shared';
+import { CUE_GROUPS, CUE_SLOTS, ENGINE_CANDIDATES } from '../candidates/index.js';
 import { cueLengthS } from '../recipe.js';
 import { TONES } from '../../tones.js';
+import { hornVoice } from '../../horns.js';
 import { engineTargets, type EngineTargets } from '../../engine.js';
 
 /** No audition cue should run longer than this (s); a longer one is a typo. */
@@ -17,6 +18,15 @@ const allFinite = (t: EngineTargets): boolean =>
   Object.values(t).every((v) => (Array.isArray(v) ? v.every(Number.isFinite) : Number.isFinite(v)));
 
 describe('CUE_SLOTS', () => {
+  it('every group has a heading, a sentence and slots, and the groups hold exactly CUE_SLOTS', () => {
+    for (const g of CUE_GROUPS) {
+      expect(g.title.trim()).not.toBe('');
+      expect(g.intro.trim()).not.toBe('');
+      expect(g.slots.length).toBeGreaterThan(0);
+    }
+    expect(CUE_GROUPS.flatMap((g) => g.slots)).toEqual([...CUE_SLOTS]);
+  });
+
   it('slot ids are unique', () => {
     const ids = CUE_SLOTS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -44,8 +54,9 @@ describe('CUE_SLOTS', () => {
         }
       });
 
-      it('its "today" comparison, if any, is a real legacy tone', () => {
+      it('its "today" comparison, if any, is a real legacy tone or a synthesized default horn', () => {
         if (slot.today !== undefined) expect(Object.hasOwn(TONES, slot.today)).toBe(true);
+        if (slot.todayHorn) expect(hornVoice(DEFAULT_HORN_ID).kind).toBe('synth');
       });
     });
   }

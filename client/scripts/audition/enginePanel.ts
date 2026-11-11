@@ -6,6 +6,7 @@
 import type { ShipClassId } from '@salvo/shared';
 import { ENGINE_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
 import { EngineVoice, RemoteEngineVoice } from '../../src/audio/engineGraph.js';
+import { closeAlongside01 } from '../../src/audio/engine.js';
 import { button, h, radios, slider } from './dom.js';
 import type { Picks } from './picks.js';
 import type { Rig } from './rig.js';
@@ -129,6 +130,7 @@ export class EnginePanel {
     return h('div', { class: 'block' }, [
       h('h3', {}, ['Another ship, heard across the water']),
       h('p', { class: 'note' }, ['A simpler, cheaper engine voice for ships you can see. It uses the set chosen above.']),
+      h('p', { class: 'note ruling' }, ['Ruling: realistic \u2014 your own machinery drowns out other ships; you only hear another ship\u2019s engine when it is close alongside.']),
       h('div', { class: 'controls' }, [this.remoteButton]),
       hull,
       dist.root,
@@ -169,18 +171,26 @@ export class EnginePanel {
     this.ownVoice?.release();
     this.ownVoice = null;
     if (!this.own.on) return;
-    const ctx = this.rig.start();
-    const sink = this.rig.sink;
-    if (ctx && sink) this.ownVoice = new EngineVoice(ctx, sink, this.profile(this.own.hull));
+    this.rig.guard('Starting the engine', () => {
+      const ctx = this.rig.start();
+      const sink = this.rig.sink;
+      if (!ctx || !sink) return;
+      this.ownVoice = new EngineVoice(ctx, sink, this.profile(this.own.hull));
+      if (this.ownVoice.released) throw new Error('the engine sound could not be built in this browser');
+    });
   }
 
   private rebuildRemote(): void {
     this.remoteVoice?.release();
     this.remoteVoice = null;
     if (!this.remote.on) return;
-    const ctx = this.rig.start();
-    const sink = this.rig.sink;
-    if (ctx && sink) this.remoteVoice = new RemoteEngineVoice(ctx, sink, this.profile(this.remote.hull));
+    this.rig.guard("Starting the other ship's engine", () => {
+      const ctx = this.rig.start();
+      const sink = this.rig.sink;
+      if (!ctx || !sink) return;
+      this.remoteVoice = new RemoteEngineVoice(ctx, sink, this.profile(this.remote.hull));
+      if (this.remoteVoice.released) throw new Error('the engine sound could not be built in this browser');
+    });
   }
 
   private stopEverything(): void {
@@ -195,7 +205,7 @@ export class EnginePanel {
   private tick(): void {
     this.easeSpeed();
     this.ownVoice?.update({ throttle: this.own.throttle, speed01: this.own.speed, boost: this.own.boost });
-    this.remoteVoice?.update({ speed01: this.remote.speed, distance01: this.remote.distance, pan: this.remote.pan });
+    this.remoteVoice?.update({ speed01: this.remote.speed, distance01: closeAlongside01(this.remote.distance), pan: this.remote.pan });
   }
 
   private easeSpeed(): void {

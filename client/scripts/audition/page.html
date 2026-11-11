@@ -8,11 +8,20 @@
     <p class="intro">Everything on this page is synthesized live in your browser by the game's own audio code: there are no sound files. Each sound has two or three takes (A, B, C). Play them, then mark the one you want, or "none of these". Click <strong>START SOUND</strong> first: browsers need a click before they will make any sound.</p>
     <div class="transport">
       <button type="button" id="start" class="primary">START SOUND</button>
+      <button type="button" id="testTone">TEST TONE</button>
+      <p id="status" class="status live" role="status" aria-live="polite"></p>
+    </div>
+    <div class="transport">
       <label class="slider volume"><span class="slider-label">Master volume</span><input id="volume" type="range" min="0" max="1" step="0.01" value="0.7"></label>
       <button type="button" id="stopAll" class="danger">STOP ALL</button>
-      <p id="status" class="status" role="status"></p>
     </div>
+    <div class="meter-row">
+      <canvas id="meter" width="160" height="14" aria-hidden="true"></canvas>
+      <p id="meterText" class="status"></p>
+    </div>
+    <p class="note">If this bar moves but you hear nothing, the tab or the computer is muted. TEST TONE plays the simplest possible sound (a plain beep) straight to your speakers, skipping everything else on this page.</p>
   </header>
+  <p id="error" class="error" role="alert" hidden></p>
   <div id="engines"></div>
   <div id="cues"></div>
   <section class="card picks" aria-labelledby="picks-title">
@@ -24,5 +33,6 @@
       <p id="copyStatus" class="status" role="status"></p>
     </div>
   </section>
+  <p id="build" class="build"></p>
 </div>
 <script>/*__AUDITION_JS__*/</script>

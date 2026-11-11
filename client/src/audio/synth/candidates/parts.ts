@@ -108,3 +108,63 @@ export function crackles(count: number, windowMs: number, peak: number, startMs:
     grains: { count, windowMs, spread: [0.3, 3] },
   };
 }
+
+// --- round 2: alerts, signals and shipboard machinery ------------------------
+
+/** `count` onsets `stepMs` apart, from `fromMs`. */
+export function every(stepMs: number, count: number, fromMs = 0): number[] {
+  return Array.from({ length: count }, (_, i) => fromMs + i * stepMs);
+}
+
+/** A struck bell: FM with an inharmonic ratio whose brightness dies away (§11 B). */
+export function bell(hz: number, peak: number, tauMs: number, extra: Partial<Layer> = {}): Layer {
+  return {
+    source: { kind: 'osc', wave: 'sine', freq: hz, fm: { ratio: 1.4, index: { from: 5, to: 0, tauMs: Math.min(300, tauMs) } } },
+    env: { peak, attackMs: 2, tauMs },
+    ...extra,
+  };
+}
+
+/** An electric alarm bell: a striker hammering a small gong `everyMs` apart for `durMs`. */
+export function alarmBell(f0: number, peak: number, everyMs: number, durMs: number, extra: Partial<Layer> = {}): Layer {
+  return metalRing(f0, [1, 2.32, 4.1], 35, peak, 45, {
+    grains: { onsetsMs: every(everyMs, Math.max(1, Math.round(durMs / everyMs))), jitterMs: 3 },
+    ...extra,
+  });
+}
+
+/** A steam / air whistle: a chord of buzzy partials with a breathy edge. */
+export function whistleChord(hzs: readonly number[], startMs: number, holdMs: number, peak: number): Layer[] {
+  const env = { peak, attackMs: 50, holdMs, tauMs: 70 };
+  const tones = hzs.map(
+    (hz): Layer => ({ source: { kind: 'osc', wave: 'sawtooth', freq: hz, vibrato: { rateHz: 5, depth: 0.003 } }, filters: [lp(2200)], env, startMs }),
+  );
+  const breath = noiseLayer('white', [bp(hzs[0] * 2, 1.5)], { peak: peak * 2.5, attackMs: 20, holdMs, tauMs: 60 }, { startMs });
+  return [...tones, breath];
+}
+
+/** An electric buzzer: a square hum through a small speaker, keyed at `onsetsMs`. */
+export function buzzer(hz: number, onsetsMs: readonly number[], holdMs: number, peak: number): Layer {
+  return {
+    source: { kind: 'osc', wave: 'square', freq: hz },
+    filters: [bp(hz * 5, 1.2)],
+    env: { peak, attackMs: 4, holdMs, tauMs: 10 },
+    drive: 2,
+    grains: { onsetsMs },
+  };
+}
+
+/** A short mechanical click: a noise impulse through one band. */
+export function click(hz: number, q: number, peak: number, tauMs: number, extra: Partial<Layer> = {}): Layer {
+  return { source: { kind: 'click', ms: 2 }, filters: [bp(hz, q)], env: { peak, attackMs: 0, tauMs }, ...extra };
+}
+
+/** A bending steel groan: a low sawtooth through a resonant band, slowly wobbling. */
+export function groan(from: number, to: number, ms: number, peak: number, extra: Partial<Layer> = {}): Layer {
+  return {
+    source: { kind: 'osc', wave: 'sawtooth', freq: { from, to, ms }, vibrato: { rateHz: 2.5, depth: 0.02 } },
+    filters: [bp(from * 3.5, 3)],
+    env: { peak, attackMs: 150, holdMs: ms * 0.5, tauMs: ms * 0.25 },
+    ...extra,
+  };
+}
