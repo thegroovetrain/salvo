@@ -21,6 +21,13 @@ export interface PostureGroup {
   postureTransitions: Record<string, number>;
 }
 
+/** HULL REPAIR at the press, one style's pool (Story 10.12): accepted presses
+ *  and the mean hp / maxHp the hull stood at just before them (0 when none). */
+export interface RepairPressGroup {
+  presses: number;
+  meanHullFrac: number;
+}
+
 /** The pooled 9.13 readouts over a bot campaign (JSON: `variants[].bots.readouts`). */
 export interface BotReadoutAggregate {
   /** Σ afloat bot-ticks — the denominator for every *Rate below. */
@@ -50,6 +57,17 @@ export interface BotReadoutAggregate {
   actPresses: number;
   pressesByAbility: Record<string, number>;
   activations: Record<string, number>;
+  /** Story 10.12: guns bearing on the nearest hull in main reach, pooled
+   *  gun-ticks (BotReadouts.gunsBearing) and the share. */
+  gunsBearing: number;
+  gunsInReach: number;
+  gunsBearingRate: number;
+  /** Story 10.12: hostile mines a bot's shells took off the water. */
+  minesSwept: number;
+  /** Story 10.12: the hull fraction at an accepted HULL REPAIR press, by the
+   *  bot's repair style (keys sorted: `early`, `late`, …) and over all. */
+  repairByStyle: Record<string, RepairPressGroup>;
+  repairAll: RepairPressGroup;
   /** Per-match endgame clock and stall (MatchSample.lastTwoS / endgameNoContactMaxS). */
   lastTwoS: Summary;
   endgameNoContactMaxS: Summary;
@@ -93,6 +111,7 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
     actPresses: sum(rows, (r) => r.actPresses),
     pressesByAbility: sumRecords({}, rows.map((r) => r.pressesByAbility)),
     activations: sumRecords({}, rows.map((r) => r.activations)),
+    ...postureWorkReadouts(rows),
     lastTwoS: summarize(matches.flatMap((m) => (m.lastTwoS === undefined ? [] : [m.lastTwoS]))),
     endgameNoContactMaxS: summarize(
       matches.flatMap((m) => (m.endgameNoContactMaxS === undefined ? [] : [m.endgameNoContactMaxS])),
@@ -110,6 +129,31 @@ function shotReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, Sho
     litShots: sum(rows, (r) => r.litShots),
     starShellsFired: sum(rows, (r) => r.starShellsFired),
   };
+}
+
+type WorkKeys = 'gunsBearing' | 'gunsInReach' | 'gunsBearingRate' | 'minesSwept' | 'repairByStyle' | 'repairAll';
+
+/** The Story 10.12 readouts (guns bearing, mines swept, repair at the press). */
+function postureWorkReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, WorkKeys> {
+  const bearing = sum(rows, (r) => r.gunsBearing);
+  const inReach = sum(rows, (r) => r.gunsInReach);
+  const styles = [...new Set(rows.map((r) => r.repairStyle))].sort();
+  const repairByStyle: Record<string, RepairPressGroup> = {};
+  for (const style of styles) repairByStyle[style] = repairGroup(rows.filter((r) => r.repairStyle === style));
+  return {
+    gunsBearing: bearing,
+    gunsInReach: inReach,
+    gunsBearingRate: ratio(bearing, inReach),
+    minesSwept: sum(rows, (r) => r.minesSwept),
+    repairByStyle,
+    repairAll: repairGroup(rows),
+  };
+}
+
+/** Pooled presses and their mean hull fraction over some rows. */
+export function repairGroup(rows: readonly BotSample[]): RepairPressGroup {
+  const presses = sum(rows, (r) => r.repairPresses);
+  return { presses, meanHullFrac: ratio(sum(rows, (r) => r.repairHullFracSum), presses) };
 }
 
 function postureByProfile(rows: readonly BotSample[]): PostureGroup[] {
@@ -140,6 +184,13 @@ function countLine(rec: Record<string, number>): string {
   return keys.map((k) => `${k}=${rec[k]}`).join(' ');
 }
 
+/** `all n=… hull=…% | early n=… hull=…% | late …` (sorted styles). */
+function repairLine(a: BotReadoutAggregate): string {
+  const cell = (k: string, g: RepairPressGroup): string => `${k} n=${g.presses} hull=${pct(g.meanHullFrac)}`;
+  const styles = Object.keys(a.repairByStyle).sort();
+  return [cell('all', a.repairAll), ...styles.map((k) => cell(k, a.repairByStyle[k]))].join(' | ');
+}
+
 /** The readout lines printed beside the quality bars (no bar, no verdict). */
 export function renderReadoutLines(a: BotReadoutAggregate): string[] {
   return [
@@ -151,6 +202,9 @@ export function renderReadoutLines(a: BotReadoutAggregate): string[] {
     `  solid fog: ${a.fogTicks} ticks = ${pct(a.fogRate)} of afloat`,
     `  ability presses: ${a.actPresses} | by ability: ${countLine(a.pressesByAbility)}`,
     `  activations (took effect): ${countLine(a.activations)}`,
+    `  guns bearing on the nearest hull in main reach: ${a.gunsBearing} of ${a.gunsInReach} gun-ticks = ${pct(a.gunsBearingRate)}`,
+    `  hostile mines swept by bot shells: ${a.minesSwept}`,
+    `  hull at a HULL REPAIR press (mean hp/maxHp): ${repairLine(a)}`,
     `  endgame (<= 2 hulls) s per match: ${fmtSummary(a.lastTwoS)}`,
     `  endgame longest no-hit gap s: ${fmtSummary(a.endgameNoContactMaxS)}`,
   ];

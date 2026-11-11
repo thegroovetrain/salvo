@@ -2760,7 +2760,7 @@ So that there is always a game.
 **And** whether a bot is labelled as one in the kill feed, roster and results is Eric's at the spec step (the honesty posture of Epic 6, re-ruled) `[unruled]`; the queue-liveness readout on the home never lies about the fill
 **And** the lobby and queue smokes are updated as scripted scenarios (amendment 214); `CONFIG.lobby` changes bump PV only where the client reads them.
 
-### Story 10.12: Bot Posture Under the Four Hulls *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.11; the closing bot story — every slice story keeps bots functional on what it changes, this one tunes them)*
+### Story 10.12: Bot Posture Under the Four Hulls *(BUILT 2026-11-11, cycle 223, 0.19.17, PV 101 unchanged, epic-10 amendment 21, `spec-10-12-bot-posture-under-the-four-hulls.md` — Eric's rulings replace the `[unruled]` marks below: always angle off (not by layout), HULL REPAIR early / late by personality (not "late" for all), the Shift weighted by personality, the beacon contested by personality, `forager` retired; inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.11; the closing bot story — every slice story keeps bots functional on what it changes, this one tunes them)*
 
 As a captain in a match with bots,
 I want a bot in a Yamato to fight like a Yamato — turning for its arcs, sweeping my mines, farming a beacon and leaving before the ring,

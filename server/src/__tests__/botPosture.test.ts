@@ -361,6 +361,102 @@ describe('ai/posture — HOLD in cover with no target (epic-9 amendments 199/202
   });
 });
 
+describe('ai/posture — THE BEACON STAYER (Story 10.12, Eric 2026-11-11, R4)', () => {
+  const stayers = CONFIG.bots.profiles.filter((id) => !profileOf(id).contestsBeacon);
+  const contesters = CONFIG.bots.profiles.filter((id) => profileOf(id).contestsBeacon);
+  /** u — a distance inside the paying circle (the bot is collecting). */
+  const insideU = CONFIG.beacons.rangeU * CONFIG.bots.beaconStandoffFrac;
+  /** A mind whose beacon goal lies `awayU` from the situation's own position
+   *  (the default: parked inside its paying circle). */
+  const farming = (id: BotProfileId, awayU = insideU, paying = true): BotMind => {
+    const m = mind(id);
+    m.fogAt = noFog;
+    const at = situation({ profile: profileOf(id) });
+    m.beaconGoal = { x: at.x, y: at.y + awayU, bearing: -Math.PI / 2, standoff: { x: at.x, y: at.y }, centerSide: false, paying };
+    return m;
+  };
+
+  it('both kinds are dealt', () => {
+    expect(stayers.length).toBeGreaterThan(0);
+    expect(contesters.length).toBeGreaterThan(0);
+  });
+
+  it('a STAYER with a beacon goal keeps `farm` with a target in reach and beyond it', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      const far = track({ x: reachOf(sit.stats) + 200 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id) }), id).toBe('farm');
+      expect(choosePosture(sit, far, 'farm', { mind: farming(id) }), id).toBe('farm');
+    }
+  });
+
+  it('a CONTESTER with a beacon goal leaves it — the chain exactly as without one', () => {
+    for (const id of contesters) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id) }), id).toBe('engage');
+      const bare = mind(id);
+      bare.fogAt = noFog;
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id) }), id).toBe(choosePosture(sit, near, 'farm', { mind: bare }));
+    }
+  });
+
+  it('a stayer still ON ITS WAY to a beacon (outside the paying circle) fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const enRoute = farming(id, CONFIG.beacons.rangeU * 4);
+      expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10 }), 'farm', { mind: enRoute }), id).toBe('engage');
+    }
+  });
+
+  it('a stayer ALREADY FIGHTING (previous posture not `farm`) that crosses a beacon\'s paying circle is not pulled out of its fight', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      for (const prev of ['engage', 'pursue', 'kite'] as const) {
+        expect(choosePosture(sit, near, prev, { mind: farming(id) }), `${id} ${prev}`).toBe('engage');
+      }
+    }
+  });
+
+  it('a stayer on a beacon that is NOT PAYING (charted / spent) fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id, insideU, false) }), id).toBe('engage');
+    }
+  });
+
+  it('a stayer WITHOUT a beacon goal fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const m = mind(id);
+      m.fogAt = noFog;
+      expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10 }), 'farm', { mind: m }), id).toBe('engage');
+    }
+  });
+
+  it('the break-off, the ring run and the close-imminent ring clause still outrank the stay', () => {
+    for (const id of stayers) {
+      const p = profileOf(id);
+      const base = situation({ profile: p });
+      const near = track({ x: reachOf(base.stats) - 10 });
+      // Broken hull: break off (or ram), never farm.
+      const broken = situation({ profile: p, hp: base.maxHp * p.disengageHpFrac - 1 });
+      expect(['disengage', 'ram']).toContain(choosePosture(broken, near, 'farm', { mind: farming(id) }));
+      // Outside the live ring: the ring run.
+      const ring: ZoneRing = { cx: 0, cy: 0, r: 2000 };
+      const outside = situation({ profile: p, ring, x: ring.r + 500 });
+      expect(choosePosture(outside, track({ x: ring.r + 500 + 100 }), 'farm', { mind: farming(id) }), id).toBe('ringRun');
+      // A close inside the margin, target beyond reach: no fight opened, no stay.
+      const far = track({ x: reachOf(base.stats) + 200 });
+      const soon = { mind: farming(id), zone: { phase: 'closing' as const, closesInMs: CONFIG.bots.ringOpenMarginMs - 1 } };
+      expect(choosePosture(base, far, 'farm', soon), id).toBe('reposition');
+    }
+  });
+});
+
 describe('ai/utility — HITS PER CLICK (epic-9 amendment 195)', () => {
   it('two hc rows of one click count one hit; the next click counts again', () => {
     const m = mind();

@@ -8,8 +8,8 @@
 // NEGATIVE: the reserved -1 heal sentinel left the wire in Story 8.8.
 //
 // THE HEAL IS NOT A SPEND (epic-8 amendments 46 + 49). Healing is the HULL
-// REPAIR ability (`C`, Story 10.5) — `healHpFrac` gates its press in
-// ai/abilities.ts. This policy never reads hp.
+// REPAIR ability (`C`, Story 10.5) — the profile's `repairStyle` gates its
+// press in ai/abilities.ts (Story 10.12). This policy never reads hp.
 //
 // THE POINTS SCORER (Story 8.20, Eric ruling 2026-09-30, R3/R4). Every card
 // in the hand that the hull can actually take (`pickRefusal`) gets a score
@@ -173,13 +173,15 @@ function styleMatches(taste: BotTaste, s: BotSpendState, line: CatalogLine, cata
 
 /** Does this upgrade card match one of the taste's favorite upgrades? A tier
  *  copy of a held weapon — or one of its family's one-off ADD-ONS (Story
- *  10.6, I8) — is `weapons`; a ladder with a host row is `gun`; a ship ladder
- *  is named by its own line id. */
+ *  10.6, I8) — is `weapons`; a ship ladder is named by its own line id. A
+ *  ladder with a host row (a deck-gun ladder) matches no favorite: the `gun`
+ *  favorite died with those ladders' reach on a captain (Story 10.4; deleted
+ *  Story 10.12). */
 function isFavoriteUpgrade(taste: BotTaste, line: CatalogLine): boolean {
   const favs: readonly string[] = taste.favoriteUpgrades;
   if (line.kind === 'equipment' || line.kind === 'addon') return favs.includes('weapons');
   if (line.kind !== 'ladder') return false;
-  return ladderHost(line) === undefined ? favs.includes(line.id) : favs.includes('gun');
+  return ladderHost(line) === undefined && favs.includes(line.id);
 }
 
 function upgradeScore(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): number {

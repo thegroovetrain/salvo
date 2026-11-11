@@ -48,7 +48,7 @@ import {
   type ZoneRing,
 } from '@salvo/shared';
 import { navCacheFor, type NavCache } from '../navCache.js';
-import type { BotMind, BotPosture, BotSelf, BotWorldPort, BotZonePhase } from './types.js';
+import type { BotBeacon, BotMind, BotPosture, BotSelf, BotWorldPort, BotZonePhase } from './types.js';
 import { FOG_COVER_DENSITY } from './cover.js';
 import { ringDeadband, type BotSituation } from './utility.js';
 
@@ -61,6 +61,10 @@ export const AVOID_STRENGTH = 0.8;
 const BOUNDARY_MARGIN = 80;
 /** u — lookahead for the visible-mine probe: three trigger radii. */
 const MINE_LOOKAHEAD = CONFIG.mine.triggerRadius * 3;
+/** u — lookahead for the solid-beacon probe: a stranger hull's lookahead
+ *  plus the body's own radius (the kernel reads the body's CENTRE).
+ *  Derived from the hull dial (orchestrator reading, Story 10.12): no dial of its own. */
+const BEACON_LOOKAHEAD_U = CONFIG.bots.hullLookaheadU + CONFIG.beacons.bodyRadiusU;
 /** rad — the half-spread of the avoidance fan (amendment 192(c): ±60°). */
 const RAY_SPREAD = Math.PI / 3;
 /** Fraction of the reach by which one side must be MORE OPEN than the other
@@ -205,17 +209,34 @@ export function pointBias(hx: number, hy: number, x: number, y: number, fx: numb
   return fx * dy - fy * dx > 0 ? -AVOID_STRENGTH : AVOID_STRENGTH;
 }
 
+/** The point kernel bound to one hull's pose: `(hx, hy, lookahead)` -> the
+ *  rudder bias away from that hazard point (the one kernel the mine, hull and
+ *  beacon terms all sum). */
+function kernelOf(state: ShipState): (hx: number, hy: number, lookahead: number) => number {
+  const fx = Math.cos(state.heading);
+  const fy = Math.sin(state.heading);
+  return (hx, hy, lookahead) => pointBias(hx, hy, state.x, state.y, fx, fy, lookahead);
+}
+
+/** Is this mine PRESSING THE HELM — a point the mine term steers away from
+ *  right now (ahead of the beam, inside the mine lookahead)? The predicate
+ *  `avoidMines` sums over. (The secondaries' sweep no longer reads it: a
+ *  mine this close is inside the sweep's blast stand-off — ai/battery.ts
+ *  sweepStandOffU, Story 10.12 review gate.) Ownership is the caller's
+ *  question. */
+export function minePressing(state: ShipState, mine: Vec2): boolean {
+  return kernelOf(state)(mine.x, mine.y, MINE_LOOKAHEAD) !== 0;
+}
+
 /** Summed bias away from every mine the bot CAN SEE (its own are skipped —
  *  an owner never trips its own rack). The view carries the detect gate. */
 export function avoidMines(self: BotSelf, mind: BotMind): number {
   if (mind.view === null) return 0;
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
+  const kernel = kernelOf(self.state);
   let bias = 0;
   for (const m of mind.view.mines) {
     if (m.own) continue;
-    bias += pointBias(m.x, m.y, x, y, fx, fy, MINE_LOOKAHEAD);
+    bias += kernel(m.x, m.y, MINE_LOOKAHEAD);
   }
   return bias;
 }
@@ -224,16 +245,36 @@ export function avoidMines(self: BotSelf, mind: BotMind): number {
  *  CONFIG.bots.hullLookaheadU; the bot's own target only inside the bumper,
  *  and not at all under `ram`. */
 export function avoidHulls(self: BotSelf, mind: BotMind, posture: BotPosture): number {
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
+  const kernel = kernelOf(self.state);
   let bias = 0;
   for (const [key, t] of mind.contacts) {
     if (!t.live) continue;
     const isTarget = key === mind.targetKey;
     if (isTarget && posture === 'ram') continue;
     const reach = isTarget ? hullBumper(self.hullId, t.cls) : CONFIG.bots.hullLookaheadU;
-    bias += pointBias(t.x, t.y, x, y, fx, fy, reach);
+    bias += kernel(t.x, t.y, reach);
+  }
+  return bias;
+}
+
+/** Is this charted beacon a SOLID BODY right now (afloat or sinking — a
+ *  charted one has not surfaced, a gone one has left the water)? */
+export function beaconSolid(b: Pick<BotBeacon, 'phase'>): boolean {
+  return b.phase === 'afloat' || b.phase === 'sinking';
+}
+
+/** BEACON-BODY AVOIDANCE (Story 10.12): every SOLID beacon on the public
+ *  chart ahead of the beam within the beacon lookahead — the same point
+ *  kernel a stranger's hull gets. A beacon is not a contact (no track), so
+ *  the hull term never sees it; the farm's standoff point keeps a farmer's
+ *  own line clear of the body, this keeps every other posture's. */
+export function avoidBeacons(self: BotSelf, port: Pick<BotWorldPort, 'beacons'>): number {
+  const beacons = port.beacons?.() ?? [];
+  if (beacons.length === 0) return 0;
+  const kernel = kernelOf(self.state);
+  let bias = 0;
+  for (const b of beacons) {
+    if (beaconSolid(b)) bias += kernel(b.x, b.y, BEACON_LOOKAHEAD_U);
   }
   return bias;
 }

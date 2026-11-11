@@ -126,8 +126,8 @@ describe('COMBAT_BRAIN — the lane nudge', () => {
     const port = fakePort(w, [afloat(1200, 0)]); // dead ahead, bow on
     const rec = mkBot(w, 0, 0, 0);
     const c = crate('c', AHEAD * 0.5, LANE * 0.8); // ahead, to port of the line
-    const plain = COMBAT_BRAIN.decide(rec, mkMind('forager', []), port);
-    const mind = mkMind('forager', [c]);
+    const plain = COMBAT_BRAIN.decide(rec, mkMind('bulwark', []), port);
+    const mind = mkMind('bulwark', [c]);
     const nudged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('farm');
     expect(nudged.throttle).toBe(plain.throttle);
@@ -146,7 +146,7 @@ describe('COMBAT_BRAIN — the lane nudge', () => {
     });
     const c = crate('c', AHEAD * 0.5, LANE * 0.8);
     const decideWith = (drops: DropView[]): { d: ReturnType<typeof COMBAT_BRAIN.decide>; mind: BotMind } => {
-      const mind = mkMind('bulwark', drops);
+      const mind = mkMind('duelist', drops); // a beacon CONTESTER (Story 10.12, R4): the target pulls it off
       mind.contacts.set('tgt', hostile());
       return { d: COMBAT_BRAIN.decide(rec, mind, port), mind };
     };
@@ -163,7 +163,7 @@ describe('COMBAT_BRAIN — the lane nudge', () => {
     const port = fakePort(w, [afloat(beaconStandoffU() - 20, 0)]);
     const rec = mkBot(w, 0, 0, Math.PI);
     const c = crate('c', -AHEAD * 0.4, 0); // dead ahead of the bow
-    const mind = mkMind('forager', [c]);
+    const mind = mkMind('bulwark', [c]);
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.posture).toBe('farm');
     expect(d.throttle).toBe(0);
@@ -175,7 +175,7 @@ describe('COMBAT_BRAIN — the lane nudge', () => {
 
 /** An ENROLLED bot on a real World (the controller drives it), at a pose. */
 function realBot(w: World, x: number, y: number, heading: number): ShipRecord {
-  const rec = w.addBot('bismarck', 'forager');
+  const rec = w.addBot('bismarck', 'bulwark');
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }

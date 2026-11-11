@@ -35,8 +35,8 @@
 // incapable of addressing any ship but its own; the eslint boundary bans
 // world.js outright and makes perception.js type-only for this directory.
 
-import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
-import { testProfileHull } from './profiles.js';
+import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShiftId, type ShipClassId } from '@salvo/shared';
+import { profileOf, rollShift, testProfileHull } from './profiles.js';
 import { COMBAT_BRAIN } from './tactics.js';
 import type {
   AnyProfileId,
@@ -58,6 +58,11 @@ const MIND_STREAM_K = 0x9e3779b9;
  *  `seed + n·K1` and `seed + m·K2` coincide only where n·K1 ≡ m·K2 (mod 2^32),
  *  unreachable at lobby-sized n, m with these two constants. */
 const SPEND_STREAM_K = 0x7f4a7c15;
+/** The SHIFT-STREAM multiplier (Story 10.12, R5) — the weighted Shift roll's
+ *  own per-enrollment stream, a third DISTINCT odd constant (unused by any
+ *  other stream mint), so dealing the Shift moves no class, profile,
+ *  callsign, mind or spend draw. */
+const SHIFT_STREAM_K = 0x6c8e9cf5;
 
 /** The Story 9.13 mind seats (amendments 192–202) in their enroll / new-life
  *  state — one literal so enroll and the per-life release can never drift. */
@@ -274,8 +279,14 @@ export class BotController {
    * never passes one, and the rolled profile comes from CONFIG.bots.profiles
    * — which contains no test id — so a real Solo vs AI opponent can never
    * carry a test row.
+   *
+   * THE SHIFT (Story 10.12, Eric 2026-11-11, R5) is dealt AFTER the
+   * personality is known: `rollShift` over the bot's profile (rolled or
+   * forced), drawn off a stream of its OWN (SHIFT_STREAM_K), so the class /
+   * profile / callsign draws above are byte-identical to before. World.addBot
+   * uses it unless its caller forces a Shift.
    */
-  enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId } {
+  enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId; shift: ShiftId } {
     this.enrollCounter += 1;
     const rolled = this.rng.pick(SHIP_CLASS_IDS);
     const rolledHull = hull ?? rolled;
@@ -283,6 +294,7 @@ export class BotController {
     const prof: AnyProfileId = profile ?? rolledProfile;
     const hullId = (profile === undefined ? null : testProfileHull(profile)) ?? rolledHull;
     const name = this.drawCallsign();
+    const shift = rollShift(profileOf(prof), mulberry32((this.seed + this.enrollCounter * SHIFT_STREAM_K) >>> 0));
     this.minds.set(id, {
       rng: mulberry32((this.seed + this.enrollCounter * MIND_STREAM_K) >>> 0),
       spendRng: mulberry32((this.seed + this.enrollCounter * SPEND_STREAM_K) >>> 0),
@@ -303,7 +315,7 @@ export class BotController {
       unbeachUntil: 0,
       ...freshStory913Seats(),
     });
-    return { name, hullId };
+    return { name, hullId, shift };
   }
 
   /** Forget a bot (called by World.removeShip). */

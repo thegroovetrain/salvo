@@ -90,9 +90,13 @@ export interface BotGroup {
    *  (see BotSample.shots: it counts clicks the sim consumed, including ones
    *  the equipment refused, so this is a LOWER bound on damage per shot). */
   damagePerShot: number;
+  /** Story 10.12: Σ guns bearing / Σ guns over the ticks a hull sat inside
+   *  main-battery reach (BotReadouts.gunsBearing), pooled over the group. */
+  gunsBearingRate: number;
 }
 
-/** A per-CLASS slice: a BotGroup plus the RAW life column. The documented
+/** A per-CLASS slice: a BotPickGroup (Story 10.12 — placement and win share
+ *  by hull ride the class table too) plus the RAW life column. The documented
  *  `--json` contract is `bots.byClass[].lifeSamples` and nothing else, so the
  *  field lives on its own type rather than on BotGroup — `byProfile` and
  *  `byClass` are built by the same code, so a field on the shared type is
@@ -101,7 +105,7 @@ export interface BotGroup {
  *  `groupTable`, so the deterministic text body stays byte-identical. It exists
  *  for `/balance-sim`'s attrition curve, which needs the true alive-at-T
  *  reading rather than a quantile-pooled one. */
-export interface BotClassGroup extends BotGroup {
+export interface BotClassGroup extends BotPickGroup {
   /** Raw per-bot-match `lifeS` values, sorted ascending — the EXACT sibling of
    *  `BotGroup.lifeS` (see botMetrics.lifeSamples). */
   lifeSamples: number[];
@@ -211,6 +215,10 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     landEpisodes: summarize(rows.map((r) => r.landEpisodes)),
     maxLandRunS: summarize(rows.map((r) => (r.maxLandRunTicks * CONFIG.tick.simDtMs) / 1000)),
     damagePerShot: ratio(damage, shots),
+    gunsBearingRate: ratio(
+      rows.reduce((a, r) => a + r.gunsBearing, 0),
+      rows.reduce((a, r) => a + r.gunsInReach, 0),
+    ),
   };
 }
 
@@ -241,11 +249,6 @@ function groupBy(rows: readonly BotSample[], key: (r: BotSample) => string): Bot
   return bucket(rows, key).map(([k, list]) => groupOf(k, list));
 }
 
-/** The per-CLASS slice — groupBy plus the raw life column, which the `--json`
- *  contract carries on THIS axis only (see BotClassGroup). */
-function groupByClass(rows: readonly BotSample[]): BotClassGroup[] {
-  return bucket(rows, (r) => r.cls).map(([k, list]) => ({ ...groupOf(k, list), lifeSamples: lifeSamples(list) }));
-}
 
 /** One bot-match row paired with whether it won (see BotPickGroup.wins). */
 interface ScoredRow {
@@ -272,6 +275,16 @@ function pickGroupOf(key: string, scored: readonly ScoredRow[]): BotPickGroup {
     winRate: ratio(wins, rows.length),
     meanPlacement: placed.length === 0 ? null : placed.reduce((a, p) => a + p, 0) / placed.length,
   };
+}
+
+/** The per-CLASS slice — the pick group (wins, placement) plus the raw life
+ *  column, which the `--json` contract carries on THIS axis only (see
+ *  BotClassGroup). */
+function groupByClass(scored: readonly ScoredRow[]): BotClassGroup[] {
+  return groupPickBy(scored, (r) => r.cls).map((g) => {
+    const rows = scored.filter((s) => s.row.cls === g.key).map((s) => s.row);
+    return { ...g, lifeSamples: lifeSamples(rows) };
+  });
 }
 
 /** Slice scored rows by a key, in sorted key order (bucket's rule). */
@@ -322,7 +335,7 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     levelsUnspent,
     participantKills: rows.reduce((a, r) => a + r.kills, 0),
     byProfile: groupBy(rows, (r) => r.profile),
-    byClass: groupByClass(rows),
+    byClass: groupByClass(scoredRows(matches)),
     byLayout: groupPickBy(scoredRows(matches), (r) => r.layout),
     byShift: groupPickBy(scoredRows(matches), (r) => r.shift),
     bars: [],
@@ -411,8 +424,8 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
   lines.push('', ...renderReadoutLines(a.readouts), '', ...renderPostureBlock(a.readouts));
   lines.push('', 'BY PROFILE (the six priority profiles — the story\'s core design claim):');
   lines.push(...groupTable(a.byProfile));
-  lines.push('', 'BY CLASS:');
-  lines.push(...groupTable(a.byClass));
+  lines.push('', 'BY CLASS (brg% = guns bearing on a hull in main reach; win = placement 1 with a named winner):');
+  lines.push(...groupTable(a.byClass, CLASS_COLS));
   lines.push('', 'BY LAYOUT (turrets x guns; win = placement 1 with a named winner):');
   lines.push(...pickTable('layout', a.byLayout));
   lines.push('', 'BY SHIFT (win = placement 1 with a named winner):');
@@ -421,8 +434,15 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
   return lines;
 }
 
+/** One rendered column of a group table. */
+interface Column<G> {
+  head: string;
+  w: number;
+  value: (g: G) => string;
+}
+
 /** Columns of the per-profile / per-class table (one place, both tables). */
-const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] = [
+const GROUP_COLS: Column<BotGroup>[] = [
   { head: 'n', w: 5, value: (g) => String(g.n) },
   { head: 'kills', w: 6, value: (g) => fmt(g.kills.mean, 2) },
   { head: 'alive%', w: 7, value: (g) => pct(g.aliveRate) },
@@ -449,12 +469,22 @@ const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] 
   { head: 'maxRunS', w: 8, value: (g) => fmt(g.maxLandRunS.max, 1) },
   // Story 8.19: afloat ticks riding another hull's wake (observation only).
   { head: 'draft%', w: 7, value: (g) => pct(g.draftRate) },
+  // Story 10.12: guns bearing on the nearest hull in main reach (gun-ticks).
+  { head: 'brg%', w: 7, value: (g) => pct(g.gunsBearingRate) },
 ];
 
-function groupTable(groups: readonly BotGroup[]): string[] {
+/** The class table's extra outcome columns (Story 10.12): mean placement and
+ *  win share by hull — the byLayout / byShift columns. */
+const CLASS_COLS: Column<BotClassGroup>[] = [
+  ...GROUP_COLS,
+  { head: 'place', w: 7, value: (g) => (g.meanPlacement === null ? '-' : fmt(g.meanPlacement, 1)) },
+  { head: 'win%', w: 7, value: (g) => pct(g.winRate) },
+];
+
+function groupTable<G extends BotGroup>(groups: readonly G[], cols: readonly Column<G>[] = GROUP_COLS): string[] {
   const keyW = Math.max(8, ...groups.map((g) => g.key.length));
-  const head = `  ${'group'.padEnd(keyW)} ${GROUP_COLS.map((c) => c.head.padStart(c.w)).join('')}`;
-  const rows = groups.map((g) => `  ${g.key.padEnd(keyW)} ${GROUP_COLS.map((c) => c.value(g).padStart(c.w)).join('')}`);
+  const head = `  ${'group'.padEnd(keyW)} ${cols.map((c) => c.head.padStart(c.w)).join('')}`;
+  const rows = groups.map((g) => `  ${g.key.padEnd(keyW)} ${cols.map((c) => c.value(g).padStart(c.w)).join('')}`);
   return [head, ...rows];
 }
 
