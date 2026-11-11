@@ -2,7 +2,7 @@
 // unset), remembered in localStorage when the browser allows it, and summed up
 // as one line he can paste into chat.
 
-const KEY = 'soundAudition.picks.v3';
+const KEY = 'soundAudition.picks.v4';
 
 export class Picks {
   private readonly values = new Map<string, string>();

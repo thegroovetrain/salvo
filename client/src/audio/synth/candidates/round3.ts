@@ -5,7 +5,7 @@
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
-import { click, every, filters, groan, metalRing, noiseLayer, thump, tone } from './parts.js';
+import { click, filters, groan, metalRing, noiseLayer, thump, tone } from './parts.js';
 
 const { lp, bp } = filters;
 
@@ -203,15 +203,26 @@ export const BOUNTY_OMINOUS: CueSlot = {
   ],
 };
 
-/** One reed-like klaxon partial: a buzzy wave through a resonant band, never noise. */
-function reed(freq: number | { from: number; to: number; ms: number }, wave: 'sawtooth' | 'square' | 'triangle', bandHz: number, peak: number, holdMs: number): Layer {
-  return { source: { kind: 'osc', wave, freq }, filters: [bp(bandHz, 1.2), lp(3500)], env: { peak, attackMs: 25, holdMs, tauMs: 45 }, drive: 2 };
+/**
+ * The round-2 klaxon voice, unchanged in tone (Eric 2026-11-11: "In the last
+ * batch you had a Klaxon choice that sounded pretty good, I was hoping you'd
+ * just reuse that"). Recovered from the round-2 `bounty` take A at 6b9e8f5a;
+ * only the grain onsets differ between the two takes.
+ */
+function ahOoGah(onsetsMs: readonly number[]): Layer {
+  return {
+    source: { kind: 'osc', wave: 'square', freq: { from: 220, to: 430, ms: 260 } },
+    filters: [bp(900, 1.5)],
+    env: { peak: 0.3, attackMs: 20, holdMs: 380, tauMs: 40 },
+    drive: 3,
+    grains: { onsetsMs },
+  };
 }
 
 export const KLAXON: CueSlot = {
   id: 'klaxon',
   title: 'Klaxon (hull alarms and your own sinking)',
-  note: 'One klaxon voice for all three: PLAY = one blast when your hull drops under half; ×3 = three blasts under a quarter; SINKING = the blast repeating while everything muffles under rushing water and goes quiet.',
+  note: 'The klaxon you liked from round 2, one voice for all three: PLAY = the alarm when your hull drops under half; \u00d73 = three of them under a quarter; SINKING = it repeating while everything muffles under rushing water and goes quiet.',
   today: 'hpHurt',
   todayMore: [
     { label: "Today's under-a-quarter sound", tone: 'hpCritical' },
@@ -221,54 +232,27 @@ export const KLAXON: CueSlot = {
   candidates: [
     {
       id: 'A',
-      label: 'Ah-OO-gah',
-      blurb: 'The classic klaxon: a reedy horn that scoops up in pitch, "ah-OO-gah".',
-      recipe: {
-        gain: 1,
-        family: 'klaxon',
-        maxVoices: 4,
-        reverb: 0.1,
-        layers: [
-          reed({ from: 170, to: 400, ms: 330 }, 'sawtooth', 900, 0.5, 520),
-          reed({ from: 85, to: 200, ms: 330 }, 'square', 500, 0.25, 520),
-        ],
-      },
+      label: 'Single ah-oo-gah',
+      blurb: 'The round-2 klaxon you liked, one "ah-oo-gah" per alarm.',
+      recipe: { gain: 1, family: 'klaxon', maxVoices: 4, reverb: 0.15, layers: [ahOoGah([0])] },
     },
     {
       id: 'B',
-      label: 'Two-tone electric horn',
-      blurb: 'A flat, steady electric "braap" of two notes buzzing together.',
-      recipe: {
-        gain: 1,
-        family: 'klaxon',
-        maxVoices: 4,
-        reverb: 0.1,
-        layers: [330, 392].map((hz) => ({ ...reed(hz, 'square', 1200, 0.3, 650), am: { rateHz: 60, depth: 0.3 } })),
-      },
-    },
-    {
-      id: 'C',
-      label: 'Dive horn',
-      blurb: 'A lower, rounder submarine dive horn with a short rise at the start.',
-      recipe: {
-        gain: 1,
-        family: 'klaxon',
-        maxVoices: 4,
-        reverb: 0.15,
-        layers: [
-          reed({ from: 118, to: 142, ms: 150 }, 'sawtooth', 500, 0.5, 650),
-          reed({ from: 236, to: 284, ms: 150 }, 'triangle', 700, 0.3, 650),
-        ],
-      },
+      label: 'Double ah-oo-gah',
+      blurb: 'The round-2 klaxon exactly as it was: "ah-oo-gah, ah-oo-gah" for each alarm.',
+      recipe: { gain: 1, family: 'klaxon', maxVoices: 4, reverb: 0.15, layers: [ahOoGah([0, 620])] },
     },
   ],
 };
 
-/** How far apart the klaxon blasts are in the ×3 series and the sinking demo, seconds. */
+/** Gap after the last "ah-oo-gah" of one alarm before the next alarm starts, seconds. */
 export const KLAXON_STEP_S = 0.9;
 
-/** The ×3 series (hull under a quarter): three blasts, evenly spaced, ms. */
-export const KLAXON_SERIES_ONSETS_MS = every(KLAXON_STEP_S * 1000, 3);
+/** Seconds from one alarm to the next for this klaxon take (a double alarm needs more room). */
+export function klaxonStepS(recipe: { layers: readonly Layer[] }): number {
+  const lastOnsetMs = recipe.layers.reduce((m, l) => Math.max(m, ...(l.grains?.onsetsMs ?? [0])), 0);
+  return KLAXON_STEP_S + lastOnsetMs / 1000;
+}
 
 /** The sinking demo's length, seconds. */
 export const SINKING_DEMO_S = 7;

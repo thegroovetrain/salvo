@@ -4,9 +4,9 @@
 // plays them through the real renderer, and wave B moves only Eric's picks
 // into the game path and deletes the rest.
 //
-// Round 3 (Eric 2026-11-11): ROUND3_GROUP holds the new takes for the sounds
-// he marked "none of these"; PICKED_GROUPS hold the slots he has already
-// picked, kept untouched for reference.
+// Round 4 (Eric 2026-11-11): NEW_TAKES_GROUP holds the new takes for the
+// sounds he marked "none of these"; PICKED_GROUPS hold the slots he has
+// already picked (rounds 2 and 3), kept untouched for reference.
 
 import { MAIN_BATTERY, SECONDARIES } from './guns.js';
 import { MINE_DROP, TORPEDO_LAUNCH, TORPEDO_RUN } from './ordnance.js';
@@ -16,22 +16,28 @@ import { BEACON, BOOST, REPAIR, SMOKE } from './ship.js';
 import { COUNTDOWN_TICK, DENIED, LEVEL_UP, MATCH_START, TELEGRAPH } from './signals.js';
 import { BURNING, DAZZLED, HIT_CALL, PROP_FOULED, RAM_GRIND } from './hull.js';
 import { AIRDROP_CHIME, BOUNTY_OMINOUS, CARD_FITTED_SUBTLE, KILL_SOUND, KLAXON } from './round3.js';
-import { HORN_AIRHORN, HORN_BELL, HORN_FOGHORN, HORN_TROMBONE, HORN_WHISTLE } from './hornVoices.js';
+import { HORN_BELL, HORN_FOGHORN, HORN_WHISTLE } from './hornVoices.js';
+import { HORN_AIRHORN, HORN_TROMBONE } from './brass.js';
 import type { CueGroup, CueSlot } from './types.js';
 
 export type { CueCandidate, CueGroup, CueSlot, EngineCandidate } from './types.js';
 export type { StormCandidate } from './storm.js';
 export { ENGINE_CANDIDATES } from './engines.js';
 export { STORM_CANDIDATES } from './storm.js';
-export { KLAXON_SERIES_ONSETS_MS, KLAXON_STEP_S, SINKING_DEMO_S } from './round3.js';
+export { KLAXON_STEP_S, SINKING_DEMO_S, klaxonStepS } from './round3.js';
 
-export const ROUND3_GROUP: CueGroup = {
-  title: 'Round 3 — new takes',
+export const NEW_TAKES_GROUP: CueGroup = {
+  title: 'Round 4 \u2014 new takes',
   intro: 'These are new takes for the sounds you marked "none of these", made from what you asked for.',
-  slots: [AIRDROP_CHIME, KILL_SOUND, CARD_FITTED_SUBTLE, BOUNTY_OMINOUS, KLAXON, HORN_FOGHORN, HORN_WHISTLE, HORN_BELL, HORN_TROMBONE, HORN_AIRHORN],
+  slots: [KLAXON, HORN_TROMBONE, HORN_AIRHORN],
 };
 
 export const PICKED_GROUPS: readonly CueGroup[] = [
+  {
+    title: 'Round 3 picks',
+    intro: 'New sounds and the selectable horns you picked in round 3.',
+    slots: [AIRDROP_CHIME, KILL_SOUND, CARD_FITTED_SUBTLE, BOUNTY_OMINOUS, HORN_FOGHORN, HORN_WHISTLE, HORN_BELL],
+  },
   {
     title: 'Weapons, hits and events',
     intro: 'The sounds of combat and of things happening on the water.',
@@ -62,7 +68,7 @@ export const PICKED_GROUPS: readonly CueGroup[] = [
   },
 ];
 
-export const CUE_GROUPS: readonly CueGroup[] = [ROUND3_GROUP, ...PICKED_GROUPS];
+export const CUE_GROUPS: readonly CueGroup[] = [NEW_TAKES_GROUP, ...PICKED_GROUPS];
 
 /** Every slot, in page order. */
 export const CUE_SLOTS: readonly CueSlot[] = CUE_GROUPS.flatMap((g) => g.slots);

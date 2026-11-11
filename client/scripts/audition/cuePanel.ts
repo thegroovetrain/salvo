@@ -15,7 +15,7 @@ import { hornVoice } from '../../src/audio/horns.js';
 import { button, h, slider } from './dom.js';
 import type { Picks } from './picks.js';
 import type { Rig } from './rig.js';
-import { KLAXON_SERIES_S } from './sinking.js';
+import { klaxonSeriesS } from './sinking.js';
 
 /** Main-battery salvo: each gun 70–180 ms after the last. Other series: 250 ms apart. */
 const MAIN_STAGGER_S: readonly [number, number] = [0.07, 0.18];
@@ -77,7 +77,7 @@ function actionsFor(slot: CueSlot, c: CueCandidate, rig: Rig, dial: { distance: 
     actions.push(button('×3 quick series', () => seriesDelays(slot.id).forEach((d) => rig.play(c.recipe, dial.distance, d)), 'ghost'));
   }
   if (slot.klaxon) {
-    actions.push(button('×3 (hull under a quarter)', () => KLAXON_SERIES_S.forEach((d) => rig.play(c.recipe, 0, d)), 'ghost'));
+    actions.push(button('×3 (hull under a quarter)', () => klaxonSeriesS(c.recipe).forEach((d) => rig.play(c.recipe, 0, d)), 'ghost'));
     actions.push(button('SINKING', () => rig.playSinking(c.recipe), 'ghost'));
   }
   return actions;

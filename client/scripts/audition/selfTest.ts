@@ -6,7 +6,7 @@
 
 import { CUE_SLOTS, ENGINE_CANDIDATES, SINKING_DEMO_S, STORM_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
 import { StormBedVoice, type StormBedProfile } from '../../src/audio/stormBed.js';
-import { KLAXON_SERIES_S, scheduleSinkingDemo } from './sinking.js';
+import { klaxonSeriesS, scheduleSinkingDemo } from './sinking.js';
 import { Synth } from '../../src/audio/synth/render.js';
 import { createMasterChain } from '../../src/audio/synth/master.js';
 import { cueLengthS, distanceShape, type CueRecipe } from '../../src/audio/synth/recipe.js';
@@ -151,10 +151,11 @@ function tailRms(buf: AudioBuffer, tailS: number): number {
 async function klaxonItems(): Promise<SelfTestItem[]> {
   const out: SelfTestItem[] = [];
   for (const c of CUE_SLOTS.find((s) => s.klaxon)?.candidates ?? []) {
-    const len = KLAXON_SERIES_S[KLAXON_SERIES_S.length - 1] + cueLengthS(c.recipe) + REVERB_TAIL_S;
+    const series = klaxonSeriesS(c.recipe);
+    const len = series[series.length - 1] + cueLengthS(c.recipe) + REVERB_TAIL_S;
     out.push(await renderWith(`klaxon.${c.id}.x3`, len, (ctx, sink) => {
       const synth = new Synth(ctx, sink, { rand: seeded(7) });
-      for (const d of KLAXON_SERIES_S) synth.play(c.recipe, { delayS: d, rand: seeded(11) });
+      for (const d of series) synth.play(c.recipe, { delayS: d, rand: seeded(11) });
     }));
     out.push(await renderWith(`klaxon.${c.id}.sinking`, SINKING_DEMO_S + 1, (ctx, sink) => void scheduleSinkingDemo(ctx, sink, c.recipe, seeded(13)), 0.5));
   }

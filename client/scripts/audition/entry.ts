@@ -3,7 +3,7 @@
 // self-contained HTML file, so every candidate Eric hears is the same recipe
 // data and the same render code the game will ship.
 
-import { PICKED_GROUPS, ROUND3_GROUP } from '../../src/audio/synth/candidates/index.js';
+import { NEW_TAKES_GROUP, PICKED_GROUPS } from '../../src/audio/synth/candidates/index.js';
 import { byId } from './dom.js';
 import { cueGroup } from './cuePanel.js';
 import { EnginePanel } from './enginePanel.js';
@@ -24,8 +24,8 @@ declare global {
 /** Build time + a short description, injected by soundAudition.mjs. */
 declare const __AUDITION_BUILD__: string;
 
-/** Round 3 slots in page order, with the storm bed after the klaxon (Eric's list order). */
-const PICK_ORDER = ROUND3_GROUP.slots.flatMap((s) => (s.id === 'klaxon' ? [s.id, 'stormBed'] : [s.id]));
+/** Only this round's slots go into the picks summary. */
+const PICK_ORDER = NEW_TAKES_GROUP.slots.map((s) => s.id);
 
 function wireTransport(rig: Rig): void {
   const status = byId<HTMLElement>('status');
@@ -86,8 +86,8 @@ function boot(): void {
   wireErrors(rig);
   const picks = new Picks(PICK_ORDER);
   const engines = new EnginePanel(rig, ERIC_PICKS.engines);
-  byId<HTMLElement>('round3').append(cueGroup(ROUND3_GROUP, 0, rig, { kind: 'pick', picks }));
-  byId<HTMLElement>('storm').append(new StormPanel(rig, picks, engines).render());
+  byId<HTMLElement>('round3').append(cueGroup(NEW_TAKES_GROUP, 0, rig, { kind: 'pick', picks }));
+  byId<HTMLElement>('storm').append(new StormPanel(rig, ERIC_PICKS.stormBed, engines).render());
   byId<HTMLElement>('engines').append(engines.render());
   const reference = { kind: 'reference', picked: ERIC_PICKS } as const;
   byId<HTMLElement>('pickedCues').append(...PICKED_GROUPS.map((group, i) => cueGroup(group, i + 1, rig, reference)));
