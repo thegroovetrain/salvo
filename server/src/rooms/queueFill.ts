@@ -37,8 +37,11 @@ export interface QueueFillSettings {
 /** The bot-fill hold in whole ms, or null when HC_QUEUE_BOT_FILL is off. */
 function botFillHoldMs(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === '') return null;
-  const ms = Math.round(Number(raw) * 1000);
-  return Number.isFinite(ms) && ms > 0 ? ms : null;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  // Whole ms (the wire's startsInMs stays an integer), and never rounded down
+  // to 0: any value above zero is ON, however small.
+  return Math.max(1, Math.round(seconds * 1000));
 }
 
 /** Everything the queue reads from its environment, read once. */

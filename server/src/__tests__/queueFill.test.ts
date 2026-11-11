@@ -55,6 +55,12 @@ describe('queueFillSettings — HC_QUEUE_BOT_FILL', () => {
     expect(queueFillSettings({ HC_QUEUE_BOT_FILL: '2.5' }).queueTimerMs).toBe(2500);
   });
 
+  it('any value above zero is ON, however small — never rounded down to OFF', () => {
+    const tiny = queueFillSettings({ HC_QUEUE_BOT_FILL: '0.0004' });
+    expect(tiny.botFill).toBe(true);
+    expect(tiny.queueTimerMs).toBeGreaterThan(0);
+  });
+
   it('is a production switch — not gated on HC_DEV_OPTIONS', () => {
     for (const dev of [undefined, '0', '1']) {
       expect(queueFillSettings({ HC_QUEUE_BOT_FILL: '60', HC_DEV_OPTIONS: dev }).botFill, String(dev)).toBe(true);

@@ -37,8 +37,10 @@ import { clearResumeToken, loadResumeToken, saveResumeToken } from './resumeToke
  * Deadline for the ARENA welcome handshake ONLY.
  *
  * It deliberately does not cover the queue wait: a pooled captain legitimately
- * waits `CONFIG.match.queueTimerMs` (2:00) — indefinitely, while the pool is
- * still below `minHumans` — so applying this to stage 1 would fail every healthy
+ * waits out the queue's hold (`CONFIG.match.queueTimerMs`, or the
+ * server's HC_QUEUE_BOT_FILL seconds when bot fill is on, Story 10.11) —
+ * indefinitely, while bot fill is off and the pool is still below the arm
+ * minimum (`min` on the status) — so applying this to stage 1 would fail every healthy
  * queue and report it as a dead server. The player's exit from the queue is
  * CANCEL, not a timeout.
  */
@@ -302,12 +304,12 @@ function directArenaRequested(): boolean {
  * solo request can never land in another captain's match, and the room the
  * server hands back is private and locked at birth. That is the whole security
  * argument for letting `solo` ride on client-supplied join options — the only
- * thing it can buy a hostile client is its own 20-hull room.
+ * thing it can buy a hostile client is its own full-cap room.
  *
  * There is nothing to queue for and nothing to wait on: a solo match forms on
  * the first (only) joiner, so this binds NO `MSG.queueStatus`, hands out NO
  * canceller, and never touches the `ConnectHooks` — which is what keeps
- * `QUEUED n/min · AWAITING A SECOND CAPTAIN` structurally unreachable on this
+ * a queue-wait readout structurally unreachable on this
  * path rather than merely unlikely. The player goes CONNECTING… → the ocean.
  *
  * The `pv` protocol gate still runs: `create()` goes through the matchMaker's
@@ -321,9 +323,10 @@ async function createSoloArena(client: Client, opts: Record<string, unknown>): P
  * Get the ARENA room: normally by queueing for a seat, but on a dev build with
  * `?direct=1` by joining the arena straight.
  *
- * The escape exists because the queue needs CONFIG.match.minHumans (2) captains
- * before it forms anything, so a lone developer would otherwise sit at 1/2
- * forever with no ocean at all — the pre-6.1 solo ready room (sail around,
+ * The escape exists because, with bot fill off (Story 10.11), the queue needs
+ * CONFIG.match.minHumans captains before it forms anything, so a lone developer
+ * would otherwise sit below the arm minimum forever with no ocean at all (with
+ * bot fill on a lone captain waits out the hold instead) — the pre-6.1 solo ready room (sail around,
  * weapons safe) was the fastest way to evaluate feel and this keeps it. A room
  * entered this way is NOT the frozen start line: the server only boards rooms
  * the queue created (they carry expectedCaptains), so a direct join behaves

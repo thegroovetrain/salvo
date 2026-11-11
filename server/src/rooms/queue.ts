@@ -90,7 +90,14 @@ export function defaultQueueConfig(
  * pool that cannot form.
  */
 export function queueStep(state: QueueState, cfg: QueueConfig): QueueDecision {
-  const armedAtMs = state.armedAtMs ?? (state.pooled >= cfg.minHumans ? state.nowMs : null);
+  // AN EMPTY POOL IS A COHORT BOUNDARY TOO (Story 10.11): with an arm minimum
+  // of 1, a deadline left behind by a captain who armed and left would be
+  // inherited by the next lone arrival — a shortened hold, or an instant
+  // bot-filled match if it had already expired. Nobody is pooled at 0, so
+  // clearing the arm holds nobody hostage; a pool that only DIPS (still >= 1)
+  // keeps its deadline exactly as before.
+  const carried = state.pooled === 0 ? null : state.armedAtMs;
+  const armedAtMs = carried ?? (state.pooled >= cfg.minHumans ? state.nowMs : null);
   // Clamped at 0, so `startsInMs === 0` IS "the deadline has passed" — one
   // expression serving both the wire countdown and the expiry test, rather
   // than two that can drift apart.

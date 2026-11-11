@@ -92,6 +92,14 @@ describe('bot fill ON — arm minimum 1', () => {
     }
   });
 
+  it('a pool drained to 0 drops its deadline: the next lone captain serves a full hold', () => {
+    const drained = fill(1000 + FILL.queueTimerMs * 2, 0, 1000);
+    expect(drained.armedAtMs).toBeNull();
+    const next = fill(1000 + FILL.queueTimerMs * 2 + 1, 1, drained.armedAtMs);
+    expect(next.form).toBe(false);
+    expect(next.startsInMs).toBe(FILL.queueTimerMs);
+  });
+
   it('an empty pool never arms', () => {
     expect(fill(5000, 0).armedAtMs).toBeNull();
   });

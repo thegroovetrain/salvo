@@ -2,7 +2,7 @@
 title: 'Story 10.11: Bots Fill the Standard Queue at 1:00'
 type: 'feature'
 created: '2026-11-10'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '56adbcc0'
 review_loop_iteration: 0
 context:
@@ -77,10 +77,10 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution (waves; `/orchestrate` routing in Design Notes):**
-- [ ] W1 `shared/src/constants.ts` + `server/src/rooms/{queue.ts, queueFill.ts (new), StandardQueueRoom.ts, ArenaRoom.ts}` + `server/src/liveness.ts` -- timer 60000; the env switch module (`HC_QUEUE_BOT_FILL` seconds); derived arm minimum; trusted `botFill` create option; arena fill decoupled from mode; stale comments corrected; PV bumped only per the rule above -- the feature
-- [ ] W1 tests (same agent) -- `queue.test.ts` re-cut around the arm minimum as a parameter (lone arms/forms at min 1; never at min 2; overflow re-arm; drain); a room-level test that fill ON creates the arena with trusted `botFill` and `expectedCaptains` = humans and fill OFF passes neither; arena test: trusted `botFill` without mode → `playerCap − expectedCaptains` bots before the first tick, listing mode `'standard'`, countdown arms at one human, untrusted `botFill` stripped; switch parser unit test; liveness tests on the effective `min` -- the matrix
-- [ ] W2 `server/scripts/{queueSmoke,livenessSmoke,loadTest}.mjs` + client comments -- smokes re-scripted (lone captain arms and, under a short `HC_QUEUE_BOT_FILL`, is seated into a full arena; fill-OFF arm kept where a step needs an unarmed pool or documents the env it needs); `loadTest` header states it runs with the switch off; client comment drift fixed, tests touching 120_000 follow CONFIG -- scripted scenarios
-- [ ] W3 records -- `render.yaml` key on both services with a comment in the file's register, `docs/deploy.md` paragraph, amendment 20, VERSION / `package.json` 0.19.16, both trackers (one-line stamps), `epics.md` stamp, `project-context.md` line, this spec's result
+- [x] W1 `shared/src/constants.ts` + `server/src/rooms/{queue.ts, queueFill.ts (new), StandardQueueRoom.ts, ArenaRoom.ts}` + `server/src/liveness.ts` -- timer 60000; the env switch module (`HC_QUEUE_BOT_FILL` seconds); derived arm minimum; trusted `botFill` create option; arena fill decoupled from mode; stale comments corrected; PV bumped only per the rule above -- the feature
+- [x] W1 tests (same agent) -- `queue.test.ts` re-cut around the arm minimum as a parameter (lone arms/forms at min 1; never at min 2; overflow re-arm; drain); a room-level test that fill ON creates the arena with trusted `botFill` and `expectedCaptains` = humans and fill OFF passes neither; arena test: trusted `botFill` without mode → `playerCap − expectedCaptains` bots before the first tick, listing mode `'standard'`, countdown arms at one human, untrusted `botFill` stripped; switch parser unit test; liveness tests on the effective `min` -- the matrix
+- [x] W2 `server/scripts/{queueSmoke,livenessSmoke,loadTest}.mjs` + client comments -- smokes re-scripted (lone captain arms and, under a short `HC_QUEUE_BOT_FILL`, is seated into a full arena; fill-OFF arm kept where a step needs an unarmed pool or documents the env it needs); `loadTest` header states it runs with the switch off; client comment drift fixed, tests touching 120_000 follow CONFIG -- scripted scenarios
+- [x] W3 records -- `render.yaml` key on both services with a comment in the file's register, `docs/deploy.md` paragraph, amendment 20, VERSION / `package.json` 0.19.16, both trackers (one-line stamps), `epics.md` stamp, `project-context.md` line, this spec's result
 
 **Acceptance Criteria:**
 - Given fill ON and one pooled captain, when the queue timer expires, then one arena exists holding that captain and `playerCap − 1` bots, its listing mode is `'standard'`, and the match reaches `active`.
@@ -91,6 +91,18 @@ warnings: ['oversized']
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-11-10 — Review pass (Fable Blind Hunter BUILD-ON-IT · Fable Edge Case Hunter 3 cases · Codex `gpt-5.6-sol` FIX-FIRST on two findings)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2: (high 0, medium 1, low 1)
+- defer: 4: (high 0, medium 2, low 2)
+- reject: 3
+- addressed_findings:
+  - `[medium]` `[patch]` Edge Case Hunter (traced; Blind Hunter raised the same carry as "by design"): with an arm minimum of 1 a deadline left by a captain who armed and left was inherited by the next lone arrival — a shortened hold, or an instant bot-filled match if expired. `queueStep` now clears the arm at pool 0 (nobody is pooled, so nobody is held hostage; a dip that stays ≥ 1 keeps its deadline); regression test added.
+  - `[low]` `[patch]` Codex + both hunters (CONFIRMED): `HC_QUEUE_BOT_FILL=0.0004` rounded to 0 ms and read as OFF against the "any value above 0 is ON" contract — positivity is tested on the seconds, the hold floors at 1 ms; test added.
+  - Deferred (ledger, Eric's call): no per-IP throttle on the queue door now that one socket buys a 15-bot arena; `MatchRecord.mode` cannot tell a bot-filled standard match from an all-human one (O4); a no-show captain leaves an empty seat (same as private bot fill); no upper bound / no warning on a mistyped switch value.
+  - Not patched, for Eric's eye: with one captain arming, a second captain who joins late in the first one's minute starts when THAT minute ends (the existing never-extend rule), even if the first captain then leaves.
 
 ## Design Notes
 
@@ -104,3 +116,18 @@ warnings: ['oversized']
 - `npm run lint` -- expected: 0 errors
 - `npm run check` -- expected: EXIT 0 before the PR
 - `queueSmoke`, `livenessSmoke`, `matchSmoke`, `weaponsSmoke` against an agent-booted worktree server (`HC_DEV_OPTIONS=1`, scratch `PORT`, own PID and its tsx child killed after) -- expected: OK first try
+
+## Auto Run Result
+
+**Status:** done (review gate passed; PR to `development`).
+
+**Summary:** The standard queue fills with bots behind one Render switch. `HC_QUEUE_BOT_FILL` is a number of seconds (Eric R5): above 0, ONE captain arms the queue (R2), it holds that many seconds, and the arena forms with combat bots filling every empty seat to `CONFIG.map.playerCap` (R1) through the existing `buildBotFleet` path, unmarked (R3); unset or 0, the queue is the two-human, bot-less queue holding `CONFIG.match.queueTimerMs`, now 60000. The arena receives a trusted `botFill` (the lobby ticket) and never a mode, so a queue match stays `'standard'` in the listing, `/liveness` and the match record. `QueueStatusMsg.min` and `/liveness` `queue.min` carry the effective arm minimum. Cycle 222, 0.19.16, PV 101 unchanged (no client code reads the changed value), epic-10 amendment 20. Subagent models by `/orchestrate` routing: Opus built the server wave, Sonnet the smokes and comments, Fable hunters + Codex at the gate.
+
+**Files changed (headline):** `server/src/rooms/queueFill.ts` (new, the one env reader), `queue.ts` (arm minimum from the caller; arm cleared at pool 0), `StandardQueueRoom.ts` (`queueArenaCreateOptions`), `ArenaRoom.ts` (bot fill and `doorMinHumans` decoupled from `mode`), `liveness.ts` (effective `min` fallback), `shared/src/constants.ts` (`queueTimerMs` 60000), comment corrections in `match.ts` / `participants.ts` / `roomOptions.ts` / `lobbyTicket.ts` / `types.ts` and the client queue files; tests `queue.test.ts`, `queueFill.test.ts` (new), `solo.test.ts`, `liveness.test.ts`; smokes `queueSmoke.mjs` (boots with a 6 s fill: lone captain armed, seated at the deadline into a 16-row roster, match goes active; cap path), `livenessSmoke.mjs` (boots with the switch off; re-arms a fresh cohort before the presence wait), `loadTest.mjs` (comments); `render.yaml` (`"60"` on both services), `docs/deploy.md`; amendment 20, both trackers, `epics.md` stamp, `project-context.md`, the ledger, VERSION 0.19.16.
+
+**Review:** 2 patched, 4 deferred, 3 rejected (triage log above).
+
+**Verification:** `npm run check` EXIT 0 on the patched tree (shared 1470, server 2793 in 110 files, client 3974 in 145 files; lint 0 errors, 3 pre-existing warnings); `queueSmoke`, `livenessSmoke`, `matchSmoke`, `weaponsSmoke` OK first try on fresh boots, own servers killed.
+
+**Residual risks:** `render.yaml` reaches Render only from `main`, so staging has no key (bot fill OFF) until the file reaches `main` or the key is set on `hullcracker-dev` by hand — the ON path has only been exercised by tests and `queueSmoke`; `loadTest`'s default connection counts were sized for a cap of 20 and leave a surplus that forms mid-run (not changed); the home button title `Deploy alone against other captains` stands (R3); How-to-Play and the GDD's "no bot-fill" sentences are 10.14's.
+

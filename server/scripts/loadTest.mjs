@@ -7,6 +7,12 @@
 // the smokes prove a flow is CORRECT, this proves the process stays INSIDE its
 // tick budget while a plausible worst-minute of arrivals lands on it at once.
 //
+// SERVER BOOT (Story 10.11): run this with the standard queue's bot fill OFF —
+// HC_QUEUE_BOT_FILL UNSET (or 0), which is what the self-boot gives (it does not
+// set it) and what a deployed target must have. With it ON, one captain arms the
+// queue, so the surplus pool left after the cap cohorts form would itself form a
+// bot-filled arena mid-measurement and change what is being measured.
+//
 // ============================================================================
 // THE DECLARED THRESHOLD, AND WHY IT IS THAT NUMBER
 // ============================================================================
@@ -57,17 +63,17 @@
 //     existing unlocked room (StandardQueueRoom sets no `maxClients`) and lands
 //     in it. The wave itself is still a genuine 43-connection storm.
 //   * 41 more queue joiners, concurrent. 42 pooled captains → the policy in
-//     `rooms/queue.ts` forms at the cap TWICE (20 + 20) on successive 1 Hz
-//     steps and leaves 2 pooled, which is a deliberate part of the profile: a
+//     `rooms/queue.ts` forms at the cap (CONFIG.map.playerCap) TWICE on successive
+//     1 Hz steps (16 + 16 at a cap of 16) and leaves the surplus pooled, which is a deliberate part of the profile: a
 //     partially-armed pool is a real production state.
-//   * 2 SOLO VS AI creates, concurrent. Each mints its own 20-hull arena
-//     (1 human + 19 bots), so the bot-AI cost is in the measurement.
+//   * 2 SOLO VS AI creates, concurrent. Each mints its own playerCap-hull arena
+//     (1 human + cap-1 bots), so the bot-AI cost is in the measurement.
 //
-// That is 4 simulating arenas / 80 hulls, of which 42 are driven by this
-// harness's own sockets and 38 by server-side bot AI.
+// That is 4 simulating arenas, of which the cap cohorts are driven by this
+// harness's own sockets and the solo arenas' bots by server-side bot AI.
 //
-// DEPLOYED default is gentler on purpose (21 connections: 1 seed + 19 queue =
-// one full cohort, plus 1 solo create) because of the tier gap above AND because
+// DEPLOYED default is gentler on purpose (21 connections: 1 seed + 19 queue + 1 solo
+// create — sized when the cap was 20; at a smaller cap the surplus stays pooled) because of the tier gap above AND because
 // every harness client shares ONE source IP against the per-IP solo-create
 // throttle the same cycle added (default 6 admitted creates/min). Solo creates
 // are HARD-CLAMPED to `MAX_DEPLOYED_SOLO` (4) in deployed mode so the harness
@@ -152,7 +158,7 @@ const DEFAULT_PORT = 2609;
 const MAX_DEPLOYED_SOLO = 4;
 /** The tick budget the threshold is a fraction of. */
 const TICK_BUDGET_MS = CONFIG.tick.simDtMs; // 50
-const CAP = CONFIG.map.playerCap; // 20
+const CAP = CONFIG.map.playerCap; // 16
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const nowMs = () => Date.now();
@@ -386,14 +392,14 @@ async function joinQueue(cfg, ctx, headers) {
   return ctx;
 }
 
-/** One SOLO VS AI captain: `create('arena', {solo:true})` mints a fresh 20-hull
- *  room (1 human + 19 bots). `create`, never `joinOrCreate` — see epic-6
+/** One SOLO VS AI captain: `create('arena', {solo:true})` mints a fresh playerCap-hull
+ *  room (1 human + cap-1 bots). `create`, never `joinOrCreate` — see epic-6
  *  amendment 29; joining someone else's solo room is not a thing. */
 async function createSolo(cfg, ctx, headers) {
   ctx.client = new Client(cfg.origin, headers ? { headers } : undefined);
   const room = await withDeadline(
     ctx.client.create('arena', { name: ctx.id, pv: PROTOCOL_VERSION, solo: true, cls: 'yamato' }),
-    45000, // a solo create runs a full map generation + 19-bot fleet build
+    45000, // a solo create runs a full map generation + bot fleet build
     `${ctx.id} create('arena',{solo:true})`,
   );
   bindArena(ctx, room);
@@ -626,7 +632,7 @@ function tallyDrops(clients, ledger) {
     }
     // A queue socket closing once a seat exists is the DESIGNED handover, not a
     // drop — whether or not we got round to consuming it (the surplus pool can
-    // legitimately form its own cohort mid-run once queueTimerMs elapses). One
+    // legitimately form its own cohort mid-run once the queue timer elapses). One
     // that closed with NO seat at all is a real drop.
     if (ctx.queueLeft !== null && !ctx.expectQueueLeave && ctx.seat === null) {
       ledger.drops += 1;

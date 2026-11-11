@@ -3,7 +3,7 @@
 // best-effort leave race, and exactly ONE terminal action that always runs.
 //
 // It fires on the arena's `rq` signal and on nothing else. A queue-formed room
-// whose cohort falls below CONFIG.match.minHumans during the countdown is SEALED
+// whose cohort falls below its minimum during the countdown is SEALED
 // (amendment 10) and can never refill, so it collapses — and the survivor was
 // one captain short through nobody's fault. Eric's ruling: they land on the home
 // screen and the client joins the next queue for them, with no PLAY press.
@@ -14,8 +14,9 @@
 //     has to signal this case explicitly rather than let the client guess from a
 //     socket close.
 //   • NOT a privileged re-entry. Amendment 18 deleted front-of-pool position
-//     outright — the returning survivor is an ordinary new arrival, and the 2:00
-//     cohort clock genuinely restarts.
+//     outright — the returning survivor is an ordinary new arrival, and the queue
+//     cohort clock genuinely restarts (Story 10.11: the hold is the queue's, 1:00
+//     by default, or HC_QUEUE_BOT_FILL seconds when bot fill is on).
 //
 // The chain, in order (each step's ordering is load-bearing):
 //   1. LATCH — a second activation is a no-op. The signal arrives and THEN the
