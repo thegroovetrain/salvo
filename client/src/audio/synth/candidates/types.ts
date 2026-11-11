@@ -29,6 +29,10 @@ export interface CueSlot {
   salvo?: boolean;
   /** "Today's sound" is the default synthesized foghorn (audio/horns.ts), not a tone. */
   todayHorn?: boolean;
+  /** Extra "today" comparisons, each with its own button label. */
+  todayMore?: ReadonlyArray<{ label: string; tone: ToneId }>;
+  /** A klaxon: each take also offers "×3 (hull under a quarter)" and the SINKING demo. */
+  klaxon?: boolean;
   candidates: CueCandidate[];
 }
 

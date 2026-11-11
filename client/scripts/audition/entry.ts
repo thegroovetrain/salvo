@@ -3,11 +3,13 @@
 // self-contained HTML file, so every candidate Eric hears is the same recipe
 // data and the same render code the game will ship.
 
-import { CUE_GROUPS, CUE_SLOTS } from '../../src/audio/synth/candidates/index.js';
+import { PICKED_GROUPS, ROUND3_GROUP } from '../../src/audio/synth/candidates/index.js';
 import { byId } from './dom.js';
 import { cueGroup } from './cuePanel.js';
 import { EnginePanel } from './enginePanel.js';
 import { Picks } from './picks.js';
+import { ERIC_PICKS } from './picked.js';
+import { StormPanel } from './stormPanel.js';
 import { Meter } from './meter.js';
 import { Rig } from './rig.js';
 import { auditionSelfTest } from './selfTest.js';
@@ -22,7 +24,8 @@ declare global {
 /** Build time + a short description, injected by soundAudition.mjs. */
 declare const __AUDITION_BUILD__: string;
 
-const PICK_ORDER = ['engines', ...CUE_SLOTS.map((s) => s.id)];
+/** Round 3 slots in page order, with the storm bed after the klaxon (Eric's list order). */
+const PICK_ORDER = ROUND3_GROUP.slots.flatMap((s) => (s.id === 'klaxon' ? [s.id, 'stormBed'] : [s.id]));
 
 function wireTransport(rig: Rig): void {
   const status = byId<HTMLElement>('status');
@@ -82,9 +85,12 @@ function boot(): void {
   const rig = new Rig();
   wireErrors(rig);
   const picks = new Picks(PICK_ORDER);
-  const engines = new EnginePanel(rig, picks);
+  const engines = new EnginePanel(rig, ERIC_PICKS.engines);
+  byId<HTMLElement>('round3').append(cueGroup(ROUND3_GROUP, 0, rig, { kind: 'pick', picks }));
+  byId<HTMLElement>('storm').append(new StormPanel(rig, picks, engines).render());
   byId<HTMLElement>('engines').append(engines.render());
-  byId<HTMLElement>('cues').append(...CUE_GROUPS.map((group, i) => cueGroup(group, i, rig, picks)));
+  const reference = { kind: 'reference', picked: ERIC_PICKS } as const;
+  byId<HTMLElement>('pickedCues').append(...PICKED_GROUPS.map((group, i) => cueGroup(group, i + 1, rig, reference)));
   wireTransport(rig);
   wireSummary(picks);
   new Meter(rig, byId<HTMLCanvasElement>('meter'), byId<HTMLElement>('meterText'));

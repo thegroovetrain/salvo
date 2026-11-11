@@ -4,7 +4,7 @@
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
-import { crackles, filters, hiss, metalRing, noiseLayer, splash, thump, tone, woodKnock } from './parts.js';
+import { crackles, filters, hiss, metalRing, noiseLayer, thump, tone } from './parts.js';
 
 const { lp, hp, bp } = filters;
 
@@ -148,42 +148,6 @@ export const BEACON: CueSlot = {
           tone(700, { peak: 0.1, attackMs: 200, holdMs: 1500, tauMs: 120 }, { filters: [bp(1200, 0.5)] }),
           tone(703, { peak: 0.1, attackMs: 200, holdMs: 1500, tauMs: 120 }, { filters: [bp(1200, 0.5)] }),
           ...STATIC,
-        ],
-      },
-    },
-  ],
-};
-
-export const AIRDROP: CueSlot = {
-  id: 'airdrop',
-  title: 'Airdrop picked up',
-  note: 'Your ship sails over an airdrop crate and hauls it aboard.',
-  candidates: [
-    {
-      id: 'A',
-      label: 'Haul aboard',
-      blurb: 'A small splash, then two wooden knocks as the crate lands on deck.',
-      recipe: { gain: 0.22,
-        family: 'pickup',
-        maxVoices: 2,
-        reverb: 0.15,
-        layers: [...splash(0.4), woodKnock(30, { startMs: 380 }), woodKnock(26, { startMs: 500 })],
-      },
-    },
-    {
-      id: 'B',
-      label: "Ship's bell",
-      blurb: 'Two clear strikes of a ship’s bell, "ding-ding": a plain, happy "got it".',
-      recipe: { gain: 0.5,
-        family: 'pickup',
-        maxVoices: 2,
-        reverb: 0.3,
-        layers: [
-          {
-            source: { kind: 'osc', wave: 'sine', freq: 880, fm: { ratio: 1.4, index: { from: 5, to: 0, tauMs: 300 } } },
-            env: { peak: 0.18, attackMs: 2, tauMs: 600 },
-            grains: { onsetsMs: [0, 250] },
-          },
         ],
       },
     },

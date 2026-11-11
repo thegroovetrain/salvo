@@ -1,0 +1,33 @@
+// Eric's picks from round 2 (2026-11-11), shown read-only in the "Already
+// picked" section. A later wave wires these into the game.
+
+export const ERIC_PICKS: Readonly<Record<string, string>> = {
+  engines: 'turbine',
+  mainBattery: 'A',
+  secondaries: 'A',
+  torpedoLaunch: 'A',
+  torpedoRun: 'B',
+  mineDrop: 'C',
+  starShell: 'A',
+  phosphorShell: 'B',
+  foulingShell: 'A',
+  flashShell: 'B',
+  steelHit: 'C',
+  ownHit: 'A',
+  splash: 'C',
+  repair: 'A',
+  smoke: 'A',
+  beacon: 'A',
+  boostSurge: 'B',
+  sinkWitness: 'A',
+  levelUp: 'C',
+  denied: 'C',
+  countdownTick: 'A',
+  matchStart: 'B',
+  telegraph: 'C',
+  ramGrind: 'B',
+  burning: 'A',
+  hitCall: 'A',
+  propFouled: 'A',
+  dazzled: 'B',
+};

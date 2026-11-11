@@ -43,16 +43,6 @@ export function metalRing(f0: number, ratios: readonly number[], q: number, peak
 /** Inharmonic partial ratios that read as struck plate steel (§7). */
 export const STEEL = [1, 1.47, 2.09, 2.56, 3.39, 4.17] as const;
 
-/** A wooden knock: a click into low-Q resonators (§11). */
-export function woodKnock(peak: number, extra: Partial<Layer> = {}): Layer {
-  return {
-    source: { kind: 'click', ms: 4 },
-    env: { peak, attackMs: 0, tauMs: 70 },
-    modes: { f0: 210, ratios: [1, 2.24, 3.9], q: 10, falloffDb: 2 },
-    ...extra,
-  };
-}
-
 /** Rising-pitch bubble grains (§5, the SC bubble model). */
 export function bubbles(count: number, windowMs: number, peak: number, startMs: number, spread: readonly [number, number] = [0.6, 2.5]): Layer {
   return tone({ from: 1000, to: 1600, ms: 90 }, { peak, attackMs: 8, tauMs: 30 }, {
@@ -123,14 +113,6 @@ export function bell(hz: number, peak: number, tauMs: number, extra: Partial<Lay
     env: { peak, attackMs: 2, tauMs },
     ...extra,
   };
-}
-
-/** An electric alarm bell: a striker hammering a small gong `everyMs` apart for `durMs`. */
-export function alarmBell(f0: number, peak: number, everyMs: number, durMs: number, extra: Partial<Layer> = {}): Layer {
-  return metalRing(f0, [1, 2.32, 4.1], 35, peak, 45, {
-    grains: { onsetsMs: every(everyMs, Math.max(1, Math.round(durMs / everyMs))), jitterMs: 3 },
-    ...extra,
-  });
 }
 
 /** A steam / air whistle: a chord of buzzy partials with a breathy edge. */

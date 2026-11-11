@@ -22,11 +22,17 @@
     <p class="note">If this bar moves but you hear nothing, the tab or the computer is muted. TEST TONE plays the simplest possible sound (a plain beep) straight to your speakers, skipping everything else on this page.</p>
   </header>
   <p id="error" class="error" role="alert" hidden></p>
-  <div id="engines"></div>
-  <div id="cues"></div>
+  <div id="round3"></div>
+  <div id="storm"></div>
+  <details class="picked-all">
+    <summary>Already picked (for reference)</summary>
+    <p class="note">Everything you have already picked, with your pick marked. All of it still plays.</p>
+    <div id="engines"></div>
+    <div id="pickedCues"></div>
+  </details>
   <section class="card picks" aria-labelledby="picks-title">
     <h2 id="picks-title">Your picks</h2>
-    <p class="note">Every sound and the pick you marked (a question mark means not picked yet). Copy it and paste it into the chat.</p>
+    <p class="note">The round 3 sounds and the pick you marked (a question mark means not picked yet). Copy it and paste it into the chat.</p>
     <textarea id="summary" readonly rows="6" aria-label="Picks summary"></textarea>
     <div class="controls">
       <button type="button" id="copy" class="primary">COPY</button>

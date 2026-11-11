@@ -16,7 +16,9 @@ import { createMasterChain } from '../../src/audio/synth/master.js';
 import type { CueRecipe } from '../../src/audio/synth/recipe.js';
 import type { ToneSpec } from '../../src/audio/tones.js';
 import type { HornSynthVoice } from '../../src/audio/horns.js';
+import { SINKING_DEMO_S } from '../../src/audio/synth/candidates/index.js';
 import { playSynthHorn, playToneSpec } from './legacy.js';
+import { scheduleSinkingDemo } from './sinking.js';
 
 interface Session {
   gain: GainNode;
@@ -215,6 +217,17 @@ export class Rig {
       if (this.session && !this.session.synth.play(recipe, { distance01, delayS })) {
         throw new Error('the sound engine dropped it (too many sounds at once, or it could not be built)');
       }
+    });
+  }
+
+  /** The ~7 s sinking demo: the blast repeating under the real SinkFade insert. */
+  playSinking(recipe: CueRecipe): void {
+    this.guard('The sinking demo', () => {
+      const ctx = this.start();
+      const sink = this.session?.gain;
+      if (!ctx || !sink) return;
+      const fade = scheduleSinkingDemo(ctx, sink, recipe);
+      setTimeout(() => fade.release(), (SINKING_DEMO_S + 1) * 1000);
     });
   }
 

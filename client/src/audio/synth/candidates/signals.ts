@@ -9,45 +9,6 @@ import { bell, buzzer, click, every, filters, metalRing, noiseLayer, thump, whis
 
 const { lp, bp } = filters;
 
-export const KILL: CueSlot = {
-  id: 'kill',
-  title: 'You sank a ship',
-  note: 'A ship you hit goes down and the kill is yours.',
-  today: 'kill',
-  candidates: [
-    {
-      id: 'A',
-      label: "Ship's bell, two pairs",
-      blurb: 'A ship’s bell struck twice and twice again, "ding-ding, ding-ding", the way bells are rung aboard.',
-      recipe: { gain: 1, family: 'signal', maxVoices: 2, reverb: 0.2, layers: [bell(560, 0.2, 500, { grains: { onsetsMs: [0, 260, 700, 960] } })] },
-    },
-    {
-      id: 'B',
-      label: 'Steam whistle toot',
-      blurb: 'A short, cheerful two-blast toot of a steam whistle: "toot-tooot".',
-      recipe: {
-        gain: 1,
-        family: 'signal',
-        maxVoices: 2,
-        reverb: 0.25,
-        layers: [...whistleChord([392, 494, 587], 0, 160, 0.16), ...whistleChord([392, 494, 587], 320, 520, 0.16)],
-      },
-    },
-    {
-      id: 'C',
-      label: 'Signal lamp and bell',
-      blurb: 'The clatter of a signal lamp’s shutter flashing, then one bright bell stroke.',
-      recipe: {
-        gain: 0.58,
-        family: 'signal',
-        maxVoices: 2,
-        reverb: 0.15,
-        layers: [click(2600, 6, 6, 12, { grains: { onsetsMs: every(85, 5), jitterMs: 10, spread: [0.85, 1.15] } }), bell(880, 0.2, 550, { startMs: 520 })],
-      },
-    },
-  ],
-};
-
 export const LEVEL_UP: CueSlot = {
   id: 'levelUp',
   title: 'Level earned',
@@ -81,54 +42,6 @@ export const LEVEL_UP: CueSlot = {
       label: 'Telegraph "ready" ding',
       blurb: 'A small brass "ding" like a bridge instrument confirming it is ready.',
       recipe: { gain: 0.16, family: 'signal', maxVoices: 3, reverb: 0.05, layers: [metalRing(1500, [1, 2.76, 5.4], 120, 22, 140), click(4000, 4, 2, 4)] },
-    },
-  ],
-};
-
-export const CARD_FITTED: CueSlot = {
-  id: 'cardFitted',
-  title: 'Card fitted',
-  note: 'You fit an upgrade card. The heavier card kinds play the same sound a little lower and fuller.',
-  today: 'fitCommon',
-  salvo: true,
-  candidates: [
-    {
-      id: 'A',
-      label: 'Ratchet and clunk',
-      blurb: 'Three quick ratchet clicks, then a solid clunk of something locking into place.',
-      recipe: {
-        gain: 0.19,
-        family: 'signal',
-        maxVoices: 3,
-        reverb: 0.05,
-        layers: [
-          metalRing(2400, [1, 1.55], 15, 7, 12, { grains: { onsetsMs: every(55, 3) } }),
-          metalRing(420, [1, 1.47, 2.09], 20, 9, 70, { startMs: 200 }),
-          thump(120, 70, 40, 0.4, 35, { startMs: 200 }),
-        ],
-      },
-    },
-    {
-      id: 'B',
-      label: 'Breech closing',
-      blurb: 'A short metal slide and a heavy "chunk", like a gun breech being shut.',
-      recipe: {
-        gain: 0.19,
-        family: 'signal',
-        maxVoices: 3,
-        reverb: 0.05,
-        layers: [
-          noiseLayer('white', [bp({ from: 900, to: 2400, ms: 120 }, 3)], { peak: 0.6, attackMs: 30, holdMs: 60, tauMs: 15 }),
-          metalRing(260, [1, 1.47, 2.09, 2.56], 18, 10, 80, { startMs: 150 }),
-          thump(100, 55, 50, 0.5, 45, { startMs: 150 }),
-        ],
-      },
-    },
-    {
-      id: 'C',
-      label: 'Wrench ring',
-      blurb: 'A spanner tapped on steel: one short, bright metallic ring.',
-      recipe: { gain: 0.2, family: 'signal', maxVoices: 3, reverb: 0.05, layers: [metalRing(900, [1, 2.08, 3.3, 4.9], 60, 18, 160)] },
     },
   ],
 };

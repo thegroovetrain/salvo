@@ -4,7 +4,9 @@
 // render's length, peak and loudness. `soundAudition.mjs --selftest` calls it
 // in headless Chromium and fails on silence, non-finite samples or clipping.
 
-import { CUE_SLOTS, ENGINE_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
+import { CUE_SLOTS, ENGINE_CANDIDATES, SINKING_DEMO_S, STORM_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
+import { StormBedVoice, type StormBedProfile } from '../../src/audio/stormBed.js';
+import { KLAXON_SERIES_S, scheduleSinkingDemo } from './sinking.js';
 import { Synth } from '../../src/audio/synth/render.js';
 import { createMasterChain } from '../../src/audio/synth/master.js';
 import { cueLengthS, distanceShape, type CueRecipe } from '../../src/audio/synth/recipe.js';
@@ -19,6 +21,8 @@ export interface SelfTestItem {
   rms: number;
   /** Peak of the same render WITHOUT the master chain (how hard it drives the chain). */
   rawPeak: number;
+  /** RMS of the last half second (the sinking demo must end in silence). */
+  tailRms?: number;
 }
 
 const SAMPLE_RATE = 44100;
@@ -124,6 +128,61 @@ async function engineItems(): Promise<SelfTestItem[]> {
   return out;
 }
 
+/** Render `build` through the master chain and raw; the RMS of the last `tailS` is optional. */
+async function renderWith(id: string, lengthS: number, build: (ctx: BaseAudioContext, sink: AudioNode) => void, tailS = 0): Promise<SelfTestItem> {
+  const once = async (master: boolean) => {
+    const { ctx, input } = offline(lengthS, master);
+    build(ctx, input);
+    const buf = await ctx.startRendering();
+    return { ...measure(buf), tail: tailS > 0 ? tailRms(buf, tailS) : undefined };
+  };
+  const m = await once(true);
+  const raw = await once(false);
+  return { id, lengthS, peak: m.peak, rms: m.rms, rawPeak: raw.peak, tailRms: m.tail };
+}
+
+function tailRms(buf: AudioBuffer, tailS: number): number {
+  const from = Math.max(0, buf.length - Math.floor(tailS * buf.sampleRate));
+  let sum = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) for (const v of buf.getChannelData(c).subarray(from)) sum += v * v;
+  return Math.sqrt(sum / Math.max(1, (buf.length - from) * buf.numberOfChannels));
+}
+
+async function klaxonItems(): Promise<SelfTestItem[]> {
+  const out: SelfTestItem[] = [];
+  for (const c of CUE_SLOTS.find((s) => s.klaxon)?.candidates ?? []) {
+    const len = KLAXON_SERIES_S[KLAXON_SERIES_S.length - 1] + cueLengthS(c.recipe) + REVERB_TAIL_S;
+    out.push(await renderWith(`klaxon.${c.id}.x3`, len, (ctx, sink) => {
+      const synth = new Synth(ctx, sink, { rand: seeded(7) });
+      for (const d of KLAXON_SERIES_S) synth.play(c.recipe, { delayS: d, rand: seeded(11) });
+    }));
+    out.push(await renderWith(`klaxon.${c.id}.sinking`, SINKING_DEMO_S + 1, (ctx, sink) => void scheduleSinkingDemo(ctx, sink, c.recipe, seeded(13)), 0.5));
+  }
+  return out;
+}
+
+const STORM_RENDER_S = 4;
+const STORM_STEP_S = 0.1;
+
+function storm(ctx: BaseAudioContext, sink: AudioNode, profile: StormBedProfile): void {
+  const v = new StormBedVoice(ctx, sink, profile, { rand: seeded(17) });
+  for (let t = 0; t <= STORM_RENDER_S; t += STORM_STEP_S) v.update(1, t);
+}
+
+async function stormItems(): Promise<SelfTestItem[]> {
+  const out: SelfTestItem[] = [];
+  const engine = ENGINE_CANDIDATES[0].profiles.bismarck;
+  out.push(await renderWith(`storm.engineAlone.${ENGINE_CANDIDATES[0].id}.bismarck.full`, STORM_RENDER_S, (ctx, sink) => new EngineVoice(ctx, sink, engine, { rand: seeded(5) }).update(FULL, 0)));
+  for (const c of STORM_CANDIDATES) {
+    out.push(await renderWith(`storm.${c.id}`, STORM_RENDER_S, (ctx, sink) => storm(ctx, sink, c.profile)));
+    out.push(await renderWith(`storm.${c.id}+engine`, STORM_RENDER_S, (ctx, sink) => {
+      storm(ctx, sink, c.profile);
+      new EngineVoice(ctx, sink, engine, { rand: seeded(5) }).update(FULL, 0);
+    }));
+  }
+  return out;
+}
+
 export async function auditionSelfTest(): Promise<SelfTestItem[]> {
-  return [...(await cueItems()), ...(await engineItems())];
+  return [...(await cueItems()), ...(await klaxonItems()), ...(await stormItems()), ...(await engineItems())];
 }

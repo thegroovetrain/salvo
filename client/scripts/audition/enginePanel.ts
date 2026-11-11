@@ -8,7 +8,6 @@ import { ENGINE_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
 import { EngineVoice, RemoteEngineVoice } from '../../src/audio/engineGraph.js';
 import { closeAlongside01 } from '../../src/audio/engine.js';
 import { button, h, radios, slider } from './dom.js';
-import type { Picks } from './picks.js';
 import type { Rig } from './rig.js';
 
 const TICK_MS = 100;
@@ -51,7 +50,8 @@ export class EnginePanel {
 
   constructor(
     private readonly rig: Rig,
-    private readonly picks: Picks,
+    /** Eric's picked engine set, marked read-only. */
+    private readonly picked: string,
   ) {
     rig.onStop(() => this.stopEverything());
     window.setInterval(() => this.tick(), TICK_MS);
@@ -69,14 +69,13 @@ export class EnginePanel {
 
   private setList(): HTMLElement {
     const rows = ENGINE_CANDIDATES.map((c) =>
-      h('div', { class: 'row' }, [
+      h('div', { class: c.id === this.picked ? 'row picked' : 'row' }, [
         h('label', { class: 'choice listen' }, [this.listenRadio(c.id), h('span', { class: 'cand' }, [c.label])]),
         h('p', { class: 'blurb' }, [c.blurb]),
+        h('span', { class: c.id === this.picked ? 'badge' : 'badge empty' }, [c.id === this.picked ? 'YOUR PICK' : '']),
       ]),
     );
-    const pickOptions = [...ENGINE_CANDIDATES.map((c) => ({ value: c.id, label: c.label })), { value: 'none', label: 'None of these' }];
-    const pick = radios('pick-engines', 'My pick', pickOptions, this.picks.get('engines'), (v) => this.picks.set('engines', v));
-    return h('div', { class: 'block' }, [h('h3', {}, ['Listen to']), ...rows, pick]);
+    return h('div', { class: 'block' }, [h('h3', {}, ['Listen to']), ...rows]);
   }
 
   private listenRadio(id: string): HTMLInputElement {
@@ -142,6 +141,15 @@ export class EnginePanel {
   private profile(hull: ShipClassId) {
     const set = ENGINE_CANDIDATES.find((c) => c.id === this.own.setId) ?? ENGINE_CANDIDATES[0];
     return set.profiles[hull];
+  }
+
+  /** Turn your own engine on or off (the storm card uses this to play an engine under the storm). */
+  setEngineOn(on: boolean): void {
+    if (this.own.on !== on) this.toggleOwn();
+  }
+
+  get engineOn(): boolean {
+    return this.own.on;
   }
 
   private toggleOwn(): void {

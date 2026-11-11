@@ -5,7 +5,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, DEFAULT_HORN_ID } from '@salvo/shared';
-import { CUE_GROUPS, CUE_SLOTS, ENGINE_CANDIDATES } from '../candidates/index.js';
+import { CUE_GROUPS, CUE_SLOTS, ENGINE_CANDIDATES, STORM_CANDIDATES } from '../candidates/index.js';
+import { stormBedTargets } from '../../stormBed.js';
 import { cueLengthS } from '../recipe.js';
 import { TONES } from '../../tones.js';
 import { hornVoice } from '../../horns.js';
@@ -83,6 +84,23 @@ describe('ENGINE_CANDIDATES', () => {
         expect(allFinite(idle), `${hull} idle`).toBe(true);
         expect(allFinite(full), `${hull} full`).toBe(true);
       }
+    });
+  }
+});
+
+describe('STORM_CANDIDATES', () => {
+  it('has at least two profiles with unique ids and words', () => {
+    expect(STORM_CANDIDATES.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(STORM_CANDIDATES.map((c) => c.id)).size).toBe(STORM_CANDIDATES.length);
+    for (const c of STORM_CANDIDATES) {
+      expect(c.label.trim()).not.toBe('');
+      expect(c.blurb.trim()).not.toBe('');
+    }
+  });
+
+  for (const c of STORM_CANDIDATES) {
+    it(`${c.id} has finite targets outside and fully inside the storm`, () => {
+      for (const i of [0, 1]) for (const v of Object.values(stormBedTargets(c.profile, i))) expect(Number.isFinite(v)).toBe(true);
     });
   }
 });

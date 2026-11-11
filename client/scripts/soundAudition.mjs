@@ -53,7 +53,7 @@ async function bundle() {
     define: {
       __APP_VERSION__: JSON.stringify('audition'),
       __HC_PERF__: 'false',
-      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 round 2`),
+      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 round 3`),
     },
     logLevel: 'warning',
   });
@@ -79,6 +79,8 @@ function verdict(item) {
   if (!Number.isFinite(item.peak) || !Number.isFinite(item.rms)) return 'NON-FINITE';
   if (item.rms < SILENT_RMS) return 'SILENT';
   if (item.peak > PEAK_LIMIT) return 'CLIPS';
+  // The sinking demo must end in silence.
+  if (item.tailRms !== undefined && item.tailRms !== null && item.tailRms > SILENT_RMS) return 'LOUD END';
   return 'ok';
 }
 
@@ -86,7 +88,7 @@ const db = (v) => (v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-inf');
 
 function printTable(items) {
   const w = Math.max(...items.map((i) => i.id.length));
-  console.log(`${'item'.padEnd(w)}  length s   peak  peak dB   rms   rms dB  raw peak dB  verdict`);
+  console.log(`${'item'.padEnd(w)}  length s   peak  peak dB   rms   rms dB  raw peak dB  verdict  (end dB)`);
   for (const i of items) {
     const row = [
       i.id.padEnd(w),
@@ -97,6 +99,7 @@ function printTable(items) {
       db(i.rms).padStart(7),
       db(i.rawPeak).padStart(11),
       verdict(i),
+      i.tailRms === undefined || i.tailRms === null ? '' : `  end ${db(i.tailRms)}`,
     ];
     console.log(row.join('  '));
   }
