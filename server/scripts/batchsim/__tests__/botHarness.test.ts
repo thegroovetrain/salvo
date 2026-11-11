@@ -11,17 +11,26 @@
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
 import { beforeAll, describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, SHIFT_IDS, SHIP_CLASS_IDS, turretMounts, type Island } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  turretBears,
+  turretMounts,
+  type Island,
+} from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
-import { BotCollector, hullTouchesLand, layoutOf, lifeSamples, type BotSample } from '../botMetrics.js';
+import { BotCollector, hullTouchesLand, layoutOf, lifeSamples, repairStyleOf, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
 import { buildAggregate, histLine, renderBatchReport, sumHist } from '../report.js';
 import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
-import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
+import { TEST_PROFILE_IDS, profileOf } from '../../../src/game/ai/profiles.js';
 import { emptyBotReadouts, postureEdges } from '../botReadouts.js';
 
 // --- args --------------------------------------------------------------------
@@ -138,6 +147,7 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     placement: null,
     shift: DEFAULT_SHIFT,
     layout: layoutOf(DEFAULT_CLASS_ID),
+    repairStyle: 'early',
     ...emptyBotReadouts(),
     ...over,
   };
@@ -562,6 +572,7 @@ function stageEvents(world: World, events: GameEvent[]): void {
 const NUMERIC_FIELDS = [
   'groundedTicks', 'stuckEpisodes', 'outsideRingTicks', 'stormDeathStuck', 'stormDeathAground',
   'gunShells', 'litShots', 'starShellsFired', 'fogTicks', 'actPresses',
+  'gunsBearing', 'gunsInReach', 'minesSwept', 'repairPresses', 'repairHullFracSum',
 ] as const;
 const RECORD_FIELDS = [
   'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
@@ -602,6 +613,21 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     for (const line of text.filter((l) => /^ {2}(PASS|FAIL) /.test(l))) {
       expect(line).not.toMatch(/posture|grounded|decoy|endgame|fog/i);
     }
+  });
+
+  it('Story 10.12: the posture-work readouts are internally consistent and reach the report', () => {
+    for (const b of first.bots!) {
+      expect(b.gunsBearing).toBeLessThanOrEqual(b.gunsInReach);
+      expect(b.repairPresses).toBe(b.activations.heal ?? 0);
+      expect(b.repairHullFracSum).toBeLessThanOrEqual(b.repairPresses);
+      expect(b.repairStyle).toBe(repairStyleOf(b.profile as never));
+    }
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    expect(agg.readouts.gunsInReach).toBe(first.bots!.reduce((a, b) => a + b.gunsInReach, 0));
+    const text = renderBotReport('x', agg).join('\n');
+    expect(text).toMatch(/guns bearing on the nearest hull in main reach: \d+ of \d+ gun-ticks/);
+    expect(text).toMatch(/hostile mines swept by bot shells: \d+/);
+    expect(text).toMatch(/HULL REPAIR press .*all n=\d+/);
   });
 
   it('the posture tally sums to the afloat bot ticks, bot by bot', () => {
@@ -794,5 +820,174 @@ describe('Story 9.13 — the --tune bots.* family', () => {
     const lo = CONFIG.bots.gunBand.cannon[0];
     expect(() => applyOverrides({}, { 'bots.gunBand.cannon.0': 0.95 })).toThrow(/min <= max/);
     expect(CONFIG.bots.gunBand.cannon[0]).toBe(lo); // rolled back
+  });
+});
+
+// --- Story 10.12: guns bearing, mines swept, repair at the press -------------
+
+type Hull = Parameters<typeof turretMounts>[0];
+
+/** Park a hull at a pose (the readouts read the record, nothing steps). */
+function park(ship: { state: { x: number; y: number; heading: number } }, x: number, y: number, heading = 0): void {
+  ship.state.x = x;
+  ship.state.y = y;
+  ship.state.heading = heading;
+}
+
+/** The guns the shared arc test says bear from `pose` on `at` — the
+ *  generating function, summed independently of the collector. */
+function bearingGuns(hull: Hull, pose: { x: number; y: number; heading: number }, at: { x: number; y: number }): number {
+  return turretMounts(hull).reduce((a, m, i) => a + (turretBears(hull, i, pose, at) ? m.guns : 0), 0);
+}
+
+const totalGuns = (hull: Hull): number => turretMounts(hull).reduce((a, m) => a + m.guns, 0);
+
+describe('Story 10.12 — GUNS BEARING on the nearest hull in main reach', () => {
+  it('counts, per tick in reach, every gun and the guns whose turret arc holds the target centre', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const world = new World(61, 20);
+      const bot = world.addBot(hull, undefined);
+      const foe = world.addBot(undefined, undefined);
+      const reach = bot.stats.equipment.mainBattery.rangeU;
+      const col = new BotCollector([bot.id]);
+      let want = 0;
+      // dead ahead, abeam, and on the quarter — three different arc answers.
+      for (const angle of [0, Math.PI / 2, (3 * Math.PI) / 4]) {
+        park(bot, 0, 0, 0);
+        park(foe, Math.cos(angle) * reach * 0.5, Math.sin(angle) * reach * 0.5);
+        want += bearingGuns(hull, { x: 0, y: 0, heading: 0 }, foe.state);
+        col.observe(world, 1);
+      }
+      const row = col.samples(world)[0];
+      expect(row.gunsInReach).toBe(3 * totalGuns(hull));
+      expect(row.gunsBearing).toBe(want);
+    }
+  });
+
+  it('counts nothing with no afloat hull in reach, and picks the NEAREST hull', () => {
+    const world = new World(62, 20);
+    const bot = world.addBot(undefined, undefined);
+    const far = world.addBot(undefined, undefined);
+    const reach = bot.stats.equipment.mainBattery.rangeU;
+    const col = new BotCollector([bot.id]);
+    park(bot, 0, 0, 0);
+    park(far, reach * 1.5, 0);
+    col.observe(world, 1);
+    expect(col.samples(world)[0].gunsInReach).toBe(0);
+    // A nearer hull abeam and a farther one dead ahead: the abeam one is read.
+    const near = world.addBot(undefined, undefined);
+    park(far, reach * 0.9, 0);
+    park(near, 0, reach * 0.3);
+    col.observe(world, 1);
+    const row = col.samples(world)[0];
+    expect(row.gunsInReach).toBe(totalGuns(bot.hullId));
+    expect(row.gunsBearing).toBe(bearingGuns(bot.hullId, { x: 0, y: 0, heading: 0 }, near.state));
+  });
+});
+
+describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine marker', () => {
+  /** One tick with a mine and a mine-hitting shell on the water, then the
+   *  next tick with both gone (unless kept) and the bot's landing event. */
+  function sweepScenario(o: {
+    mineOwner?: 'self' | 'other';
+    landAt?: number;
+    mineStays?: boolean;
+    shellStays?: boolean;
+    event?: 'sp' | 'hc';
+    burstRadius?: number;
+  }): number {
+    const world = new World(63, 20);
+    const bot = world.addBot(undefined, undefined);
+    const layer = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id, layer.id]);
+    const ownerId = o.mineOwner === 'self' ? bot.id : layer.id;
+    world.mines.set('m1', { id: 'm1', x: 500, y: 0, ownerId } as never);
+    world.shells.set('s1', stagedShell('s1', bot.id, { hits: ['ship', 'mine'], burstRadius: o.burstRadius ?? 0 }));
+    col.observe(world, 1);
+    if (o.mineStays !== true) world.mines.delete('m1');
+    if (o.shellStays !== true) world.shells.delete('s1');
+    stageEvents(world, [{ k: o.event ?? 'sp', id: bot.id, x: 500 + (o.landAt ?? 0), y: 0 } as GameEvent]);
+    col.observe(world, 1);
+    return col.samples(world).find((r) => r.id === bot.id)!.minesSwept;
+  }
+
+  it('credits a hostile mine gone on the tick the bot\'s shell landed on its marker', () => {
+    expect(sweepScenario({})).toBe(1);
+    expect(sweepScenario({ landAt: CONFIG.mine.hitRadiusU })).toBe(1);
+    // A BURST shell's landing that also caught a hull reports `hc`, and its
+    // blast widens the marker by its own radius.
+    expect(sweepScenario({ event: 'hc', burstRadius: 15, landAt: 15 + CONFIG.mine.hitRadiusU })).toBe(1);
+  });
+
+  it('credits nothing for its own mine, a landing off the marker, a mine still afloat, or no shell landed', () => {
+    expect(sweepScenario({ mineOwner: 'self' })).toBe(0);
+    expect(sweepScenario({ landAt: CONFIG.mine.hitRadiusU + 1 })).toBe(0);
+    expect(sweepScenario({ mineStays: true })).toBe(0);
+    expect(sweepScenario({ shellStays: true })).toBe(0);
+    // A DIRECT shell that struck a hull (its `hc`) never landed on anything.
+    expect(sweepScenario({ event: 'hc' })).toBe(0);
+  });
+});
+
+describe('Story 10.12 — the hull at a HULL REPAIR press', () => {
+  it('records hp / maxHp from the last afloat tick before each accepted press (the heal event)', () => {
+    const world = new World(64, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    stageEvents(world, [{ k: 'heal', id: bot.id } as GameEvent]);
+    col.observe(world, 1); // no reading before it: a press this readout cannot place
+    stageEvents(world, []);
+    bot.hp = bot.stats.maxHp / 2;
+    col.observe(world, 1);
+    bot.hp = bot.stats.maxHp; // the instant heal already landed when the event is read
+    stageEvents(world, [{ k: 'heal', id: bot.id } as GameEvent]);
+    col.observe(world, 1);
+    const row = col.samples(world)[0];
+    expect(row.repairPresses).toBe(1);
+    expect(row.repairHullFracSum).toBeCloseTo(0.5, 9);
+    expect(row.activations.heal).toBe(2);
+  });
+
+  it('the row carries its profile\'s repair style, and the aggregate pools the mean by style', () => {
+    const world = new World(65, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    col.observe(world, 1);
+    expect(col.samples(world)[0].repairStyle).toBe(profileOf(world.bots.profileOf(bot.id)!).repairStyle);
+    const agg = buildBotAggregate(
+      result([[
+        sample({ id: 'a', repairStyle: 'early', repairPresses: 2, repairHullFracSum: 1.6 }),
+        sample({ id: 'b', repairStyle: 'late', repairPresses: 1, repairHullFracSum: 0.2 }),
+        sample({ id: 'c', repairStyle: 'late', repairPresses: 0, repairHullFracSum: 0 }),
+      ]]),
+      3,
+    ).readouts;
+    expect(Object.keys(agg.repairByStyle)).toEqual(['early', 'late']);
+    expect(agg.repairByStyle.early).toEqual({ presses: 2, meanHullFrac: 0.8 });
+    expect(agg.repairByStyle.late.presses).toBe(1);
+    expect(agg.repairByStyle.late.meanHullFrac).toBeCloseTo(0.2, 9);
+    expect(agg.repairAll.presses).toBe(3);
+    expect(agg.repairAll.meanHullFrac).toBeCloseTo(0.6, 9);
+  });
+});
+
+describe('Story 10.12 — the BY CLASS table carries placement, win share and guns bearing', () => {
+  it('byClass pools wins, mean placement and the guns-bearing share per hull; the text table shows them', () => {
+    const agg = buildBotAggregate(
+      result([[
+        sample({ id: 'a', cls: 'iowa', placement: 1, end: 'alive', gunsBearing: 30, gunsInReach: 40 }),
+        sample({ id: 'b', cls: 'iowa', placement: 3, gunsBearing: 10, gunsInReach: 40 }),
+        sample({ id: 'c', cls: 'yamato', placement: 2, gunsBearing: 0, gunsInReach: 0 }),
+      ]]),
+      3,
+    );
+    const iowa = agg.byClass.find((g) => g.key === 'iowa')!;
+    expect(iowa).toMatchObject({ wins: 1, winRate: 0.5, meanPlacement: 2, gunsBearingRate: 0.5 });
+    expect(iowa.lifeSamples).toHaveLength(2);
+    expect(agg.byClass.find((g) => g.key === 'yamato')).toMatchObject({ wins: 0, gunsBearingRate: 0 });
+    const lines = renderBotReport('x', agg);
+    const head = lines[lines.findIndex((l) => l.startsWith('BY CLASS')) + 1];
+    expect(head).toMatch(/\bbrg%.*\bplace\b.*\bwin%/);
+    expect(lines.find((l) => /^ {2}iowa\b/.test(l))).toMatch(/50\.0%\s*$/);
   });
 });

@@ -18,6 +18,8 @@ import {
   FOG_SOLID_DENSITY,
   abilityFromCode,
   isAfloat,
+  turretBears,
+  turretMounts,
   type ShellFamily,
   type ShellState,
 } from '@salvo/shared';
@@ -126,6 +128,28 @@ export interface BotReadouts {
    *  window opens off the hull's own stamps; `heal` off the `heal` event
    *  (HULL REPAIR). Mines are `minesLaid`. */
   activations: Record<string, number>;
+  /** GUNS BEARING (Story 10.12, the story's headline readout). Over the afloat
+   *  ticks in which this bot has a LIVE target hull inside its own main-battery
+   *  reach — read off WORLD TRUTH, as every readout here is: the NEAREST afloat
+   *  non-self hull whose centre lies within `stats.equipment.mainBattery.rangeU`
+   *  of the bot's centre (no line-of-fire or sight term; the bot need not have
+   *  it plotted) — `gunsInReach` sums the hull's total main-battery guns and
+   *  `gunsBearing` the guns on turrets whose arc holds that hull's centre per
+   *  the shared `turretBears`, from the bot's real post-step pose. The share is
+   *  gunsBearing / gunsInReach (a gun-tick share). */
+  gunsBearing: number;
+  gunsInReach: number;
+  /** MINES SWEPT (Story 10.12): HOSTILE mines (another owner's) that left the
+   *  water on a tick in which one of this bot's mine-hitting shells landed on
+   *  their 10 u marker — see `BotReadoutCollector.noteSwept` for the exact
+   *  attribution and its one blind spot. */
+  minesSwept: number;
+  /** HULL REPAIR at the press (Story 10.12): accepted presses (the `heal`
+   *  event — one per press the World took, refused presses never emit it) and
+   *  the sum of hp / maxHp read on the bot's LAST afloat tick before the press
+   *  (the hull it decided on, before the instant heal). Mean = sum / count. */
+  repairPresses: number;
+  repairHullFracSum: number;
 }
 
 export function emptyBotReadouts(): BotReadouts {
@@ -148,6 +172,11 @@ export function emptyBotReadouts(): BotReadouts {
     actPresses: 0,
     pressesByAbility: {},
     activations: {},
+    gunsBearing: 0,
+    gunsInReach: 0,
+    minesSwept: 0,
+    repairPresses: 0,
+    repairHullFracSum: 0,
   };
 }
 
@@ -172,6 +201,21 @@ interface ReadoutTrack {
   actSeq: number;
   boostUntil: number;
   hunkerUntil: number;
+  /** hp / maxHp on the last afloat tick observed (null before the first). */
+  hullFrac: number | null;
+}
+
+/** Last tick's view of a mine, for the swept attribution. */
+interface MineSeen {
+  x: number;
+  y: number;
+  ownerId: string;
+}
+
+/** Last tick's view of a mine-hitting shell (its owner and blast). */
+interface ShellSeen {
+  ownerId: string;
+  burstRadius: number;
 }
 
 const bump = (rec: Record<string, number>, key: string, by = 1): void => {
@@ -209,6 +253,9 @@ export class BotReadoutCollector {
     burn: new Set(),
     foul: new Set(),
   };
+  /** Live mines and mine-hitting shells as of LAST tick (noteSwept). */
+  private minesSeen = new Map<string, MineSeen>();
+  private mineShellsSeen = new Map<string, ShellSeen>();
   private readonly match: MatchReadouts = { lastTwoS: 0, endgameNoContactMaxS: 0 };
   private lastTwoTicks = 0;
   private gapTicks = 0;
@@ -226,6 +273,7 @@ export class BotReadoutCollector {
         actSeq: 0,
         boostUntil: 0,
         hunkerUntil: 0,
+        hullFrac: null,
       });
     }
   }
@@ -233,6 +281,7 @@ export class BotReadoutCollector {
   /** One tick, AFTER BotCollector consumed the tick's events (so a storm
    *  victim's wasAground/wasOutside is still its last AFLOAT tick's). */
   observe(world: World): void {
+    this.noteSwept(world);
     this.noteNewShells(world);
     this.noteNewZones(world);
     this.noteEvents(world);
@@ -306,6 +355,8 @@ export class BotReadoutCollector {
     t.tactic = tactic;
     this.notePresses(t, ship);
     this.noteHullStamps(t, ship);
+    noteGunsBearing(world, o, ship);
+    t.hullFrac = hullFracOf(ship);
   }
 
   private noteGround(t: ReadoutTrack, aground: boolean): void {
@@ -368,13 +419,69 @@ export class BotReadoutCollector {
     this.seen[store] = next;
   }
 
+  /** `heal` = an ACCEPTED HULL REPAIR press: the activation, and the hull
+   *  fraction the bot pressed at (its last afloat reading — this runs before
+   *  noteAfloat refreshes it). */
   private noteEvents(world: World): void {
     for (const e of world.tickEvents) {
-      if (e.k === 'heal') {
-        const t = this.tracks.get(e.id);
-        if (t !== undefined) bump(t.out.activations, 'heal');
+      if (e.k !== 'heal') continue;
+      const t = this.tracks.get(e.id);
+      if (t === undefined) continue;
+      bump(t.out.activations, 'heal');
+      if (t.hullFrac === null) continue;
+      t.out.repairPresses += 1;
+      t.out.repairHullFracSum += t.hullFrac;
+    }
+  }
+
+  /**
+   * MINES SWEPT, attributed off world truth with no server seam. A mine leaves
+   * the water by a trip, a chain, a captive launch or gunfire; only gunfire
+   * spends its hp, and only a shell whose `hits` mask names `mine` can (World
+   * landOnMines) — on the four hulls that is the SECONDARIES alone
+   * (`CONFIG.mainBattery.hits` carries no mine bit, R3), so this IS "mines
+   * swept by a bot's secondaries". A landing is published the same tick as
+   * the owner's `sp` (a landing that touched no hull) or, for a BURST shell
+   * only, `hc` (its blast also caught a hull; a direct shell that strikes a
+   * hull never lands, so its `hc` is ignored) — at the point landOnMines
+   * tests against. So a mine LAST SEEN last tick and GONE now is credited to
+   * the first bot (in event order) that, this tick, both lost a mine-hitting
+   * shell and published a landing within that shell's
+   * `burstRadius + CONFIG.mine.hitRadiusU` of the mine's centre — never to the
+   * mine's own layer (the sweep never shoots its own; popping one's own is the
+   * friendly-fire exception, not a sweep).
+   *
+   * THE BLIND SPOT, stated: a mine that left the water for ANOTHER reason (a
+   * trip, a chain) on the very tick a bot's shell landed on its marker is
+   * credited to the shooter; a chain set off by a swept naval mine credits
+   * only the mine the shell landed on. Both need two events on one 50 ms tick.
+   */
+  private noteSwept(world: World): void {
+    const landedBy = this.mineShellsLanded(world);
+    if (landedBy.size > 0) {
+      for (const [id, m] of this.minesSeen) {
+        if (world.mines.has(id)) continue;
+        const who = sweeperOf(world, m, landedBy);
+        if (who !== null) this.tracks.get(who)!.out.minesSwept += 1;
       }
     }
+    this.minesSeen = new Map([...world.mines.values()].map((m) => [m.id, { x: m.x, y: m.y, ownerId: m.ownerId }]));
+  }
+
+  /** Bot id → the widest blast among its mine-hitting shells that left the
+   *  water this tick (last tick's snapshot vs the live store); re-snapshots. */
+  private mineShellsLanded(world: World): Map<string, number> {
+    const landed = new Map<string, number>();
+    for (const [id, s] of this.mineShellsSeen) {
+      if (world.shells.has(id) || !this.tracks.has(s.ownerId)) continue;
+      landed.set(s.ownerId, Math.max(landed.get(s.ownerId) ?? 0, s.burstRadius));
+    }
+    const next = new Map<string, ShellSeen>();
+    for (const s of world.shells.values()) {
+      if (s.hits.includes('mine')) next.set(s.id, { ownerId: s.ownerId, burstRadius: s.burstRadius });
+    }
+    this.mineShellsSeen = next;
+    return landed;
   }
 
   /** The endgame clock (one pass over every hull). */
@@ -392,6 +499,54 @@ export class BotReadoutCollector {
     this.gapTicks += 1;
     this.maxGapTicks = Math.max(this.maxGapTicks, this.gapTicks);
   }
+}
+
+/** hp / maxHp (0 for a hull with no hp to lose). */
+const hullFracOf = (ship: ShipRecord): number => (ship.stats.maxHp > 0 ? ship.hp / ship.stats.maxHp : 0);
+
+/** The bot whose landing (`sp` / `hc` this tick) touched a gone mine's
+ *  marker, or null (see noteSwept). */
+function sweeperOf(world: World, m: MineSeen, landedBy: ReadonlyMap<string, number>): string | null {
+  for (const e of world.tickEvents) {
+    if (e.k !== 'sp' && e.k !== 'hc') continue;
+    const blast = landedBy.get(e.id);
+    if (blast === undefined || e.id === m.ownerId) continue;
+    if (e.k === 'hc' && blast === 0) continue; // a direct shell's hull strike is no landing
+    if (Math.hypot(e.x - m.x, e.y - m.y) <= blast + CONFIG.mine.hitRadiusU) return e.id;
+  }
+  return null;
+}
+
+/**
+ * One afloat tick of the GUNS BEARING readout (see BotReadouts.gunsBearing):
+ * the nearest afloat non-self hull inside this bot's main-battery reach, and
+ * how many of the bot's guns bear on its centre (shared `turretBears`).
+ */
+function noteGunsBearing(world: World, o: BotReadouts, ship: ShipRecord): void {
+  const target = nearestInReach(world, ship, ship.stats.equipment.mainBattery.rangeU);
+  if (target === null) return;
+  const mounts = turretMounts(ship.hullId);
+  const pose = { x: ship.state.x, y: ship.state.y, heading: ship.state.heading };
+  const at = { x: target.state.x, y: target.state.y };
+  for (let i = 0; i < mounts.length; i += 1) {
+    o.gunsInReach += mounts[i].guns;
+    if (turretBears(ship.hullId, i, pose, at)) o.gunsBearing += mounts[i].guns;
+  }
+}
+
+/** The nearest afloat hull other than `self` whose centre is within `reach`. */
+function nearestInReach(world: World, self: ShipRecord, reach: number): ShipRecord | null {
+  let best: ShipRecord | null = null;
+  let bestD = reach;
+  for (const other of world.ships.values()) {
+    if (other.id === self.id || !isAfloat(other.lifecycle)) continue;
+    const d = Math.hypot(other.state.x - self.state.x, other.state.y - self.state.y);
+    if (d <= bestD) {
+      best = other;
+      bestD = d;
+    }
+  }
+  return best;
 }
 
 /** True iff a survivor took a non-storm `dmg` this tick. */

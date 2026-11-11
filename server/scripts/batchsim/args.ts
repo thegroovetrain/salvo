@@ -97,9 +97,9 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      bots AND captains, offset by match index, so per-class win
                      share measures BALANCE rather than representation). Within
                      one match the per-class spread is at most 1; campaign
-                     totals are exactly even when either --matches or --bots is
-                     a multiple of 3, and otherwise even to within one hull per
-                     class
+                     totals are exactly even when --matches is a multiple of
+                     the hull count (4) or --bots is, and otherwise even to
+                     within one hull per class
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringRadii.N — the ring

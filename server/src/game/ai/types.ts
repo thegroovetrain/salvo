@@ -462,21 +462,9 @@ export interface RememberedContact {
    * clears the mark.
    */
   missSweptAt: number;
-  /**
-   * THE DECOY CUES (Story 9.13, epic-9 amendment 197) — what a human reads
-   * off the scope to call a radar plot a probable buoy, carried on the plot by
-   * the fold (ai/utility.ts foldPaint / ai/plot.ts). OPTIONAL so hand-built
-   * tracks stay valid; absent reads as "no evidence" (never a decoy).
-   *   - `paintCells`: lit-cell count of the plot's LAST radar paint (a buoy's
-   *     paint square covers a few lattice cells; a hull's silhouette many);
-   *   - `stillSweeps`: consecutive paint-to-paint measurements that read
-   *     STATIONARY (any measured motion resets it to 0);
-   *   - `hasWake`: a wake-ribbon course was EVER fitted to this plot (a buoy
-   *     lays no wake — the amendment-123 precedent).
-   */
-  paintCells?: number;
-  stillSweeps?: number;
-  hasWake?: boolean;
+  // (The DECOY CUES `paintCells` / `stillSweeps` / `hasWake` — Story 9.13,
+  // epic-9 amendment 197 — left with their last reader, the decoy buoys, at
+  // Story 10.5; the bookkeeping itself was removed at Story 10.12.)
 }
 
 /** One painted WAKE segment remembered for the course fit (ai/plot.ts): the

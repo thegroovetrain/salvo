@@ -377,9 +377,12 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
  * fitting Shift (the DEFAULT_SHIFT — a row has to name one; the harness deals
  * a test row's Shift by the same weighted roll unless `--shift` forces one),
  * EVERY appetite entry at or above APPETITE_EAGER (2)
- * so every equipment verb is exercised (the gun sits at exactly 2 — still the
- * lowest entry, preserving the universal fallback ordering without ever
- * dropping below the ruled floor), and `spend: 'random'` so card performance
+ * so every equipment verb is exercised (the guns — main battery, machine gun,
+ * flak — sit at exactly 2, still the lowest entries, preserving the universal
+ * fallback ordering without ever dropping below the ruled floor; Story 10.12
+ * dropped the dead deck `gun` and the never-dealt `broadside` and added the
+ * SUPERCAV torpedo, FOULING and FLASH shells at the table's 2.2), and
+ * `spend: 'random'` so card performance
  * is measured with the picker's taste removed.
  *
  * SEPARATE ID SPACE, ON PURPOSE (safety, not style): these ids are NOT in
@@ -389,21 +392,22 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
  * explicit profile override the batch-sim harness passes to world.addBot.
  */
 const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.freeze({
-  gun: 2.0,
   machineGun: 2.0,
   flak: 2.0,
   mainBattery: 2.0,
   heavyTorpedo: 2.2,
   lightTorpedo: 2.2,
+  supercavTorpedo: 2.2,
   navalMines: 2.2,
   captiveMines: 2.2,
   foulingMines: 2.2,
   boost: 2.2,
   instantReload: 2.2,
   hunker: 2.2,
-  broadside: 2.2,
   starShells: 2.2,
   phosphorShells: 2.2,
+  foulingShell: 2.2,
+  dazzleShells: 2.2,
 });
 
 /** A neutral taste for the test rows — never read (they spend at random), but

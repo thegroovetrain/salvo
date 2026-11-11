@@ -30,6 +30,15 @@
 //     dense 1..20 placement partition over captain AND bot rows, and a winner
 //     that may legitimately be either. Nothing about the solo path itself is
 //     dev-gated — only the storm clock is.
+//       B1. THE RADIO BEACONS ARE LIVE END TO END (Story 10.12): while the
+//           match is `active` the public schema's beacon chart
+//           (`beaconCount` / `beaconCycle` / `bcnNX`/`bcnNY`, mirrored from
+//           World.beaconChart by ArenaRoom.syncBeacons) is observed NON-EMPTY
+//           at least once. A set is CHARTED at each ring cycle's start
+//           (cycle 0 = activation) and only surfaces +60 s later, so under
+//           the fast storm the observable fact is the charted set — exactly
+//           what a client's chart draws. Then the match still reaches
+//           results with the dense placement partition below.
 //
 // Run: node server/scripts/soloSmoke.mjs
 import { spawn } from 'node:child_process';
@@ -207,6 +216,21 @@ function proveFullRoster(ctx) {
 
 // --- PHASE B: results ---------------------------------------------------------
 
+/** One poll of the public beacon chart while the match is ACTIVE: the most
+ *  beacons seen at once, the cycle they belonged to and slot 0's position. */
+function noteBeacons(ctx, seen) {
+  const s = ctx.room.state;
+  if (s?.matchPhase !== 'active' || !(s.beaconCount > 0)) return;
+  if (s.beaconCount > seen.max) Object.assign(seen, { max: s.beaconCount, cycle: s.beaconCycle, x: s.bcn0X, y: s.bcn0Y });
+}
+
+function proveBeacons(seen) {
+  assert(seen.max > 0, 'no RADIO BEACON was ever charted on the public schema while the match was active');
+  assert(seen.cycle >= 0, `a charted beacon set carried cycle ${seen.cycle} (expected >= 0)`);
+  assert(Number.isFinite(seen.x) && Number.isFinite(seen.y), `beacon slot 0 has a non-finite position (${seen.x}, ${seen.y})`);
+  return `beacons: up to ${seen.max} charted at once while active (cycle ${seen.cycle}, slot 0 at ${Math.round(seen.x)},${Math.round(seen.y)})`;
+}
+
 function proveResults(ctx) {
   const res = ctx.results;
   const ids = res.rows.map((r) => r.id);
@@ -273,8 +297,14 @@ async function runPhaseB(log) {
     await waitFor(() => phase(b) === 'active', 20000, 'activation (fast countdown)');
     // The ocean closes on its own clock; the field goes down; the last hull
     // afloat (bot or human) takes it. stormDps is never overridable, so this
-    // budget is hull HP over 4 hp/s plus every sinking window.
-    await waitFor(() => b.results !== null, 240000, 'results broadcast');
+    // budget is hull HP over 4 hp/s plus every sinking window. The beacon
+    // chart is polled on the same loop (B1).
+    const beacons = { max: 0, cycle: -1, x: NaN, y: NaN };
+    await waitFor(() => {
+      noteBeacons(b, beacons);
+      return b.results !== null;
+    }, 240000, 'results broadcast');
+    log.push(proveBeacons(beacons));
     log.push(proveResults(b));
     await waitFor(() => b.leftCode !== null, MATCH_OVERRIDE.resultsMs + 15000, 'room disconnect after results');
     log.push(`room disconnected the captain (code ${b.leftCode}) after ~${MATCH_OVERRIDE.resultsMs}ms`);

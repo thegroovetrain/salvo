@@ -27,7 +27,6 @@ import { circleIsland } from './islandFixture.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { choosePosture, foldView, ringDeadband, type BotSituation } from '../game/ai/utility.js';
 import { BotController } from '../game/ai/botDriver.js';
-import { nextStillSweeps } from '../game/ai/plot.js';
 import type { PerceptionView } from '../game/perception.js';
 import type {
   BotMind,
@@ -398,16 +397,6 @@ describe('P16 (Blind Hunter): the departure rule is evaluated once per bot per t
       COMBAT_BRAIN.decide(rec, m, port, t === 0);
       expect(fieldReads, `tick ${t}`).toBe(1);
     }
-  });
-});
-
-describe('P17 (Blind Hunter): the stillness cue is a speed floor, not an exact-zero float test', () => {
-  it('a 1 u/s paint-to-paint jitter still counts as still; 10 u/s resets; no measurement keeps the run', () => {
-    expect(nextStillSweeps(1, { vx: 1, vy: 0 })).toBe(2);
-    expect(nextStillSweeps(1, { vx: 0.6, vy: -0.8 })).toBe(2);
-    expect(nextStillSweeps(3, { vx: 10, vy: 0 })).toBe(0);
-    expect(nextStillSweeps(2, null)).toBe(2);
-    expect(nextStillSweeps(undefined, { vx: 0, vy: 0 })).toBe(1);
   });
 });
 

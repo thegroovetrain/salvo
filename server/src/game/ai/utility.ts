@@ -89,8 +89,6 @@ import {
   isCrateSizedPaint,
   lineBlocked,
   nearestPredicted,
-  nextStillSweeps,
-  paintCellCount,
   paintCenter,
   paintVelocity,
   plotPoint,
@@ -312,22 +310,7 @@ type Carried = Pick<
   | 'paintX'
   | 'paintY'
   | 'paintAt'
-  | 'paintCells'
-  | 'stillSweeps'
-  | 'hasWake'
 >;
-
-type Cues = Pick<BotTrack, 'paintCells' | 'stillSweeps' | 'hasWake'>;
-
-/** The decoy cues a refresh carries over (amendment 197) — only the keys the
- *  plot actually has, so a never-painted track gains no fields. */
-function carriedCues(base: Carried): Cues {
-  const out: Cues = {};
-  if (base.paintCells !== undefined) out.paintCells = base.paintCells;
-  if (base.stillSweeps !== undefined) out.stillSweeps = base.stillSweeps;
-  if (base.hasWake !== undefined) out.hasWake = base.hasWake;
-  return out;
-}
 
 /** A brand-new track's carried-over half (no history to preserve). */
 function freshBase(now: number): Carried {
@@ -382,7 +365,6 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     paintY: base.paintY,
     paintAt: base.paintAt,
     missSweptAt: -1, // a refresh is the opposite of a miss
-    ...carriedCues(base),
   };
   tracks.set(key, track);
   return track;
@@ -428,7 +410,7 @@ function secondHull(prev: BotTrack | undefined, x: number, y: number, now: numbe
  *  and overrides any wake guess (and stays until the next paint — a wake fit
  *  never replaces it); every paint then becomes the new baseline. A paint
  *  that reads as a second hull (secondHull) opens its own plot. */
-function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: FoldCtx): void {
+function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
   const now = fx.now;
   const chosen = associatePaint(tracks, { x, y }, now, fx.cells, fx.waterR) ?? anonKey(x, y);
   const key = secondHull(tracks.get(chosen), x, y, now) ? anonKey(x, y) : chosen;
@@ -444,10 +426,6 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
   t.paintX = x;
   t.paintY = y;
   t.paintAt = now;
-  // THE DECOY CUES (amendment 197(b)): this paint's footprint, and the run of
-  // stationary paint-to-paint measurements.
-  t.paintCells = cells;
-  t.stillSweeps = nextStillSweeps(prev?.stillSweeps, v);
 }
 
 /** Fold one radar paint — an identity-free coverage footprint. A paint whose
@@ -462,7 +440,7 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
   if (isCrateSizedPaint(e)) return;
   const c = paintCenter(e);
-  if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
+  if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, fx);
 }
 
 /** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown

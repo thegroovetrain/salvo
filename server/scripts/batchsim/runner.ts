@@ -105,17 +105,18 @@ export interface RunSpec {
   /**
    * LOBBY HULL POLICY (see rotate/botHull). 'rolled' — the default and the
    * shipped behaviour — lets each bot roll its own class off the controller's
-   * stream, and deals captains the un-offset `i % 3` rotation they have always
-   * had. 'even' deals SHIP_CLASS_IDS round-robin across BOTH halves of the
-   * lobby, OFFSET BY MATCH INDEX, so per-class win share measures balance
-   * rather than representation.
+   * stream, and deals captains the un-offset `i % SHIP_CLASS_IDS.length`
+   * rotation they have always had. 'even' deals SHIP_CLASS_IDS round-robin
+   * across BOTH halves of the lobby, OFFSET BY MATCH INDEX, so per-class win
+   * share measures balance rather than representation.
    *
    * THE GUARANTEE, exactly: within one match the per-class spread is at most 1
-   * (it cannot be better — 20 hulls over 3 classes is 7/7/6). Campaign totals
-   * are EXACTLY even when the match count or the hull count is a multiple of 3;
-   * otherwise the offset carries the shortfall around the classes and the
-   * totals land within one hull per class (e.g. 20 bots x 4 matches = 27/27/26,
-   * and at --matches 1 the offset buys nothing at all: 7/7/6).
+   * (it cannot be better — 18 hulls over the 4 classes is 5/5/4/4). Campaign
+   * totals are EXACTLY even when the match count or the hull count is a
+   * multiple of the class count (4); otherwise the offset carries the
+   * shortfall around the classes and the totals land within one hull per class
+   * (e.g. 18 bots x 3 matches = 14/14/13/13, and at --matches 1 the offset
+   * buys nothing: 5/5/4/4).
    *
    * Undefined => 'rolled' => every existing run key is byte-identical.
    */
@@ -417,22 +418,22 @@ function harnessHooks(): MatchHooks {
  * World.addBot is behaviourally identical to omitting the argument (the roll
  * comes off the same stream position), so the default run key is unchanged.
  *
- * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 20 bots over 3 classes is
- * 7/7/6 at best, so without rotating by match index the SAME class is short in
- * every match and a campaign stays ~14% skewed — which is precisely the
- * representation artefact the even roster exists to remove.
+ * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 18 bots over the 4
+ * classes is 5/5/4/4 at best, so without rotating by match index the SAME
+ * classes are short in every match and a campaign stays ~25% skewed — which is
+ * precisely the representation artefact the even roster exists to remove.
  */
 /** THE ONE ROUND-ROBIN DEAL, shared by both halves of the lobby: slot `i` of
  *  the SHIP_CLASS_IDS rotation, started at `offset`. A match-index offset is
- *  what makes the campaign totals even — without it the SAME class is short in
- *  every match and a 20-hull lobby stays ~14% skewed forever, which is the
+ *  what makes the campaign totals even — without it the SAME classes are short
+ *  in every match and an 18-hull lobby stays ~25% skewed forever, which is the
  *  representation artefact --roster even exists to remove. */
 function rotate(offset: number, i: number): ShipClassId {
   return SHIP_CLASS_IDS[(i + offset) % SHIP_CLASS_IDS.length];
 }
 
 /** The rotation offset for this match: the match index under 'even', and ZERO
- *  under 'rolled' — which is what keeps the captain deal (`i % 3`, dealt since
+ *  under 'rolled' — which is what keeps the captain deal (`i % SHIP_CLASS_IDS.length`, dealt since
  *  the harness shipped) byte-identical on every pre-existing run key. */
 function rosterOffset(spec: RunSpec, index: number): number {
   return spec.roster === 'even' ? index : 0;
@@ -492,9 +493,9 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const controls: CaptainControl[] = [];
   const captainIds: string[] = [];
   // CAPTAINS TAKE THE SAME ROTATION AS THE BOTS under 'even'. Dealing them the
-  // un-offset `i % 3` while the bots rotate leaves the captain half of a mixed
-  // lobby (`--captains 2 --bots 18`) short the SAME class in every single
-  // match — the exact representation artefact the flag exists to remove, and
+  // un-offset `i % SHIP_CLASS_IDS.length` while the bots rotate leaves the
+  // captain half of a mixed lobby (`--captains 2 --bots 18`) short the SAME
+  // class in every single match — the exact representation artefact the flag exists to remove, and
   // it matters because BatchAggregate.winnerClass pools captains and bots into
   // one tally. Under 'rolled' rosterOffset is 0, so this line deals exactly
   // what it always dealt.

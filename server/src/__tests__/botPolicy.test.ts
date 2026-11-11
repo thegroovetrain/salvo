@@ -1344,13 +1344,14 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       // Every appetite entry at or above EAGER, so every equipment verb is
       // exercised and the read is not shaped by a doctrine preference…
       for (const v of Object.values(row.appetite)) expect(v).toBeGreaterThanOrEqual(APPETITE_EAGER);
-      // …with the gun ladder still the LOWEST entries (the universal fallback
+      // …with the guns still the LOWEST entries (the universal fallback
       // order). Story 8.20 writes the two pickable guns explicitly at the
-      // gun's own 2.0 (the numbers the retired family fallback resolved).
-      const GUNS = ['gun', 'machineGun', 'flak', 'mainBattery'];
+      // battery's own value (the deck `gun` they were once read off is dead
+      // and left the rows at Story 10.12; the main battery anchors them).
+      const GUNS = ['machineGun', 'flak', 'mainBattery'];
       for (const [eq, v] of Object.entries(row.appetite)) {
-        if (GUNS.includes(eq)) expect(v).toBe(appetiteFor(row, 'gun'));
-        else expect(v).toBeGreaterThan(appetiteFor(row, 'gun'));
+        if (GUNS.includes(eq)) expect(v).toBe(appetiteFor(row, 'mainBattery'));
+        else expect(v).toBeGreaterThan(appetiteFor(row, 'mainBattery'));
       }
     }
   });
@@ -1421,12 +1422,13 @@ describe('ai/spending — random mode (wave 4)', () => {
 describe('Story 8.15 — the new ids read their family\'s appetite', () => {
   const ALL_ROWS: AnyProfileId[] = [...(Object.keys(BOT_PROFILES) as BotProfileId[]), ...TEST_PROFILE_IDS];
 
-  it('MG/flak read the CANNON appetite; INSTANT RELOAD / HUNKER read the BOOST appetite', () => {
+  it('MG/flak read the MAIN BATTERY appetite; INSTANT RELOAD / HUNKER read the BOOST appetite', () => {
+    // Story 10.12: the dead deck `gun` left the rows; the main battery (the
+    // captain's slot 0 since Story 10.4) anchors the gun family.
     for (const id of ALL_ROWS) {
       const row = profileOf(id);
-      expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'gun'));
-      expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
-      expect(appetiteFor(row, 'mainBattery'), id).toBe(appetiteFor(row, 'gun')); // Story 10.4: the captain's slot 0, same family
+      expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'mainBattery'));
+      expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'mainBattery'));
       expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
       expect(appetiteFor(row, 'hunker'), id).toBe(appetiteFor(row, 'boost'));
     }
