@@ -60,7 +60,7 @@ describe('the four one-off WEAPON cards (R6 / R7 / R10 / R11)', () => {
     }
   });
 
-  it('EXPANDED MINE RACKS prints the held mine\'s per-rack capacity, with one or two racks', () => {
+  it('RACK CAPACITY (expandedMineRacks) prints the held mine\'s per-rack capacity, with one or two racks', () => {
     for (const host of ['navalMines', 'foulingMines', 'captiveMines'] as const) {
       for (const cards of [[host], [host, 'secondMineRack']]) {
         const before = rackCapacity(fold(cards), host);
