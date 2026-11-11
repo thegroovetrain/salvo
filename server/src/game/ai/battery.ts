@@ -33,31 +33,43 @@
 //
 // THE MINE SWEEP (Story 10.12). The secondaries are the only captain weapon
 // that hurts a mine, and only where a round LANDS: on the mine's marker. A
-// sighted HOSTILE mine inside the secondaries' reach with a clear line is
-// swept — the aim goes on its centre and the secondaries are held under the
-// same burst discipline — when the bot has no target inside main-battery
-// reach, or when the mine is one the helm is already steering round
-// (navigate.ts `minePressing`). While sweeping the aim is the mine's, so the
-// main battery does not click (`BotMind.sweep`); any other weapon the brain
-// picks that tick keeps the tick and the sweep waits.
+// mine shot to 0 hp DETONATES, and its blast hurts every non-owner hull inside
+// it — the sweeper included — so a mine is SWEEPABLE only from outside its
+// blast: hostile, inside the secondaries' reach with a clear line, and at
+// least the STAND-OFF from the hull centre (`sweepStandOffU`: the kind's blast
+// radius + half the hull's length + one tick of travel at the rated max
+// speed). It is swept — the aim goes on its centre and the secondaries are
+// held under the same burst discipline — when the bot has no target inside
+// main-battery reach (the nearest sweepable mine, any bearing), or, with one,
+// when the mine lies IN THE WAY: ahead of the beam and inside a lane the
+// stand-off wide either side of the hull's heading line. A bot hiding,
+// holding in wait or breaking off never sweeps (the stream would give it
+// away). While sweeping the aim is the mine's, so the main battery does not
+// click (`BotMind.sweep`); any other weapon the brain picks that tick keeps
+// the tick and the sweep waits.
 //
 // Pure apart from the mind seats it owns (`batteryScatter`, `secResting`,
 // `sweep`) and the scatter draws off the mind's rng. No `world.js`.
 
 import {
+  CATALOG,
   CONFIG,
+  SHIP_CLASS_IDS,
+  effectiveStats,
+  hullEnvelope,
   batteryAimPoint,
   bearing,
   copyTurrets,
   pickTurret,
   stepTurrets,
   type AimPose,
+  type MineKind,
   type Vec2,
 } from '@salvo/shared';
-import type { BotMind, BotSelf } from './types.js';
+import type { BotMind, BotPosture, BotSelf } from './types.js';
 import { ownReachU, type BotSituation, type BotTrack } from './utility.js';
 import { reachOf } from './doctrine.js';
-import { minePressing } from './navigate.js';
+import { hullLengthU } from './navigate.js';
 import { distTo, leadPoint, scatterOffset, shotReaches, stamped, type EquipmentTactic, type Shot, type TacticContext } from './tacticKit.js';
 
 /** The bot's held aim for the main battery: bearing + distance from the hull
@@ -170,21 +182,47 @@ export function secondariesReady(self: BotSelf, mind: BotMind): boolean {
   return true;
 }
 
-/** The secondaries level this tick ON A HULL TARGET: the burst discipline
- *  AND a live hull inside their reach. */
-export function secondariesHeld(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack | null): boolean {
-  return secondariesReady(self, mind) && secTarget(sit, t);
-}
-
 // ---------------------------------------------------------------------------
 // THE MINE SWEEP (Story 10.12)
 // ---------------------------------------------------------------------------
 
-/** A sighted mine as the sweep reads it (the view's `MineView` fields it needs). */
+/** A sighted mine as the sweep reads it (the view's `MineView` fields it
+ *  needs; `c` is the kind, absent from an older frame). */
 export interface SweepMine {
   readonly x: number;
   readonly y: number;
   readonly own: boolean;
+  readonly c?: MineKind;
+}
+
+/** u — a mine line's blast radius at the TOP of its ladder: the shared fold
+ *  over every copy the line's cap allows. A bot cannot see another captain's
+ *  tier (cards are private) and a tiered blast is wider than the CONFIG base,
+ *  so the stand-off assumes the widest blast that mine could carry. */
+function topTierBlastU(line: 'navalMines' | 'captiveMines' | 'foulingMines'): number {
+  const copies = new Array<string>(CATALOG[line].cap).fill(line);
+  return effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), copies).equipment[line].blastRadius;
+}
+
+/** u — each kind's WIDEST possible blast radius (topTierBlastU; the server
+ *  detonates with the layer's folded stats); an unknown kind reads the
+ *  largest. */
+const BLAST_BY_KIND: Readonly<Record<MineKind, number>> = Object.freeze({
+  naval: topTierBlastU('navalMines'),
+  captive: topTierBlastU('captiveMines'),
+  fouling: topTierBlastU('foulingMines'),
+});
+const BLAST_UNKNOWN = Math.max(...Object.values(BLAST_BY_KIND));
+
+/** u — THE SWEEP STAND-OFF for a mine of kind `kind`: its blast radius, plus
+ *  half the hull's length (the blast reaches the silhouette, not the centre),
+ *  plus one tick of travel at the rated max speed (the hull moves before the
+ *  round lands). A hull centre at least this far from the mine is outside
+ *  its blast. */
+export function sweepStandOffU(self: BotSelf, sit: BotSituation, kind: MineKind | undefined): number {
+  const blast = kind === undefined ? BLAST_UNKNOWN : BLAST_BY_KIND[kind];
+  const travel = (sit.stats.kinematics.maxSpeed * CONFIG.tick.simDtMs) / 1000;
+  return blast + hullLengthU(self.hullId) / 2 + travel;
 }
 
 /** Is the target's plot inside own main-battery reach (no target → no)? */
@@ -193,26 +231,47 @@ export function targetInBatteryReach(sit: BotSituation, t: BotTrack | null): boo
 }
 
 /** May this mine be swept at all: hostile, its centre inside the
- *  secondaries' reach of the hull centre, the line to it clear of land? */
-function sweepable(self: BotSelf, sit: BotSituation, m: SweepMine): boolean {
+ *  secondaries' reach of the hull centre and OUTSIDE the stand-off (the
+ *  sweeper clear of its blast), the line to it clear of land? */
+function sweepable(self: BotSelf, sit: BotSituation, m: SweepMine, standOff: number): boolean {
   if (m.own) return false;
-  if (Math.hypot(m.x - sit.x, m.y - sit.y) > sit.stats.secondaryRangeU) return false;
+  const d = Math.hypot(m.x - sit.x, m.y - sit.y);
+  if (d > sit.stats.secondaryRangeU || d < standOff) return false;
   return shotReaches(self, sit, m);
 }
 
+/** Is the mine IN THE WAY: ahead of the beam (within ±90° of the bow) and
+ *  inside the lane `halfWidth` either side of the hull's heading line? */
+export function inSweepLane(self: BotSelf, m: Vec2, halfWidth: number): boolean {
+  const { x, y, heading } = self.state;
+  const dx = m.x - x;
+  const dy = m.y - y;
+  const fx = Math.cos(heading);
+  const fy = Math.sin(heading);
+  if (dx * fx + dy * fy < 0) return false;
+  return Math.abs(dx * fy - dy * fx) <= halfWidth;
+}
+
+/** Does this mine qualify for the pick: sweepable, and — with a target in
+ *  battery reach — in the way? */
+function sweepCandidate(self: BotSelf, sit: BotSituation, m: SweepMine, targetInReach: boolean): boolean {
+  const standOff = sweepStandOffU(self, sit, m.c);
+  if (!sweepable(self, sit, m, standOff)) return false;
+  return !targetInReach || inSweepLane(self, m, standOff);
+}
+
 /**
- * THE SWEEP PICK: the nearest sighted HOSTILE mine inside the secondaries'
- * reach with a clear line — any such mine while the bot has no target inside
- * main-battery reach (`targetInReach` false), only one PRESSING THE HELM
- * (the helm's own mine lookahead, navigate.ts `minePressing`) while it has.
- * Null = nothing to sweep. Pure.
+ * THE SWEEP PICK: the nearest sweepable mine (hostile, inside the
+ * secondaries' reach, outside its own blast stand-off, a clear line) — any
+ * such mine while the bot has no target inside main-battery reach
+ * (`targetInReach` false), only one IN THE WAY (ahead, inside the stand-off
+ * lane — `inSweepLane`) while it has. Null = nothing to sweep. Pure.
  */
 export function sweepPick<M extends SweepMine>(self: BotSelf, sit: BotSituation, mines: readonly M[], targetInReach: boolean): M | null {
   let best: M | null = null;
   let bestD = Infinity;
   for (const m of mines) {
-    if (!sweepable(self, sit, m)) continue;
-    if (targetInReach && !minePressing(self.state, m)) continue;
+    if (!sweepCandidate(self, sit, m, targetInReach)) continue;
     const d = Math.hypot(m.x - sit.x, m.y - sit.y);
     if (d < bestD) {
       best = m;
@@ -235,15 +294,20 @@ export interface SecondariesPlan {
   readonly sweep: Vec2 | null;
 }
 
+/** The postures that never sweep: a bot hiding, lying in wait or breaking
+ *  off keeps quiet — a sweep's stream would give it away. */
+const QUIET_POSTURES: readonly BotPosture[] = ['hold', 'hide', 'disengage'];
+
 /**
  * PLAN THE SECONDARIES for this tick — the burst discipline (stepped here,
  * once) and the sweep pick. A resting or locked battery sweeps nothing (the
- * aim stays the main battery's). A pick is stamped on `mind.sweep` so the
- * main battery holds its click this tick; no pick clears the seat.
+ * aim stays the main battery's), nor does a bot in a QUIET posture. A pick is
+ * stamped on `mind.sweep` so the main battery holds its click this tick; no
+ * pick clears the seat.
  */
-export function planSecondaries(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack | null): SecondariesPlan {
+export function planSecondaries(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack | null, posture: BotPosture): SecondariesPlan {
   const ready = secondariesReady(self, mind);
-  const mines = ready ? mind.view?.mines ?? [] : [];
+  const mines = ready && !QUIET_POSTURES.includes(posture) ? mind.view?.mines ?? [] : [];
   const mine = mines.length === 0 ? null : sweepPick(self, sit, mines, targetInBatteryReach(sit, t));
   mind.sweep = mine === null ? null : { x: mine.x, y: mine.y, at: sit.now };
   return { ready, sweep: mine === null ? null : { x: mine.x, y: mine.y } };

@@ -2,7 +2,7 @@
 title: 'Story 10.12: Bot Posture Under the Four Hulls'
 type: 'feature'
 created: '2026-11-11'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '7ebf5aa3'
 review_loop_iteration: 0
 context:
@@ -87,12 +87,12 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution (models by `/orchestrate` routing, Eric 2026-11-11):**
-- [ ] W1a (Fable) `ai/arcs.ts`, `ai/tactics.ts`, `ai/battery.ts`, `ai/navigate.ts` + tests -- arc opening (R2), next-tick pose in `readyOnTarget`, mine sweep, beacon-body avoidance, farm-with-target helm -- the gunnery and helm half
-- [ ] W1b (Opus) `ai/profiles.ts`, `ai/abilities.ts`, `ai/posture.ts`, `ai/beacons.ts`, `ai/shift.ts`, `botDriver.ts`, `world.ts`, `ArenaRoom.ts`, `batchsim/runner.ts`, `shared/src/constants.ts`, decoy-cue removal + tests -- forager out (R6), repair styles (R3), beacon stayers and eligibility (R4), weighted Shift (R5), appetites -- the personality half
-- [ ] W2 (Opus) `server/scripts/batchsim/*` + its tests, `server/scripts/soloSmoke.mjs` -- readouts: guns-bearing share on a target in reach, mines swept by bots, mean hull fraction at a repair press, placement and win share by hull; stale comments; the beacon smoke phase
-- [ ] W3 (Sonnet) records -- amendment 21, version, trackers, epics stamp, ledger stamps for the five owned items
-- [ ] After-arm sim on seed 20261111 + `batch-sim-evidence-2026-11-11.md` (before / after table)
-- [ ] Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`
+- [x] W1a (Fable) `ai/arcs.ts`, `ai/tactics.ts`, `ai/battery.ts`, `ai/navigate.ts` + tests -- arc opening (R2), next-tick pose in `readyOnTarget`, mine sweep, beacon-body avoidance, farm-with-target helm -- the gunnery and helm half
+- [x] W1b (Opus) `ai/profiles.ts`, `ai/abilities.ts`, `ai/posture.ts`, `ai/beacons.ts`, `ai/shift.ts`, `botDriver.ts`, `world.ts`, `ArenaRoom.ts`, `batchsim/runner.ts`, `shared/src/constants.ts`, decoy-cue removal + tests -- forager out (R6), repair styles (R3), beacon stayers and eligibility (R4), weighted Shift (R5), appetites -- the personality half
+- [x] W2 (Opus) `server/scripts/batchsim/*` + its tests, `server/scripts/soloSmoke.mjs` -- readouts: guns-bearing share on a target in reach, mines swept by bots, mean hull fraction at a repair press, placement and win share by hull; stale comments; the beacon smoke phase
+- [x] W3 (Sonnet) records -- amendment 21, version, trackers, epics stamp, ledger stamps for the five owned items
+- [x] After-arm sim on seed 20261111 + `batch-sim-evidence-2026-11-11.md` (before / after table)
+- [x] Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`
 
 **Acceptance Criteria:**
 - Given a bot with a live target inside main-battery reach and a clear line, when it pursues or flees on a direct bearing, then within its turn time every turret's arc holds the target and the guns-bearing readout rises against the baseline.
@@ -103,7 +103,33 @@ warnings: ['oversized']
 
 ## Spec Change Log
 
+### 2026-11-11 — review-gate corrections to three orchestrator readings (no loopback; fixed as patches)
+
+- **Trigger:** both Fable hunters CONFIRMED that the mine-sweep reading as written ("a mine in the helm's own avoidance lookahead is swept") detonates the mine inside its own blast on the sweeper's hull; the Blind Hunter showed the LATE repair reading ("or in `disengage` / `ram`") burns the cooldown on a healthy bot that merely declined a fight; both hunters showed the stayer reading held a bot on a beacon that was not paying.
+- **Amended (in code and in amendment 21(h), the durable record; the intent contract above is left as written):** the sweep needs a blast STAND-OFF and "in the way" is a lane ahead, never in `hold` / `hide` / `disengage`; LATE presses only when breaking off HURT (under the line or latched); a stayer holds only when it was already farming, is inside the circle and the beacon is paying; arcs open on the battery's lead point.
+- **Known-bad state avoided:** a bot blowing itself up on a mine it could have sailed past; a siege / trapper with no repair when it actually breaks.
+- **KEEP:** the arc opening before the ring clamp with the side read off the bow (attacked by all three reviewers, held); the per-tick `at`-stamped mind seats; the Shift on its own stream.
+
 ## Review Triage Log
+
+### 2026-11-11 — Review pass (Fable Blind Hunter FIX-FIRST · Fable Edge Case Hunter 7 cases + 2 deletions · Codex `gpt-5.6-sol` FIX-FIRST)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 1, medium 6, low 4)
+- defer: 4: (medium 2, low 2)
+- reject: 3
+- addressed_findings:
+  - `[high]` `[patch]` (both hunters, CONFIRMED) the sweep detonated mines inside their blast on the sweeper's own hull — a stand-off (the widest tiered blast of that kind + half the hull + one tick of travel); "in the way" is a lane ahead; regression tests on the shared `burstVictims`
+  - `[medium]` `[patch]` (both hunters) the sweep gave away a hidden bot — no sweep in `hold` / `hide` / `disengage`
+  - `[medium]` `[patch]` (Blind Hunter) arcs opened on the plot while the guns aim at the lead point — opened on `leadPoint`
+  - `[medium]` `[patch]` (both hunters) a stayer held a charted (not yet paying) beacon, and a fighting stayer was pulled out of its fight by crossing a circle — `paying` on the goal, `prev === 'farm'`
+  - `[medium]` `[patch]` (Edge Case Hunter + Blind Hunter + Codex) a bot could park outside its patrol disc — a snapped standoff outside the disc yields no goal; a disc-side goal is on station only at its point
+  - `[medium]` `[patch]` (Edge Case Hunter) a stayer laid prepared mines mid-fight — `farm` is a safe lay posture only with no target
+  - `[medium]` `[patch]` (Blind Hunter) LATE repair burned the cooldown on a scratch — presses only when breaking off hurt
+  - `[low]` `[patch]` the sweep aim is measured from the next-tick pose; `encounterSpan` / `rl/env` pass `DEFAULT_SHIFT` explicitly; dead `secondariesHeld` deleted; the harness attribution's error sources documented
+  - deferred (ledger 2026-11-11): the next-tick pose on rated kinematics (Codex CONFIRMED); the mines-swept readout's mis-credit; three behaviors built as readings (parked stayer, idle sweep, the 5° margin) as Eric's calls; sweep edges near beacons
+  - rejected: a parked stayer cannot dodge a ram (the spec's accepted reading); sweep-versus-other-weapon tick ordering (bounded, one tick); flapping at the arc side (attacked by three reviewers, held)
 
 ## Design Notes
 
@@ -119,3 +145,19 @@ warnings: ['oversized']
 - `npm run check` -- expected: EXIT 0 before the PR
 - `soloSmoke`, `matchSmoke`, `weaponsSmoke`, `queueSmoke` on agent-booted servers (own PIDs and tsx children killed after) -- expected: OK first try
 - `run_campaign.py --matches 48 --shards 12 --bots 16 --base-seed 20261111 --label after1012 --extra --raw --roster even` -- expected: completes; measures compared with `base1012`
+
+## Auto Run Result
+
+**Status:** done (review gate passed after fixes; PR to `development`).
+
+**Summary:** The bots are retooled for the four battleships, server-only. A hull chasing or running with its target in gun range angles off just far enough for every turret to bear (R2; `ai/arcs.ts`, applied before the ring clamp). The secondaries sweep sighted hostile mines from outside their blast. HULL REPAIR is a personality trait — raider, duelist, bulwark press the moment the whole heal fits; siege, trapper when they break off hurt (R3). A parked, collecting non-fighter keeps its beacon and shoots from station; raider and duelist leave to fight (R4). The Shift is a personality-weighted roll at enroll (R5). `forager` is retired (R6). The on-target check reads the hull's next-tick pose; solid beacons are avoided; beacon eligibility is a farming point inside the patrol disc. Cycle 223, 0.19.17, PV 101 unchanged, epic-10 amendment 21. Subagent models by `/orchestrate` (Eric 2026-11-11): Fable built the helm and gunnery wave, Opus the personality wave, the harness wave and the review fixes; Fable hunters + Codex at the gate.
+
+**Measured (48 + 48 + 48 on seed 20261111, `batch-sim-evidence-2026-11-11.md`):** land contact 0.55 % → 0.16 %, stuck episodes 355 → 108, ram deaths 40 → 23, storm share 1.2 % → 0.7 %, mine kills 41 → 10; 88.7 % of guns bearing on a hull in reach and 2,432 mines swept (new readouts, no baseline). Placement by hull is trend-size only.
+
+**Files changed (headline):** `server/src/game/ai/arcs.ts` (new), `tactics.ts`, `battery.ts`, `navigate.ts`, `abilities.ts`, `posture.ts`, `beacons.ts`, `profiles.ts`, `equipment.ts`, `spending.ts`, `botDriver.ts`, `types.ts`, `utility.ts`, `plot.ts`; `world.ts` (`addBot`), `rooms/ArenaRoom.ts`; `shared/src/constants.ts` (`CONFIG.bots`: `profiles` five, `healHpFrac` out, `shiftFitWeight`, `arcOpenMarginDeg`); harness `server/scripts/batchsim/*` (four readouts, dials, stale text), `rl/env.ts`, `soloSmoke.mjs` (beacon check); tests `botArcs`, `botSweep`, `botPersonality` (new) and the bot suites; amendment 21, both trackers, `epics.md` stamp, the ledger, the evidence file, VERSION 0.19.17.
+
+**Review:** 11 patched, 4 deferred, 3 rejected (triage log above).
+
+**Verification:** `npm run check` EXIT 0 on the final tree (shared 1470, server 2908 in 113 files, client 3974 in 145 files; lint 0 errors, 3 pre-existing warnings; hooks 266); `matchSmoke`, `soloSmoke` (with the beacon check), `queueSmoke`, `weaponsSmoke` OK first try on agent-booted servers, own servers killed; `tsc` clean for server, batchsim and rl.
+
+**Residual risks:** three behaviors are readings Eric may veto on staging (a parked stayer cannot turn or dodge; idle mine sweeping shows muzzle flashes; the 5° settle margin); the next-tick pose ignores boost and slows; the mines-swept readout is a trend, not a count; the balance-sim skill scripts in Eric's checkout still assume three classes.

@@ -67,8 +67,9 @@ describe('HULL REPAIR — the two styles (Story 10.12, R3)', () => {
   const w = new World(1212, 8);
   w.map.islands.length = 0;
   const port = fakePort(w);
-  const wants = (rec: ShipRecord, profile: BotProfileId, posture: BotPosture = 'engage'): boolean => {
+  const wants = (rec: ShipRecord, profile: BotProfileId, posture: BotPosture = 'engage', latchedAt: number | null = null): boolean => {
     const mind = mkMind(profile);
+    mind.disengagedSince = latchedAt;
     const ctx: TacticContext = { self: rec, mind, sit: situationOf(rec, mind, port), port, target: null, posture, slot: 0 };
     return ABILITY_WANTS.repair(ctx);
   };
@@ -114,14 +115,18 @@ describe('HULL REPAIR — the two styles (Story 10.12, R3)', () => {
     }
   });
 
-  it('LATE presses on the way out — disengage or ram — whatever the hull reads, while something is unmended', () => {
+  it('LATE presses on the way out only when breaking off HURT: a scratch under a bare disengage / ram presses nothing; the break-off latch presses', () => {
     for (const id of byStyle('late')) {
       const rec = mkBot(w);
-      rec.hp = rec.stats.maxHp - 1;
-      for (const posture of ['disengage', 'ram'] as const) expect(wants(rec, id, posture), `${id} ${posture}`).toBe(true);
-      for (const posture of ['engage', 'pursue', 'kite', 'farm', 'reposition'] as const) {
-        expect(wants(rec, id, posture), `${id} ${posture}`).toBe(false);
+      rec.hp = rec.stats.maxHp - 1; // a scratch, well above the break-off line
+      for (const posture of ['disengage', 'ram', 'engage', 'pursue', 'kite', 'farm', 'reposition'] as const) {
+        expect(wants(rec, id, posture), `${id} ${posture}`).toBe(false); // a healthy bot that declined a fight
       }
+      // The latch (set when the hull broke and the bot turned away) holds the press
+      // even after the hull has crept back over the line.
+      for (const posture of ['disengage', 'ram'] as const) expect(wants(rec, id, posture, port.now), `${id} ${posture} latched`).toBe(true);
+      rec.hp = rec.stats.maxHp; // nothing unmended: the latch alone presses nothing
+      expect(wants(rec, id, 'disengage', port.now), `${id} full`).toBe(false);
     }
   });
 

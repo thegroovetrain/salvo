@@ -455,6 +455,16 @@ export class BotReadoutCollector {
    * trip, a chain) on the very tick a bot's shell landed on its marker is
    * credited to the shooter; a chain set off by a swept naval mine credits
    * only the mine the shell landed on. Both need two events on one 50 ms tick.
+   *
+   * THE TWO KNOWN ERROR SOURCES (Story 10.12 review gate), so a reading is
+   * taken with them in mind:
+   *   - OVER-CREDIT: a mine that trips or chains on a tick when one of the
+   *     bot's rounds lands on its marker is credited to the shooter — and that
+   *     is NOT rare while a bot streams its secondaries at a mine dead ahead
+   *     (every tick of the stream is a landing on the marker).
+   *   - UNDER-CREDIT: a round created and consumed inside one tick (fired and
+   *     landed between two of this collector's reads) is never seen in the
+   *     shell table, so a mine it popped is credited to nobody.
    */
   private noteSwept(world: World): void {
     const landedBy = this.mineShellsLanded(world);

@@ -16,10 +16,6 @@ import type { BotMind, BotPosture } from './types.js';
 import { brokenHull } from './posture.js';
 import { anyHostileWithin, healthy, radarChaser, type TacticContext } from './tacticKit.js';
 
-/** The postures a LATE repairer presses in whatever its hull reads — the
- *  break-off's own two. */
-const LATE_PRESS_POSTURES: readonly BotPosture[] = ['disengage', 'ram'];
-
 /** hp — the hull a HULL REPAIR press would still have to mend: missing hull
  *  less the paid pool already owed (`repairHp`). Counting the pool asks where
  *  the hull WILL be, so a bot never presses again for hp already on its way. */
@@ -38,15 +34,24 @@ function onePressHealHp(ctx: TacticContext): number {
  * THE TWO REPAIR STYLES (Story 10.12, Eric 2026-11-11, epic-10 amendment 21,
  * R3 — the profile's `repairStyle`):
  *   EARLY — the whole heal of one press fits the unmended hull with no waste;
- *   LATE  — the bot breaks off: under its break-off line (posture.ts
- *           brokenHull, the profile's `disengageHpFrac`), or disengaging or
- *           ramming — and something is still unmended.
+ *   LATE  — the bot is breaking off HURT: under its break-off line
+ *           (posture.ts brokenHull, the profile's `disengageHpFrac`), or the
+ *           break-off latch still holding (`mind.disengagedSince` set — the
+ *           hull was broken when it turned away) — and something is still
+ *           unmended. A healthy bot that merely declined a fight (a
+ *           `disengage` / `ram` posture with no hurt behind it) never burns
+ *           the cooldown on a scratch.
  * (`healHpFrac`, the one line every profile pressed under, retired here.)
  */
 function wantsRepair(ctx: TacticContext): boolean {
   const unmended = unmendedHp(ctx);
   if (ctx.sit.profile.repairStyle === 'early') return unmended >= onePressHealHp(ctx);
-  return unmended > 0 && (brokenHull(ctx.sit) || LATE_PRESS_POSTURES.includes(ctx.posture));
+  return unmended > 0 && (brokenHull(ctx.sit) || breakOffLatched(ctx.mind));
+}
+
+/** Is the break-off latch set (posture.ts latchBreakOff)? */
+function breakOffLatched(mind: BotMind): boolean {
+  return mind.disengagedSince !== undefined && mind.disengagedSince !== null;
 }
 
 /** HULL REPAIR — pressed on the profile's style, the ability ready and not

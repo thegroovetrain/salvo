@@ -21,21 +21,26 @@ import {
   SLOT_GUN,
   angleDiff,
   bearing,
+  burstVictims,
   copyTurrets,
   desiredTurretAngle,
   stepLaunchers,
   stepShip,
   stepTurrets,
+  hullSilhouette,
+  transformPolygon,
   turretMounts,
+  type MineKind,
   type ShipClassId,
   type TurretState,
   type Vec2,
 } from '@salvo/shared';
+import { CATALOG as SHARED_CATALOG, effectiveStats as sharedEffectiveStats, hullEnvelope as sharedHullEnvelope } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
-import { readyOnTarget, sweepPick, sweepingNow, turretPoseOf, type BatteryAim, type SweepMine } from '../game/ai/battery.js';
-import { avoidMines, minePressing } from '../game/ai/navigate.js';
+import { inSweepLane, readyOnTarget, sweepPick, sweepStandOffU, sweepingNow, turretPoseOf, type BatteryAim, type SweepMine } from '../game/ai/battery.js';
+import { minePressing } from '../game/ai/navigate.js';
 import { ownReachU } from '../game/ai/utility.js';
 import type { BotDecision, BotMind } from '../game/ai/types.js';
 import type { ShipRecord } from '../game/world.js';
@@ -56,30 +61,53 @@ function rigFor(hullId: ShipClassId, seed: number, isles: Parameters<typeof ocea
   return { rec: mkBot(w, hullId, 0, 0, 0), port: fakePort(w), mind: mkMind('raider') };
 }
 
-const hostile = (x: number, y: number): SweepMine => ({ x, y, own: false });
+const hostile = (x: number, y: number, c?: MineKind): SweepMine => (c === undefined ? { x, y, own: false } : { x, y, own: false, c });
 const own = (x: number, y: number): SweepMine => ({ x, y, own: true });
 
-/** u — a distance the helm's mine term reads (well inside its lookahead). */
-const NEAR_U = CONFIG.mine.triggerRadius * 2;
-/** A mine the helm is steering round: ahead of the beam, off the bow. */
-const PRESSING = hostile(NEAR_U * Math.cos(0.7), NEAR_U * Math.sin(0.7));
-/** The same distance dead astern: sighted, in reach, not in the helm's way. */
-const ASTERN = hostile(-NEAR_U, 0);
+const MINE_KINDS: readonly (MineKind | undefined)[] = ['naval', 'captive', 'fouling', undefined];
 
-/** Is the decision's aim on this point (bearing and distance from the hull centre)? */
-function aimedAt(rec: ShipRecord, d: BotDecision, p: Vec2): boolean {
-  const dist = Math.hypot(p.x - rec.state.x, p.y - rec.state.y);
-  return Math.abs(angleDiff(bearing(rec.state, p), d.aim)) < 1e-9 && Math.abs(d.aimDist - dist) < 1e-9;
+/** u — the sweep stand-off of a rig's hull for a kind (undefined = unknown). */
+function standOffOf(rig: Rig, c?: MineKind): number {
+  return sweepStandOffU(rig.rec, situationOf(rig.rec, rig.mind, rig.port), c);
+}
+
+/** u — a distance a mine of unknown kind is sweepable at: past the stand-off,
+ *  inside the secondaries' reach. */
+function sweepU(rig: Rig): number {
+  const standOff = standOffOf(rig);
+  const r = rig.rec.stats.secondaryRangeU;
+  expect(r).toBeGreaterThan(standOff * 1.3);
+  return standOff * 1.2;
+}
+
+/** A sweepable mine dead ahead (in the way) and one dead astern (not). */
+function inWay(rig: Rig): SweepMine {
+  return hostile(sweepU(rig), 0);
+}
+function astern(rig: Rig): SweepMine {
+  return hostile(-sweepU(rig), 0);
+}
+
+/** u — a distance the helm's mine term reads (well inside its lookahead):
+ *  the mine the old sweep took "because the helm steers round it". */
+const NEAR_U = CONFIG.mine.triggerRadius * 2;
+
+/** Is the decision's aim on this point, measured from the pose the server
+ *  resolves it from (the brain's next-tick pose, ai/battery.ts turretPoseOf)? */
+function aimedAt(rig: Rig, d: BotDecision, p: Vec2): boolean {
+  const pose = turretPoseOf(rig.rec, rig.mind, rig.port.now);
+  const dist = Math.hypot(p.x - pose.x, p.y - pose.y);
+  return Math.abs(angleDiff(bearing(pose, p), d.aim)) < 1e-9 && Math.abs(d.aimDist - dist) < 1e-9;
 }
 
 describe('ai/battery.ts — sweepPick (unit)', () => {
   it('a HOSTILE mine inside the secondaries\' reach is picked; the bot\'s own never is', () => {
-    const { rec, port, mind } = rigFor('bismarck', 1301);
-    const sit = situationOf(rec, mind, port);
+    const rig = rigFor('bismarck', 1301);
+    const sit = situationOf(rig.rec, rig.mind, rig.port);
     const m = hostile(0, sit.stats.secondaryRangeU / 2);
-    expect(sweepPick(rec, sit, [m], false)).toBe(m);
-    expect(sweepPick(rec, sit, [own(m.x, m.y)], false)).toBeNull();
-    expect(sweepPick(rec, sit, [], false)).toBeNull();
+    expect(sweepPick(rig.rec, sit, [m], false)).toBe(m);
+    expect(sweepPick(rig.rec, sit, [own(m.x, m.y)], false)).toBeNull();
+    expect(sweepPick(rig.rec, sit, [], false)).toBeNull();
   });
 
   it('REACH is the secondaries\', measured centre to centre: just inside is picked, just outside is not', () => {
@@ -93,15 +121,73 @@ describe('ai/battery.ts — sweepPick (unit)', () => {
     }
   });
 
+  it('THE STAND-OFF (review gate F1): a mine inside it is never picked, at any bearing, target or not; just outside it is', () => {
+    for (const hullId of SHIP_CLASS_IDS) {
+      const rig = rigFor(hullId, 1307);
+      const sit = situationOf(rig.rec, rig.mind, rig.port);
+      for (const c of MINE_KINDS) {
+        const standOff = standOffOf(rig, c);
+        for (let k = 0; k < 16; k += 1) {
+          const a = (k / 16) * Math.PI * 2;
+          const inside = hostile(Math.cos(a) * (standOff - 1), Math.sin(a) * (standOff - 1), c);
+          expect(sweepPick(rig.rec, sit, [inside], false), `${hullId} ${c} ${k}`).toBeNull();
+          expect(sweepPick(rig.rec, sit, [inside], true), `${hullId} ${c} ${k}`).toBeNull();
+          const outside = hostile(Math.cos(a) * (standOff + 1), Math.sin(a) * (standOff + 1), c);
+          expect(sweepPick(rig.rec, sit, [outside], false), `${hullId} ${c} ${k}`).toBe(outside);
+        }
+      }
+    }
+  });
+
+  it('THE STAND-OFF keeps the hull outside the blast the server detonates (the shared burstVictims): at the stand-off, and after closing most of a tick at its rated speed, on every bearing and heading', () => {
+    // The WIDEST blast a mine of that kind can carry: the shared fold with the
+    // line's whole ladder taken (a bot cannot see the layer's tier, and the
+    // server detonates with the layer's folded stats).
+    const topBlast = (line: 'navalMines' | 'captiveMines' | 'foulingMines'): number =>
+      sharedEffectiveStats(sharedHullEnvelope(SHIP_CLASS_IDS[0]), new Array<string>(SHARED_CATALOG[line].cap).fill(line)).equipment[line].blastRadius;
+    const blastOf = (c: MineKind | undefined): number =>
+      c === 'naval' ? topBlast('navalMines') : c === 'captive' ? topBlast('captiveMines') : c === 'fouling' ? topBlast('foulingMines')
+        : Math.max(topBlast('navalMines'), topBlast('captiveMines'), topBlast('foulingMines'));
+    expect(topBlast('navalMines')).toBeGreaterThan(CONFIG.mine.blastRadius); // premise: a tiered blast is wider than the base
+    for (const hullId of SHIP_CLASS_IDS) {
+      const rig = rigFor(hullId, 1308);
+      const travel = (rig.rec.stats.kinematics.maxSpeed * DT_MS) / 1000;
+      for (const c of MINE_KINDS) {
+        const standOff = standOffOf(rig, c);
+        for (let k = 0; k < 24; k += 1) {
+          const a = (k / 24) * Math.PI * 2;
+          for (const heading of [0, Math.PI / 4, Math.PI / 2, a]) {
+            const hull = { id: 'sweeper', kind: 'hull' as const, poly: transformPolygon(hullSilhouette(hullId), 0, 0, heading) };
+            const victims = (d: number): unknown[] => burstVictims({ x: Math.cos(a) * d, y: Math.sin(a) * d }, blastOf(c), [hull], 'layer');
+            expect(victims(standOff), `${hullId} ${c} ${k}`).toEqual([]);
+            expect(victims(standOff - 0.9 * travel), `${hullId} ${c} ${k} closing`).toEqual([]);
+            expect(victims(blastOf(c)), `${hullId} ${c} ${k} control`).toHaveLength(1); // the control: a centre on the blast rim is hit
+          }
+        }
+      }
+    }
+  });
+
+  it('the mine the helm is steering round (inside its lookahead) is NOT swept — it is inside the stand-off', () => {
+    for (const hullId of SHIP_CLASS_IDS) {
+      const rig = rigFor(hullId, 1309);
+      const sit = situationOf(rig.rec, rig.mind, rig.port);
+      const pressing = hostile(NEAR_U * Math.cos(0.7), NEAR_U * Math.sin(0.7));
+      expect(minePressing(rig.rec.state, pressing)).toBe(true);
+      expect(sweepPick(rig.rec, sit, [pressing], true)).toBeNull();
+      expect(sweepPick(rig.rec, sit, [pressing], false)).toBeNull();
+    }
+  });
+
   it('the NEAREST candidate wins', () => {
-    const { rec, port, mind } = rigFor('iowa', 1303);
-    const sit = situationOf(rec, mind, port);
+    const rig = rigFor('iowa', 1303);
+    const sit = situationOf(rig.rec, rig.mind, rig.port);
     const r = sit.stats.secondaryRangeU;
     const far = hostile(r * 0.8, 0);
-    const near = hostile(0, -r * 0.3);
-    expect(sweepPick(rec, sit, [far, near], false)).toBe(near);
-    expect(sweepPick(rec, sit, [near, far], false)).toBe(near);
-    expect(sweepPick(rec, sit, [far, own(0, r * 0.1)], false)).toBe(far); // an own mine nearer still does not count
+    const near = hostile(0, -sweepU(rig));
+    expect(sweepPick(rig.rec, sit, [far, near], false)).toBe(near);
+    expect(sweepPick(rig.rec, sit, [near, far], false)).toBe(near);
+    expect(sweepPick(rig.rec, sit, [far, own(0, r * 0.1)], false)).toBe(far); // an own mine nearer still does not count
   });
 
   it('LAND on the line refuses the mine; the same mine over open water is picked', () => {
@@ -113,33 +199,39 @@ describe('ai/battery.ts — sweepPick (unit)', () => {
     expect(sweepPick(blocked.rec, situationOf(blocked.rec, blocked.mind, blocked.port), [m], false)).toBeNull();
   });
 
-  it('WITH A TARGET IN BATTERY REACH only a mine the helm is steering round is picked — the same predicate the mine term sums', () => {
-    const { rec, port, mind } = rigFor('warspite', 1305);
-    const sit = situationOf(rec, mind, port);
-    let pressing = 0;
-    let quiet = 0;
-    for (let k = 0; k < 16; k += 1) {
-      const a = (k / 16) * Math.PI * 2 + 0.1;
-      const m = hostile(Math.cos(a) * NEAR_U, Math.sin(a) * NEAR_U);
-      const helmSteersRound = minePressing(rec.state, m);
-      sightMines(mind, [m]);
-      expect(avoidMines(rec, mind) !== 0).toBe(helmSteersRound); // one predicate, two readers
-      expect(sweepPick(rec, sit, [m], true) !== null).toBe(helmSteersRound);
-      expect(sweepPick(rec, sit, [m], false)).toBe(m); // with no target in reach every one of them is swept
-      if (helmSteersRound) pressing += 1;
-      else quiet += 1;
+  it('WITH A TARGET IN BATTERY REACH only a mine IN THE WAY is picked: ahead of the beam, inside the stand-off lane either side of the heading line', () => {
+    for (const heading of [0, 1.1, -2.5]) {
+      const rig = rigFor('warspite', 1305);
+      rig.rec.state.heading = heading;
+      const sit = situationOf(rig.rec, rig.mind, rig.port);
+      const standOff = standOffOf(rig);
+      const d = (standOff + sit.stats.secondaryRangeU) / 2;
+      let inLane = 0;
+      let outLane = 0;
+      for (let k = 0; k < 32; k += 1) {
+        const rel = (k / 32) * Math.PI * 2 + 0.05; // the bearing off the bow
+        const m = hostile(Math.cos(heading + rel) * d, Math.sin(heading + rel) * d);
+        // The lane by the hull's own frame: ahead, and within the stand-off of the heading line.
+        const want = Math.cos(rel) >= 0 && Math.abs(Math.sin(rel) * d) <= standOff;
+        expect(inSweepLane(rig.rec, m, standOff)).toBe(want);
+        expect(sweepPick(rig.rec, sit, [m], true) !== null, `${heading} ${k}`).toBe(want);
+        expect(sweepPick(rig.rec, sit, [m], false)).toBe(m); // with no target in reach every one of them is swept
+        if (want) inLane += 1;
+        else outLane += 1;
+      }
+      expect(inLane).toBeGreaterThan(0);
+      expect(outLane).toBeGreaterThan(0);
     }
-    expect(pressing).toBeGreaterThan(0);
-    expect(quiet).toBeGreaterThan(0);
   });
 
   it('with a target in reach a nearer mine astern does not hide the one in the way', () => {
-    const { rec, port, mind } = rigFor('bismarck', 1306);
-    const sit = situationOf(rec, mind, port);
-    const nearAstern = hostile(-NEAR_U / 2, 0);
-    expect(sweepPick(rec, sit, [nearAstern, PRESSING], true)).toBe(PRESSING);
-    expect(sweepPick(rec, sit, [nearAstern, PRESSING], false)).toBe(nearAstern);
-    expect(sweepPick(rec, sit, [nearAstern], true)).toBeNull();
+    const rig = rigFor('bismarck', 1306);
+    const sit = situationOf(rig.rec, rig.mind, rig.port);
+    const ahead = hostile(sit.stats.secondaryRangeU * 0.9, 0);
+    const nearAstern = astern(rig);
+    expect(sweepPick(rig.rec, sit, [nearAstern, ahead], true)).toBe(ahead);
+    expect(sweepPick(rig.rec, sit, [nearAstern, ahead], false)).toBe(nearAstern);
+    expect(sweepPick(rig.rec, sit, [nearAstern], true)).toBeNull();
   });
 });
 
@@ -157,28 +249,48 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
   }
 
   it('IDLE MINE: no target, a hostile mine in reach → the aim is its marker, the secondaries are held, nothing clicks', () => {
-    const { rec, port, mind } = rigFor('iowa', 1310);
+    const rig = rigFor('iowa', 1310);
+    const { rec, port, mind } = rig;
     const m = hostile(0, rec.stats.secondaryRangeU / 2);
     sightMines(mind, [m]);
     const d = COMBAT_BRAIN.decide(rec, mind, port, false);
-    expect(aimedAt(rec, d, m)).toBe(true);
+    expect(aimedAt(rig, d, m)).toBe(true);
     expect(d.sec).toBe(true);
     expect([d.fireSlot, d.held]).toEqual([null, false]);
     expect(mind.lastTactic).toBe('sweep');
     expect(sweepingNow(mind, port.now)).toBe(true);
   });
 
+  it('THE SWEEP AIM IS MEASURED FROM THE NEXT-TICK POSE (review gate F7): under way and turning, it is the post-move centre\'s bearing and distance, not the current one\'s', () => {
+    for (const hullId of SHIP_CLASS_IDS) {
+      const rig = rigFor(hullId, 1318);
+      const { rec, port, mind } = rig;
+      rec.state.speed = rec.stats.kinematics.maxSpeed;
+      const m = hostile(0, rec.stats.secondaryRangeU / 2);
+      sightMines(mind, [m]);
+      const d = COMBAT_BRAIN.decide(rec, mind, port, false);
+      expect(mind.lastTactic).toBe('sweep');
+      const next = mind.nextPose!;
+      expect(next.at).toBe(port.now);
+      expect(Math.hypot(next.x - rec.state.x, next.y - rec.state.y)).toBeGreaterThan(0.1); // the hull really moves this tick
+      expect(Math.abs(angleDiff(bearing(next, m), d.aim))).toBeLessThan(1e-9);
+      expect(Math.abs(d.aimDist - Math.hypot(m.x - next.x, m.y - next.y))).toBeLessThan(1e-9);
+      expect(Math.abs(d.aimDist - Math.hypot(m.x - rec.state.x, m.y - rec.state.y))).toBeGreaterThan(1e-3); // the current pose would miss
+    }
+  });
+
   it('MINE IN THE WAY: with a target in battery reach the sweep takes the aim and the battery holds its click; the mine gone, the battery resumes', () => {
     const rig = rigFor('bismarck', 1311);
     const { rec, port, mind } = rig;
     const target = withTarget(rig);
+    const m = inWay(rig);
     // The control: no mine sighted — the battery clicks on its target.
     const clear = COMBAT_BRAIN.decide(rec, mkMindLike(mind), port, false);
     expect(clear.fireSlot).toBe(SLOT_GUN);
-    // The mine in the helm's way: the aim is the mine's, the secondaries fire, no click.
-    sightMines(mind, [PRESSING]);
+    // The mine in the way: the aim is the mine's, the secondaries fire, no click.
+    sightMines(mind, [m]);
     const sweeping = COMBAT_BRAIN.decide(rec, mind, port, false);
-    expect(aimedAt(rec, sweeping, PRESSING)).toBe(true);
+    expect(aimedAt(rig, sweeping, m)).toBe(true);
     expect(sweeping.sec).toBe(true);
     expect(sweeping.fireSlot).toBeNull();
     expect(mind.lastTactic).toBe('sweep');
@@ -190,31 +302,65 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
     expect(Math.abs(angleDiff(bearing(rec.state, target), after.aim))).toBeLessThan(0.1);
   });
 
-  it('a mine NOT in the helm\'s way does not take the aim from a battery with a target in reach', () => {
+  it('a mine NOT in the way does not take the aim from a battery with a target in reach', () => {
     const rig = rigFor('bismarck', 1312);
     const { rec, port, mind } = rig;
     const target = withTarget(rig);
-    sightMines(mind, [ASTERN]);
+    sightMines(mind, [astern(rig)]);
     const d = COMBAT_BRAIN.decide(rec, mind, port, false);
     expect(d.fireSlot).toBe(SLOT_GUN);
     expect(Math.abs(angleDiff(bearing(rec.state, target), d.aim))).toBeLessThan(0.1);
     expect(sweepingNow(mind, port.now)).toBe(false);
   });
 
+  it('a mine INSIDE the stand-off is never swept, idle or fighting — the battery keeps the aim (review gate F1)', () => {
+    const rig = rigFor('bismarck', 1319);
+    const { rec, port, mind } = rig;
+    const pressing = hostile(NEAR_U * Math.cos(0.3), NEAR_U * Math.sin(0.3));
+    sightMines(mind, [pressing]);
+    const idle = COMBAT_BRAIN.decide(rec, mind, port, false);
+    expect(idle.sec ?? false).toBe(false);
+    expect(sweepingNow(mind, port.now)).toBe(false);
+    const target = withTarget(rig);
+    const fighting = COMBAT_BRAIN.decide(rec, mind, port, false);
+    expect(fighting.fireSlot).toBe(SLOT_GUN);
+    expect(Math.abs(angleDiff(bearing(rec.state, target), fighting.aim))).toBeLessThan(0.1);
+    expect(sweepingNow(mind, port.now)).toBe(false);
+  });
+
+  it('A QUIET BOT NEVER SWEEPS (review gate F2): hold, hide and disengage keep the secondaries silent; the same mine is swept on reposition', () => {
+    for (const posture of ['hold', 'hide', 'disengage', 'reposition'] as const) {
+      const rig = rigFor('iowa', 1320);
+      const { rec, port, mind } = rig;
+      mind.posture = posture;
+      sightMines(mind, [hostile(0, rec.stats.secondaryRangeU / 2)]);
+      const d = COMBAT_BRAIN.decide(rec, mind, port, false);
+      const sweeps = posture === 'reposition';
+      expect(sweepingNow(mind, port.now), posture).toBe(sweeps);
+      expect(d.sec ?? false, posture).toBe(sweeps);
+    }
+  });
+
   it('NO SWEEP of an own mine, a mine behind land, or with the secondaries overheated — the battery keeps the aim', () => {
     const cases: readonly { name: string; prep: (rig: Rig) => void; isles?: Parameters<typeof ocean>[1] }[] = [
-      { name: 'own', prep: (rig) => sightMines(rig.mind, [own(PRESSING.x, PRESSING.y)]) },
+      {
+        name: 'own',
+        prep: (rig) => {
+          const m = inWay(rig);
+          sightMines(rig.mind, [own(m.x, m.y)]);
+        },
+      },
       {
         name: 'overheated',
         prep: (rig) => {
-          sightMines(rig.mind, [PRESSING]);
+          sightMines(rig.mind, [inWay(rig)]);
           rig.rec.sec.heat = (CONFIG.bots.secReleaseHeat + 1) / 2;
         },
       },
       {
         name: 'locked',
         prep: (rig) => {
-          sightMines(rig.mind, [PRESSING]);
+          sightMines(rig.mind, [inWay(rig)]);
           rig.rec.sec.locked = true;
         },
       },
@@ -239,7 +385,8 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
   });
 
   it('THE HEAT DISCIPLINE IS THE HULL-TARGET ONE: the sweep rests past the release line and waits for the re-press line', () => {
-    const { rec, port, mind } = rigFor('yamato', 1314);
+    const rig = rigFor('yamato', 1314);
+    const { rec, port, mind } = rig;
     const m = hostile(0, rec.stats.secondaryRangeU / 2);
     sightMines(mind, [m]);
     const mid = (CONFIG.bots.secReleaseHeat + CONFIG.bots.secRepressHeat) / 2;
@@ -252,18 +399,19 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
     rec.sec.heat = mid;
     const resting = decide();
     expect(resting.sec ?? false).toBe(false); // cooling, still above the re-press line
-    expect(aimedAt(rec, resting, m)).toBe(false); // ... and the aim is not held on the mine meanwhile
+    expect(aimedAt(rig, resting, m)).toBe(false); // ... and the aim is not held on the mine meanwhile
     rec.sec.heat = CONFIG.bots.secRepressHeat / 2;
     const again = decide();
     expect(again.sec).toBe(true);
-    expect(aimedAt(rec, again, m)).toBe(true);
+    expect(aimedAt(rig, again, m)).toBe(true);
   });
 
   it('the secondaries on a HULL in their reach are unchanged when there is nothing to sweep', () => {
-    const { rec, port, mind } = rigFor('iowa', 1315);
+    const rig = rigFor('iowa', 1315);
+    const { rec, port, mind } = rig;
     const target = { x: 0, y: rec.stats.secondaryRangeU * 0.8 };
     holdTarget(mind, track(port.now, target), 'engage');
-    sightMines(mind, [ASTERN]); // sighted, not in the way, and a target in battery reach
+    sightMines(mind, [astern(rig)]); // sighted, not in the way, and a target in battery reach
     const d = COMBAT_BRAIN.decide(rec, mind, port, false);
     expect(d.sec).toBe(true);
     expect(Math.abs(angleDiff(bearing(rec.state, target), d.aim))).toBeLessThan(0.1);
@@ -280,18 +428,20 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
     expect(slot).toBeGreaterThan(0);
     const target = { x: 0, y: 180 }; // abeam at knife range, creeping (a course to lead)
     const mind = mkMind('raider');
+    const rig: Rig = { rec, port, mind };
+    const m = inWay(rig);
     holdTarget(mind, track(port.now, { ...target, heading: 0, speed: 1 }), 'engage');
-    sightMines(mind, [PRESSING]);
+    sightMines(mind, [m]);
     for (let i = 0; i < 200; i += 1) stepLaunchers(rec.launchers, rec.hullId, rec.state, target, DT_MS);
     const shot = COMBAT_BRAIN.decide(rec, mind, port, false);
     expect(shot.fireSlot).toBe(slot);
-    expect(aimedAt(rec, shot, PRESSING)).toBe(false);
+    expect(aimedAt(rig, shot, m)).toBe(false);
     // No tube loaded: nothing else wants the tick, so the sweep has it.
     for (const l of rec.launchers) l.tubes.fill(rec.stats.equipment.heavyTorpedo.reloadMs);
     rec.loadout[slot].state = { n: 0, reloadMsLeft: rec.stats.equipment.heavyTorpedo.reloadMs };
     const swept = COMBAT_BRAIN.decide(rec, mind, port, false);
     expect(swept.fireSlot).toBeNull();
-    expect(aimedAt(rec, swept, PRESSING)).toBe(true);
+    expect(aimedAt(rig, swept, m)).toBe(true);
     expect(swept.sec).toBe(true);
   });
 

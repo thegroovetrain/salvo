@@ -254,6 +254,15 @@ export interface BotBeaconGoal {
    *  fixed: a swing of more than 90° off it re-fixes the standoff. */
   readonly bearing: number;
   readonly standoff: Vec2;
+  /** Was the standoff fixed on the DISC-CENTRE side (the bot-side point lay
+   *  outside the patrol disc)? Such a goal is on station only AT its standoff
+   *  point (ai/beacons.ts onStation) — the "anywhere within the standoff
+   *  distance of the centre" reading would let the bot park outside the disc. */
+  readonly centerSide: boolean;
+  /** Is the beacon PAYING now (not gone, not merely charted, rate above 0)?
+   *  Re-read off the chart EVERY deliberation (ai/beacons.ts beaconGoalOf),
+   *  the kept goal included; the beacon stayer reads it (ai/posture.ts). */
+  readonly paying: boolean;
 }
 
 /**

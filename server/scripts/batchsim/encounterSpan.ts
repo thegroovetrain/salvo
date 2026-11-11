@@ -27,7 +27,7 @@
 //   node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json \
 //     server/scripts/batchsim/encounterSpan.ts [matches] [seed]
 
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../../src/game/world.js';
 import { Match } from '../../src/game/match.js';
 import { mixSeed } from './stats.js';
@@ -82,7 +82,10 @@ for (let m = 0; m < MATCHES; m++) {
   // ...and every bot draws from the COMMON POOL on the default gun, exactly
   // as a production bot does (Story 8.14).
   // A FULL lobby: the player cap (16 since Story 9.8, Eric 2026-10-13), never a literal.
-  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined);
+  // The DEFAULT Shift, forced (Story 10.12): the controller now deals a
+  // weighted Shift per bot, and this instrument's lobby composition is the
+  // pre-10.12 one.
+  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined, DEFAULT_SHIFT);
   match.notifyRosterChanged();
 
   let prev = new Map<string, Per[]>();

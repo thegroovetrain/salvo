@@ -368,11 +368,11 @@ describe('ai/posture — THE BEACON STAYER (Story 10.12, Eric 2026-11-11, R4)', 
   const insideU = CONFIG.beacons.rangeU * CONFIG.bots.beaconStandoffFrac;
   /** A mind whose beacon goal lies `awayU` from the situation's own position
    *  (the default: parked inside its paying circle). */
-  const farming = (id: BotProfileId, awayU = insideU): BotMind => {
+  const farming = (id: BotProfileId, awayU = insideU, paying = true): BotMind => {
     const m = mind(id);
     m.fogAt = noFog;
     const at = situation({ profile: profileOf(id) });
-    m.beaconGoal = { x: at.x, y: at.y + awayU, bearing: -Math.PI / 2, standoff: { x: at.x, y: at.y } };
+    m.beaconGoal = { x: at.x, y: at.y + awayU, bearing: -Math.PI / 2, standoff: { x: at.x, y: at.y }, centerSide: false, paying };
     return m;
   };
 
@@ -407,6 +407,24 @@ describe('ai/posture — THE BEACON STAYER (Story 10.12, Eric 2026-11-11, R4)', 
       const sit = situation({ profile: profileOf(id) });
       const enRoute = farming(id, CONFIG.beacons.rangeU * 4);
       expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10 }), 'farm', { mind: enRoute }), id).toBe('engage');
+    }
+  });
+
+  it('a stayer ALREADY FIGHTING (previous posture not `farm`) that crosses a beacon\'s paying circle is not pulled out of its fight', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      for (const prev of ['engage', 'pursue', 'kite'] as const) {
+        expect(choosePosture(sit, near, prev, { mind: farming(id) }), `${id} ${prev}`).toBe('engage');
+      }
+    }
+  });
+
+  it('a stayer on a beacon that is NOT PAYING (charted / spent) fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id, insideU, false) }), id).toBe('engage');
     }
   });
 

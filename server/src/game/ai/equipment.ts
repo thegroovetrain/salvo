@@ -462,6 +462,15 @@ function captiveMineWant(ctx: TacticContext): boolean {
  *  answer to a live threat. */
 const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold']; // `hold` (Story 9.13): a bot lying in wait in cover may seed the water
 
+/** Is the bot SAFE to seed the water this tick? A safe posture — except that
+ *  `farm` counts only with NO target (Story 10.12 review gate): a beacon
+ *  stayer keeps `farm` while it fights from its station (ai/posture.ts), and
+ *  a round spent on a prepared lay mid-fight is an answer not given. */
+function safeToLay(ctx: TacticContext): boolean {
+  if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
+  return ctx.posture !== 'farm' || ctx.target === null;
+}
+
 /**
  * THE PREPARED LAY (Eric ruling 2026-08-20, cycle 111 — chosen INTO scope:
  * *"you just have to be lined up well and prepare"*). A mine may go down with
@@ -485,7 +494,7 @@ const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold'];
  * as before, including with the field at the reserve.
  */
 function preparedMineWant(ctx: TacticContext, id: MineLineId): boolean {
-  if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
+  if (!safeToLay(ctx)) return false;
   if (ownLiveMines(ctx.mind) >= CONFIG.bots.preparedMineReserve) return false;
   const appetite = appetiteFor(ctx.sit.profile, id);
   if (appetite >= APPETITE_EAGER) return true;

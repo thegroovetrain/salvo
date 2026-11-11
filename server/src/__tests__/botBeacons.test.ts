@@ -7,7 +7,7 @@
 // number of Eric's is pinned here.
 
 import { describe, expect, it } from 'vitest';
-import { CONFIG, beaconInRange, beaconStateAt, mulberry32, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, beaconInRange, beaconStateAt, buildNavGrid, mulberry32, type HullId, type Vec2 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { COMBAT_BRAIN } from '../game/ai/tactics.js';
 import {
@@ -17,10 +17,11 @@ import {
   onStation,
   pickBeacon,
   standoffPoint,
+  waterStandoff,
 } from '../game/ai/beacons.js';
 import { hullLengthU } from '../game/ai/navigate.js';
 import { profileOf } from '../game/ai/profiles.js';
-import type { BotBeacon, BotMind, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
+import type { BotBeacon, BotMind, BotPosture, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 import { GONE_MS, SURFACE_MS, bareWorld, run, seatBeacon, seatBeacons } from './beaconFixture.js';
 import { circleIsland } from './islandFixture.js';
 
@@ -256,11 +257,67 @@ describe('ai/beacons — pick, standoff, station', () => {
   });
 
   it('on station = inside the range and within the standoff distance (or at the standoff)', () => {
-    const g = { x: 0, y: 0, bearing: 0, standoff: { x: beaconStandoffU(), y: 0 } };
+    const g = { x: 0, y: 0, bearing: 0, standoff: { x: beaconStandoffU(), y: 0 }, centerSide: false, paying: true };
     expect(onStation(g, { x: beaconStandoffU() - 1, y: 0 }, 0)).toBe(true);
     expect(onStation(g, { x: 0, y: beaconStandoffU() + 1 }, 0)).toBe(false);
     expect(onStation(g, { x: beaconStandoffU() + 5, y: 0 }, 10)).toBe(true);
     expect(onStation(g, { x: B.rangeU + 1, y: 0 }, B.rangeU)).toBe(false);
+  });
+
+  it('a DISC-CENTRE-SIDE goal is on station only at its standoff point, never merely near the centre (Story 10.12 review gate)', () => {
+    const s = beaconStandoffU();
+    const b = afloat(disc.r + s / 2, 0);
+    const g = beaconGoalOf([b], disc, { x: disc.r + 3 * s, y: 0 }, null)!; // the bot's side is outside the disc
+    expect(g.centerSide).toBe(true);
+    // Inside the standoff distance of the centre, on the far (outside-the-disc) side.
+    const beyond = { x: b.x + s / 2, y: 0 };
+    expect(Math.hypot(beyond.x - disc.cx, beyond.y - disc.cy)).toBeGreaterThan(disc.r);
+    expect(onStation(g, beyond, 1)).toBe(false);
+    expect(onStation({ ...g, centerSide: false }, beyond, 1)).toBe(true); // the bot-side reading would park it there
+    expect(onStation(g, g.standoff, 1)).toBe(true);
+    // A bot-side goal keeps the broad reading.
+    expect(beaconGoalOf([afloat(500, 0)], disc, { x: 500, y: 900 }, null)!.centerSide).toBe(false);
+  });
+
+  it('a standoff the WATER MOVE carries out of the disc yields no goal on that beacon; the next-nearest eligible beacon is taken (Story 10.12 review gate)', () => {
+    const s = beaconStandoffU();
+    const tight = { cx: 0, cy: 0, r: 1500 + s + 20 };
+    const bot = { x: 3000, y: 0 };
+    const near = afloat(1500, 0);
+    const raw = standoffPoint(near, bot); // bot side, just inside the rim
+    // Land over the raw standoff, deeper on the disc side: the nearest water is outward.
+    const grid = buildNavGrid({ radius: 4000, islands: [circleIsland(raw.x - 60, 0, 90)] });
+    const moved = waterStandoff(grid, near, raw);
+    expect(Math.hypot(raw.x - tight.cx, raw.y - tight.cy)).toBeLessThanOrEqual(tight.r); // fixture guard
+    expect(Math.hypot(moved.x - tight.cx, moved.y - tight.cy)).toBeGreaterThan(tight.r); // fixture guard
+    expect(beaconGoalOf([near], tight, bot, null, grid)).toBeNull();
+    const far = afloat(-1500, 0);
+    expect(pickBeacon([near, far], tight, bot)).toBe(near);
+    const g = beaconGoalOf([near, far], tight, bot, null, grid)!;
+    expect([g.x, g.y]).toEqual([far.x, far.y]);
+    expect(Math.hypot(g.standoff.x - tight.cx, g.standoff.y - tight.cy)).toBeLessThanOrEqual(tight.r);
+  });
+
+  it('a kept goal whose STORED standoff has left the disc is re-fixed (Story 10.12 review gate)', () => {
+    const b = afloat(500, 0);
+    const g = beaconGoalOf([b], disc, { x: 500, y: 900 }, null)!;
+    const stray = { ...g, standoff: { x: disc.r + 10, y: 0 } }; // as if the water move had carried it out
+    const g2 = beaconGoalOf([b], disc, { x: 500, y: 900 }, stray)!;
+    expect(g2).not.toBe(stray);
+    expect(Math.hypot(g2.standoff.x - disc.cx, g2.standoff.y - disc.cy)).toBeLessThanOrEqual(disc.r);
+  });
+
+  it('`paying` is re-read off the chart every deliberation, the kept goal (and its standoff) included', () => {
+    const at = { x: 500, y: 0 };
+    const bot = { x: 500, y: 900 };
+    const charted = beaconGoalOf([{ ...at, phase: 'charted', rate01: 0 }], disc, bot, null)!;
+    expect(charted.paying).toBe(false);
+    const afloatNow = beaconGoalOf([afloat(at.x, at.y)], disc, bot, charted)!;
+    expect(afloatNow.paying).toBe(true);
+    expect(afloatNow.standoff).toEqual(charted.standoff); // kept, not re-fixed
+    expect(beaconGoalOf([afloat(at.x, at.y)], disc, bot, afloatNow)).toBe(afloatNow); // unchanged: the same object
+    const sinking = beaconGoalOf([{ ...at, phase: 'sinking', rate01: 0.5 }], disc, bot, afloatNow)!;
+    expect(sinking.paying).toBe(true);
   });
 });
 
@@ -330,8 +387,9 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
   });
 
   /** One deliberation of `profile` with a beacon on the chart and a live
-   *  sighted target in reach. */
-  const withTarget = (profile: BotProfileId): ReturnType<typeof mkMind> => {
+   *  sighted target in reach, coming from posture `prev` (default: already
+   *  farming). */
+  const withTarget = (profile: BotProfileId, prev: BotPosture = 'farm'): ReturnType<typeof mkMind> => {
     const w = openWorld(1086);
     const port = fakePort(w, [afloat(1200, 0)]);
     // PARKED: inside the beacon's paying circle (the stay is for a bot that
@@ -339,6 +397,7 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
     const bx = 1200 - beaconStandoffU();
     const rec = mkBot(w, bx, 0);
     const mind = mkMind(profile);
+    mind.posture = prev;
     const now = port.now;
     const t: RememberedContact = {
       id: 'tgt', x: bx, y: 300, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
@@ -369,6 +428,8 @@ describe('COMBAT_BRAIN — the beacon farm', () => {
       expect(mind.targetKey, id).toBe('tgt');
       expect(mind.beaconGoal, id).not.toBeNull(); // refreshed with a target on the scope
       expect(mind.posture, id).toBe('farm');
+      // The same parked stayer coming in ALREADY FIGHTING is not pulled out of its fight.
+      expect(withTarget(id, 'engage').posture, `${id} from engage`).not.toBe('farm');
     }
   });
 });

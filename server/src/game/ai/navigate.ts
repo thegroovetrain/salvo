@@ -219,10 +219,11 @@ function kernelOf(state: ShipState): (hx: number, hy: number, lookahead: number)
 }
 
 /** Is this mine PRESSING THE HELM — a point the mine term steers away from
- *  right now (ahead of the beam, inside the mine lookahead)? The one
- *  predicate `avoidMines` sums over and the secondaries' sweep reads
- *  (ai/battery.ts, Story 10.12), so the two cannot drift. Ownership is the
- *  caller's question. */
+ *  right now (ahead of the beam, inside the mine lookahead)? The predicate
+ *  `avoidMines` sums over. (The secondaries' sweep no longer reads it: a
+ *  mine this close is inside the sweep's blast stand-off — ai/battery.ts
+ *  sweepStandOffU, Story 10.12 review gate.) Ownership is the caller's
+ *  question. */
 export function minePressing(state: ShipState, mine: Vec2): boolean {
   return kernelOf(state)(mine.x, mine.y, MINE_LOOKAHEAD) !== 0;
 }

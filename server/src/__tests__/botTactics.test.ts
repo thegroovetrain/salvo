@@ -56,7 +56,7 @@ import { batteryAimPoint, fireTube, launcherAimPoint, launcherSummary, pickTube,
 import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
-import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
+import { COMBAT_BRAIN, approachPoint, readyShotReaches, situationOf } from '../game/ai/tactics.js';
 import { EQUIPMENT_TACTICS, SHIFT_ROWS, tacticFor } from '../game/ai/tacticRegistry.js';
 import { ABILITY_WANTS } from '../game/ai/abilities.js';
 import { EQUIPMENT } from '../game/equipment/index.js';
@@ -1867,6 +1867,21 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const plainMind = mkMind('bulwark');
     viewWithOwnMines(plainMind, 0);
     expect(COMBAT_BRAIN.decide(plain, plainMind, port).fireSlot).toBeNull();
+  });
+
+  it('PREPARED LAY: `farm` is safe only with NO target — a beacon stayer fighting from its station seeds nothing (Story 10.12 review gate)', () => {
+    const w = openWorld(4191);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'warspite', 0, 0, 0);
+    const mind = mkMind('trapper'); // EAGER mines
+    viewWithOwnMines(mind, 0);
+    const sit = situationOf(rec, mind, port);
+    const want = (target: RememberedContact | null): boolean =>
+      EQUIPMENT_TACTICS.navalMines.want({ self: rec, mind, sit, port, target, posture: 'farm', slot: slotOf(rec, 'navalMines') });
+    expect(want(null)).toBe(true); // farming alone: the prepared occasion stands
+    // A target dead ahead, parked — nothing behind, nothing closing: no reactive
+    // occasion, and the prepared one is refused mid-fight.
+    expect(want(track(port.now, { x: 600, y: 0, speed: 0 }))).toBe(false);
   });
 
   it('PREPARED LAY stops at the reserve; the REACTIVE lay still fires there (adds, never removes)', () => {

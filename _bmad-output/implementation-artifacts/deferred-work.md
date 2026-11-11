@@ -3622,11 +3622,11 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: THE `client/src/__tests__/radarMarch.test.ts` SOFT COVER CASE TAKES ~5-7 s and can time out under machine load. Pre-existing; observed once during this story, green alone and in the final gate.
   evidence: Story 10.4 wave 2b run (one timeout under load).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
-  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): MEASURED, not re-plumbed - a one-tick excursion drags an aft turret one traverse step (4.5 deg) and it is on target again on the next decision (the on-target check steps a tick ahead); forward turrets hold; test `botSweep.test.ts` THE AIM STEAL; a second aim channel would be a wire change - was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
   summary: A BOT'S NON-BATTERY SHOT STEALS ITS TURRET AIM - when a torpedo, mine or consumable row returns a shot, `triggerOf` writes that shot's aim and the turrets chase it for the tick, so the main battery reads off-target for the ticks it takes to swing back at 90 deg/s; a bot with a torpedo fit fires its main guns less than intended.
   evidence: `server/src/game/ai/tactics.ts` `triggerOf` (the aim written is the chosen shot's); `ai/battery.ts` `readyOnTarget`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
-  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): `readyOnTarget` reads `mind.nextPose` (the shared `stepShip` under this decision's helm); residual below (rated kinematics only) - was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
   summary: A BOT'S ON-TARGET CHECK READS THE PRE-MOVE POSE - `readyOnTarget` steps a copy of the turrets with the pose from the bots tick, but the server's `stepTurrets` row runs after `stepShips` / `resolveCollisions`; in a hard turn or after a shove the aim offset can move by more than the 0.5 deg tolerance and the click resolves through the early-click fallback (fires along the current bearing).
   evidence: `server/src/game/ai/battery.ts` `readyOnTarget`; `STEP_ORDER` (botsTick first, stepTurrets after the motion block).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
@@ -3641,7 +3641,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: A CLOSE-IN DEAD ZONE - an aim on or just beside the own hull between the forward and aft turret groups is inside no turret's arc, so a click there fires nothing and reads as `cooling` with every turret loaded. A consequence of the arc-only rule and the real turret stations, not a defect; recorded for Eric.
   evidence: measured by the implementer: within about 21-29 u of the ship's center and 11-17 u to the side on the four hulls; `shared/src/sim/turrets.ts` doc; the long-range coverage property test in `turrets.test.ts`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
-  status: open - note - 2026-11-05 (cycle 213)
+  status: open - note - re-checked by Story 10.12 (2026-11-11): still tests and `weaponsSmoke.mjs` only; kept because the smoke uses them - was: open - note - 2026-11-05 (cycle 213)
   summary: `desiredTurretAngle` AND `desiredTurretAngleFrom` HAVE NO PRODUCTION CALLER after the hold-outside-arc law (tests and `weaponsSmoke.mjs` only). Kept exported; delete if still unused when 10.12 retools the bots.
   evidence: `shared/src/sim/turrets.ts`; grep of `server/src` and `client/src`.
 
@@ -3652,7 +3652,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: AN EXHAUSTED HULL DRAWS AN EMPTY OFFER - a hull holding every ladder and three capped slot weapons gets no cards; the built behavior is that an empty offer never opens the refit window and never throws, a short offer shows fewer cards. Eric: "Empty offer is fine, I think what should happen is you get some random stats. But I don't think ships reaching that level will be overly common. We'll address in 10.7". Story 10.7 owes random stats for an exhausted hull.
   evidence: Story 10.5 wave 1 finding; epic-10 amendment 11 (k).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
-  status: open - owned by Story 10.12 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 R10)
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): supercav / FOULING / FLASH shell appetites restored on the rows that name their family; the decoy cues `stillSweeps` / `paintCells` / `hasWake` deleted; wait-to-heal NOT built (no ruling asked for it; the break-off latch already waits on hull + broken contact) - was: open - owned by Story 10.12 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 R10)
   summary: BOT LEFTOVERS AFTER THE KIT RETIRE - bot favorites for fouling shell and supercav were dropped; bots have no wait-to-heal behavior (passive regen runs, but a bot does not hold back to let it work); and the decoy-cue bookkeeping on bot tracks (`stillSweeps`, `paintCells`, `hasWake`) has no consumer now that decoys are deleted.
   evidence: Story 10.5 server and bot waves; `server/src/game/ai/types.ts` (the decoy-cues block); epic-10 amendment 11 R10.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
@@ -3722,12 +3722,12 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 ## 2026-11-07 - Story 10.8 The Radio Beacons (cycle 217, 0.19.11, PV 100; epic-10 amendment 14) - review-gate and leftover defers
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
-  status: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Codex, epic-10 amendment 14 (n))
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): eligibility is a farming point inside the patrol disc (`farmableIn`); a standoff the water snap carries out of the disc yields no goal - was: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Codex, epic-10 amendment 14 (n))
   summary: BOT BEACON ELIGIBILITY IS JUDGED BY THE BEACON CENTRE, NOT A REACHABLE FARMING POINT - a beacon whose centre sits just outside the bot's patrol disc but whose paying circle is half inside is ignored.
   evidence: `server/src/game/ai/` beacon pick (patrol-disc test on the centre); `CONFIG.bots.beaconStandoffFrac`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
-  status: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Blind Hunter, epic-10 amendment 14 (n))
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): `avoidBeacons` in the helm's avoidance sum, every posture - was: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Blind Hunter, epic-10 amendment 14 (n))
   summary: NO BEACON-BODY AVOIDANCE IN A COMBAT POSTURE - a bot chasing, fleeing or kiting routes straight through the solid octagon and takes the ramming law.
   evidence: `server/src/game/ai/` combat steering (no beacon obstacle).
 
@@ -3811,4 +3811,27 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-11-bots-fill-the-standard-queue-at-1-00.md`
   summary: `HC_QUEUE_BOT_FILL` has no upper bound and no warning on a mistyped value — `"60000"` (ms assumed) arms a 16 h 40 m hold; `"60s"` silently reads as OFF with only `botFill:false` in the `queue.create` log line. With a hold under `CONFIG.net.joiningDeadlineSeconds` (10 s) a socket that never completes its handshake can form a bot arena for nobody (smoke-sized values only).
   evidence: open — 2026-11-10 (Story 10.11 review gate, both hunters): `server/src/rooms/queueFill.ts` `botFillHoldMs`; Eric ruled the value's meaning, not a ceiling — none was invented.
+
+## 2026-11-11 - Story 10.12 Bot Posture Under the Four Hulls (cycle 223, 0.19.17, PV 101; epic-10 amendment 21) - review-gate defers and Eric's calls
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - 2026-11-11 (review gate, Codex CONFIRMED + Blind Hunter)
+  summary: THE BOT'S NEXT-TICK POSE IS PREDICTED ON RATED KINEMATICS - boost, mine / fouling slow, wake draft, card hooks and collision rollback are not modeled, so on such a hull the on-target check reads a slightly different pose than the server steps turrets against (the click then resolves through the early-click fallback). Better than the pre-move pose it replaced.
+  evidence: `server/src/game/ai/tactics.ts` `stampNextPose`; `server/src/game/world.ts` the kinematics fold before `stepShip`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - harness - 2026-11-11 (review gate, Codex + Blind Hunter, PLAUSIBLE)
+  summary: THE HARNESS MINES-SWEPT READOUT CAN MIS-CREDIT - a mine that trips or chains on a tick when a bot's round lands on its marker is credited to the shooter (over-credit while a bot streams at a mine ahead); a round created and consumed inside one tick is never seen (under-credit). A trend readout, not a count of record.
+  evidence: `server/scripts/batchsim/botReadouts.ts` `noteSwept` doc comment.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - Eric's call on staging - 2026-11-11 (review gate, Blind Hunter; W1a report)
+  summary: THREE BOT BEHAVIORS BUILT AS READINGS - (1) a stayer parked on a paying beacon sits at throttle 0 in a fight: it cannot turn to open its arcs or dodge a ram, and it never hides when outnumbered (only its break-off line moves it); (2) a bot with no enemy about sweeps any hostile mine in secondaries reach, which shows muzzle flashes from an otherwise silent ship (never while holding, hiding or disengaging); (3) the angle off the bow is the arc edge plus `CONFIG.bots.arcOpenMarginDeg` 5 deg, about 35 deg off the bow (Bismarck 40).
+  evidence: `server/src/game/ai/posture.ts` `staysOnBeacon`, `ai/tactics.ts` `sitsStill`; `ai/battery.ts` `planSecondaries`; `ai/arcs.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - low - 2026-11-11 (review gate, Blind Hunter PLAUSIBLE; fix agent)
+  summary: SWEEP EDGES - a sweep round passes through a solid beacon lying on its line (the land check does not see the 8 u body) and a popped naval mine beside a beacon blasts the beacon; a tick the sweep holds the aim but another weapon takes costs the battery that tick's click; the stand-off uses half the hull length, 0.001 u short of the silhouette's bow tip.
+  evidence: `server/src/game/ai/battery.ts` `sweepable`, `sweepStandOffU`; `ai/tactics.ts` decide (plan before chooseShot).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - tooling outside the repo - 2026-11-11
+  summary: THE BALANCE-SIM SKILL SCRIPTS ARE STILL THREE-CLASS - `analyze_campaign.py` `EVEN = 1/3`, `gun_tier_analysis.py` and `run_tuned_campaign.sh` name torpedoBoat / battleship / mineLayer, `SKILL.md` targets 31-35 % a class. They live untracked in Eric's checkout (`.claude/skills/balance-sim`), so this story reported them and did not edit them; `run_campaign.py` works as is.
+  evidence: Story 10.12 harness survey; the 2026-11-11 ledger was aggregated by a throwaway script, not `analyze_campaign.py`.
 

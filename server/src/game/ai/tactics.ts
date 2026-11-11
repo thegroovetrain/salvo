@@ -133,7 +133,7 @@ import { slotAppetite, tacticFor } from './tacticRegistry.js';
 import { chooseCooldownAbility } from './abilities.js';
 import { distTo, leadPoint, shotReaches, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
-import { planSecondaries, secTarget, type SecondariesPlan } from './battery.js';
+import { planSecondaries, secTarget, turretPoseOf, type SecondariesPlan } from './battery.js';
 import { openArcBearing } from './arcs.js';
 import { heldAimOf } from './torpedoMount.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
@@ -706,22 +706,26 @@ function directOnTarget(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, post
 }
 
 /** Is the target's plot inside own main-battery reach with a clear line of
- *  fire (the coastline check every flat round takes)? */
-function inGunRange(self: BotSelf, sit: BotSituation, target: BotTrack): boolean {
-  return distTo(sit, target) <= ownReachU(sit) && shotReaches(self, sit, plotAt(sit, target));
+ *  fire to `aimAt` (the coastline check every flat round takes, on the point
+ *  the guns will actually aim at)? */
+function inGunRange(self: BotSelf, sit: BotSituation, target: BotTrack, aimAt: Vec2): boolean {
+  return distTo(sit, target) <= ownReachU(sit) && shotReaches(self, sit, aimAt);
 }
 
 /**
  * THE ARC OPENING (R2, see the header): the posture's bearing `want`, turned
- * the least it takes for every turret to bear on the target's plot — when the
- * hull has a battery, the target is in gun range and the bearing is a direct
- * one. Otherwise `want` untouched. Read AFTER postureBearing, so the route
- * test sees this tick's route.
+ * the least it takes for every turret to bear on the main battery's LEAD
+ * point (tacticKit `leadPoint` at the shell speed, no scatter — where the
+ * guns aim, not the plot) — when the hull has a battery, the target is in gun
+ * range and the bearing is a direct one. Otherwise `want` untouched. Read
+ * AFTER postureBearing, so the route test sees this tick's route.
  */
 function arcOpened(ctx: NavCtx, self: BotSelf, port: BotWorldPort, sit: BotSituation, target: BotTrack | null, posture: BotPosture, want: number): number {
   if (target === null || (self.turrets ?? []).length === 0) return want;
-  if (!directOnTarget(ctx, port, sit, posture) || !inGunRange(self, sit, target)) return want;
-  return openArcBearing(self.hullId, self.state, plotAt(sit, target), want, self.state.heading);
+  if (!directOnTarget(ctx, port, sit, posture)) return want;
+  const lead = leadPoint(sit, target, CONFIG.mainBattery.shellSpeed);
+  if (!inGunRange(self, sit, target, lead)) return want;
+  return openArcBearing(self.hullId, self.state, lead, want, self.state.heading);
 }
 
 /** THE RAM POINT (Story 9.5, amendment 77): the lead intercept of the target's
@@ -956,7 +960,7 @@ function triggerOf(
     const held = shot.held === true;
     return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held, sec };
   }
-  if (plan.sweep !== null) return sweepTrigger(self, mind, plan.sweep);
+  if (plan.sweep !== null) return sweepTrigger(self, mind, sit.now, plan.sweep);
   // The HELD aim: the battery's — or, while the battery has nothing loaded,
   // the torpedo aim the tactic is waiting on a launcher for (Story 10.6
   // review gate, ai/torpedoMount.ts).
@@ -966,12 +970,15 @@ function triggerOf(
 }
 
 /** THE SWEEP's trigger (Story 10.12): the aim on the mine's centre, measured
- *  from the hull centre like every aim, the secondaries held, nothing
- *  clicked. Stamps the harness readout. */
-function sweepTrigger(self: BotSelf, mind: BotMind, mine: Vec2): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held' | 'sec'> {
+ *  from the hull centre AS THE SERVER WILL RESOLVE IT — the next-tick pose
+ *  (ai/battery.ts turretPoseOf: the server steps the hull before it reads the
+ *  aim), else the current pose — the secondaries held, nothing clicked.
+ *  Stamps the harness readout. */
+function sweepTrigger(self: BotSelf, mind: BotMind, now: number, mine: Vec2): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held' | 'sec'> {
   mind.lastTactic = 'sweep'; // harness readout (Story 10.12)
-  const aimDist = Math.hypot(mine.x - self.state.x, mine.y - self.state.y);
-  return { aim: bearing(self.state, mine), aimDist, fireSlot: null, held: false, sec: true };
+  const pose = turretPoseOf(self, mind, now);
+  const aimDist = Math.hypot(mine.x - pose.x, mine.y - pose.y);
+  return { aim: bearing(pose, mine), aimDist, fireSlot: null, held: false, sec: true };
 }
 
 /** THE NEXT-TICK POSE (Story 10.12, BotMind.nextPose): where this hull will
@@ -1044,7 +1051,7 @@ export const COMBAT_BRAIN: BotBrain = {
     const posture = mind.posture;
     const helm = helmFor(self, mind, port, sit, target, posture, deliberate);
     stampNextPose(self, mind, port.now, helm);
-    const plan = planSecondaries(self, mind, sit, target); // before the shot: a sweep holds the battery's click
+    const plan = planSecondaries(self, mind, sit, target, posture); // before the shot: a sweep holds the battery's click
     const shot = chooseShot(self, mind, port, sit, target, posture);
     return {
       throttle: helm.throttle,

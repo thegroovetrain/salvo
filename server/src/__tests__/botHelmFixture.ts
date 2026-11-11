@@ -5,7 +5,7 @@
 // secondaries are the shipped ones; the port is hand-built so a case can put
 // the clock, the ring and the chart exactly where it wants them.
 
-import { CONFIG, desiredTurretAngle, mulberry32, stepShip, type HullId, type Island, type ShipClassId } from '@salvo/shared';
+import { CONFIG, desiredTurretAngle, mulberry32, stepShip, type HullId, type Island, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import type { BotDecision, BotMind, BotPosture, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 
@@ -119,11 +119,11 @@ export function trainOn(rec: ShipRecord, x: number, y: number): void {
 /** Hand the brain a view holding exactly these mines (nothing else sighted).
  *  `viewAt` is left stale, so the fold does not run — the cases here read the
  *  view's mines, not contact memory. */
-export function sightMines(mind: BotMind, mines: readonly { x: number; y: number; own: boolean }[]): void {
+export function sightMines(mind: BotMind, mines: readonly { x: number; y: number; own: boolean; c?: MineKind }[]): void {
   mind.view = {
     contacts: [],
     events: [],
-    mines: mines.map((m, i) => ({ id: `m${i}`, x: m.x, y: m.y, by: m.own ? 'me' : 'enemy', own: m.own })),
+    mines: mines.map((m, i) => ({ id: `m${i}`, x: m.x, y: m.y, by: m.own ? 'me' : 'enemy', own: m.own, ...(m.c === undefined ? {} : { c: m.c }) })),
     litZones: [],
     burnZones: [],
     foulZones: [],

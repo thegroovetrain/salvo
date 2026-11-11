@@ -39,9 +39,10 @@ import { avoidBeacons, avoidHulls, avoidReachU } from '../game/ai/navigate.js';
 import { beaconStandoffU } from '../game/ai/beacons.js';
 import { ownReachU, pullBand } from '../game/ai/utility.js';
 import { gunBand } from '../game/ai/doctrine.js';
+import { leadPoint } from '../game/ai/tacticKit.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { navCacheFor } from '../game/navCache.js';
-import type { BotBeacon, BotPosture } from '../game/ai/types.js';
+import type { BotBeacon, BotPosture, RememberedContact } from '../game/ai/types.js';
 import type { ShipRecord } from '../game/world.js';
 import { fakePort, holdTarget, mkBot, mkMind, ocean, sail, track, trainOn, type FakePort } from './botHelmFixture.js';
 
@@ -316,6 +317,25 @@ describe('COMBAT_BRAIN — the arc opening on the posture bearing (R2)', () => {
     expectUntouched(rudderOn(rig, { x: (band.min + band.max) / 2, y: 0 }, 'engage'));
   });
 
+  it('THE ARCS OPEN ON THE LEAD POINT, NOT THE PLOT (Story 10.12 review gate): a plot abeam whose lead lies near the bow turns the hull', () => {
+    const rig = rigFor('iowa', 1208, -Math.PI / 2); // the plot due east is dead abeam
+    const { rec, port } = rig;
+    const sit = situationOf(rec, mkMind('raider'), port);
+    const band = pullBand(gunBand(profileOf('raider'), rec.stats, sit.gunId), readyShotReaches(rec, rec.stats));
+    const plot = { x: (band.min + band.max) / 2, y: 0 };
+    // A crossing course along the bow's own direction, fast enough that the
+    // lead solve lands near the bow (the slowest of a few that masks a turret).
+    const crossingAt = (f: number): RememberedContact => track(port.now, { ...plot, heading: rec.state.heading, speed: CONFIG.mainBattery.shellSpeed * f });
+    const masked = (f: number): boolean =>
+      !allTurretsBear(rec.hullId, rec.state, rec.state.heading, leadPoint(sit, crossingAt(f), CONFIG.mainBattery.shellSpeed));
+    const f = [0.5, 0.8, 0.95, 1.2, 1.5].find(masked);
+    expect(f).toBeDefined(); // the lead is masked
+    const crossing = crossingAt(f!);
+    expect(allTurretsBear(rec.hullId, rec.state, rec.state.heading, plot)).toBe(true); // the plot alone opens nothing
+    expectUntouched(rudderOn(rig, plot, 'engage')); // the control: a parked plot, nothing to open
+    expectTurning(rudderOn(rig, crossing, 'engage'));
+  });
+
   it('a KITE opening from inside its hold line runs on the reciprocal — and angles off it', () => {
     const rig = rigFor('bismarck', 1209, Math.PI); // bow dead away
     const reach = inReach(rig.rec, rig.port, 1);
@@ -383,7 +403,7 @@ describe('COMBAT_BRAIN — a beacon farmer with a target (R4, the helm half)', (
     const rec = mkBot(w, hullId, r, 0, 0);
     rec.state.speed = 0;
     const mind = mkMind('siege');
-    mind.beaconGoal = { x: 0, y: 0, bearing: 0, standoff: { x: r, y: 0 } };
+    mind.beaconGoal = { x: 0, y: 0, bearing: 0, standoff: { x: r, y: 0 }, centerSide: false, paying: true };
     return { rec, port: fakePort(w), mind };
   }
 
@@ -419,7 +439,7 @@ describe('COMBAT_BRAIN — a beacon farmer with a target (R4, the helm half)', (
     const reach = ownReachU(situationOf(rec, mkMind('siege'), port));
     const far = CONFIG.beacons.rangeU * 4;
     const withTarget = mkMind('siege');
-    withTarget.beaconGoal = { x: far + beaconStandoffU(), y: 0, bearing: Math.PI, standoff: { x: far, y: 0 } };
+    withTarget.beaconGoal = { x: far + beaconStandoffU(), y: 0, bearing: Math.PI, standoff: { x: far, y: 0 }, centerSide: false, paying: true };
     holdTarget(withTarget, track(port.now, { x: 0, y: -reach * 0.5 }), 'farm'); // a target off the starboard beam... not on the line
     const alone = mkMind('siege');
     alone.beaconGoal = withTarget.beaconGoal;
