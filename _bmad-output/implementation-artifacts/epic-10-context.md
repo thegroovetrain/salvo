@@ -11,44 +11,47 @@ Eric's playtest-feedback epic after Tune and Clean. Re-cut on 2026-11-04 around 
 Final numbers read in build order (10.15/10.16 cancelled).
 - Story 10.1: Four Configurable Consumable Slots (built; retired by 10.5)
 - Story 10.2: The Flash Shell and the Four Buoys (built; retired by 10.5, flash whiteout survives as a special-shell option)
-- Story 10.3: The Index Model (built, cycle 211)
-- Story 10.4: The Four Battleships (built, cycle 212)
-- Story 10.5: The Kit Retire and the Three Equipment Slots (built, cycle 214)
-- Story 10.6: The Catalog Under the Index (built, cycle 215)
-- Story 10.7: Offer Composition
-- Story 10.8: The Radio Beacons (retires the drones)
-  [built 2026-11-07, cycle 217 — amendment 14: the drones ARE retired; 8 / 4 / 2 beacons, none at sudden death, 3 levels/min for one float minute then a one-minute sink, solid and shootable 1000 HP / ARMOR 100, destroyed = sinks early and pays 2 levels]
-- Story 10.9: Airdrops
-- Story 10.10: The Battle UI - XP Seen, the Offer in the Corner
-- Story 10.11: Bots Fill the Standard Queue at 1:00
-- Story 10.12: Bot Posture Under the Four Hulls
-- Story 10.13: The Sound Pass
-- Story 10.14: How-to-Play and Record
+- Story 10.3: The Index Model (built)
+- Story 10.4: The Four Battleships (built)
+- Story 10.5: The Kit Retire and the Three Equipment Slots (built)
+- Story 10.6: The Catalog Under the Index (built)
+- Story 10.7: Offer Composition (built)
+- Story 10.8: The Radio Beacons (built; the drones are retired)
+- Story 10.9: Airdrops (built)
+- Story 10.10: The Battle UI - XP Seen, the Offer in the Corner (built)
+- Story 10.11: Bots Fill the Standard Queue at 1:00 (built)
+- Story 10.12: Bot Posture Under the Four Hulls (not built)
+- Story 10.13: The Sound Pass (not built)
+- Story 10.14: How-to-Play and Record (not built)
 - Story 10.15: Flak Takes No Range Dropoff (CANCELLED)
 - Story 10.16: The Machine Gun Dropoff / High Explosive (CANCELLED)
 
 ## Requirements & Constraints
 
-- Every gameplay number is Eric's, ruled at each story's spec step via interactive question; unruled clauses stay marked as unruled, never filled in.
-- Bots must stay functional in every story that changes what they interact with; story 10.12 is the closing tuning pass.
-- Visual candidates are rendered and shown to Eric before commit; no in-game copy unasked (explanations belong to How-to-Play); no friendly fire; every upgrade is tiered.
-- Deck guns (cannon / machine gun / flak) are tabled: kept in the catalog for reference, never dealt; the ship's turrets are the armament.
-- The ship-upgrade cap of 5 stands.
+- Every gameplay number is Eric's, ruled at each story's spec step via interactive question; unruled clauses stay marked `[unruled]`, never filled in.
+- Bots stay functional in every story that changes what they interact with; 10.12 is the closing bot tuning pass (bots are ordinary ships through the input pipeline).
+- Visual candidates are rendered and shown to Eric before commit; sound candidates are auditioned by him before commit; no in-game copy unasked (explanations belong to How-to-Play); no friendly fire; every upgrade is tiered.
+- Guns are balanced by Eric's math, never by sim; sims measure attrition and class share only (quick runs capped at 99 matches, never unprompted).
+- A design gap found at review is a question to Eric before the PR, never a ledger entry.
+- Deck guns (cannon / machine gun / flak) are tabled: kept in the catalog for reference, never dealt; the ship's turrets are the armament. The ship-upgrade cap of 5 stands.
 
 ## Technical Decisions
 
-- Index model: 1000 HP per hull displayed only as whole-number percent; stats ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE are indices where 100 is the average (Bismarck) (RUDDER was removed by Story 10.6: every captain hull turns at the baseline rate, amendment 12); equal main-gun DPS across hulls; ramming mass follows ARMOR.
-- Battleships: Yamato, Bismarck, Warspite, Iowa; turret layouts 3x3 or 4x2 with per-turret cooldown and fore/aft arcs; a click fires the next ready turret whose arc reaches AND which has traversed onto the aim point; traverse is simulated in the shared sim at 90 deg/s with a hard stop at the train limit. Secondaries are uniform, on right mouse, and are the only thing that hurts or sweeps mines.
-- Hull silhouettes are machine-traced and true to scale; the silhouette is the hitbox. Outline color encodes relation (cyan own/allied, red enemy); interior is a per-hull skin (Default, Gold, Pride, Funny); the old hue wheel is removed.
-- Equipment: three slots (torpedo, mine, special shell), empty at spawn, filled only by cards; Q/E/R readies a slot and the next left click fires it; hull repair and smoke are per-ship cooldown abilities from their card ladders (Story 10.6, amendment 12). Passive regen is back (2 % of missing hp per second after 15 s without hull damage). RELOAD scales the main battery and the Q/E/R weapons (each weapon tier adds +10 to that weapon's own RELOAD score only), never the secondaries, the Shifts or C/V. Torpedoes fire from deck launchers with per-ship side-firing bands and mines drop from stern racks (amendment 12).
-- Beacons: broadcast globally from cycle start, surface at 1:00, XP pot splits among hulls in range; airdrops give random permanent index bonuses and paint on radar by imprint.
+- Index model: 1000 HP per hull displayed only as whole-number percent; stats ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE are indices where 100 is the average (Bismarck); equal main-gun DPS across hulls; ramming mass follows ARMOR.
+- Battleships: Yamato, Bismarck, Warspite, Iowa; per-turret cooldown and fore/aft arcs; a click fires the next ready turret whose arc reaches and which has traversed onto the aim point (simulated in the shared sim). Secondaries are uniform, on right mouse, and are the only thing that hurts or sweeps mines.
+- Hull silhouettes are machine-traced, true to scale; the silhouette is the hitbox. Outline color encodes relation; interior is a per-hull skin.
+- Equipment: three slots (torpedo, mine, special shell), empty at spawn, filled only by cards; Q/E/R readies a slot and the next left click fires it; hull repair and smoke are per-ship cooldown abilities. RELOAD scales the main battery and Q/E/R weapons, never secondaries, Shifts or C/V.
+- Battle UI: ship console left, weapons console right, offer group on the right edge; Tab+1..4 or a click picks the offer with no combat lockout.
+- Beacons: broadcast globally, 8 / 4 / 2 per match, solid and shootable, pay XP to hulls in range; airdrops give permanent index bonuses and paint on radar by imprint.
+- Standard queue bot fill is the Render switch `HC_QUEUE_BOT_FILL` (seconds; unset/0 = off).
+- Sound pass: WebAudio synthesis only, no sound files; client-only, `PROTOCOL_VERSION` unchanged; mute toggle and foghorn-as-sensor mechanic untouched.
 - Anti-cheat: the six perception exceptions are extended, never widened; new events extend the invariant tests. Wire changes bump the protocol version.
 
 ## Cross-Story Dependencies
 
 - 10.3 is the floor; 10.4 depends on it, 10.5 retires what 10.1/10.2 built, 10.6 and 10.7 follow 10.5, 10.8 and 10.9 follow 10.7.
-- 10.12 bot tuning follows the slice; 10.13 sound lands after 10.12; 10.14 closes the epic and owes dated stamps to planning docs.
-- Epics 11 to 13 keep their order after this epic.
+- 10.12 bot tuning follows 10.11; 10.13 sound lands after 10.12; 10.14 closes the epic and owes dated stamps to planning docs (e.g. the GDD Audio section).
+- Epics 11 onward keep their order after this epic (Epic 11 The Big Ocean inserted after Epic 10; Ledger/Front Door/Account moved to 12/13/14).
 
 ## Ratified Amendments (durable — survives recompiles)
 
@@ -504,3 +507,11 @@ Format: numbered, dated, source-attributed. "Supersedes" names the exact plannin
    - (i) **R28 NO STATE WORD; BEDS AT 50 %** (Eric 2026-11-10, chat, while round 3 was building: *"the 'state word' is unnecessary don't you think? additionally all the background transparencies need to be like 50% or something so I can *kinda* see the map underneath but I can still read the buttons."*). Built: the READY / ARMED / LOCKED line is removed from the weapons cells — ready = solid phosphor rings, armed = the amber outline + wash + filled amber key chip, locked = the red hatched heat bar + red outline (shape and color together, the dual-coding floor holds); the tier numeral sits on the name line; the ability buttons keep their READY word (no ring to carry it). Every HUD bed is the card-scrim at alpha **0.5** with its hairline edge (`CLIENT_CONFIG.hudBed.alpha`). Supersedes (c)'s state word and (f)'s .78 bed.
    - (j) **R29 "LOVE IT": BEDS AT 70 %, RACK PIPS 10 PX, FITTED ROWS NAMED BY THEIR CARD** (Eric 2026-11-10, on the live screenshots of round 3 — *"Okay. Make the hud backgrounds 70%."* then, on the mines cell at 2×, *"10px pips. love it otherwise. lets go."*). Built: every HUD bed is the card-scrim at alpha **0.7** (supersedes (i)'s 0.5); a rack's pips are 10×10 px with 1 px gaps in a column of four beside its ring; a fitted Q / E / R cell is titled by its card line's name (`boonName`, e.g. NAVAL MINES) so the cell and the card agree (`EQUIPMENT_NAME` printed MINES). Round 3 is accepted for the PR.
    - (k) **R30 THE CARD IS RENAMED `RACK CAPACITY`** (Eric 2026-11-10, on the ledger note that `EXPANDED MINE RACKS` wraps to three lines on the narrow offer card: *"RACK CAPACITY works. make the change, pr and merge lickity split"*; the orchestrator offered WIDER RACKS / RACK CAPACITY / BIGGER RACKS / EXTRA MINE). Display name only (`boonCopy.ts` LINE_NAMES); the id `expandedMineRacks` and every mechanic are unchanged. Cycle 221, 0.19.15. Supersedes amendment 12 R24's card name `EXPANDED MINE RACKS` wherever it is printed.
+
+20. **THE STANDARD QUEUE FILLS WITH BOTS: ONE CAPTAIN ARMS IT, THE MATCH FORMS FILLED TO THE FULL 16, BOTS CARRY NO MARK, AND THE WHOLE THING IS ONE RENDER ENVIRONMENT VARIABLE — `HC_QUEUE_BOT_FILL`, A NUMBER OF SECONDS; UNSET OR 0 = OFF.** Eric 2026-11-10 (Story 10.11, cycle 222, 0.19.16, PV 101 unchanged; `spec-10-11-bots-fill-the-standard-queue-at-1-00.md`; one AskUserQuestion round at the spec step of `/bmad-dev-auto 10-11` plus two chat lines). Rules the story's three `[unruled]` marks and supersedes FR34 / Story 6.1 "zero bot-fill" as amendment 1(g) said it would.
+   - (a) **R1 FILL TO THE FULL 16** — `CONFIG.map.playerCap − captains` bots, derived, the same `buildBotFleet` path Solo vs AI and the private lobby's bot fill use. Rejected: 8; 12.
+   - (b) **R2 ONE CAPTAIN ARMS THE TIMER.** Rejected: still needs two.
+   - (c) **R3 NO BOT MARK** in the kill feed, roster or results — same as Solo vs AI and private lobbies today. Rejected: marked everywhere; marked on results only.
+   - (d) **R4 / R5 THE SWITCH IS A RENDER ENVIRONMENT VARIABLE, AND ITS VALUE IS THE WAIT IN SECONDS.** Eric, verbatim: *"I meant to make the switch for bot fill on lobbies something i can set as an environment variable on render"*; then *"HC_QUEUE_BOT_FILL can be basically number of seconds until queue fills with bots. If set to 0 or unset, then bot autofill should be off."* Built: `server/src/rooms/queueFill.ts` is the one reader; a finite value above 0 = ON (one captain arms, the queue holds that many seconds, the arena forms bot-filled); unset, empty, 0, negative or non-numeric = OFF (the queue arms at `CONFIG.match.minHumans`, holds `CONFIG.match.queueTimerMs`, seats no bots). Declared `"60"` on BOTH services in `render.yaml`.
+   - (e) **Orchestrator rulings, Eric may veto:** `CONFIG.match.queueTimerMs` 120000 → 60000 (the OFF queue's hold — the story's 1:00); `CONFIG.match.minHumans` stays 2 and keeps its meaning; the arena learns a TRUSTED `botFill` (the `lobbyTicket`), never a mode — a queue-formed room's listing, `/liveness` split and `MatchRecord.mode` stay `'standard'`; `QueueStatusMsg.min` and `/liveness` `queue.min` carry the EFFECTIVE arm minimum (1 or 2) so the modal and the home never lie; no copy changed (the home button's `Deploy alone against other captains` title stands under R3).
+   - (f) **What will bite the next agent:** the Blueprint syncs `render.yaml` from `main` only — a service has NO key (OFF) until the file reaches `main` or the key is set on the service by hand; the queue smokes are booted with an explicit `HC_QUEUE_BOT_FILL` (see each header) and `loadTest` runs with it off; `foldLiveness` reads the switch through `queueFill.ts` for its empty-server fallback, so a test that folds liveness must pass `queueMin` or clear the env.
