@@ -1,4 +1,4 @@
-// Hit, miss and sinking candidates (Story 10.13 wave A; research §7).
+// The shipped hit, miss and sinking takes Eric picked (Story 10.13, epic-10 amendment 22; research §7).
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';

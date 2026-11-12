@@ -1,4 +1,4 @@
-// Shipboard-event candidates (Story 10.13 wave A): hull repair (research §8),
+// The shipped shipboard-event takes Eric picked (Story 10.13, epic-10 amendment 22): hull repair (research §8),
 // smoke screen (§9), radio beacon (§10), airdrop pickup (§11) and the boost
 // onset surge (§1 "Boost", the one-shot swell the engine voice leaves out).
 

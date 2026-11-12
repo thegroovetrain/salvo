@@ -2,7 +2,8 @@
 title: 'Story 10.13: The Sound Pass'
 type: 'feature'
 created: '2026-11-11'
-status: 'draft'
+status: 'in-review'
+baseline_revision: '7ebf5aa3'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -50,18 +51,18 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution — Wave A (candidates; nothing wired into the game):**
-- [ ] `client/src/audio/synth/recipe.ts` -- pure layered-cue data model (sources, filters, envelopes, drive, reverb send) + pure helpers (length, sanitize, distance shaping) -- the testable half
-- [ ] `client/src/audio/synth/render.ts` -- builds a recipe's node graph on a given context and sink; shared noise buffers; generated impulse reverb; live-voice cap -- the only new place that touches nodes
-- [ ] `client/src/audio/engine.ts` -- pure `engineTargets(profile, throttle, speed01, boost)` + an `EngineVoice` adapter (start, update, release) -- continuous engine
-- [ ] `client/src/audio/synth/candidates.ts` -- candidate recipes A/B/C per cue and candidate engine profiles per hull, from the research record -- what Eric auditions
-- [ ] `client/scripts/soundAudition.mjs` + `client/scripts/audition/` -- esbuild the real modules into one self-contained HTML page (play buttons per candidate, throttle / speed / boost dials per hull, distance dial) -- the audition artifact
-- [ ] `client/src/audio/__tests__/` -- unit tests for the pure helpers and `engineTargets`; fake-context graph tests for render and the engine voice
+- [x] `client/src/audio/synth/recipe.ts` -- pure layered-cue data model (sources, filters, envelopes, drive, reverb send) + pure helpers (length, sanitize, distance shaping) -- the testable half
+- [x] `client/src/audio/synth/render.ts` -- builds a recipe's node graph on a given context and sink; shared noise buffers; generated impulse reverb; live-voice cap -- the only new place that touches nodes
+- [x] `client/src/audio/engine.ts` -- pure `engineTargets(profile, throttle, speed01, boost)` + an `EngineVoice` adapter (start, update, release) -- continuous engine
+- [x] `client/src/audio/synth/candidates.ts` -- candidate recipes A/B/C per cue and candidate engine profiles per hull, from the research record -- what Eric auditions
+- [x] `client/scripts/soundAudition.mjs` + `client/scripts/audition/` -- esbuild the real modules into one self-contained HTML page (play buttons per candidate, throttle / speed / boost dials per hull, distance dial) -- the audition artifact
+- [x] `client/src/audio/__tests__/` -- unit tests for the pure helpers and `engineTargets`; fake-context graph tests for render and the engine voice
 
 **Execution — Wave B (after Eric's picks and rulings):**
-- [ ] `client/src/audio/synth/cues.ts` -- the picked recipes and engine profiles only; delete unpicked candidates
-- [ ] `client/src/audio/context.ts` -- `playCue`, engine start / update / release under mute and duck, fallback to the legacy tone
-- [ ] `client/src/net/roomBindings.ts`, `client/src/main.ts` -- route the ruled events to the new cues; edge-detect smoke, beacon and airdrop cues from per-frame state; per-frame engine update with the ruled gates
-- [ ] `client/src/audio/twinMap.ts` + tests -- a twin row per new cue; exhaustiveness lists
+- [x] `client/src/audio/synth/cues.ts` -- the picked recipes and engine profiles only; delete unpicked candidates
+- [x] `client/src/audio/context.ts` -- `playCue`, engine start / update / release under mute and duck, fallback to the legacy tone
+- [x] `client/src/net/roomBindings.ts`, `client/src/main.ts` -- route the ruled events to the new cues; edge-detect smoke, beacon and airdrop cues from per-frame state; per-frame engine update with the ruled gates
+- [x] `client/src/audio/twinMap.ts` + tests -- a twin row per new cue; exhaustiveness lists
 - [ ] records -- amendment entry, CHANGELOG, VERSION + package files, both trackers (one line each), epics stamp, deferred-work, project-context line
 
 **Acceptance Criteria:**
@@ -83,3 +84,54 @@ Two play paths stay separate on purpose: the legacy `ToneSpec` table keeps its 1
 
 **Manual checks (if no CLI):**
 - Eric auditions the artifact page and names his picks; staging pass for the wired build.
+
+## Review Triage Log
+
+### 2026-11-11 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 19: (high 3, medium 9, low 7)
+- defer: 2: (low 2)
+- reject: 1
+- addressed_findings:
+  - `[high]` `[patch]` Continuous voices are halted on session teardown, so a latched sink fade cannot silence the next match.
+  - `[high]` `[patch]` The world voice cap counts world voices only; the player's own voices no longer mute distant sounds.
+  - `[high]` `[patch]` The torpedo hum seeds on the first observation after a join (no hum for torpedoes already close) and a dropped hum is retried, not marked heard.
+  - `[medium]` `[patch]` A hidden tab halts the engines and continuous voices.
+  - `[medium]` `[patch]` A reconnect reseeds every edge detector.
+  - `[medium]` `[patch]` Fades anchor on the last written value, never an automated param's current value.
+  - `[medium]` `[patch]` The sink fade glides open instead of snapping.
+  - `[medium]` `[patch]` The sink fade throttles its parameter writes.
+  - `[medium]` `[patch]` The sink latch is set only in a live match.
+  - `[medium]` `[patch]` Your own death always sounds.
+  - `[medium]` `[patch]` The boost surge fires on the server-confirmed boost window, not the press.
+  - `[medium]` `[patch]` No own-fire sound for an unclaimed shell surfacing near your hull.
+  - `[medium]` `[patch]` Klaxon seats are claimed cleanly (one alarm per threshold).
+  - `[low]` `[patch]` Beacon surfacing cue ordering fixed.
+  - `[low]` `[patch]` Remote engines get hysteresis around the earshot distance.
+  - `[low]` `[patch]` A non-running context drops cues instead of queueing them.
+  - `[low]` `[patch]` A horn preview stops the previous preview.
+  - `[low]` `[patch]` Bus construction cannot throw.
+  - `[low]` `[patch]` Dead code removed.
+
+## Auto Run Result
+
+**Summary:** Every sound in the game is re-voiced by layered WebAudio synthesis (shaped noise, filters, saturation, generated open-water reverb), each take picked by Eric by ear on an audition page bundled from the real modules. Every hull has a steam-turbine engine following throttle, speed and boost; the storm is a continuous bed; a klaxon is the hull alarm and the sound of your own sinking. Four horns (Foghorn, Whistle, Bell, Sad Trombone) are selectable on the ship-select screen, which widens the shared horn catalog (PROTOCOL_VERSION 101 -> 102). No sound file ships; the tone table survives only as a fallback.
+
+**Files changed:**
+- `client/src/audio/*` and `client/src/audio/synth/*` (incl. `candidates/`): the new synthesis path, voices, engine, storm bed, horns, cue table.
+- `client/src/net/roomBindings.ts`, `client/src/main.ts`: event routing, edge detection, per-frame engine update, teardown and visibility wiring.
+- `client/src/ui/classSelect.ts`, `client/src/ui/home.ts`: the horn picker row.
+- `shared/src/constants.ts`, `shared/src/index.ts`: horn catalog, `PROTOCOL_VERSION`.
+- Tests: new audio suites plus updated tone / twin-map tests.
+- Records: amendment 22, CHANGELOG, VERSION + package files, trackers, epics stamp, project-context, deferred-work.
+
+**Review findings:** 19 patched, 2 deferred, 1 rejected.
+
+**Verification:** see PR description for the final gate numbers.
+
+**Residual risks:**
+- Every level and curve is a draft for Eric's ear on staging.
+- The layered path is heavier on CPU than the old tones (worst case about 3,300 transient WebAudio nodes, typical a few hundred); performance can only be judged on staging/production.
+- The `main.ts` teardown and visibility wiring has no unit test.
+- The airhorn is not built.

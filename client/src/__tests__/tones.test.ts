@@ -29,7 +29,6 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireGun',
   'fireTorp',
   'fireMine',
-  'fireBroadside',
   'fireStarShells',
   'denied',
   'damage',
@@ -106,8 +105,7 @@ describe('grind tone (Story 9.5) — the retriggered sliding scrape', () => {
 });
 
 describe('the own-fire legacy tones (Story 10.13: now the layered cues\' fallbacks)', () => {
-  it('the broadside report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
-    expect(TONES.fireBroadside.freqStart).toBeLessThan(TONES.fireGun.freqStart); // heavier
+  it('the flare is a distinct rise', () => {
     expect(TONES.fireStarShells.freqEnd).toBeGreaterThan(TONES.fireStarShells.freqStart); // rising pop
   });
 });
@@ -124,8 +122,7 @@ describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', ()
   });
 
   it('is distinct from every fire/placement success cue and the damage thud', () => {
-    // Starts well BELOW every gun-family crack (fireGun 900 / fireBroadside 520)…
-    expect(TONES.denied.freqStart).toBeLessThan(TONES.fireBroadside.freqStart);
+    // Starts well BELOW every gun-family crack (fireGun 900)…
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
     // …is not a soft sine drop (the mine/decoy placement family)…
     expect(TONES.denied.type).not.toBe(TONES.fireMine.type);

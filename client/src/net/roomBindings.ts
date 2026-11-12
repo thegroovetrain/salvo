@@ -1356,7 +1356,7 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
  * — and no identity of any kind, because the row itself has none.
  *
  * OWN FIRE IS SUPPRESSED, on the same `nearOwnShip` idiom the own-fire
- * correlation already uses. Our own gun sounded `fireGun`/`fireBroadside` at the
+ * correlation already uses. Our own gun sounded `fireGun` at the
  * instant we fired it (handleShell); layering the distant-report cue on top
  * would double-sound one shot. Hull proximity is the only discriminator
  * available AND the correct one — `mz` deliberately carries no shooter id
@@ -1615,7 +1615,7 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
  * airtight) own-shot signal — the same heuristic the muzzle flash already uses.
  * Story 2.9 composes it with the click-time weapon latch (deps.ownFireWeapon) so
  * an own BROADSIDE shot lands with the weight it should have: its own heavy
- * report (the `fireBroadside` tone), a bigger muzzle flash, and a heavier shell
+ * report (the main-battery cue), a bigger muzzle flash, and a heavier shell
  * in flight. An onlooker's side of the event is BYTE-IDENTICAL to before — the
  * wire cannot say which weapon fired and must not.
  *

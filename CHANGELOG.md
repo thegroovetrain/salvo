@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.18] - 2026-11-11
+
+### Added
+- **Engine sound for your ship.** A steam turbine that follows your throttle, your speed and the Shift boost. Each battleship sounds different. Another ship's engine is heard only when it is close alongside.
+- **A storm you can hear.** Wind and rain the whole time you are inside it.
+- **A klaxon when your hull is hurt.** One blast when your hull drops under half, three under a quarter. It keeps sounding, and fades under the water, as your own ship sinks.
+- **Four horns to choose from** on the ship-select screen: Foghorn, Whistle, Bell and Sad Trombone.
+- **A hum from any torpedo that passes close to you.**
+- **New sounds for a smoke screen, a new set of beacons surfacing, an airdrop pickup and the boost kicking in.**
+
+### Changed
+- **Every sound in the game is re-made.** Main battery, secondaries, torpedo launch, mines, special shells, hits, splashes, hull repair, your own hull being hit, a ship sinking, kill confirmation, level up, card fitted, bounty, countdown, match start, the engine telegraph, ramming, burning, fouled propellers and dazzle.
+- **Still no sound files.** Everything is synthesized in your browser.
+- **Distance matters.** Distant sounds arrive quieter, duller and a moment late.
+
 ## [0.19.15] - 2026-11-10
 
 ### Changed

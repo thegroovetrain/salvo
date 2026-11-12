@@ -21,7 +21,6 @@ export type ToneId =
   | 'fireGun'
   | 'fireTorp'
   | 'fireMine'
-  | 'fireBroadside'
   | 'fireStarShells'
   | 'denied'
   | 'damage'
@@ -76,7 +75,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Broadside barrage (Story 7-5 wave 2, inherited from the cannon it replaced):
   // a HEAVIER gun report — lower + more body than the gun crack, with a bigger
   // noise transient (the Battleship's big shells, several at once).
-  fireBroadside: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },

@@ -1,5 +1,5 @@
-// Round 3 (Eric 2026-11-11): new takes for the sounds he marked "none of
-// these", made from what he asked for. His general note — "too much
+// The shipped takes Eric picked (Story 10.13, epic-10 amendment 22), made for the sounds he marked
+// "none of these" in earlier audition rounds, from what he asked for. His general note — "too much
 // static?" — applies to every take here: clean tonal sources, little or no
 // noise, modest reverb. The kill is the one exception: an explosion IS noise.
 
@@ -102,7 +102,7 @@ export const BOUNTY_OMINOUS: CueSlot = {
 /**
  * The round-2 klaxon voice (Eric 2026-11-11: "you had a Klaxon choice that
  * sounded pretty good"), recovered from the round-2 `bounty` take A at
- * 6b9e8f5a. Round 5: "Make the klaxon deeper" — every frequency is scaled by
+ * 6b9e8f5a. Later round: "Make the klaxon deeper" — every frequency is scaled by
  * `pitch` (the scoop, and the band filter by `band`); shape, drive and length
  * are unchanged.
  */

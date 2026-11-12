@@ -1,4 +1,4 @@
-// Gun candidates (Story 10.13 wave A): the main battery (research §2) and the
+// The shipped gun takes Eric picked (Story 10.13, epic-10 amendment 22): the main battery (research §2) and the
 // secondary guns (§3).
 
 import type { CueSlot } from './types.js';

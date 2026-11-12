@@ -1,4 +1,4 @@
-// Reusable LAYER BUILDERS for the candidate recipes (Story 10.13 wave A). Each
+// Reusable LAYER BUILDERS for the shipped recipes (Story 10.13, epic-10 amendment 22). Each
 // returns plain `Layer` data — nothing here touches a node. The recipes are the
 // research record's (sound-synthesis-research-2026-11-11.md); the section a
 // builder comes from is named on it. Peaks are relative: the self-test of the

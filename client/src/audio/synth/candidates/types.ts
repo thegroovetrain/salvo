@@ -1,6 +1,6 @@
-// The audition's DATA SHAPES (Story 10.13 wave A). A slot is one sound the game
-// needs; its candidates are genuinely different takes on it, auditioned by
-// Eric on the audition page. Only his picks move into the game path (wave B).
+// The sound slots' DATA SHAPES (Story 10.13, epic-10 amendment 22). A slot is one sound the game
+// needs; what remains in it are the takes Eric picked on the audition page
+// (the unpicked ones were pruned); the game plays exactly those.
 
 import type { ShipClassId } from '@salvo/shared';
 import type { EngineProfile } from '../../engine.js';

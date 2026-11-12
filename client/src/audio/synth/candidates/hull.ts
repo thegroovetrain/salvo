@@ -1,4 +1,4 @@
-// Round 2 (Eric 2026-11-11, "re-voice everything"): what happens TO the ship
+// The shipped takes Eric picked (Story 10.13, epic-10 amendment 22): what happens TO the ship
 // itself — scraping, burning, fouled screws, being dazzled — and the far-off
 // "your shot connected" call.
 

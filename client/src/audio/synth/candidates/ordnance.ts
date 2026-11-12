@@ -1,4 +1,4 @@
-// Torpedo and mine candidates (Story 10.13 wave A; research §4, §5).
+// The shipped torpedo and mine takes Eric picked (Story 10.13, epic-10 amendment 22; research §4, §5).
 
 import type { CueSlot } from './types.js';
 import { filters, metalRing, noiseLayer, splash, STEEL, thump, tone } from './parts.js';

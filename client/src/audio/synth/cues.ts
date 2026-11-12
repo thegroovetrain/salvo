@@ -1,8 +1,7 @@
-// THE SHIPPED CUE TABLE (Story 10.13, wave B): Eric's PICKED takes, imported
-// from the audition candidates by slot and take — never copied — so the game
-// plays exactly the recipe data Eric heard on the audition page. Unpicked
-// candidates stay in candidates/ until the last picks are in (pruning is a
-// later step); nothing here reaches an unpicked take.
+// THE SHIPPED CUE TABLE (Story 10.13, epic-10 amendment 22): Eric's PICKED
+// takes, imported from the shipped sound files in candidates/ by slot and
+// take — never copied — so the game plays exactly the recipe data Eric heard
+// on the audition page. The unpicked takes were pruned at the review gate.
 //
 // What this file adds on top of a picked recipe is the VOICE BUDGET only:
 // every cue gets the family and per-family cap it plays under in the game,
@@ -98,7 +97,7 @@ const world = (family: string, maxVoices: number): Budget => ({ family, maxVoice
 /** The four special-shell launches share one own family (one launch at a time per click). */
 const OWN_SHELL = own('ownShell', 2);
 
-/** Eric's picks (2026-11-11, client/scripts/audition/picked.ts) under their game budgets. */
+/** Eric's picks (2026-11-11, the takes shipped in candidates/) under their game budgets. */
 const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   // Own fire. A secondary round leaves every 120 ms while held and rings ~1.3 s,
   // so its family holds a held stream (cheap: ~17 nodes a voice).

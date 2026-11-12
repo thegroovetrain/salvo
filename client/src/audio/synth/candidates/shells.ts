@@ -1,4 +1,4 @@
-// Special-shell candidates (Story 10.13 wave A; research §6): one slot per live
+// The shipped special-shell takes Eric picked (Story 10.13, epic-10 amendment 22; research §6): one slot per live
 // special-shell line in the catalog (Stories 10.5 / 10.6): STAR SHELLS,
 // PHOSPHOR SHELLS, FOULING SHELL, FLASH SHELLS. Each candidate is the whole
 // event as the firer hears it: a muffled launch, then the shell's own burst.

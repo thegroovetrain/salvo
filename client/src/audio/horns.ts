@@ -18,7 +18,7 @@
 //
 // THE CATALOG IS ERIC'S RULING OF 2026-11-11 (Story 10.13): FOUR selectable
 // horns — Foghorn, Whistle, Bell, Sad Trombone — chosen on the ship-select
-// screen (the airhorn was dropped: "I'll do it myself later"). `HORNS` and
+// screen (the airhorn is not shipped; Eric will do it himself later). `HORNS` and
 // `HORN_NAMES` are total over the shared `HornId` catalog, so a fifth horn is
 // exactly: one id in shared `HORN_IDS`, one row in `HORNS`, one name in
 // `HORN_NAMES` — the picker, the join and the wire follow by themselves. Any

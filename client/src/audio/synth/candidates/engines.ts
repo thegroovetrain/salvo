@@ -1,4 +1,4 @@
-// Engine candidate SETS (Story 10.13 wave A; research §1). A set is one way of
+// The shipped engine set (Story 10.13, epic-10 amendment 22; research §1), the one Eric picked. A set is one way of
 // voicing the plant; inside a set the four hulls share the graph and differ by
 // weight (how much low rumble), pitch (every band and the whine moved up or
 // down together), shaft count and propeller speed (the throb rate).

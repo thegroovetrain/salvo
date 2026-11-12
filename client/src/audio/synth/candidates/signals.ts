@@ -1,4 +1,4 @@
-// Round 2 (Eric 2026-11-11, "re-voice everything"): the short SIGNAL cues
+// The shipped takes Eric picked (Story 10.13, epic-10 amendment 22): the short SIGNAL cues
 // that replace today's beeps — kill, level, card fitted, denied, countdown,
 // match start, engine telegraph. Each should sound like something real aboard
 // a 1940s warship and still say at once what it means. The frequent ones stay
