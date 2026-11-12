@@ -95,6 +95,13 @@ warnings: ['oversized']
 - Given a bot match, when it runs, then bots sail, fire and finish (both smokes first try).
 - Given the client at any zoom, when the scope draws, then range rings are centered on the own ship and labelled in hm.
 
+## Spec Change Log
+
+- **2026-11-12 — Eric (chat), ruling R13; it OVERRIDES R7 in the intent contract.**
+  - R13 Islands keep casting radar shadows on the big ocean. Eric: "the islands are actually supposed to be casting radar shadows. The 'scale' of the game is somewhat compressed, but hiding in radar shadows is part of the game. Vision and intel management IS the game." Reading: the shadow constant `K` is FROZEN at today's value (1,500² / 4) as its own named `CONFIG` fact and no longer follows `CONFIG.vision.radar`, so every island hides a ship from radar exactly as it does today. The author's first reading of his AskUserQuestion answer ("let it follow radar") was wrong. Whether shadows should be STRONGER than today at 400 hm is his to say on the bench page, which draws both.
+  - Known-bad state avoided: at 400 hm radar a `K` that follows radar grows 36×, and only terrain above the mast would still hide a ship.
+  - KEEP: `radarMastQ` 64 and the walk itself untouched.
+
 ## Design Notes
 
 - `sightRange` stays the INNER (class-ID) reach so the ~15 existing sight gates keep one meaning; the hull reach is a new stat read only by the contact gate and the R4 rows that name it.
