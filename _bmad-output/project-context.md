@@ -99,6 +99,9 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - The win check counts afloat PARTICIPANTS (`role !== 'fleet'` — humans AND combat bots contest it; only PvE fleet hulls are excluded), and a sinking hull holds the transition open. Fleet hulls and bots are ordinary ships driven through the same input pipeline — never special-case their physics or visibility.
 - Use the shared math primitives (`wrapPositive` for angles, `segCircleHit` for LOS) — don't hand-roll geometry that already exists.
 - **Never pre-install a module for a future epic** (Eric, epic-9 retro 2026-10-24, amendment 217): a dependency lands in the story that mounts it. Story 8.0's unmounted `@colyseus/auth` / `@colyseus/database` dragged an account decision into the 9.17 dependency sweep and killed the story.
+- **Numbers are taken at PR time** (Eric, epic-10 retro 2026-11-12, amendment 24): an amendment, cycle or version number is picked after `git fetch` when the PR is opened, never at story start; records and code comments use a placeholder until then. Parallel sessions took the same number in Stories 10.3, 10.5, 10.9 and 10.10.
+- **The merge step stamps the story row `done` in both trackers** (same retro): a row left at `review` after its PR merged is a defect of that run. Eleven were found at the epic-9 retro, three at the epic-10 retro.
+- **No PR opens while a rendered candidate is waiting on Eric's yes** (same retro): Stories 10.4 and 10.8 opened with a look he had not picked.
 - Plans are one unit of work — never split into multiple PRs without explicit advance approval; halt on ANY error and surface it rather than working around it.
 - **`CLAUDE.md` is FROZEN and hook-enforced** (Eric, 2026-09-14): a `PreToolUse` hook (`.claude/hooks/protect-claude-md.sh`) denies every edit; only Eric lifts it. New agent rules go HERE or to auto-memory; rulings to `epic-N-context-amendments.md`. Long-form context that used to live there is archived (not auto-loaded) in `docs/codebase-map.md`, `docs/key-decisions.md`, `docs/deploy.md`.
 
@@ -119,4 +122,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Update when the technology stack or architecture invariants change
 - Review periodically for outdated rules; remove rules that become obvious over time
 
-Last Updated: 2026-10-24 (epic-9 retro: never-pre-install rule added)
+Last Updated: 2026-11-12 (epic-10 retro: numbers at PR time, merge stamps the row, no PR on an unjudged candidate)
