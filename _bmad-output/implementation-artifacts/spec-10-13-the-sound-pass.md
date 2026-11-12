@@ -2,8 +2,9 @@
 title: 'Story 10.13: The Sound Pass'
 type: 'feature'
 created: '2026-11-11'
-status: 'in-review'
+status: 'done'
 baseline_revision: '7ebf5aa3'
+final_revision: '647b96ec'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
