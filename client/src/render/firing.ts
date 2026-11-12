@@ -20,8 +20,9 @@
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
 //     because every gun reaches past sight range (the cannon's Tier I dial is
 //     2× sight, Story 9.8 ruling 125): aiming at a radar blip beyond sight must
-//     not put the reticle under the fog. Amber
-//     when the aim is in the primed weapon's arc AND it is ready, else dim. The
+//     not put the reticle under the fog. The player's AIM COLOR (amber by
+//     default; Story 11.1 R15) when the aim is in the primed weapon's arc AND
+//     it is ready, else dim; sized by AIM SIZE (`reticleGeometry`). The
 //     bearing line still originates at the own ship's world position — chartRoot
 //     shares worldRoot's camera transform, so it lines up exactly with the hull.
 // Behavior is keyed on the fitted EQUIPMENT ID (Story 1.7 — slot identity is now
@@ -65,7 +66,7 @@ const BW = CLIENT_CONFIG.broadsideArcs;
  *  and the per-turret wedges are the same grammar and cannot drift apart. */
 const ARC_FILL = CLIENT_CONFIG.arcFill;
 const ARC_R = 72; // u — sector indicator radius (the torpedo's indicative wedge)
-const RETICLE_R = 7; // u — crosshair size
+const RET = CLIENT_CONFIG.reticle; // the crosshair's BASE geometry (× AIM SIZE)
 const IMPACT_R = 4; // u — range-clamped impact marker ring
 /** The `arcs` Graphics is HULL-LOCAL (position = pose, rotation = heading), so
  *  the shared turret helpers are called at the identity pose and their answers
@@ -127,6 +128,42 @@ function bakedWedgeTexture(half: number): Texture {
  */
 function weaponTint(id: EquipmentId | null): number {
   return isTorpedoItem(id) ? TORP_TINT : AMBER;
+}
+
+/** The reticle's drawn geometry at one AIM SIZE (u / stroke px). */
+export interface ReticleGeometry {
+  /** Ring radius. */
+  radius: number;
+  /** How far each cross arm reaches from the center. */
+  crossReach: number;
+  ringWidth: number;
+  crossWidth: number;
+}
+
+/**
+ * PURE: the reticle at AIM SIZE `size` (Story 11.1, R15 / R18) — the base ring
+ * radius, cross reach and both stroke widths, each scaled linearly by the
+ * setting. Only the reticle scales; the main-battery oval is true size and
+ * never reads this.
+ */
+export function reticleGeometry(size: number): ReticleGeometry {
+  return {
+    radius: RET.radiusU * size,
+    crossReach: (RET.radiusU + RET.crossOverU) * size,
+    ringWidth: RET.ringWidth * size,
+    crossWidth: RET.crossWidth * size,
+  };
+}
+
+/**
+ * PURE: the reticle's tint. The TORPEDO FAMILY keeps its cool green (and dims
+ * when it would not fire); every other aimed weapon draws in the player's AIM
+ * COLOR (`aimTint`, Story 11.1 R15) when it would fire and the muted tint when
+ * it would not. The range-clamp ring + tick take the same answer.
+ */
+export function reticleTint(id: EquipmentId | null, armed: boolean, aimTint: number): number {
+  if (!armed) return DIM;
+  return isTorpedoItem(id) ? TORP_TINT : aimTint;
 }
 
 export interface FiringPose {
@@ -248,6 +285,9 @@ export class FiringUX {
   private readonly wedgeLayer = new Container();
   private readonly wedgeSprites: Sprite[] = [];
   private wedgeKey = '';
+  /** The player's AIM COLOR (tint) and AIM SIZE — set by `setAimStyle`. */
+  private aimTint: number = AMBER;
+  private aimSize: number = RET.defaultSize;
 
   /**
    * `shipLayer` (chartRoot's `ownShip` — the own-hull layer since 2026-10-12)
@@ -260,6 +300,13 @@ export class FiringUX {
     shipLayer.addChild(this.wedgeLayer);
     shipLayer.addChild(this.arcs);
     aimLayer.addChild(this.reticle);
+  }
+
+  /** The player's AIM COLOR (as a tint) and AIM SIZE (×) for the reticle and
+   *  the range-clamp marker (Story 11.1, R15 / R18). */
+  setAimStyle(tint: number, size: number): void {
+    this.aimTint = tint;
+    this.aimSize = size;
   }
 
   /** Clear both graphics (own ship sunk — no arcs/reticle). */
@@ -607,12 +654,13 @@ export class FiringUX {
     g.clear();
     const kind = fireArcKind(id);
     if (kind === 'none') return; // abilities don't aim — no reticle
-    const color = this.reticleColor(pose.heading, aim, id, hasAmmo);
+    const color = reticleTint(id, this.armed(pose.heading, aim, id, hasAmmo), this.aimTint);
+    const r = reticleGeometry(this.aimSize);
     g.moveTo(pose.x, pose.y).lineTo(cursor.x, cursor.y).stroke({ width: 1, color, alpha: 0.25 });
-    g.circle(cursor.x, cursor.y, RETICLE_R).stroke({ width: 1.5, color, alpha: 0.8 });
-    g.moveTo(cursor.x - RETICLE_R - 3, cursor.y).lineTo(cursor.x + RETICLE_R + 3, cursor.y);
-    g.moveTo(cursor.x, cursor.y - RETICLE_R - 3).lineTo(cursor.x, cursor.y + RETICLE_R + 3);
-    g.stroke({ width: 1, color, alpha: 0.6 });
+    g.circle(cursor.x, cursor.y, r.radius).stroke({ width: r.ringWidth, color, alpha: RET.ringAlpha });
+    g.moveTo(cursor.x - r.crossReach, cursor.y).lineTo(cursor.x + r.crossReach, cursor.y);
+    g.moveTo(cursor.x, cursor.y - r.crossReach).lineTo(cursor.x, cursor.y + r.crossReach);
+    g.stroke({ width: r.crossWidth, color, alpha: RET.crossAlpha });
     // The gun family AND the broadside clamp the aim point to rangeU and fire
     // anyway, so both owe the player the true burst distance — every weapon's
     // reach is its own tiered dial (Story 9.8, ruling 125), none of them radar.
@@ -652,14 +700,14 @@ export class FiringUX {
     g.moveTo(ix - tx, iy - ty).lineTo(ix + tx, iy + ty).stroke({ width: 1, color, alpha: 0.6 });
   }
 
-  /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo.
-   *  The torpedo keeps its cool-green identity; everything else (gun family, the
-   *  broadside's beams, the mine's rear placement) is amber. */
-  private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
+  /** Would the primed weapon fire on this aim — the reticle's lit/dim verdict.
+   *  The colour is `reticleTint`'s: the torpedo keeps its cool-green identity,
+   *  everything else (gun family, the broadside's beams, the mine's rear
+   *  placement) takes the player's AIM COLOR. */
+  private armed(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): boolean {
     // A TORPEDO's `hasAmmo` is the shared `pickTube` fire verdict (station-
     // measured, R16 / R28): no ship-centre arc read may disagree with it.
-    if (isTorpedoItem(id)) return hasAmmo ? weaponTint(id) : DIM;
-    if (!(weaponArcHit(heading, aim, id, this.launchers, this.launcherHull) && hasAmmo)) return DIM;
-    return weaponTint(id);
+    if (isTorpedoItem(id)) return hasAmmo;
+    return weaponArcHit(heading, aim, id, this.launchers, this.launcherHull) && hasAmmo;
   }
 }

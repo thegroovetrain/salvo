@@ -199,7 +199,7 @@ import {
   type ResultsView,
 } from './ui/results.js';
 import { SettingsOverlay, canAbandon, escapeAction, wheelScrollsSurface, type OpenSurfaces } from './ui/settings.js';
-import { hudScale, motionIntensity, settings } from './settings/store.js';
+import { aimColorTint, hudScale, motionIntensity, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
   afloatCount,
@@ -297,8 +297,9 @@ interface Game {
   nameplates: NameplateLayer;
   projectiles: Projectiles;
   firing: FiringUX;
-  /** ORDNANCE AIM PREVIEW (render/aimPreview.ts): blast circles at the true
-   *  burst point, travel lines for every projectile weapon, the homing
+  /** ORDNANCE AIM PREVIEW (render/aimPreview.ts): the main battery's true-size
+   *  dispersion oval (Story 11.1), blast circles at the true burst point,
+   *  travel lines for every other projectile weapon, the homing
    *  acquisition band, and the mine's placement rings. Owner-private, drawn
    *  from own stats + the local map — nothing new crosses the wire. */
   aimPreview: AimPreview;
@@ -3699,6 +3700,9 @@ function renderFiring(
   // derivations of one reach would let the marker and the burst circle disagree
   // about where the shell stops.
   const reachU = weaponReachU(status.stats, primedItem, pose, aim, aimDist, g.mapRadius, ownZones);
+  // Story 11.1 (R15 / R18): the player's AIM COLOR tints the reticle, its
+  // range-clamp marker and the main-battery oval; AIM SIZE scales the reticle.
+  g.firing.setAimStyle(aimColorTint(settings.current.aimColor), settings.current.aimSize);
   g.firing.update(
     pose,
     aim,
@@ -3794,7 +3798,7 @@ function renderAimPreview(
     turrets: g.ownBattery.turrets, // Story 10.4: the predicted turrets the next salvo picks from
     launchers: g.ownLaunchers.states, // Story 10.6: the predicted launchers the next torpedo picks from
   });
-  g.aimPreview.update(model, previewTint(primedId));
+  g.aimPreview.update(model, previewTint(primedId, aimColorTint(settings.current.aimColor)));
 }
 
 /**
@@ -4874,9 +4878,9 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // replay re-evaluates the boost gate at the identical per-tick time.
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());
       // Story 10.4 — the server's step order: the hull moves, THEN the turrets
-      // traverse + reload with this input's aim, THEN fire control reads them,
-      // so a turret that comes on target or finishes reloading this tick
-      // counts this tick.
+      // reload and snap to this input's aim (no traverse — Story 11.1 R16),
+      // THEN fire control reads them, so a turret that finishes reloading this
+      // tick counts this tick.
       stepOwnBattery(g.ownBattery, ownBatteryPose(g), input, ownBatteryGate(g));
       // Story 10.6: the launchers step beside the turrets, before fire control (R13: always).
       stepOwnLaunchers(g.ownLaunchers, ownBatteryPose(g), input, ownBatteryGate(g).afloat);

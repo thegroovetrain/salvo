@@ -5,10 +5,11 @@
 //
 // Stepped once per 50 ms predicted sim tick with the SAME aim the outgoing
 // InputMsg carries (`launcherAimPoint` → `stepLaunchers` — the shared stepper
-// the server runs, no per-side fork; R13: the launchers chase the cursor at
+// the server runs, no per-side fork; R13: the launchers follow the cursor at
 // all times, whatever is primed), and corrected on every own frame from
 // `you.launchers` (`copyLaunchers`). CORRECT-THEN-CONTINUE, no replay: the
-// error is bounded by latency × the 90°/s traverse, as the turrets' is.
+// launchers SNAP to the aim (no traverse — Story 11.1 R16: `stepLaunchers` sets
+// each angle to the shared `launcherAngle`), so any error lasts one tick.
 //
 // A ship holds launchers ONLY while its torpedo slot is filled — the wire
 // omits `you.launchers` otherwise, and a correction from such a frame empties
@@ -77,7 +78,7 @@ export class OwnLaunchers {
     this.pending = [];
   }
 
-  /** One predicted 50 ms tick toward the aim of (`aim`, `aimDist`) from the
+  /** One predicted 50 ms tick: every launcher SNAPS to the aim of (`aim`, `aimDist`) from the
    *  predicted `pose` — `launcherAimPoint`, so a zero / non-finite aim holds
    *  every angle exactly as the server does. Every tube clock counts down. */
   step(pose: AimPose, aim: number, aimDist: number, dtMs: number): void {

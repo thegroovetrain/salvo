@@ -15,6 +15,7 @@ import {
   initialTurrets,
   pickTurret,
   stepSecondaries,
+  turretAngle,
   turretBears,
   stepTurrets,
   turretMounts,
@@ -70,7 +71,18 @@ describe('OwnBattery.step — the shared steppers, same inputs', () => {
     expect(rounds).toBe(0);
   });
 
-  it('stepOwnBattery moves the turrets toward the aim when afloat', () => {
+  it('SNAPS: one tick sets every turret to the shared turretAngle for the aim (no traverse, R16)', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const b = new OwnBattery(id);
+      for (const aim of [AIM, -AIM, 0, Math.PI, Math.PI / 5]) {
+        b.step(POSE, aim, AIM_DIST, false, DT);
+        const point = aimPointOf(POSE, aim, AIM_DIST);
+        b.angles().forEach((a, i) => expect(a, `${id} aim ${aim} turret ${i}`).toBe(turretAngle(id, i, POSE, point)));
+      }
+    }
+  });
+
+  it('stepOwnBattery points the turrets at the aim when afloat', () => {
     const b = new OwnBattery(DEFAULT_CLASS_ID);
     const before = [...b.angles()];
     stepOwnBattery(b, POSE, { aim: AIM, aimDist: AIM_DIST, sec: false }, { afloat: true, weaponsLive: true });
@@ -222,7 +234,7 @@ describe('stepOwnBattery — the gate (review C1)', () => {
     expect(rounds).toBe(0);
   });
 
-  it('AFLOAT + live: unchanged — heat as held, the turrets traverse', () => {
+  it('AFLOAT + live: unchanged — heat as held, the turrets point at the aim', () => {
     const before = initialTurrets(DEFAULT_CLASS_ID).map((t) => t.a);
     const { b, rounds } = run({ afloat: true, weaponsLive: true });
     const ref = reference(true);

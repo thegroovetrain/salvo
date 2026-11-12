@@ -47,6 +47,12 @@ export interface Settings {
   muted: boolean;
   /** Where the offer group sits (R26); the right edge by default. */
   offerPos: OfferPos;
+  /** AIM COLOR (Story 11.1 R15 / R18): `#rrggbb`, tints the reticle AND the
+   *  main-battery oval; the palette amber by default. */
+  aimColor: string;
+  /** AIM SIZE (Story 11.1 R15 / R18): the reticle's scale, 1×–5× in 0.5
+   *  steps, 2× by default. Never scales the oval. */
+  aimSize: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -58,6 +64,8 @@ export const DEFAULT_SETTINGS: Settings = {
   monoAudio: false,
   muted: false,
   offerPos: 'right',
+  aimColor: CLIENT_CONFIG.reticle.defaultColor,
+  aimSize: CLIENT_CONFIG.reticle.defaultSize,
 };
 
 const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
@@ -70,6 +78,29 @@ function coerceMotion(v: unknown): MotionLevel {
 
 function coerceOfferPos(v: unknown): OfferPos {
   return OFFER_POSITIONS.includes(v as OfferPos) ? (v as OfferPos) : DEFAULT_SETTINGS.offerPos;
+}
+
+/** AIM COLOR coercion: a `#rrggbb` hex (lower-cased), else the default. */
+export function coerceAimColor(v: unknown): string {
+  return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : DEFAULT_SETTINGS.aimColor;
+}
+
+/** AIM SIZE coercion: a finite number clamped to the slider's range and
+ *  snapped to its step, else the default. */
+export function coerceAimSize(v: unknown): number {
+  const R = CLIENT_CONFIG.reticle;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_SETTINGS.aimSize;
+  const snapped = Math.round(v / R.sizeStep) * R.sizeStep;
+  return Math.min(R.sizeMax, Math.max(R.sizeMin, snapped));
+}
+
+/** The last AIM COLOR converted (the frame loop asks every frame). */
+let tintMemo = { hex: '', tint: 0 };
+
+/** Pure: the AIM COLOR as a Pixi tint (0xrrggbb); garbage reads the default. */
+export function aimColorTint(hex: string): number {
+  if (hex !== tintMemo.hex) tintMemo = { hex, tint: parseInt(coerceAimColor(hex).slice(1), 16) };
+  return tintMemo.tint;
 }
 
 function coerceScale(v: unknown): UiScale {
@@ -105,6 +136,8 @@ export function sanitizeSettings(raw: unknown, legacyMuted = false): Settings {
     monoAudio: coerceBool(o.monoAudio, DEFAULT_SETTINGS.monoAudio),
     muted: coerceBool(o.muted, legacyMuted),
     offerPos: coerceOfferPos(o.offerPos),
+    aimColor: coerceAimColor(o.aimColor),
+    aimSize: coerceAimSize(o.aimSize),
   };
 }
 
@@ -301,7 +334,9 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.effectsVolume === b.effectsVolume &&
     a.monoAudio === b.monoAudio &&
     a.muted === b.muted &&
-    a.offerPos === b.offerPos
+    a.offerPos === b.offerPos &&
+    a.aimColor === b.aimColor &&
+    a.aimSize === b.aimSize
   );
 }
 

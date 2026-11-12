@@ -7,7 +7,9 @@
 // runs, no per-side fork), and corrected on every own frame: the turrets copy
 // the server's `you.turrets`, the heat and lock copy `you.sec` while the local
 // round phase is kept. CORRECT-THEN-CONTINUE, no replay of unacked inputs: the
-// error is bounded by latency × the 90°/s traverse and self-corrects next frame.
+// turrets SNAP to the aim (no traverse — Story 11.1 R16: `stepTurrets` sets each
+// angle to the shared `turretAngle`), so any error is one tick and self-corrects
+// on the next frame.
 //
 // A PREDICTED SHOT SURVIVES A STALE FRAME (review gate C2). A frame the server
 // built before it applied the click's input would reset the fired turret to
@@ -82,7 +84,7 @@ export class OwnBattery {
   }
 
   /**
-   * One predicted 50 ms tick: traverse + reload every turret toward the aim
+   * One predicted 50 ms tick: reload every turret and SNAP it to the aim
    * point of (`aim`, `aimDist`) from the predicted `pose` — `batteryAimPoint`,
    * so a zero / non-finite aim holds every angle exactly as the server does —
    * and run the secondaries on `secLive` (the right-button level the server

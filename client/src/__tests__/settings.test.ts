@@ -29,6 +29,8 @@ import {
 import {
   ABANDON_BUTTON_ID,
   CLOSE_BUTTON_ID,
+  AIM_COLOR_LABEL,
+  AIM_SIZE_LABEL,
   OFFER_POS_LABEL,
   OFFER_POS_OPTIONS,
   RESET_BUTTON_ID,
@@ -478,8 +480,9 @@ describe('SettingsOverlay — DOM shell', () => {
     expect(overlay.visible).toBe(true);
     const values = [...document.querySelectorAll<HTMLButtonElement>('#hc-settings button')].map((b) => b.dataset.value);
     for (const v of ['full', 'reduced', 'off', ...S.scaleTiers.map(String)]) expect(values, v).toContain(v);
-    // master + effects volume
-    expect(document.querySelectorAll('#hc-settings input[type=range]')).toHaveLength(2);
+    // master + effects volume + AIM SIZE (Story 11.1), and the AIM COLOR picker
+    expect(document.querySelectorAll('#hc-settings input[type=range]')).toHaveLength(3);
+    expect(document.querySelectorAll('#hc-settings input[type=color]')).toHaveLength(1);
     // the view-only bindings render the reference model, row for row
     const t = panelText();
     for (const r of bindingRows()) expect(t, r.keys).toContain(r.action);
@@ -593,10 +596,45 @@ describe('SettingsOverlay — DOM shell', () => {
     expect(abandons).toBe(0);
   });
 
+  // --- THE AIM ROWS (Story 11.1, R15 / R18) -----------------------------------
+
+  function rowOf(label: string): HTMLElement {
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === label);
+    if (row === undefined) throw new Error(`no ${label} row`);
+    return row;
+  }
+
+  it('AIM COLOR: a color picker showing the stored color; a pick writes through, persists, and keeps the picker', () => {
+    overlay.open();
+    const input = rowOf(AIM_COLOR_LABEL).querySelector<HTMLInputElement>('input[type=color]')!;
+    expect(input.value).toBe(DEFAULT_SETTINGS.aimColor);
+    input.value = '#33ccff';
+    input.dispatchEvent(new Event('input'));
+    expect(store.current.aimColor).toBe('#33ccff');
+    expect(loadSettings().aimColor).toBe('#33ccff');
+    expect(document.body.contains(input)).toBe(true); // no rebuild under the open picker
+  });
+
+  it('AIM SIZE: a slider over the configured range and step; a drag writes through and persists', () => {
+    overlay.open();
+    const input = rowOf(AIM_SIZE_LABEL).querySelector<HTMLInputElement>('input[type=range]')!;
+    expect(Number(input.min)).toBe(CLIENT_CONFIG.reticle.sizeMin);
+    expect(Number(input.max)).toBe(CLIENT_CONFIG.reticle.sizeMax);
+    expect(Number(input.step)).toBe(CLIENT_CONFIG.reticle.sizeStep);
+    expect(Number(input.value)).toBe(DEFAULT_SETTINGS.aimSize);
+    input.value = '3.5';
+    input.dispatchEvent(new Event('input'));
+    expect(store.current.aimSize).toBe(3.5);
+    expect(loadSettings().aimSize).toBe(3.5);
+    expect(document.body.contains(input)).toBe(true);
+  });
+
   // --- REGRESSIONS (Story 2.3 review gate) ------------------------------------
 
+  /** The VOLUME sliders (master first) — the AIM SIZE slider is not one. */
   function sliders(): HTMLInputElement[] {
-    return [...document.querySelectorAll<HTMLInputElement>('#hc-settings input[type=range]')];
+    return [...document.querySelectorAll<HTMLInputElement>('#hc-settings input[type=range]')]
+      .filter((el) => el.parentElement?.firstElementChild?.textContent !== AIM_SIZE_LABEL);
   }
 
   it('a volume drag updates in place — the dragged input SURVIVES every input event', () => {

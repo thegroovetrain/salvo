@@ -115,8 +115,9 @@ export class ContactStore {
   /**
    * THE CONTACT'S TURRET ANGLES (Story 10.4): the latest frame's `Contact.tu`,
    * decoded to hull-relative radians (`decodeTurretAngle`), one array per id
-   * reused across frames. SNAPPED, not interpolated: a turret moves at most
-   * 90°/s, i.e. 4.5° between 20 Hz frames. Absent when the row carries no `tu`.
+   * reused across frames. SNAPPED, not interpolated: the turrets themselves
+   * snap to their captain's aim (no traverse — Story 11.1 R16), so the latest
+   * frame is the truth. Absent when the row carries no `tu`.
    */
   private turretAngles = new Map<string, number[]>();
   /**
