@@ -16,6 +16,7 @@ import {
   dispersedLanding,
   dispersedPoint,
   hullClearOffset as sharedHullClearOffset,
+  segCircleHit,
   muzzleSpawn as sharedMuzzleSpawn,
   type ShellFamily,
   type ShellState,
@@ -143,6 +144,24 @@ export interface SalvoShellFlight {
   distU: number;
 }
 
+/** Hair inside the rim a rim-entry spawn is nudged, so it never sits ON the edge. */
+const RIM_NUDGE_U = 0.01;
+
+/**
+ * A spawn on the muzzle line can fall just OUTSIDE the water disk when the firer
+ * hugs the rim (`stepShell` would expire it at once). Slide it FORWARD along its
+ * own track (spawn → landing, the salvo bearing) to where the track enters the
+ * disk, a hair inside. `null` = the track never enters the disk.
+ */
+function enterMapAlongTrack(spawn: Vec2, landing: Vec2, mapRadius: number): Vec2 | null {
+  if (Math.hypot(spawn.x, spawn.y) <= mapRadius) return spawn;
+  const t = segCircleHit(spawn, landing, { x: 0, y: 0 }, mapRadius);
+  if (t === null) return null;
+  const len = Math.hypot(landing.x - spawn.x, landing.y - spawn.y);
+  const k = Math.min(1, t + RIM_NUDGE_U / len);
+  return { x: spawn.x + (landing.x - spawn.x) * k, y: spawn.y + (landing.y - spawn.y) * k };
+}
+
 /**
  * ONE SHELL OF A MAIN-BATTERY SALVO (Story 11.1 R13, review fix — no
  * converging tracks on the wire). The dispersion is rolled ONCE per shell
@@ -178,7 +197,12 @@ export function salvoShellFlight(
     const landing = clampInsideMap(station, p, mapRadius);
     return { spawn: landing, landing, distU: 0 };
   }
-  const spawn = { x: p.x - ux * along, y: p.y - uy * along };
+  const spawn = enterMapAlongTrack({ x: p.x - ux * along, y: p.y - uy * along }, p, mapRadius);
+  if (spawn === null) {
+    // The track never enters the disk: spawn on the (clamped) landing, as point blank does.
+    const landing = clampInsideMap(station, p, mapRadius);
+    return { spawn: landing, landing, distU: 0 };
+  }
   const landing = clampInsideMap(spawn, p, mapRadius);
   return { spawn, landing, distU: Math.hypot(landing.x - spawn.x, landing.y - spawn.y) };
 }

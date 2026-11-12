@@ -72,19 +72,19 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution — Phase A (then STOP for Eric's yes):**
-- [ ] `shared/src/constants.ts` -- add `CONFIG.dispersion { alongFrac: 0.01, acrossFrac: 1/3, floorU: 2, sigmas: 2 }` with doc -- the dials
-- [ ] `shared/src/sim/dispersion.ts` + `shared/src/index.ts` -- the two pure functions (see Design Notes), exported -- the one shared function
-- [ ] `shared/src/__tests__/dispersion.test.ts` -- the matrix rows as contracts (inside the ellipse for many seeds, linear growth, floor, long axis along the shot, same seed same point, finite at zero length) -- no pinned sample values
-- [ ] `client/scripts/dispersionBench.mjs` + `client/scripts/dispersionBench/` -- single-file page from the real function: sliders for the four dials and range, sample salvos drawn to scale against a hull and the 15 u blast at today's 1000 u and at 8,700 u, hit-share readout, and the R7 preview-oval candidate in the game's reticle look -- R1
-- [ ] Publish the page as a private artifact; record Eric's numbers; HALT for his yes
+- [x] `shared/src/constants.ts` -- add `CONFIG.dispersion { alongFrac: 0.01, acrossFrac: 1/3, floorU: 2, sigmas: 2 }` with doc -- the dials
+- [x] `shared/src/sim/dispersion.ts` + `shared/src/index.ts` -- the two pure functions (see Design Notes), exported -- the one shared function
+- [x] `shared/src/__tests__/dispersion.test.ts` -- the matrix rows as contracts (inside the ellipse for many seeds, linear growth, floor, long axis along the shot, same seed same point, finite at zero length) -- no pinned sample values
+- [x] `client/scripts/dispersionBench.mjs` + `client/scripts/dispersionBench/` -- single-file page from the real function: sliders for the four dials and range, sample salvos drawn to scale against a hull and the 15 u blast at today's 1000 u and at 8,700 u, hit-share readout, and the R7 preview-oval candidate in the game's reticle look -- R1
+- [x] Publish the page as a private artifact; record Eric's numbers; HALT for his yes
 
 **Execution — Phase B (after the yes):**
-- [ ] `server/src/game/world.ts`, `equipment/index.ts` -- a room-private dispersion stream (new constant in the roster) keyed per shell id; exposed on `ActivationContext` -- seeded, replayable, unknown to clients
-- [ ] `server/src/game/equipment/mainBattery.ts`, `secondaries.ts` -- each shell's target = `dispersedPoint(muzzle, baseTarget, seed)` clamped inside the map; bearing and range recomputed per shell -- R5, straight flight
-- [ ] `shared` + `server` attenuation removal across the Code Map files, dated notes, tests deleted or re-cut to flat damage -- distance decay retired (supersedes epic-9 amendment 187)
-- [ ] `server/scripts/batchsim/*`, `weaponsSmoke.mjs` -- drop `gunAttenuation` tune keys and `shotsBeyondRange`; add main-battery hit share by range band -- the harness readout
-- [ ] `client/src/render/aimPreview.ts` + test -- draw the ellipse from `dispersionAxes` in the look Eric approved -- R7
-- [ ] `shared/src/index.ts`, `VERSION`, `package.json`, both trackers, `epic-11-context-amendments.md`, `docs/codebase-map.md` -- PV 103, cycle records, the rulings R1–R8 as one amendment
+- [x] `server/src/game/world.ts`, `equipment/index.ts` -- a room-private dispersion stream (new constant in the roster) keyed per shell id; exposed on `ActivationContext` -- seeded, replayable, unknown to clients
+- [x] `server/src/game/equipment/mainBattery.ts`, `secondaries.ts` -- each shell's target = `dispersedPoint(muzzle, baseTarget, seed)` clamped inside the map; bearing and range recomputed per shell -- R5, straight flight
+- [x] `shared` + `server` attenuation removal across the Code Map files, dated notes, tests deleted or re-cut to flat damage -- distance decay retired (supersedes epic-9 amendment 187)
+- [x] `server/scripts/batchsim/*`, `weaponsSmoke.mjs` -- drop `gunAttenuation` tune keys and `shotsBeyondRange`; add main-battery hit share by range band -- the harness readout
+- [x] `client/src/render/aimPreview.ts` + test -- draw the ellipse from `dispersionAxes` in the look Eric approved -- R7
+- [x] `shared/src/index.ts`, `VERSION`, `package.json`, both trackers, `epic-11-context-amendments.md`, `docs/codebase-map.md` -- PV 103, cycle records, the rulings R1–R8 as one amendment
 
 **Acceptance Criteria:**
 - Given a main-battery salvo, when it fires, then each shell has its own landing point inside the ellipse for its range and its velocity points from its muzzle at that point.
@@ -128,6 +128,7 @@ warnings: ['oversized']
 - defer: 0
 - reject: 0
 - addressed_findings:
+  - `[low]` `[patch]` (found by the fix agent) a shell spawned outside the map disk by a rim-hugging ship was lost — spawn moved forward along the bearing to where its track enters the disk
   - `[high]` `[patch]` dispersion seed derived from the room-private seed and brute-forceable from the shooter's own landings (Blind Hunter; confirmed) — independent per-room key + HMAC per shell
   - `[high]` `[patch]` converging salvo tracks leak the aim point and the shooter's range (both hunters) — parallel flight from the muzzle line
   - `[medium]` `[patch]` client main-battery reach measured from the ship center, server from the turret station (Codex; confirmed; also Eric's R19) — one station-based helper
@@ -156,3 +157,11 @@ warnings: ['oversized']
 
 **Manual checks:**
 - Eric's yes on the bench page numbers and the preview oval before Phase B is committed.
+
+## Auto Run Result
+
+- **Summary:** every main-battery and secondary shell lands at its own seeded point inside a range-scaled ellipse around the one aim point (parallel salvo tracks, per-room key); distance decay removed; turret and launcher traverse removed (bow-first, arc-only, derived angles); aim marker = true-size bright-middle oval + today's reticle, bright amber 2x by default, with AIM COLOR (every weapon, torpedoes included) and AIM SIZE (reticle only) settings; the reach ring follows the firing turret; PV 103; cycle 226, 0.19.20; epic-11 amendment 3.
+- **Files:** `shared/src/sim/dispersion.ts` (new), `turrets.ts`, `launchers.ts`, `mountAim.ts`, `shell.ts`, `attenuation.ts`, `constants.ts`, `index.ts`, `types.ts`; `server/src/game/dispersionKey.ts` (new), `world.ts`, `equipment/*`, `ai/*`, `rooms/ArenaRoom.ts`; `server/scripts/batchsim/rangeBands.ts` (new) + readouts, overrides, both smokes; `client/src/render/{aimPreview,firing,weaponArc}.ts`, `sim/own{Battery,Launchers}*.ts`, `settings/store.ts`, `ui/settings.ts`, `input/keyboard.ts`, `config.ts`, `main.ts`; `client/scripts/dispersionBench*` (bench page); tests across all three workspaces; records.
+- **Review:** one pass — Blind Hunter + Edge Case Hunter (Fable) + Codex; 10 patches applied (2 high, 3 medium, 5 low), 0 deferred, 0 rejected. Both hunters flagged the converging tracks; the seed recovery (Blind Hunter) and the station-vs-center reach (Codex) were each confirmed against the code.
+- **Verification:** `npm run check` green (lint 0 errors; shared / server / client tests; hooks 266); matchSmoke and weaponsSmoke first try after wave 1 and again after the review fixes; bench page self-test; real in-game screenshots judged by Eric.
+- **Residual:** the oval is a few pixels on today's 1000 u reach until Story 11.2 (accepted, R20); an observer still gets a noisy range hint from the sideways spread of a salvo; How-to-Play, the GDD and DESIGN.md's torpedo-green aim register are stale until 11.11; bots' scatter stacks with dispersion until 11.9; no batch sim was run.

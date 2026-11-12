@@ -25,6 +25,7 @@ import {
   aimPointOf,
   burstPointAlong,
   dispersionAxes,
+  dispersedPoint,
   gunReachU,
   hullSilhouette,
   pointPolygonDistance,
@@ -40,6 +41,7 @@ import {
   type ShellState,
   type Vec2,
 } from '@salvo/shared';
+import { salvoShellFlight } from '../game/equipment/ballistics.js';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { EQUIPMENT, freshAmmo, type ActivationContext } from '../game/equipment/index.js';
 import { dispersionShellSeed, offlineDispersionKey } from '../game/dispersionKey.js';
@@ -172,6 +174,35 @@ describe('(a) the main battery: every shell its own landing, PARALLEL tracks off
       }
     }
     expect(n).toBeGreaterThan(0);
+  });
+});
+
+describe('(a2) a firer at the rim: no shell spawns outside the water disk', () => {
+  it('the spawn slides forward along the salvo bearing into the disk; direction and distance stay honest', () => {
+    const R = bareWorld().map.radius;
+    const muzzle = { x: R - 2, y: 0 };
+    const bearing = Math.PI / 2 + 0.05; // roughly tangent to the rim
+    const station = { x: R - 4, y: -30 };
+    const center = { x: R - 3, y: 400 };
+    let exercised = 0;
+    for (let seed = 1; seed <= 500; seed += 1) {
+      const f = salvoShellFlight(station, center, muzzle, bearing, seed, R);
+      expect(Math.hypot(f.spawn.x, f.spawn.y)).toBeLessThanOrEqual(R);
+      expect(Math.hypot(f.landing.x, f.landing.y)).toBeLessThanOrEqual(R);
+      const dx = f.landing.x - f.spawn.x;
+      const dy = f.landing.y - f.spawn.y;
+      expect(f.distU).toBeCloseTo(Math.hypot(dx, dy), 6);
+      if (f.distU > 1e-6) {
+        expect(Math.cos(Math.atan2(dy, dx) - bearing)).toBeGreaterThan(1 - 1e-6);
+      }
+      // Would the un-slid spawn (landing projected back onto the muzzle line) be outside?
+      const ux = Math.cos(bearing);
+      const uy = Math.sin(bearing);
+      const p = dispersedPoint(station.x, station.y, center.x, center.y, seed);
+      const along = (p.x - muzzle.x) * ux + (p.y - muzzle.y) * uy;
+      if (along > 0 && Math.hypot(p.x - ux * along, p.y - uy * along) > R) exercised += 1;
+    }
+    expect(exercised).toBeGreaterThan(0);
   });
 });
 
