@@ -2,7 +2,7 @@
 title: 'Story 11.1: Real Dispersion'
 type: 'feature'
 created: '2026-11-12'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'f2f70febd58d9155fbd94e84383c12fae89e0613'
 review_loop_iteration: 0
 context:
@@ -111,7 +111,32 @@ warnings: ['oversized']
   - R18 (Eric, same day, restated): the targeting reticle stays AS TODAY (ring + cross) AND the oval is drawn with it. They SHARE the aim color. ONLY the reticle is sizable (1×–5×, default 2×); the oval is never scaled by the setting.
   - Phase B tasks as amended: Wave 1 `shared` + `server` (dispersion wiring with R13, attenuation removal, traverse removal, bots, harness, smokes, tests); Wave 2 `client` (snap rendering, prediction cleanup, the R14 oval, the R15 reticle + settings); then records.
 
+- **2026-11-12 review gate — Eric (AskUserQuestion), rulings R19–R21, and two orchestrator fixes from the review.**
+  - R19 The range-clamp ring follows the firing TURRET's reach, so it sits on the oval.
+  - R20 The tiny true-size oval on today's reach is accepted until Story 11.2.
+  - R21 "All aim previews, even torpedoes. Make it all amber. Everything gets AIM COLOR and handled accordingly. Everyone gets arcs painted like the torpedo arcs." Reading: every weapon's aim marker and painted arc takes AIM COLOR (the torpedo's green retires); the main-battery turrets get arc wedges in the torpedo launchers' look and show rule; full-arc weapons get none.
+  - FIX (anti-cheat, supersedes "bearing and travel recomputed per shell" and the per-barrel muzzles of R13's implementation, NOT its outcome): the shells of a salvo fly PARALLEL on the salvo bearing, each from the muzzle line straight to its own landing; one dispersion range per salvo (station → center). Converging tracks let an observer solve the aim point and the hidden shooter's range.
+  - FIX (anti-cheat): the dispersion seed is a per-room 32-byte key independent of every other private stream; per-shell seed = HMAC of the shell ordinal. The first build XORed it onto the room's private seed, recoverable from the shooter's own landings.
+  - KEEP: `dispersion.ts`, the pick rule, the derived angles, the oval, the settings.
+
 ## Review Triage Log
+
+### 2026-11-12 — Review pass 1 (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 2, medium 3, low 4)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` dispersion seed derived from the room-private seed and brute-forceable from the shooter's own landings (Blind Hunter; confirmed) — independent per-room key + HMAC per shell
+  - `[high]` `[patch]` converging salvo tracks leak the aim point and the shooter's range (both hunters) — parallel flight from the muzzle line
+  - `[medium]` `[patch]` client main-battery reach measured from the ship center, server from the turret station (Codex; confirmed; also Eric's R19) — one station-based helper
+  - `[medium]` `[patch]` own turret / launcher angle overwritten by each frame, a 20 Hz flick (Edge Case Hunter) — `correct()` keeps the local derived angle
+  - `[medium]` `[patch]` AIM COLOR input keeps focus and swallows ESC (Edge Case Hunter) — color input exempt from the text-entry guard
+  - `[low]` `[patch]` perception suite could not see a derivable landing (Blind Hunter) — parallel-velocity property test + key-independence tests
+  - `[low]` `[patch]` `dispersion.ts` header overstated cross-engine determinism (Blind Hunter)
+  - `[low]` `[patch]` harness main-battery classifier inferred from damage amounts (Blind Hunter)
+  - `[low]` `[patch]` `aimColorTint('')` first call returned black (Edge Case Hunter)
 
 ## Design Notes
 
