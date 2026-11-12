@@ -170,7 +170,7 @@ describe('setSinkFade — the sinking insert', () => {
     const built = ctx.built.length;
     audio.setSinkFade(0.8); // the same insert glides; nothing new is built
     expect(ctx.built.length).toBe(built);
-    audio.setSinkFade(null);
+    audio.setSinkFade(null, { immediate: true }); // the deferred, ramped unplug is pinned under P7 below
     expect(b.chain.outputs.at(-1)).toBe(b.master);
     expect(insert.disconnected).toBe(true);
   });
@@ -226,5 +226,96 @@ describe('the shipped cue table on this path', () => {
       const { audio } = setup();
       expect(() => audio.playCue(id, { pan: 0.2, distance01: 0.3 }), id).not.toThrow();
     }
+  });
+});
+
+// --- review-gate regressions (Story 10.13 wave C fixes) ----------------------
+
+describe('P2 — the world cap counts WORLD voices only', () => {
+  it('a held secondaries stream and a salvo (own voices) never mute a far world cue', () => {
+    const { audio, ctx } = setup();
+    for (let i = 0; i < 12; i++) audio.playCue('secondaries');
+    for (let i = 0; i < 6; i++) audio.playCue('mainBattery');
+    const before = ctx.built.length;
+    audio.playCue('steelHit', { pan: 0.4, distance01: 0.9 });
+    expect(ctx.built.length).toBeGreaterThan(before);
+  });
+});
+
+describe('P16 — a context that is not running is not audible', () => {
+  it('play, playCue and playHorn build nothing and engineBus is null while suspended', () => {
+    const { audio, ctx } = setup();
+    (ctx as unknown as { state: string }).state = 'suspended';
+    const before = ctx.built.length;
+    audio.play('tick');
+    audio.playCue('hitCall');
+    audio.playHorn('bell', 1);
+    expect(ctx.built.length).toBe(before);
+    expect(audio.engineBus()).toBeNull();
+    (ctx as unknown as { state: string }).state = 'running';
+    expect(audio.engineBus()).not.toBeNull();
+  });
+});
+
+describe('P17 — the ship-select horn preview', () => {
+  it('a new preview stops the one still sounding; quick clicks never pile up at the mix cap', () => {
+    const { audio, ctx } = setup();
+    for (let i = 0; i <= HORN_MAX_CONCURRENT; i++) audio.previewHorn('bell');
+    const firstShot = ctx.built.filter((n) => n.started?.length).slice(0, 1)[0];
+    expect((firstShot.stopped?.at(-1) as number) - ctx.currentTime).toBeLessThan(1);
+    // the last preview is not stopped early (its sources run past the fade)
+    const last = ctx.built.filter((n) => n.started?.length).at(-1) as FakeNode;
+    expect((last.stopped?.at(-1) as number) - ctx.currentTime).toBeGreaterThan(1);
+  });
+});
+
+describe('P18 — bus construction never throws out of resume()', () => {
+  it('a compressor factory that throws falls back to a gain-only chain that still sounds', () => {
+    const ctx = new FakeAudioContext() as Ctx;
+    ctx.resume = () => Promise.resolve();
+    (ctx as unknown as { createDynamicsCompressor: () => never }).createDynamicsCompressor = () => {
+      throw new Error('boom');
+    };
+    (window as unknown as { AudioContext: unknown }).AudioContext = function () {
+      return ctx;
+    };
+    const audio = new Audio();
+    expect(() => audio.resume()).not.toThrow();
+    audio.play('tick');
+    const osc = ctx.nodesOf('oscillator')[0];
+    expect(osc).toBeDefined();
+    expect(downstream(osc).has(ctx.destination)).toBe(true);
+  });
+});
+
+describe('P7 — the sink fade opens before it unplugs', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('null glides the insert open and unplugs only after the ramp; immediate unplugs at once', () => {
+    vi.useFakeTimers();
+    const { audio, ctx } = setup();
+    const b = buses(ctx);
+    audio.setSinkFade(1);
+    const insert = b.chain.outputs.at(-1) as FakeNode;
+    audio.setSinkFade(null);
+    expect(b.chain.outputs.at(-1)).toBe(insert); // still spliced, gliding open
+    expect(insert.disconnected).toBe(false);
+    vi.advanceTimersByTime(2000);
+    expect(b.chain.outputs.at(-1)).toBe(b.master);
+    audio.setSinkFade(0.5);
+    audio.setSinkFade(null, { immediate: true });
+    expect(b.chain.outputs.at(-1)).toBe(b.master);
+  });
+
+  it('a new sinking while the old insert is still opening reuses it (no second insert)', () => {
+    vi.useFakeTimers();
+    const { audio, ctx } = setup();
+    audio.setSinkFade(1);
+    audio.setSinkFade(null);
+    const built = ctx.built.length;
+    audio.setSinkFade(0.2);
+    expect(ctx.built.length).toBe(built);
+    vi.advanceTimersByTime(2000);
+    expect(buses(ctx).chain.outputs.at(-1)).not.toBe(buses(ctx).master);
   });
 });

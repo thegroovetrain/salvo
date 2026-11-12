@@ -19,6 +19,11 @@ export interface CloudCueState {
 
 export const freshCloudCueState = (): CloudCueState => ({ seen: null });
 
+/** Forget the seed: the next frame only seeds (a reconnect, review P5). */
+export function unseedClouds(state: CloudCueState): void {
+  state.seen = null;
+}
+
 /** A held cloud's identity, birth and position (`HeldCloud` is wider). */
 export interface CloudLike {
   id: string;
@@ -57,12 +62,14 @@ export const freshBeaconCueState = (): BeaconCueState => ({ armed: null, heard: 
 /**
  * Pure-ish (mutates `state`): did a NEW set of beacons just surface? `cycle` is
  * the set's identity (`beaconCycle`, -1 / non-finite = no set); `afloat` says
- * whether any beacon of it is afloat this frame. Fires ONCE per set, and only
- * for a set we watched before it surfaced: a set first seen already afloat
- * (joining or resuming mid-set) is marked heard without a sound.
+ * whether any beacon of it is afloat this frame, or NULL when there is no
+ * beacon data at all this frame (an unsynced schema — review P14: no data must
+ * never arm a set). Fires ONCE per set, and only for a set we watched before
+ * it surfaced: a set first seen already afloat (joining or resuming mid-set)
+ * is marked heard without a sound.
  */
-export function beaconSurfaced(state: BeaconCueState, cycle: number | undefined, afloat: boolean): boolean {
-  if (cycle === undefined || !Number.isFinite(cycle) || cycle < 0) return false;
+export function beaconSurfaced(state: BeaconCueState, cycle: number | undefined, afloat: boolean | null): boolean {
+  if (afloat === null || cycle === undefined || !Number.isFinite(cycle) || cycle < 0) return false;
   if (state.heard === cycle) return false;
   if (!afloat) {
     state.armed = cycle;
@@ -83,48 +90,76 @@ export function boostRose(prev: boolean | null, now: boolean): boolean {
   return prev === false && now;
 }
 
-/** The torpedo-hum memory: ids already heard (never re-armed). */
+/** Where the player listens from — the hum re-seeds when this changes. */
+export type ListenerKind = 'own' | 'camera';
+
+/** The torpedo-hum memory: ids already heard (never re-armed), and the
+ *  listener the memory was seeded for (null = not seeded yet). */
 export interface TorpedoHumState {
   heard: Set<string>;
+  seededFor: ListenerKind | null;
 }
 
-export const freshTorpedoHumState = (): TorpedoHumState => ({ heard: new Set() });
+export const freshTorpedoHumState = (): TorpedoHumState => ({ heard: new Set(), seededFor: null });
 
-/** A drawn ballistic: its id, wire kind and current position. */
+/** Forget the seed: the next frame only seeds (a resume, a reconnect). */
+export function unseedTorpedoHum(state: TorpedoHumState): void {
+  state.seededFor = null;
+}
+
+/** A drawn ballistic: its id, wire kind, current position, and whether it is
+ *  the player's own (the hum's family, review P3c). */
 export interface DrawnBallistic {
   id: string;
   kind: string;
   x: number;
   y: number;
+  own?: boolean;
+}
+
+/** The drawn torpedoes inside `radiusU` of the listener (junk ignored). */
+function torpedoesInside(drawn: readonly DrawnBallistic[], listener: { x: number; y: number }, radiusU: number): DrawnBallistic[] {
+  if (!Number.isFinite(listener.x) || !Number.isFinite(listener.y) || !(radiusU > 0)) return [];
+  const r2 = radiusU * radiusU;
+  return drawn.filter((b) => {
+    if (b.kind !== 'torp' || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return false;
+    const dx = b.x - listener.x;
+    const dy = b.y - listener.y;
+    return dx * dx + dy * dy <= r2;
+  });
 }
 
 /**
- * Pure-ish (mutates `state`): the drawn torpedoes that came within `radiusU`
- * of the listener for the FIRST time this frame. Once per id, never re-armed;
- * anything that is not a torpedo, and any junk position, is ignored. A heard
- * id is remembered for the life of the state (a torpedo that leaves the drawn
- * set and is re-revealed does not hum again); the owner starts a fresh state
- * per game, and a match holds at most a few hundred torpedo ids.
+ * Pure-ish (mutates `state`): the drawn torpedoes inside `radiusU` of the
+ * listener that have not hummed yet — CANDIDATES only: the caller marks an id
+ * heard (`markHumHeard`) only once its hum actually played, so a hum a cap
+ * dropped is retried while the torpedo is still inside (review P3b).
+ *
+ * THE SEED (review P3a): the first frame — and the first frame after the
+ * LISTENER changes kind (own hull ↔ camera: a death, a spectate jump) — only
+ * marks every torpedo already inside as heard and returns nothing, so a join,
+ * a refresh-resume or a camera jump never hums at torpedoes it did not watch
+ * come close. Anything that is not a torpedo, and any junk position, is ignored.
  */
-export function torpedoesClose(
+export function torpedoHumCandidates(
   state: TorpedoHumState,
   drawn: readonly DrawnBallistic[],
   listener: { x: number; y: number },
   radiusU: number,
+  kind: ListenerKind,
 ): DrawnBallistic[] {
-  const out: DrawnBallistic[] = [];
-  if (!Number.isFinite(listener.x) || !Number.isFinite(listener.y) || !(radiusU > 0)) return out;
-  const r2 = radiusU * radiusU;
-  for (const b of drawn) {
-    if (b.kind !== 'torp' || state.heard.has(b.id)) continue;
-    if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
-    const dx = b.x - listener.x;
-    const dy = b.y - listener.y;
-    if (dx * dx + dy * dy > r2) continue;
-    state.heard.add(b.id);
-    out.push(b);
+  const inside = torpedoesInside(drawn, listener, radiusU);
+  if (state.seededFor !== kind) {
+    state.seededFor = kind;
+    for (const b of inside) state.heard.add(b.id);
+    return [];
   }
-  return out;
+  return inside.filter((b) => !state.heard.has(b.id));
+}
+
+/** Mark a torpedo's hum as heard (it played) — never again for this id. */
+export function markHumHeard(state: TorpedoHumState, id: string): void {
+  state.heard.add(id);
 }
 
 /**

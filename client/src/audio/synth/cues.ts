@@ -37,6 +37,7 @@ export type CueId =
   | 'secondariesWorld'
   | 'torpedoLaunch'
   | 'torpedoRun'
+  | 'torpedoRunOwn'
   | 'mineDrop'
   | 'starShell'
   | 'phosphorShell'
@@ -140,6 +141,9 @@ const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   sinkWitness: row(take(SINK_WITNESS, 'A'), world('worldSink', 2)),
   smoke: row(take(SMOKE, 'A'), world('worldSmoke', 2)),
   torpedoRun: row(take(TORPEDO_RUN, 'B'), world('torpedoRun', 2)),
+  // Review P3c: the hum of YOUR OWN torpedo (Eric: own torpedoes hum too) on
+  // its own family, so it never starves an enemy torpedo's hum.
+  torpedoRunOwn: row(take(TORPEDO_RUN, 'B'), own('ownTorpedoRun', 1)),
 };
 
 const ids = Object.keys(TABLE) as CueId[];
@@ -237,6 +241,11 @@ export function cueAdmitted(tier: CueTier, distance01: number | undefined, live:
 
 /** Sum of every own family's cap (each family counted once) — what the own
  *  tier can ever hold at once; the global cap keeps this much headroom. */
+/** Every WORLD-tier family — the families the world caps count (review P2). */
+export const WORLD_FAMILIES: readonly string[] = [
+  ...new Set(ids.filter((id) => CUE_TIER[id] === 'world').map((id) => CUES[id].family as string)),
+];
+
 export function ownVoiceCeiling(): number {
   const caps = new Map<string, number>();
   for (const id of ids) {

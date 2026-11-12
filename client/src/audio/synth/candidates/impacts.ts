@@ -2,7 +2,7 @@
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
-import { bark, bubbles, crack, droplets, filters, metalRing, noiseLayer, splash, STEEL, thump, tone } from './parts.js';
+import { bark, bubbles, crack, droplets, filters, metalRing, noiseLayer, STEEL, thump } from './parts.js';
 
 const { lp, hp, bp } = filters;
 
@@ -18,35 +18,6 @@ export const STEEL_HIT: CueSlot = {
   today: 'impact',
   world: true,
   candidates: [
-    {
-      id: 'A',
-      label: 'Clang and boom',
-      blurb: 'A heavy metal clang that rings for a moment, inside a short explosion.',
-      recipe: { gain: 0.3,
-        family: 'hit',
-        maxVoices: 4,
-        reverb: 0.35,
-        layers: [metalRing(250, STEEL, 50, 26, 280, { jitter: { freq: 0.15 } }), ...blastBody(0.8)],
-      },
-    },
-    {
-      id: 'B',
-      label: 'Ringing gong hit',
-      blurb: 'A brighter, gong-like metal strike that bends as it fades, over a dull blast.',
-      recipe: { gain: 0.45,
-        family: 'hit',
-        maxVoices: 4,
-        reverb: 0.35,
-        layers: [
-          {
-            source: { kind: 'osc', wave: 'sine', freq: 210, fm: { ratio: 1.41, index: { from: 8, to: 0, tauMs: 150 } } },
-            env: { peak: 0.35, attackMs: 1, tauMs: 400 },
-            jitter: { freq: 0.15 },
-          },
-          ...blastBody(0.6),
-        ],
-      },
-    },
     {
       id: 'C',
       label: 'Punch-through',
@@ -92,26 +63,6 @@ export const OWN_HIT: CueSlot = {
         ],
       },
     },
-    {
-      id: 'B',
-      label: 'Crunch',
-      blurb: 'A close, grinding crunch of torn plating over a heavy boom, drier and more violent.',
-      recipe: { gain: 0.28,
-        family: 'ownHit',
-        maxVoices: 2,
-        reverb: 0.15,
-        layers: [
-          thump(60, 30, 200, 0.9, 260, { drive: 3 }),
-          noiseLayer('brown', [lp({ from: 3000, to: 300, ms: 250 }, 1)], { peak: 1.6, attackMs: 1, tauMs: 160 }, { drive: 3 }),
-          {
-            source: { kind: 'osc', wave: 'sawtooth', freq: { from: 140, to: 90, ms: 300 }, fm: { ratio: 1.37, index: { from: 3, to: 0, tauMs: 200 } } },
-            filters: [lp(1200)],
-            env: { peak: 0.25, attackMs: 2, tauMs: 180 },
-          },
-          debris(14, 500, 30),
-        ],
-      },
-    },
   ],
 };
 
@@ -123,28 +74,6 @@ export const SPLASH: CueSlot = {
   world: true,
   salvo: true,
   candidates: [
-    {
-      id: 'A',
-      label: 'Water column',
-      blurb: 'A whoosh of water thrown up, a low whump, then spray raining back down.',
-      recipe: { gain: 0.2, family: 'splash', maxVoices: 6, reverb: 0.25, layers: splash(1) },
-    },
-    {
-      id: 'B',
-      label: 'Simple hiss splash',
-      blurb: 'A short, plain hiss of spray over a soft whump, the lightest of the three.',
-      recipe: { gain: 0.28,
-        family: 'splash',
-        maxVoices: 6,
-        reverb: 0.2,
-       
-        layers: [
-          noiseLayer('white', [hp(1500)], { peak: 0.5, attackMs: 4, tauMs: 220 }, { am: { rateHz: 25, depth: 0.7, jitter: 0.3, wave: 'triangle' } }),
-          tone(90, { peak: 0.45, attackMs: 2, endMs: 40 }),
-          noiseLayer('brown', [lp(500)], { peak: 0.7, attackMs: 4, tauMs: 160 }),
-        ],
-      },
-    },
     {
       id: 'C',
       label: 'Big plume',
@@ -190,22 +119,6 @@ export const SINK_WITNESS: CueSlot = {
           metalRing(95, STEEL.slice(0, 4), 90, 22, 900, { startMs: 300 }),
           noiseLayer('pink', [bp(600, 0.7)], { peak: 1, attackMs: 600, holdMs: 1400, tauMs: 600 }, { am: { rateHz: 0.7, depth: 0.4 } }),
           bubbles(18, 3000, 0.1, 400, [0.15, 0.6]),
-        ],
-      },
-    },
-    {
-      id: 'B',
-      label: 'Boom and steam',
-      blurb: 'A muffled explosion deep inside the ship, then a long roar of escaping steam and bubbling.',
-      recipe: { gain: 0.22,
-        family: 'sink',
-        maxVoices: 2,
-        reverb: 0.5,
-        layers: [
-          thump(55, 25, 400, 0.8, 450, { drive: 3 }),
-          noiseLayer('brown', [lp(500)], { peak: 1.2, attackMs: 5, tauMs: 400 }),
-          noiseLayer('white', [hp(1800), lp(7000)], { peak: 0.2, attackMs: 300, holdMs: 1500, tauMs: 500 }, { startMs: 200, am: { rateHz: 4, depth: 0.3, jitter: 0.3 } }),
-          bubbles(24, 3000, 0.08, 500, [0.2, 0.8]),
         ],
       },
     },

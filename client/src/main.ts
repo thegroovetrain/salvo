@@ -533,6 +533,8 @@ interface Game {
   /** Story 10.13: the engines, the sink fade and the per-frame edge cues
    *  (audio/engineMix.ts), driven once per render frame by updateShipAudio. */
   engineMix: EngineMix;
+  /** Story 10.13: the hull-contact scrape's sound (audio/grindCue.ts). */
+  grindCue: GrindCue;
   /**
    * Host ad-SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
    * every call here is safe to fire and forget. The implementation is ADSENSE
@@ -1352,9 +1354,36 @@ function telegraphCue(dir: number): { pitch: number; fallback: ReturnType<typeof
  *  grinding and says when the scrape ends; audio/grindCue.ts starts a ~1.5 s
  *  shot every `grindCuePeriodMs` (overlapping into one continuous scrape whose
  *  level follows the bleed) and stops the live shots at the end. */
-function contactFx(stage: Stage, audio: Audio): ContactFx {
-  const cue = new GrindCue((gain) => audio.playCue('ramGrind', { gain }), CLIENT_CONFIG.audio.grindCuePeriodMs);
+function contactFx(stage: Stage, cue: GrindCue): ContactFx {
   return new ContactFx(stage.layers.burstFx, (gain) => cue.play(gain), () => cue.end());
+}
+
+/**
+ * STOP AND HOLD THE SHIP AUDIO (Story 10.13 review P1 / P4 / P5): the engines,
+ * the storm bed, the klaxon, the grind and the sink insert — on a session
+ * teardown, a lost room, a hidden tab or a dropped connection. `resumeShipAudio`
+ * undoes it (edge detectors re-seeded); a teardown never resumes.
+ */
+function haltShipAudio(g: Game): void {
+  g.engineMix.halt();
+  g.grindCue.end();
+  g.audio.setSinkFade(null, { immediate: true });
+}
+
+function resumeShipAudio(g: Game): void {
+  if (document.hidden || g.returning) return; // the hidden-tab / teardown halt still holds
+  g.engineMix.resume();
+}
+
+/** Halt the ship audio while the tab is hidden (the rAF loop does not run, so
+ *  nothing would ever release it) and resume on return. Returns a disposer. */
+function bindAudioVisibility(g: Game): () => void {
+  const onChange = (): void => {
+    if (document.hidden) haltShipAudio(g);
+    else if (!g.reconnecting) resumeShipAudio(g);
+  };
+  document.addEventListener('visibilitychange', onChange);
+  return () => document.removeEventListener('visibilitychange', onChange);
 }
 
 /** Story 10.13: this frame's ship audio (audio/engineMix.ts decides). */
@@ -1374,18 +1403,38 @@ function shipAudioFrame(g: Game, now: number): EngineFrame {
   const { spectating, matchOver, net } = g.state;
   const you = net.you;
   const conned = !spectating && !matchOver && conningFlag(you, now, spectating) === true ? you : null;
+  const plane = publicState(g); // ONE snapshot for the beacon cycle and the views (review P14)
   return {
     own: conned ? ownEngine(g, conned.speed, now) : null,
+    boostConfirmed: boostConfirmed(conned, now),
     sinking01: ownSinking01(g, now),
     sinkCleared: spectating || matchOver || you?.alive === true,
-    listener: conned ? { x: conned.x, y: conned.y } : g.camera.center,
+    // Review P9: the bus is held closed only by a death in the LIVE match.
+    sinkLatchable: plane.matchPhase === 'active',
+    ...listenerOf(g, conned),
     hulls: remoteHulls(g, now),
     drawn: g.projectiles.drawnBallistics(now),
-    beaconCycle: publicState(g).beaconCycle,
-    beaconAfloat: g.beaconViews.some((v) => v.phase === 'afloat'),
+    beaconCycle: plane.beaconCycle,
+    beaconAfloat: beaconAfloat(g.beaconViews),
     inStorm: g.wasInStorm,
     matchOver,
   };
+}
+
+/** The SERVER-confirmed boost window (review P11) — the surge's edge; the
+ *  continuous engine keeps the predicted one. */
+function boostConfirmed(conned: OwnShip | null, now: number): boolean {
+  return conned !== null && now < (conned.boostUntil ?? 0);
+}
+
+/** Where the player listens from: the conned hull, else the camera centre. */
+function listenerOf(g: Game, conned: OwnShip | null): Pick<EngineFrame, 'listener' | 'listenerKind'> {
+  return conned ? { listener: { x: conned.x, y: conned.y }, listenerKind: 'own' } : { listener: g.camera.center, listenerKind: 'camera' };
+}
+
+/** Any beacon afloat this frame — or null with no beacon data at all (P14). */
+function beaconAfloat(views: readonly BeaconView[]): boolean | null {
+  return views.length === 0 ? null : views.some((v) => v.phase === 'afloat');
 }
 
 /** 0..1 through the own sinking window, or null when not sinking. */
@@ -2098,6 +2147,7 @@ function endSession(g: Game): void {
 /** The room connection ended (server disposal, network death, or own leave). */
 function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; the exit is already on its way
+  haltShipAudio(g); // Story 10.13 review P1: no more frames are coming — nothing may drone on
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
   // THE RESUME-RETRY LOOP GUARD (Story 6.7). Both branches below end in
@@ -2693,6 +2743,10 @@ function buildGame(
   // the same radius the reveal frames; it never changes within a match.
   camera.setMapRadius(map.radius);
 
+  // Story 10.13 review P1: a new Game starts from a clean bus (a previous
+  // session's latched sink insert must not silence this one).
+  audio.setSinkFade(null, { immediate: true });
+  const grindCue = new GrindCue((gain) => audio.playCue('ramGrind', { gain }), CLIENT_CONFIG.audio.grindCuePeriodMs);
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
@@ -2704,7 +2758,8 @@ function buildGame(
     beaconViews: [],
     beaconBodies: new BeaconBodies(),
     beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
-    contactFx: contactFx(stage, audio),
+    contactFx: contactFx(stage, grindCue),
+    grindCue,
     lastBleedMs: -Infinity,
     camera,
     keyboard,
@@ -2808,6 +2863,11 @@ function buildGame(
   // would still reach handlers closed over the destroyed game and paint match
   // chrome over the fresh port. Registered here, at the moment it is created.
   g.disposers.push(bindGameRoom(g, conn));
+  // Story 10.13 review P1: the ship audio lives on the SHARED Audio, so every
+  // teardown that runs the disposers (endSession — the reload-free requeue)
+  // must stop it, and the tab-hidden halt rides beside it.
+  g.disposers.push(() => haltShipAudio(g));
+  g.disposers.push(bindAudioVisibility(g));
   // The whiteout lives OUTSIDE the Pixi app (document.body, the top DOM rung),
   // so the reload-less exit must take it off by name; the discs are Pixi.
   g.disposers.push(() => {
@@ -3038,6 +3098,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // ballistic wire shape says neither.
     ownFireWeapon: () => ownFireWeapon(g),
     ownStreamWeapon: () => g.ownFire.claimStream(g.clock.serverNow()), // Story 8.15: every own MG shell
+    ownSinkAlarm: () => g.engineMix.klaxonSinkStart(), // Story 10.13 review P10
     // The own-burst ring's EFFECTIVE radius (undefined = keep the CONFIG base,
     // which is what every burst we cannot honestly claim as ours renders at).
     ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
@@ -3075,10 +3136,12 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     onDrop: () => {
       g.reconnecting = true;
       showBanner('RECONNECTING…');
+      haltShipAudio(g); // Story 10.13 review P5: frames stop — release, and re-seed on resume
     },
     onReconnect: () => {
       g.reconnecting = false;
       hideBanner();
+      resumeShipAudio(g); // the first resumed frame only seeds every edge
       // The outage may have swallowed sunk events, so the observed-kill roll can
       // no longer be trusted: start it clean rather than report a wrong list.
       // The elimination LATCH and its placement survive, though — they were
@@ -4835,9 +4898,11 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
       updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
-      updateShipAudio(g, now); // Story 10.13: engines, sink fade, boost / beacon / torpedo edges
       advanceCameraFrame(g, frameDt);
       renderBeacons(g, now); // public: the same for a captain and a spectator
+      // Story 10.13: engines, sink fade, boost / beacon / torpedo edges — AFTER
+      // the beacon views are derived, so the cue reads this frame's set (P14).
+      updateShipAudio(g, now);
       // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
       // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
       // ribbon laid while dead was observed with no sight bubble and no island
@@ -5425,10 +5490,9 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     },
     // Story 10.13: the class bay's HORN chip previews the horn once. The click
     // is a user gesture, so the context may be created here.
-    (horn) => {
-      shell.audio.resume();
-      shell.audio.playHorn(horn, 1);
-    },
+    // Review P16 / P17: sound only once the context runs (a not-running one
+    // drops cues), and a new pick stops the previous preview.
+    (horn) => void shell.audio.resume().then(() => shell.audio.previewHorn(horn)),
   );
   homeRef = home;
   startAmbient(); // the backdrop, once the menu the player came for is up

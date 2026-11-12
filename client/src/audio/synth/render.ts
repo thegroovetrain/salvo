@@ -214,11 +214,14 @@ export class Synth {
       teardown(shot, true);
       return { result: 'failed', handle: null };
     }
-    this.track(shot, recipe.family);
-    return { result: 'played', handle: this.handleOf(shot) };
+    const free = this.track(shot, recipe.family);
+    return { result: 'played', handle: this.handleOf(shot, free) };
   }
 
-  private handleOf(shot: Shot): ShotHandle {
+  /** A stopped shot frees its voice seat AT ONCE (it is only fading out), so
+   *  a stop-then-play — the horn preview, the klaxon's sinking takeover —
+   *  never finds its own fading shot holding the cap. */
+  private handleOf(shot: Shot, free: () => void): ShotHandle {
     const ctx = this.ctx;
     let stopped = false;
     return {
@@ -230,7 +233,8 @@ export class Synth {
         stopped = true;
         const fade = fadeS !== undefined && Number.isFinite(fadeS) && fadeS > 0 ? fadeS : STOP_FADE_S;
         const t = ctx.currentTime;
-        stopShot(shot, t, fade);
+        stopShot(shot, t, fade, shot.levelValue);
+        free();
       },
     };
   }
@@ -442,20 +446,28 @@ export class Synth {
     shot.stopAt.push(end);
   }
 
-  /** Count the voice until its LAST source ends, then disconnect everything. */
-  private track(shot: Shot, family: string | undefined): void {
+  /** Count the voice until its LAST source ends (then disconnect everything),
+   *  or until `free` — whichever comes first; the seat is given back once. */
+  private track(shot: Shot, family: string | undefined): () => void {
     this.live++;
     if (family !== undefined) this.families.set(family, this.familyVoices(family) + 1);
+    let counted = true;
+    const free = (): void => {
+      if (!counted) return;
+      counted = false;
+      this.live = Math.max(0, this.live - 1);
+      if (family !== undefined) this.families.set(family, Math.max(0, this.familyVoices(family) - 1));
+    };
     let pending = shot.sources.length;
     const release = (): void => {
       pending--;
       if (pending > 0) return;
       teardown(shot);
       shot.ended = true;
-      this.live = Math.max(0, this.live - 1);
-      if (family !== undefined) this.families.set(family, Math.max(0, this.familyVoices(family) - 1));
+      free();
     };
     for (const s of shot.sources) s.onended = release;
+    return free;
   }
 }
 
@@ -463,12 +475,14 @@ const DROPPED: { result: PlayResult; handle: null } = { result: 'dropped', handl
 
 /** End a live shot early: fade its level to the floor over `fade`, then stop
  *  every source at the end of the fade (their `ended` releases the voice). */
-function stopShot(shot: Shot, t: number, fade: number, from?: number): void {
+/** `from` is the level the shot WROTE (`levelValue`) — never the param's
+ *  `.value`, which mid-automation is not where it is headed (review P6). */
+function stopShot(shot: Shot, t: number, fade: number, from: number | undefined): void {
   const g = shot.level?.gain;
   if (g) {
     try {
       g.cancelScheduledValues(t);
-      g.setValueAtTime(Math.max(SILENCE, from ?? g.value), t);
+      g.setValueAtTime(Math.max(SILENCE, from ?? SILENCE), t);
       g.exponentialRampToValueAtTime(SILENCE, t + fade);
     } catch {
       /* a param that refuses automation: the stop below still ends the shot */

@@ -101,11 +101,6 @@ export function crackles(count: number, windowMs: number, peak: number, startMs:
 
 // --- round 2: alerts, signals and shipboard machinery ------------------------
 
-/** `count` onsets `stepMs` apart, from `fromMs`. */
-export function every(stepMs: number, count: number, fromMs = 0): number[] {
-  return Array.from({ length: count }, (_, i) => fromMs + i * stepMs);
-}
-
 /** A struck bell: FM with an inharmonic ratio whose brightness dies away (§11 B). */
 export function bell(hz: number, peak: number, tauMs: number, extra: Partial<Layer> = {}): Layer {
   return {
@@ -139,14 +134,4 @@ export function buzzer(hz: number, onsetsMs: readonly number[], holdMs: number, 
 /** A short mechanical click: a noise impulse through one band. */
 export function click(hz: number, q: number, peak: number, tauMs: number, extra: Partial<Layer> = {}): Layer {
   return { source: { kind: 'click', ms: 2 }, filters: [bp(hz, q)], env: { peak, attackMs: 0, tauMs }, ...extra };
-}
-
-/** A bending steel groan: a low sawtooth through a resonant band, slowly wobbling. */
-export function groan(from: number, to: number, ms: number, peak: number, extra: Partial<Layer> = {}): Layer {
-  return {
-    source: { kind: 'osc', wave: 'sawtooth', freq: { from, to, ms }, vibrato: { rateHz: 2.5, depth: 0.02 } },
-    filters: [bp(from * 3.5, 3)],
-    env: { peak, attackMs: 150, holdMs: ms * 0.5, tauMs: ms * 0.25 },
-    ...extra,
-  };
 }

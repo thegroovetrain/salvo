@@ -5,44 +5,15 @@
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
-import { click, filters, groan, metalRing, noiseLayer, thump, tone } from './parts.js';
+import { click, filters, noiseLayer, thump, tone } from './parts.js';
 
 const { lp, bp } = filters;
-
-/** A glassy chime note: a sine with a faint bell-like shimmer that dies fast. */
-function chime(hz: number, startMs: number, peak: number, tauMs = 180): Layer {
-  return {
-    source: { kind: 'osc', wave: 'sine', freq: hz, fm: { ratio: 3.5, index: { from: 0.6, to: 0, tauMs: 60 } } },
-    env: { peak, attackMs: 3, tauMs },
-    startMs,
-  };
-}
-
-/** A soft marimba-like bar: fundamental plus its quick-dying fourth partial. */
-function bar(hz: number, startMs: number, peak: number): Layer[] {
-  return [
-    tone(hz, { peak, attackMs: 2, tauMs: 150 }, { startMs }),
-    tone(hz * 3.93, { peak: peak * 0.35, attackMs: 1, tauMs: 30 }, { startMs }),
-  ];
-}
 
 export const AIRDROP_CHIME: CueSlot = {
   id: 'airdropChime',
   title: 'Airdrop picked up (reward chime)',
   note: 'Your ship hauls an airdrop crate aboard. Not realistic on purpose: a short, pleasant "got something" chime. Silent in the game today.',
   candidates: [
-    {
-      id: 'A',
-      label: 'Rising glass chime',
-      blurb: 'Three quick, clear notes climbing upward, like tapping glasses.',
-      recipe: { gain: 1, family: 'pickup', maxVoices: 2, reverb: 0.1, layers: [chime(1047, 0, 0.18), chime(1319, 80, 0.18), chime(1568, 160, 0.2, 260)] },
-    },
-    {
-      id: 'B',
-      label: 'Soft marimba pair',
-      blurb: 'Two warm, wooden-sounding notes, low then high.',
-      recipe: { gain: 0.78, family: 'pickup', maxVoices: 2, reverb: 0.08, layers: [...bar(523, 0, 0.3), ...bar(784, 110, 0.3)] },
-    },
     {
       id: 'C',
       label: 'Coin ting',
@@ -67,40 +38,6 @@ export const KILL_SOUND: CueSlot = {
   note: 'No signal sound: the confirmation is the ship blowing up, heard from a distance. It can play in the same second as the sinking sound you picked, so it is the blast, not another groan.',
   today: 'kill',
   candidates: [
-    {
-      id: 'A',
-      label: 'Magazine blast, tearing steel',
-      blurb: 'A huge deep boom as the ammunition goes up, then steel tearing apart.',
-      recipe: {
-        gain: 0.29,
-        family: 'kill',
-        maxVoices: 2,
-        reverb: 0.4,
-        layers: [
-          thump(42, 20, 500, 1, 600, { drive: 3 }),
-          noiseLayer('brown', [lp({ from: 1500, to: 120, ms: 1000 }, 0.8)], { peak: 1.4, attackMs: 3, tauMs: 700 }),
-          metalRing(380, [1, 1.47, 2.09, 2.56], 25, 8, 120, { startMs: 350, filters: [lp(1500)], grains: { count: 9, windowMs: 900, thin: 0.5, spread: [0.7, 1.4] } }),
-        ],
-      },
-    },
-    {
-      id: 'B',
-      label: 'Double blast',
-      blurb: 'Two heavy explosions close together, the second bigger, then a low rumble.',
-      recipe: {
-        gain: 0.32,
-        family: 'kill',
-        maxVoices: 2,
-        reverb: 0.4,
-        layers: [
-          thump(50, 26, 300, 0.7, 350, { drive: 3 }),
-          noiseLayer('brown', [lp(700)], { peak: 1, attackMs: 3, tauMs: 300 }),
-          thump(40, 18, 500, 1, 650, { drive: 3, startMs: 420 }),
-          noiseLayer('brown', [lp({ from: 1200, to: 140, ms: 900 })], { peak: 1.4, attackMs: 3, tauMs: 650 }, { startMs: 420 }),
-          groan(48, 34, 1600, 0.12, { startMs: 1200 }),
-        ],
-      },
-    },
     {
       id: 'C',
       label: 'Far boom, slow roll',
@@ -136,23 +73,6 @@ export const CARD_FITTED_SUBTLE: CueSlot = {
       blurb: 'A small, soft click, like a cabinet latch closing.',
       recipe: { gain: 1, family: 'fit', maxVoices: 3, layers: [click(1800, 2, 6, 8), thump(180, 120, 20, 0.15, 12)] },
     },
-    {
-      id: 'B',
-      label: 'Muted wooden tap',
-      blurb: 'One quiet knock on wood.',
-      recipe: {
-        gain: 1,
-        family: 'fit',
-        maxVoices: 3,
-        layers: [{ source: { kind: 'click', ms: 3 }, modes: { f0: 300, ratios: [1, 2.3], q: 8, falloffDb: 4 }, env: { peak: 20, attackMs: 0, tauMs: 25 } }],
-      },
-    },
-    {
-      id: 'C',
-      label: 'Tiny brass tick',
-      blurb: 'A tiny, light metallic tick.',
-      recipe: { gain: 1, family: 'fit', maxVoices: 3, layers: [metalRing(3200, [1, 1.8], 40, 6, 22)] },
-    },
   ],
 };
 
@@ -174,30 +94,6 @@ export const BOUNTY_OMINOUS: CueSlot = {
         layers: [55, 82.4, 65.4].map((hz) =>
           tone(hz, { peak: 0.2, attackMs: 900, holdMs: 300, tauMs: 350 }, { filters: [lp({ from: 150, to: 700, ms: 1100 })] }, 'sawtooth'),
         ),
-      },
-    },
-    {
-      id: 'B',
-      label: 'One deep drum',
-      blurb: 'A single huge, low drum hit that hangs in the air.',
-      recipe: {
-        gain: 0.46,
-        family: 'bounty',
-        maxVoices: 1,
-        reverb: 0.4,
-        layers: [thump(70, 40, 250, 1, 600, { drive: 2 }), tone({ from: 105, to: 62, ms: 300 }, { peak: 0.25, attackMs: 3, tauMs: 250 }, {}, 'triangle')],
-      },
-    },
-    {
-      id: 'C',
-      label: 'Slow heartbeat',
-      blurb: 'Two deep heartbeat thumps, "lub-dub", like a drum in the dark.',
-      recipe: {
-        gain: 0.42,
-        family: 'bounty',
-        maxVoices: 1,
-        reverb: 0.3,
-        layers: [thump(60, 36, 150, 1, 220, { drive: 2, grains: { onsetsMs: [0, 300, 1100, 1400] } })],
       },
     },
   ],
@@ -233,18 +129,6 @@ export const KLAXON: CueSlot = {
   ],
   klaxon: true,
   candidates: [
-    {
-      id: 'A',
-      label: 'A little deeper',
-      blurb: 'The same "ah-oo-gah", about four notes lower.',
-      recipe: { ...KLAXON_RECIPE, layers: [ahOoGah(0.79)] },
-    },
-    {
-      id: 'B',
-      label: 'Deeper',
-      blurb: 'The same "ah-oo-gah", about seven notes lower: heavier and more serious.',
-      recipe: { ...KLAXON_RECIPE, layers: [ahOoGah(0.67)] },
-    },
     {
       id: 'C',
       label: 'An octave down',

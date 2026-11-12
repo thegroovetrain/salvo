@@ -1,7 +1,7 @@
 // The ENGINES section of the audition page (Story 10.13): your own engine
 // (EngineVoice) with throttle / speed / boost, and another ship heard across
 // the water (RemoteEngineVoice) with distance and left–right. Both are the
-// game's real voices on the real profiles in candidates/engines.ts.
+// game's real voices on the shipped profiles in candidates/engines.ts.
 
 import type { ShipClassId } from '@salvo/shared';
 import { ENGINE_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
@@ -48,11 +48,7 @@ export class EnginePanel {
   private remoteButton: HTMLButtonElement | null = null;
   private boostButton: HTMLButtonElement | null = null;
 
-  constructor(
-    private readonly rig: Rig,
-    /** Eric's picked engine set, marked read-only. */
-    private readonly picked: string,
-  ) {
+  constructor(private readonly rig: Rig) {
     rig.onStop(() => this.stopEverything());
     window.setInterval(() => this.tick(), TICK_MS);
   }
@@ -60,7 +56,7 @@ export class EnginePanel {
   render(): HTMLElement {
     return h('section', { class: 'card engines', 'aria-labelledby': 'engines-title' }, [
       h('h2', { id: 'engines-title' }, ['Engines']),
-      h('p', { class: 'note' }, ['The engine plays all the time while you sail. Pick a set, a ship, then move the throttle. Each set gives the four ships their own weight and pitch.']),
+      h('p', { class: 'note' }, ['The engine plays all the time while you sail. Pick a ship, then move the throttle. Each ship has its own weight and pitch.']),
       this.setList(),
       this.ownControls(),
       this.remoteControls(),
@@ -69,23 +65,9 @@ export class EnginePanel {
 
   private setList(): HTMLElement {
     const rows = ENGINE_CANDIDATES.map((c) =>
-      h('div', { class: c.id === this.picked ? 'row picked' : 'row' }, [
-        h('label', { class: 'choice listen' }, [this.listenRadio(c.id), h('span', { class: 'cand' }, [c.label])]),
-        h('p', { class: 'blurb' }, [c.blurb]),
-        h('span', { class: c.id === this.picked ? 'badge' : 'badge empty' }, [c.id === this.picked ? 'YOUR PICK' : '']),
-      ]),
+      h('div', { class: 'row' }, [h('span', { class: 'cand' }, [c.label]), h('p', { class: 'blurb' }, [c.blurb])]),
     );
-    return h('div', { class: 'block' }, [h('h3', {}, ['Listen to']), ...rows]);
-  }
-
-  private listenRadio(id: string): HTMLInputElement {
-    const input = h('input', { type: 'radio', name: 'engine-set', value: id, checked: id === this.own.setId });
-    input.addEventListener('change', () => {
-      this.own.setId = id;
-      this.rebuildOwn();
-      this.rebuildRemote();
-    });
-    return input;
+    return h('div', { class: 'block' }, [h('h3', {}, ['The engine']), ...rows]);
   }
 
   private ownControls(): HTMLElement {
@@ -128,7 +110,7 @@ export class EnginePanel {
     this.remoteButton = button('PLAY OTHER SHIP', () => this.toggleRemote(), 'primary');
     return h('div', { class: 'block' }, [
       h('h3', {}, ['Another ship, heard across the water']),
-      h('p', { class: 'note' }, ['A simpler, cheaper engine voice for ships you can see. It uses the set chosen above.']),
+      h('p', { class: 'note' }, ['A simpler, cheaper engine voice for ships you can see. It uses the same engine.']),
       h('p', { class: 'note ruling' }, ['Ruling: realistic \u2014 your own machinery drowns out other ships; you only hear another ship\u2019s engine when it is close alongside.']),
       h('div', { class: 'controls' }, [this.remoteButton]),
       hull,

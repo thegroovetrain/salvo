@@ -1,6 +1,5 @@
-// Structural contract of the audition candidates (audio/synth/candidates/):
-// every slot is auditionable (≥ 2 distinct candidates, words to read, a recipe
-// of sane length), every "today" comparison names a real legacy tone, and every
+// Structural contract of the shipped sounds (audio/synth/candidates/): every
+// slot is playable (≥ 1 take, words to read, a recipe of sane length), every "today" comparison names a real legacy tone, and every
 // engine set voices every hull with finite targets. Nothing here judges sound.
 
 import { describe, it, expect } from 'vitest';
@@ -35,10 +34,10 @@ describe('CUE_SLOTS', () => {
 
   for (const slot of CUE_SLOTS) {
     describe(slot.id, () => {
-      it('has a title, a note and at least two candidates with unique ids', () => {
+      it('has a title, a note and at least one take with unique ids', () => {
         expect(slot.title.trim()).not.toBe('');
         expect(slot.note.trim()).not.toBe('');
-        expect(slot.candidates.length).toBeGreaterThanOrEqual(2);
+        expect(slot.candidates.length).toBeGreaterThanOrEqual(1);
         const ids = slot.candidates.map((c) => c.id);
         expect(new Set(ids).size).toBe(ids.length);
       });
@@ -66,8 +65,8 @@ describe('CUE_SLOTS', () => {
 describe('ENGINE_CANDIDATES', () => {
   const hulls = Object.keys(CONFIG.shipClasses).sort();
 
-  it('has at least two sets with unique ids and words', () => {
-    expect(ENGINE_CANDIDATES.length).toBeGreaterThanOrEqual(2);
+  it('has at least one set with unique ids and words', () => {
+    expect(ENGINE_CANDIDATES.length).toBeGreaterThanOrEqual(1);
     expect(new Set(ENGINE_CANDIDATES.map((e) => e.id)).size).toBe(ENGINE_CANDIDATES.length);
     for (const e of ENGINE_CANDIDATES) {
       expect(e.label.trim()).not.toBe('');
@@ -89,8 +88,8 @@ describe('ENGINE_CANDIDATES', () => {
 });
 
 describe('STORM_CANDIDATES', () => {
-  it('has at least two profiles with unique ids and words', () => {
-    expect(STORM_CANDIDATES.length).toBeGreaterThanOrEqual(2);
+  it('has at least one profile with unique ids and words', () => {
+    expect(STORM_CANDIDATES.length).toBeGreaterThanOrEqual(1);
     expect(new Set(STORM_CANDIDATES.map((c) => c.id)).size).toBe(STORM_CANDIDATES.length);
     for (const c of STORM_CANDIDATES) {
       expect(c.label.trim()).not.toBe('');

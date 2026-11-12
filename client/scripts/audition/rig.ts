@@ -231,9 +231,9 @@ export class Rig {
     });
   }
 
-  /** Play today's default foghorn exactly as audio/context.ts renders it. */
+  /** Play the old oscillator horn exactly as audio/context.ts renders it. */
   playHorn(voice: HornSynthVoice): void {
-    this.guard("Playing today's horn", () => {
+    this.guard("Playing the old horn", () => {
       const ctx = this.start();
       const sink = this.session?.gain;
       if (ctx && sink) playSynthHorn(ctx, voice, sink);

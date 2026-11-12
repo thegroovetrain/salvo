@@ -88,7 +88,6 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
     'the ship console\'s hull gauge turning crimson and its pulse accelerating toward the photosensitivity cap (render/console/shipConsole), and your own plume thickening to the heavy tier (render/smoke)',
   tick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
   matchStart: 'the phase banner flipping from countdown to the live match (ui/phase)',
-  stormWarn: 'the storm vignette closing in + the OUTSIDE tag in the HUD (render/zone, hud)',
   telegraphUp: 'the ordered detent stepping AHEAD on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
   telegraphDown: 'the ordered detent stepping ASTERN on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
   // --- HULL CONTACT (Story 9.5, amendment 79) ---------------------------------
@@ -147,6 +146,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   ramGrind:
     'the own hull drawn pressed against the other hull or the coast, plus the strike sparks where it first touched (render/ships, contactFx)',
   propFouled: 'the SLOWED tell + its countdown under the chrome bar (render/hud)',
+  torpedoRunOwn: 'your own torpedo running close by + its wake ribbon on the water (render/projectiles, wake)',
   // Wave C (Eric's round-3 picks). The kill and the fit replace legacy tones
   // whose rows above (kill, fit*) keep serving their fallbacks.
   airdropChime: 'the airdrop pickup\'s stat toast naming what you hauled aboard (ui/upgradeToast)',

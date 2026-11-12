@@ -5,7 +5,7 @@
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
-import { bark, bubbles, crack, crackles, filters, hiss, metalRing, noiseLayer, splash, thump, tone } from './parts.js';
+import { bark, bubbles, crack, filters, hiss, metalRing, noiseLayer, splash } from './parts.js';
 
 const { lp, hp, bp } = filters;
 
@@ -14,11 +14,6 @@ const launch = (): Layer[] => bark(0.5, 1000);
 
 /** When the shell bursts after launch, ms. */
 const BURST_MS = 800;
-
-/** A narrow whistling glide (§6 "shell flight whistle"). */
-function whistle(fromHz: number, toHz: number, ms: number, peak: number, startMs = 60): Layer {
-  return noiseLayer('white', [bp({ from: fromHz, to: toHz, ms }, 15)], { peak, attackMs: ms * 0.6, endMs: ms }, { startMs });
-}
 
 const SHELL = { family: 'shell', maxVoices: 4 } as const;
 
@@ -42,21 +37,6 @@ export const STAR_SHELL: CueSlot = {
         ],
       },
     },
-    {
-      id: 'B',
-      label: 'Whistle up, then crack',
-      blurb: 'A pop, a thin whistle climbing into the sky, then a sharp crack and a short sizzle.',
-      recipe: { gain: 0.5,
-        ...SHELL,
-        reverb: 0.4,
-        layers: [
-          ...launch(),
-          whistle(700, 1600, 700, 2.5),
-          crack(2500, 0.5, 30, { startMs: BURST_MS }),
-          hiss(1500, 0.08, 700, 250, { startMs: BURST_MS + 20 }),
-        ],
-      },
-    },
   ],
 };
 
@@ -66,22 +46,6 @@ export const PHOSPHOR_SHELL: CueSlot = {
   note: 'You fire PHOSPHOR SHELLS: a launch, then the shell bursting into a burning patch on the water.',
   today: 'fireStarShells',
   candidates: [
-    {
-      id: 'A',
-      label: 'Burst and crackling fire',
-      blurb: 'A pop, a dull burst, then a fire crackling and hissing for a couple of seconds.',
-      recipe: { gain: 0.22,
-        ...SHELL,
-        reverb: 0.3,
-        layers: [
-          ...launch(),
-          thump(120, 50, 90, 0.5, 80, { startMs: BURST_MS }),
-          noiseLayer('brown', [lp(800)], { peak: 1, attackMs: 2, tauMs: 120 }, { startMs: BURST_MS }),
-          hiss(1000, 0.06, 1800, 400, { startMs: BURST_MS + 40 }),
-          crackles(32, 2200, 3, BURST_MS + 60),
-        ],
-      },
-    },
     {
       id: 'B',
       label: 'Whoomp of flame',
@@ -120,26 +84,6 @@ export const FOULING_SHELL: CueSlot = {
         ],
       },
     },
-    {
-      id: 'B',
-      label: 'Splash and cable rattle',
-      blurb: 'A pop, a slap into the water, then a short rattle like cable or netting spilling out.',
-      recipe: { gain: 0.54,
-        ...SHELL,
-        reverb: 0.25,
-        layers: [
-          ...launch(),
-          ...splash(0.45, BURST_MS),
-          {
-            source: { kind: 'click', ms: 5 },
-            filters: [bp(2400, 8)],
-            env: { peak: 2.5, attackMs: 0, tauMs: 18 },
-            startMs: BURST_MS + 80,
-            grains: { count: 14, windowMs: 600, thin: 0.6, spread: [0.6, 1.5] },
-          },
-        ],
-      },
-    },
   ],
 };
 
@@ -149,22 +93,6 @@ export const FLASH_SHELL: CueSlot = {
   note: 'You fire FLASH SHELLS: a launch, then the blinding flash going off.',
   today: 'fireStarShells',
   candidates: [
-    {
-      id: 'A',
-      label: 'Pop, bright burst, sizzle',
-      blurb: 'A pop, then a bright cracking burst with a falling "fwump", and a short sizzle as it burns out.',
-      recipe: { gain: 0.35,
-        ...SHELL,
-        reverb: 0.4,
-        layers: [
-          ...launch(),
-          crack(2500, 0.7, 30, { startMs: BURST_MS }),
-          tone({ from: 900, to: 300, ms: 120 }, { peak: 0.35, attackMs: 2, tauMs: 80 }, { startMs: BURST_MS }),
-          hiss(1000, 0.08, 1400, 300, { startMs: BURST_MS + 40 }),
-          crackles(20, 1600, 2.5, BURST_MS + 60),
-        ],
-      },
-    },
     {
       id: 'B',
       label: 'Magnesium crack and ring',

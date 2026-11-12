@@ -14,10 +14,8 @@ const IDS = Object.keys(CUES) as CueId[];
 
 describe('the cue table', () => {
   it('every cue plays a candidate take’s own layers (imported, never copied)', () => {
-    // The pick record itself lives with the audition page
-    // (client/scripts/audition/picked.ts, outside this project's sources); what
-    // the game can pin is that no recipe was re-typed: every row's layers ARE
-    // one candidate's layers, by reference.
+    // What the game can pin is that no recipe was re-typed: every row's
+    // layers ARE one take's layers, by reference.
     const takes = new Set(CUE_SLOTS.flatMap((s) => s.candidates.map((c) => c.recipe.layers)));
     for (const id of IDS) expect(takes.has(CUES[id].layers), id).toBe(true);
   });

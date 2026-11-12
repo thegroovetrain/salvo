@@ -57,50 +57,11 @@ function everyHull(base: EngineProfile): Record<ShipClassId, EngineProfile> {
 /** Recipe A: rumble + shaft throb + gear whine + hull wash. */
 const TURBINE: EngineProfile = { ...DEFAULT_ENGINE_PROFILE, level: 0.2 };
 
-/** Recipe B: a pulse train with an audible firing rate through hull resonances. */
-const DIESEL: EngineProfile = {
-  ...DEFAULT_ENGINE_PROFILE,
-  kind: 'diesel',
-  whineHz: [18, 52],
-  whineGain: [0.35, 0.7],
-  washGain: 0.35,
-  drive: [2, 3.5],
-  level: 0.3,
-  boostWhine: 1.08,
-};
-
-/** Recipe A pushed below decks: more rumble and throb, little whine, little water. */
-const BELOW_DECKS: EngineProfile = {
-  ...DEFAULT_ENGINE_PROFILE,
-  rumbleHz: [50, 120],
-  rumbleGain: [0.55, 1],
-  throbGain: 0.65,
-  throbDepth: [0.35, 0.65],
-  whineHz: [200, 520],
-  whineGain: [0.004, 0.012],
-  washGain: 0.2,
-  sprayGain: 0.03,
-  drive: [2, 3.5],
-  level: 0.2,
-};
-
 export const ENGINE_CANDIDATES: readonly EngineCandidate[] = [
   {
     id: 'turbine',
     label: 'Steam turbine',
     blurb: 'A deep throbbing from the propellers under a faint gear whine, with water rushing past the hull. Historically right: all four ships ran steam turbines.',
     profiles: everyHull(TURBINE),
-  },
-  {
-    id: 'diesel',
-    label: 'Diesel',
-    blurb: 'A grittier, chugging engine whose individual beats you can hear, like a big diesel or a tugboat.',
-    profiles: everyHull(DIESEL),
-  },
-  {
-    id: 'belowDecks',
-    label: 'Below decks',
-    blurb: 'The turbine heard from inside the hull: darker and heavier, mostly rumble and throb, almost no whine.',
-    profiles: everyHull(BELOW_DECKS),
   },
 ];

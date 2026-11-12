@@ -350,7 +350,7 @@ describe('applyEnvelope', () => {
 // --- Story 10.13 wave C: ending a shot early ---------------------------------
 
 describe('Synth.launch — the stop handle', () => {
-  it('stop fades the shot’s level to the floor, stops every source after the fade, and frees the voice on ended', () => {
+  it('stop fades the shot’s level to the floor, stops every source after the fade, and frees its voice seat at once', () => {
     const ctx = new FakeAudioContext();
     const synth = new Synth(ctx.asContext, ctx.destination as unknown as AudioNode);
     const { result, handle } = synth.launch(gun, { rand: seeded(2) });
@@ -360,10 +360,28 @@ describe('Synth.launch — the stop handle', () => {
     const writes = (level.gain as FakeParam).writes;
     expect(writes.at(-1)).toEqual({ method: 'exp', value: SILENCE, time: ctx.currentTime + 0.2 });
     for (const s of ctx.built.filter((n) => n.started?.length)) expect(s.stopped?.at(-1)).toBeCloseTo(ctx.currentTime + 0.2, 9);
-    expect(synth.liveVoices).toBe(1);
-    ctx.endAll();
+    // Review P17: a stopped shot is only fading — its seat is free at once (a
+    // stop-then-play never finds its own fading shot holding the cap) ...
     expect(synth.liveVoices).toBe(0);
+    ctx.endAll();
+    expect(synth.liveVoices).toBe(0); // ...and the later `ended` never frees it twice
     expect(handle?.ended).toBe(true);
+  });
+
+  it('P6: an early stop anchors its fade from the level it WROTE, never from a mid-automation .value; a stop before a delayed start never sounds', () => {
+    const ctx = new FakeAudioContext();
+    const synth = new Synth(ctx.asContext, ctx.destination as unknown as AudioNode);
+    const { handle } = synth.launch(gun, { rand: seeded(2), gain: 0.5, delayS: 2 });
+    const level = ctx.nodesOf('gain').find((g) => (g.gain as FakeParam).writes.length > 0) as FakeNode;
+    const p = level.gain as FakeParam;
+    p.value = 0.987; // whatever the param happens to read mid-automation
+    const written = p.writes[0].value;
+    handle?.stop();
+    const anchor = p.writes.filter((w) => w.method === 'set').at(-1);
+    expect(anchor?.value).toBe(written);
+    for (const s of ctx.built.filter((n) => n.started?.length)) {
+      expect(s.stopped?.at(-1) as number).toBeLessThanOrEqual((s.started as number[])[0]);
+    }
   });
 
   it('maxS fades a longer shot out to END at the ceiling, never extending a source that ends sooner', () => {

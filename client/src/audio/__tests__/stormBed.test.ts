@@ -88,6 +88,15 @@ describe('StormBedVoice', () => {
     expect(thunderWrites(inside.ctx)).toBe(true);
   });
 
+  it('P6: the release fade anchors from the level last WRITTEN, never a mid-automation .value', () => {
+    const { ctx, sink, v } = voice();
+    v.update(1, 11);
+    const p = outGain(ctx, sink);
+    p.value = 0.777;
+    v.release(2);
+    expect(p.writes.filter((w) => w.method === 'set').at(-1)?.value).toBe(stormBedTargets(PROFILE, 1).level);
+  });
+
   it('release fades the output to silence, stops every source, disconnects on end, ignores later updates', () => {
     const { ctx, sink, v } = voice();
     v.update(1, 11);

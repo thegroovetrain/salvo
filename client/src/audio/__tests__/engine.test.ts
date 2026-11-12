@@ -310,6 +310,17 @@ describe.each(VOICES)('%s voice graph', (_name, make, drive) => {
     for (const s of c.sources()) expect(s.stops).toBe(1);
   });
 
+  it('P6: the release fade anchors from the level the voice last WROTE, never a mid-automation .value', () => {
+    const c = new FakeEngineCtx();
+    const v = make(c);
+    drive(v, 10);
+    const lastTarget = outGain(c).writes.filter((w) => w.method === 'target').at(-1)?.value as number;
+    outGain(c).value = 0.777; // whatever the param reads mid-glide
+    v.release(0.5);
+    const anchor = outGain(c).writes.filter((w) => w.method === 'set').at(-1);
+    expect(anchor?.value).toBe(lastTarget);
+  });
+
   it('never targets a gain at or below zero', () => {
     const c = new FakeEngineCtx();
     const v = make(c);

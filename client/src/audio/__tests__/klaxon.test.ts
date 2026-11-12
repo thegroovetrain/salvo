@@ -80,6 +80,37 @@ describe('Klaxon — the host', () => {
     expect(r.shots.at(-1)?.blast.fallback).toBe('sink'); // a fresh window
   });
 
+  it('P13a: a sinking blast that did not sound (dropped) does not advance the repeat — it is tried again', () => {
+    let t = 0;
+    const play = vi.fn((_b: KlaxonBlast): { stop: () => void; ended: boolean } | null => null);
+    const k = new Klaxon(recipe, play, () => t);
+    k.frame(true, 4);
+    t = 0.01;
+    k.frame(true, 4);
+    expect(play).toHaveBeenCalledTimes(2);
+    // ...and the first blast that DID sound still carries the fallback
+    expect(play.mock.calls.map(([b]) => (b as KlaxonBlast).fallback)).toEqual(['sink', 'sink']);
+  });
+
+  it('P13b: the sinking window starting stops the hull-alarm blasts still pending, so the alarm has its seats', () => {
+    const r = rig();
+    r.k.band('critical');
+    r.k.frame(true, 4);
+    for (const s of r.shots.slice(0, 3)) expect(s.stop).toHaveBeenCalledTimes(1);
+    expect(r.shots[3].stop).not.toHaveBeenCalled();
+  });
+
+  it('P10: the event-driven first blast (sinkStart) is not doubled by the per-frame repeat', () => {
+    const r = rig();
+    r.k.sinkStart();
+    r.k.frame(true, 4);
+    expect(r.shots).toHaveLength(1);
+    expect(r.shots[0].blast.fallback).toBe('sink');
+    r.at(klaxonStepS(recipe));
+    r.k.frame(true, 3);
+    expect(r.shots).toHaveLength(2);
+  });
+
   it('stops every blast still held when the hull is gone — founder, spectate or match over', () => {
     const r = rig();
     r.k.band('critical');

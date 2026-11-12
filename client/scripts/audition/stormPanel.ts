@@ -1,6 +1,5 @@
-// The STORM card (Story 10.13 round 3): the continuous storm bed
-// (audio/stormBed.ts) on the real profiles, with a take picker (Eric's pick
-// marked, every take still playable), an IN THE STORM toggle, an intensity
+// The STORM card (Story 10.13): the continuous storm bed
+// (audio/stormBed.ts) on the shipped profile, with an IN THE STORM toggle, an intensity
 // slider, and a button that runs your engine underneath so the two can be
 // judged together.
 
@@ -15,7 +14,6 @@ const TICK_MS = 100;
 const LEAVE_FADE_S = 3;
 
 export class StormPanel {
-  private setId: string;
   private intensity = 1;
   private inside = false;
   private voice: StormBedVoice | null = null;
@@ -24,11 +22,8 @@ export class StormPanel {
 
   constructor(
     private readonly rig: Rig,
-    /** Eric's picked storm profile, marked read-only. */
-    private readonly picked: string,
     private readonly engines: EnginePanel,
   ) {
-    this.setId = STORM_CANDIDATES.some((c) => c.id === picked) ? picked : STORM_CANDIDATES[0].id;
     rig.onStop(() => {
       this.leave();
       this.engineButton?.setAttribute('aria-pressed', 'false');
@@ -37,13 +32,7 @@ export class StormPanel {
   }
 
   render(): HTMLElement {
-    const rows = STORM_CANDIDATES.map((c) =>
-      h('div', { class: c.id === this.picked ? 'row picked' : 'row' }, [
-        h('label', { class: 'choice listen' }, [this.listenRadio(c.id), h('span', { class: 'cand' }, [c.label])]),
-        h('p', { class: 'blurb' }, [c.blurb]),
-        h('span', { class: c.id === this.picked ? 'badge' : 'badge empty' }, [c.id === this.picked ? 'YOUR PICK' : '']),
-      ]),
-    );
+    const rows = STORM_CANDIDATES.map((c) => h('div', { class: 'row' }, [h('span', { class: 'cand' }, [c.label]), h('p', { class: 'blurb' }, [c.blurb])]));
     this.stormButton = button('IN THE STORM', () => this.toggle(), 'primary');
     this.stormButton.setAttribute('aria-pressed', 'false');
     this.engineButton = button('ENGINE UNDER IT', () => this.toggleEngine());
@@ -58,17 +47,8 @@ export class StormPanel {
       ]),
       h('div', { class: 'controls' }, [this.stormButton, this.engineButton]),
       level.root,
-      h('div', { class: 'block' }, [h('h3', {}, ['Listen to']), ...rows]),
+      h('div', { class: 'block' }, [h('h3', {}, ['The storm']), ...rows]),
     ]);
-  }
-
-  private listenRadio(id: string): HTMLInputElement {
-    const input = h('input', { type: 'radio', name: 'storm-set', value: id, checked: id === this.setId });
-    input.addEventListener('change', () => {
-      this.setId = id;
-      if (this.inside) this.enter();
-    });
-    return input;
   }
 
   private toggle(): void {
@@ -88,7 +68,7 @@ export class StormPanel {
       const ctx = this.rig.start();
       const sink = this.rig.sink;
       if (!ctx || !sink) return;
-      const profile = (STORM_CANDIDATES.find((c) => c.id === this.setId) ?? STORM_CANDIDATES[0]).profile;
+      const profile = STORM_CANDIDATES[0].profile;
       this.voice = new StormBedVoice(ctx, sink, profile);
       if (this.voice.released) throw new Error('the storm sound could not be built in this browser');
       this.voice.update(this.intensity);

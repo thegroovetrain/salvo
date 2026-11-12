@@ -896,6 +896,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       setSink,
       play,
       onSunkObserved,
+      deps,
       /** Sail the still-fighting hull on (or age its contact out with null). */
       moveContact: (p: { x: number; y: number } | null) => void (pos = p),
     };
@@ -1202,6 +1203,16 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     // cue would carry the PLACE, which is not ours to have.
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
     expect(toneIds(play)).toEqual([]);
+  });
+
+  it('P10: YOUR OWN DEATH starts the klaxon from the event itself (silent tab / spec-with-the-kill safe)', () => {
+    const { sink, deps } = setupSunk();
+    const ownSinkAlarm = vi.fn();
+    (deps as unknown as { ownSinkAlarm: () => void }).ownSinkAlarm = ownSinkAlarm;
+    sink.handler(sunkFrame({ k: 'sunk', id: 'me', by: 'killer', seen: true }));
+    expect(ownSinkAlarm).toHaveBeenCalledTimes(1);
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    expect(ownSinkAlarm).toHaveBeenCalledTimes(1); // only our own hull
   });
 
   it('YOUR OWN DEATH makes no one-shot here — the klaxon repeats through the sinking window instead (Story 10.13)', () => {
@@ -1653,7 +1664,7 @@ function setupWater(
     resetPrime: vi.fn(),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon, knownIds };
+  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon, knownIds, room };
 }
 
 describe('own-fire correlation (Story 2.9) — telling our broadside from our gun', () => {
@@ -1689,15 +1700,17 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(play).toHaveBeenCalledWith('mainBattery');
   });
 
-  it('with NO latch (nothing fired recently) an own reveal falls back to the gun', () => {
+  it('with NO latch (nothing fired recently) an own reveal LOOKS like the gun but makes NO own-fire sound (P12)', () => {
     const { sink, play, spawnEffect, onShell } = setupWater(null);
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
-    // The ratified fallback: it LOOKS and SOUNDS like our gun (pre-2.9
-    // behavior, unchanged) but it CLAIMED nothing — the third argument is the
-    // burst-ring authority, and a guess is not evidence.
+    // The ratified LOOK fallback: it looks like our gun but CLAIMED nothing —
+    // the third argument is the burst-ring authority, and a guess is not
+    // evidence. Story 10.13 review gate P12: the SOUND is evidence-only too — an
+    // enemy shell revealed on our bow must not play our full main battery (and
+    // spend the own-gun floor).
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun', null);
     expect(spawnEffect).not.toHaveBeenCalled(); // no plain muzzle from here (4.3)
-    expect(play).toHaveBeenCalledWith('mainBattery');
+    expect(play).not.toHaveBeenCalled();
   });
 
   it('NEVER attributes a distant (enemy) shell to our own weapon, latch or no latch', () => {
@@ -2822,7 +2835,8 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
   const sinkingYou = (t: number) => ({ alive: false, sinkingUntil: t + CONFIG.ship.sinkingWindowMs });
 
   it('ONE SHOT, ONE REPORT while we are going down — the shot must not double-sound', () => {
-    const { sink, play } = setupWater();
+    // A CLAIMED own shot (review P12: an unclaimed near-hull shell makes no own sound).
+    const { sink, play } = setupWater('gun');
     // Our own gun-family shell reveals on our own hull and the server's public
     // `mz` lands on the same point in the same frame — exactly what a shot from
     // a sinking hull produces.
@@ -3265,5 +3279,22 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
     sink.handler(rewardFrame({ k: 'dp', id: 'other', t: 300, g }, { alive: true }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
+  });
+});
+
+// --- review gate P5: a dropped connection re-seeds the binding's audio edges ---
+
+describe('P5 — after a drop, the first resumed frame only seeds the audio edges', () => {
+  it('an affliction already running and a cloud already on the water are silent after a reconnect', () => {
+    const { sink, play, deps, room } = setupWater();
+    (deps as unknown as { onDrop: () => void }).onDrop = vi.fn();
+    (deps as unknown as { onReconnect: () => void }).onReconnect = vi.fn();
+    sink.handler(victimFrame([], {})); // seeded, nothing running
+    (room as unknown as { fireDrop: () => void }).fireDrop();
+    const cloud = { id: 'c1', x: 50, y: 0, t0: 990, lifeMs: 60_000, r0: 10, r1: 20 };
+    sink.handler(victimFrame([], { slowedUntil: 9000 }, { t: 1000, clouds: [cloud] }));
+    expect(play.mock.calls.map(([id]) => id)).toEqual([]);
+    sink.handler(victimFrame([], { slowedUntil: 9000, dazzledUntil: 9000 }, { t: 1050 }));
+    expect(play.mock.calls.map(([id]) => id)).toEqual(['dazzled']); // a genuinely NEW edge still sounds
   });
 });

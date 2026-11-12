@@ -4,7 +4,7 @@
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
-import { crackles, filters, hiss, metalRing, noiseLayer, thump, tone } from './parts.js';
+import { crackles, filters, metalRing, noiseLayer, thump, tone } from './parts.js';
 
 const { lp, hp, bp } = filters;
 
@@ -29,36 +29,6 @@ export const REPAIR: CueSlot = {
         ],
       },
     },
-    {
-      id: 'B',
-      label: 'Welding torch',
-      blurb: 'The crackling sizzle of an arc welder with a faint electric hum under it.',
-      recipe: { gain: 1,
-        family: 'repair',
-        maxVoices: 1,
-        reverb: 0.1,
-        layers: [
-          hiss(1000, 0.12, 1200, 150, { filters: [bp(3000, 0.8)] }),
-          crackles(30, 1400, 2.2, 20),
-          tone(100, { peak: 0.06, attackMs: 40, holdMs: 1200, tauMs: 100 }, { filters: [lp(1500)] }, 'sawtooth'),
-        ],
-      },
-    },
-    {
-      id: 'C',
-      label: 'Ratchet and clunk',
-      blurb: 'A fast ratchet tightening something down, finished with one heavy clunk.',
-      recipe: { gain: 0.21,
-        family: 'repair',
-        maxVoices: 1,
-        reverb: 0.15,
-        layers: [
-          metalRing(2200, [1, 1.55], 15, 7, 15, { grains: { onsetsMs: Array.from({ length: 10 }, (_, i) => i * 83), jitterMs: 6 } }),
-          metalRing(400, [1, 1.47, 2.09], 20, 9, 120, { startMs: 920 }),
-          thump(110, 60, 60, 0.4, 50, { startMs: 920 }),
-        ],
-      },
-    },
   ],
 };
 
@@ -79,20 +49,6 @@ export const SMOKE: CueSlot = {
           thump(120, 60, 60, 0.4, 40),
           noiseLayer('white', [bp(2800, 0.7)], { peak: 0.4, attackMs: 80, holdMs: 900, tauMs: 600 }, { am: { rateHz: 11, depth: 0.15, jitter: 0.3 } }),
           noiseLayer('white', [lp({ from: 300, to: 900, ms: 400 })], { peak: 0.5, attackMs: 80, holdMs: 700, tauMs: 500 }),
-        ],
-      },
-    },
-    {
-      id: 'B',
-      label: 'Smoke generator roar',
-      blurb: 'A low, rough roar like a burner firing up, with a softer hiss on top.',
-      recipe: { gain: 0.15,
-        family: 'smoke',
-        maxVoices: 1,
-        reverb: 0.2,
-        layers: [
-          noiseLayer('brown', [lp(250)], { peak: 1.6, attackMs: 300, holdMs: 1000, tauMs: 600 }, { am: { rateHz: 1, depth: 0.4, jitter: 0.4 }, drive: 2 }),
-          noiseLayer('white', [bp(2800, 0.7)], { peak: 0.2, attackMs: 150, holdMs: 900, tauMs: 500 }, { am: { rateHz: 11, depth: 0.15 } }),
         ],
       },
     },
@@ -137,20 +93,6 @@ export const BEACON: CueSlot = {
         layers: [keyed(MORSE_DOTS, DOT_MS - 9, 700), keyed(MORSE_DASHES, DOT_MS * 3 - 9, 700), ...STATIC],
       },
     },
-    {
-      id: 'B',
-      label: 'Beating radio whistle',
-      blurb: 'Two radio whistles almost in tune, wobbling against each other through static, like a set being tuned in.',
-      recipe: { gain: 0.22,
-        family: 'beacon',
-        maxVoices: 2,
-        layers: [
-          tone(700, { peak: 0.1, attackMs: 200, holdMs: 1500, tauMs: 120 }, { filters: [bp(1200, 0.5)] }),
-          tone(703, { peak: 0.1, attackMs: 200, holdMs: 1500, tauMs: 120 }, { filters: [bp(1200, 0.5)] }),
-          ...STATIC,
-        ],
-      },
-    },
   ],
 };
 
@@ -159,20 +101,6 @@ export const BOOST: CueSlot = {
   title: 'Boost kicks in',
   note: 'The one-time surge when you hit BOOST. The engine sound itself (above) changes on its own; this is the swell on top.',
   candidates: [
-    {
-      id: 'A',
-      label: 'Rising swell',
-      blurb: 'A rush of sound that opens up and brightens over about a second, like the engine room taking a deep breath.',
-      recipe: { gain: 0.1,
-        family: 'boost',
-        maxVoices: 1,
-        reverb: 0.15,
-        layers: [
-          noiseLayer('pink', [lp({ from: 400, to: 1500, ms: 1200 })], { peak: 1.6, attackMs: 700, holdMs: 300, tauMs: 350 }),
-          noiseLayer('brown', [lp(200)], { peak: 0.8, attackMs: 600, holdMs: 400, tauMs: 400 }),
-        ],
-      },
-    },
     {
       id: 'B',
       label: 'Turbine spool-up',

@@ -1,19 +1,13 @@
-// One card per cue slot (Story 10.13): a PLAY button per candidate, its
-// blurb and a pick radio; a distance dial for sounds heard out on the water; a
-// "3 in quick series" button where the sound comes in bursts; today's legacy
-// sound for comparison; and, for the klaxon, "×3 (hull under a quarter)" and
-// the SINKING demo.
-//
-// Two modes: `pick` (round 3: radios, "none of these") and `reference` (the
-// slots Eric already picked: his take is marked, everything still plays, no
-// radios).
+// One card per cue slot (Story 10.13): a PLAY button per shipped take and its
+// blurb; a distance dial for sounds heard out on the water; a "3 in quick
+// series" button where the sound comes in bursts; the old sound for
+// comparison; and, for the klaxon, "×3 (hull under a quarter)" and the
+// SINKING demo.
 
-import { DEFAULT_HORN_ID } from '@salvo/shared';
 import type { CueCandidate, CueGroup, CueSlot } from '../../src/audio/synth/candidates/index.js';
 import { TONES } from '../../src/audio/tones.js';
-import { hornVoice } from '../../src/audio/horns.js';
+import { STANDARD_HORN } from '../../src/audio/horns.js';
 import { button, h, slider } from './dom.js';
-import type { Picks } from './picks.js';
 import type { Rig } from './rig.js';
 import { klaxonSeriesS } from './sinking.js';
 
@@ -21,8 +15,6 @@ import { klaxonSeriesS } from './sinking.js';
 const MAIN_STAGGER_S: readonly [number, number] = [0.07, 0.18];
 const SERIES_STEP_S = 0.25;
 const SERIES_COUNT = 3;
-
-export type CardMode = { kind: 'pick'; picks: Picks } | { kind: 'reference'; picked: Readonly<Record<string, string>> };
 
 function seriesDelays(slotId: string): number[] {
   const out = [0];
@@ -33,15 +25,14 @@ function seriesDelays(slotId: string): number[] {
   return out;
 }
 
-export function cueCard(slot: CueSlot, rig: Rig, mode: CardMode): HTMLElement {
+export function cueCard(slot: CueSlot, rig: Rig): HTMLElement {
   const dial = { distance: 0 };
   const extras: HTMLElement[] = [];
   if (slot.world) {
     extras.push(slider('Distance', { min: 0, max: 1, step: 0.01, value: 0, left: 'Near', right: 'Far' }, (v) => (dial.distance = v)).root);
   }
-  extras.push(...todayButtons(slot, rig));
-  const rows = slot.candidates.map((c) => candidateRow(slot, c, rig, mode, dial));
-  if (mode.kind === 'pick') rows.push(h('div', { class: 'row none' }, [pickRadio(slot.id, 'none', 'None of these', mode.picks)]));
+  extras.push(...compareButtons(slot, rig));
+  const rows = slot.candidates.map((c) => candidateRow(slot, c, rig, dial));
   return h('section', { class: 'card', 'aria-labelledby': `t-${slot.id}` }, [
     h('h3', { id: `t-${slot.id}`, class: 'card-title' }, [slot.title]),
     h('p', { class: 'note' }, [slot.note]),
@@ -50,24 +41,23 @@ export function cueCard(slot: CueSlot, rig: Rig, mode: CardMode): HTMLElement {
   ]);
 }
 
-/** "Today's sound" buttons: the legacy tone(s), or the default synthesized foghorn. */
-function todayButtons(slot: CueSlot, rig: Rig): HTMLButtonElement[] {
+/** The old-sound buttons: the legacy tone(s), or the old oscillator horn. */
+function compareButtons(slot: CueSlot, rig: Rig): HTMLButtonElement[] {
   const out: HTMLButtonElement[] = [];
   const tone = slot.today;
   if (tone !== undefined) out.push(button("Today's sound", () => rig.playTone(TONES[tone]), 'ghost'));
   for (const more of slot.todayMore ?? []) out.push(button(more.label, () => rig.playTone(TONES[more.tone]), 'ghost'));
-  const horn = hornVoice(DEFAULT_HORN_ID);
-  if (slot.todayHorn && horn.kind === 'synth') out.push(button("Today's horn", () => rig.playHorn(horn), 'ghost'));
+  if (slot.todayHorn) out.push(button('The old horn', () => rig.playHorn(STANDARD_HORN), 'ghost'));
   return out;
 }
 
 /** One heading on the page and the cards under it. */
-export function cueGroup(group: CueGroup, index: number, rig: Rig, mode: CardMode): HTMLElement {
+export function cueGroup(group: CueGroup, index: number, rig: Rig): HTMLElement {
   const id = `group-${index}`;
   return h('section', { class: 'group', 'aria-labelledby': id }, [
     h('h2', { id, class: 'group-title' }, [group.title]),
     h('p', { class: 'intro' }, [group.intro]),
-    ...group.slots.map((slot) => cueCard(slot, rig, mode)),
+    ...group.slots.map((slot) => cueCard(slot, rig)),
   ]);
 }
 
@@ -83,23 +73,6 @@ function actionsFor(slot: CueSlot, c: CueCandidate, rig: Rig, dial: { distance: 
   return actions;
 }
 
-function candidateRow(slot: CueSlot, c: CueCandidate, rig: Rig, mode: CardMode, dial: { distance: number }): HTMLElement {
-  const marker =
-    mode.kind === 'pick'
-      ? pickRadio(slot.id, c.id, `Pick ${c.id}`, mode.picks)
-      : h('span', { class: mode.picked[slot.id] === c.id ? 'badge' : 'badge empty' }, [mode.picked[slot.id] === c.id ? 'YOUR PICK' : '']);
-  const picked = mode.kind === 'reference' && mode.picked[slot.id] === c.id;
-  return h('div', { class: picked ? 'row picked' : 'row' }, [
-    h('div', { class: 'actions' }, actionsFor(slot, c, rig, dial)),
-    h('p', { class: 'blurb' }, [c.blurb]),
-    marker,
-  ]);
-}
-
-function pickRadio(slotId: string, value: string, text: string, picks: Picks): HTMLElement {
-  const input = h('input', { type: 'radio', name: `pick-${slotId}`, value, checked: picks.get(slotId) === value });
-  input.addEventListener('change', () => {
-    if (input.checked) picks.set(slotId, value);
-  });
-  return h('label', { class: 'choice pick' }, [input, h('span', {}, [text])]);
+function candidateRow(slot: CueSlot, c: CueCandidate, rig: Rig, dial: { distance: number }): HTMLElement {
+  return h('div', { class: 'row' }, [h('div', { class: 'actions' }, actionsFor(slot, c, rig, dial)), h('p', { class: 'blurb' }, [c.blurb])]);
 }

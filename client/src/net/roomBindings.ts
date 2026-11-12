@@ -73,7 +73,7 @@ import { boonFitToastLine, dropToastLine } from '../ui/boonCopy.js';
 import { fitDetune, fitGain, fitPitch, fitTone, worldPlacement, type ToneId } from '../audio/tones.js';
 import type { CueId } from '../audio/synth/cues.js';
 import type { CueOptions } from '../audio/context.js';
-import { freshCloudCueState, newClouds, ownHitGain, type CloudCueState } from '../audio/cueEdges.js';
+import { freshCloudCueState, newClouds, ownHitGain, unseedClouds, type CloudCueState } from '../audio/cueEdges.js';
 import type { OwnFire } from '../render/projectiles.js';
 import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
 
@@ -196,6 +196,9 @@ export interface RoomBindingDeps {
    * reveal. Optional so a harness with no stream simply never claims one.
    */
   ownStreamWeapon?: () => OwnFire;
+  /** Story 10.13 review P10: our own hull just went down — the klaxon's first
+   *  sinking blast, sounded from the event itself (audio/klaxon.ts sinkStart). */
+  ownSinkAlarm?: () => void;
   /**
    * The burst-ring radius for an own-correlated burst, or undefined to keep the
    * CONFIG default (render/aimPreview.ownBurstRadius over the live own stats).
@@ -465,6 +468,9 @@ interface BindState {
   /** Story 10.13: this frame's seen secondary (`w: 'mg'`) shell reveals — the
    *  only weapon hint an `mz` flash can be paired with (handleMuzzle). */
   mgReveals: { x: number; y: number }[];
+  /** Story 10.13 review P5: false after a drop — the next frame only SEEDS the
+   *  victim-tell edges (slowed / dazzled) instead of sounding them. */
+  statusSeeded: boolean;
 }
 
 /**
@@ -632,6 +638,7 @@ function freshBindState(): BindState {
     ownGun: new ToneFloor(CLIENT_CONFIG.audio.ownGunFloorMs),
     smokeCues: freshCloudCueState(),
     mgReveals: [],
+    statusSeeded: true,
   };
 }
 
@@ -716,6 +723,7 @@ function bindRoomSignals(
     conn.room.onDrop,
     gate(() => {
       console.warn('[net] connection dropped — auto-reconnecting');
+      reseedAudioEdges(s); // Story 10.13 review P5: the first resumed frame only seeds
       // ACCEPTED LIMITATION (0.2): prediction keeps sampling + applying local
       // input through the outage. The SDK buffers only the last 10 sends and the
       // server holds the LAST RECEIVED input, so the on-screen ship diverges under
@@ -951,10 +959,16 @@ export function windowRunning(until: number | undefined, t: number): boolean {
 function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const slowed = windowRunning(f.you?.slowedUntil, f.t) || windowRunning(f.you?.fouledUntil, f.t);
   const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
-  if (slowed && !s.slowed) deps.audio.playCue('propFouled');
-  if (dazzled && !s.dazzled) deps.audio.playCue('dazzled');
+  if (s.statusSeeded) victimTellCues(slowed, dazzled, deps, s); // review P5: a resumed frame only seeds
+  s.statusSeeded = true;
   s.slowed = slowed;
   s.dazzled = dazzled;
+}
+
+/** The victim tells' rising-edge cues (see routeVictimTells). */
+function victimTellCues(slowed: boolean, dazzled: boolean, deps: RoomBindingDeps, s: BindState): void {
+  if (slowed && !s.slowed) deps.audio.playCue('propFouled');
+  if (dazzled && !s.dazzled) deps.audio.playCue('dazzled');
 }
 
 /** Self-private denied presses (Story 1.10): frames OMIT the key when none,
@@ -1029,6 +1043,14 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   s.mgReveals = mgRevealsOf(f.events); // the `mz` weapon hint (handleMuzzle)
   flushDamage(f, deps, s);
   for (const e of f.events) handleEvent(e, f, deps, s);
+}
+
+/** Story 10.13 review P5: after a dropped connection the binding's audio edges
+ *  (the smoke-deploy and victim-tell detectors) are unseeded, so the first
+ *  resumed frame only seeds them — nothing that happened in the gap sounds. */
+function reseedAudioEdges(s: BindState): void {
+  unseedClouds(s.smokeCues);
+  s.statusSeeded = false;
 }
 
 /** Pure: this frame's secondary-round (`w: 'mg'`) shell reveal positions. */
@@ -1624,7 +1646,10 @@ function handleShell(e: BallisticEvent, t: number, deps: RoomBindingDeps, s: Bin
   const own = near ? ownShellWeapon(e, claim) : null;
   deps.projectiles.onShell(e, own, claim);
   if (own === 'broadside') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
-  if (own) ownShellCue(own, t, deps, s);
+  // Review P12: an own-fire SOUND only on a real claim — the 'gun' LOOK fallback
+  // (an enemy shell revealed on our bow, a salvo's unclaimed sister shell) is a
+  // guess, and must never play our main battery or spend the own-gun floor.
+  if (own && claim) ownShellCue(own, t, deps, s);
 }
 
 /**
@@ -2229,7 +2254,10 @@ function sunkCue(
   // KLAXON repeats through the whole sinking window instead, driven per frame
   // off `you.sinkingUntil` (audio/engineMix.ts → audio/klaxon.ts), with `sink`
   // as its first blast's fallback.
-  if (e.id === sessionId) return;
+  if (e.id === sessionId) {
+    deps.ownSinkAlarm?.(); // review P10: the event starts the alarm; the frames repeat it
+    return;
+  }
   // Your victim went down — fog or not. Story 10.13: a WITNESSED kill also
   // groans below like any witnessed wreck (Eric: keep both).
   if (e.by === sessionId) killCue(e.seen === true ? pos : null, t, deps);

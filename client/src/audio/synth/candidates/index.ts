@@ -1,12 +1,8 @@
-// THE AUDITION CANDIDATES (Story 10.13 wave A): every cue slot in audition
-// order, grouped under the page's headings, the engine sets and the storm-bed
-// profiles. Data only — the audition page (client/scripts/soundAudition.mjs)
-// plays them through the real renderer, and wave B moves only Eric's picks
-// into the game path and deletes the rest.
-//
-// Round 5 (Eric 2026-11-11): NEW_TAKES_GROUP holds the new takes for the
-// sounds he marked "none of these"; PICKED_GROUPS hold the slots he has
-// already picked (rounds 2 to 4), kept untouched for reference.
+// THE SHIPPED SOUNDS (Story 10.13): every cue slot in audition order, grouped
+// under the audition page's headings, plus the engine set and the storm-bed
+// profile. Data only — the game imports its takes from here (audio/synth/
+// cues.ts, audio/horns.ts), and the audition page (client/scripts/
+// soundAudition.mjs) plays them through the real renderer.
 
 import { MAIN_BATTERY, SECONDARIES } from './guns.js';
 import { MINE_DROP, TORPEDO_LAUNCH, TORPEDO_RUN } from './ordnance.js';
@@ -17,7 +13,7 @@ import { COUNTDOWN_TICK, DENIED, LEVEL_UP, MATCH_START, TELEGRAPH } from './sign
 import { BURNING, DAZZLED, HIT_CALL, PROP_FOULED, RAM_GRIND } from './hull.js';
 import { AIRDROP_CHIME, BOUNTY_OMINOUS, CARD_FITTED_SUBTLE, KILL_SOUND, KLAXON } from './round3.js';
 import { HORN_BELL, HORN_FOGHORN, HORN_WHISTLE } from './hornVoices.js';
-import { HORN_AIRHORN, HORN_TROMBONE } from './brass.js';
+import { HORN_TROMBONE } from './brass.js';
 import type { CueGroup, CueSlot } from './types.js';
 
 export type { CueCandidate, CueGroup, CueSlot, EngineCandidate } from './types.js';
@@ -26,18 +22,7 @@ export { ENGINE_CANDIDATES } from './engines.js';
 export { STORM_CANDIDATES } from './storm.js';
 export { KLAXON_STEP_S, SINKING_DEMO_S, klaxonStepS } from './round3.js';
 
-export const NEW_TAKES_GROUP: CueGroup = {
-  title: 'Round 5 \u2014 new takes',
-  intro: 'These are new takes for the sounds you marked "none of these", made from what you asked for.',
-  slots: [KLAXON, HORN_AIRHORN],
-};
-
-export const PICKED_GROUPS: readonly CueGroup[] = [
-  {
-    title: 'Round 3 and 4 picks',
-    intro: 'New sounds and the selectable horns you picked in rounds 3 and 4.',
-    slots: [AIRDROP_CHIME, KILL_SOUND, CARD_FITTED_SUBTLE, BOUNTY_OMINOUS, HORN_FOGHORN, HORN_WHISTLE, HORN_BELL, HORN_TROMBONE],
-  },
+export const CUE_GROUPS: readonly CueGroup[] = [
   {
     title: 'Weapons, hits and events',
     intro: 'The sounds of combat and of things happening on the water.',
@@ -59,16 +44,21 @@ export const PICKED_GROUPS: readonly CueGroup[] = [
       BEACON,
       BOOST,
       SINK_WITNESS,
+      AIRDROP_CHIME,
+      KILL_SOUND,
     ],
   },
   {
     title: 'Alerts, signals and the ship itself',
-    intro: 'Replacements for the short beeps the game uses today.',
-    slots: [LEVEL_UP, DENIED, COUNTDOWN_TICK, MATCH_START, TELEGRAPH, RAM_GRIND, BURNING, HIT_CALL, PROP_FOULED, DAZZLED],
+    intro: 'The short signals, the hull alarms and what happens to your own ship.',
+    slots: [LEVEL_UP, DENIED, COUNTDOWN_TICK, MATCH_START, TELEGRAPH, RAM_GRIND, BURNING, HIT_CALL, PROP_FOULED, DAZZLED, CARD_FITTED_SUBTLE, BOUNTY_OMINOUS, KLAXON],
+  },
+  {
+    title: 'Horns',
+    intro: 'The horns a player can choose on the ship-select screen.',
+    slots: [HORN_FOGHORN, HORN_WHISTLE, HORN_BELL, HORN_TROMBONE],
   },
 ];
-
-export const CUE_GROUPS: readonly CueGroup[] = [NEW_TAKES_GROUP, ...PICKED_GROUPS];
 
 /** Every slot, in page order. */
 export const CUE_SLOTS: readonly CueSlot[] = CUE_GROUPS.flatMap((g) => g.slots);

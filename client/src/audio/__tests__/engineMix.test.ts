@@ -4,6 +4,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { CONFIG } from '@salvo/shared';
+import type { CueId } from '../synth/cues.js';
+import type { StoppableBlast } from '../klaxon.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import { CLOSE_ALONGSIDE_CUTOFF } from '../engine.js';
 import {
@@ -105,12 +107,13 @@ function rig() {
   };
   const clock = { currentTime: 0 };
   let bus: ReturnType<EngineAudio['engineBus']> = { ctx: clock as BaseAudioContext, sink: {} as AudioNode };
+  // A cue that PLAYED returns a handle (Audio.playCue); a dropped one null.
   const audio = {
     engineBus: () => bus,
     setSinkFade: vi.fn(),
-    playCue: vi.fn(),
+    playCue: vi.fn((_id: CueId, _opts?: unknown): StoppableBlast | null => ({ stop: vi.fn() as StoppableBlast['stop'], ended: false })),
   };
-  const mix = new EngineMix(audio, makers);
+  const mix = new EngineMix(audio, makers, () => clock.currentTime);
   const setBus = (on: boolean): void => {
     bus = on ? { ctx: clock as BaseAudioContext, sink: {} as AudioNode } : null;
   };
@@ -128,6 +131,9 @@ const frame = (over: Partial<EngineFrame> = {}): EngineFrame => ({
   beaconAfloat: false,
   inStorm: false,
   matchOver: false,
+  boostConfirmed: false,
+  listenerKind: 'own',
+  sinkLatchable: true,
   ...over,
 });
 
@@ -206,7 +212,7 @@ describe('EngineMix — the sink fade and the edge cues', () => {
 
   it('boost surge on the rising edge only, never on the first observation', () => {
     const r = rig();
-    const boosting = frame({ own: { cls: 'bismarck', throttle: 1, speed01: 1, boost: true } });
+    const boosting = frame({ own: { cls: 'bismarck', throttle: 1, speed01: 1, boost: true }, boostConfirmed: true });
     r.mix.update(boosting); // first observation: already boosting
     r.mix.update(frame());
     r.mix.update(boosting);
@@ -225,6 +231,7 @@ describe('EngineMix — the sink fade and the edge cues', () => {
   it('a drawn torpedo coming close hums once, placed over the close radius', () => {
     const r = rig();
     const R = CLIENT_CONFIG.audio.torpedoHumRadiusU;
+    r.mix.update(frame()); // the first frame only seeds (P3a)
     r.mix.update(frame({ drawn: [{ id: 't', kind: 'torp', x: R * 0.5, y: 0 }] }));
     r.mix.update(frame({ drawn: [{ id: 't', kind: 'torp', x: R * 0.4, y: 0 }] }));
     const hums = r.audio.playCue.mock.calls.filter(([id]) => id === 'torpedoRun');
@@ -286,5 +293,152 @@ describe('EngineMix — the klaxon (Story 10.13)', () => {
     expect(sinkingLeftS(null)).toBeNull();
     expect(sinkingLeftS(1)).toBe(0);
     expect(sinkingLeftS(0)).toBe(CONFIG.ship.sinkingWindowMs / 1000);
+  });
+});
+
+// --- review-gate regressions (Story 10.13 wave C fixes) ----------------------
+
+describe('P1 / P4 / P5 — halt and resume', () => {
+  it('halt releases every voice, stops the klaxon, unplugs the fade at once, and holds until resume', () => {
+    const r = rig();
+    r.mix.update(frame({ inStorm: true, sinking01: 0.5, hulls: [hull('a', NEAR)] }));
+    r.mix.halt();
+    expect(r.own.release).toHaveBeenCalledTimes(1);
+    expect(r.storms[0].release).toHaveBeenCalledTimes(1);
+    expect(r.remotes.get(0)?.release).toHaveBeenCalledTimes(1);
+    expect(r.audio.setSinkFade).toHaveBeenLastCalledWith(null, { immediate: true });
+    const klaxon = r.audio.playCue.mock.results.find((x, i) => r.audio.playCue.mock.calls[i][0] === 'klaxon')?.value;
+    expect(klaxon?.stop).toHaveBeenCalled();
+    r.mix.update(frame({ inStorm: true }));
+    expect(r.ownBuilt).toHaveLength(1); // nothing rebuilt while halted
+  });
+
+  it('resume rebuilds from the next frame with every edge detector re-seeded', () => {
+    const r = rig();
+    r.mix.update(frame());
+    r.mix.halt();
+    r.mix.resume();
+    const boosting = frame({ own: { cls: 'bismarck', throttle: 1, speed01: 1, boost: true }, boostConfirmed: true });
+    r.mix.update({ ...boosting, beaconCycle: 4, beaconAfloat: true, drawn: [{ id: 't', kind: 'torp', x: 1, y: 0 }] });
+    expect(r.ownBuilt).toHaveLength(2);
+    const ids = r.audio.playCue.mock.calls.map(([id]) => id);
+    expect(ids).not.toContain('boostSurge');
+    expect(ids).not.toContain('beacon');
+    expect(ids).not.toContain('torpedoRun');
+  });
+});
+
+describe('P3 — the torpedo hum', () => {
+  const R = () => CLIENT_CONFIG.audio.torpedoHumRadiusU;
+  const hums = (r: ReturnType<typeof rig>) => r.audio.playCue.mock.calls.filter(([id]) => id === 'torpedoRun' || id === 'torpedoRunOwn');
+
+  it('(a) the first frame only seeds: a torpedo already inside does not hum; a later one does', () => {
+    const r = rig();
+    r.mix.update(frame({ drawn: [{ id: 'old', kind: 'torp', x: R() / 2, y: 0 }] }));
+    expect(hums(r)).toHaveLength(0);
+    r.mix.update(frame({ drawn: [{ id: 'old', kind: 'torp', x: R() / 2, y: 0 }, { id: 'new', kind: 'torp', x: R() / 3, y: 0 }] }));
+    expect(hums(r)).toHaveLength(1);
+  });
+
+  it('(a) the listener changing kind (own hull → camera) re-seeds: a camera jump does not hum', () => {
+    const r = rig();
+    r.mix.update(frame());
+    r.mix.update(frame({ own: null, listenerKind: 'camera', drawn: [{ id: 't', kind: 'torp', x: 1, y: 0 }] }));
+    expect(hums(r)).toHaveLength(0);
+  });
+
+  it('(b) a hum dropped by a cap is retried while the torpedo is still inside', () => {
+    const r = rig();
+    r.mix.update(frame());
+    r.audio.playCue.mockReturnValueOnce(null);
+    const t = { id: 't', kind: 'torp', x: R() / 2, y: 0 };
+    r.mix.update(frame({ drawn: [t] }));
+    r.mix.update(frame({ drawn: [t] }));
+    r.mix.update(frame({ drawn: [t] }));
+    expect(hums(r)).toHaveLength(2); // the dropped one, then the one that played — then never again
+  });
+
+  it('(c) an OWN torpedo hums on its own family, lower; an enemy one on the world family', () => {
+    const r = rig();
+    r.mix.update(frame());
+    r.mix.update(frame({ drawn: [{ id: 'mine', kind: 'torp', x: 1, y: 0, own: true }, { id: 'foe', kind: 'torp', x: 2, y: 0 }] }));
+    const own = hums(r).find(([id]) => id === 'torpedoRunOwn');
+    expect(own).toBeDefined();
+    expect((own?.[1] as { gain: number }).gain).toBe(CLIENT_CONFIG.audio.ownTorpedoHumGain);
+    expect(hums(r).filter(([id]) => id === 'torpedoRun')).toHaveLength(1);
+  });
+});
+
+describe('P8 / P9 — the sink fade writes', () => {
+  it('P8: writes only when the target moved meaningfully, and nothing while latched', () => {
+    const r = rig();
+    r.mix.update(frame({ sinking01: 0.5 }));
+    r.mix.update(frame({ sinking01: 0.5001 }));
+    expect(r.audio.setSinkFade).toHaveBeenCalledTimes(1);
+    r.mix.update(frame({ own: null })); // foundered: latched closed
+    r.mix.update(frame({ own: null }));
+    r.mix.update(frame({ own: null }));
+    expect(r.audio.setSinkFade.mock.calls.map(([p]) => p)).toEqual([0.5, 1]);
+  });
+
+  it('P9: cleared wins over a running window, and a death with respawns coming never latches', () => {
+    expect(sinkFadeTarget(true, 0.5, true)).toEqual({ target: null, latched: false });
+    let st = sinkFadeTarget(false, 0.5, false, false);
+    expect(st.target).toBe(0.5);
+    st = sinkFadeTarget(st.latched, null, false, false);
+    expect(st).toEqual({ target: null, latched: false });
+  });
+});
+
+describe('P10 / P11 / P14 / P15', () => {
+  it('P10: the own sunk event sounds one klaxon blast; the per-frame repeat does not double it', () => {
+    const r = rig();
+    r.mix.klaxonSinkStart();
+    r.mix.update(frame({ sinking01: 0.01 }));
+    const blasts = r.audio.playCue.mock.calls.filter(([id]) => id === 'klaxon');
+    expect(blasts).toHaveLength(1);
+    expect((blasts[0][1] as { fallback: string }).fallback).toBe('sink');
+  });
+
+  it('P11: the surge follows the SERVER-confirmed boost window, never the predicted flag alone', () => {
+    const r = rig();
+    r.mix.update(frame());
+    r.mix.update(frame({ own: { cls: 'bismarck', throttle: 1, speed01: 1, boost: true }, boostConfirmed: false }));
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'boostSurge')).toHaveLength(0);
+    r.mix.update(frame({ own: { cls: 'bismarck', throttle: 1, speed01: 1, boost: true }, boostConfirmed: true }));
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'boostSurge')).toHaveLength(1);
+  });
+
+  it('P14: no beacon data (an unsynced first frame) never arms a set', () => {
+    const r = rig();
+    r.mix.update(frame({ beaconCycle: 3, beaconAfloat: null }));
+    r.mix.update(frame({ beaconCycle: 3, beaconAfloat: true }));
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(0);
+  });
+
+  it('P15: a hull hovering at the cutoff keeps ONE voice (hysteresis), and nearest-N order swaps never rebuild', () => {
+    const r = rig();
+    const edge = SIGHT * CLOSE_ALONGSIDE_CUTOFF;
+    for (let i = 0; i < 6; i++) r.mix.update(frame({ hulls: [hull('a', i % 2 ? edge * 0.99 : edge * 1.01)] }));
+    expect(r.remotes.size).toBe(1);
+    const n = CLIENT_CONFIG.audio.remoteEngineVoices;
+    const r2 = rig();
+    const base = Array.from({ length: n - 1 }, (_, i) => hull(`h${i}`, NEAR * (1 + i * 0.01)));
+    for (let i = 0; i < 6; i++) {
+      const x = i % 2 ? [hull('p', NEAR * 2), hull('q', NEAR * 2.01)] : [hull('p', NEAR * 2.01), hull('q', NEAR * 2)];
+      r2.mix.update(frame({ hulls: [...base, ...x] }));
+    }
+    expect(r2.remotes.size).toBe(n);
+  });
+
+  it('P15: a hull whose voice is still fading is not given a second voice', () => {
+    const r = rig();
+    r.mix.update(frame({ hulls: [hull('a', NEAR)] }));
+    r.mix.update(frame({ hulls: [] })); // released, fading
+    r.mix.update(frame({ hulls: [hull('a', NEAR)] }));
+    expect(r.remotes.size).toBe(1);
+    r.clock.currentTime = 5; // the fade is long over
+    r.mix.update(frame({ hulls: [hull('a', NEAR)] }));
+    expect(r.remotes.size).toBe(2);
   });
 });

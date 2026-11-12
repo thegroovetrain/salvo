@@ -159,9 +159,11 @@ const glide = (p: AudioParam, v: number, t: number, tau: number): void => {
   p.setTargetAtTime(v, t, tau);
 };
 
-function fadeOut(g: GainNode, t: number, fadeS: number): void {
+/** Fade `g` to the floor from `from` — the level last WRITTEN (Story 10.13
+ *  review P6: an automated param's `.value` is not where it is headed). */
+function fadeOut(g: GainNode, t: number, fadeS: number, from: number): void {
   g.gain.cancelScheduledValues(t);
-  g.gain.setValueAtTime(Math.max(SILENCE, g.gain.value), t);
+  g.gain.setValueAtTime(Math.max(SILENCE, from), t);
   g.gain.exponentialRampToValueAtTime(SILENCE, t + fadeS);
 }
 
@@ -177,6 +179,8 @@ abstract class ContinuousVoice<I> {
   private lastAt = -Infinity;
   private level01 = 1;
   private lastLevel = SILENCE;
+  /** The output gain last written (the release fade's anchor). */
+  private written = SILENCE;
 
   protected constructor(ctx: BaseAudioContext, rand: Rand) {
     this.bag = new NodeBag(ctx, rand);
@@ -214,7 +218,8 @@ abstract class ContinuousVoice<I> {
     this.lastLevel = level;
     const fadeTau = this.started ? tau : FADE_IN_S / 3; // first write = the fade-in
     this.started = true;
-    glide(this.out.gain, Math.max(SILENCE, level * this.level01), t, fadeTau);
+    this.written = Math.max(SILENCE, level * this.level01);
+    glide(this.out.gain, this.written, t, fadeTau);
   }
 
   /** External trim (0..1) on top of the computed level. Junk is ignored. */
@@ -230,7 +235,7 @@ abstract class ContinuousVoice<I> {
     this.isReleased = true;
     const t = this.bag.ctx.currentTime;
     const fade = fadeOf(fadeS);
-    fadeOut(this.out, t, fade);
+    fadeOut(this.out, t, fade, this.written);
     this.bag.stopAll(t + fade);
   }
 

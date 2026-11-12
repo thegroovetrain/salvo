@@ -80,6 +80,19 @@ export class Klaxon {
   }
 
   /**
+   * THE OWN `sunk` EVENT (review P10): sound the first sinking blast from the
+   * event itself — it must be heard even when the sinking window is never
+   * rendered (the death ends the match, a spectate frame rides with the kill,
+   * the tab is hidden). Fire-and-forget (a blast that must outlive the hull's
+   * gates), and it seeds the per-frame repeat so the next frame never doubles it.
+   */
+  sinkStart(): void {
+    if (this.lastSinkAt !== null) return;
+    this.stopHeld(); // the hull alarms give their seats to the sinking alarm (P13b)
+    if (this.play({ fallback: SINK_FALLBACK })) this.lastSinkAt = this.now();
+  }
+
+  /**
    * One frame. `sinkingLeftS` = seconds left in the own sinking window, or
    * null when not sinking. `live` = the own hull is still conned (false at
    * founder / spectate / match over — every held blast is stopped).
@@ -93,15 +106,22 @@ export class Klaxon {
     const t = this.now();
     if (!sinkingBlastDue(this.recipe, true, this.lastSinkAt, t)) return;
     const first = this.lastSinkAt === null;
+    if (first) this.stopHeld(); // P13b: pending hull alarms give way
+    const blast = this.play({ maxS: sinkingLeftS, fallback: first ? SINK_FALLBACK : null });
+    if (!blast) return; // P13a: not sounded (a cap, a muted bus) — tried again next frame
     this.lastSinkAt = t;
-    this.keep(this.play({ maxS: sinkingLeftS, fallback: first ? SINK_FALLBACK : null }));
+    this.keep(blast);
   }
 
   /** Stop every blast still held (sounding or scheduled) and re-arm the loop. */
   stopAll(): void {
-    for (const b of this.live) b.stop();
-    this.live = [];
+    this.stopHeld();
     this.lastSinkAt = null;
+  }
+
+  private stopHeld(): void {
+    for (const b of this.live) if (!b.ended) b.stop();
+    this.live = [];
   }
 
   private keep(b: StoppableBlast | null | void): void {

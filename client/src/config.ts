@@ -766,7 +766,7 @@ export const CLIENT_CONFIG = {
      * the player's own cues never: `cueVoiceCap − worldCueVoiceCap` is at
      * least the sum of every own family's cap (pinned by a test).
      */
-    cueVoiceCap: 76,
+    cueVoiceCap: 77,
     worldCueVoiceCap: 16,
     farWorldCueVoiceCap: 8,
     farWorldFrom: 0.5,
@@ -795,6 +795,9 @@ export const CLIENT_CONFIG = {
     /** u — a torpedo the client draws hums (`torpedoRun`) the first time it
      *  comes this close to the listener: half the true-sight radius. */
     torpedoHumRadiusU: CONFIG.vision.sight / 2,
+    /** Your OWN torpedo's hum plays at this share of the enemy hum's level, so
+     *  it never buries the launch cue it follows (review P3c). */
+    ownTorpedoHumGain: 0.5,
     /** Your credited kill (`killSound`) when the wreck cannot be placed (a
      *  kill you did not see go down): heard unplaced, at this distance01 — a
      *  distant kill. A witnessed kill is placed by its real distance. */

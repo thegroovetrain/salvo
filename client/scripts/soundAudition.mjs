@@ -1,4 +1,4 @@
-// THE SOUND AUDITION BUILDER (Story 10.13 wave A).
+// THE SOUND AUDITION BUILDER (Story 10.13).
 //
 //   node client/scripts/soundAudition.mjs [--out <path>] [--selftest]
 //
@@ -53,7 +53,7 @@ async function bundle() {
     define: {
       __APP_VERSION__: JSON.stringify('audition'),
       __HC_PERF__: 'false',
-      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 round 5`),
+      __AUDITION_BUILD__: JSON.stringify(`Built ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC \u2014 shipped set`),
     },
     logLevel: 'warning',
   });

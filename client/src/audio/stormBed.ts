@@ -66,9 +66,11 @@ export function stormBedTargets(profile: StormBedProfile, intensity01: number): 
 }
 
 /** Ramp a gain from where it is now down to the silence floor over `fadeS`. */
-function fadeOut(g: GainNode, t: number, fadeS: number): void {
+/** Fade `g` to the floor from `from` — the level last WRITTEN (Story 10.13
+ *  review P6: an automated param's `.value` is not where it is headed). */
+function fadeOut(g: GainNode, t: number, fadeS: number, from: number): void {
   g.gain.cancelScheduledValues(t);
-  g.gain.setValueAtTime(Math.max(SILENCE, g.gain.value), t);
+  g.gain.setValueAtTime(Math.max(SILENCE, from), t);
   g.gain.exponentialRampToValueAtTime(SILENCE, t + fadeS);
 }
 
@@ -91,6 +93,8 @@ export class StormBedVoice {
   private isReleased = false;
   private nextThunderS: number;
   private lastIntensity = 0;
+  /** The output level last written (the release fade's anchor). */
+  private lastLevel = SILENCE;
 
   constructor(
     private readonly ctx: BaseAudioContext,
@@ -184,6 +188,7 @@ export class StormBedVoice {
     parts.windGain.gain.setTargetAtTime(x.windGain, t, STORM_FADE_TAU_S);
     parts.rainGain.gain.setTargetAtTime(x.rainGain, t, STORM_FADE_TAU_S);
     parts.out.gain.setTargetAtTime(x.level, t, STORM_FADE_TAU_S);
+    this.lastLevel = x.level;
     this.thunder(parts, x.thunderGain, t);
   }
 
@@ -203,7 +208,7 @@ export class StormBedVoice {
     this.isReleased = true;
     const fade = Number.isFinite(fadeS) && fadeS > 0 ? fadeS : STORM_RELEASE_S;
     const t = this.ctx.currentTime;
-    if (this.parts) fadeOut(this.parts.out, t, fade);
+    if (this.parts) fadeOut(this.parts.out, t, fade, this.lastLevel);
     const first = this.sources[0]?.src;
     if (first) first.onended = () => this.disconnect();
     try {

@@ -4,8 +4,8 @@
 <div class="wrap">
   <header class="top">
     <h1>Sound Audition</h1>
-    <p class="sub">Story 10.13 — candidates</p>
-    <p class="intro">Everything on this page is synthesized live in your browser by the game's own audio code: there are no sound files. Each sound has two or three takes (A, B, C). Play them, then mark the one you want, or "none of these". Click <strong>START SOUND</strong> first: browsers need a click before they will make any sound.</p>
+    <p class="sub">Story 10.13</p>
+    <p class="intro">Every sound the game ships, synthesized live in your browser by the game's own audio code. No sound files. Click <strong>START SOUND</strong> first: browsers need a click before they will make any sound.</p>
     <div class="transport">
       <button type="button" id="start" class="primary">START SOUND</button>
       <button type="button" id="testTone">TEST TONE</button>
@@ -22,23 +22,9 @@
     <p class="note">If this bar moves but you hear nothing, the tab or the computer is muted. TEST TONE plays the simplest possible sound (a plain beep) straight to your speakers, skipping everything else on this page.</p>
   </header>
   <p id="error" class="error" role="alert" hidden></p>
-  <div id="round3"></div>
-  <details class="picked-all">
-    <summary>Already picked (for reference)</summary>
-    <p class="note">Everything you have already picked, with your pick marked. All of it still plays.</p>
-    <div id="storm"></div>
-    <div id="engines"></div>
-    <div id="pickedCues"></div>
-  </details>
-  <section class="card picks" aria-labelledby="picks-title">
-    <h2 id="picks-title">Your picks</h2>
-    <p class="note">This round's sounds and the pick you marked (a question mark means not picked yet). Copy it and paste it into the chat.</p>
-    <textarea id="summary" readonly rows="6" aria-label="Picks summary"></textarea>
-    <div class="controls">
-      <button type="button" id="copy" class="primary">COPY</button>
-      <p id="copyStatus" class="status" role="status"></p>
-    </div>
-  </section>
+  <div id="storm"></div>
+  <div id="engines"></div>
+  <div id="cues"></div>
   <p id="build" class="build"></p>
 </div>
 <script>/*__AUDITION_JS__*/</script>

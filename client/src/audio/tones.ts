@@ -13,7 +13,7 @@
 // for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
 // audio stack; not free of configuration.
 
-import { CONFIG, type LineKind, type EquipmentId } from '@salvo/shared';
+import { CONFIG, type LineKind } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Every distinct cue the client can play. */
@@ -46,7 +46,6 @@ export type ToneId =
   | 'hpCritical'
   | 'tick'
   | 'matchStart'
-  | 'stormWarn'
   | 'telegraphUp'
   | 'telegraphDown'
   // --- HULL CONTACT (Story 9.5, epic-9 amendment 79) --------------------------
@@ -140,8 +139,8 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //
   // WHY IT CANNOT BE MISTAKEN FOR ITS NEIGHBOURS, all three of which are things
   // happening TO you while this is something happening FOR you:
-  //   • the CONTOUR is unique in the low register — damage (220→110), burn
-  //     (150→90) and stormWarn (160→70) all fall monotonically to their floor
+  //   • the CONTOUR is unique in the low register — damage (220→110) and burn
+  //     (150→90) both fall monotonically to their floor
   //     and stop; this one dips and comes back, so it lands as a swell, not a
   //     hit;
   //   • it starts BELOW all three (130 < 150 < 160 < 220), so even the contour
@@ -249,8 +248,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and stays centred).
   //   • `sink` (320→180→60) shares the sawtooth voice but is 3× longer and is
   //     still at 180Hz where this one has already collapsed to 100.
-  //   • `stormWarn` (160→110→70, sawtooth, no noise) falls 2.3×; this falls 4.3×
-  //     from well above it, and carries a transient the growl has not.
   impact: { freqStart: 260, freqMid: 100, freqEnd: 60, duration: 0.13, volume: 0.44, type: 'sawtooth', noise: true },
   // A shell falling into WATER. The catalog's only high, soft, noise-forward
   // cue: a sine (no edge whatsoever) with a spray hiss under it, sliding down
@@ -304,9 +301,9 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // yourself is meaningless (amendment 55 settled that with the foghorn's own
   // honk, which gets a hull bloom instead of a chevron).
   //
-  // They join the ALARM family on purpose. `stormWarn` and `sink` are the
-  // catalog's sawtooths, and these carry the same class of message — your ship
-  // is in trouble — so stormWarn → hpHurt → hpCritical → sink is meant to be
+  // They join the ALARM family on purpose. `sink` is the catalog's other
+  // sawtooth, and these carry the same class of message — your ship is in
+  // trouble — so hpHurt → hpCritical → sink is meant to be
   // heard as ONE voice getting worse rather than four unrelated noises. What
   // separates them from that family is CONTOUR: both alarm siblings fall
   // monotonically, while these WHOOP — up to a peak at the 40% mark, then down
@@ -336,8 +333,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   tick: { freqStart: 700, freqMid: 700, freqEnd: 700, duration: 0.06, volume: 0.3, type: 'square' },
   // Match start: bright rising-then-settling tone.
   matchStart: { freqStart: 400, freqMid: 900, freqEnd: 650, duration: 0.14, volume: 0.5, type: 'triangle' },
-  // Storm-enter warning: descending growl.
-  stormWarn: { freqStart: 160, freqMid: 110, freqEnd: 70, duration: 0.15, volume: 0.5, type: 'sawtooth' },
   // Engine-telegraph detent clicks: tiny, dry ticks — a brass bell chime. The
   // ahead click sits a fifth above the astern click so ringing up vs down the
   // scale is audibly distinct without reading as a "real" cue.
@@ -350,7 +345,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // gain scaled by the sliding speed — each scrape spans about one retrigger,
   // so the run reads as one continuous rasp. The catalog's lowest, flattest
   // voice: a sawtooth sagging barely a fifth under a noise layer, far below
-  // `stormWarn`'s growl (160→70, a long fall) and `impact`'s collapse, and it
+  // `impact`'s collapse, and it
   // never arrives alone — the hulls are visibly pressed together on the water.
   // Peak level is the feel knob `grindGainMax`. UNRATIFIED DRAFT — Eric judges
   // it on staging (amendment 79).
@@ -368,70 +363,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
 /** Pure: the telegraph-click tone for a step direction (+1 ahead / -1 astern). */
 export function telegraphTone(dir: number): ToneId {
   return dir > 0 ? 'telegraphUp' : 'telegraphDown';
-}
-
-/** Equipment with a discrete own-fire/placement cue routed through fireTone. The
- *  instant abilities that have NO such cue here are excluded at the type level
- *  (the Shifts — pure windows). The MINE stays included — its 'fireMine' drop
- *  cue fires via the Mines reconcile own-spawn hook (main.ts). */
-type FiringEquipmentId = Extract<
-  EquipmentId,
-  | 'gun'
-  | 'broadside'
-  | 'starShells'
-  // STORY 8.17: PHOSPHOR SHELLS (equipment) and — since Story 9.4 — the
-  // FOULING SHELL (`foulingShell`, FLASH SHELLS' successor,
-  // a click-fired consumable) — both launch one shell like the star shell.
-  | 'phosphorShells'
-  | 'foulingShell'
-  // STORY 10.9: FLASH SHELLS (`dazzleShells`) returns beside the fouling shell
-  // on the same click path — the same launch cue it had in 8.17.
-  | 'dazzleShells'
-  // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
-  // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
-  // Extract widened from `EquipmentId` to `EquipmentId`.
-  | 'lightTorpedo'
-  | 'heavyTorpedo'
-  | 'supercavTorpedo'
-  // THE THREE MINE LINES (amendments 76/81) — naval, captive and fouling all
-  // drop off the same rack and report with the same cue.
-  | 'navalMines'
-  | 'captiveMines'
-  | 'foulingMines'
->;
-
-/** TOTAL over the ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
- *  catalog v3's thirteen weapons plus two legacy ids, so the old
- *  `Exclude<..., 'boost' | 'radarBuoy'>` (the radar buoy is deleted since
- *  Story 8.16) would now demand a cue for weapons
- *  that have no module to fire - the union names exactly the ones that do.
- *
- *  NO NEW `ToneId` (Story 8.13): every torpedo reports with the TORPEDO cue and
- *  every mine with the MINE cue. A player cannot hear which line launched — and
- *  should not have to: the cue says "a fish just left" / "a mine is on the
- *  water", which is the fact the player needs, and inventing five new sounds
- *  for five lines would be new game feel nobody asked for (the a11y twin map
- *  pairs tones by MEANING, and these mean the same thing). */
-const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
-  gun: 'fireGun',
-  lightTorpedo: 'fireTorp',
-  heavyTorpedo: 'fireTorp',
-  supercavTorpedo: 'fireTorp',
-  navalMines: 'fireMine',
-  captiveMines: 'fireMine',
-  foulingMines: 'fireMine',
-  broadside: 'fireBroadside',
-  starShells: 'fireStarShells',
-  // NO NEW ASSET (Story 8.17): a phosphor or fouling shell leaves the deck
-  // exactly as a flare does, so it reuses the star-shell launch cue.
-  phosphorShells: 'fireStarShells',
-  foulingShell: 'fireStarShells',
-  dazzleShells: 'fireStarShells',
-};
-
-/** Pure: which tone a weapon's own-fire cue plays. */
-export function fireTone(id: FiringEquipmentId): ToneId {
-  return FIRE_TONE[id];
 }
 
 /**
@@ -568,11 +499,6 @@ export function audioCues(
     matchStart,
     state: { lastPhase: phase, lastTickSec: inTickWindow ? secondsRemaining : null },
   };
-}
-
-/** Pure: true the instant the own ship crosses from inside to outside the storm. */
-export function stormEnterEdge(prevInStorm: boolean, inStorm: boolean): boolean {
-  return inStorm && !prevInStorm;
 }
 
 // --- THE SOUND MAP's two pure helpers (Story 4.7) ---------------------------

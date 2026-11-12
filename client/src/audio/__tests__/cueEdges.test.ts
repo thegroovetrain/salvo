@@ -11,7 +11,9 @@ import {
   freshTorpedoHumState,
   newClouds,
   ownHitGain,
-  torpedoesClose,
+  torpedoHumCandidates,
+  markHumHeard,
+  unseedTorpedoHum,
 } from '../cueEdges.js';
 
 const cloud = (id: string, t0: number) => ({ id, x: 1, y: 2, t0 });
@@ -72,29 +74,49 @@ describe('boostRose', () => {
   });
 });
 
-describe('torpedoesClose (the torpedo hum)', () => {
+describe('torpedoHumCandidates (the torpedo hum)', () => {
   const ear = { x: 0, y: 0 };
   const R = 100;
-
-  it('fires once per torpedo id when it first comes within the radius; never re-armed', () => {
+  const seeded = () => {
     const s = freshTorpedoHumState();
+    torpedoHumCandidates(s, [], ear, R, 'own'); // the first frame only seeds
+    return s;
+  };
+
+  it('a torpedo inside is a candidate until its hum is marked heard; never re-armed after that', () => {
+    const s = seeded();
     const far = { id: 't1', kind: 'torp', x: 500, y: 0 };
     const close = { id: 't1', kind: 'torp', x: 50, y: 0 };
-    expect(torpedoesClose(s, [far], ear, R)).toEqual([]);
-    expect(torpedoesClose(s, [close], ear, R).map((t) => t.id)).toEqual(['t1']);
-    expect(torpedoesClose(s, [close], ear, R)).toEqual([]);
-    expect(torpedoesClose(s, [far], ear, R)).toEqual([]);
-    expect(torpedoesClose(s, [close], ear, R)).toEqual([]); // back again: still heard once
+    expect(torpedoHumCandidates(s, [far], ear, R, 'own')).toEqual([]);
+    expect(torpedoHumCandidates(s, [close], ear, R, 'own').map((t) => t.id)).toEqual(['t1']);
+    expect(torpedoHumCandidates(s, [close], ear, R, 'own').map((t) => t.id)).toEqual(['t1']); // not played yet: retried
+    markHumHeard(s, 't1');
+    expect(torpedoHumCandidates(s, [close], ear, R, 'own')).toEqual([]);
+    expect(torpedoHumCandidates(s, [far], ear, R, 'own')).toEqual([]);
+    expect(torpedoHumCandidates(s, [close], ear, R, 'own')).toEqual([]); // back again: heard once
+  });
+
+  it('the first frame, a listener-kind change and an unseed only SEED: torpedoes already inside never hum', () => {
+    const s = freshTorpedoHumState();
+    const inside = { id: 'a', kind: 'torp', x: 10, y: 0 };
+    expect(torpedoHumCandidates(s, [inside], ear, R, 'own')).toEqual([]);
+    const b = { id: 'b', kind: 'torp', x: 20, y: 0 };
+    expect(torpedoHumCandidates(s, [inside, b], ear, R, 'camera')).toEqual([]);
+    unseedTorpedoHum(s);
+    const c = { id: 'c', kind: 'torp', x: 30, y: 0 };
+    expect(torpedoHumCandidates(s, [c], ear, R, 'camera')).toEqual([]);
+    const d = { id: 'd', kind: 'torp', x: 40, y: 0 };
+    expect(torpedoHumCandidates(s, [c, d], ear, R, 'camera').map((t) => t.id)).toEqual(['d']);
   });
 
   it('ignores every other kind and any junk position', () => {
-    const s = freshTorpedoHumState();
+    const s = seeded();
     const drawn = [
       { id: 's1', kind: 'shell', x: 1, y: 1 },
       { id: 't2', kind: 'torp', x: NaN, y: 0 },
     ];
-    expect(torpedoesClose(s, drawn, ear, R)).toEqual([]);
-    expect(torpedoesClose(s, [{ id: 't3', kind: 'torp', x: 1, y: 1 }], { x: NaN, y: 0 }, R)).toEqual([]);
+    expect(torpedoHumCandidates(s, drawn, ear, R, 'own')).toEqual([]);
+    expect(torpedoHumCandidates(s, [{ id: 't3', kind: 'torp', x: 1, y: 1 }], { x: NaN, y: 0 }, R, 'own')).toEqual([]);
   });
 });
 
