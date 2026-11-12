@@ -72,7 +72,21 @@ export interface EngineProfile {
   readonly boostLevel: number;
   /** Recipe B data; a diesel profile without it uses DEFAULT_DIESEL_VOICING. */
   readonly diesel?: DieselVoicing;
+  // --- optional voicing knobs (the engine retune); absent = the merged behavior ---
+  /** Share of `level` the plant keeps at idle, (0, 1]; default IDLE_LEVEL_SHARE. */
+  readonly idleShare?: number;
+  /** Boost-onset whine / firing-rate overshoot multiplier, ≥ 1; default DEFAULT_WHINE_OVERSHOOT. */
+  readonly whineOvershoot?: number;
+  /** Hull-wash band-pass Q, > 0; default DEFAULT_WASH_Q. */
+  readonly washQ?: number;
+  /** Another ship's lowpass cutoff at the listener, Hz, within REMOTE_LOWPASS_HZ; default REMOTE_LOWPASS_HZ[0]. */
+  readonly remoteLowpassHz?: number;
 }
+
+/** The boost-onset whine overshoot the merged voice uses. */
+export const DEFAULT_WHINE_OVERSHOOT = 1.15;
+/** The hull-wash band-pass Q the merged voice uses (broad). */
+export const DEFAULT_WASH_Q = 0.5;
 
 /** Research §1 recipe B's resonators and lowpass. */
 export const DEFAULT_DIESEL_VOICING: DieselVoicing = {
@@ -185,9 +199,29 @@ function bladeRates(profile: EngineProfile, speed: number): number[] {
   return Array.from({ length: n }, (_, i) => base * (1 + SHAFT_DETUNE * shaftSpread(i, n)));
 }
 
+/** The profile's idle share, clamped to (0, 1]; absent or junk = IDLE_LEVEL_SHARE. */
+export function idleShareOf(profile: EngineProfile): number {
+  const s = profile.idleShare;
+  if (s === undefined || !Number.isFinite(s)) return IDLE_LEVEL_SHARE;
+  return clamp(s, SILENCE, 1);
+}
+
+/** The profile's boost-onset overshoot, ≥ 1; absent or junk = DEFAULT_WHINE_OVERSHOOT. */
+export function whineOvershootOf(profile: EngineProfile): number {
+  const k = profile.whineOvershoot;
+  return k === undefined || !Number.isFinite(k) ? DEFAULT_WHINE_OVERSHOOT : Math.max(1, k);
+}
+
+/** The profile's wash band-pass Q, > 0; absent or junk = DEFAULT_WASH_Q. */
+export function washQOf(profile: EngineProfile): number {
+  const q = profile.washQ;
+  return q !== undefined && Number.isFinite(q) && q > 0 ? q : DEFAULT_WASH_Q;
+}
+
 function voiceLevel(profile: EngineProfile, d: Drive): number {
   const work = Math.max(d.load, Math.min(d.speed, 1));
-  const share = IDLE_LEVEL_SHARE + (1 - IDLE_LEVEL_SHARE) * work;
+  const idle = idleShareOf(profile);
+  const share = idle + (1 - idle) * work;
   return floor(profile.level * share * (d.boost ? atLeastOne(profile.boostLevel) : 1));
 }
 
@@ -275,13 +309,21 @@ export function closeAlongside01(distance01: number): number {
   return clamp(finiteOr(distance01, 1) / CLOSE_ALONGSIDE_CUTOFF, 0, 1);
 }
 
+/** The profile's remote lowpass at the listener, clamped into REMOTE_LOWPASS_HZ;
+ *  absent or junk = REMOTE_LOWPASS_HZ[0]. */
+export function remoteLowpassNearOf(profile: EngineProfile): number {
+  const [hi, lo] = REMOTE_LOWPASS_HZ;
+  return clamp(finiteOr(profile.remoteLowpassHz ?? hi, hi), lo, hi);
+}
+
 /** Every remote-engine AudioParam target. Pure; junk distance is "out of earshot". */
 export function remoteEngineTargets(profile: EngineProfile, input: RemoteEngineInput): RemoteEngineTargets {
   const speed = clamp(finiteOr(input?.speed01, 0), 0, SPEED_CAP);
   const d = clamp(finiteOr(input?.distance01, 1), 0, 1);
   const near = (1 - d) / (1 + REMOTE_ROLLOFF * d);
   const share = REMOTE_IDLE_SHARE + (1 - REMOTE_IDLE_SHARE) * Math.min(speed, 1);
-  const [lpNear, lpFar] = REMOTE_LOWPASS_HZ;
+  const lpNear = remoteLowpassNearOf(profile);
+  const lpFar = REMOTE_LOWPASS_HZ[1];
   const rpm = profile.rpmIdle + (profile.rpmMax - profile.rpmIdle) * speed;
   return {
     bladeHz: (profile.blades * rpm) / 60,
