@@ -78,9 +78,9 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution — Phase A (then STOP for Eric's yes):**
-- [ ] `shared/src/sim/hm.ts`, `shared/src/index.ts`, `shared/src/__tests__/hm.test.ts` -- the ruler and its formatter, with round-trip and format contracts -- R1
-- [ ] `client/scripts/reachBench.mjs` + `client/scripts/reachBench/` -- one self-contained page from the real `generateMap`, radar-shadow walk and `hm.ts`: a real seed, a ship, every reach as a ring with a dial in hm (radar, guns per hull, secondaries, each shell type, muzzle flash, both sight tiers, shells / torpedoes / mines / crate kind, foghorn, star-shell lit radius, torpedo run per kind and tier), the radar shadow drawn at the chosen radar, shell and torpedo travel times, the time-compression readout, and the display candidates (zoom-following labelled rings; sweep styles; with / without bearing scale + heading line) -- R4, R5, R7, R10, R12
-- [ ] Publish privately; record Eric's numbers and picks in the Spec Change Log; HALT
+- [x] `shared/src/sim/hm.ts`, `shared/src/index.ts`, `shared/src/__tests__/hm.test.ts` -- the ruler and its formatter, with round-trip and format contracts -- R1
+- [x] `client/scripts/reachBench.mjs` + `client/scripts/reachBench/` -- one self-contained page from the real `generateMap`, radar-shadow walk and `hm.ts`: a real seed, a ship, every reach as a ring with a dial in hm (radar, guns per hull, secondaries, each shell type, muzzle flash, both sight tiers, shells / torpedoes / mines / crate kind, foghorn, star-shell lit radius, torpedo run per kind and tier), the radar shadow drawn at the chosen radar, shell and torpedo travel times, the time-compression readout, and the display candidates (zoom-following labelled rings; sweep styles; with / without bearing scale + heading line) -- R4, R5, R7, R10, R12
+- [ ] (published 2026-11-12: https://claude.ai/artifact/PTCLELMMLSadymyzucU1TX — awaiting Eric) Publish privately; record Eric's numbers and picks in the Spec Change Log; HALT
 
 **Execution — Phase B (after the yes):**
 - [ ] `shared` -- named hm facts replace `SIGHT` / `RUNG`; two sight stats; per-hull battery reach; RANGE row, card and roll out; dropout out; torpedo run rows; time-compression name; dated retirement notes; tests deleted or re-cut
