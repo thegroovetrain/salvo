@@ -773,7 +773,7 @@ function setupHonk(over: Record<string, unknown> = {}) {
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     effects: { spawnEffect },
-    audio: { play: vi.fn(), playHorn },
+    audio: { play: vi.fn(), playCue: vi.fn(), playHorn },
     foghorn: { onHonk },
     cameraCenter: () => (over.camera ?? { x: 0, y: 0 }),
     onSunkObserved: vi.fn(),

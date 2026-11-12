@@ -1,0 +1,30 @@
+<title>Sound Audition</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*__AUDITION_CSS__*/</style>
+<div class="wrap">
+  <header class="top">
+    <h1>Sound Audition</h1>
+    <p class="sub">Story 10.13</p>
+    <p class="intro">Every sound the game ships, synthesized live in your browser by the game's own audio code. No sound files. Click <strong>START SOUND</strong> first: browsers need a click before they will make any sound.</p>
+    <div class="transport">
+      <button type="button" id="start" class="primary">START SOUND</button>
+      <button type="button" id="testTone">TEST TONE</button>
+      <p id="status" class="status live" role="status" aria-live="polite"></p>
+    </div>
+    <div class="transport">
+      <label class="slider volume"><span class="slider-label">Master volume</span><input id="volume" type="range" min="0" max="1" step="0.01" value="0.7"></label>
+      <button type="button" id="stopAll" class="danger">STOP ALL</button>
+    </div>
+    <div class="meter-row">
+      <canvas id="meter" width="160" height="14" aria-hidden="true"></canvas>
+      <p id="meterText" class="status"></p>
+    </div>
+    <p class="note">If this bar moves but you hear nothing, the tab or the computer is muted. TEST TONE plays the simplest possible sound (a plain beep) straight to your speakers, skipping everything else on this page.</p>
+  </header>
+  <p id="error" class="error" role="alert" hidden></p>
+  <div id="storm"></div>
+  <div id="engines"></div>
+  <div id="cues"></div>
+  <p id="build" class="build"></p>
+</div>
+<script>/*__AUDITION_JS__*/</script>

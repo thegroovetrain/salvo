@@ -119,6 +119,22 @@ describe('ContactFx — the grind scrape', () => {
     expect(grind).toHaveBeenCalledTimes(1);
   });
 
+  it('Story 10.13: tells the host ONCE that the scrape ended — at the release, or when the own hull goes', () => {
+    const end = vi.fn();
+    const f = new ContactFx(new Container(), vi.fn(), end);
+    f.update(0, OWN, sliding, NO_LAND, color, true);
+    f.update(FX.grindReleaseMs / 2, OWN, [], NO_LAND, color, true);
+    expect(end).not.toHaveBeenCalled(); // still inside the release window
+    f.update(FX.grindReleaseMs + 1, OWN, [], NO_LAND, color, true);
+    f.update(FX.grindReleaseMs * 3, OWN, [], NO_LAND, color, true);
+    expect(end).toHaveBeenCalledTimes(1);
+    f.update(FX.grindReleaseMs * 4, OWN, sliding, NO_LAND, color, true);
+    f.update(FX.grindReleaseMs * 4 + 1, null, [], NO_LAND, color, true);
+    expect(end).toHaveBeenCalledTimes(2);
+    f.update(FX.grindReleaseMs * 5, null, [], NO_LAND, color, true);
+    expect(end).toHaveBeenCalledTimes(2); // never without a scrape sounding
+  });
+
   it('scales the gain with the sliding speed, capped at full', () => {
     const { fx: f, grind } = fx();
     f.update(0, OWN, [row('foe', 0, FX.grindFullVt / 2)], NO_LAND, color, true);

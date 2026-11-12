@@ -755,6 +755,53 @@ export const CLIENT_CONFIG = {
      * exactly this in Story 2.3 and has been an audible no-op ever since).
      */
     panMax: 0.7,
+    // --- THE SOUND PASS (Story 10.13, wave B). Every value below is an
+    // IMPLEMENTER'S DRAFT, Eric's to judge by ear — none of them is a ruling.
+    /**
+     * Voice budget for the layered cues (audio/cues.ts `cueAdmitted`). The
+     * synth refuses any cue past `cueVoiceCap`; a WORLD cue (something out on
+     * the water) is refused once `worldCueVoiceCap` voices are live, and a FAR
+     * world cue (distance01 above `farWorldFrom`) already at
+     * `farWorldCueVoiceCap`. Distant world cues drop first, then near ones, and
+     * the player's own cues never: `cueVoiceCap − worldCueVoiceCap` is at
+     * least the sum of every own family's cap (pinned by a test).
+     */
+    cueVoiceCap: 77,
+    worldCueVoiceCap: 16,
+    farWorldCueVoiceCap: 8,
+    farWorldFrom: 0.5,
+    /** Own hull hit (`ownHit`): a frame's summed own damage at or above
+     *  `ownHitFullHp` plays at full level; smaller blows scale down linearly
+     *  to `ownHitMinGain` (a 3 hp secondary round is quiet, a main-battery
+     *  salvo is full). */
+    ownHitFullHp: 60,
+    ownHitMinGain: 0.35,
+    /** ms — own gun shells revealed within this of each other are ONE report
+     *  (a turret's salvo leaves together; per-shell reports would stack). */
+    ownGunFloorMs: 100,
+    /** Engine-telegraph click: the one recipe, transposed up for ringing
+     *  ahead and down for astern. */
+    telegraphAheadPitch: 1.06,
+    telegraphAsternPitch: 0.94,
+    /** ms — the hull-contact scrape (`ramGrind`, ~1.5 s per shot) is started
+     *  again this often while the scrape lasts, so consecutive shots overlap
+     *  into one continuous grind. */
+    grindCuePeriodMs: 1000,
+    /** Other ships' engines heard at once (the nearest audible hulls). */
+    remoteEngineVoices: 3,
+    /** ms — a smoke cloud sounds its deploy hiss only when first seen within
+     *  this long of its birth (a cloud first painted later is old news). */
+    smokeCueFreshMs: 1000,
+    /** u — a torpedo the client draws hums (`torpedoRun`) the first time it
+     *  comes this close to the listener: half the true-sight radius. */
+    torpedoHumRadiusU: CONFIG.vision.sight / 2,
+    /** Your OWN torpedo's hum plays at this share of the enemy hum's level, so
+     *  it never buries the launch cue it follows (review P3c). */
+    ownTorpedoHumGain: 0.5,
+    /** Your credited kill (`killSound`) when the wreck cannot be placed (a
+     *  kill you did not see go down): heard unplaced, at this distance01 — a
+     *  distant kill. A witnessed kill is placed by its real distance. */
+    killUnplacedDistance01: 0.75,
   },
 
   /**

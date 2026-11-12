@@ -20,9 +20,12 @@ import {
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
+import { HORN_PREF_KEY } from '../net/connection.js';
 import {
   DEFAULT_CLASS_ID,
+  DEFAULT_HORN_ID,
   DEFAULT_SHIFT,
+  HORN_IDS,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
   type LivenessPayload,
@@ -162,7 +165,7 @@ function statusText(): string {
  *  square nor a Shift chip (found by role, never by label). */
 function bayConfirm(): HTMLButtonElement {
   return [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button')].find(
-    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && b.textContent !== '',
+    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && !b.classList.contains('hc-hornchip') && b.textContent !== '',
   ) as HTMLButtonElement;
 }
 
@@ -1395,6 +1398,19 @@ describe('the Shift pick — persistence and the deploy doors (Story 10.4)', () 
     expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT);
     soloButton().click();
     expect(onSolo).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT);
+  });
+
+  it('Story 10.13: picking a HORN in the bay saves it at once and previews it once', () => {
+    localStorage.setItem('hullcracker.class', RETURNING);
+    const preview = vi.fn();
+    showHome('0.0.0-test', vi.fn(), () => undefined, vi.fn(), undefined, preview);
+    chip().click();
+    const other = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID) as string;
+    (document.querySelector(`#hc-class-select .hc-hornchip[data-horn="${other}"]`) as HTMLButtonElement).click();
+    expect(localStorage.getItem(HORN_PREF_KEY)).toBe(other);
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenCalledWith(other);
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // the bay stays open
   });
 
   it('picking a chip and CONFIRMING stores it beside the class; the chip stays slim', () => {

@@ -38,8 +38,9 @@ export interface JoinOptions {
    */
   cls?: string;
   /**
-   * Client-chosen foghorn variant (Story 4.5, amendment 52) — the cosmetic
-   * seam for a future purchased horn. A plain join option (NOT gated by
+   * Client-chosen foghorn variant (Story 4.5, amendment 52; the catalog is
+   * Eric's ruling of 2026-11-11 — five selectable horns, picked in the class
+   * bay, Story 10.13). A plain join option (NOT gated by
    * HC_DEV_OPTIONS, like `cls`): onJoin runs it through the shared
    * sanitizeHornId, so any garbage/absent/unknown value falls back to
    * DEFAULT_HORN_ID ('standard'). Deliberately NO PlayerMeta/roster schema

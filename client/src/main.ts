@@ -113,6 +113,7 @@ import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
+import { GrindCue } from './audio/grindCue.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import {
   KeyboardInput,
@@ -218,9 +219,9 @@ import {
   type ScoreState,
 } from './score.js';
 import { Audio } from './audio/context.js';
+import { EngineMix, sinkingProgress, speedFraction, type EngineFrame, type RemoteHull } from './audio/engineMix.js';
 import {
   audioCues,
-  stormEnterEdge,
   telegraphTone,
   INITIAL_CUE_STATE,
   type AudioCueState,
@@ -529,6 +530,11 @@ interface Game {
   ownFire: OwnFireLatch;
   /** Tone player (audio/context.ts). */
   audio: Audio;
+  /** Story 10.13: the engines, the sink fade and the per-frame edge cues
+   *  (audio/engineMix.ts), driven once per render frame by updateShipAudio. */
+  engineMix: EngineMix;
+  /** Story 10.13: the hull-contact scrape's sound (audio/grindCue.ts). */
+  grindCue: GrindCue;
   /**
    * Host ad-SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
    * every call here is safe to fire and forget. The implementation is ADSENSE
@@ -629,7 +635,7 @@ interface Game {
   analyticsEndSent: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
-  /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
+  /** Own-ship storm-membership last frame — feeds the continuous storm bed (Story 10.13). */
   wasInStorm: boolean;
   /**
    * THIS FRAME'S HULL SIGHT-BOUNDARY FEATHER (this cycle) — the spatial alpha
@@ -1300,7 +1306,7 @@ function updateBounty(g: Game): void {
   }
   if (t.self) {
     pushUpgradeToast(bountyToastLine());
-    g.audio.play('bounty');
+    g.audio.playCue('bounty');
   }
 }
 
@@ -1337,6 +1343,128 @@ function updateOwnPlate(g: Game, pose: RenderPose): void {
   g.nameplates.place(id, sc.x, plateScreenY(sc.y, g.ownClass, g.camera.zoom, CLIENT_CONFIG.nameplate.padPx), 1);
 }
 
+/** The engine telegraph's click (Story 10.13): one recipe, pitched up for
+ *  ringing ahead and down for astern; the legacy tone keeps its own pair. */
+function telegraphCue(dir: number): { pitch: number; fallback: ReturnType<typeof telegraphTone> } {
+  const { telegraphAheadPitch, telegraphAsternPitch } = CLIENT_CONFIG.audio;
+  return { pitch: dir > 0 ? telegraphAheadPitch : telegraphAsternPitch, fallback: telegraphTone(dir) };
+}
+
+/** The hull-contact scrape (Story 10.13): ContactFx asks every 120 ms while
+ *  grinding and says when the scrape ends; audio/grindCue.ts starts a ~1.5 s
+ *  shot every `grindCuePeriodMs` (overlapping into one continuous scrape whose
+ *  level follows the bleed) and stops the live shots at the end. */
+function contactFx(stage: Stage, cue: GrindCue): ContactFx {
+  return new ContactFx(stage.layers.burstFx, (gain) => cue.play(gain), () => cue.end());
+}
+
+/**
+ * STOP AND HOLD THE SHIP AUDIO (Story 10.13 review P1 / P4 / P5): the engines,
+ * the storm bed, the klaxon, the grind and the sink insert — on a session
+ * teardown, a lost room, a hidden tab or a dropped connection. `resumeShipAudio`
+ * undoes it (edge detectors re-seeded); a teardown never resumes.
+ */
+function haltShipAudio(g: Game): void {
+  g.engineMix.halt();
+  g.grindCue.end();
+  g.audio.setSinkFade(null, { immediate: true });
+}
+
+function resumeShipAudio(g: Game): void {
+  if (document.hidden || g.returning) return; // the hidden-tab / teardown halt still holds
+  g.engineMix.resume();
+}
+
+/** Halt the ship audio while the tab is hidden (the rAF loop does not run, so
+ *  nothing would ever release it) and resume on return. Returns a disposer. */
+function bindAudioVisibility(g: Game): () => void {
+  const onChange = (): void => {
+    if (document.hidden) haltShipAudio(g);
+    else if (!g.reconnecting) resumeShipAudio(g);
+  };
+  document.addEventListener('visibilitychange', onChange);
+  return () => document.removeEventListener('visibilitychange', onChange);
+}
+
+/** Story 10.13: this frame's ship audio (audio/engineMix.ts decides). */
+function updateShipAudio(g: Game, now: number): void {
+  g.engineMix.update(shipAudioFrame(g, now));
+}
+
+/**
+ * The ENGINE FRAME, from state the client already holds and draws: the own
+ * engine while a hull is conned (alive or sinking, start line and countdown
+ * included — `helmAxes` is the dead helm there), the hulls in the contact
+ * store (the true-sight gate), the drawn ballistics and the beacon set.
+ * The listener is the own hull while we have one, else the camera centre —
+ * roomBindings' `listenerPos` rule.
+ */
+function shipAudioFrame(g: Game, now: number): EngineFrame {
+  const { spectating, matchOver, net } = g.state;
+  const you = net.you;
+  const conned = !spectating && !matchOver && conningFlag(you, now, spectating) === true ? you : null;
+  const plane = publicState(g); // ONE snapshot for the beacon cycle and the views (review P14)
+  return {
+    own: conned ? ownEngine(g, conned.speed, now) : null,
+    boostConfirmed: boostConfirmed(conned, now),
+    sinking01: ownSinking01(g, now),
+    sinkCleared: spectating || matchOver || you?.alive === true,
+    // Review P9: the bus is held closed only by a death in the LIVE match.
+    sinkLatchable: plane.matchPhase === 'active',
+    ...listenerOf(g, conned),
+    hulls: remoteHulls(g, now),
+    drawn: g.projectiles.drawnBallistics(now),
+    beaconCycle: plane.beaconCycle,
+    beaconAfloat: beaconAfloat(g.beaconViews),
+    inStorm: g.wasInStorm,
+    matchOver,
+  };
+}
+
+/** The SERVER-confirmed boost window (review P11) — the surge's edge; the
+ *  continuous engine keeps the predicted one. */
+function boostConfirmed(conned: OwnShip | null, now: number): boolean {
+  return conned !== null && now < (conned.boostUntil ?? 0);
+}
+
+/** Where the player listens from: the conned hull, else the camera centre. */
+function listenerOf(g: Game, conned: OwnShip | null): Pick<EngineFrame, 'listener' | 'listenerKind'> {
+  return conned ? { listener: { x: conned.x, y: conned.y }, listenerKind: 'own' } : { listener: g.camera.center, listenerKind: 'camera' };
+}
+
+/** Any beacon afloat this frame — or null with no beacon data at all (P14). */
+function beaconAfloat(views: readonly BeaconView[]): boolean | null {
+  return views.length === 0 ? null : views.some((v) => v.phase === 'afloat');
+}
+
+/** 0..1 through the own sinking window, or null when not sinking. */
+function ownSinking01(g: Game, now: number): number | null {
+  const you = g.state.net.you;
+  if (!you || !isSinkingNow(you, now, g.state.spectating)) return null;
+  return sinkingProgress(you.sinkingUntil ?? now, now, CONFIG.ship.sinkingWindowMs);
+}
+
+function ownEngine(g: Game, speed: number, now: number): EngineFrame['own'] {
+  return {
+    cls: g.ownClass,
+    throttle: helmAxes(g).throttle,
+    speed01: speedFraction(speed, g.ownStats.kinematics.maxSpeed),
+    boost: now < boostUntilNow(g),
+  };
+}
+
+/** The contact store's hulls at the contact renderer's sample time. */
+function remoteHulls(g: Game, now: number): RemoteHull[] {
+  const out: RemoteHull[] = [];
+  const at = now - CLIENT_CONFIG.net.interpDelayMs;
+  for (const id of g.contacts.ids()) {
+    const p = g.contacts.get(id)?.sampleAt(at);
+    const cls = g.contacts.classOf(id);
+    if (p && cls !== undefined) out.push({ id, cls, x: p.x, y: p.y, speed: p.speed });
+  }
+  return out;
+}
+
 /** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the
  *  public match plane (audio/tones.ts's pure audioCues()). */
 function updateMatchAudioCues(g: Game, now: number): void {
@@ -1364,9 +1492,9 @@ function updateMatchAudioCues(g: Game, now: number): void {
   const result = audioCues(g.audioCueState, phase, sec, g.resumeCueSeed);
   g.audioCueState = result.state;
   if (known) g.resumeCueSeed = false;
-  if (result.tick) g.audio.play('tick');
+  if (result.tick) g.audio.playCue('countdownTick');
   if (result.matchStart) {
-    g.audio.play('matchStart');
+    g.audio.playCue('matchStart');
     g.portal.matchStart(); // same once-per-match live edge as the audio cue
     // The server clears its cloud store at the practice → match boundary
     // (world.ts resetForMatchStart); the client HOLDS every cloud it has seen
@@ -2019,6 +2147,7 @@ function endSession(g: Game): void {
 /** The room connection ended (server disposal, network death, or own leave). */
 function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; the exit is already on its way
+  haltShipAudio(g); // Story 10.13 review P1: no more frames are coming — nothing may drone on
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
   // THE RESUME-RETRY LOOP GUARD (Story 6.7). Both branches below end in
@@ -2164,7 +2293,7 @@ function conningNow(g: Game | null): boolean | undefined {
  * 80-300ms after the last one played the tone with no visual at all.
  */
 function playDenied(g: Game): void {
-  if (g.deniedToneFloor.request(performance.now())) g.audio.play('denied');
+  if (g.deniedToneFloor.request(performance.now())) g.audio.playCue('denied');
 }
 
 /**
@@ -2249,7 +2378,7 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       // conning a live ship is a successful W/S input: three of them retire the
       // helm key glyphs for good (Story 2.4, amendment 26).
       if (labeled) recordHelmInput('ws', live);
-      if (live) audio.play(telegraphTone(dir));
+      if (live) audio.playCue('telegraph', telegraphCue(dir));
     },
     // Every labeled rudder press that reaches a LIVE helm counts toward the A/D
     // pair's fade (suppressed presses never arrive here at all).
@@ -2614,6 +2743,10 @@ function buildGame(
   // the same radius the reveal frames; it never changes within a match.
   camera.setMapRadius(map.radius);
 
+  // Story 10.13 review P1: a new Game starts from a clean bus (a previous
+  // session's latched sink insert must not silence this one).
+  audio.setSinkFade(null, { immediate: true });
+  const grindCue = new GrindCue((gain) => audio.playCue('ramGrind', { gain }), CLIENT_CONFIG.audio.grindCuePeriodMs);
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
@@ -2625,7 +2758,8 @@ function buildGame(
     beaconViews: [],
     beaconBodies: new BeaconBodies(),
     beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
-    contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
+    contactFx: contactFx(stage, grindCue),
+    grindCue,
     lastBleedMs: -Infinity,
     camera,
     keyboard,
@@ -2646,7 +2780,7 @@ function buildGame(
     effects,
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
-    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.playCue('mineDrop')),
     drops: new Drops(stage.layers.dropWorld),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
@@ -2691,6 +2825,7 @@ function buildGame(
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
+    engineMix: new EngineMix(audio),
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     hullSoftness: NO_SOFTENING,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
@@ -2728,6 +2863,11 @@ function buildGame(
   // would still reach handlers closed over the destroyed game and paint match
   // chrome over the fresh port. Registered here, at the moment it is created.
   g.disposers.push(bindGameRoom(g, conn));
+  // Story 10.13 review P1: the ship audio lives on the SHARED Audio, so every
+  // teardown that runs the disposers (endSession — the reload-free requeue)
+  // must stop it, and the tab-hidden halt rides beside it.
+  g.disposers.push(() => haltShipAudio(g));
+  g.disposers.push(bindAudioVisibility(g));
   // The whiteout lives OUTSIDE the Pixi app (document.body, the top DOM rung),
   // so the reload-less exit must take it off by name; the discs are Pixi.
   g.disposers.push(() => {
@@ -2958,6 +3098,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // ballistic wire shape says neither.
     ownFireWeapon: () => ownFireWeapon(g),
     ownStreamWeapon: () => g.ownFire.claimStream(g.clock.serverNow()), // Story 8.15: every own MG shell
+    ownSinkAlarm: () => g.engineMix.klaxonSinkStart(), // Story 10.13 review P10
     // The own-burst ring's EFFECTIVE radius (undefined = keep the CONFIG base,
     // which is what every burst we cannot honestly claim as ours renders at).
     ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
@@ -2995,10 +3136,12 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     onDrop: () => {
       g.reconnecting = true;
       showBanner('RECONNECTING…');
+      haltShipAudio(g); // Story 10.13 review P5: frames stop — release, and re-seed on resume
     },
     onReconnect: () => {
       g.reconnecting = false;
       hideBanner();
+      resumeShipAudio(g); // the first resumed frame only seeds every edge
       // The outage may have swallowed sunk events, so the observed-kill roll can
       // no longer be trusted: start it clean rather than report a wrong list.
       // The elimination LATCH and its placement survive, though — they were
@@ -4117,7 +4260,9 @@ function updateZone(
 function playHpSting(g: Game, status: OwnStatus, nowMs: number): void {
   const frac = ownHpFrac(status);
   const cue = hpStingCueAt(g.wasHpFrac, frac, nowMs, g.hpStingFloor);
-  if (cue) g.audio.play(cue);
+  // Story 10.13: the KLAXON (Eric's pick) sounds the edge — one blast under
+  // half, three under a quarter (audio/klaxon.ts); the stings are its fallback.
+  if (cue) g.engineMix.klaxonEdge(cue === 'hpCritical' ? 'critical' : 'hurt');
   g.wasHpFrac = frac;
 }
 
@@ -4204,7 +4349,8 @@ function renderAlive(
   // revealed by our flare (projectiles) and clear our own fog over them (fog).
   const ownZones = ownActiveZones(g.state.net.litZones, g.state.net.sessionId, now);
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
-  if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
+  // Story 10.13: the one-shot storm warning is retired (Eric: a CONTINUOUS storm
+  // bed instead); `wasInStorm` now feeds the bed (updateShipAudio, next frame).
   g.wasInStorm = inStorm;
   // The 50%/25% band alarms (Story 4.7) — same edge idiom. The two HP-driven
   // channels here are deliberately NOT symmetric through the sinking window
@@ -4754,6 +4900,9 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
       renderBeacons(g, now); // public: the same for a captain and a spectator
+      // Story 10.13: engines, sink fade, boost / beacon / torpedo edges — AFTER
+      // the beacon views are derived, so the cue reads this frame's set (P14).
+      updateShipAudio(g, now);
       // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
       // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
       // ribbon laid while dead was observed with no sight bubble and no island
@@ -5339,6 +5488,11 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
         openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift });
       },
     },
+    // Story 10.13: the class bay's HORN chip previews the horn once. The click
+    // is a user gesture, so the context may be created here.
+    // Review P16 / P17: sound only once the context runs (a not-running one
+    // drops cues), and a new pick stops the previous preview.
+    (horn) => void shell.audio.resume().then(() => shell.audio.previewHorn(horn)),
   );
   homeRef = home;
   startAmbient(); // the backdrop, once the menu the player came for is up

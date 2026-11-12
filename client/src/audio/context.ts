@@ -36,6 +36,23 @@
 // Mute/volume state lives in settings/store.ts (ONE persisted value shared with
 // the M key); this class subscribes and re-applies the gains on every change.
 //
+// Story 10.13 — THE SOUND PASS. The bus grew a master chain and an optional
+// sinking insert, and two new sources hang off the effects bus beside the
+// tones and horns:
+//
+//   tone / cue / engine → effectsGain → master chain → [SinkFade] → masterGain → monoNode → destination
+//
+//   master chain  bus compressor + limiter (synth/master.ts) — the chain Eric
+//                 auditioned every candidate through, so what he heard ships
+//   SinkFade      spliced in ONLY for the own sinking window (setSinkFade):
+//                 everything closes down to a muffled hush; unplugged after
+//   masterGain    STILL the one mute / duck / master-volume point, downstream
+//                 of everything, so a new source cannot dodge it
+//
+// `playCue` renders a layered recipe (synth/cues.ts) through ONE Synth;
+// `engineBus` hands the engine mixer (audio/engineMix.ts) the context and the
+// bus, or null while there is no context or the game is silenced.
+//
 // Story 4.5 — the FOGHORN path (`playHorn`). The one thing here that is not a
 // ToneSpec: a ~1.8s multi-layer horn (or a decoded sample), with its own mix cap
 // and its own asset fallback. It hangs off the SAME effects bus, so mute,
@@ -46,9 +63,18 @@
 import { DEFAULT_HORN_ID } from '@salvo/shared';
 import { settings, volumeGain, type Settings } from '../settings/store.js';
 import { TONES, type ToneId, type ToneSpec } from './tones.js';
+import { CLIENT_CONFIG } from '../config.js';
+import { createMasterChain, type MasterChain } from './synth/master.js';
+import { Synth, type ShotHandle } from './synth/render.js';
+import { CUES, CUE_TIER, LEGACY_FALLBACK, WORLD_FAMILIES, cueAdmitted, type CueId } from './synth/cues.js';
+import { SinkFade } from './sinkFade.js';
 import {
   HORNS,
+  HORN_FAMILY,
   HORN_MAX_CONCURRENT,
+  MAX_HORN_S,
+  STANDARD_HORN,
+  type HornRecipeVoice,
   HornBufferCache,
   hornGain,
   hornVoice,
@@ -85,8 +111,91 @@ function cuePan(pan: number): number {
 /** The bus chain, built once the AudioContext exists. */
 interface Buses {
   effects: GainNode;
+  chain: MasterChain;
   master: GainNode;
   mono: GainNode;
+}
+
+/** `playCue`'s options. `pan` / `gain` / `distance01` sanitize as `play()`'s
+ *  knobs do; `pitch` transposes the whole shot (junk → 1); `fallback` names
+ *  the legacy tone to play instead of the table's when the layered path is
+ *  unavailable (the telegraph's astern click). */
+export interface CueOptions {
+  pan?: number;
+  gain?: number;
+  distance01?: number;
+  pitch?: number;
+  /** Seconds from now to start (the klaxon's three-blast series); junk → 0. */
+  delayS?: number;
+  /** Hard length ceiling, seconds (a sinking blast never outlives the window). */
+  maxS?: number;
+  /** The legacy tone instead of the table's; null = no fallback for this play
+   *  (a series' later blasts, so a fallback is one tone, never a stack). */
+  fallback?: ToneId | null;
+  /** Cents for the fallback tone (the fit family's per-kind transposition). */
+  fallbackDetune?: number;
+}
+
+/** Node factories the layered path needs; missing any = the legacy fallback. */
+const SYNTH_FACTORIES = ['createGain', 'createBiquadFilter', 'createBufferSource', 'createOscillator', 'createBuffer'];
+
+/** ms — how long `setSinkFade(null)` lets the insert glide open (five of its
+ *  0.2 s time constants) before unplugging it. */
+export const SINK_UNPLUG_MS = 1000;
+
+/** Live voices in the WORLD-tier families (the world caps' count, review P2). */
+function worldVoices(synth: Synth): number {
+  return WORLD_FAMILIES.reduce((n, f) => n + synth.familyVoices(f), 0);
+}
+
+/**
+ * The bus graph — `tone / cue / engine → effects → chain → master → mono →
+ * destination`. `dynamics` false builds a pass-through gain for the chain. A
+ * throw part-way disconnects every node already made and re-throws.
+ */
+function busGraph(ctx: AudioContext, dynamics: boolean): Buses {
+  const made: AudioNode[] = [];
+  const keep = <T extends AudioNode>(n: T): T => (made.push(n), n);
+  try {
+    const mono = keep(ctx.createGain());
+    // An EXPLICIT channel count is what actually performs the downmix: with
+    // channelCount 1 + 'explicit' + 'speakers' the node folds its stereo input
+    // to a single channel, which the destination then plays to both ears.
+    mono.channelCountMode = 'explicit';
+    mono.channelInterpretation = 'speakers';
+    mono.connect(ctx.destination);
+    const master = keep(ctx.createGain());
+    master.connect(mono);
+    const chain = dynamics ? createMasterChain(ctx) : passThrough(keep(ctx.createGain()));
+    made.push(chain.input, chain.output);
+    chain.output.connect(master);
+    const effects = keep(ctx.createGain());
+    effects.connect(chain.input);
+    return { effects, chain, master, mono };
+  } catch (err) {
+    for (const n of made) {
+      try {
+        n.disconnect();
+      } catch {
+        // never connected
+      }
+    }
+    throw err;
+  }
+}
+
+const passThrough = (g: GainNode): MasterChain => ({ input: g, output: g });
+
+/**
+ * Pure: the level a legacy fallback tone plays a placed cue at — `worldCue`'s
+ * linear-to-a-floor curve, re-expressed over distance01 (which is the same
+ * distance over the same reach), so a fallback is heard exactly as before.
+ */
+export function legacyCueGain(gain: number | undefined, distance01: number | undefined): number {
+  const g = cueGain(gain);
+  if (distance01 === undefined || !Number.isFinite(distance01)) return g;
+  const floor = CLIENT_CONFIG.audio.worldFloorGain;
+  return g * (floor + (1 - floor) * (1 - Math.max(0, Math.min(1, distance01))));
 }
 
 export class Audio {
@@ -99,6 +208,15 @@ export class Audio {
    *  exercised by tests only — amendment 57); wired here so a licensed horn is
    *  one catalog line and nothing else. */
   private readonly hornBuffers = new HornBufferCache((url) => this.fetchHorn(url));
+  /** The ONE layered-cue renderer: undefined = not built yet, null = this
+   *  browser lacks a node type the layered path needs (legacy fallback). */
+  private synth: Synth | null | undefined;
+  /** The sinking insert while spliced in (setSinkFade), else null. */
+  private sinkFade: SinkFade | null = null;
+  /** The pending unplug after the insert glides open (setSinkFade(null)). */
+  private sinkUnplugTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The ship-select horn preview still sounding (previewHorn). */
+  private preview: ShotHandle | null = null;
 
   constructor() {
     this.unsubscribe = settings.subscribe((s) => this.applySettings(s));
@@ -133,6 +251,20 @@ export class Audio {
     return this.muted || this.breakDuck;
   }
 
+  /**
+   * Can anything be HEARD right now? Not silenced, a context and a bus exist,
+   * and the context is RUNNING (Story 10.13 review P16): a suspended or
+   * interrupted context would queue every cue scheduled meanwhile and burst
+   * them all out on resume, filling the caps — so a not-running context is
+   * "not audible now": cues are dropped, never queued, and no voice is built.
+   * (A context that reports no state at all — an old engine — counts as running.)
+   */
+  private get audible(): boolean {
+    if (this.silenced || !this.ctx || !this.buses) return false;
+    const state = (this.ctx as unknown as { state?: string }).state;
+    return state === undefined || state === 'running';
+  }
+
   /** Silence the game for an ad break. Idempotent; writes nothing persistent. */
   duck(): void {
     if (this.breakDuck) return;
@@ -149,8 +281,10 @@ export class Audio {
   }
 
   /** Lazily create + resume the AudioContext and its bus chain. Call from a
-   *  user-gesture handler. */
-  resume(): void {
+   *  user-gesture handler. Resolves once the context has been asked to run
+   *  (never rejects) — a caller that must sound AFTER the resume (the ship-
+   *  select horn preview) waits on it, since a not-running context drops cues. */
+  resume(): Promise<void> {
     if (!this.ctx) {
       try {
         const Ctor =
@@ -162,22 +296,26 @@ export class Audio {
       }
       if (this.ctx) this.buildBuses(this.ctx);
     }
-    void this.ctx?.resume().catch(() => undefined);
+    return this.ctx ? this.ctx.resume().catch(() => undefined) : Promise.resolve();
   }
 
+  /**
+   * Build the bus inside a failure boundary (Story 10.13 review P18): a factory
+   * that exists but throws (the compressor) must not throw out of the PLAY
+   * click. The full chain first; on failure a gain-only chain (the page must
+   * still make sound); on a second failure no bus at all (every play path then
+   * no-ops). A failed attempt disconnects whatever it had connected.
+   */
   private buildBuses(ctx: AudioContext): void {
-    const mono = ctx.createGain();
-    // An EXPLICIT channel count is what actually performs the downmix: with
-    // channelCount 1 + 'explicit' + 'speakers' the node folds its stereo input
-    // to a single channel, which the destination then plays to both ears.
-    mono.channelCountMode = 'explicit';
-    mono.channelInterpretation = 'speakers';
-    mono.connect(ctx.destination);
-    const master = ctx.createGain();
-    master.connect(mono);
-    const effects = ctx.createGain();
-    effects.connect(master);
-    this.buses = { effects, master, mono };
+    try {
+      this.buses = busGraph(ctx, true);
+    } catch {
+      try {
+        this.buses = busGraph(ctx, false);
+      } catch {
+        this.buses = null;
+      }
+    }
     this.applySettings(settings.current);
   }
 
@@ -226,8 +364,138 @@ export class Audio {
    * today's, so not one existing call site moves.
    */
   play(id: ToneId, opts?: { detune?: number; pan?: number; gain?: number }): void {
-    if (this.silenced || !this.ctx || !this.buses) return;
+    if (!this.audible) return;
     this.playSpec(TONES[id], opts?.detune ?? 0, opts?.pan, opts?.gain);
+  }
+
+  /**
+   * Play a LAYERED CUE (Story 10.13) by id — a picked recipe (synth/cues.ts)
+   * rendered through the one Synth onto the effects bus.
+   *
+   * Early-outs exactly as `play()` does (silenced, no context, not resumed).
+   * The voice budget is applied here: a WORLD cue past its tier cap is
+   * dropped (`cueAdmitted`), and the Synth drops any cue past the global cap
+   * or its family cap — never queued, never stolen, and the visual twin still
+   * draws. NEVER THROWS: when this browser cannot build the layered graph (a
+   * missing node type, a factory that throws) the cue degrades to its legacy
+   * tone (`LEGACY_FALLBACK`, at the legacy world level `legacyCueGain`), and
+   * to silence for a cue that has none.
+   */
+  playCue(id: CueId, opts: CueOptions = {}): ShotHandle | null {
+    if (!this.audible) return null;
+    try {
+      const synth = this.cueSynth();
+      if (!synth) return this.playFallback(id, opts);
+      // The world caps count WORLD voices only (review P2): the player's own
+      // stream of secondaries must never mute the ocean.
+      if (!cueAdmitted(CUE_TIER[id], opts.distance01, worldVoices(synth), CLIENT_CONFIG.audio)) return null;
+      const shot = synth.launch(CUES[id], {
+        pan: opts.pan,
+        gain: opts.gain,
+        distance01: opts.distance01,
+        pitch: opts.pitch,
+        delayS: opts.delayS,
+        maxS: opts.maxS,
+      });
+      return shot.result === 'failed' ? this.playFallback(id, opts) : shot.handle;
+    } catch {
+      return this.playFallback(id, opts);
+    }
+  }
+
+  /** The legacy tone for a cue the layered path could not build. Never throws. */
+  private playFallback(id: CueId, opts: CueOptions): null {
+    const tone = opts.fallback === null ? undefined : (opts.fallback ?? LEGACY_FALLBACK[id]);
+    if (!tone) return null;
+    try {
+      this.play(tone, { pan: opts.pan, gain: legacyCueGain(opts.gain, opts.distance01), detune: opts.fallbackDetune });
+    } catch {
+      // a presentation failure is silence for this cue, never a throw
+    }
+    return null; // a legacy tone is 150 ms: nothing to end early
+  }
+
+  /** The one Synth, built on first use; null when a node type it needs is missing. */
+  private cueSynth(): Synth | null {
+    if (this.synth !== undefined) return this.synth;
+    const ctx = this.ctx;
+    const bus = this.sink;
+    if (!ctx || !bus) return null;
+    const ok = SYNTH_FACTORIES.every((f) => typeof (ctx as unknown as Record<string, unknown>)[f] === 'function');
+    this.synth = ok ? new Synth(ctx, bus, { maxVoices: CLIENT_CONFIG.audio.cueVoiceCap }) : null;
+    return this.synth;
+  }
+
+  /**
+   * The context and the bus an ENGINE voice connects into (audio/engineMix.ts),
+   * or null when there is nothing to build on: no context yet (never before
+   * the first user gesture), or silenced (muted / ad-break duck). The mixer
+   * releases every engine voice on null, so a silenced game holds no running
+   * engine graph at all; the next live frame rebuilds.
+   */
+  engineBus(): { ctx: BaseAudioContext; sink: AudioNode } | null {
+    if (!this.audible || !this.ctx || !this.buses) return null;
+    return { ctx: this.ctx, sink: this.buses.effects };
+  }
+
+  /**
+   * THE SINKING FADE (Story 10.13): a number 0..1 splices the SinkFade insert
+   * between the master chain and the master gain (once) and glides it to that
+   * point of the sinking. null OPENS the insert back to unity and unplugs it
+   * only once that glide is done (review P7: an instant unplug slammed the mix
+   * from silence to full); `immediate` unplugs at once (a teardown, or a fresh
+   * game that must start from a clean bus). A new sinking while the insert is
+   * still opening reuses it. Never throws; a no-op before the context exists.
+   */
+  setSinkFade(progress01: number | null, opts: { immediate?: boolean } = {}): void {
+    const ctx = this.ctx;
+    const b = this.buses;
+    if (!ctx || !b) return;
+    try {
+      if (progress01 !== null) this.plugSinkFade(ctx, b).update(progress01);
+      else if (opts.immediate === true) this.unplugSinkFade(b);
+      else this.openSinkFade(b);
+    } catch {
+      // an unsupported node: the sinking simply is not muffled
+    }
+  }
+
+  /** Glide the insert open, then unplug it after the glide (one timer). */
+  private openSinkFade(b: Buses): void {
+    const fade = this.sinkFade;
+    if (!fade || this.sinkUnplugTimer !== null) return;
+    fade.update(0);
+    this.sinkUnplugTimer = setTimeout(() => {
+      this.sinkUnplugTimer = null;
+      this.unplugSinkFade(b);
+    }, SINK_UNPLUG_MS);
+  }
+
+  private plugSinkFade(ctx: AudioContext, b: Buses): SinkFade {
+    this.cancelSinkUnplug();
+    if (this.sinkFade) return this.sinkFade;
+    const fade = new SinkFade(ctx);
+    b.chain.output.disconnect();
+    b.chain.output.connect(fade.input);
+    fade.output.connect(b.master);
+    this.sinkFade = fade;
+    return fade;
+  }
+
+  private cancelSinkUnplug(): void {
+    if (this.sinkUnplugTimer === null) return;
+    clearTimeout(this.sinkUnplugTimer);
+    this.sinkUnplugTimer = null;
+  }
+
+  private unplugSinkFade(b: Buses): void {
+    this.cancelSinkUnplug();
+    const fade = this.sinkFade;
+    if (!fade) return;
+    this.sinkFade = null;
+    fade.release();
+    b.chain.output.disconnect();
+    b.chain.output.connect(b.master);
   }
 
   /**
@@ -251,13 +519,58 @@ export class Audio {
    * survives a crowded room even when the mix cannot (amendment 56).
    */
   playHorn(hornId: string, gain: number): void {
-    if (this.silenced || !this.ctx || !this.buses) return;
-    if (this.liveHorns >= HORN_MAX_CONCURRENT) return;
+    this.honk(hornId, gain);
+  }
+
+  /**
+   * THE SHIP-SELECT PREVIEW (Story 10.13 review P17): play a horn once at full
+   * band, stopping the preview still sounding first — quick clicks hear the
+   * newest pick, never a pile-up at the mix cap. The in-match honk path above
+   * is unchanged.
+   */
+  previewHorn(hornId: string): void {
+    this.preview?.stop();
+    this.preview = this.honk(hornId, 1);
+  }
+
+  /** One honk; returns the recipe shot's handle when it is a recipe that played. */
+  private honk(hornId: string, gain: number): ShotHandle | null {
+    if (!this.audible || this.hornsSounding() >= HORN_MAX_CONCURRENT) return null;
     const voice = this.resolveHornVoice(hornVoice(hornId));
     const peak = hornGain(voice, gain);
-    if (peak <= 0) return;
-    if (voice.kind === 'sample') this.playSampleHorn(voice, peak);
-    else this.playSynthHorn(voice, peak);
+    if (peak <= 0) return null;
+    if (voice.kind !== 'recipe') {
+      if (voice.kind === 'sample') this.playSampleHorn(voice, peak);
+      else this.playSynthHorn(voice, peak);
+      return null;
+    }
+    const shot = this.playRecipeHorn(voice, peak);
+    if (shot === 'failed') this.playSynthHorn(STANDARD_HORN, hornGain(STANDARD_HORN, gain));
+    return shot === 'failed' ? null : shot;
+  }
+
+  /** Horns sounding now: the synth / sample ones counted here, plus the recipe
+   *  ones the Synth is holding in the horn family (each until its shot ends). */
+  private hornsSounding(): number {
+    return this.liveHorns + (this.synth?.familyVoices(HORN_FAMILY) ?? 0);
+  }
+
+  /**
+   * A RECIPE horn (Story 10.13): Eric's picked layered voice through the one
+   * Synth, in the horn family (capped at HORN_MAX_CONCURRENT there too) and
+   * never longer than MAX_HORN_S. Returns false only when the layered path
+   * could not BUILD — the caller then plays the plain synthesized horn, so a
+   * honk is never silent; a drop at the cap is a drop (true), never a fallback.
+   */
+  private playRecipeHorn(voice: HornRecipeVoice, peak: number): ShotHandle | null | 'failed' {
+    try {
+      const synth = this.cueSynth();
+      if (!synth) return 'failed';
+      const shot = synth.launch(voice.recipe, { gain: peak, maxS: MAX_HORN_S });
+      return shot.result === 'failed' ? 'failed' : shot.handle;
+    } catch {
+      return 'failed';
+    }
   }
 
   /**
@@ -267,7 +580,7 @@ export class Audio {
    * all. An asset problem must never produce silence or a throw.
    */
   private resolveHornVoice(voice: HornVoice): HornVoice {
-    if (voice.kind === 'synth') return voice;
+    if (voice.kind !== 'sample') return voice;
     if (this.hornBuffers.get(voice.url)) return voice;
     if (!this.hornBuffers.hasFailed(voice.url)) void this.hornBuffers.load(voice.url);
     return HORNS[DEFAULT_HORN_ID];

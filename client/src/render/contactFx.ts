@@ -80,11 +80,17 @@ export class ContactFx {
   private lastBleedMs = -Infinity;
   private lastScrapeMs = -Infinity;
   private bleedV = 0;
+  /** A scrape is sounding (a playGrind since the last endGrind). */
+  private grinding = false;
 
   constructor(
     layer: Container,
     /** Plays one `grind` scrape at this gain (0..1 of the tone's peak). */
     private readonly playGrind: (gain: number) => void,
+    /** Story 10.13: the scrape ENDED (its release passed, or the own hull is
+     *  gone) — the host stops the live grind sound instead of letting a long
+     *  shot ring on past the contact. */
+    private readonly endGrind: () => void = () => undefined,
   ) {
     layer.addChild(this.gfx);
   }
@@ -120,6 +126,7 @@ export class ContactFx {
   private rearm(): void {
     this.prevPairs.clear();
     this.prevLand = false;
+    this.endScrape();
   }
 
   /** A burst for every hull pair newly touching with a closing speed over the allowance. */
@@ -162,10 +169,18 @@ export class ContactFx {
       this.lastBleedMs = nowMs;
       this.bleedV = v;
     }
-    if (nowMs - this.lastBleedMs > FX.grindReleaseMs) return;
+    if (nowMs - this.lastBleedMs > FX.grindReleaseMs) return this.endScrape();
     if (nowMs - this.lastScrapeMs < FX.grindRetriggerMs) return;
     this.lastScrapeMs = nowMs;
+    this.grinding = true;
     this.playGrind(Math.min(1, this.bleedV / FX.grindFullVt));
+  }
+
+  /** Tell the host, once, that a sounding scrape has ended. */
+  private endScrape(): void {
+    if (!this.grinding) return;
+    this.grinding = false;
+    this.endGrind();
   }
 
   /** Throw `sparkCount` sparks from (x, y), alternating the two colors. */

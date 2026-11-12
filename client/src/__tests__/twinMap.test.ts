@@ -11,13 +11,17 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { TONE_TWINS, toneTwin, type AudioCueId } from '../audio/twinMap.js';
 import { TONES, type ToneId } from '../audio/tones.js';
+import { CUES, type CueId } from '../audio/synth/cues.js';
 
 /** Every cue that can SOUND — the tone table plus the cues on their own engine
  *  paths. The horn is the first of the latter (Story 4.5): it is not a ToneSpec,
  *  and the whole point of widening the key was that dodging `TONES` must not let
  *  a cue dodge its twin. */
-const OFF_TABLE: AudioCueId[] = ['foghorn'];
-const IDS = [...(Object.keys(TONES) as ToneId[]), ...OFF_TABLE];
+const OFF_TABLE: AudioCueId[] = ['foghorn', 'engine', 'stormBed'];
+/** Story 10.13: every LAYERED cue (audio/synth/cues.ts) — some share a tone's
+ *  id (and its row), the rest are new rows. */
+const LAYERED = Object.keys(CUES) as CueId[];
+const IDS = [...new Set<AudioCueId>([...(Object.keys(TONES) as ToneId[]), ...OFF_TABLE, ...LAYERED])];
 const SRC = join(process.cwd(), 'src');
 
 describe('every audio cue has a visual twin', () => {
@@ -72,12 +76,16 @@ describe('every audio cue has a visual twin', () => {
       ['hpHurt', [/render\/console\/shipConsole/, /render\/smoke/]],
       ['hpCritical', [/render\/console\/shipConsole/, /render\/smoke/]],
       ['foghorn', [/render\/foghorn/, /render\/effects/]],
+      // Story 10.13: own hit = the shake + the hull readout; the engine = the
+      // helm order and speed + the hulls drawn close alongside.
+      ['ownHit', [/render\/shake/, /render\/console\/shipConsole/]],
+      ['engine', [/render\/console\/shipConsole/, /render\/contacts/]],
     ];
     for (const [id, patterns] of surfaces) for (const re of patterns) expect(toneTwin(id), id).toMatch(re);
   });
 
   it('points the world cues at render/ and the ECONOMY and VITALS rows at the consoles\' own surfaces (ruling 12; Story 10.10)', () => {
-    for (const id of ['gunReport', 'impact', 'splash', 'sunkWitness'] as const) {
+    for (const id of ['gunReport', 'impact', 'splash', 'sunkWitness', 'mainBatteryWorld', 'steelHit', 'sinkWitness'] as const) {
       expect(toneTwin(id), id).toMatch(/render\/effects/);
     }
     expect(toneTwin('point')).toMatch(/render\/console\/shipConsole/);

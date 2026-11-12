@@ -3835,3 +3835,13 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: THE BALANCE-SIM SKILL SCRIPTS ARE STILL THREE-CLASS - `analyze_campaign.py` `EVEN = 1/3`, `gun_tier_analysis.py` and `run_tuned_campaign.sh` name torpedoBoat / battleship / mineLayer, `SKILL.md` targets 31-35 % a class. They live untracked in Eric's checkout (`.claude/skills/balance-sim`), so this story reported them and did not edit them; `run_campaign.py` works as is.
   evidence: Story 10.12 harness survey; the 2026-11-11 ledger was aggregated by a throwaway script, not `analyze_campaign.py`.
 
+## 2026-11-11 - Story 10.13 The Sound Pass (cycle 224, 0.19.18, PV 102; epic-10 amendment 22) - review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-13-the-sound-pass.md`
+  status: open - low - 2026-11-11 (review gate)
+  summary: THE LEGACY TONE `fitExclusive` HAS NO CALLER and is not a fallback target (`fireBroadside`, its sibling, was deleted in the record-keeping pass); only its tone-table row, twin-map row and tests reference it.
+  evidence: grep of `client/src` for `fitExclusive` shows only `audio/tones.ts`, `audio/twinMap.ts`, and `__tests__/tones.test.ts` / `twinMap.test.ts`; it is not a value in `LEGACY_FALLBACK` (`audio/synth/cues.ts`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-13-the-sound-pass.md`
+  status: open - low - tooling outside the repo - 2026-11-11 (review gate)
+  summary: THE AUDITION PAGE'S `--selftest` DEPENDS ON A PLAYWRIGHT INSTALL OUTSIDE THE REPO (`~/.claude/skills/gstack/node_modules/playwright-core`); without it the self-test cannot run.
+  evidence: `client/scripts/perfLib.mjs` `playwrightCandidates()`.

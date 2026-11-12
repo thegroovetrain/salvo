@@ -32,6 +32,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
+  DEFAULT_HORN_ID,
+  HORN_IDS,
   mulberry32,
   PROTOCOL_VERSION,
   SHIFT_IDS,
@@ -298,6 +300,20 @@ describe('the solo room — the human joins', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.HC_DEV_OPTIONS;
+  });
+
+  // Story 10.13 (Eric 2026-11-11: selectable horns): the join path already
+  // carries `horn`; this pins that a NON-DEFAULT catalog id is sanitized
+  // through onto the captain's record (the id every `fh` is stamped with),
+  // and junk still folds to the default.
+  it('a non-default horn id joins and is stamped on the record; junk folds to the default', () => {
+    const r = soloRoom();
+    const picked = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID) as string;
+    join(r, 'alice', { horn: picked });
+    expect(r.world.ships.get('alice')?.horn).toBe(picked);
+    const r2 = soloRoom();
+    join(r2, 'bob', { horn: 'not-a-horn' });
+    expect(r2.world.ships.get('bob')?.horn).toBe(DEFAULT_HORN_ID);
   });
 
   it('arms the countdown with ONE human aboard (expectedCaptains 1, minHumans 1)', () => {

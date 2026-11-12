@@ -10,7 +10,7 @@
 // reimplemented oracle (the header rule).
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_HORN_ID, type FoghornEvent, type GameEvent } from '@salvo/shared';
+import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_HORN_ID, HORN_IDS, type FoghornEvent, type GameEvent, type HornId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
@@ -201,6 +201,22 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     w.resetForMatchStart();
     expect(a.nextHonkAt).toBe(0);
     expect(a.lastHornSeq).toBe(1);
+  });
+
+  // Story 10.13: a NON-DEFAULT catalog horn rides the honk's `h` — on the
+  // world subject and on the honker's own wire copy (the fh row is unchanged;
+  // the perception invariant is untouched).
+  it('a captain fitted with a non-default horn honks with THAT id on the subject and on its own copy', () => {
+    const w = bareWorld();
+    const picked = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID) as HornId;
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', picked, undefined);
+    a.state.x = 0;
+    a.state.y = 0;
+    honk(w, 'a', 1, 1);
+    w.step();
+    const fh = honks(w.tickEvents);
+    expect(fh.map((e) => e.h)).toEqual([picked]);
+    expect((row.materialize(foggedCtx(w, a), fh[0]) as FoghornEvent).h).toBe(picked);
   });
 
   it('addShip defaults the horn to the shared DEFAULT_HORN_ID and stamps a passed variant onto the record', () => {

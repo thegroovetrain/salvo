@@ -3,6 +3,14 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  102 — Story 10.13 THE SOUND PASS (2026-11-11, Eric's ruling: four
+ *  selectable horns — Foghorn, Whistle, Bell, Sad Trombone): the
+ *  horn CATALOG's content widens, `HORN_IDS` = ['standard', 'whistle', 'bell',
+ *  'trombone'] ('standard' stays the Foghorn's id and the default; the airhorn
+ *  was dropped — Eric may add his own later). The wire SHAPE is unchanged — the `horn`
+ *  join option and FoghornEvent.h carry a wider id space, and an older client
+ *  would fold a new id to the default voice, so the gate is bumped to keep
+ *  every client hearing the horn its owner chose.
  *  101 — Story 10.9 THE AIRDROPS (cycle 219, 0.19.13, epic-10 amendment 18,
  *  Eric's rulings R1–R4 of 2026-11-08): FrameMsg gains the optional,
  *  sight-gated contact-like channel `drops` (DropView {id,x,y,c}, `c` the
@@ -854,8 +862,8 @@
  *  max()-consumed, the fireSeq/actSeq grammar). Tiers derive from the
  *  LISTENER's effective ranges, so no vision constant was added (amendments
  *  42/53); islands MUFFLE by one tier instead of blocking (amendment 54). New
- *  shared HORN_IDS/HornId/DEFAULT_HORN_ID/sanitizeHornId catalog (exactly one
- *  horn, 'standard' — a second horn is Eric-gated content, amendment 52) and
+ *  shared HORN_IDS/HornId/DEFAULT_HORN_ID/sanitizeHornId catalog (one horn,
+ *  'standard', at the time — widened at PV 102, see above) and
  *  a new CONFIG.foghorn block (cooldownMs) riding the welcome config
  *  snapshot; join options gain an optional `horn`. No roster/PlayerMeta
  *  schema field, no kill-feed line, no XP or damage — it is an emote.
@@ -1035,7 +1043,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 101;
+export const PROTOCOL_VERSION = 102;
 
 // Tunables
 export * from './constants.js';

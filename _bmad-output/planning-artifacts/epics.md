@@ -2777,7 +2777,7 @@ So that bots are worth fighting under the new game.
 **And** the 9.13 harness measures (land contact, storm share, ram deaths, placement by hull) are reported before and after; every number is Eric's at the spec step `[unruled]`; the fleet / weapons / zone smokes are re-scripted for the four hulls and the beacons
 **And** server-only; `PROTOCOL_VERSION` unchanged; the GDD "Enemy Design and AI" stamps are 10.14's.
 
-### Story 10.13: The Sound Pass *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6(l); lands after 10.12, before 10.14 closes the epic)*
+### Story 10.13: The Sound Pass *(BUILT 2026-11-11 — cycle 224, 0.19.18, PV 102; epic-10 amendment 22; `spec-10-13-the-sound-pass.md`; inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6(l); lands after 10.12, before 10.14 closes the epic)*
 
 As a captain at the helm,
 I want to hear my engines under me and guns, water and hits that sound like the real thing,

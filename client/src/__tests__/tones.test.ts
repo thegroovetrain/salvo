@@ -9,16 +9,17 @@ import { CLIENT_CONFIG } from '../config.js';
 import {
   TONES,
   FIT_KINDS,
-  fireTone,
   fitDetune,
   fitTone,
   telegraphTone,
   hpBandEdge,
   worldCue,
+  worldPlacement,
+  fitPitch,
+  fitGain,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
   audioCues,
-  stormEnterEdge,
   INITIAL_CUE_STATE,
   type ToneId,
   type AudioCueState,
@@ -28,7 +29,6 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireGun',
   'fireTorp',
   'fireMine',
-  'fireBroadside',
   'fireStarShells',
   'denied',
   'damage',
@@ -53,7 +53,6 @@ const ALL_TONE_IDS: ToneId[] = [
   'hpCritical',
   'tick',
   'matchStart',
-  'stormWarn',
   'telegraphUp',
   'telegraphDown',
   // HULL CONTACT (Story 9.5) — the sliding scrape
@@ -105,50 +104,8 @@ describe('grind tone (Story 9.5) — the retriggered sliding scrape', () => {
   });
 });
 
-describe('fireTone — weapon -> own-fire tone mapping', () => {
-  // The boost ability never fires: fireTone is typed to the weapon subset
-  // of EquipmentId (Story 1.6), so an ability id can't even reach it.
-  it('maps every firing weapon to its distinct tone', () => {
-    expect(fireTone('gun')).toBe('fireGun');
-    expect(fireTone('heavyTorpedo')).toBe('fireTorp');
-    expect(fireTone('navalMines')).toBe('fireMine');
-    expect(fireTone('broadside')).toBe('fireBroadside'); // the BB's heavy report
-    expect(fireTone('starShells')).toBe('fireStarShells'); // Story 1.7: BB flare pop
-  });
-
-  it('covers every firing id with no gaps', () => {
-    const ids = [
-      'gun', 'broadside', 'starShells',
-      'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
-      'navalMines', 'captiveMines', 'foulingMines',
-      'phosphorShells', 'foulingShell', 'dazzleShells',
-    ] as const;
-    for (const id of ids) expect(TONES[fireTone(id)], id).toBeDefined();
-  });
-
-  // STORY 8.17 / 9.4 — firing ids with NO new asset: a phosphor or fouling
-  // shell leaves the deck exactly as a flare does, so both reuse its launch cue.
-  it('gives PHOSPHOR SHELLS and the FOULING SHELL the star-shell launch cue', () => {
-    expect(fireTone('phosphorShells')).toBe('fireStarShells');
-    expect(fireTone('foulingShell')).toBe('fireStarShells');
-    expect(fireTone('dazzleShells')).toBe(fireTone('foulingShell')); // FLASH SHELLS (Story 10.9) — same click path, same cue
-  });
-
-  // STORY 8.13 — FOUR NEW FIRING IDS, NO NEW TONE (epic-8 amendments 74/76/81).
-  // Every torpedo reports with the TORPEDO cue and every mine with the MINE
-  // cue: the player hears "a fish left the tube" / "a mine is on the water",
-  // which is the fact they need, and five sounds for five lines would be new
-  // game feel nobody asked for. The a11y twin map pairs tones by MEANING, so
-  // adding a ToneId here would have made work there too.
-  it('gives the whole TORPEDO FAMILY one cue, and all THREE mine lines another', () => {
-    expect(fireTone('lightTorpedo')).toBe('fireTorp');
-    expect(fireTone('supercavTorpedo')).toBe('fireTorp'); // a BELT line, same cue
-    expect(fireTone('captiveMines')).toBe('fireMine');
-    expect(fireTone('foulingMines')).toBe('fireMine');
-  });
-
-  it('the broadside report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
-    expect(TONES.fireBroadside.freqStart).toBeLessThan(TONES.fireGun.freqStart); // heavier
+describe('the own-fire legacy tones (Story 10.13: now the layered cues\' fallbacks)', () => {
+  it('the flare is a distinct rise', () => {
     expect(TONES.fireStarShells.freqEnd).toBeGreaterThan(TONES.fireStarShells.freqStart); // rising pop
   });
 });
@@ -165,8 +122,7 @@ describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', ()
   });
 
   it('is distinct from every fire/placement success cue and the damage thud', () => {
-    // Starts well BELOW every gun-family crack (fireGun 900 / fireBroadside 520)…
-    expect(TONES.denied.freqStart).toBeLessThan(TONES.fireBroadside.freqStart);
+    // Starts well BELOW every gun-family crack (fireGun 900)…
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
     // …is not a soft sine drop (the mine/decoy placement family)…
     expect(TONES.denied.type).not.toBe(TONES.fireMine.type);
@@ -361,15 +317,6 @@ describe('audioCues — countdown tick + match-start edge detection', () => {
   });
 });
 
-describe('stormEnterEdge', () => {
-  it('is true only on the inside -> outside transition', () => {
-    expect(stormEnterEdge(false, true)).toBe(true);
-    expect(stormEnterEdge(true, true)).toBe(false); // already outside — no repeat
-    expect(stormEnterEdge(false, false)).toBe(false);
-    expect(stormEnterEdge(true, false)).toBe(false); // re-entering the zone, no warning
-  });
-});
-
 // --- STORY 2.9 (re-keyed in 8.1): the per-KIND fit transposition ----------------
 //
 // The kind picks the cue's weight (fitTone) and moves it up or down the scale
@@ -460,7 +407,7 @@ describe('hitCall tone (Story 4.3) — a connection you may not be able to see',
   });
 
   it('sits BELOW every low-register neighbour it must not be confused with', () => {
-    for (const id of ['damage', 'burn', 'stormWarn'] as const) {
+    for (const id of ['damage', 'burn'] as const) {
       expect(TONES.hitCall.freqStart, id).toBeLessThan(TONES[id].freqStart);
     }
   });
@@ -468,13 +415,13 @@ describe('hitCall tone (Story 4.3) — a connection you may not be able to see',
   it('DIPS and rolls back up, where every low neighbour falls and stops', () => {
     expect(TONES.hitCall.freqMid).toBeLessThan(TONES.hitCall.freqStart); // the punch down
     expect(TONES.hitCall.freqEnd).toBeGreaterThan(TONES.hitCall.freqMid); // ...and the swell back
-    for (const id of ['damage', 'burn', 'stormWarn'] as const) {
+    for (const id of ['damage', 'burn'] as const) {
       expect(TONES[id].freqEnd, id).toBeLessThan(TONES[id].freqMid); // monotonic fall
     }
   });
 
-  it('is not the storm\'s sawtooth growl, and carries no burn hiss', () => {
-    expect(TONES.hitCall.type).not.toBe(TONES.stormWarn.type);
+  it('is not the alarm family\'s sawtooth, and carries no burn hiss', () => {
+    expect(TONES.hitCall.type).not.toBe(TONES.sink.type);
     expect(TONES.burn.noise).toBe(true);
   });
 });
@@ -543,7 +490,7 @@ describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for 
     expect(TONES.impact.duration).toBeLessThan(TONES.sink.duration / 2);
     expect(TONES.impact.freqStart).toBeLessThan(TONES.sink.freqStart);
     expect(TONES.impact.freqMid).toBeLessThan(TONES.sink.freqMid); // already collapsed at 40%
-    expect(TONES.stormWarn.noise).toBeUndefined();
+    expect(TONES.sink.noise).toBeUndefined();
   });
 
   it('splash is the quietest, softest, wettest cue — a miss is information, not an event', () => {
@@ -596,7 +543,7 @@ describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for 
       expect(TONES[id].freqEnd, id).toBeLessThan(TONES[id].freqStart); // ...and down THROUGH
       expect(TONES[id].noise, id).toBeUndefined(); // nothing struck you at a crossing
     }
-    for (const id of ['stormWarn', 'sink'] as const) {
+    for (const id of ['sink'] as const) {
       expect(TONES[id].freqMid, id).toBeLessThan(TONES[id].freqStart); // siblings fall monotonically
     }
     // The catalog's only other rise-then-fall cue settles ABOVE its start.
@@ -766,5 +713,38 @@ describe('hpBandEdge (Story 4.7) — one sting per DOWNWARD band crossing', () =
       expect(hpBandEdge(bad, 0.1)).toBeNull();
       expect(hpBandEdge(0.6, bad)).toBeNull();
     }
+  });
+});
+
+describe('worldPlacement (Story 10.13) — a layered world cue’s pan and distance', () => {
+  const REACH = CONFIG.vision.radar;
+
+  it('pans exactly as worldCue does, and carries the distance as a fraction of the same reach', () => {
+    for (const [dx, dy] of [[REACH / 2, 0], [-REACH / 4, REACH / 4], [0, 0]]) {
+      const p = worldPlacement(dx, dy, REACH)!;
+      expect(p.pan).toBe(worldCue(dx, dy, REACH)!.pan);
+      expect(p.distance01).toBeCloseTo(Math.hypot(dx, dy) / REACH, 12);
+    }
+  });
+
+  it('Story 10.13: the fit cue’s pitch ratio is the cents table as a ratio — equipment lowest, ladder at the root, addon higher', () => {
+    for (const k of FIT_KINDS) expect(fitPitch(k)).toBeCloseTo(Math.pow(2, fitDetune(k) / 1200), 12);
+    expect(fitPitch('equipment')).toBeLessThan(fitPitch('ladder'));
+    expect(fitPitch('ladder')).toBe(1);
+    expect(fitPitch('addon')).toBeGreaterThan(fitPitch('ladder'));
+    expect(fitPitch('junk')).toBe(1);
+  });
+
+  it('Story 10.13: the fit cue’s level keeps the legacy weights — equipment the loudest (1), the rest in proportion', () => {
+    expect(fitGain('equipment')).toBe(1);
+    expect(fitGain('ladder')).toBeCloseTo(TONES[fitTone('ladder')].volume / TONES[fitTone('equipment')].volume, 12);
+    expect(fitGain('ladder')).toBeLessThan(1);
+    expect(fitGain(undefined)).toBe(fitGain('ladder'));
+  });
+
+  it('clamps past the reach (never dropped) and rejects the input worldCue rejects', () => {
+    expect(worldPlacement(REACH * 3, 0, REACH)!.distance01).toBe(1);
+    expect(worldPlacement(NaN, 0, REACH)).toBeNull();
+    expect(worldPlacement(0, 0, 0)).toBeNull();
   });
 });
