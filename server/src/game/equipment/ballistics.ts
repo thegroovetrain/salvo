@@ -12,7 +12,11 @@
 // the owner — so clearance is only about clean spawn geometry, not self-hits.
 
 import {
+  clampInsideMap,
+  dispersedLanding,
+  dispersedPoint,
   hullClearOffset as sharedHullClearOffset,
+  segCircleHit,
   muzzleSpawn as sharedMuzzleSpawn,
   type ShellFamily,
   type ShellState,
@@ -77,14 +81,11 @@ export interface BallisticParams {
    *  at its aim point with a splash instead of bursting, and a hull it strikes
    *  takes a plain contact hit (see ShellState.direct). */
   direct?: true;
-  /** THE ATTENUATION REFERENCE (Story 9.12, Eric 2026-10-16, epic-9
-   *  amendment 184(b)): the firing row's effective `rangeU` AT FIRE TIME —
-   *  never the lit-zone-lifted reach; ABSENT for a deck-gun shot aimed into
-   *  the firer's own live lit zone (amendment 187, the lit exemption — full
-   *  damage; guns.ts `attenRangeFor`). Only the three deck guns pass it; when
-   *  given and > 0 the shell also records its launch point (see
-   *  ShellState.originX / attenRangeU). Server-private, never on the wire. */
-  attenRangeU?: number;
+  /** Server-internal MAIN-BATTERY marker (see ShellState.batteryShell). Only
+   *  the main battery's salvo sets it; never on the wire. */
+  batteryShell?: true;
+  // `attenRangeU` (the deck-gun range-attenuation reference, Story 9.12) —
+  // RETIRED 2026-11-12, Story 11.1: damage is flat with range.
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
@@ -106,21 +107,104 @@ export interface BallisticParams {
   homing?: { turnRate: number; acquireRange: number };
 }
 
+/** One dispersed shell's flight: where it lands, the bearing it flies and how far. */
+export interface DispersedFlight {
+  /** The shell's own landing point (dispersed, inside the water disk). */
+  landing: Vec2;
+  /** rad — the bearing from its muzzle straight at its landing. */
+  dir: number;
+  /** u — muzzle → landing. */
+  distU: number;
+}
+
 /**
- * THE LAUNCH POINT + REFERENCE (Story 9.12, ruling 184(b), reading r1): a
- * deck-gun shell records where it left the muzzle (its resolved spawn point —
- * call this on the freshly built shell) and the row's range at fire time, so
- * the World can measure the distance FLOWN at impact. Nothing is written for
- * an absent or non-positive reference (every other projectile: no
- * attenuation, and no explicit `undefined` keys on the record) — including a
- * deck-gun shot aimed into the firer's own live lit zone (Eric 2026-10-17,
- * epic-9 amendment 187: the lit region counts as the 100 % damage range).
+ * REAL DISPERSION (Story 11.1, R5 / R8): one shell's landing — the shared
+ * `dispersedLanding` from its own muzzle `origin` around its aim point
+ * `aim`, from `seed` (`ActivationContext.mintShell`), kept inside the water
+ * disk — and the STRAIGHT flight to it: the bearing and travel are
+ * recomputed from the muzzle to the landing, so `stepShell` flies the shell
+ * there with no sideways snap on arrival. A shell spawned on its landing
+ * (the point-blank rule) keeps `fallbackDir`.
  */
-function stampAttenuation(shell: ShellState, attenRangeU: number | undefined): void {
-  if (attenRangeU === undefined || !(attenRangeU > 0)) return;
-  shell.originX = shell.x;
-  shell.originY = shell.y;
-  shell.attenRangeU = attenRangeU;
+export function dispersedFlight(origin: Vec2, aim: Vec2, seed: number, mapRadius: number, fallbackDir: number): DispersedFlight {
+  const landing = dispersedLanding(origin.x, origin.y, aim.x, aim.y, seed, mapRadius);
+  const dx = landing.x - origin.x;
+  const dy = landing.y - origin.y;
+  const distU = Math.hypot(dx, dy);
+  return { landing, dir: distU > 0 ? Math.atan2(dy, dx) : fallbackDir, distU };
+}
+
+/** One main-battery shell's flight: where it spawns, where it lands, how far it flies. */
+export interface SalvoShellFlight {
+  /** Its spawn point — on the muzzle line, abreast of its salvo-mates (or its landing, point blank). */
+  spawn: Vec2;
+  /** Its own dispersed landing, inside the water disk. */
+  landing: Vec2;
+  /** u — spawn → landing, along the salvo bearing. */
+  distU: number;
+}
+
+/** Hair inside the rim a rim-entry spawn is nudged, so it never sits ON the edge. */
+const RIM_NUDGE_U = 0.01;
+
+/**
+ * A spawn on the muzzle line can fall just OUTSIDE the water disk when the firer
+ * hugs the rim (`stepShell` would expire it at once). Slide it FORWARD along its
+ * own track (spawn → landing, the salvo bearing) to where the track enters the
+ * disk, a hair inside. `null` = the track never enters the disk.
+ */
+function enterMapAlongTrack(spawn: Vec2, landing: Vec2, mapRadius: number): Vec2 | null {
+  if (Math.hypot(spawn.x, spawn.y) <= mapRadius) return spawn;
+  const t = segCircleHit(spawn, landing, { x: 0, y: 0 }, mapRadius);
+  if (t === null) return null;
+  const len = Math.hypot(landing.x - spawn.x, landing.y - spawn.y);
+  const k = Math.min(1, t + RIM_NUDGE_U / len);
+  return { x: spawn.x + (landing.x - spawn.x) * k, y: spawn.y + (landing.y - spawn.y) * k };
+}
+
+/**
+ * ONE SHELL OF A MAIN-BATTERY SALVO (Story 11.1 R13, review fix — no
+ * converging tracks on the wire). The dispersion is rolled ONCE per shell
+ * around the salvo `center` inside the ellipse for the STATION → CENTER range
+ * (the client preview oval's range), its long axis on the salvo bearing
+ * (station → center). The shell then flies PARALLEL to the salvo bearing
+ * (`bearing`): its spawn is its landing projected straight back along the
+ * bearing onto the MUZZLE LINE (through `muzzle` — the salvo's un-dispersed
+ * origin, `turretSalvo` `shells[k].origin` — perpendicular to the bearing).
+ * Every shell of a salvo therefore leaves abreast, flies on one velocity
+ * direction and arrives exactly on its own landing (no sideways snap); only
+ * its travel differs, by its along-shot offset. A landing on or behind the
+ * muzzle line — or any shell of a POINT-BLANK salvo (`turretSalvo` puts its
+ * origin on the center) — is spawned ON the landing (the `muzzleOrTarget`
+ * rule). The map clamp pulls the landing back ALONG THE BEARING, so the track
+ * stays parallel.
+ */
+export function salvoShellFlight(
+  station: Vec2,
+  center: Vec2,
+  muzzle: Vec2,
+  bearing: number,
+  seed: number,
+  mapRadius: number,
+): SalvoShellFlight {
+  const ux = Math.cos(bearing);
+  const uy = Math.sin(bearing);
+  const p = dispersedPoint(station.x, station.y, center.x, center.y, seed);
+  const along = (p.x - muzzle.x) * ux + (p.y - muzzle.y) * uy;
+  // `turretSalvo` reports a point-blank salvo by putting its origin ON the center.
+  const pointBlank = muzzle.x === center.x && muzzle.y === center.y;
+  if (pointBlank || !(along > 0)) {
+    const landing = clampInsideMap(station, p, mapRadius);
+    return { spawn: landing, landing, distU: 0 };
+  }
+  const spawn = enterMapAlongTrack({ x: p.x - ux * along, y: p.y - uy * along }, p, mapRadius);
+  if (spawn === null) {
+    // The track never enters the disk: spawn on the (clamped) landing, as point blank does.
+    const landing = clampInsideMap(station, p, mapRadius);
+    return { spawn: landing, landing, distU: 0 };
+  }
+  const landing = clampInsideMap(spawn, p, mapRadius);
+  return { spawn, landing, distU: Math.hypot(landing.x - spawn.x, landing.y - spawn.y) };
 }
 
 /**
@@ -156,14 +240,18 @@ export function makeBallistic(
     hits: p.hits,
     family: p.family,
   };
+  copyOptionalTags(shell, p);
+  return shell;
+}
+
+/** The optional tags are set only when the caller carries one (never an
+ *  explicit `undefined` key — the shape stays clean for plain projectiles). */
+function copyOptionalTags(shell: ShellState, p: BallisticParams): void {
   if (p.direct === true) shell.direct = true;
-  stampAttenuation(shell, p.attenRangeU);
-  // The optional doctrine tags are set only when the caller carries one (never
-  // an explicit `undefined` key — the shape stays clean for plain projectiles).
+  if (p.batteryShell === true) shell.batteryShell = true;
   if (p.lit) shell.lit = p.lit;
   if (p.burn) shell.burn = p.burn;
   if (p.foul) shell.foul = p.foul;
   if (p.flash) shell.flash = p.flash;
   if (p.homing) shell.homing = p.homing;
-  return shell;
 }

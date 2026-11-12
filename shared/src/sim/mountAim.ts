@@ -17,19 +17,16 @@
 //
 //   - a mount BEARS on an aim point when the point lies inside rest ± train
 //     measured FROM THE MOUNT'S OWN STATION, and is not on the station itself;
-//   - a mount that bears traverses LINEARLY toward the point inside its
-//     interval (so it can never rotate through its blind sector); one that
-//     does not bear HOLDS its angle (epic-10 amendment 10);
-//   - a mount within the on-target tolerance of the angle it wants is ON
-//     TARGET and fires at the point exactly; otherwise it may fire EARLY along
-//     its current bearing (the 10.4 early-click rule) — `readMount` reports
-//     both, the caller ranks.
+//   - NO TRAVERSE (Eric 2026-11-12, Story 11.1, R11 / R16 — point and shoot):
+//     a mount's angle is not simulated state that slews. Its DISPLAYED angle
+//     is derived (`mountAngle`): at the aim point while the aim is inside its
+//     arc, at rest otherwise. A mount that bears fires at the aim point
+//     exactly; the caller picks among the ready ones. (The traverse stepper,
+//     the on-target tolerance and the fire-early rank — `traverseMount`,
+//     `traverseStepRad`, `readMount`, `rankMounts`, `mountWantFrom` — retired
+//     2026-11-12 with it.)
 //
-// The float operations are the ones turrets.ts performed before the lift, in
-// the same order: the battery's behavior is byte-identical.
-//
-// Pure, zero I/O, no CONFIG read (the rate and the tolerance arrive from the
-// caller, which owns the dial).
+// Pure, zero I/O, no CONFIG read.
 
 import { wrapAngle } from '../math/angle.js';
 import type { Vec2 } from '../math/vec.js';
@@ -109,78 +106,16 @@ export function mountWant(m: TrainedMount, pose: AimPose, aim: Vec2): number {
   return m.rest + clampOffset(off, m.train);
 }
 
-/** The angle the mount goes to given where it ALREADY points: the bearing to an aim inside its arc, else `currentA` (hold). */
-export function mountWantFrom(m: TrainedMount, pose: AimPose, aim: Vec2, currentA: number): number {
-  const want = mountBearingOffset(m, mountStationWorld(m.x, pose), pose, aim);
-  return want === null ? currentA : m.rest + clampOffset(want, m.train);
-}
-
 /**
- * One mount's traverse for a step toward the aim point (`maxStep` rad), IN
- * PLACE on `st.a`; a mount that does not bear holds. Arrives exactly, never
- * overshoots, never leaves its train interval.
+ * THE DERIVED ANGLE (Story 11.1, R16): the mount's hull-relative angle for
+ * this aim — the bearing to the aim point while it lies inside the mount's
+ * arc (clamped to the train limits against float dust), its REST bearing
+ * otherwise (blind sector, on its own station, or `null` = no aim).
  */
-export function traverseMount(st: { a: number }, m: TrainedMount, pose: AimPose, aim: Vec2, maxStep: number): void {
-  const want = mountBearingOffset(m, mountStationWorld(m.x, pose), pose, aim);
-  if (want === null) return;
-  // A state outside its interval (never produced here; a corrupt write) is
-  // pulled back to the nearer stop before it moves.
-  const from = m.rest + clampOffset(st.a - m.rest, m.train);
-  const to = m.rest + clampOffset(want, m.train);
-  const d = to - from;
-  st.a = Math.abs(d) <= maxStep ? to : from + Math.sign(d) * maxStep;
-}
-
-/** One mount's read against the aim point — only ever built for a mount that BEARS. */
-export interface MountRead {
-  /** True iff the mount is within the on-target tolerance of the angle it wants. */
-  on: boolean;
-  /** rad — the FALLBACK rank: the mount's travel to the bearing of the aim point. */
-  err: number;
-  /** The mount's world station. */
-  station: Vec2;
-  /** rad — the WORLD bearing station → aim point. */
-  exactBearing: number;
-  /** u — station → aim point. */
-  aimDistU: number;
-}
-
-/**
- * One mount (at angle `a`) against the aim point, or `null` when it does NOT
- * BEAR. A mount that bears has an error = its travel to the aim bearing
- * (unwrapped — it can only get there inside its interval), and is ON TARGET
- * within `onTargetRad` of it.
- */
-export function readMount(a: number, m: TrainedMount, pose: AimPose, aim: Vec2, onTargetRad: number): MountRead | null {
-  const station = mountStationWorld(m.x, pose);
-  const off = mountBearingOffset(m, station, pose, aim);
-  if (off === null) return null;
-  const aimDistU = Math.hypot(aim.x - station.x, aim.y - station.y);
-  const err = Math.abs(m.rest + clampOffset(off, m.train) - a);
-  const on = err <= onTargetRad + ARC_EPS;
-  return { on, err, station, exactBearing: pose.heading + m.rest + off, aimDistU };
-}
-
-/**
- * THE PICK'S RANK over mounts `0..n−1` (`read(i)` = that mount's `readMount`,
- * or `null` for a mount that is not a candidate — not ready, or not bearing):
- * the FIRST candidate ON TARGET wins (lowest index); otherwise the candidate
- * with the SMALLEST error (lowest index on a tie). `null` = no candidate.
- */
-export function rankMounts(n: number, read: (i: number) => MountRead | null): { index: number; read: MountRead } | null {
-  let best: { index: number; read: MountRead } | null = null;
-  for (let i = 0; i < n; i += 1) {
-    const r = read(i);
-    if (r === null) continue;
-    if (r.on) return { index: i, read: r };
-    if (best === null || r.err < best.read.err) best = { index: i, read: r };
-  }
-  return best;
-}
-
-/** rad — a traverse rate in °/s as the largest step of one `dtMs` tick. */
-export function traverseStepRad(degPerS: number, dtMs: number): number {
-  return (degPerS * RAD_PER_DEG * dtMs) / 1000;
+export function mountAngle(m: TrainedMount, pose: AimPose, aim: Vec2 | null): number {
+  if (aim === null) return m.rest;
+  const off = mountBearingOffset(m, mountStationWorld(m.x, pose), pose, aim);
+  return off === null ? m.rest : m.rest + clampOffset(off, m.train);
 }
 
 // --- Contact wire codec ------------------------------------------------------

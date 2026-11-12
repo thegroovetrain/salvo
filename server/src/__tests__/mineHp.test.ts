@@ -2,13 +2,13 @@
 //
 // Every mine carries CONFIG.mine.hp = 10, server-side only. A DECK GUN shell
 // (cannon, flak, machine gun — the three masks carrying `mine`) that LANDS
-// deals its range-attenuated damage to every mine whose 10 u marker its blast
+// deals its damage (flat with range since Story 11.1) to every mine whose 10 u marker its blast
 // touches (centre within burstRadius + CONFIG.mine.hitRadiusU — Eric
 // 2026-10-16, Story 9.12, epic-9 amendment 184(i); the machine gun has no
 // blast, so 10 u of its arrival point); at 0 a naval/fouling mine detonates
 // and a captive is destroyed (a boom, no blast, no fish). Broadside and
 // phosphor never touch one; only naval mines chain, both ways. The blast-reach
-// and attenuation rows are pinned in mineBlastLanding.test.ts.
+// rows are pinned in mineBlastLanding.test.ts.
 //
 // This file drives every row of the cycle-160 spec's I/O matrix through the
 // REAL fire paths: a cannon click through the gun module, a flak click, a
@@ -24,7 +24,6 @@ import {
   type InputMsg,
   type MineKind,
   pointPolygonDistance,
-  rangeAttenuation,
   settleBlow,
   type ShellState,
 } from '@salvo/shared';
@@ -152,11 +151,7 @@ describe('the CANNON — one click on the mine pops it (the twin volley sums pas
       if (i > 0 && !gunShellsInFlight(w)) break;
     }
     expect(seen).toHaveLength(a.stats.equipment.gun.barrels);
-    const s0 = seen[0];
-    const blow = settleBlow(
-      CONFIG.gun.damage * rangeAttenuation(Math.hypot(s0.targetX! - s0.originX!, s0.targetY! - s0.originY!), s0.attenRangeU!, CONFIG.gunAttenuation),
-    );
-    expect(100 - w.mines.get('m1')!.hp).toBe(seen.length * blow);
+    expect(100 - w.mines.get('m1')!.hp).toBe(seen.length * settleBlow(CONFIG.gun.damage));
   });
 
   it("the shooter's OWN mine pops too (the standing friendly-fire exception)", () => {
@@ -334,7 +329,7 @@ describe('the MACHINE GUN — ceil(mine hp / D) near shells to pop one', () => {
     expect(count(log, 'hc')).toBe(3);
   });
 
-  it('NO CURSOR TERM, PER SHELL (Story 9.12): a shell aimed 40 u past reach lands at the reach clamp ON the mine and takes its attenuated blow like the shells aimed on it', () => {
+  it('NO CURSOR TERM, PER SHELL (Story 9.12): a shell aimed 40 u past reach lands at the reach clamp ON the mine and takes the same blow as the shells aimed on it', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     const M = CONFIG.machineGun.rangeU; // its own Tier I dial (Story 9.8, ruling 125)
@@ -354,11 +349,8 @@ describe('the MACHINE GUN — ceil(mine hp / D) near shells to pop one', () => {
       const gone = [...before].filter((sid) => !w.shells.has(sid)).length;
       for (let k = 0; k < gone; k += 1) hpAfter.push(w.mines.get('m1')!.hp);
     }
-    const s0 = [...fired.values()][0];
-    const blow = settleBlow(
-      CONFIG.machineGun.damage * rangeAttenuation(Math.hypot(s0.targetX! - s0.originX!, s0.targetY! - s0.originY!), s0.attenRangeU!, CONFIG.gunAttenuation),
-    );
-    expect(blow).toBeLessThan(CONFIG.machineGun.damage); // a max-range landing is attenuated
+    expect(fired.size).toBe(3);
+    const blow = settleBlow(CONFIG.machineGun.damage); // flat with range (Story 11.1)
     expect(hpAfter.slice(0, 3)).toEqual([100 - blow, 100 - 2 * blow, 100 - 3 * blow]);
   });
 
@@ -418,8 +410,9 @@ describe("the captain's guns (Story 10.4) — the secondaries hurt a mine, the m
   it('held secondaries on a mine: each round takes one whole blow off its hp until ceil(hp / D) pops it — one boom', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'mainBattery' });
-    // Inside the full-damage fraction of the secondaries' reach: no attenuation.
-    const d = (CONFIG.gunAttenuation.fullFrac * a.stats.secondaryRangeU) / 2;
+    // A quarter of the secondaries' reach: each dispersed landing is a unit
+    // or so off the marker's centre, well inside its hit radius.
+    const d = a.stats.secondaryRangeU / 4;
     const D = settleBlow(CONFIG.secondaries.damage);
     const n = Math.ceil(CONFIG.mine.hp / D);
     const seq = Array.from({ length: n }, (_, i) => (i === n - 1 ? null : CONFIG.mine.hp - (i + 1) * D));

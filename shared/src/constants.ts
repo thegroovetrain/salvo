@@ -1271,7 +1271,7 @@ export const CONFIG = {
     // AR44: the cannon hits hulls and — ONLY where its shell LANDS
     // (amendment 200) — any MINE whose 10 u marker the blast touches (centre
     // within `burstRadius + mine.hitRadiusU` of the burst point), yours
-    // included, for the shell's range-attenuated damage (Eric 2026-10-16,
+    // included, for the shell's damage (Eric 2026-10-16,
     // Story 9.12, epic-9 amendment 184(i): the cursor clause and amendment
     // 200's "a burst that merely covers a mine does nothing" are RETIRED). A
     // shell in flight never touches a mine.
@@ -1311,8 +1311,8 @@ export const CONFIG = {
     // guns retire at 10.4 / 10.5, "it doesn't matter, this is all getting
     // changed"): the ladder authors +6 / +3 / +3 / +3 → 24/30/33/36/39, so the
     // max click is 2 × 39 = 78 of a 1000 hp hull (damageGuardrail.test reads
-    // the ceiling from the fold). Every blow is range-attenuated
-    // (`gunAttenuation` below).
+    // the ceiling from the fold). Flat with range since Story 11.1 (range
+    // attenuation retired 2026-11-12).
     damage: 24,
     // shells per click — TWO BARRELS AT EVERY TIER, FIXED (Eric 2026-10-16,
     // Story 9.12, forge weapon-balance-math; epic-9 amendments 184–185): no
@@ -1361,12 +1361,12 @@ export const CONFIG = {
    * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
    * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
    * `sp` splash, no `burst` event). A shell that arrives within
-   * `mine.hitRadiusU` of a mine deals its range-attenuated `damage` to the
+   * `mine.hitRadiusU` of a mine deals its `damage` to the
    * mine's hp (amendment 200; no cursor term since Story 9.12, epic-9
    * amendment 184(i)) — two shells pop one near, three far; a shell in flight
    * never touches a mine (amendment 20), and one spent on a hull on the way
-   * never arrives. NO `burstRadius`. Every hit is range-attenuated
-   * (`gunAttenuation` below). Range is its own tiered dial since Story 9.8
+   * never arrives. NO `burstRadius`. Every hit is flat with range (range
+   * attenuation retired 2026-11-12, Story 11.1). Range is its own tiered dial since Story 9.8
    * (ruling 125: 6/12 → 7/12), no longer the radar rung. 360° (amendment
    * 106: "There is no 'arc.'"). Its ladder (Eric 2026-10-16, Story 9.12
    * (forge weapon-balance-math; epic-9 amendments 184–185): magazine
@@ -1407,13 +1407,14 @@ export const CONFIG = {
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
    * `mine`, as for every deck gun, is by LANDING only (amendment 200): since
    * Story 9.12 every mine whose 10 u marker the 50 u blast touches takes the
-   * attenuated blow (epic-9 amendment 184(i)), so a flak shell clears a few.
+   * blow (epic-9 amendment 184(i)), so a flak shell clears a few.
    * Its ladder (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math;
    * epic-9 amendments 184–185): damage +2 per tier → 16/18/20/22/24, the
    * second turret on the rung to II ONLY → pool 1,2,2,2,2; −5 % reload per
    * tier, 3.5 → 2.8 s; blast FIXED; was +8 per tier → 20/28/36/44/52 with
    * turrets at II and IV, the 2026-10-13 experiment, Story 9.8) is the `flak`
-   * catalog line. Every blow is range-attenuated (`gunAttenuation` below).
+   * catalog line. Every blow is flat with range (attenuation retired
+   * 2026-11-12, Story 11.1).
    * Every number is a harness dial.
    */
   flak: {
@@ -1430,7 +1431,7 @@ export const CONFIG = {
     // re-derived per tier: the ladder's damage steps never move it. Held at 4
     // through the 2026-10-13 base move 12 → 20 and the 2026-10-16 move
     // 20 → 16 (only the numbers Eric names change; ruling 184(c): never
-    // range-attenuated); ×3 PLACEHOLDER 4 → 12 with the family (Story 10.3,
+    // range-attenuated, and range attenuation itself retired 2026-11-12); ×3 PLACEHOLDER 4 → 12 with the family (Story 10.3,
     // ruling 10).
     contactDamage: 12,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
@@ -1439,51 +1440,38 @@ export const CONFIG = {
     // replaces the flat D − 10 `edgeFalloff` of 2026-10-13, Story 9.8). The
     // rim deals HALF the centre damage, proportional by the NEAREST point of
     // the caught hull's outline (0 inside): the blow is
-    // `damage × (1 − rimFactor × clamp01(nearest / burstRadius))`, times the
-    // range attenuation, floored ONCE to a whole number (floor 1) before the
+    // `damage × (1 − rimFactor × clamp01(nearest / burstRadius))`, floored ONCE to a whole number (floor 1) before the
     // one damage gate (sim/attenuation.ts `flakRimFactor` / `settleBlow`).
     // FLAK ONLY; the harness reaches it as `--tune flak.rimFactor` on [0, 1].
     rimFactor: 0.5, // fraction of the centre damage lost at the very rim
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
+  // DECK-GUN RANGE ATTENUATION (`gunAttenuation { fullFrac, minFactor }`,
+  // Story 9.12, epic-9 amendments 184 / 187) — RETIRED 2026-11-12, Story 11.1
+  // (Eric's lock 3 / #39: a long shot is a gamble on where it lands, never a
+  // weaker hit; supersedes epic-9 amendment 187). Damage is flat with range;
+  // the spread is `dispersion` below.
+
   /**
-   * DECK-GUN RANGE ATTENUATION (Eric 2026-10-16, Story 9.12 (forge
-   * weapon-balance-math; epic-9 amendments 184–185), forge lock verbatim:
-   * *"RANGE ATTENUATION on every deck gun: full damage out to ~50 % of the
-   * gun's range, then falls gradually to ~80 % at max range (reason: reward
-   * moving in a bit)"*; the 80 % floor since moved to 50 %, see below). ONE shared block read identically by the cannon, the
-   * machine gun and the flak gun (ruling 184(f)).
-   *
-   * LINEAR: factor 1 while the shell has flown ≤ `fullFrac` of the reference,
-   * falling linearly to `minFactor` at 100 %, CLAMPED at `minFactor` beyond
-   * (a lit-zone-lifted shot that is NOT exempt). The distance is the shell's LAUNCH POINT → its
-   * impact point (the distance it actually flew), and the reference is the
-   * firer's effective gun `rangeU` AT FIRE TIME — never the lit-zone-lifted
-   * reach (ruling 184(b)). The whole blow (flak: × the rim falloff) is
-   * multiplied by the factor, floored ONCE to a whole number with a floor of
-   * 1, BEFORE the armor gate (ruling 184(c)); the cannon/flak bodyblock
-   * `contactDamage` is NOT attenuated. Mines a deck-gun shell lands on take
-   * the attenuated blow too (Eric 2026-10-16, ruling 184(i)). The pure curve
-   * is sim/attenuation.ts `rangeAttenuation`; `--tune gunAttenuation.*` on
-   * [0, 1] with `fullFrac < 1`.
-   *
-   * THE FLOOR MOVED (Eric 2026-10-17, epic-9 amendment 187, verbatim: *"the
-   * deck gun bullet drop off, go down to 50% damage at its maximum range. If
-   * you want to do more damage, you need to get into range that people can
-   * shoot you back."*): `minFactor` 0.8 → 0.5; the curve's shape is
-   * unchanged.
-   *
-   * THE LIT EXEMPTION (Eric 2026-10-17, epic-9 amendment 187: *"the lit up
-   * region is counted as within the 100% damage range, even if it otherwise
-   * wouldn't be"*): a deck-gun shot whose clamped aim point lies inside one of
-   * the firer's OWN live lit zones at FIRE TIME carries no attenuation
-   * reference and deals the full blow wherever it lands (server guns.ts
-   * `attenRangeFor`). Own flares only, the reach lift's own keying.
+   * REAL DISPERSION (Eric 2026-11-12, Story 11.1 rulings R2–R4): where a gun
+   * shell lands around its aim point. The pattern is an ellipse centered on the
+   * aim point, its long axis along the line of fire:
+   *  - full length ALONG the shot = `alongFrac` × range (R2);
+   *  - full width ACROSS the shot = `acrossFrac` × that length (R2);
+   *  - each axis' full length is never below `floorU` (R4 point-blank floor);
+   *  - the spread is BELL-SHAPED (most shells near the middle) and the ellipse
+   *    is a HARD EDGE, nothing lands outside it (R3); the edge sits at
+   *    `sigmas` standard deviations of the bell.
+   * `sigmas` and "the floor applies to each axis" are the spec author's
+   * readings, shown on the dispersion bench page for Eric's veto. The pure
+   * math is sim/dispersion.ts (`dispersionAxes`, `dispersedPoint`).
    */
-  gunAttenuation: {
-    fullFrac: 0.5, // fraction of the firer's rangeU flown at full damage
-    minFactor: 0.5, // damage factor at (and beyond) the firer's rangeU (0.8 → 0.5 Eric 2026-10-17, amendment 187)
+  dispersion: {
+    alongFrac: 0.01, // full length along the shot, as a fraction of range (R2)
+    acrossFrac: 1 / 3, // full width across, as a fraction of the length along (R2)
+    floorU: 2, // u — smallest full length of either axis (R4; per-axis = spec-author reading)
+    sigmas: 2, // the hard edge in standard deviations of the bell (spec-author reading)
   },
 
   /**
@@ -1492,27 +1480,25 @@ export const CONFIG = {
    * per-hull half (train limit, turret stations, guns per turret, shell
    * damage) is `CONFIG.shipClasses.<id>.battery`.
    *
-   * Each TURRET is its own piece of state in the shared sim (sim/turrets.ts):
-   * an angle that traverses toward the one aim point at `traverseDegPerS` with
-   * a HARD STOP at the hull's train limit (amendment 7(e)/(j): load-bearing,
-   * 90°/s, never through the blind sector), and its own reload. A click fires
-   * ONE turret, and only a READY turret whose arc holds the aim point (arc-only
-   * fire, Eric 2026-11-05, epic-10 amendment 10): one that is ON the aim point
-   * (within `onTargetDeg` of the bearing it wants) wins, lowest index first;
-   * otherwise the bearing turret with the smallest error fires along its
-   * CURRENT bearing; no ready turret bears → nothing fires. The turret's guns fire as
-   * one salvo on PARALLEL tracks `barrelSpacingU` apart (sim/spread.ts — the
-   * cannon's barrel law), each shell `shipClasses.<id>.battery.shellDamage`.
+   * Each TURRET has its own reload in the shared sim (sim/turrets.ts) and an
+   * ARC (rest ± the hull's train limit). NO TRAVERSE (Eric 2026-11-12, Story
+   * 11.1, R11 / R16 — point and shoot): a click fires ONE turret, the LOWEST
+   * INDEX (bow first) among the READY turrets whose arc holds the aim point,
+   * at the aim point exactly; no ready turret bears → nothing fires. The
+   * turret's guns fire as one salvo at the ONE aim point (R13, converge),
+   * each shell landing at its own dispersed point (`dispersion` above) and
+   * flying PARALLEL to the line of fire off the muzzle line (sim/turrets.ts
+   * `turretSalvo`), each `shipClasses.<id>.battery.shellDamage`.
    *
    * R2 "Equal broadside, 10 s": `reloadMs` per turret before RELOAD; reach is
    * the cannon's Tier I reach (`RUNG × 8`), scaled once by RANGE in the fold
    * (sim/indexStats.ts RANGE_ROWS).
    *
    * THE SHELL IS TODAY'S CANNON SHELL, READING OF RECORD (not a ruling): the
-   * five values marked below are COPIED from `CONFIG.gun` as it stood at
+   * four values marked below are COPIED from `CONFIG.gun` as it stood at
    * Story 10.4 — copies, not aliases, so a later retune of the retired
    * cannon row does not silently move the battleships. Its wire family word
-   * stays `'cannon'`, and `gunAttenuation` applies exactly as to the cannon.
+   * stays `'cannon'`.
    *
    * `hits` carries NO `mine` bit: a main-battery shell never damages a mine
    * (R3 — the secondaries are the only thing that hurts one).
@@ -1522,13 +1508,16 @@ export const CONFIG = {
     hits: HITS_HULL_BEACON, // hulls (+ radio beacons, Story 10.8 R8); NO mine bit (R3)
     rangeU: RUNG * 8, // u — the cannon's Tier I reach at RANGE 100 (R2)
     reloadMs: 10000, // ms per turret, before RELOAD (R2)
-    traverseDegPerS: 90, // °/s — one rate for all four hulls (amendment 7(j))
-    onTargetDeg: 0.5, // ° — "on the aim point" tolerance (the sitting page's; implementer reading)
+    // `traverseDegPerS` (90 °/s, turrets AND torpedo launchers) and
+    // `onTargetDeg` (0.5°) — RETIRED 2026-11-12, Story 11.1 (Eric R11 / R16:
+    // no traverse, point and shoot inside the arc).
     shellSpeed: 500, // u/s — today's cannon shell, reading of record
     contactDamage: 18, // hp to an early interceptor outside the blast — today's cannon shell, reading of record
     burstRadius: 15, // u — today's cannon shell, reading of record
     shellRadius: 2, // u — today's cannon shell, reading of record
-    barrelSpacingU: 12, // u between adjacent parallel tracks of one turret's salvo — today's cannon shell, reading of record
+    // `barrelSpacingU` (12 u between a salvo's muzzles) — RETIRED 2026-11-12,
+    // Story 11.1 review fix: a salvo's shells leave abreast off the muzzle line,
+    // placed by the dispersion roll, never by barrel offsets (sim/turrets.ts).
   },
 
   /**
@@ -1726,7 +1715,7 @@ export const CONFIG = {
    * every ARMED NAVAL mine, whoever laid it, whose centre lies within its
    * blast radius; fouling and captive mines neither propagate nor receive.
    * Every mine carries `hp` that only a deck gun's shell landing on it takes
-   * (amendment 200; by blast reach, attenuated, since Story 9.12). Every number is a DESIGN TARGET, tunable.
+   * (amendment 200; by blast reach since Story 9.12; flat with range since Story 11.1). Every number is a DESIGN TARGET, tunable.
    */
   mine: {
     // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
@@ -1807,9 +1796,8 @@ export const CONFIG = {
     // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
     // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS takes them
     // (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185), ruling 184(i)): a shell's whole blast radius + `hitRadiusU`
-    // reaches a mine (the machine gun, with no blast, keeps 10 u), the blow is
-    // attenuated by distance, so a Tier I cannon needs both shells (8 + 8) or
-    // two clicks, flak one, the machine gun two near and three far. Nothing
+    // reaches a mine (the machine gun, with no blast, keeps 10 u), the blow
+    // flat with range (attenuation retired 2026-11-12, Story 11.1). Nothing
     // else ever damages a mine. At 0 a naval/fouling mine detonates; a captive is
     // destroyed (a boom, no blast, no fish).
     hp: 10,

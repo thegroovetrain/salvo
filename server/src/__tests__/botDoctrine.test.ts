@@ -172,7 +172,7 @@ describe('the doctrine band (amendment 198)', () => {
     }
   });
 
-  it('mountedGun: the two pickable guns by id, anything else the cannon; the full radius is the attenuation fraction', () => {
+  it('mountedGun: the two pickable guns by id, anything else the cannon; the reach is the row\'s own', () => {
     expect(mountedGun('machineGun')).toBe('machineGun');
     expect(mountedGun('flak')).toBe('flak');
     expect(mountedGun('gun')).toBe('gun');
@@ -181,7 +181,6 @@ describe('the doctrine band (amendment 198)', () => {
     const rec = mkBot(w, 'yamato');
     const reach = effectiveReach({ stats: rec.stats, ownLitZones: [], origin: { x: 0, y: 0 } }, 'gun');
     expect(reach.maxU).toBe(rec.stats.equipment.gun.rangeU);
-    expect(reach.fullU).toBeCloseTo(CONFIG.gunAttenuation.fullFrac * reach.maxU, 9);
   });
 
   it('ownLitZones keeps only this hull\'s LIVE zones', () => {

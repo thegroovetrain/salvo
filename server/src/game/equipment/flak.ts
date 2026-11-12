@@ -11,11 +11,12 @@
 // damage, reload and the turret pool — 1/2/2/2/2 rounds, Eric 2026-10-16,
 // Story 9.12; the blast never grows). 360°, no arc (amendment 106). A caught
 // hull takes the centre damage falling to HALF at the rim (`CONFIG.flak.
-// rimFactor`), range-attenuated — the World's `burstHitAmount` composes the
-// shared `flakRimFactor` × `rangeAttenuation` → `settleBlow`.
+// rimFactor`) — the World's `burstHitAmount` composes the shared
+// `flakRimFactor` → `settleBlow` (flat with range: range attenuation retired
+// 2026-11-12, Story 11.1). NOT dispersed (Story 11.1, R6).
 //
 // THE MASK is AR44's `hull | mine | ordnance` (CONFIG.flak.hits): a
-// shell LANDING deals its range-attenuated damage to every mine whose 10 u
+// shell LANDING deals its damage to every mine whose 10 u
 // marker the blast touches, like every deck gun (Story 9.12, epic-9 amendment
 // 184(i) — so a flak shell clears a few), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
 // might go away (amendment 105); nothing here leans on it, and the World owns
@@ -28,13 +29,12 @@ import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { attenRangeFor, burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Build the one flak shell for this click, born at `ctx.fireT` (the
  *  validated fire time), clamped to `reachU` (the row's `rangeU`, lit-zone
- *  lifted); a shot aimed into the shooter's own light carries no attenuation
- *  reference (amendment 187, guns.ts `attenRangeFor`). */
+ *  lifted). */
 function flakShell(ctx: ActivationContext, reachU: number): ShellState {
   const ship = ctx.ship;
   const flak = ship.stats.equipment.flak;
@@ -54,7 +54,6 @@ function flakShell(ctx: ActivationContext, reachU: number): ShellState {
     contactDamage: flak.contactDamage,
     hits: CONFIG.flak.hits, // AR44 target mask
     family: 'flak',
-    attenRangeU: attenRangeFor(ctx, flak.rangeU, target), // ruling 184(b) + amendment 187: none into own light
   });
 }
 

@@ -1,0 +1,76 @@
+<title>Dispersion Bench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*__BENCH_CSS__*/</style>
+<div class="wrap">
+  <header class="top">
+    <h1>Dispersion Bench</h1>
+    <p class="sub">Story 11.1 — real dispersion, the numbers before the game</p>
+    <p class="intro">Where a battleship shell lands around the point you aimed at. Every landing on this page comes from the game's own shared dispersion code — the same function the server will fire with — run live in your browser with the dials below. Nothing here is wired into the game yet.</p>
+    <p class="note">The landing area is an oval centered on the aim point, its long side along the line of fire. Shells bunch toward the middle and never land outside the oval.</p>
+  </header>
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section class="card">
+    <h2>The dials</h2>
+    <div id="dials" class="sliders"></div>
+    <div class="row">
+      <span class="label">Shells per salvo</span>
+      <div class="seg" role="radiogroup" aria-label="Shells per salvo">
+        <label><input type="radio" name="shells" value="2"> 2</label>
+        <label><input type="radio" name="shells" value="3" checked> 3</label>
+      </div>
+    </div>
+    <div class="row presets" id="presets"></div>
+    <p class="note small">"How tightly bunched": the oval's edge sits this many standard deviations out on a bell curve. Higher puts more shells near the middle; at 0.5 the spread is nearly even across the oval.</p>
+  </section>
+
+  <section class="card">
+    <h2>The pattern, to scale</h2>
+    <p class="note">Top-down around the aim point (the cross), shells coming in from the left. Solid oval: where a shell can land. Dashed oval: the middle half (half the length, half the width). Each landing shows its <span id="blastU"></span> u blast circle — <span class="hit-text">bright</span> when the blast reaches the hull, <span class="miss-text">muted</span> when it misses. Drag the hull to move it.</p>
+    <canvas id="pattern" class="canvas" tabindex="0" aria-label="Shell landing pattern around a target hull, to scale"></canvas>
+    <div class="row">
+      <button type="button" id="reroll" class="primary">Reroll salvo</button>
+      <label class="check"><input type="checkbox" id="accumulate"> Fire 200 salvos</label>
+      <span class="mono" id="seed"></span>
+    </div>
+    <div class="row">
+      <label class="field"><span class="label">Target hull</span><select id="hull"></select></label>
+      <button type="button" id="centerHull">Put hull on the aim point</button>
+    </div>
+    <div id="hullDials" class="sliders"></div>
+    <dl class="readouts" id="readouts"></dl>
+  </section>
+
+  <section class="card">
+    <h2>Aim marker ideas</h2>
+    <p class="note">Each idea draws one filled oval per shell of the next turret to fire: where that shell can land, at the range set above. No lines, no blast circles. Long side along the line of fire (shells come in from the left).</p>
+    <p class="note">The water behind them copies the game's battle view in its own colors. Pick which kind of water the aim point sits on.</p>
+    <div id="aimDials" class="sliders"></div>
+    <div class="row presets" id="zoomPresets"></div>
+    <p class="note small" id="zoomFacts"></p>
+    <div class="row">
+      <label class="field"><span class="label">Backdrop</span><select id="backdrop"></select></label>
+    </div>
+    <div class="row">
+      <div class="seg stack" role="radiogroup" aria-label="How the shells fly">
+        <span class="label">Every shell of a salvo aims at the one point, so the ovals stack into one.</span>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="showReticle" checked> Show today's reticle (ring and cross)</label>
+    <p class="label swatch-head">Color for ideas D to H</p>
+    <div class="row swatches" id="swatches"></div>
+    <div class="previews marker-grid" id="candidates"></div>
+    <dl class="readouts" id="aimReadouts"></dl>
+    <p class="note small">Copied from the game exactly: the ocean, fog and sight hole, range ring, island colors, radar paint colors and strength, storm, star-shell glow and the reticle.</p>
+    <p class="note small">Approximated: the island shape (the real one needs a whole generated map), the radar return's spread (one cell of blue and one of green around a real hull outline on the real 9 u grid), the fog bank's puffs (fixed, not the game's drifting noise), and the radar sweep line is left out.</p>
+    <p class="note small">The backdrop is a stage set, not where the shooter really is. At 1,000 u the aim point is outside your 500 u sight, so in the game it usually sits on fog.</p>
+  </section>
+
+  <section class="card">
+    <h2>Numbers to record</h2>
+    <p class="note">The four dials as they stand now, in one line to read back, and the aim marker idea you picked.</p>
+    <pre id="record" class="record"></pre>
+  </section>
+  <p id="build" class="build"></p>
+</div>
+<script>/*__BENCH_JS__*/</script>

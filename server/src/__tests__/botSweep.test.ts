@@ -7,9 +7,9 @@
 //   * THE NEXT-TICK POSE: the server steps the hull before its turrets, so
 //     the on-target check reads the pose the brain predicted for this tick.
 //   * THE AIM STEAL: one input carries one aim, so a non-battery shot (a mine
-//     drop aimed astern, a sweep) drags the turrets off the target for the
-//     ticks it lasts. Measured here against the shared turret stepper, not
-//     re-plumbed (a second aim channel would be a wire change).
+//     drop aimed astern, a sweep) takes the turrets off the target for the
+//     ticks it lasts — and since Story 11.1 (no traverse) costs nothing after:
+//     a ready turret that bears clicks on the next decision.
 //
 // Every distance is read off the hull's stats or CONFIG; no ruled number,
 // copy or seed-produced value is pinned.
@@ -22,17 +22,18 @@ import {
   angleDiff,
   bearing,
   burstVictims,
-  copyTurrets,
-  desiredTurretAngle,
   stepLaunchers,
   stepShip,
   stepTurrets,
   hullSilhouette,
   transformPolygon,
+  turretBears,
   turretMounts,
+  turretRest,
+  turretStationWorld,
+  turretTrainRad,
   type MineKind,
   type ShipClassId,
-  type TurretState,
   type Vec2,
 } from '@salvo/shared';
 import { CATALOG as SHARED_CATALOG, effectiveStats as sharedEffectiveStats, hullEnvelope as sharedHullEnvelope } from '@salvo/shared';
@@ -47,7 +48,6 @@ import type { ShipRecord } from '../game/world.js';
 import { DT_S, fakePort, holdTarget, mkBot, mkMind, ocean, sightMines, track, trainOn, type FakePort } from './botHelmFixture.js';
 
 const DT_MS = CONFIG.tick.simDtMs;
-const RAD = Math.PI / 180;
 
 interface Rig {
   rec: ShipRecord;
@@ -487,91 +487,50 @@ describe('THE NEXT-TICK POSE — the on-target check reads the pose the server s
     expect(turretPoseOf(rec, mind, port.now)).toBe(rec.state);
   });
 
-  it('a turret one traverse step short of the aim AS THE POST-MOVE POSE SEES IT is on target there, and is not from the pre-move pose', () => {
-    const step = (CONFIG.mainBattery.traverseDegPerS * RAD * DT_MS) / 1000;
+  it('readyOnTarget reads the POST-MOVE pose: an aim just inside a turret\'s arc edge after this tick\'s swing (and outside it before) clicks only from the predicted pose', () => {
     for (const hullId of SHIP_CLASS_IDS) {
       const { rec } = rigFor(hullId, 1322);
       const reach = rec.stats.equipment.mainBattery.rangeU;
-      // The hull under full rudder at speed: one tick swings the heading by
-      // more than the on-target tolerance.
+      // The hull under full rudder at speed: one tick swings the heading.
       rec.state.speed = rec.stats.kinematics.maxSpeed;
       const next = stepShip({ ...rec.state }, { throttle: 1, rudder: 1 }, rec.stats.kinematics, DT_S);
       const swing = Math.abs(angleDiff(rec.state.heading, next.heading));
-      expect(swing).toBeGreaterThan(CONFIG.mainBattery.onTargetDeg * RAD * 2);
-      const aim: BatteryAim = { aim: Math.PI / 2, aimDist: reach * 0.6, point: { x: 0, y: reach * 0.6 } }; // abeam: every turret bears
-      // What the server will chase: the aim resolved off the POST-MOVE centre.
-      const served = { x: next.x + Math.cos(aim.aim) * aim.aimDist, y: next.y + Math.sin(aim.aim) * aim.aimDist };
-      // Every turret exactly one traverse step short of it, on the side the
-      // hull's swing is carrying the bearing AWAY from (so from the pre-move
-      // pose it is a step and a swing short).
-      rec.turrets.forEach((t, i) => (t.a = desiredTurretAngle(rec.hullId, i, next, served) - step));
-      expect(readyOnTarget(rec, aim, next)).toBe(true);
-      expect(readyOnTarget(rec, aim)).toBe(false);
+      expect(swing).toBeGreaterThan(0);
+      // Only turret 0 is ready.
+      rec.turrets.forEach((t, i) => (t.reloadMsLeft = i === 0 ? 0 : rec.stats.equipment.mainBattery.reloadMs));
+      const rest = turretRest(turretMounts(hullId)[0]);
+      const train = turretTrainRad(hullId);
+      const st = turretStationWorld(hullId, 0, next);
+      let found: BatteryAim | null = null;
+      for (const side of [1, -1]) {
+        for (const frac of [0.25, 0.5, 0.75]) {
+          const brg = next.heading + rest + side * (train - swing * frac);
+          const p = { x: st.x + Math.cos(brg) * reach * 0.6, y: st.y + Math.sin(brg) * reach * 0.6 };
+          const aim: BatteryAim = { aim: bearing(next, p), aimDist: Math.hypot(p.x - next.x, p.y - next.y), point: p };
+          const pre = { x: rec.state.x + Math.cos(aim.aim) * aim.aimDist, y: rec.state.y + Math.sin(aim.aim) * aim.aimDist };
+          if (found === null && turretBears(hullId, 0, next, p) && !turretBears(hullId, 0, rec.state, pre)) found = aim;
+        }
+      }
+      expect(found, hullId).not.toBeNull(); // the premise: such an edge aim exists for this swing
+      expect(readyOnTarget(rec, found!, next)).toBe(true);
+      expect(readyOnTarget(rec, found!)).toBe(false);
     }
   });
 });
 
-describe('THE AIM STEAL — what a non-battery aim costs the turrets, measured', () => {
-  const STEP = (CONFIG.mainBattery.traverseDegPerS * RAD * DT_MS) / 1000;
-  const ON = CONFIG.mainBattery.onTargetDeg * RAD;
-
-  /** Is turret `i` within the on-target tolerance of where it wants to be for `p`? */
-  function onTarget(rec: ShipRecord, states: readonly TurretState[], i: number, p: Vec2): boolean {
-    return Math.abs(states[i].a - desiredTurretAngle(rec.hullId, i, rec.state, p)) <= ON + 1e-9;
-  }
-
-  /** Ticks of stepping back onto `p` until EVERY turret is on it again. */
-  function recoveryTicks(rec: ShipRecord, states: TurretState[], p: Vec2): number {
-    let ticks = 0;
-    while (!states.every((_t, i) => onTarget(rec, states, i, p))) {
-      stepTurrets(states, rec.hullId, rec.state, p, DT_MS);
-      ticks += 1;
-      expect(ticks).toBeLessThan(1000);
-    }
-    return ticks;
-  }
-
+describe('THE AIM STEAL is free since Story 11.1 (no traverse, R16)', () => {
   for (const hullId of SHIP_CLASS_IDS) {
-    it(`${hullId}: an excursion of k ticks is recovered in no more than k — the traverse back is the traverse out`, () => {
-      const { rec } = rigFor(hullId, 1330);
-      rec.state.speed = 0;
-      const reach = rec.stats.equipment.mainBattery.rangeU;
-      const target = { x: 0, y: reach * 0.6 }; // abeam: every turret bears and is trained on it
-      const astern = { x: -CONFIG.mine.triggerRadius * 2, y: 0 }; // a mine drop aimed dead astern
-      for (const k of [1, 3, 10]) {
-        trainOn(rec, target.x, target.y);
-        const states = copyTurrets([], rec.turrets);
-        expect(recoveryTicks(rec, states, target)).toBe(0); // on target to begin with
-        for (let i = 0; i < k; i += 1) stepTurrets(states, rec.hullId, rec.state, astern, DT_MS);
-        // The cost is real: some turret was dragged off — by the traverse
-        // rate times the ticks, never more.
-        const moved = states.map((t, i) => Math.abs(t.a - rec.turrets[i].a));
-        const worst = Math.max(...moved);
-        expect(worst).toBeGreaterThan(ON);
-        expect(worst).toBeLessThanOrEqual(k * STEP + 1e-9);
-        // The forward turrets cannot bear dead astern: they HOLD (hold-outside-arc).
-        turretMounts(hullId).forEach((m, i) => {
-          if (m.facing === 'fwd') expect(moved[i]).toBe(0);
-        });
-        const back = recoveryTicks(rec, states, target);
-        expect(back).toBe(Math.ceil((worst - ON) / STEP - 1e-9));
-        expect(back).toBeLessThanOrEqual(k);
-      }
-    });
-
-    it(`${hullId}: after a ONE-tick excursion the dragged turret clicks again on the very next decision (the check steps a tick ahead)`, () => {
+    it(`${hullId}: after an excursion of any length (a mine drop aimed astern), a ready turret that bears clicks on the very next decision`, () => {
       const { rec } = rigFor(hullId, 1331);
       rec.state.speed = 0;
       const reach = rec.stats.equipment.mainBattery.rangeU;
-      const target = { x: 0, y: reach * 0.6 };
-      trainOn(rec, target.x, target.y);
-      stepTurrets(rec.turrets, rec.hullId, rec.state, { x: -CONFIG.mine.triggerRadius * 2, y: 0 }, DT_MS);
-      // Only the turrets that were dragged are ready: the click must be theirs.
-      const mounts = turretMounts(hullId);
-      rec.turrets.forEach((t, i) => (t.reloadMsLeft = mounts[i].facing === 'fwd' ? rec.stats.equipment.mainBattery.reloadMs : 0));
-      expect(rec.turrets.some((t, i) => t.reloadMsLeft === 0 && !onTarget(rec, rec.turrets, i, target))).toBe(true);
+      const target = { x: 0, y: reach * 0.6 }; // abeam: every turret bears
       const aim: BatteryAim = { aim: bearing(rec.state, target), aimDist: reach * 0.6, point: target };
-      expect(readyOnTarget(rec, aim)).toBe(true);
+      for (const k of [1, 3, 10]) {
+        trainOn(rec, target.x, target.y);
+        for (let i = 0; i < k; i += 1) stepTurrets(rec.turrets, rec.hullId, rec.state, { x: -CONFIG.mine.triggerRadius * 2, y: 0 }, DT_MS);
+        expect(readyOnTarget(rec, aim), `${k}`).toBe(true);
+      }
     });
   }
 });

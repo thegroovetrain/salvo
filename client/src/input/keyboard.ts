@@ -271,14 +271,20 @@ export function nextPrimedSlot(current: number, keySlot: number): number {
   return keySlot;
 }
 
+/** The `<input>` types that type nothing: the settings overlay's RANGE sliders
+ *  and its AIM COLOR picker (Story 11.1 review F-C). */
+const VALUE_INPUT_TYPES: ReadonlySet<string> = new Set(['range', 'color']);
+
 /**
- * Pure: is this element a RANGE SLIDER (the settings overlay's volume controls)?
- * A range is an `<input>` but NOT a text field: it types nothing, so it must
- * never trip the text-entry suppression that would kill the ESC closing the
- * overlay it lives in. It gets its own, narrower rule — see onDown.
+ * Pure: is this element a VALUE CONTROL — a RANGE SLIDER (the settings
+ * overlay's volume controls) or a COLOR picker (AIM COLOR)? Each is an
+ * `<input>` but NOT a text field: it types nothing, so it must never trip the
+ * text-entry suppression that would kill the ESC closing the overlay it lives
+ * in (a color input focused by Tab, or whose picker was dismissed without a
+ * change, keeps focus — F-C). It gets its own, narrower rule — see onDown.
  */
 export function rangeElement(el: Element | null): boolean {
-  return el !== null && el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'range';
+  return el !== null && el.tagName === 'INPUT' && VALUE_INPUT_TYPES.has((el as HTMLInputElement).type);
 }
 
 /**

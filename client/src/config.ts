@@ -877,6 +877,41 @@ export const CLIENT_CONFIG = {
      * the broadside sets the flag. Implementer-drafted.
      */
     clampedAlphaScale: 0.45,
+    /**
+     * THE MAIN-BATTERY DISPERSION OVAL (Story 11.1, R10 / R14): one filled
+     * oval at the salvo center, at its TRUE size, brightest in the middle and
+     * fading toward the edge on the bell of `CONFIG.dispersion.sigmas` (bench
+     * idea E "Bright middle"). `ovalPeakAlpha` is the bench's peak, copied
+     * from client/scripts/dispersionBench/markers.ts `fillBell`:
+     * `0.95 * Math.exp(-((r * sigmas) ** 2) / 2)`. `ovalTexPx` is the side of
+     * the baked radial alpha texture the sprite stretches onto the ellipse.
+     */
+    ovalPeakAlpha: 0.95,
+    ovalTexPx: 128,
+  },
+
+  /**
+   * THE TARGETING RETICLE (render/firing.ts drawReticle): a ring + a cross at
+   * the cursor. The BASE values are the pre-Story-11.1 reticle exactly (radius
+   * 7 u, cross reaching 3 u past the ring, 1.5 / 1 strokes); the player's AIM
+   * SIZE setting multiplies all four (Story 11.1 R15 / R18). Ring and cross
+   * are drawn at full strength (R15 "bright"). The two player defaults: AIM
+   * SIZE 2× and AIM COLOR the palette amber (settings/store.ts).
+   */
+  reticle: {
+    radiusU: 7,
+    crossOverU: 3,
+    ringWidth: 1.5,
+    crossWidth: 1,
+    ringAlpha: 1,
+    crossAlpha: 1,
+    /** AIM SIZE: the slider's range and step, and its default (×). */
+    sizeMin: 1,
+    sizeMax: 5,
+    sizeStep: 0.5,
+    defaultSize: 2,
+    /** AIM COLOR's default: the palette amber, as the color picker's hex. */
+    defaultColor: `#${COLORS.amber.toString(16).padStart(6, '0')}`,
   },
 
   /**

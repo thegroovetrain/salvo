@@ -5,15 +5,17 @@
 // once per 50 ms predicted sim tick with the SAME aim the outgoing InputMsg
 // carries (`stepTurrets` / `stepSecondaries` — the shared steppers the server
 // runs, no per-side fork), and corrected on every own frame: the turrets copy
-// the server's `you.turrets`, the heat and lock copy `you.sec` while the local
-// round phase is kept. CORRECT-THEN-CONTINUE, no replay of unacked inputs: the
-// error is bounded by latency × the 90°/s traverse and self-corrects next frame.
+// the server's `you.turrets` RELOADS, the heat and lock copy `you.sec` while the
+// local round phase is kept. The turret ANGLES are never taken from the frame
+// (Story 11.1 review F-B): the turrets SNAP to the aim (no traverse — R16:
+// `stepTurrets` sets each angle to the shared `turretAngle`), so the angle is a
+// pure function of the local pose and aim, and the frame's — derived from a
+// latency-old aim — would only flick them back for a tick.
 //
 // A PREDICTED SHOT SURVIVES A STALE FRAME (review gate C2). A frame the server
 // built before it applied the click's input would reset the fired turret to
 // "ready" for a round trip. So `fire` remembers the input `seq` that carried
-// the click, and `correct` keeps that turret's LOCAL reload (the angle still
-// comes from the frame) while the frame's `ackSeq` is older than it — the
+// the click, and `correct` keeps that turret's LOCAL reload while the frame's `ackSeq` is older than it — the
 // predictor's own ack (sim/prediction.ts `onServerState`). Once a frame acks
 // the seq the server's value is taken, whatever it says (a denied click comes
 // back ready). SAFETY VALVE: after PENDING_CAPACITY frames without the ack —
@@ -60,6 +62,8 @@ export class OwnBattery {
   private readonly firedFrames: number[] = [];
   /** Scratch: the local reloads just before a frame overwrites them. */
   private readonly localReload: number[] = [];
+  /** Scratch: the locally derived angles just before a frame overwrites them. */
+  private readonly localAngle: number[] = [];
 
   constructor(hull: HullId) {
     this.hull = hull;
@@ -82,7 +86,7 @@ export class OwnBattery {
   }
 
   /**
-   * One predicted 50 ms tick: traverse + reload every turret toward the aim
+   * One predicted 50 ms tick: reload every turret and SNAP it to the aim
    * point of (`aim`, `aimDist`) from the predicted `pose` — `batteryAimPoint`,
    * so a zero / non-finite aim holds every angle exactly as the server does —
    * and run the secondaries on `secLive` (the right-button level the server
@@ -107,11 +111,22 @@ export class OwnBattery {
    *  keeps its local reload (see the header). A frame for another hull (a class
    *  change mid-flight) re-seeds first. */
   correct(you: Pick<OwnShip, 'cls' | 'turrets' | 'sec'>, ackSeq: number): void {
-    if (you.cls !== this.hull) this.reset(you.cls);
+    const sameHull = you.cls === this.hull;
+    if (!sameHull) this.reset(you.cls);
     const local = this.localReload;
+    const angles = this.localAngle;
+    const kept = sameHull ? this.turrets.length : 0;
     local.length = this.turrets.length;
+    angles.length = kept;
     for (let i = 0; i < this.turrets.length; i++) local[i] = this.turrets[i].reloadMsLeft;
+    for (let i = 0; i < kept; i++) angles[i] = this.turrets[i].a;
     copyTurrets(this.turrets, you.turrets);
+    // THE ANGLE STAYS LOCAL (Story 11.1 review F-B): with traverse gone a
+    // turret's angle is a pure function of the local pose and aim NOW
+    // (`turretAngle`), while the frame's was derived from a latency-old aim —
+    // copying it would flick every turret back a round trip at 20 Hz. The
+    // reloads are the frame's (below); a turret the frame adds keeps its angle.
+    for (let i = 0; i < Math.min(kept, this.turrets.length); i++) this.turrets[i].a = angles[i];
     this.keepUnackedReloads(ackSeq);
     this.sec.heat = you.sec.heat;
     this.sec.locked = you.sec.locked;

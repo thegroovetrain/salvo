@@ -2,8 +2,8 @@
 // tick makes on sim/ownLaunchers.ts, kept out of main.ts so the predict half
 // is unit-testable on its own (the sim/ownBatteryTick.ts precedent).
 //
-// Order is the server's: the hull steps, then the launchers traverse + reload
-// toward THIS input's aim (`stepOwnLaunchers`, beside the turrets), then fire
+// Order is the server's: the hull steps, then the launchers reload and snap to
+// THIS input's aim (`stepOwnLaunchers`, beside the turrets), then fire
 // control picks a tube (`predictTorpedoClick`).
 //
 // THE VERDICT IS THE SHARED PICK (R16, Eric verbatim: "if the tube CANNOT
@@ -17,8 +17,8 @@ import { CONFIG, type AimPose, type InputMsg, type TubePick } from '@salvo/share
 import type { OwnLaunchers } from './ownLaunchers.js';
 
 /**
- * One predicted tick of the own launchers from the input just sent: they chase
- * the aim only while `afloat` (and there is a pose) — a sinking hull or a wreck
+ * One predicted tick of the own launchers from the input just sent: they point
+ * at the aim only while `afloat` (and there is a pose) — a sinking hull or a wreck
  * holds its angles while the tube clocks still run, as the server's row does.
  */
 export function stepOwnLaunchers(

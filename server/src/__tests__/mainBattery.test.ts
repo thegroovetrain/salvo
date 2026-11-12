@@ -2,14 +2,15 @@
 // Eric rulings R2–R4, epic-10 amendment 9; arc-only fire, amendment 10). The pure steppers are pinned in
 // shared (turrets.test.ts / secondaries.test.ts); this suite pins the SERVER's
 // wiring of them — the I/O matrix rows the server owns:
-//   * on-target shot fires ONE turret's shells at the aim point, only its reload starts;
-//   * two candidates: the on-target turret wins over a lower-index off-target one;
-//   * early click fires a ready turret along its CURRENT bearing;
+//   * NO TRAVERSE (Story 11.1, R16): on the FIRST click tick a ready turret
+//     whose arc holds the aim fires ONE salvo at the aim point (every shell
+//     dispersed around it — dispersion.test.ts), only its reload starts;
+//   * bow first: the lowest-index ready turret that bears fires;
 //   * nothing ready, or no READY turret whose arc holds the aim → the `cooling`
-//     denial, nothing fires and no reload starts;
+//     denial, nothing fires and no reload starts, however long the click is held;
 //   * INSTANT RELOAD finishes every turret (angles untouched) and vents the
 //     secondaries (heat 0, unlocked — Story 10.5, R10);
-//   * a sinking hull's turrets HOLD their angles while reloads still run;
+//   * a sinking hull's turrets keep their angles while reloads still run;
 //   * secondaries: burst, overheat lock, release / cool, refused once dead;
 //   * a secondaries round on a mine's marker damages it and pops it when its
 //     hp is spent; a main-battery shell on the marker leaves it untouched;
@@ -25,8 +26,7 @@ import {
   SLOT_BOOST,
   SLOT_GUN,
   aimPointOf,
-  bearing,
-  desiredTurretAngle,
+  dispersionAxes,
   turretBears,
   turretMounts,
   turretStationWorld,
@@ -40,8 +40,6 @@ import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
-/** Ticks for any turret to traverse any legal arc (≤ 360°), plus one. */
-const SETTLE_TICKS = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * DT) / 1000)) + 1;
 
 function bareWorld(seed = 7): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone);
@@ -78,25 +76,24 @@ function reloading(rec: ShipRecord): number[] {
 const BEAM = Math.PI / 2;
 
 describe('main battery — the arc-only click on the authoritative world', () => {
-  it('ON TARGET: a trained turret fires its own guns AT the aim point; only its reload starts', () => {
+  it('FIRST CLICK TICK: turrets at rest, a click on the beam — turret 0 fires its guns AT the aim point that tick; only its reload starts', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const dist = a.stats.equipment.mainBattery.rangeU / 2;
-    w.submitInput('a', inp(1, { aim: BEAM, aimDist: dist }));
-    for (let i = 0; i < SETTLE_TICKS; i++) w.step();
-    w.submitInput('a', inp(2, { aim: BEAM, aimDist: dist, fireSeq: 1 }));
+    turretMounts(a.hullId).forEach((m, i) => expect(a.turrets[i].a).toBe(m.facing === 'fwd' ? 0 : Math.PI)); // the premise: nowhere near the beam
+    w.submitInput('a', inp(1, { aim: BEAM, aimDist: dist, fireSeq: 1 }));
     w.step();
     const shells = shellsOf(w, 'a', 'cannon');
-    // Pick priority 1, lowest index: every turret bears on the beam, so turret 0.
+    // Every turret bears on the beam: the lowest index, with no traverse wait.
     expect(reloading(a)).toEqual([0]);
     expect(shells).toHaveLength(turretMounts(a.hullId)[0].guns);
     expect(a.turrets[0].reloadMsLeft).toBe(a.stats.equipment.mainBattery.reloadMs);
-    // The salvo straddles the aim point: its parallel tracks' targets average to it.
+    // CONVERGE (R13): every shell is aimed at the one aim point, so every
+    // landing is within the dispersion ellipse's long semi-axis of it.
     const aim = aimPointOf(a.state, BEAM, dist);
-    const cx = shells.reduce((s, sh) => s + sh.targetX!, 0) / shells.length;
-    const cy = shells.reduce((s, sh) => s + sh.targetY!, 0) / shells.length;
-    expect(cx).toBeCloseTo(aim.x, 6);
-    expect(cy).toBeCloseTo(aim.y, 6);
+    const station = turretStationWorld(a.hullId, 0, a.state);
+    const { alongU } = dispersionAxes(Math.hypot(aim.x - station.x, aim.y - station.y) * 2);
+    for (const sh of shells) expect(Math.hypot(sh.targetX! - aim.x, sh.targetY! - aim.y)).toBeLessThanOrEqual(alongU);
     // ...on the cannon shell's hit rule, the row's damage, NO mine bit.
     for (const sh of shells) {
       expect(sh.damage).toBe(a.stats.equipment.mainBattery.damage);
@@ -105,43 +102,22 @@ describe('main battery — the arc-only click on the authoritative world', () =>
     }
     // Slot 0's pair is the derived summary: one turret down.
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length - 1, reloadMsLeft: a.stats.equipment.mainBattery.reloadMs });
+    // The drawn angles snapped to the aim the same tick (the derived angle).
+    turretMounts(a.hullId).forEach((_, i) => {
+      const st = turretStationWorld(a.hullId, i, a.state);
+      expect(a.state.heading + a.turrets[i].a).toBeCloseTo(Math.atan2(aim.y - st.y, aim.x - st.x), 9);
+    });
   });
 
-  it('TWO CANDIDATES: a ready turret ON the aim wins over a lower-index ready turret off it', () => {
+  it('BOW FIRST: with turret 0 reloading, the next ready turret that bears fires', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const dist = a.stats.equipment.mainBattery.rangeU / 2;
-    const aim = aimPointOf(a.state, BEAM, dist);
-    // Turret 0 stays at rest (90° off the beam); turret 1 sits exactly on it.
-    a.turrets[1].a = desiredTurretAngle(a.hullId, 1, a.state, aim);
+    a.turrets[0].reloadMsLeft = a.stats.equipment.mainBattery.reloadMs;
     w.submitInput('a', inp(1, { aim: BEAM, aimDist: dist, fireSeq: 1 }));
     w.step();
-    expect(reloading(a)).toEqual([1]);
+    expect(reloading(a)).toEqual([0, 1]);
     expect(shellsOf(w, 'a', 'cannon')).toHaveLength(turretMounts(a.hullId)[1].guns);
-  });
-
-  it('EARLY CLICK: no turret on the aim → one ready turret fires along its CURRENT bearing', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    const dist = a.stats.equipment.mainBattery.rangeU / 2;
-    // Every turret at rest, the aim a quarter turn away: one tick of traverse
-    // cannot reach it.
-    w.submitInput('a', inp(1, { aim: BEAM, aimDist: dist, fireSeq: 1 }));
-    w.step();
-    const fired = reloading(a);
-    expect(fired).toHaveLength(1);
-    const i = fired[0];
-    const shells = shellsOf(w, 'a', 'cannon');
-    expect(shells).toHaveLength(turretMounts(a.hullId)[i].guns);
-    const along = a.state.heading + a.turrets[i].a; // the turret's current world bearing
-    for (const sh of shells) expect(Math.atan2(sh.vy, sh.vx)).toBeCloseTo(Math.atan2(Math.sin(along), Math.cos(along)), 9);
-    // ...at the aim's distance from that turret's station (inside reach).
-    const station = turretStationWorld(a.hullId, i, a.state);
-    const aimPt = aimPointOf(a.state, BEAM, dist);
-    const cx = shells.reduce((s, sh) => s + sh.targetX!, 0) / shells.length;
-    const cy = shells.reduce((s, sh) => s + sh.targetY!, 0) / shells.length;
-    expect(Math.hypot(cx - station.x, cy - station.y)).toBeCloseTo(Math.hypot(aimPt.x - station.x, aimPt.y - station.y), 6);
-    expect(bearing(station, { x: cx, y: cy })).not.toBeCloseTo(bearing(station, aimPt), 2);
   });
 
   it('NOTHING READY: every turret reloading → nothing fires, the wire denial is `cooling`', () => {
@@ -154,7 +130,7 @@ describe('main battery — the arc-only click on the authoritative world', () =>
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: 1 }]);
   });
 
-  it.each(SHIP_CLASS_IDS)('ARC-ONLY (%s): aim dead ahead, the forward turrets spent, the aft turrets loaded → nothing fires, `cooling`, the aft turrets stay loaded', (hull) => {
+  it.each(SHIP_CLASS_IDS)('ARC-ONLY (%s): aim dead ahead, the forward turrets spent, the aft turrets loaded → nothing fires on any click tick, `cooling`, the aft turrets stay loaded', (hull) => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, hull);
     const dist = a.stats.equipment.mainBattery.rangeU / 2;
@@ -169,6 +145,12 @@ describe('main battery — the arc-only click on the authoritative world', () =>
     w.step();
     expect(shellsOf(w, 'a', 'cannon')).toHaveLength(0);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: 1 }]);
+    // ...and on every later click tick too: no traverse ever brings an aft turret round.
+    for (let seq = 2; seq <= 20; seq++) {
+      w.submitInput('a', inp(seq, { aim: 0, aimDist: dist, fireSeq: seq }));
+      w.step();
+    }
+    expect(shellsOf(w, 'a', 'cannon')).toHaveLength(0);
     for (const i of aft) expect(a.turrets[i].reloadMsLeft, `aft ${i}`).toBe(0);
     expect(a.loadout[SLOT_GUN].state?.n).toBe(aft.length); // the hotbar still counts them ready
   });
@@ -205,7 +187,7 @@ describe('main battery — the arc-only click on the authoritative world', () =>
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length, reloadMsLeft: 0 });
   });
 
-  it('a SINKING hull\'s turrets hold their angles (whatever it aims) while their reloads still count down', () => {
+  it('a SINKING hull\'s turrets keep their angles (whatever it aims) while their reloads still count down', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 0, 400);
@@ -335,8 +317,9 @@ describe('mines — only the secondaries hurt one (R3)', () => {
   it('a secondaries round landing on the marker takes its damage off the mine; it pops when the hp is spent', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // Inside the full-damage radius, so no attenuation enters the count.
-    const x = CONFIG.gunAttenuation.fullFrac * a.stats.secondaryRangeU * 0.8;
+    // Mid-reach: every dispersed landing is a unit or two off the marker's
+    // centre, well inside its hit radius (flat damage, Story 11.1).
+    const x = 0.4 * a.stats.secondaryRangeU;
     mine(w, x);
     w.submitInput('a', inp(1, { aim: 0, aimDist: x, sec: true }));
     const hits: number[] = [];
@@ -359,9 +342,7 @@ describe('mines — only the secondaries hurt one (R3)', () => {
     const a = place(w, 'a', 0, 0);
     const x = a.stats.equipment.mainBattery.rangeU / 3;
     mine(w, x);
-    w.submitInput('a', inp(1, { aim: 0, aimDist: x }));
-    for (let i = 0; i < SETTLE_TICKS; i++) w.step();
-    w.submitInput('a', inp(2, { aim: 0, aimDist: x, fireSeq: 1 }));
+    w.submitInput('a', inp(1, { aim: 0, aimDist: x, fireSeq: 1 }));
     w.step();
     expect(shellsOf(w, 'a', 'cannon').length).toBeGreaterThan(0);
     for (let i = 0; i < 60 && shellsOf(w, 'a', 'cannon').length > 0; i++) w.step();

@@ -1,32 +1,22 @@
 // DECK-GUN BLOW ARITHMETIC (Story 9.12, Eric 2026-10-16, forge
 // weapon-balance-math; epic-9 amendments 184–185). Pure, zero I/O, no
-// transcendentals: three small functions the server's deck-gun blow sites
-// compose as `settleBlow(damage × flakRimFactor(...) × rangeAttenuation(...))`
-// before the one armor gate.
+// transcendentals: two small functions the server's deck-gun blow sites
+// compose as `settleBlow(damage × flakRimFactor(...))` before the one armor
+// gate.
 //
-// - `rangeAttenuation` — Eric's forge lock: "full damage out to ~50 % of the
-//   gun's range, then falls gradually to ~80 % at max range (reason: reward
-//   moving in a bit)" — the floor since moved to 50 % (Eric 2026-10-17,
-//   epic-9 amendment 187; the dial is `CONFIG.gunAttenuation.minFactor`).
-//   Linear between the two, clamped beyond range. The
-//   distance is the shell's launch point → impact (ruling 184(b)); the
-//   reference is the firer's `rangeU` at fire time.
 // - `flakRimFactor` — the flak burst's rim deals HALF the centre damage,
 //   proportional by the caught hull's nearest outline point (replaces the
 //   flat D − 10 of 2026-10-13).
 // - `settleBlow` — the ONE floor to a whole number with a floor of 1 for a
 //   positive blow (ruling 184(c)); a non-positive raw blow is no blow.
 //
-// Every function FAILS OPEN to "no change" on degenerate input (a 0 / NaN
-// reference, a hostile dial) and can never answer NaN or a factor above 1.
-
-/** The shape of `CONFIG.gunAttenuation`. */
-export interface GunAttenuationCfg {
-  /** Fraction of the reference range flown at full damage. */
-  fullFrac: number;
-  /** Damage factor at (and beyond) the reference range. */
-  minFactor: number;
-}
+// RANGE ATTENUATION (`rangeAttenuation`, `GunAttenuationCfg`) — RETIRED
+// 2026-11-12, Story 11.1 (Eric's lock 3 / #39; supersedes epic-9 amendment
+// 187): damage is flat with range; a long shot is a gamble on where it lands
+// (sim/dispersion.ts), never a weaker hit.
+//
+// Every function FAILS OPEN to "no change" on degenerate input and can never
+// answer NaN or a factor above 1.
 
 /** `x` clamped into [0, 1]; a non-finite `x` reads as `fallback`. */
 function clamp01(x: number, fallback: number): number {
@@ -37,28 +27,6 @@ function clamp01(x: number, fallback: number): number {
 /** A positive finite number, or false. */
 function positiveFinite(x: number): boolean {
   return Number.isFinite(x) && x > 0;
-}
-
-/**
- * The range-attenuation factor for a shell that flew `flownU` against the
- * firer's reference `rangeU`: 1 while `flownU / rangeU ≤ fullFrac`, linear to
- * `minFactor` at 1, `minFactor` beyond. Returns 1 for a non-finite or
- * non-positive `rangeU` or `flownU` (no reference = no attenuation). The
- * dials are sanitized here: `minFactor` into [0, 1] (non-finite → 1, i.e. no
- * attenuation) and `fullFrac` into [0, 1) (non-finite → 1, no attenuation
- * at any distance); a `fullFrac` of 1 or more is a STEP — 1 below range, `minFactor` at and after it.
- */
-export function rangeAttenuation(flownU: number, rangeU: number, cfg: GunAttenuationCfg): number {
-  if (!positiveFinite(rangeU) || !positiveFinite(flownU)) return 1;
-  const rawFull = cfg.fullFrac;
-  if (!Number.isFinite(rawFull)) return 1; // a hostile dial fails open: no attenuation
-  const minFactor = clamp01(cfg.minFactor, 1);
-  const r = flownU / rangeU;
-  if (r >= 1) return minFactor;
-  if (rawFull >= 1) return 1; // the bad-dial step: full damage all the way to range
-  const fullFrac = Math.max(0, rawFull);
-  if (r <= fullFrac) return 1;
-  return 1 - ((1 - minFactor) * (r - fullFrac)) / (1 - fullFrac);
 }
 
 /**

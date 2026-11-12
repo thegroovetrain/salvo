@@ -29,6 +29,8 @@ import {
   SLOT_GUN,
   abilityCode,
   launcherAimPoint,
+  launcherDeadRad,
+  launcherRest,
   launcherStationWorld,
   launcherSummary,
   rackCapacity,
@@ -45,8 +47,8 @@ import { flatRaster } from './islandFixture.js';
 const DT = CONFIG.tick.simDtMs;
 const SLOT_TORP = FAMILY_SLOT.torpedo;
 const SLOT_MINE = FAMILY_SLOT.mine;
-/** Ticks for any mount to traverse any legal arc (≤ 360°), plus one. */
-const SETTLE_TICKS = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * DT) / 1000)) + 1;
+/** One tick: no traverse since Story 11.1 (R16) — the step sets the derived angle. */
+const SETTLE_TICKS = 1;
 /** A torpedo aim distance — any positive distance names the bearing. */
 const TORP_DIST = 600;
 
@@ -106,17 +108,17 @@ const loadedTubes = (rec: ShipRecord): number => tubes(rec).filter((t) => t <= 0
 const minesOf = (w: World, owner: string) => [...w.mines.values()].filter((m) => m.ownerId === owner);
 
 describe('launchers on the world — the R16 pick through the click channel', () => {
-  it('FORE ONLY, aim astern: refused out-of-arc, nothing spent, the launcher holds its angle', () => {
+  it('FORE ONLY, aim astern: refused out-of-arc, nothing spent, the launcher rests (no traverse, Story 11.1)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
     expect(a.launchers).toHaveLength(1);
-    train(w, a, Math.PI / 4); // trained somewhere inside its arc
-    const angle = a.launchers[0].a;
+    train(w, a, Math.PI / 4); // pointed somewhere inside its band
+    expect(a.launchers[0].a).not.toBe(launcherRest(0));
     const seq = clickTorpedo(w, a, Math.PI); // dead astern: beyond the fore launcher's train
     expect(torpsOf(w, 'a')).toHaveLength(0);
     expect(tubes(a)).toEqual([0]);
-    expect(a.launchers[0].a).toBe(angle);
+    expect(a.launchers[0].a).toBe(launcherRest(0)); // the derived angle: rest outside its band
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
   });
 
@@ -162,30 +164,27 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     expect(b.launchers[0].tubes[0]).toBe(0);
   });
 
-  it('R28: a click while the launcher still swings through its dead wedge spends nothing (cooling)', () => {
+  it('NO TRAVERSE (Story 11.1, R16): a launcher at rest fires on the FIRST click at an aim in its band, and fires on the far side at once', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo'); // the fore launcher rests dead ahead, inside its dead wedge
-    const seq = clickTorpedo(w, a, Math.PI / 2); // one tick of swing is not enough to leave it
-    expect(torpsOf(w, 'a')).toHaveLength(0);
-    expect(tubes(a)).toEqual([0]);
+    clickTorpedo(w, a, Math.PI / 2);
+    expect(torpsOf(w, 'a')).toHaveLength(1);
+    expect(torpsOf(w, 'a')[0].vy).toBeGreaterThan(0); // the port side
+    // The other side: no swing across the ship to wait for — refused only because the one tube is reloading.
+    const seq = clickTorpedo(w, a, -Math.PI / 2);
+    expect(torpsOf(w, 'a')).toHaveLength(1);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
   });
 
-  it('R16 / R28: a click on the FAR side spends nothing until the launcher has swung across', () => {
+  it('an aim inside the launcher\'s dead wedge never fires it (out-of-arc), nothing spent', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
-    train(w, a, Math.PI / 2); // resting in one side's band
-    const seq = clickTorpedo(w, a, -Math.PI / 2); // the other side: in its band, but it points across the ship
+    const seq = clickTorpedo(w, a, launcherDeadRad(a.hullId, 0) / 2);
     expect(torpsOf(w, 'a')).toHaveLength(0);
     expect(tubes(a)).toEqual([0]);
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
-    train(w, a, -Math.PI / 2); // swings across through its dead wedge
-    clickTorpedo(w, a, -Math.PI / 2);
-    const [t] = torpsOf(w, 'a');
-    expect(t).toBeDefined();
-    expect(t.vy).toBeLessThan(0); // it ran to the aimed side
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
   });
 
   it('a click with no aim distance names no area: refused out-of-arc', () => {

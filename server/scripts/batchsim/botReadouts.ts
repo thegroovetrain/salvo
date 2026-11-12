@@ -20,11 +20,11 @@ import {
   isAfloat,
   turretBears,
   turretMounts,
-  type ShellFamily,
   type ShellState,
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import type { BotPosture } from '../../src/game/ai/types.js';
+import { RangeBandTracker, emptyBands, isMainBatteryShell } from './rangeBands.js';
 
 /** Every posture, zero-filled. A Record literal, so a posture added to the
  *  union without a row here is a COMPILE error (the tally must stay exhaustive
@@ -48,14 +48,12 @@ export type PostureEdge = 'opened' | 'brokenOff' | 'kited' | 'hid' | 'held' | 'r
 
 const EDGE_ZERO: Record<PostureEdge, number> = { opened: 0, brokenOff: 0, kited: 0, hid: 0, held: 0, rammed: 0 };
 
-const FAMILY_ZERO: Record<ShellFamily, number> = { cannon: 0, mg: 0, flak: 0 };
 
 const OPEN_SET: readonly string[] = ['pursue', 'engage'];
 const BREAK_SET: readonly string[] = ['disengage', 'hide'];
 
 export const emptyPostureTally = (): Record<BotPosture, number> => ({ ...POSTURE_ZERO });
 export const emptyEdgeTally = (): Record<PostureEdge, number> => ({ ...EDGE_ZERO });
-export const emptyFamilyTally = (): Record<ShellFamily, number> => ({ ...FAMILY_ZERO });
 
 /** The edges a `prev → next` posture change lights (prev !== next). */
 export function postureEdges(prev: string, next: string): PostureEdge[] {
@@ -92,15 +90,17 @@ export interface BotReadouts {
   killsBySource: Record<string, number>;
   /** Slot-0 gun shells this bot put in the air (the main battery and the
    *  secondaries since Story 10.4; the cannon row, MG, flak — never a
-   *  broadside, star, phosphor or fouling shell): the denominator for the
-   *  two counters below. Per SHELL, so a three-gun turret salvo is three. */
+   *  broadside, star, phosphor or fouling shell). Per SHELL, so a three-gun
+   *  turret salvo is three. (`shotsBeyondRange` and `litShots` read the
+   *  retired attenuation reference and retired with it, 2026-11-12, Story
+   *  11.1.) */
   gunShells: number;
-  /** Deck-gun shells whose aim distance from the muzzle exceeded the gun's
-   *  `attenRangeU` (fired past full range, into the attenuated reach), per family. */
-  shotsBeyondRange: Record<ShellFamily, number>;
-  /** Deck-gun shells with NO `attenRangeU` — fired into the bot's own lit zone
-   *  (amendment 187: no attenuation there; the flare-to-shoot doctrine). */
-  litShots: number;
+  /** MAIN-BATTERY HIT SHARE BY RANGE BAND (Story 11.1, rangeBands.ts): per
+   *  band of the turret's reach (four equal bands, nearest first), the
+   *  main-battery shells fired in it … */
+  mbBandShells: number[];
+  /** … and those of them that damaged a hull. */
+  mbBandHits: number[];
   /** Star shells launched (shells carrying the `lit` tag). */
   starShellsFired: number;
   /** Afloat ticks per deliberated posture (`BotController.postureOf`). Sums
@@ -161,8 +161,8 @@ export function emptyBotReadouts(): BotReadouts {
     stormDeathAground: 0,
     killsBySource: {},
     gunShells: 0,
-    shotsBeyondRange: emptyFamilyTally(),
-    litShots: 0,
+    mbBandShells: emptyBands(),
+    mbBandHits: emptyBands(),
     starShellsFired: 0,
     postureTicks: emptyPostureTally(),
     postureTransitions: emptyEdgeTally(),
@@ -225,18 +225,17 @@ const bump = (rec: Record<string, number>, key: string, by = 1): void => {
 /** True for a SLOT-0 GUN shell — the captain's MAIN BATTERY (Story 10.4) and
  *  any `mg` / `flak` round (the secondaries fly `mg`):
  *  keyed on the family AND the row's own fields, because the broadside, the
- *  star / phosphor / fouling shells all fly `family: 'cannon'` and also lack
- *  `attenRangeU`. The tagged three carry `lit` / `burn` / `foul`. The cannon
- *  row is CONFIG.gun.hits. The main battery shares its mask object with the
- *  broadside, so it is told apart by the broadside's own rule — a broadside
- *  interceptor takes the shell's full damage (contactDamage === damage) and
- *  a broadside shell never carries `attenRangeU`; a main-battery shell has a
- *  smaller bodyblock or an attenuation reference. */
+ *  star / phosphor / fouling shells all fly `family: 'cannon'`. The tagged
+ *  three carry `lit` / `burn` / `foul`. The cannon row is CONFIG.gun.hits.
+ *  The main battery shares its mask object with the broadside, so it is told
+ *  apart by its server-private `batteryShell` marker (rangeBands.ts
+ *  `isMainBatteryShell` — Story 11.1 review fix; damage values are not a
+ *  discriminator). */
 export function isDeckGunShell(s: ShellState): boolean {
   if (s.family === null || s.kind !== 'shell') return false;
   if (s.lit !== undefined || s.burn !== undefined || s.foul !== undefined) return false;
   if (s.family !== 'cannon' || s.hits === CONFIG.gun.hits) return true;
-  return s.hits === CONFIG.mainBattery.hits && (s.attenRangeU !== undefined || s.contactDamage !== s.damage);
+  return isMainBatteryShell(s);
 }
 
 /** Ticks a landContact run must last to count as a stuck episode. */
@@ -256,6 +255,8 @@ export class BotReadoutCollector {
   /** Live mines and mine-hitting shells as of LAST tick (noteSwept). */
   private minesSeen = new Map<string, MineSeen>();
   private mineShellsSeen = new Map<string, ShellSeen>();
+  /** Main-battery shells in flight, by range band (Story 11.1). */
+  private readonly bands = new RangeBandTracker();
   private readonly match: MatchReadouts = { lastTwoS: 0, endgameNoContactMaxS: 0 };
   private lastTwoTicks = 0;
   private gapTicks = 0;
@@ -282,6 +283,7 @@ export class BotReadoutCollector {
    *  victim's wasAground/wasOutside is still its last AFLOAT tick's). */
   observe(world: World): void {
     this.noteSwept(world);
+    this.bands.settle(world.shells, world.tickEvents, (id) => this.tracks.get(id)?.out);
     this.noteNewShells(world);
     this.noteNewZones(world);
     this.noteEvents(world);
@@ -313,7 +315,8 @@ export class BotReadoutCollector {
     return {
       ...r,
       killsBySource: { ...r.killsBySource },
-      shotsBeyondRange: { ...r.shotsBeyondRange },
+      mbBandShells: [...r.mbBandShells],
+      mbBandHits: [...r.mbBandHits],
       postureTicks: { ...r.postureTicks },
       postureTransitions: { ...r.postureTransitions },
       tacticCounts: { ...r.tacticCounts },
@@ -392,7 +395,10 @@ export class BotReadoutCollector {
       next.add(s.id);
       if (this.seen.shell.has(s.id)) continue;
       const t = this.tracks.get(s.ownerId);
-      if (t !== undefined) creditShell(t.out, s);
+      if (t === undefined) continue;
+      creditShell(t.out, s);
+      const owner = world.ships.get(s.ownerId);
+      if (owner !== undefined) this.bands.launched(s, owner.stats.equipment.mainBattery.rangeU, t.out);
     }
     this.seen.shell = next;
   }
@@ -572,12 +578,5 @@ function survivorsTookFire(world: World, survivors: readonly ShipRecord[]): bool
 /** Fold one newly launched shell into its owner's shot counters. */
 function creditShell(o: BotReadouts, s: ShellState): void {
   if (s.lit !== undefined) o.starShellsFired += 1;
-  if (!isDeckGunShell(s) || s.family === null) return;
-  o.gunShells += 1;
-  if (s.attenRangeU === undefined) {
-    o.litShots += 1;
-    return;
-  }
-  if (s.targetX === null || s.targetY === null || s.originX === undefined || s.originY === undefined) return;
-  if (Math.hypot(s.targetX - s.originX, s.targetY - s.originY) > s.attenRangeU) o.shotsBeyondRange[s.family] += 1;
+  if (isDeckGunShell(s)) o.gunShells += 1;
 }

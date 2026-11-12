@@ -3,7 +3,7 @@
 // predict half of predict-and-correct is unit-testable on its own.
 //
 // Order is the server's (contract section 4): the hull steps, then the turrets
-// traverse + reload toward THIS input's aim (`stepOwnBattery`), then fire
+// reload and snap to THIS input's aim (`stepOwnBattery`), then fire
 // control picks a turret (`predictBatteryClick`).
 
 import { CONFIG, batteryAimPoint, type AimPose, type InputMsg } from '@salvo/shared';
@@ -11,7 +11,7 @@ import type { OwnBattery } from './ownBattery.js';
 
 /**
  * THE TWO QUESTIONS the own battery's tick asks (review gate C1), kept apart:
- *  - `afloat`: do the turret ANGLES chase the aim? Only while afloat — a
+ *  - `afloat`: do the turret ANGLES follow the aim? Only while afloat — a
  *    sinking hull or a wreck holds its angles (reloads still count down), as
  *    the server's `stepTurrets` row does.
  *  - `weaponsLive`: would the server run the secondaries on the real `sec`
@@ -25,7 +25,7 @@ export interface OwnBatteryGate {
 
 /**
  * One predicted tick of the own battery from the input just sent: the turrets
- * traverse toward the aim only while `gate.afloat` (and there is a pose), else
+ * snap to the aim only while `gate.afloat` (and there is a pose), else
  * hold; the secondaries step on `input.sec` only while `gate.weaponsLive`.
  */
 export function stepOwnBattery(

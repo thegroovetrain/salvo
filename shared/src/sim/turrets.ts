@@ -1,10 +1,12 @@
-// THE MAIN BATTERY'S TURRETS — per-turret traverse, reload and the arc-only
-// pick (Story 10.4, Eric 2026-11-04, epic-10 amendments 7(c)–(e), 7(j) and 9;
-// arc-only fire and hold-outside-arc, Eric 2026-11-05, epic-10 amendment 10).
+// THE MAIN BATTERY'S TURRETS — per-turret reload, the arc-only pick and the
+// salvo's fire solution (Story 10.4, Eric 2026-11-04, epic-10 amendments
+// 7(c)–(e), 7(j) and 9; arc-only fire, Eric 2026-11-05, epic-10 amendment 10;
+// NO TRAVERSE and CONVERGE, Eric 2026-11-12, Story 11.1, R11 / R13 / R16).
 //
 // One sim, both sides: the server steps every captain's turrets each 50 ms
 // tick and the client steps its OWN turrets with the same calls (corrected
-// from `OwnShip.turrets`), so a turret's angle is never forked per side.
+// from `OwnShip.turrets`), so a turret's reload and angle are never forked
+// per side.
 //
 // THE ANGLE CONVENTION. A turret angle `a` is in RADIANS, RELATIVE TO THE
 // HULL, in the same rotational sense as `heading` (atan2 — counter-clockwise
@@ -15,39 +17,34 @@
 //     fwd turret:  rest 0,   a ∈ [−train, +train]
 //     aft turret:  rest π,   a ∈ [π − train, π + train]
 //
-// so an aft turret trained 30° to one side of dead astern reads π ± 0.5236,
-// never a wrapped negative.
-//
-// HOLD OUTSIDE THE ARC (Eric 2026-11-05, epic-10 amendment 10: "if my cursor
-// has left the arc of one of the turrets, the turret itself should also stop
-// rotating wherever it is. This way I can skillfully 'leave it in position' in
-// case I am facing a fight on two fronts"). Each tick a turret whose arc holds
-// the aim point traverses toward it at the rate; a turret whose arc does NOT
-// hold it (the aim is in its blind sector) HOLDS ITS ANGLE for the tick — it
-// never travels to a stop. Its reload still counts down. When the aim comes
-// back into its arc it resumes from wherever it was left. Because the current
-// and the wanted angle then both lie in the one train interval and the turret
-// moves LINEARLY between them, it can never rotate through its blind sector: a
-// target on the far side is reached through the rest bearing by construction.
+// NO TRAVERSE (Eric 2026-11-12, Story 11.1, R11 / R16 — "back to point and
+// shoot"; supersedes epic-10 amendment 7's load-bearing traverse and the
+// hold-outside-the-arc half of amendment 10). A turret's angle is NOT
+// simulated state that slews: it is DERIVED (`turretAngle`) — pointing at the
+// aim point while the aim lies inside that turret's arc (rest ± train, from
+// its own station), at rest otherwise. `stepTurrets` writes that derived
+// angle onto `TurretState.a` each tick (the wire shape `OwnShip.turrets` /
+// `Contact.tu` is unchanged), and counts the reloads down. A click fires the
+// LOWEST INDEX (bow first) READY turret whose arc holds the aim point, at the
+// aim point exactly (`pickTurret`); none → nothing fires.
 //
 // AN AIM POINT WITH NO BEARING (review-gate patch P4). A zero aim distance —
 // an idle bot, the neutral input before a player's first real one — is NO AIM:
 // `batteryAimPoint` returns `null` for it and both sides pass that to
-// `stepTurrets`, which holds every angle. And an aim point sitting on a
-// turret's own station (closer than `AIM_STATION_EPS_U`) has no bearing from
-// that turret: it does not bear, so the stepper holds THAT turret and the pick
-// never picks it.
+// `stepTurrets`, which then leaves every angle where it is (a sinking hull's
+// turrets freeze where they were). An aim point sitting on a turret's own
+// station (closer than `AIM_STATION_EPS_U`) has no bearing from that turret:
+// it does not bear, so it rests and the pick never picks it.
 //
-// Worked example — Bismarck (train 145°), turret 0 (forward, rest 0), ship
-// heading 0, trained 90° to port on target A. The captain swings the aim dead
-// astern (180° off rest, outside ±145°): turret 0 stays at +90° and does not
-// fire. Swing the aim back onto A: turret 0 is on target that very tick, with
-// no traverse at all. Swing it instead to 90° to starboard: it travels from
-// +90° through the bow to −90° (180° of travel, 2 s at 90°/s) — never the
-// short way through the blind sector astern.
-//
-// EVERY TURRET CHASES THE ONE AIM POINT, each measured from ITS OWN gunhouse
-// (the station, on the centreline), so close in the turrets converge.
+// CONVERGE (R13: "a real turret's barrels would all be aimed to train on the
+// same target point, though they wouldn't all land on it"). Every barrel of
+// the fired turret aims at the ONE salvo center; where each shell actually
+// lands is the server's dispersion roll (sim/dispersion.ts) around that
+// center — never here, and never on the client. The barrels' own lateral
+// offsets no longer place shells (Story 11.1 review fix — no converging
+// tracks on the wire): the server flies every shell of a salvo PARALLEL to
+// the salvo bearing, abreast off the muzzle line, each to its own landing
+// (server equipment/ballistics.ts `salvoShellFlight`).
 //
 // STATE IS MUTATED IN PLACE (`stepTurrets`, `fireTurret`, `reloadAllTurrets`
 // return nothing new): the arrays live on the ship record / the client's own
@@ -67,27 +64,24 @@ import {
   ARC_EPS,
   decodeMountAngle,
   encodeMountAngle,
+  mountAngle,
   mountArcHolds,
+  mountBearingOffset,
+  mountStationWorld,
   mountWant,
-  mountWantFrom,
-  rankMounts,
-  readMount,
-  traverseMount,
-  traverseStepRad,
   type TrainedMount,
 } from './mountAim.js';
-import { parallelOffsets } from './spread.js';
 
 // The aiming machinery itself lives in sim/mountAim.ts since Story 10.6 (the
 // torpedo launchers share it); this file is the battery's hull-keyed face of
-// it, byte-identical in behavior.
+// it.
 export { AIM_STATION_EPS_U } from './mountAim.js';
 
 const RAD_PER_DEG = Math.PI / 180;
 
 /** One turret's runtime state. */
 export interface TurretState {
-  /** rad — hull-relative, unwrapped, inside the turret's train interval (see the header). */
+  /** rad — hull-relative, unwrapped, inside the turret's train interval: the DERIVED angle (`turretAngle`) as of the last step with an aim (see the header). */
   a: number;
   /** ms until this turret may fire again (0 = ready). */
   reloadMsLeft: number;
@@ -145,7 +139,7 @@ export function copyTurrets(into: TurretState[], from: readonly TurretState[]): 
 /**
  * The world aim point of an input: `aimDist` along the world bearing `aim`
  * from the ship CENTRE (the same point the cursor sits on — `InputMsg.aim` /
- * `aimDist` are measured from the centre). Every turret then chases this one
+ * `aimDist` are measured from the centre). Every turret then reads this one
  * point from its own station.
  */
 export function aimPointOf(pose: AimPose, aim: number, aimDist: number): Vec2 {
@@ -156,12 +150,12 @@ export function aimPointOf(pose: AimPose, aim: number, aimDist: number): Vec2 {
  * THE BATTERY'S AIM POINT for an input, or `null` for NO AIM (review-gate
  * patch P4) — the ONE call both sides make to turn `InputMsg.aim` / `aimDist`
  * into what `stepTurrets` and `pickTurret` take, so server and client cannot
- * disagree about when the turrets hold.
+ * disagree about when there is no aim.
  *
- * `null` (hold every angle) when `aimDist` is not a finite number greater
- * than zero, or `aim` is not finite: a zero distance is the ship's own centre,
- * which every turret would otherwise chase to a hard stop. ANY positive
- * distance is a legitimate aim, however close in. Otherwise `aimPointOf`.
+ * `null` (no aim: angles left as they are, nothing fires) when `aimDist` is
+ * not a finite number greater than zero, or `aim` is not finite: a zero
+ * distance is the ship's own centre. ANY positive distance is a legitimate
+ * aim, however close in. Otherwise `aimPointOf`.
  */
 export function batteryAimPoint(pose: AimPose, aim: number, aimDist: number): Vec2 | null {
   if (!Number.isFinite(aimDist) || aimDist <= 0 || !Number.isFinite(aim)) return null;
@@ -188,10 +182,9 @@ export function turretBears(hullId: HullId, i: number, pose: AimPose, aim: Vec2)
 /**
  * The CLAMPED WANT of turret `i` (hull-relative, unwrapped — the header's
  * convention): the bearing from its own world station to the world aim point,
- * minus heading, clamped to the train limits. Stateless and used only for
- * display / tests: for an aim inside the arc it is exactly where the stepper
- * takes the turret; for an aim in the blind sector it is the nearer stop, a
- * place the stepper never goes (the turret holds — `desiredTurretAngleFrom`).
+ * minus heading, clamped to the train limits. Stateless; for an aim inside
+ * the arc it equals `turretAngle`, for an aim in the blind sector it is the
+ * nearer stop (where `turretAngle` answers rest instead).
  */
 export function desiredTurretAngle(hullId: HullId, i: number, pose: AimPose, aim: Vec2): number {
   const m = trained(hullId, i);
@@ -199,33 +192,24 @@ export function desiredTurretAngle(hullId: HullId, i: number, pose: AimPose, aim
 }
 
 /**
- * The angle turret `i` goes to given where it ALREADY points (`currentA`, the
- * turret's own `TurretState.a`) — the stepper's target. An aim point inside
- * the arc: the bearing to it (`desiredTurretAngle`). An aim point the turret
- * does not bear on — in its blind sector, or on its own station — leaves it
- * where it is: `currentA` (hold-outside-arc, epic-10 amendment 10).
+ * THE DERIVED TURRET ANGLE (Story 11.1, R16) — what turret `i` is drawn at
+ * and what `TurretState.a` / `Contact.tu` carry: the bearing from its own
+ * station to the aim point (hull-relative, the header's convention) while the
+ * aim lies inside its arc; its REST bearing otherwise (blind sector, on its
+ * own station, or `aim === null`). 0 for an index the hull does not mount.
+ * Pure; no traverse, no history.
  */
-export function desiredTurretAngleFrom(
-  hullId: HullId,
-  i: number,
-  pose: AimPose,
-  aim: Vec2,
-  currentA: number,
-): number {
+export function turretAngle(hullId: HullId, i: number, pose: AimPose, aim: Vec2 | null): number {
   const m = trained(hullId, i);
-  return m === undefined ? 0 : mountWantFrom(m, pose, aim, currentA);
+  return m === undefined ? 0 : mountAngle(m, pose, aim);
 }
 
 /**
- * ONE 50 ms STEP of a hull's turrets, IN PLACE: every turret whose arc holds
- * the aim point traverses toward it at `CONFIG.mainBattery.traverseDegPerS`
- * (arriving exactly, never overshooting, never leaving its train interval);
- * every other turret HOLDS its angle (hold-outside-arc, epic-10 amendment 10);
- * every turret's reload counts down toward 0.
- *
- * `aim === null` (no aim this tick — a neutral input; see `batteryAimPoint`)
- * holds every angle and still runs the reloads. An aim point on a turret's
- * own station (no bearing from it) holds THAT turret for the step.
+ * ONE 50 ms STEP of a hull's turrets, IN PLACE: every turret's reload counts
+ * down toward 0, and every turret's angle is SET to its derived
+ * `turretAngle` for this aim (no traverse — R16). `aim === null` (no aim this
+ * tick — a neutral input, or a sinking hull; see `batteryAimPoint`) leaves
+ * every angle where it is and still runs the reloads.
  *
  * Reloads count DOWN, so the folded reload time is not needed here; it enters
  * at `fireTurret`.
@@ -237,13 +221,11 @@ export function stepTurrets(
   aim: Vec2 | null,
   dtMs: number,
 ): void {
-  const maxStep = traverseStepRad(CONFIG.mainBattery.traverseDegPerS, dtMs);
   const n = Math.min(states.length, turretMounts(hullId).length);
   for (let i = 0; i < n; i += 1) {
     const st = states[i];
     st.reloadMsLeft = Math.max(0, st.reloadMsLeft - dtMs);
-    const m = aim === null ? undefined : trained(hullId, i);
-    if (aim !== null && m !== undefined) traverseMount(st, m, pose, aim, maxStep);
+    if (aim !== null) st.a = turretAngle(hullId, i, pose, aim);
   }
 }
 
@@ -274,15 +256,13 @@ export function batterySummary(states: readonly TurretState[]): { n: number; rel
   return { n, reloadMsLeft: Number.isFinite(soonest) ? soonest : 0 };
 }
 
-/** The turret a click fires, and where it is pointing. */
+/** The turret a click fires, and the line it fires on. */
 export interface TurretPick {
   /** Which turret (index into the hull's bow-to-stern mounts and the state array). */
   index: number;
-  /** True iff this turret was ON the aim point (pick priority 1); false = it bears but fires early along its current bearing. */
-  onTarget: boolean;
   /** The turret's world station — where its reach is measured from. */
   station: Vec2;
-  /** rad — the WORLD bearing the salvo flies on. */
+  /** rad — the WORLD bearing station → aim point (the turret's line of fire). */
   bearing: number;
   /** u — distance from the station to the aim point, UNCLAMPED (clamp it with the reach in `turretSalvo`). */
   aimDistU: number;
@@ -291,30 +271,20 @@ export interface TurretPick {
 }
 
 /**
- * THE PICK — ARC-ONLY FIRE (Eric 2026-11-05, epic-10 amendment 10: "If my
- * cursor is not within the arc of one of my turrets, it should *not* fire
- * when clicked. So a turret that can't even point at the enemy wont have its
- * shot wasted."; the early click of 2026-11-04 stands for a turret that CAN
- * bear). Pure — it changes nothing; the caller fires the pick with
- * `fireTurret`. Only READY turrets (reloadMsLeft ≤ 0) that BEAR — the aim
- * point inside their arc (rest ± train, from their own station) and not on
- * their own station — are candidates:
+ * THE PICK — ARC-ONLY, BOW FIRST, NO TRAVERSE (Eric 2026-11-05, epic-10
+ * amendment 10: "If my cursor is not within the arc of one of my turrets, it
+ * should *not* fire when clicked."; Eric 2026-11-12, Story 11.1, R16: among
+ * READY turrets whose arc holds the aim point the bow-most fires, at the aim
+ * point). Pure — it changes nothing; the caller fires the pick with
+ * `fireTurret`. Among the READY turrets (reloadMsLeft ≤ 0) that BEAR — the
+ * aim point inside their arc (rest ± train, from their own station) and not
+ * on their own station — the LOWEST INDEX fires, at the aim point exactly.
+ * No candidate → `null`: nothing fires and no reload starts (the caller's
+ * `cooling` denial). A ready turret whose blind sector holds the aim point is
+ * NEVER picked. A turret's current angle plays no part.
  *
- *   1. A candidate ON TARGET (its angle within `CONFIG.mainBattery.onTargetDeg`
- *      of the angle it wants) wins; the LOWEST INDEX (bow first) if several
- *      are. It fires at the aim point exactly (`bearing` = station → aim point).
- *   2. Otherwise the candidate with the SMALLEST angular error (its travel to
- *      the aim bearing; lowest index on a tie) fires early along its CURRENT
- *      bearing (`heading + a`).
- *   3. No candidate → `null`, nothing fires and no reload starts (the caller's
- *      `cooling` denial). A ready turret whose blind sector holds the aim point
- *      is NEVER picked. At any real range every bearing lies in some turret's
- *      arc on every hull, so `null` means "the turrets that can bear are
- *      reloading"; only an aim on or right beside the own hull, between the
- *      forward and aft turrets, is in no turret's arc at all.
- *
- * Step the turrets for the tick BEFORE picking, so a turret that arrives on
- * the aim point (or finishes reloading) this tick counts this tick.
+ * Step the turrets for the tick BEFORE picking, so a turret that finishes its
+ * reload this tick counts this tick.
  */
 export function pickTurret(
   states: readonly TurretState[],
@@ -324,60 +294,60 @@ export function pickTurret(
 ): TurretPick | null {
   const mounts = turretMounts(hullId);
   const n = Math.min(states.length, mounts.length);
-  const onTargetRad = CONFIG.mainBattery.onTargetDeg * RAD_PER_DEG;
-  const won = rankMounts(n, (i) => {
-    if (states[i].reloadMsLeft > 0) return null;
-    const m = trained(hullId, i);
-    return m === undefined ? null : readMount(states[i].a, m, pose, aim, onTargetRad);
-  });
-  if (won === null) return null;
-  const { index, read } = won;
-  return {
-    index,
-    onTarget: read.on,
-    station: read.station,
-    bearing: read.on ? read.exactBearing : pose.heading + states[index].a,
-    aimDistU: read.aimDistU,
-    guns: mounts[index].guns,
-  };
+  for (let i = 0; i < n; i += 1) {
+    const m = states[i].reloadMsLeft > 0 ? undefined : trained(hullId, i);
+    if (m === undefined) continue;
+    const station = mountStationWorld(m.x, pose);
+    const off = mountBearingOffset(m, station, pose, aim);
+    if (off === null) continue;
+    const aimDistU = Math.hypot(aim.x - station.x, aim.y - station.y);
+    return { index: i, station, bearing: pose.heading + m.rest + off, aimDistU, guns: mounts[i].guns };
+  }
+  return null;
 }
 
-/** One shell of a salvo: where it spawns and where it bursts. */
+/** One shell of a salvo: its un-dispersed launch point and the point it is AIMED at (the salvo center). */
 export interface SalvoShell {
   origin: Vec2;
   target: Vec2;
 }
 
-/** A turret's whole salvo. */
+/** A turret's whole salvo — the UN-DISPERSED geometry (the preview's, and the server's base). */
 export interface TurretSalvo {
-  /** The salvo's centre landing point (the aim point, or the point along the turret's bearing — reach- and map-clamped). */
+  /** The salvo's ONE aim point — the pick's aim point, reach- and map-clamped. Every shell's `target`. */
   center: Vec2;
-  /** rad — the world bearing every shell flies on (parallel tracks). */
+  /** rad — the turret's line of fire (station → center): the dispersion ellipse's long axis AND every shell's flight bearing. */
   bearing: number;
-  /** One entry per gun. */
+  /** One entry per gun: `origin` = the muzzle on the salvo axis (the SAME point for every gun), `target` = `center`. */
   shells: SalvoShell[];
 }
 
 /**
- * THE FIRE SOLUTION of a pick: the landing point and every shell's own
- * origin/target.
+ * THE FIRE SOLUTION of a pick: the salvo center and the turret's muzzle on
+ * the line of fire, every gun aimed at the ONE center (CONVERGE, Eric
+ * 2026-11-12, Story 11.1, R13). Un-dispersed: the server rolls each shell's
+ * landing around the center inside the ellipse for the STATION → CENTER range
+ * (the very range the client's preview oval is sized from) and flies it
+ * PARALLEL to `bearing`, abreast off the MUZZLE LINE (the line through
+ * `shells[k].origin` perpendicular to `bearing`) — server
+ * equipment/ballistics.ts `salvoShellFlight`. Parallel tracks never
+ * intersect, so two visible shells give an observer no aim point and no range.
  *
- *   - CENTRE: `min(pick.aimDistU, reachU)` along `pick.bearing` FROM THE
- *     STATION, pulled back inside the water disk (`burstPointAlong`). On
- *     target that is the aim point itself (clamped to reach); off target it is
- *     the point along the turret's current bearing at the aim's distance.
+ *   - CENTER: `min(pick.aimDistU, reachU)` along `pick.bearing` FROM THE
+ *     STATION, pulled back inside the water disk (`burstPointAlong`) — the aim
+ *     point itself when it is in reach.
  *   - `reachU` arrives from the caller: the folded
  *     `stats.equipment.mainBattery.rangeU`, or that lifted by the firer's own
  *     lit zone — `gunReachU(pick.station, pick.bearing, pick.aimDistU, rangeU,
  *     mapRadius, ownLitZones)` — which is why the pick and the solution are
  *     two calls.
- *   - MUZZLE: the station pushed out along the bearing to just clear the own
- *     silhouette (`muzzleSpawnFrom`), unless the centre is nearer than that, in
- *     which case the shells spawn AT their targets (no inner dead ring — the
- *     cannon's `muzzleOrTarget` rule).
- *   - BARRELS: the turret's guns fly PARALLEL tracks `barrelSpacingU` apart by
- *     the shared straddle law (three guns: one on the centre; two: straddling
- *     it) — the lateral offset is added to BOTH origin and target.
+ *   - ORIGIN (every gun the same): the station pushed out along the bearing
+ *     to just clear the own silhouette (`muzzleSpawnFrom`) — the muzzle
+ *     line's point on the salvo axis. Unless the center is nearer than the
+ *     muzzle (POINT BLANK), in which case every origin is the center (no
+ *     inner dead ring — the cannon's `muzzleOrTarget` rule) and the server
+ *     spawns each shell on its own landing.
+ *   - TARGETS: every shell's `target` is the center.
  */
 export function turretSalvo(
   pick: TurretPick,
@@ -391,10 +361,10 @@ export function turretSalvo(
   const muzzle = muzzleSpawnFrom(pick.station, pose, hullId, pick.bearing, cfg.shellRadius);
   const centerDist = Math.hypot(center.x - pick.station.x, center.y - pick.station.y);
   const muzzleDist = Math.hypot(muzzle.x - pick.station.x, muzzle.y - pick.station.y);
-  const from = centerDist <= muzzleDist + cfg.shellRadius ? center : muzzle;
-  const shells = parallelOffsets(pick.bearing, pick.guns, cfg.barrelSpacingU).map((o) => ({
-    origin: { x: from.x + o.x, y: from.y + o.y },
-    target: { x: center.x + o.x, y: center.y + o.y },
+  const from = centerDist <= muzzleDist + cfg.shellRadius ? center : muzzle; // point blank → the center
+  const shells = Array.from({ length: pick.guns }, () => ({
+    origin: { x: from.x, y: from.y },
+    target: { x: center.x, y: center.y },
   }));
   return { center, bearing: pick.bearing, shells };
 }

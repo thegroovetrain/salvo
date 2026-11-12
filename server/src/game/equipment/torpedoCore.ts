@@ -7,7 +7,9 @@
 // fixed per-line launch sectors (the light's beams, the heavy's 60° bow cone,
 // the supercav's 30°) are GONE: every torpedo leaves from a deck LAUNCHER
 // that aims like a turret (shared sim/launchers.ts), and the launcher state
-// lives on the ship record (`ship.launchers`, equipment/mounts.ts).
+// lives on the ship record (`ship.launchers`, equipment/mounts.ts). No
+// traverse since Story 11.1 (R16): a launcher fires only inside its band, at
+// the aim point.
 //
 // THE PICK IS THE SHARED `pickTube` (R16, verbatim: "if the tube CANNOT
 // POSSIBLY point at the aimed area, it doesn't fire no matter what"):
@@ -15,11 +17,11 @@
 //     'out-of-arc', NOTHING SPENT;
 //   - an arc holds it but no such launcher has a loaded tube → 'no-ammo'
 //     (the wire's `cooling`);
-//   - otherwise ONE tube fires (one click, one torpedo): from its launcher's
-//     station on the deck (`torpedoLaunchPoint`, clear of the own hull),
-//     along the pick's bearing — the exact aim when the launcher is on
-//     target, else its CURRENT bearing (the battery's early-click rule) — and
-//     that tube starts its reload at the held torpedo's FOLDED `reloadMs`.
+//   - otherwise ONE tube fires (one click, one torpedo) — the fore-most
+//     loaded launcher whose band holds the aim: from its station on the deck
+//     (`torpedoLaunchPoint`, clear of the own hull), along the bearing to the
+//     aim point, and that tube starts its reload at the held torpedo's FOLDED
+//     `reloadMs`. A torpedo is never dispersed (Story 11.1, R6).
 //
 // Everything else about a torpedo is the FAMILY's (epic-8 amendment 84e —
 // `CONFIG.torpedo` is the heavy's block AND the family's shared fields): the

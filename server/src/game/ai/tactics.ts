@@ -133,9 +133,8 @@ import { slotAppetite, tacticFor } from './tacticRegistry.js';
 import { chooseCooldownAbility } from './abilities.js';
 import { distTo, leadPoint, shotReaches, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
-import { planSecondaries, secTarget, turretPoseOf, type SecondariesPlan } from './battery.js';
+import { batteryAim, planSecondaries, secTarget, turretPoseOf, type SecondariesPlan } from './battery.js';
 import { openArcBearing } from './arcs.js';
-import { heldAimOf } from './torpedoMount.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
@@ -961,10 +960,9 @@ function triggerOf(
     return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held, sec };
   }
   if (plan.sweep !== null) return sweepTrigger(self, mind, sit.now, plan.sweep);
-  // The HELD aim: the battery's — or, while the battery has nothing loaded,
-  // the torpedo aim the tactic is waiting on a launcher for (Story 10.6
-  // review gate, ai/torpedoMount.ts).
-  const hold = target === null ? null : heldAimOf(self, mind, sit, target);
+  // The HELD aim: the battery's (the torpedo hold retired with the traverse,
+  // Story 11.1 — ai/torpedoMount.ts).
+  const hold = target === null ? null : batteryAim(self, mind, sit, target);
   if (hold !== null) return { aim: hold.aim, aimDist: hold.aimDist, fireSlot: null, held: false, sec };
   return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false, sec };
 }

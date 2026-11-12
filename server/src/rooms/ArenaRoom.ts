@@ -28,6 +28,7 @@ import {
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World, type ShipRecord } from '../game/world.js';
+import { freshDispersionKey } from '../game/dispersionKey.js';
 
 import { buildFrame } from '../game/frames.js';
 import {
@@ -390,6 +391,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
+      // Story 11.1 review fix: the per-room DISPERSION KEY — 32 random bytes,
+      // independent of the pseudonym seed and every other stream (a shooter
+      // can brute-force one shell's 32-bit seed off its landing; under the
+      // World's HMAC that reveals nothing else).
+      dispersionKey: freshDispersionKey(),
       beacons: sanitized.matchOverride?.beacons,
       // drops (Story 10.9) rides the same dev-gated door, the same way.
       drops: sanitized.matchOverride?.drops,

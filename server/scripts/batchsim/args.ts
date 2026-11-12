@@ -117,7 +117,6 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
                      mainBattery.*, secondaries.*,
                      gun.* (the reference deck gun), machineGun.*, flak.*,
-                     gunAttenuation.*,
                      broadside.*, torpedo.*,
                      mine.*, starShells.*, boost.*, instantReload.*,
                      hunker.*, armor.*, shipClasses.*, offer.weighting.*,

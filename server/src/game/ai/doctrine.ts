@@ -97,10 +97,10 @@ export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: Equi
 export interface EffectiveReach {
   /** u — the row's own reach (`rangeU`). */
   maxU: number;
-  /** u — the full-damage radius (`CONFIG.gunAttenuation.fullFrac × rangeU`). */
-  fullU: number;
-  /** Is a shot at `p` exempt from the reach (and from attenuation)? True iff
-   *  the map-clamped point lies inside an OWN live lit zone. */
+  // `fullU` (the full-damage radius off `CONFIG.gunAttenuation`) — RETIRED
+  // 2026-11-12 with range attenuation (Story 11.1).
+  /** Is a shot at `p` exempt from the reach? True iff the map-clamped point
+   *  lies inside an OWN live lit zone. */
   litExempt(p: Vec2): boolean;
 }
 
@@ -122,7 +122,6 @@ export function effectiveReach(input: ReachInput, weapon: DeckGun): EffectiveRea
   const mapRadius = input.mapRadius;
   return {
     maxU,
-    fullU: CONFIG.gunAttenuation.fullFrac * maxU,
     litExempt: (p) => {
       if (zones.length === 0) return false;
       const q = mapRadius === undefined ? p : clampInsideMap(input.origin, p, mapRadius);

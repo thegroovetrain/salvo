@@ -31,6 +31,7 @@ import {
   pickTurret,
   turretMounts,
   turretSalvo,
+  dispersionAxes,
   islandFromPolygon,
   parallelOffsets,
   initialLaunchers,
@@ -42,6 +43,8 @@ import {
   type Island,
   type LauncherState,
   type TurretAim,
+  type TurretPick,
+  type TurretSalvo,
 } from '@salvo/shared';
 import {
   AimPreview,
@@ -49,8 +52,11 @@ import {
   computeAimPreview,
   effectiveLitRadius,
   ownBurstRadius,
+  ovalAlpha,
   previewTint,
+  salvoOval,
   type AimPreviewInput,
+  type PreviewOval,
 } from '../render/aimPreview.js';
 
 const SHIP = { x: 0, y: 0, heading: 0, cls: DEFAULT_CLASS_ID };
@@ -597,7 +603,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(computeAimPreview(torp({ ship: SHIP, aim: 0 }))).toEqual(EMPTY_MODEL);
   });
 
-  it('while the bearing launcher still swings through its dead wedge (R28) the preview runs from its station along the aim', () => {
+  it('the launcher\'s current angle plays no part (Story 11.1 R16): a launcher at rest runs from its station AT the aim', () => {
     const inp = torp({ aimDist: 100, launchers: [{ a: 0, tubes: [0] }] });
     const [l] = computeAimPreview(inp).lines;
     const station = launcherStationWorld(DEFAULT_CLASS_ID, 0, TSHIP);
@@ -609,27 +615,33 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(bearing, 6);
   });
 
-  it('with the AFT launcher held, an aft-quarter aim leaves from the AFT station', () => {
+  it('with the AFT launcher held, an aft-quarter aim leaves from the AFT station, AT the aim point', () => {
     const st = stats('heavyTorpedo', 'aftTorpedoLauncher');
     const quarter = (3 * Math.PI) / 4; // abaft the fore launcher's band, inside the aft's
-    const launchers = initialLaunchers(DEFAULT_CLASS_ID, st).map((l) => ({ ...l, a: quarter }));
+    const launchers = initialLaunchers(DEFAULT_CLASS_ID, st);
     const [l] = computeAimPreview(input({ id: 'heavyTorpedo', stats: st, aim: quarter, launchers })).lines;
-    expect(l.x1).toBeLessThan(launcherStationWorld(DEFAULT_CLASS_ID, 1, SHIP).x); // aft of the aft station, running aft
-    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(quarter, 6);
+    const aft = launcherStationWorld(DEFAULT_CLASS_ID, 1, SHIP);
+    const aimPt = launcherAimPoint(SHIP, DEFAULT_CLASS_ID, quarter, 300)!;
+    expect(l.x1).toBeLessThan(aft.x); // aft of the aft station, running aft
+    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(Math.atan2(aimPt.y - aft.y, aimPt.x - aft.x), 6);
     // Fore only, the same aim previews nothing.
     expect(computeAimPreview(input({ id: 'heavyTorpedo', aim: quarter, launchers: [{ a: 2, tubes: [0] }] }))).toEqual(EMPTY_MODEL);
   });
 
-  it('a launcher not yet on the aim previews its CURRENT bearing (the early-click rule), reloads ignored', () => {
+  it('a RELOADING launcher still previews its next run, at the aim point (reloads ignored)', () => {
     const st = stats('heavyTorpedo');
-    const held = [{ a: Math.PI / 2 - 0.5, tubes: [9_000] }]; // trained off the aim (still in its band), and reloading
-    const [l] = computeAimPreview(torp({ stats: st, launchers: held })).lines;
-    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(-0.5, 6);
+    const held = [{ a: 0, tubes: [9_000] }];
+    const [l] = computeAimPreview(torp({ stats: st, launchers: held, aimDist: 100 })).lines;
+    const station = launcherStationWorld(DEFAULT_CLASS_ID, 0, TSHIP);
+    const aimPt = launcherAimPoint(TSHIP, DEFAULT_CLASS_ID, 0, 100)!;
+    expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(Math.atan2(aimPt.y - station.y, aimPt.x - station.x), 6);
   });
 
   it('stops the track at the first island', () => {
     const lane = launcherStationWorld(DEFAULT_CLASS_ID, 0, TSHIP).y; // the run's y: the fore station's
-    const [l] = computeAimPreview(torp({ islands: [squareIsland(800, lane, 50)] })).lines;
+    // Aim at a point ON the lane, so the run (station → aim) lies along it.
+    const far = 2000;
+    const [l] = computeAimPreview(torp({ aim: Math.atan2(lane, far), aimDist: Math.hypot(far, lane), islands: [squareIsland(800, lane, 50)] })).lines;
     expect(l.x2).toBeCloseTo(750, 3);
   });
 
@@ -644,7 +656,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     // The band tracks the DRAWN line, so it never promises reach the fish's
     // finite travel budget cannot deliver.
     expect(m.band!.x2).toBeCloseTo(m.lines[0].x2, 9);
-    expect(m.lines[0].x2 - m.lines[0].x1).toBeCloseTo(CONFIG.torpedo.homingMaxRangeU, 3);
+    expect(Math.hypot(m.lines[0].x2 - m.lines[0].x1, m.lines[0].y2 - m.lines[0].y1)).toBeCloseTo(CONFIG.torpedo.homingMaxRangeU, 3);
   });
 
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): the three commanded-
@@ -675,11 +687,13 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(computeAimPreview(torp({ id: 'heavyTorpedo', stats: light })).band).toBeNull();
   });
 
-  it('keeps the TORPEDO FAMILY tint for every fish, and amber for everything else', () => {
-    const torp = previewTint('heavyTorpedo');
-    expect(previewTint('lightTorpedo')).toBe(torp);
-    expect(previewTint('supercavTorpedo')).toBe(torp);
-    expect(previewTint('navalMines')).not.toBe(torp);
+  // Story 11.1 R21 ("All aim previews, even torpedoes ... Everything gets AIM
+  // COLOR"): the family's own green is retired.
+  it('every fish previews in the AIM COLOR, like everything else', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      expect(previewTint(id, 0x00ff00), id).toBe(0x00ff00);
+      expect(previewTint(id), id).toBe(previewTint('gun'));
+    }
   });
 
   it('no torpedo previews a point burst any more — contact only', () => {
@@ -968,9 +982,14 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
 });
 
 describe('previewTint', () => {
-  it('keeps the torpedo on its own identity and everything else on aim amber', () => {
-    expect(previewTint('heavyTorpedo')).not.toBe(previewTint('gun'));
-    expect(previewTint('navalMines')).toBe(previewTint('gun'));
+  // R21a: EVERY preview family follows the AIM COLOR setting.
+  it('every preview family — guns, battery, shells, broadside, mines, torpedoes — takes the AIM COLOR', () => {
+    const ids = ['gun', 'mainBattery', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells',
+      'foulingShell', 'dazzleShells', 'navalMines', 'captiveMines', 'foulingMines',
+      'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const;
+    for (const tint of [0x00ff00, 0x3355ff]) {
+      for (const id of ids) expect(previewTint(id, tint), id).toBe(tint);
+    }
   });
 });
 
@@ -1060,10 +1079,11 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
   });
 });
 
-// THE MAIN BATTERY (Story 10.4; arc-only fire, epic-10 amendment 10). The preview is the SHARED pick + salvo the
-// server fires with, over the turret state the caller passes in — so every
-// expectation here is read off `pickTurret` / `turretSalvo`, never a literal.
-describe('the MAIN BATTERY preview — the shared turret pick and salvo', () => {
+// THE MAIN BATTERY (Story 10.4; Story 11.1 R10 / R13 / R14 / R16). The preview is
+// ONE true-size dispersion oval at the SHARED salvo center, sized from the
+// SHARED pick's station — so every expectation here is read off `pickTurret` /
+// `turretSalvo` / `dispersionAxes`, never a literal.
+describe('the MAIN BATTERY preview — one true-size oval at the salvo center', () => {
   const cls = SHIP.cls;
   const row = stats().equipment.mainBattery;
   const battery = (over: Partial<AimPreviewInput> = {}): AimPreviewInput => ({
@@ -1078,69 +1098,115 @@ describe('the MAIN BATTERY preview — the shared turret pick and salvo', () => 
     turrets: initialTurrets(cls),
     ...over,
   });
-  /** The shared answer for an input: the pick, then its reach-clamped salvo. */
-  const shared = (inp: AimPreviewInput) => {
-    const pick = pickTurret(inp.turrets ?? [], cls, SHIP, aimPointOf(SHIP, inp.aim, inp.aimDist));
+  /** The shared answer for an input: the pick (over `turrets`), then its reach-clamped salvo. */
+  const shared = (inp: AimPreviewInput, turrets = inp.turrets ?? []) => {
+    const pick = pickTurret(turrets, cls, SHIP, aimPointOf(SHIP, inp.aim, inp.aimDist));
     if (pick === null) throw new Error('fixture: no turret picked');
     return { pick, salvo: turretSalvo(pick, cls, SHIP, row.rangeU, MAP_R) };
   };
+  /** The oval the shared geometry says the pick's salvo makes. */
+  const expectOval = (oval: PreviewOval | undefined, pick: TurretPick, salvo: TurretSalvo, why: string) => {
+    expect(oval, why).toBeDefined();
+    const range = Math.hypot(salvo.center.x - pick.station.x, salvo.center.y - pick.station.y);
+    const axes = dispersionAxes(range);
+    expect(oval!.x, why).toBeCloseTo(salvo.center.x, 9);
+    expect(oval!.y, why).toBeCloseTo(salvo.center.y, 9);
+    expect(oval!.alongU, why).toBeCloseTo(axes.alongU, 9);
+    expect(oval!.acrossU, why).toBeCloseTo(axes.acrossU, 9);
+    expect(oval!.rotation, why).toBeCloseTo(pick.bearing, 9);
+  };
 
-  it('a ready turret on target lands its shells around the (clamped) aim point', () => {
-    for (const aimDist of [row.rangeU / 2, row.rangeU * 3]) {
-      const inp = battery({ aimDist });
+  it('ONE oval, no travel lines, no blast circles: semi-axes = dispersionAxes(station → center), long axis on the line of fire', () => {
+    for (const aim of [0, 0.3, -0.4, Math.PI / 2]) {
+      const inp = battery({ aim });
       const { pick, salvo } = shared(inp);
-      expect(pick.onTarget, `aimDist ${aimDist}`).toBe(true); // the premise: at rest, dead ahead
       const m = computeAimPreview(inp);
-      expect(m.bursts, `aimDist ${aimDist}`).toHaveLength(pick.guns);
-      // Parallel tracks straddle the aim point: the outermost sits half the
-      // salvo's width (guns − 1 spacings) off it.
-      const spread = ((pick.guns - 1) / 2) * CONFIG.mainBattery.barrelSpacingU;
-      for (const b of m.bursts) {
-        expect(Math.hypot(b.x - salvo.center.x, b.y - salvo.center.y)).toBeLessThanOrEqual(spread + 1e-9);
-        expect(b.clamped).toBe(false);
-      }
+      expect(m.lines, `aim ${aim}`).toEqual([]);
+      expect(m.bursts, `aim ${aim}`).toEqual([]);
+      expectOval(m.oval, pick, salvo, `aim ${aim}`);
     }
   });
 
-  it('reads the turret state it is given: the shells are the picked turret\'s salvo, one per gun', () => {
+  it('inside reach the oval sits ON the aim point; beyond reach on the reach-clamped salvo center', () => {
+    const near = battery();
+    expect(computeAimPreview(near).oval!.x).toBeCloseTo(aimPointOf(SHIP, near.aim, near.aimDist).x, 9);
+    const far = battery({ aimDist: row.rangeU * 3 });
+    const { pick, salvo } = shared(far);
+    expect(Math.hypot(salvo.center.x - pick.station.x, salvo.center.y - pick.station.y)).toBeLessThan(far.aimDist); // the premise: clamped
+    expectOval(computeAimPreview(far).oval, pick, salvo, 'beyond reach');
+  });
+
+  it('salvoOval is the shared dispersionAxes at the station → center range, whatever the range', () => {
+    const station = { x: 10, y: -5 };
+    for (const d of [0, 1, 50, 900, 5000]) {
+      const o = salvoOval(station, { center: { x: station.x + d, y: station.y }, bearing: 0.7 });
+      expect(o.alongU).toBeCloseTo(dispersionAxes(d).alongU, 9);
+      expect(o.acrossU).toBeCloseTo(dispersionAxes(d).acrossU, 9);
+      expect(o.rotation).toBe(0.7);
+    }
+  });
+
+  it('reads the turret state it is given: the oval is sized from the picked turret', () => {
     // The lead turret is reloading, so the pick moves to another one.
     const turrets = initialTurrets(cls);
     turrets[0].reloadMsLeft = row.reloadMs;
     const inp = battery({ turrets });
     const { pick, salvo } = shared(inp);
     expect(pick.index).not.toBe(0); // the premise
-    const m = computeAimPreview(inp);
-    expect(m.lines).toHaveLength(pick.guns);
-    expect(m.bursts).toHaveLength(pick.guns);
-    salvo.shells.forEach((sh, k) => {
-      expect(m.lines[k].x1).toBeCloseTo(sh.origin.x, 9);
-      expect(m.lines[k].y1).toBeCloseTo(sh.origin.y, 9);
-      expect(m.bursts[k].x).toBeCloseTo(sh.target.x, 9);
-      expect(m.bursts[k].y).toBeCloseTo(sh.target.y, 9);
-    });
+    expectOval(computeAimPreview(inp).oval, pick, salvo, 'lead reloading');
   });
 
-  it('ARC-ONLY: aim dead ahead with only the aft (non-bearing) turrets ready — the preview is the bearing turret the player waits on, never an aft salvo', () => {
+  it('every bearing turret RELOADING: the oval stays, sized from the lowest-index bearing turret', () => {
     const turrets = initialTurrets(cls);
     const mounts = turretMounts(cls);
     mounts.forEach((m, i) => { if (m.facing === 'fwd') turrets[i].reloadMsLeft = row.reloadMs; });
     const inp = battery({ turrets });
     const point = aimPointOf(SHIP, inp.aim, inp.aimDist);
     expect(pickTurret(turrets, cls, SHIP, point)).toBeNull(); // the premise: a click fires nothing
-    const loaded = shared({ ...inp, turrets: initialTurrets(cls) }); // as if every turret were loaded
+    const loaded = shared(inp, initialTurrets(cls)); // as if every turret were loaded
     expect(mounts[loaded.pick.index].facing).toBe('fwd');
-    const m = computeAimPreview(inp);
-    expect(m.bursts).toHaveLength(loaded.pick.guns);
-    loaded.salvo.shells.forEach((sh, k) => {
-      expect(m.bursts[k].x).toBeCloseTo(sh.target.x, 9);
-      expect(m.bursts[k].y).toBeCloseTo(sh.target.y, 9);
-    });
+    expectOval(computeAimPreview(inp).oval, loaded.pick, loaded.salvo, 'reloading');
   });
+
+  it('NO turret bears on the aim: no oval', () => {
+    // Every shipped hull's arcs together cover the whole compass, so "no turret
+    // bears" is reached through the state: with no turrets in it, the shared
+    // pick names nobody, loaded or not.
+    const inp = battery({ turrets: [] });
+    expect(pickTurret([], cls, SHIP, aimPointOf(SHIP, inp.aim, inp.aimDist))).toBeNull(); // the premise
+    expect(computeAimPreview(inp)).toEqual(EMPTY_MODEL);
+  });
+
   // REVIEW GATE C5: a zero / non-finite aim distance is NO AIM
   // (`batteryAimPoint` → null) — the server holds and denies, so the preview
   // draws no fall of shot for the battery.
   it('NO AIM (aimDist 0 or not finite) previews nothing', () => {
     expect(computeAimPreview(battery({ aimDist: 0 }))).toEqual(EMPTY_MODEL);
     expect(computeAimPreview(battery({ aimDist: Number.NaN }))).toEqual(EMPTY_MODEL);
+  });
+
+  it('the oval is drawn in the AIM COLOR, and so is the torpedo (R21)', () => {
+    expect(previewTint('mainBattery', 0x123456)).toBe(0x123456);
+    expect(previewTint('heavyTorpedo', 0x123456)).toBe(0x123456);
+  });
+});
+
+describe('ovalAlpha — bench idea E, the bunching bell', () => {
+  const k = CONFIG.dispersion.sigmas;
+  it('is brightest at the center and falls monotonically to the edge, then nothing outside', () => {
+    let prev = Infinity;
+    for (let i = 0; i <= 20; i++) {
+      const a = ovalAlpha(i / 20, k);
+      expect(a).toBeLessThan(prev);
+      prev = a;
+    }
+    expect(ovalAlpha(1.0001, k)).toBe(0);
+  });
+  it('follows exp(−(r·k)²/2): the ratio to the center is the bell, at any sigmas', () => {
+    for (const sig of [1, 2, 3]) {
+      for (const r of [0.25, 0.5, 1]) {
+        expect(ovalAlpha(r, sig) / ovalAlpha(0, sig)).toBeCloseTo(Math.exp(-((r * sig) ** 2) / 2), 12);
+      }
+    }
   });
 });

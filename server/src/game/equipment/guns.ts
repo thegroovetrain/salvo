@@ -19,7 +19,6 @@ import {
   gunReachU as sharedGunReachU,
   muzzleOrTarget as sharedMuzzleOrTarget,
   parallelOffsets,
-  pointInLitZone,
   wrapAngle,
   type EquipmentState,
   type ShellState,
@@ -124,25 +123,9 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
   return sharedGunReachU(ship.state, ship.input.aim, ship.input.aimDist, rangeU, ctx.mapRadius, ctx.ownLitZones());
 }
 
-/**
- * THE LIT EXEMPTION (Eric 2026-10-17, epic-9 amendment 187: "the lit up
- * region is counted as within the 100% damage range, even if it otherwise
- * wouldn't be"). The attenuation reference a deck-gun shell is stamped with:
- * the row's `rangeU` at fire time (ruling 184(b)), or `undefined` — NO
- * reference, full damage wherever the shell lands — when `target` (the
- * shot's map-clamped aim / burst point) lies inside one of the firer's OWN
- * live lit zones (`ctx.ownLitZones()`, the same shared `pointInLitZone` test
- * `gunReachU` lifts the reach on; an enemy's flare buys nothing).
- *
- * Decided ONCE, AT FIRE TIME, never at impact. Two accepted readings follow:
- * a zone that expires while the shell is in flight does not retroactively
- * punish a shot fired into light, and a hull intercepting the shell short of
- * the zone takes the unattenuated blow. DECK GUNS ONLY (cannon, machine gun,
- * flak).
- */
-export function attenRangeFor(ctx: ActivationContext, rangeU: number, target: Vec2): number | undefined {
-  return pointInLitZone(target, ctx.ownLitZones()) ? undefined : rangeU;
-}
+// THE LIT EXEMPTION (`attenRangeFor`, Eric 2026-10-17, epic-9 amendment 187)
+// — RETIRED 2026-11-12 with range attenuation (Story 11.1): damage is flat
+// with range, so there is no reference to exempt.
 
 /**
  * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells
@@ -188,15 +171,14 @@ export function attenRangeFor(ctx: ActivationContext, rangeU: number, target: Ve
  * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
  * that premise. The accepted consequence: every shell of a multi-barrel click
  * lands; the reachable max is the CANNON's tier-V twin mount (2 barrels × 13 =
- * 26 — Eric 2026-10-16, Story 9.12, before range attenuation). No PLAYER hull
+ * 26 — Eric 2026-10-16, Story 9.12). No PLAYER hull
  * can be one-clicked — the lightest class hull is 250 hp.
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
- * CONFIG, so the HEAVY SHELLS ladder lands) and the row's `rangeU` as its
- * range-attenuation reference (Story 9.12, ruling 184(b) — the row's reach,
- * NEVER the lit-zone-lifted `reachU`; none at all for a volley aimed into the
- * shooter's own light, amendment 187 `attenRangeFor`). distLeft is the spawn→target
+ * CONFIG, so the HEAVY SHELLS ladder lands) — flat with range (range
+ * attenuation retired 2026-11-12, Story 11.1). NOT dispersed (Story 11.1, R6:
+ * only the main battery and the secondaries scatter). distLeft is the spawn→target
  * distance plus a shellRadius of slack — the shell stops AT its target
  * (stepShell), so the slack only guards float drift from ever expiring it a
  * hair short of the burst. It is the SAME length for every shell of the volley,
@@ -214,7 +196,6 @@ function fireGunShells(
   const center = burstPointAlong(ship, ctx.mapRadius, reachU, dir);
   const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
   const range = Math.hypot(center.x - muzzle.x, center.y - muzzle.y) + CONFIG.gun.shellRadius;
-  const attenRangeU = attenRangeFor(ctx, gun.rangeU, center); // amendment 187: one decision per volley
   const shells: ShellState[] = [];
   for (const off of parallelOffsets(dir, gun.barrels, CONFIG.gun.barrelSpacingU)) {
     shells.push(
@@ -231,7 +212,6 @@ function fireGunShells(
         contactDamage: gun.contactDamage,
         hits: CONFIG.gun.hits, // AR44 target mask
         family: 'cannon', // Story 8.15: the reveal's `w`
-        attenRangeU, // ruling 184(b) + amendment 187: the row's reach at fire time, none into own light
       }),
     );
   }

@@ -57,6 +57,16 @@ export const MOTION_OPTIONS: readonly OptionModel<MotionLevel>[] = [
  *  appear on the right, left, or bottom"). The row's four words are new
  *  in-game copy, put to Eric `[Eric may reword]`. */
 export const OFFER_POS_LABEL = 'OFFER POSITION';
+/** THE AIM ROWS (Story 11.1, R15 / R18): the reticle + oval color picker and
+ *  the reticle's size slider. The two labels are the only new copy (R17). */
+export const AIM_COLOR_LABEL = 'AIM COLOR';
+export const AIM_SIZE_LABEL = 'AIM SIZE';
+
+/** Pure: the AIM SIZE readout for a value (`2×`, `2.5×`). */
+export function aimSizeReadout(v: number): string {
+  return `${v}×`;
+}
+
 export const OFFER_POS_OPTIONS: readonly OptionModel<OfferPos>[] = [
   { value: 'right', label: 'RIGHT', enabled: true, note: '' },
   { value: 'left', label: 'LEFT', enabled: true, note: '' },
@@ -317,6 +327,16 @@ const CHOICE_CSS = [
   'cursor:pointer',
 ].join(';');
 
+const COLOR_CSS = [
+  'width:64px',
+  'height:36px',
+  'padding:3px',
+  'background:var(--hc-panel-deep)',
+  'border:1px solid var(--hc-hairline)',
+  'border-radius:4px',
+  'cursor:pointer',
+].join(';');
+
 const DANGER_CSS = [
   'padding:9px 20px',
   'background:var(--hc-panel-deep)',
@@ -413,26 +433,58 @@ function makeChoiceRow<T>(
  * deliberately LEFT alone (arrows must keep nudging); the chokepoint's
  * range-input fallthrough is what keeps ESC alive in that state.
  */
-function makeSliderRow(label: string, value: number, onInput: (v: number) => void): HTMLElement {
+/** A slider's range, step and readout format (the volume rows' by default). */
+interface SliderSpec {
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+}
+
+const VOLUME_SLIDER: SliderSpec = { min: 0, max: S.volumeMax, step: 1, format: String };
+const R = CLIENT_CONFIG.reticle;
+const AIM_SIZE_SLIDER: SliderSpec = { min: R.sizeMin, max: R.sizeMax, step: R.sizeStep, format: aimSizeReadout };
+
+function makeSliderRow(label: string, value: number, onInput: (v: number) => void, spec: SliderSpec = VOLUME_SLIDER): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = ROW_CSS;
   const input = document.createElement('input');
   input.type = 'range';
-  input.min = '0';
-  input.max = String(S.volumeMax);
-  input.step = '1';
+  input.min = String(spec.min);
+  input.max = String(spec.max);
+  input.step = String(spec.step);
   input.value = String(value);
   input.style.cssText = 'flex:1 1 220px;accent-color:var(--hc-phosphor)';
   const readout = document.createElement('span');
-  readout.textContent = String(value);
+  readout.textContent = spec.format(value);
   readout.style.cssText = VALUE_CSS;
   input.addEventListener('input', () => {
     const v = Number(input.value);
-    readout.textContent = String(v);
+    readout.textContent = spec.format(v);
     onInput(v);
   });
   input.addEventListener('pointerup', () => input.blur());
   row.append(makeLabel(label), input, readout);
+  return row;
+}
+
+/**
+ * A color-picker row (AIM COLOR): label + a native `<input type="color">`
+ * dressed as the panel's choice buttons. Like a slider it writes through on
+ * `input` WITHOUT a repaint (a rebuild would destroy the picker mid-drag), and
+ * it blurs on `change` — a focused input would trip the keyboard chokepoint's
+ * text-entry guard and swallow the ESC that closes the overlay.
+ */
+function makeColorRow(label: string, value: string, onInput: (hex: string) => void): HTMLElement {
+  const row = document.createElement('div');
+  row.style.cssText = ROW_CSS;
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = value;
+  input.style.cssText = COLOR_CSS;
+  input.addEventListener('input', () => onInput(input.value));
+  input.addEventListener('change', () => input.blur());
+  row.append(makeLabel(label), input);
   return row;
 }
 
@@ -618,6 +670,10 @@ export class SettingsOverlay {
         this.makeScaleRow(s),
         makeChoiceRow(OFFER_POS_LABEL, OFFER_POS_OPTIONS, s.offerPos, (v) => this.set({ offerPos: v })),
         makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v })),
+        // Story 11.1 (R15 / R18): both write through WITHOUT a repaint, like
+        // the volume sliders — a rebuild would destroy the control in use.
+        makeColorRow(AIM_COLOR_LABEL, s.aimColor, (v) => this.set({ aimColor: v }, false)),
+        makeSliderRow(AIM_SIZE_LABEL, s.aimSize, (v) => this.set({ aimSize: v }, false), AIM_SIZE_SLIDER),
       ),
       makeSection(
         'AUDIO',

@@ -9,7 +9,7 @@
 // never reset on death.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, FAMILY_SLOT, SLOT_BOOST, abilityCode, type InputMsg } from '@salvo/shared';
+import { isAfloat, launcherAimPoint, launcherStationWorld, FAMILY_SLOT, SLOT_BOOST, abilityCode, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -146,7 +146,11 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
     const torps = [...w.shells.values()].filter((s) => s.kind === 'torp');
     expect(torps).toHaveLength(1);
     const dir = Math.atan2(torps[0].vy, torps[0].vx);
-    expect(dir).toBeCloseTo(aim1, 6); // the OLDER press's aim, not the latest input's
+    // The OLDER press's aim, not the latest input's: the bearing from the
+    // fore launcher's station to click 1's aim point (no traverse, Story 11.1).
+    const st = launcherStationWorld(a.hullId, 0, a.state);
+    const p1 = launcherAimPoint(a.state, a.hullId, aim1, 300)!;
+    expect(dir).toBeCloseTo(Math.atan2(p1.y - st.y, p1.x - st.x), 6);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 2 }]);
   });
 

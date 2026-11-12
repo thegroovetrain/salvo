@@ -2,7 +2,7 @@
 // 105 and 106) — the I/O matrix's flak rows through World.step():
 //   * one shell per click to the clicked point, bursting in a 50 u blast for
 //     D hp at the centre falling to HALF at the rim (`rimFactor`, Story 9.12;
-//     every blow range-attenuated — rangeAttenuation.test.ts) per hull inside
+//     flat with range since Story 11.1) per hull inside
 //     it (`hc`), reload 3.5 s, one round;
 //   * a hull crossing the path takes the 4 hp bodyblock and stops the shell;
 //   * the ORDNANCE side effect (amendment 105): an ENEMY torpedo inside the
@@ -80,13 +80,11 @@ function fish(w: World, id: string, ownerId: string, x: number, y: number): Shel
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
 
 /** The rim hit (Story 9.12) on a hull whose NEAREST outline point is `d` u
- *  off the burst centre, for a click this file keeps inside half the flak's
- *  range (attenuation factor 1 — `NEAR_CLICK` below pins that premise):
- *  settleBlow(D × flakRimFactor(d)). */
+ *  off the burst centre: settleBlow(D × flakRimFactor(d)) (flat with range,
+ *  Story 11.1). */
 const falloffAt = (d: number): number =>
   settleBlow(FLAK.damage * flakRimFactor(d, FLAK.burstRadius, FLAK.rimFactor));
-/** Every click distance this file uses: at most half the flak's Tier I reach,
- *  so the shell flies less than `fullFrac` of it — no attenuation. */
+/** Every click distance this file uses: inside the flak's Tier I reach. */
 const NEAR_CLICK = 300;
 /** u — how far the target hull's (the default hull, broadside-on along y,
  *  heading π/2) NEAREST outline point toward a burst dead astern sits short of
@@ -319,17 +317,17 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
 
 // THE FLAK BURST RIM (Eric 2026-10-16, Story 9.12, forge weapon-balance-math —
 // "rim = half damage"; replaces the flat D − 10 of Story 9.8). A caught hull
-// takes settleBlow(D × (1 − rimFactor × clamp01(d / burstRadius)) × atten),
+// takes settleBlow(D × (1 − rimFactor × clamp01(d / burstRadius))),
 // d = the distance from the burst centre to the NEAREST point of its outline
-// (0 inside). Every click here is `NEAR_CLICK` (attenuation 1). The battleship
+// (0 inside). Every click here is `NEAR_CLICK`. The battleship
 // below lies broadside-on along y (heading π/2), so its stern tip sits TIP_U
 // short of its centre toward the burst at (300, 0).
 describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.12)', () => {
   const D = FLAK.damage;
   const R = FLAK.burstRadius;
 
-  it('the premise: every click in this file flies under fullFrac of the flak reach (no attenuation)', () => {
-    expect(NEAR_CLICK).toBeLessThanOrEqual(CONFIG.gunAttenuation.fullFrac * FLAK.rangeU);
+  it('the premise: every click in this file is inside the flak reach', () => {
+    expect(NEAR_CLICK).toBeLessThanOrEqual(FLAK.rangeU);
   });
 
   it('a burst CENTRED on a hull deals D', () => {
@@ -395,40 +393,6 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
       expect(count(log, 'dmg')).toBe(0);
     } finally {
       (CONFIG.flak as { damage: number }).damage = saved;
-    }
-  });
-
-  it('a POSITIVE-damage blow SETTLED to 0 is NO blow (reading r3, burstDamage\'s `amount <= 0` guard): minFactor 0 at max range → raw D × 0 → no hp, no hitShip, no `dmg`', () => {
-    const saved = CONFIG.gunAttenuation.minFactor;
-    (CONFIG.gunAttenuation as { minFactor: number }).minFactor = 0;
-    try {
-      const w = bareWorld();
-      flakker(w, 'a', -3000, 0);
-      const b = hull(w, 'b', 0, 0);
-      const inner = w as unknown as {
-        resolveShell(shell: unknown, outcome: unknown, hulls: readonly unknown[]): void;
-        hitTargets(mask: readonly string[]): readonly unknown[];
-        pending: GameEvent[];
-      };
-      // A flak shell that flew EXACTLY its reference range to a burst centred
-      // on the hull: the attenuation factor is minFactor (0) and the rim term
-      // is 1, so the raw blow is D × 0 — positive damage, settled 0.
-      const REACH = FLAK.rangeU;
-      const shell: ShellState = {
-        id: 's1', ownerId: 'a', x: 0, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now, kind: 'shell', family: 'flak',
-        damage: D, hitRadius: FLAK.shellRadius, targetX: 0, targetY: 0, burstRadius: R,
-        contactDamage: FLAK.contactDamage, hits: FLAK.hits, originX: -REACH, originY: 0, attenRangeU: REACH,
-      };
-      expect(D).toBeGreaterThan(0); // the premise: the gate in resolveBurst lets this through
-      const hitShip = vi.spyOn(w as unknown as { hitShip: (...a: unknown[]) => void }, 'hitShip'); // the credit seat: never reached
-      inner.resolveShell(shell, { kind: 'burst', x: 0, y: 0 }, inner.hitTargets(FLAK.hits));
-      const log = [...inner.pending];
-      expect(count(log, 'burst')).toBe(1);
-      expect(b.hp).toBe(b.stats.maxHp);
-      expect(hitShip).not.toHaveBeenCalled();
-      expect(count(log, 'dmg')).toBe(0);
-    } finally {
-      (CONFIG.gunAttenuation as { minFactor: number }).minFactor = saved;
     }
   });
 

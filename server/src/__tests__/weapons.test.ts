@@ -15,7 +15,9 @@ import {
   effectiveStats,
   equipmentReloadMs,
   hullSilhouette,
+  launcherAimPoint,
   launcherStation,
+  launcherStationWorld,
   launcherDeadRad,
   launcherTrainRad,
   DEFAULT_CLASS_ID,
@@ -101,13 +103,12 @@ function torpShip(w: World, id: string, x: number, y: number, brg: number): Ship
   return rec;
 }
 
-/** Train a ship's launchers onto its CURRENT input aim through the shared
- *  stepper the World's `stepLaunchers` row runs (Story 10.6, R13) — a full
- *  traverse's worth of ticks, so they arrive anywhere inside their arcs. The
- *  tube clocks run too, so call it before emptying a tube. */
+/** Point a ship's launchers at its CURRENT input aim through the shared
+ *  stepper the World's `stepLaunchers` row runs — one step, no traverse since
+ *  Story 11.1 (R16). The tube clocks run too, so call it before emptying a
+ *  tube. */
 function trainLaunchers(rec: ShipRecord): void {
-  const ticks = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * CONFIG.tick.simDtMs) / 1000)) + 1;
-  for (let i = 0; i < ticks; i += 1) stepShipLaunchers(rec, CONFIG.tick.simDtMs);
+  stepShipLaunchers(rec, CONFIG.tick.simDtMs);
 }
 
 const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
@@ -177,15 +178,18 @@ describe('torpedoes — the FORE launcher\'s firing band (Story 10.6, R6 / R16 /
     refused(aimedOff(w, 'd', -(TRAIN + DEG)));
   });
 
-  it('a click while the launcher still swings through its dead wedge spends nothing (the cooling denial)', () => {
+  it('NO TRAVERSE (Story 11.1, R16): a launcher at rest, pointed dead ahead, fires on the FIRST click at an aim in its band — along the bearing to the aim', () => {
     const w = bareWorld();
     const rec = torpShip(w, 'a', 0, 0, HALF_PI);
     rec.state = { ...rec.state, x: 0, y: 0, heading: 0 };
     rec.input = { ...rec.input, aim: HALF_PI };
     rec.launchers[0].a = 0; // at rest, pointed dead ahead
-    expect(w.sinkingActivationGate(rec, SLOT_TORPEDO)).toEqual({ ok: false, reason: 'no-ammo' });
-    expect(rec.launchers[0].tubes).toEqual([0]);
-    expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false);
+    expect(w.sinkingActivationGate(rec, SLOT_TORPEDO)).toEqual({ ok: true });
+    expect(rec.launchers[0].tubes[0]).toBeGreaterThan(0);
+    const torp = [...w.shells.values()].find((sh) => sh.kind === 'torp')!;
+    const st = launcherStationWorld(rec.hullId, 0, rec.state);
+    const aimPt = launcherAimPoint(rec.state, rec.hullId, rec.input.aim, rec.input.aimDist)!;
+    expect(Math.atan2(torp.vy, torp.vx)).toBeCloseTo(Math.atan2(aimPt.y - st.y, aimPt.x - st.x), 9);
   });
 });
 

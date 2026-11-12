@@ -38,7 +38,7 @@ import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
 import { TRACK_PERSIST_MS, trackVelocity } from './plot.js';
 import { mountedReachOf } from './doctrine.js';
-import { noteTorpedoHold, torpedoCanBear, torpedoReadyOnTarget } from './torpedoMount.js';
+import { torpedoReadyOnTarget } from './torpedoMount.js';
 
 const TAU = Math.PI * 2;
 
@@ -255,10 +255,9 @@ export function distTo(sit: BotSituation, t: BotTrack): number {
 
 /** One torpedo shot solve, shared by all three torpedo lines: lead at THIS
  *  weapon's speed, refuse a blocked line, then CLICK ONLY when the shared
- *  launcher law says a tube fires ON TARGET after this tick's step (Story 10.6
- *  review gate, ai/torpedoMount.ts) — otherwise no shot this tick, so the
- *  next slot (the main battery) gets it; a launcher that could make the shot
- *  once it swings there has the aim HELD for it (`noteTorpedoHold`). */
+ *  launcher law says a tube fires after this tick's step (Story 10.6 review
+ *  gate, ai/torpedoMount.ts) — otherwise no shot this tick, so the next slot
+ *  (the main battery) gets it. */
 export function solveTorpedoShot(
   ctx: TacticContext,
   speed: number,
@@ -272,9 +271,7 @@ export function solveTorpedoShot(
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  const a = { aim, aimDist: d };
-  if (torpedoReadyOnTarget(ctx.self, a)) return { aim, aimDist: d, slot: ctx.slot };
-  if (torpedoCanBear(ctx.self, a)) noteTorpedoHold(ctx.mind, ctx.sit.now, a);
+  if (torpedoReadyOnTarget(ctx.self, { aim, aimDist: d })) return { aim, aimDist: d, slot: ctx.slot };
   return null;
 }
 

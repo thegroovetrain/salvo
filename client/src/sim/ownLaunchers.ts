@@ -5,10 +5,12 @@
 //
 // Stepped once per 50 ms predicted sim tick with the SAME aim the outgoing
 // InputMsg carries (`launcherAimPoint` → `stepLaunchers` — the shared stepper
-// the server runs, no per-side fork; R13: the launchers chase the cursor at
+// the server runs, no per-side fork; R13: the launchers follow the cursor at
 // all times, whatever is primed), and corrected on every own frame from
-// `you.launchers` (`copyLaunchers`). CORRECT-THEN-CONTINUE, no replay: the
-// error is bounded by latency × the 90°/s traverse, as the turrets' is.
+// `you.launchers` (`copyLaunchers` — the tubes; the ANGLES stay local, Story
+// 11.1 review F-B). CORRECT-THEN-CONTINUE, no replay: the launchers SNAP to the
+// aim (no traverse — R16: `stepLaunchers` sets each angle to the shared
+// `launcherAngle`), so the angle is a pure function of the local pose and aim.
 //
 // A ship holds launchers ONLY while its torpedo slot is filled — the wire
 // omits `you.launchers` otherwise, and a correction from such a frame empties
@@ -60,6 +62,8 @@ export class OwnLaunchers {
   /** The launchers' hull-relative angles (one reused array — render reads it). */
   private readonly angleBuf: number[] = [];
   private pending: PendingFire[] = [];
+  /** Scratch: the locally derived angles just before a frame overwrites them. */
+  private readonly localAngle: number[] = [];
 
   constructor(hull: HullId) {
     this.hull = hull;
@@ -77,7 +81,7 @@ export class OwnLaunchers {
     this.pending = [];
   }
 
-  /** One predicted 50 ms tick toward the aim of (`aim`, `aimDist`) from the
+  /** One predicted 50 ms tick: every launcher SNAPS to the aim of (`aim`, `aimDist`) from the
    *  predicted `pose` — `launcherAimPoint`, so a zero / non-finite aim holds
    *  every angle exactly as the server does. Every tube clock counts down. */
   step(pose: AimPose, aim: number, aimDist: number, dtMs: number): void {
@@ -99,7 +103,15 @@ export class OwnLaunchers {
   correct(you: Pick<OwnShip, 'cls' | 'launchers'>, ackSeq: number): void {
     if (you.cls !== this.hull) this.reset(you.cls);
     for (const p of this.pending) p.local = this.states[p.launcher]?.tubes[p.tube] ?? 0;
+    const angles = this.localAngle;
+    angles.length = this.states.length;
+    for (let i = 0; i < this.states.length; i++) angles[i] = this.states[i].a;
     copyLaunchers(this.states, you.launchers ?? []);
+    // THE ANGLE STAYS LOCAL (Story 11.1 review F-B): a launcher's angle is a
+    // pure function of the local pose and aim now (`launcherAngle`); the
+    // frame's came from a latency-old aim and would flick it back for a tick.
+    // The tubes are the frame's; a launcher the frame adds keeps its angle.
+    for (let i = 0; i < Math.min(angles.length, this.states.length); i++) this.states[i].a = angles[i];
     this.pending = this.pending.filter((p) => this.keepLocal(p, ackSeq));
   }
 

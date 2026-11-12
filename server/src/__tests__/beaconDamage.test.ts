@@ -35,8 +35,9 @@ import { B, DT, SINK_MS, SURFACE_MS, bareWorld, captain, inp, run, seatBeacon, x
 const BEAM = Math.PI / 2;
 const D = 300;
 const AT: Vec2 = { x: 0, y: D };
-/** Ticks for any turret or launcher to traverse any legal arc, plus one. */
-const SETTLE = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * DT) / 1000)) + 1;
+/** Ticks for the turrets and launchers to point at a held aim: one — no
+ *  traverse since Story 11.1 (R16), the step sets the derived angle. */
+const SETTLE = 1;
 /** ms into the cycle the afloat cases start at (just surfaced: a full float minute ahead). */
 const AFLOAT = SURFACE_MS + DT;
 

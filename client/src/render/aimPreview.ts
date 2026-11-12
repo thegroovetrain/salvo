@@ -21,15 +21,14 @@
 // the same layer the reticle uses, because a burst point can legitimately sit
 // far beyond the sight bubble and must not be swallowed by fog.
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import {
-  batteryAimPoint,
   initialTurrets,
-  pickTurret,
-  turretSalvo,
+  type LitCircle,
   type TurretState,
   CONFIG,
   blockedWater,
+  dispersionAxes,
   burstPointAlong,
   clampInsideMap,
   islandSegHit,
@@ -37,8 +36,6 @@ import {
   parallelOffsets,
   initialLaunchers,
   launcherAimPoint,
-  launcherBears,
-  launcherStationWorld,
   pickTube,
   torpedoLaunchPoint,
   turretAimPoints,
@@ -49,13 +46,14 @@ import {
   type HullId,
   type Island,
   type MineKind,
+  type TurretSalvo,
   type EquipmentId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
 import type { OwnFire } from './projectiles.js';
-import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
+import { isMineEquipment, isTorpedoItem, mainBatteryAim, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
 const P = CLIENT_CONFIG.aimPreview;
 
@@ -98,6 +96,12 @@ export interface AimPreviewInput {
    * clamp byte-for-byte, which is what every non-main caller (tests) wants.
    */
   gunReachU?: number;
+  /**
+   * THE OWN LIVE LIT ZONES (render/litZones.ts `ownActiveZones`) — read by the
+   * MAIN BATTERY only, whose reach is measured from the firing turret's station
+   * (`mainBatteryAim`, review F-A), never from `gunReachU` above. Omitted = none.
+   */
+  ownLitZones?: readonly LitCircle[];
   /**
    * THE OWN TURRETS (Story 10.4) — the predicted battery state (sim/ownBattery.ts)
    * the main-battery preview picks from, so it shows where the NEXT shot will
@@ -184,11 +188,29 @@ export interface PreviewBand {
   halfWidth: number;
 }
 
+/**
+ * THE MAIN BATTERY'S DISPERSION OVAL (Story 11.1, R10 / R13 / R14): where the
+ * next salvo's shells can land — ONE oval at the salvo center (every barrel
+ * converges on it), at its TRUE size: `alongU` / `acrossU` are the SEMI-axes
+ * of `dispersionAxes(range)`, range = the firing turret's station → center.
+ * `rotation` is the line of fire (the long axis lies along it). Never scaled
+ * by any setting, never given a minimum screen size.
+ */
+export interface PreviewOval {
+  x: number;
+  y: number;
+  alongU: number;
+  acrossU: number;
+  rotation: number;
+}
+
 export interface AimPreviewModel {
   lines: PreviewLine[];
   bursts: PreviewBurst[];
   place: PreviewPlacement | null;
   band: PreviewBand | null;
+  /** The main battery's oval (absent for every other weapon). */
+  oval?: PreviewOval;
 }
 
 const EMPTY: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
@@ -323,52 +345,43 @@ function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
   });
 }
 
-/** Reused scratch for the main-battery preview's "as if loaded" pick. */
-const LOADED_SCRATCH: TurretState[] = [];
-
-/** The turrets as they stand but every one loaded (into the reused scratch). */
-function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
-  LOADED_SCRATCH.length = turrets.length;
-  for (let i = 0; i < turrets.length; i++) {
-    const t = LOADED_SCRATCH[i] ?? (LOADED_SCRATCH[i] = { a: 0, reloadMsLeft: 0 });
-    t.a = turrets[i].a;
-    t.reloadMsLeft = 0;
-  }
-  return LOADED_SCRATCH;
+/**
+ * PURE: the dispersion oval of one salvo fired from `station` — centered on
+ * the salvo center, its semi-axes the shared `dispersionAxes` at the station →
+ * center range, its long axis along the salvo's line of fire.
+ */
+export function salvoOval(station: Vec2, salvo: Pick<TurretSalvo, 'center' | 'bearing'>): PreviewOval {
+  const { center } = salvo;
+  const { alongU, acrossU } = dispersionAxes(Math.hypot(center.x - station.x, center.y - station.y));
+  return { x: center.x, y: center.y, alongU, acrossU, rotation: salvo.bearing };
 }
 
 /**
- * THE MAIN BATTERY (Story 10.4; arc-only fire, epic-10 amendment 10): the
- * SHARED turret pick + salvo — the two calls the server fires with — over the
- * predicted turret state, so the preview is where the next salvo lands: on the
- * aim point when a ready bearing turret is on target, along that turret's
- * current bearing otherwise. No ready turret bears: the pick is made as if
- * every turret were loaded — still only among the turrets whose arc holds the
- * aim (the turret that will fire first is the one the player is waiting on).
- * One line + one burst per shell.
+ * THE MAIN BATTERY (Story 10.4; Story 11.1 R10 / R13 / R14 / R16): the SHARED
+ * turret pick + salvo — the two calls the server fires with — over the
+ * predicted turret state. No travel lines, no blast circles: ONE oval at the
+ * salvo center (the aim point, or the reach-clamped point beyond reach), sized
+ * from the firing turret. No ready turret bears: the oval is sized from the
+ * lowest-index turret whose arc holds the aim, picked as if every turret were
+ * loaded — the turret the player is waiting on — so it does not vanish during
+ * a reload. No turret bears at all: no oval.
  */
 function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
-  const row = inp.stats.equipment.mainBattery;
-  const hull = inp.ship.cls;
-  const turrets = inp.turrets ?? initialTurrets(hull);
-  // NO AIM (review gate C5): the shared `batteryAimPoint` the server steps and
-  // fires with — null holds every turret and the click is denied, so nothing
-  // falls anywhere.
-  const aimPoint = batteryAimPoint(inp.ship, inp.aim, inp.aimDist);
-  if (aimPoint === null) return EMPTY;
-  const pick = pickTurret(turrets, hull, inp.ship, aimPoint) ?? pickTurret(asLoaded(turrets), hull, inp.ship, aimPoint);
-  if (pick === null) return EMPTY;
-  const salvo = turretSalvo(pick, hull, inp.ship, inp.gunReachU ?? row.rangeU, inp.mapRadius);
-  const model: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
-  const spec: BurstSpec = {
-    rangeU: row.rangeU,
-    burstRadius: row.burstRadius,
-    shellRadius: CONFIG.mainBattery.shellRadius,
-    barrels: pick.guns,
-    spacingU: CONFIG.mainBattery.barrelSpacingU,
-  };
-  for (const sh of salvo.shells) shellPreview(inp, sh.origin, sh.target, spec, model, !pick.onTarget);
-  return model;
+  // THE ONE HELPER (review F-A / R19): the shared pick, the reach measured
+  // from the picked turret's STATION (the server's `gunReachU` call) and the
+  // salvo — the same call main.ts makes for the range-clamp marker.
+  const b = mainBatteryAim({
+    stats: inp.stats,
+    hullId: inp.ship.cls,
+    pose: inp.ship,
+    aim: inp.aim,
+    aimDist: inp.aimDist,
+    turrets: inp.turrets ?? initialTurrets(inp.ship.cls),
+    mapRadius: inp.mapRadius,
+    ownLitZones: inp.ownLitZones ?? [],
+  });
+  if (b === null) return EMPTY;
+  return { lines: [], bursts: [], place: null, band: null, oval: salvoOval(b.pick.station, b.salvo) };
 }
 
 /**
@@ -571,11 +584,11 @@ function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpe
  * The torpedo family — the LIGHT, HEAVY and SUPERCAV lines (Story 8.13: one
  * preview, three ids, exactly as `torpedoCore` is one spawn). Since Story 10.6
  * (R6 / R16) the line starts at the DECK LAUNCHER the shared `pickTube` names
- * — its station, pushed clear of the hull (`torpedoLaunchPoint`) — along the
- * bearing that launcher fires on (the aim when on target, else its CURRENT
- * bearing: the battery's early-click rule), and runs to the first island or
- * the map edge. The pick is taken as if every tube were loaded, so a captain
- * waiting on a reload still sees where the next torpedo goes.
+ * — its station, pushed clear of the hull (`torpedoLaunchPoint`) — straight AT
+ * the aim point (Story 11.1 R16: no traverse; the fore-first launcher whose
+ * band holds the aim fires at it), and runs to the first island or the map
+ * edge. The pick is taken as if every tube were loaded, so a captain waiting
+ * on a reload still sees where the next torpedo goes.
  *
  * A HOMING fish additionally carries its finite travel budget and the
  * acquisition BAND: the straight line is only the fish's INITIAL track, and
@@ -615,24 +628,15 @@ function loaded(states: readonly LauncherState[]): LauncherState[] {
 }
 
 /** Where and along what bearing the next torpedo enters the water: the shared
- *  R16 pick's launcher when one fires; while a launcher whose band holds the aim
- *  is still swinging (`cooling`), the first such launcher's station along the
- *  aim bearing from it — where the torpedo runs once it arrives. Null when no
- *  held launcher's arc holds the aim. */
+ *  R16 pick over every tube loaded — the fore-first launcher whose band holds
+ *  the aim, at its station, along station → aim point. Null when no held
+ *  launcher's band holds the aim. */
 function torpedoLaunch(inp: AimPreviewInput): { origin: Vec2; dir: number } | null {
   const cls = inp.ship.cls;
   const states = loaded(inp.launchers ?? initialLaunchers(cls, inp.stats));
-  const aimPoint = launcherAimPoint(inp.ship, cls, inp.aim, inp.aimDist);
-  const pick = pickTube(states, cls, inp.ship, aimPoint);
-  if (pick.verdict === 'fire') return { origin: torpedoLaunchPoint(pick.station, inp.ship, cls, pick.bearing), dir: pick.bearing };
-  if (pick.verdict !== 'cooling' || aimPoint === null) return null;
-  for (let i = 0; i < states.length; i += 1) {
-    if (!launcherBears(cls, i, inp.ship, aimPoint)) continue;
-    const station = launcherStationWorld(cls, i, inp.ship);
-    const dir = Math.atan2(aimPoint.y - station.y, aimPoint.x - station.x);
-    return { origin: torpedoLaunchPoint(station, inp.ship, cls, dir), dir };
-  }
-  return null;
+  const pick = pickTube(states, cls, inp.ship, launcherAimPoint(inp.ship, cls, inp.aim, inp.aimDist));
+  if (pick.verdict !== 'fire') return null;
+  return { origin: torpedoLaunchPoint(pick.station, inp.ship, cls, pick.bearing), dir: pick.bearing };
 }
 
 /** Mine placement: the rings at the clicked drop point (the server places the
@@ -723,12 +727,60 @@ const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveSt
   dazzleShells: (s) => s.equipment.dazzleShells.radius,
 };
 
-/** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
- *  cool-green identity (as its arc and reticle already do) — all three fish
- *  since Story 8.13, the belt's supercav included — and everything else is aim
- *  amber. Color is decoration here — the INFORMATION is the geometry. */
-export function previewTint(id: EquipmentId | null): number {
-  return isTorpedoItem(id) ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
+/** The stroke tint for a weapon's preview: EVERY weapon — the torpedo family
+ *  included since Story 11.1 R21 (Eric 2026-11-12: "All aim previews, even
+ *  torpedoes. Make it all amber. Everything gets AIM COLOR") — takes the
+ *  player's AIM COLOR (`aimTint`; palette amber by default), the same tint the
+ *  reticle and the arcs draw in. `id` is kept so the call sites stay one
+ *  statement per primed weapon. Color is decoration here — the INFORMATION is
+ *  the geometry. */
+export function previewTint(_id: EquipmentId | null, aimTint: number = CLIENT_CONFIG.colors.amber): number {
+  return aimTint;
+}
+
+/**
+ * PURE: the oval fill's alpha at normalized ellipse radius `r` ∈ [0, 1] for a
+ * bell whose edge sits at `sigmas` standard deviations — bench idea E "Bright
+ * middle", copied from client/scripts/dispersionBench/markers.ts `fillBell`
+ * (`0.95 * Math.exp(-((r * sigmas) ** 2) / 2)`). Outside the ellipse: 0.
+ */
+export function ovalAlpha(r: number, sigmas: number): number {
+  if (!(r <= 1)) return 0;
+  return P.ovalPeakAlpha * Math.exp(-((r * sigmas) ** 2) / 2);
+}
+
+/** The baked oval texture and the `sigmas` it was baked for. */
+let ovalTex: { sigmas: number; tex: Texture } | null = null;
+
+/**
+ * THE BAKED OVAL TEXTURE: a WHITE disc whose alpha is `ovalAlpha` of the
+ * normalized radius, `ovalTexPx` square. Baked once for the current
+ * `CONFIG.dispersion.sigmas` (rebuilt only if that dial changes); the sprite
+ * stretches it onto the ellipse and tints it, so a frame allocates nothing.
+ */
+function bakedOvalTexture(sigmas: number): Texture {
+  if (ovalTex !== null && ovalTex.sigmas === sigmas) return ovalTex.tex;
+  const w = P.ovalTexPx;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = w;
+  const ctx = canvas.getContext('2d');
+  if (ctx === null) throw new Error('aim oval: no 2d canvas context');
+  const img = ctx.createImageData(w, w);
+  for (let j = 0; j < w; j += 1) {
+    for (let i = 0; i < w; i += 1) {
+      const r = Math.hypot(i + 0.5 - w / 2, j + 0.5 - w / 2) / (w / 2);
+      const k = (j * w + i) * 4;
+      img.data[k] = 255;
+      img.data[k + 1] = 255;
+      img.data[k + 2] = 255;
+      img.data[k + 3] = Math.round(ovalAlpha(r, sigmas) * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  ovalTex?.tex.destroy(true);
+  ovalTex = { sigmas, tex: Texture.from(canvas) };
+  return ovalTex.tex;
 }
 
 /** Thin Pixi adapter: strokes one model per frame onto the fog-immune aim
@@ -736,19 +788,28 @@ export function previewTint(id: EquipmentId | null): number {
  *  reads identically with motion off. */
 export class AimPreview {
   private readonly g = new Graphics();
+  /** The main battery's oval: ONE persistent sprite, re-placed per frame. */
+  private readonly oval = new Sprite();
 
   constructor(layer: Container) {
+    // The oval sits UNDER everything else on the aim layer — the reticle
+    // above all (Story 11.1 R18: the reticle is drawn WITH the oval, on it).
+    this.oval.anchor.set(0.5);
+    this.oval.visible = false;
+    layer.addChildAt(this.oval, 0);
     layer.addChild(this.g);
   }
 
   /** Clear the preview (own ship sunk, spectating, nothing primed). */
   hide(): void {
     this.g.clear();
+    this.oval.visible = false;
   }
 
   update(model: AimPreviewModel, tint: number): void {
     const g = this.g;
     g.clear();
+    this.drawOval(model.oval, tint);
     // TWO STROKE PASSES, because Pixi takes one alpha per stroke() and a
     // CLAMPED shell must read quieter than one that is going where you pointed
     // (ruling 4). Non-broadside models carry no `clamped` flag at all, so their
@@ -758,6 +819,19 @@ export class AimPreview {
     if (model.band) this.drawBand(model.band, tint);
     for (const b of model.bursts) this.drawBurst(b, tint);
     if (model.place) this.drawPlacement(model.place, tint);
+  }
+
+  /** Place the oval sprite on the model's ellipse (or hide it): the baked bell
+   *  texture stretched to the TRUE semi-axes, rotated to the line of fire. */
+  private drawOval(o: PreviewOval | undefined, tint: number): void {
+    const sp = this.oval;
+    sp.visible = o !== undefined && o.alongU > 0 && o.acrossU > 0;
+    if (!sp.visible || o === undefined) return;
+    sp.texture = bakedOvalTexture(CONFIG.dispersion.sigmas);
+    sp.position.set(o.x, o.y);
+    sp.rotation = o.rotation;
+    sp.scale.set((2 * o.alongU) / P.ovalTexPx, (2 * o.acrossU) / P.ovalTexPx);
+    sp.tint = tint;
   }
 
   /** One alpha's worth of travel lines: every line whose `clamped` flag matches. */

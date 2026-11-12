@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.20] - 2026-11-12
+
+### Changed
+- **Shells scatter.** Every main-gun and secondary shell now lands at its own spot inside a small oval around your aim point. The oval grows with range, and all barrels of a turret aim at the one point.
+- **A hit is a hit at any range.** Shells no longer do less damage at long range.
+- **Point and shoot.** Turrets and torpedo launchers no longer take time to swing around. If your aim is inside a turret's or launcher's arc, it fires.
+- **A new aim marker.** A brighter, bigger reticle with an oval showing where your shells can land, in place of the lines and blast circles.
+
+### Added
+- **Aim color and aim size settings.** Pick any color for every weapon's aim marker, and size the reticle from 1x to 5x.
+
 ## [0.19.19] - 2026-11-12
 
 ### Changed

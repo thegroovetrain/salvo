@@ -379,7 +379,7 @@ describe('COMBAT_BRAIN — the arc opening on the posture bearing (R2)', () => {
       stepTurrets(rec.turrets, rec.hullId, rec.state, p, CONFIG.tick.simDtMs);
       if (d.fireSlot !== SLOT_GUN || p === null) continue;
       const pick = pickTurret(rec.turrets, rec.hullId, rec.state, p);
-      expect(pick?.onTarget).toBe(true);
+      expect(pick).not.toBeNull(); // a click only when a ready turret bears (no traverse, Story 11.1)
       fireTurret(rec.turrets, pick!.index, reloadMs);
       clicks += 1;
       if (turned) clicksInTheTurn += 1;
