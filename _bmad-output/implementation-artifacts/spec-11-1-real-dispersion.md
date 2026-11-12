@@ -2,7 +2,8 @@
 title: 'Story 11.1: Real Dispersion'
 type: 'feature'
 created: '2026-11-12'
-status: 'in-review'
+status: 'done'
+final_revision: 'c0edfdb66abb218eb6b88fe89c36cd83c446de1c'
 baseline_revision: 'f2f70febd58d9155fbd94e84383c12fae89e0613'
 review_loop_iteration: 0
 context:
