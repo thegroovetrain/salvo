@@ -149,7 +149,10 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
   // inner wedges and NO gun bears. Every shell still fires, at its own arc
   // limit; the click is legal and is never denied.
   it('DEAD GAPS EXIST AT RUNG 1: a legal abeam click puts ZERO guns on it, and still fires every shell', () => {
-    for (const r of [150, 300, CONFIG.broadside.rangeU]) {
+    // The reach is sampled only while it stays well inside this test's map disk
+    // (Story 11.2's hectometer reach can exceed it, and a target past the rim
+    // is clamped to the map — a different law than the arc edge pinned here).
+    for (const r of [150, 300, Math.min(CONFIG.broadside.rangeU, MAP_R / 2)]) {
       const out = aims(r, 0);
       expect(out, `r=${r}`).toHaveLength(TURRETS); // a full barrage, always
       expect(out.filter((t) => t.onClick).length, `r=${r}`).toBe(0);

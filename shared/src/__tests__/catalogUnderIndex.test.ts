@@ -23,7 +23,6 @@ import {
   INDEX_IDS,
   LINE_IDS,
   BOON_STAT_PATH_SET,
-  RANGE_ROWS,
   SHIP_CLASS_IDS,
   abilityCooldownFraction,
   abilityCooldownMs,
@@ -316,21 +315,11 @@ describe('R4 — capacity has left the tiers', () => {
   });
 });
 
-describe('R1 — the RANGE card', () => {
-  it('steps the RANGE index and so reaches the main battery and the secondaries only', () => {
-    const base = effectiveStats(BASE);
-    const far = effectiveStats(BASE, stack('range', CATALOG.range.cap));
-    expect(far.range).toBeGreaterThan(base.range);
-    expect(far.equipment.mainBattery.rangeU).toBeCloseTo((CONFIG.mainBattery.rangeU * far.range) / CONFIG.index.base, 9);
-    expect(far.secondaryRangeU).toBeCloseTo(far.equipment.mainBattery.rangeU * CONFIG.secondaries.rangeFrac, 9);
-    for (const id of EQUIPMENT_IDS) {
-      if ((RANGE_ROWS as readonly string[]).includes(id)) continue;
-      const row = far.equipment[id] as unknown as Record<string, number>;
-      const was = base.equipment[id] as unknown as Record<string, number>;
-      if ('rangeU' in row) expect(row.rangeU, id).toBe(was.rangeU);
-    }
-  });
-});
+// R1's RANGE card ('R1 — the RANGE card' — +10 RANGE scaled the main battery
+// and the secondaries) is DELETED with the RANGE index (Story 11.2,
+// 2026-11-12, R9). Its replacement contract — a hull's main reach is the base
+// × its own `battery.reachFrac`, and no card moves it — lives in
+// stats.test.ts.
 
 describe('R2 — RUDDER is gone; one baseline turn rate', () => {
   it('no index, card or stat path named rudder survives', () => {
@@ -350,7 +339,7 @@ describe('R2 — RUDDER is gone; one baseline turn rate', () => {
 
 describe('the catalog\'s new lines', () => {
   it('HULL REPAIR and SMOKE SCREEN are universal ship ladders and the one-offs name their family\'s weapons', () => {
-    for (const id of ['range', 'hullRepair', 'smokeScreen'] as const) {
+    for (const id of ['hullRepair', 'smokeScreen'] as const) {
       expect(CATALOG[id].kind, id).toBe('ladder');
       expect(tierTargetOf(CATALOG[id]), id).toBeUndefined();
     }

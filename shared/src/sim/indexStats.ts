@@ -1,10 +1,10 @@
 // THE INDEX DERIVATIONS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8) —
 // the one home for "what does an index BUY". Every ship stat is a plain
-// number around 100 (ARMOR, POWER, RELOAD, ENGINES, INTEL, RANGE —
+// number around 100 (ARMOR, POWER, RELOAD, ENGINES, INTEL —
 // `INDEX_IDS` in constants.ts): the hull envelope seeds them, the ship
-// ladders step them (+20 ARMOR / POWER / INTEL, +10 RELOAD / ENGINES / RANGE
+// ladders step them (+20 ARMOR / POWER / INTEL, +10 RELOAD / ENGINES
 // since Story 10.6, R1), and NOTHING else is authored. The speed, the radar
-// sweep, the cooldown scale and the deck-gun reach are
+// sweep and the cooldown scale are
 // DERIVED from them here and ONLY here, called from the fold's two re-pin
 // homes (sim/boons.ts `rePinDerived` and sim/stats.ts `clampStats`) exactly as
 // `damageMultiplierFor` and `deriveMineRings` are. No tick, no predictor, no
@@ -35,11 +35,16 @@
 //     tier bonus (Story 10.6, R5 — the −5 %/tier step is gone), and the
 //     HULL REPAIR / SMOKE SCREEN cooldowns run it on their own fixed score
 //     (R8 / R9, sim/abilityStats.ts).
-//   RANGE (ruling 14) — "reach × index / 100 on the battleship's base": the
-//     four deck-gun rows' folded `rangeU` (Tier I CONFIG + ladder steps) × RANGE
-//     / 100. A ONE-SHOT multiply, so it lives in clampStats alone (see
-//     `RANGE_ROWS` and `scaleDeckGunRange`) — never here, where a second pass
-//     would double-apply it. Star / phosphor / fouling / flash reach is untouched.
+//   RANGE (ruling 14) — "reach × index / 100 on the battleship's base", the
+//     one-shot multiply of the deck-gun rows' reach (`RANGE_ROWS`,
+//     `scaleDeckGunRange`) — RETIRED 2026-11-12, Story 11.2, epic-11
+//     amendment <N — number taken at PR time> (R9): RANGE leaves the index; a
+//     hull's main-battery reach is `CONFIG.mainBattery.rangeU ×
+//     battery.reachFrac`, seeded in sim/stats.ts, and no card changes it.
+//   THE TWO EYE REACHES (Story 11.2, R3 / R14 / R18) — `sightRange` (class
+//     and name) and `hullSightRange` (a plain hull) are pinned from
+//     `CONFIG.vision.sight` / `hullSight` by `deriveSightRanges` below; the
+//     old `radarRange / 3` derivation retired with the twelfths ladder.
 //
 // Every derivation here is IDEMPOTENT in the authored index (reads an index,
 // writes a derived field, never the reverse), which is what lets both re-pin
@@ -57,18 +62,6 @@ export const MS_PER_MINUTE = 60000;
  *  float dust on a scalar that ammo.ts ticks against in 50 ms steps (an
  *  un-rounded 0.8333… would cost a whole extra tick on every reload). */
 export const round3 = (v: number): number => Math.round(v * 1000) / 1000;
-
-/**
- * THE DECK-GUN ROWS whose reach the RANGE index scales (Story 10.3 reading of
- * "the main-gun reach": the four gun-family rows a captain aims by click —
- * the cannon, the two pickable guns and the broadside) plus, since Story
- * 10.4, THE MAIN BATTERY — the row a captain actually mounts, and through it
- * the secondaries' reach (a fraction of the folded main reach, derived in
- * sim/stats.ts clampStats AFTER this multiply). STAR SHELLS and
- * PHOSPHOR SHELLS keep their own tiered dials untouched: their reach is a
- * lighting / zone tool, not a gun's.
- */
-export const RANGE_ROWS = ['gun', 'machineGun', 'flak', 'broadside', 'mainBattery'] as const;
 
 /**
  * `ref × index / base` — the one linear law every index obeys. PRODUCT
@@ -118,23 +111,16 @@ export function deriveIndexStats(stats: EffectiveStats): void {
 }
 
 /**
- * THE ONE-SHOT RANGE MULTIPLY: each deck-gun row's folded reach × RANGE / base.
- * Called from clampStats ONLY (the reload multiply's precedent) —
- * it consumes the value it overwrites, so a second pass would compound it.
- * At the base index the scale is exactly 1, so a zero-card fold is
- * byte-identical to its CONFIG dials (here the RATIO is taken first, on
- * purpose: `range / base` is exactly 1 at base, where `(rangeU × range) /
- * base` would round a fractional reach through a large intermediate).
+ * THE TWO EYE REACHES (Story 11.2, Eric 2026-11-12, R3 / R14 / R18): pin
+ * `sightRange` (class and name by eye — the inner reach every sight gate
+ * reads) from `CONFIG.vision.sight` and `hullSightRange` (a plain hull by eye
+ * — the outer reach) from `CONFIG.vision.hullSight`. Neither is
+ * stat-addressable, and neither follows `radarRange` any more (the
+ * `radarRange / 3` derivation retired with the twelfths ladder). Idempotent,
+ * so it is safe in both re-pin homes (sim/boons.ts `rePinDerived` and
+ * sim/stats.ts `clampStats`) and at the base seed.
  */
-export function scaleDeckGunRange(stats: EffectiveStats): void {
-  const scale = stats.range / CONFIG.index.base;
-  for (const id of RANGE_ROWS) {
-    const row = stats.equipment[id];
-    const scaled = row.rangeU * scale;
-    // FAIL CLOSED on a non-finite product (review gate 2026-11-04): a finite
-    // but absurd RANGE (an injected catalog near MAX_VALUE) passes the fold's
-    // positive-finite effect gate, and the multiply alone would overflow to
-    // Infinity. The unscaled reach stands — the firewall's output stays finite.
-    if (Number.isFinite(scaled)) row.rangeU = scaled;
-  }
+export function deriveSightRanges(stats: EffectiveStats): void {
+  stats.sightRange = CONFIG.vision.sight;
+  stats.hullSightRange = CONFIG.vision.hullSight;
 }

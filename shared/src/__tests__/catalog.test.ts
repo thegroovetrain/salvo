@@ -136,8 +136,8 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   foulingShell: { cap: 5, kind: 'equipment', stub: false },
   phosphorShells: { cap: 5, kind: 'equipment', stub: false },
   dazzleShells: { cap: 5, kind: 'equipment', stub: false },
-  // Story 10.6 (R1 / R8 / R9): three SHIP ladders appended.
-  range: { cap: 5, kind: 'ladder', stub: false },
+  // Story 10.6 (R1 / R8 / R9): SHIP ladders appended (`range` DELETED by
+  // Story 11.2, R9).
   hullRepair: { cap: 5, kind: 'ladder', stub: false },
   smokeScreen: { cap: 5, kind: 'ladder', stub: false },
   // Story 10.6 (R6 / R7): the four one-off WEAPON cards — cap-1 add-ons.
@@ -281,6 +281,21 @@ describe('catalog v3 identity', () => {
     }
   });
 
+  it('THE TORPEDO RUN (Story 11.2, R5): every torpedo line folds a run that never shrinks tier to tier, starts at its kind\'s Tier I fact and lands on its Tier V fact', () => {
+    const TB = CONFIG.shipClasses.iowa;
+    const kinds = [
+      ['lightTorpedo', CONFIG.lightTorpedo],
+      ['heavyTorpedo', CONFIG.torpedo],
+      ['supercavTorpedo', CONFIG.supercavTorpedo],
+    ] as const;
+    for (const [id, cfg] of kinds) {
+      const runs = [1, 2, 3, 4, 5].map((n) => effectiveStats(TB, new Array<LineId>(n).fill(id)).equipment[id].runU);
+      expect(runs[0], id).toBe(cfg.runU);
+      for (let k = 1; k < runs.length; k += 1) expect(runs[k], `${id} tier ${k + 1}`).toBeGreaterThanOrEqual(runs[k - 1]);
+      expect(runs[4], id).toBeCloseTo(cfg.runUAtV, 6);
+    }
+  });
+
   it('every production stat effect is ONE of add / mult, each path folds ONE way across the whole catalog, and no effect is a no-op (add 0 / mult 1)', () => {
     const way = new Map<string, 'add' | 'mult'>();
     for (const id of LINE_IDS) {
@@ -330,14 +345,16 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('the three MOVED lines (Story 10.5) author ONE stat step per upgrade tier: supercav damage, the two shells\' radius read from CONFIG', () => {
+  it('the three MOVED lines (Story 10.5) author their steps per upgrade tier: supercav damage (+ its run since Story 11.2), the two shells\' radius read from CONFIG', () => {
     const only = (id: LineId) => CATALOG[id].tiers.slice(1).map((tier) => {
       expect(tier, id).toHaveLength(1);
       return tier[0] as { kind: string; path: string; add: number };
     });
-    for (const e of only('supercavTorpedo')) {
-      expect(e.path).toBe('equipment.supercavTorpedo.damage');
-      expect(Number.isInteger(e.add) && e.add > 0).toBe(true);
+    for (const tier of CATALOG.supercavTorpedo.tiers.slice(1)) {
+      const paths = tier.map((e) => (e as { path: string }).path).sort();
+      expect(paths).toEqual(['equipment.supercavTorpedo.damage', 'equipment.supercavTorpedo.runU']);
+      const dmg = tier.find((e) => (e as { path: string }).path === 'equipment.supercavTorpedo.damage') as { add: number };
+      expect(Number.isInteger(dmg.add) && dmg.add > 0).toBe(true);
     }
     for (const e of only('dazzleShells')) {
       expect(e).toEqual({ kind: 'stat', path: 'equipment.dazzleShells.radius', add: CONFIG.flashShells.radiusStepPerTier });
@@ -502,10 +519,21 @@ describe('catalog v3 identity', () => {
     expect(LINE_IDS.slice(0, 5)).toEqual(['armor', 'power', 'engines', 'intel', 'reload']);
   });
 
-  it('APPENDS Story 10.6\'s seven lines at the foot, in order — never inserted (the fold order is contract)', () => {
-    expect(LINE_IDS.slice(-7)).toEqual([
-      'range', 'hullRepair', 'smokeScreen', 'aftTorpedoLauncher', 'secondLauncherTube', 'secondMineRack', 'expandedMineRacks',
+  it('APPENDS Story 10.6\'s surviving six lines at the foot, in order — never inserted (the fold order is contract; `range` left with Story 11.2)', () => {
+    expect(LINE_IDS.slice(-6)).toEqual([
+      'hullRepair', 'smokeScreen', 'aftTorpedoLauncher', 'secondLauncherTube', 'secondMineRack', 'expandedMineRacks',
     ]);
+  });
+
+  it('RANGE is gone end to end (Story 11.2, R9): no line, no stat path, no index', () => {
+    expect((LINE_IDS as readonly string[]).includes('range')).toBe(false);
+    expect(Object.hasOwn(CATALOG, 'range')).toBe(false);
+    expect(resolveCards(['range'])).toEqual([]);
+    for (const id of LINE_IDS) {
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) if (e.kind === 'stat') expect(e.path, id).not.toBe('range');
+      }
+    }
   });
 
   it('authors ARMOR as identical rungs on the armor path alone — universal, no hull, no heal (Story 9.7)', () => {
@@ -550,13 +578,13 @@ describe('catalog v3 identity', () => {
 // RANGE.)
 describe('STORY 10.3 — the index ladders and the re-ruled weapon rungs', () => {
   const TB = CONFIG.shipClasses.iowa;
-  const INDEX_LADDERS = ['armor', 'power', 'reload', 'engines', 'intel', 'range'] as const;
+  const INDEX_LADDERS = ['armor', 'power', 'reload', 'engines', 'intel'] as const;
   /** The two ability ladders (Story 10.6, R8 / R9) — universal, but not on an index. */
   const ABILITY_LADDERS = ['hullRepair', 'smokeScreen'] as const;
   const addOf = (tier: readonly unknown[], path: string): number | undefined =>
     (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
 
-  it('the catalog and LINE_IDS agree line for line, and the eight SHIP ladders are the universal (hostless) ladders', () => {
+  it('the catalog and LINE_IDS agree line for line, and the SHIP ladders are the universal (hostless) ladders', () => {
     expect(Object.keys(CATALOG)).toHaveLength(LINE_IDS.length);
     expect(new Set(LINE_IDS).size).toBe(LINE_IDS.length);
     const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);

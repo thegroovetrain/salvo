@@ -10,9 +10,9 @@ import {
 // server and client BOTH have to agree on lives here: the horn id space, its
 // fail-open sanitizer, and the one sim-authoritative cadence.
 //
-// What is deliberately NOT pinned here: the volume-band bounds (twelfths of
-// the listener's intel range since Story 9.8, epic-9 amendment 107 / ruling
-// 129; eighths since Story 4.9, amendment 122) and the island
+// What is deliberately NOT pinned here: the volume-band bounds (bands of the
+// listener's own radar reach — the foghorn's rule, kept by Story 11.2) and
+// the island
 // muffle, which are per-observer server logic (signals.ts) verified by their
 // own independently-reimplemented oracle in
 // server/src/__tests__/perception.test.ts; and every presentation knob (band

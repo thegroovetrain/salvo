@@ -243,8 +243,9 @@ const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
  *      an `equipment.gun.*` path -> `gun`. No production line reaches this
  *      source since the one-off DECK GUN TURRET and DECK GUN BARREL cards were
  *      deleted (Eric 2026-09-30); it stays as the guard for an injected
- *      catalog. The eight universal ship ladders (ARMOR, POWER, ENGINES,
- *      INTEL, RELOAD, RANGE, HULL REPAIR, SMOKE SCREEN — Story 10.6, R1) each
+ *      catalog. The seven universal ship ladders (ARMOR, POWER, ENGINES,
+ *      INTEL, RELOAD, HULL REPAIR, SMOKE SCREEN — Story 10.6, R1; RANGE was
+ *      deleted by Story 11.2, R9) each
  *      write top-level paths, none of which is an `equipment.` path, so they
  *      stay universal.
  *
@@ -427,7 +428,7 @@ export function drawOffer(ship: DrawShip, weights: Weights, rng: Rng, catalog: C
   return offer;
 }
 
-/** The six index ids — what a bonus pick must be one of (P4 below). */
+/** The index ids — what a bonus pick must be one of (P4 below). */
 const INDEX_ID_SET: ReadonlySet<string | undefined> = new Set<string>(INDEX_IDS);
 
 /**
@@ -438,7 +439,7 @@ const INDEX_ID_SET: ReadonlySet<string | undefined> = new Set<string>(INDEX_IDS)
  * against an rng that returns exactly 1 (a stub; mulberry32 never does).
  *
  * FAIL-CLOSED (review gate P4): the answer is `undefined` — the caller skips
- * that level's point — whenever the pick is not one of the six `INDEX_IDS`
+ * that level's point — whenever the pick is not one of the `INDEX_IDS`
  * (an empty or misconfigured list, or an rng returning NaN / a negative), so
  * no junk key is ever written onto a ship. The rng value is spent either way.
  * `indices` is the test seam.

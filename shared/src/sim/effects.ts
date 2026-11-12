@@ -69,8 +69,10 @@ export const EQUIPMENT_STAT_FIELDS = {
   // amendment 80): both lines step it +0.125/tier off a 0 base.
   // (`supercavTorpedo` left this table with amendment 74 and is back at its
   // foot since Story 10.5.)
-  lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate'],
-  heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate'],
+  // `runU` (Story 11.2, R5): the fish's run, stepped by each tier of every
+  // torpedo line (supercav included, below).
+  lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate', 'runU'],
+  heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate', 'runU'],
   navalMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius'],
   // THE CAPTIVE ROW HAS NO RADIUS PATH AT ALL (amendment 84d): its trip ring
   // is derived from the tier and its 32 u burst is fixed, so neither
@@ -107,8 +109,9 @@ export const EQUIPMENT_STAT_FIELDS = {
   // THE MAIN BATTERY (Story 10.4) — the cannon row's shape less `barrels`
   // (guns per turret is hull geometry, `CONFIG.shipClasses.<id>.battery`) and
   // less `maxAmmo` (the turret count, hull geometry too). No card addresses
-  // it today; `reloadMs` and `rangeU` are row fields so RELOAD and RANGE reach
-  // them through the one multiply each.
+  // it today; `reloadMs` is a row field so RELOAD reaches it through the one
+  // multiply. `rangeU` is the hull's reach fact (Story 11.2: base ×
+  // `battery.reachFrac` — the RANGE multiply that also reached it retired).
   mainBattery: ['reloadMs', 'rangeU', 'damage', 'contactDamage', 'burstRadius'],
   // THE THREE MOVED WEAPONS (2026-11-05, Story 10.5, epic-10 amendment 11).
   // SUPERCAV steps `damage` (+100 a rung, amendment 8(e)); `homingTurnRate` is
@@ -116,7 +119,7 @@ export const EQUIPMENT_STAT_FIELDS = {
   // give it a turn rate. FLASH SHELLS and the FOULING SHELL step `radius`
   // (R7: +25 u a tier); `rangeU` is a row field no card writes (the reach is
   // fixed — the `maxHp` shape).
-  supercavTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
+  supercavTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'runU'],
   dazzleShells: ['reloadMs', 'maxAmmo', 'rangeU', 'radius'],
   foulingShell: ['reloadMs', 'maxAmmo', 'rangeU', 'radius'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
@@ -139,14 +142,14 @@ export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 't
 
 /**
  * The top-level (non-equipment) stat paths — THE INDEX MODEL's authored
- * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). The SIX
- * INDICES are what a ship ladder may write (RUDDER, the seventh, is DELETED
- * by Story 10.6 — R2); everything they buy is DERIVED post-fold in
+ * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). The FIVE
+ * INDICES are what a ship ladder may write (RUDDER is DELETED by Story 10.6 —
+ * R2; RANGE by Story 11.2 — R9); everything they buy is DERIVED post-fold in
  * sim/indexStats.ts and is DELIBERATELY ABSENT here, pinned absent in
  * barrel.test.ts: `kinematics.maxSpeed` (ENGINES), `kinematics.turnRate` (the
  * one baseline since 10.6), `sweepRpm` + `sweepPeriodMs` (INTEL),
- * `cooldownScale` (RELOAD), `damageMultiplier` (ARMOR), `sightRange`
- * (radarRange / 3). The `regen.*` pair LEFT with PASSIVE HEALING and the
+ * `cooldownScale` (RELOAD), `damageMultiplier` (ARMOR), `sightRange` and
+ * `hullSightRange` (CONFIG.vision facts since Story 11.2). The `regen.*` pair LEFT with PASSIVE HEALING and the
  * out-of-combat regen (both deleted); `armorPiercing` is `power`.
  *
  * STORY 10.6 (Eric 2026-11-05) ADDS the card-written halves of the two
@@ -178,10 +181,9 @@ export const TOP_LEVEL_STAT_PATHS = [
   // (`rudder` sat here until Story 10.6 deleted RUDDER — R2.)
   // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × this / 100.
   'intel',
-  // RANGE (ruling 14): the deck-gun rows' reach × this / 100 — the main
-  // battery and, through it, the secondaries. The RANGE card writes it
-  // (+10, Story 10.6, R1).
-  'range',
+  // `range` (RANGE, ruling 14 — the deck-gun rows' reach × this / 100) sat
+  // here until Story 11.2 REMOVED it (2026-11-12, epic-11 amendment <N —
+  // number taken at PR time>, R9): the stat is gone, so its path is too.
   'radarRange',
   // The four kinematics that stay per-class pass-throughs (ruling 3: "accel /
   // decel / reverse / steerage stay per-class kinematics") — addressable in

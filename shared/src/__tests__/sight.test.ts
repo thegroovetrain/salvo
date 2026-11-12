@@ -12,8 +12,10 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   FLASH_WINDOW_MS,
+  effectiveHullSight,
   effectiveSight,
   effectiveStats,
+  whiteoutReach,
   flashClearFraction,
   flashElapsedMs,
   type LineId,
@@ -134,6 +136,37 @@ describe('flashClearFraction / flashElapsedMs — the curve the client paints', 
     const s = { sightRange: 640 };
     for (let dt = 0; dt < FLASH_WINDOW_MS; dt += 250) {
       expect(effectiveSight(s, UNTIL, HIT + dt)).toBe(s.sightRange * flashClearFraction(flashElapsedMs(UNTIL, HIT + dt)));
+    }
+  });
+});
+
+// THE TWO EYE TIERS (Story 11.2, Eric 2026-11-12, R3): the plain-hull eye goes
+// through the SAME whiteout law as the class-and-name eye — one law, never a
+// forked copy — so the two tiers clear together and the outer one is never
+// under the inner one.
+describe('effectiveHullSight / whiteoutReach — the outer tier under the one law (Story 11.2)', () => {
+  it('whiteoutReach scales ANY reach by the same factor effectiveSight uses, and fails closed the same way', () => {
+    for (const reach of [1, 640, 7954.5]) {
+      for (let dt = -1000; dt < FLASH_WINDOW_MS + 1000; dt += 250) {
+        const factor = effectiveSight({ sightRange: 1 }, UNTIL, HIT + dt);
+        expect(whiteoutReach(reach, UNTIL, HIT + dt)).toBeCloseTo(reach * factor, 9);
+      }
+      expect(whiteoutReach(reach)).toBe(reach);
+      expect(whiteoutReach(reach, Number.NaN, HIT)).toBe(0);
+      expect(whiteoutReach(reach, UNTIL, Number.NaN)).toBe(0);
+    }
+  });
+
+  it('effectiveHullSight is the hullSightRange under the whiteout law, and is never under effectiveSight on any hull, build or instant', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      for (const cards of BUILDS) {
+        const s = effectiveStats(CONFIG.shipClasses[id], cards);
+        expect(effectiveHullSight(s)).toBe(s.hullSightRange);
+        for (let dt = 0; dt <= FLASH_WINDOW_MS; dt += 500) {
+          expect(effectiveHullSight(s, UNTIL, HIT + dt)).toBe(whiteoutReach(s.hullSightRange, UNTIL, HIT + dt));
+          expect(effectiveHullSight(s, UNTIL, HIT + dt)).toBeGreaterThanOrEqual(effectiveSight(s, UNTIL, HIT + dt));
+        }
+      }
     }
   });
 });

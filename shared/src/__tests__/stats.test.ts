@@ -31,7 +31,6 @@ import {
   EQUIPMENT_INT_FIELDS,
   INDEX_IDS,
   LINE_IDS,
-  RANGE_ROWS,
   SHIP_CLASS_IDS,
   bonusCount,
   deriveIndexStats,
@@ -102,7 +101,7 @@ const changed = (before: EffectiveStats, after: EffectiveStats): string[] => {
 describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () => {
   it('the neutral hull (every index at the base) at zero cards equals the CONFIG bases', () => {
     const cls = NEUTRAL_HULL;
-    // THE INDEX MODEL (Story 10.3): the seven indices are the envelope's, and
+    // THE INDEX MODEL (Story 10.3): the five indices are the envelope's, and
     // the derived fields are the index laws over them (sim/indexStats.ts).
     const { index } = cls;
     expect(effectiveStats(cls)).toEqual({
@@ -116,6 +115,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
       sweepRpm: (CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base,
       sweepPeriodMs: 60000 / ((CONFIG.vision.sweepRpm * index.intel) / CONFIG.index.base),
       sightRange: CONFIG.vision.sight,
+      hullSightRange: CONFIG.vision.hullSight, // the plain-hull eye (Story 11.2, R3)
       // THE SECONDARIES' REACH (Story 10.4, R3): a fraction of the main reach.
       secondaryRangeU: CONFIG.mainBattery.rangeU * CONFIG.secondaries.rangeFrac,
       cooldownScale: round3(1 / (1 + (index.reload - CONFIG.index.base) / CONFIG.index.base)),
@@ -125,7 +125,6 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
       reload: index.reload,
       engines: index.engines,
       intel: index.intel,
-      range: index.range,
       // THE TWO ABILITIES at zero cards (Story 10.6, R8 / R9): the CONFIG
       // bases, each ability's own score at the index base; the smoke disc is
       // the anchored CONFIG disc scaled to zero cards.
@@ -181,6 +180,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           speed: CONFIG.lightTorpedo.speed,
           damage: CONFIG.lightTorpedo.damage,
           homingTurnRate: 0,
+          runU: CONFIG.lightTorpedo.runU, // the Tier I run (Story 11.2, R5)
         },
         // THE LEGACY RENAME — byte-identical to the shipped `torpedo` block.
         heavyTorpedo: {
@@ -190,6 +190,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           speed: CONFIG.torpedo.speed,
           damage: CONFIG.torpedo.damage,
           homingTurnRate: 0,
+          runU: CONFIG.torpedo.runU, // the Tier I run (Story 11.2, R5)
         },
         // ...and byte-identical to the shipped `mine` block. It NO LONGER
         // FOULS (amendment 81), so its slowFactor is the inert 1.
@@ -313,6 +314,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           speed: CONFIG.supercavTorpedo.speed,
           damage: CONFIG.supercavTorpedo.damage,
           homingTurnRate: 0,
+          runU: CONFIG.supercavTorpedo.runU, // the Tier I run (Story 11.2, R5)
         },
         dazzleShells: {
           tier: 1,
@@ -333,28 +335,50 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
   });
 
   it.each(SHIP_CLASS_IDS.map((id) => [id] as const))(
-    '%s at zero cards is the neutral fold of its own envelope with RELOAD and RANGE applied once',
+    '%s at zero cards is the neutral fold of its own envelope with RELOAD applied once, and its main reach is the base × its battery\'s reachFrac',
     (id) => {
       const cls = CONFIG.shipClasses[id];
       const s = effectiveStats(cls);
       const neutral = effectiveStats({ ...cls, index: NEUTRAL_INDEX });
       for (const k of INDEX_IDS) expect(s[k], k).toBe(cls.index[k]);
-      const rangeRows: readonly string[] = RANGE_ROWS;
       for (const eqId of EQUIPMENT_IDS) {
         const row = s.equipment[eqId] as unknown as Record<string, number>;
         const ref = neutral.equipment[eqId] as unknown as Record<string, number>;
         for (const field of Object.keys(ref)) {
-          const want =
-            field === 'reloadMs' ? ref[field] * (reloadScaled(eqId) ? s.cooldownScale : 1)
-            : field === 'rangeU' && rangeRows.includes(eqId) ? (ref[field] * cls.index.range) / CONFIG.index.base
-            : ref[field];
+          const want = field === 'reloadMs' ? ref[field] * (reloadScaled(eqId) ? s.cooldownScale : 1) : ref[field];
           expect(row[field], `${eqId}.${field}`).toBeCloseTo(want, 9);
         }
       }
-      // The battery row carries the hull's own geometry and shell.
+      // The battery row carries the hull's own geometry, shell and REACH
+      // (Story 11.2, R2: the base × the battery's `reachFrac`, a fact of the
+      // hull — no index row in the way).
       expect(s.equipment.mainBattery.maxAmmo).toBe(cls.battery.turrets.length);
       expect(s.equipment.mainBattery.damage).toBe(cls.battery.shellDamage);
+      expect(s.equipment.mainBattery.rangeU).toBeCloseTo(CONFIG.mainBattery.rangeU * cls.battery.reachFrac, 9);
       expect(s.secondaryRangeU).toBeCloseTo(s.equipment.mainBattery.rangeU * CONFIG.secondaries.rangeFrac, 9);
+    },
+  );
+
+  it.each(SHIP_CLASS_IDS.map((id) => [id] as const))(
+    '%s: no card in the catalog changes the main-battery reach (Story 11.2, R2 / R9)',
+    (id) => {
+      const cls = CONFIG.shipClasses[id];
+      const reach = effectiveStats(cls).equipment.mainBattery.rangeU;
+      for (const line of LINE_IDS) {
+        const s = effectiveStats(cls, new Array<LineId>(CATALOG[line].cap).fill(line));
+        expect(s.equipment.mainBattery.rangeU, line).toBe(reach);
+      }
+    },
+  );
+
+  it.each(SHIP_CLASS_IDS.map((id) => [id] as const))(
+    '%s: the plain-hull eye is never under the class-and-name eye, at zero cards or any index (Story 11.2, R3)',
+    (id) => {
+      const cls = CONFIG.shipClasses[id];
+      for (const cards of [[], new Array<LineId>(5).fill('intel')] as LineId[][]) {
+        const s = effectiveStats(cls, cards);
+        expect(s.hullSightRange).toBeGreaterThanOrEqual(s.sightRange);
+      }
     },
   );
 
@@ -444,15 +468,14 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
     reload: (v) => Math.max(1, Math.floor(v)),
     engines: (v) => Math.max(1, Math.floor(v)),
     intel: (v) => Math.max(1, Math.floor(v)),
-    range: (v) => Math.max(1, Math.floor(v)),
     'repair.reload': (v) => Math.max(1, Math.floor(v)),
     'smoke.reload': (v) => Math.max(1, Math.floor(v)),
     'smoke.sizeRung': (v) => Math.max(1, Math.floor(v)),
   };
   const read = (s: EffectiveStats, path: string): number => flatten(s).get(path) as number;
 
-  it('the universal ladders are exactly the eight SHIP ladders (Story 10.6, R1 — RUDDER out; RANGE, HULL REPAIR, SMOKE SCREEN in), each with a tier array per copy', () => {
-    expect(UNIVERSAL).toHaveLength(8);
+  it('the universal ladders are exactly the SHIP ladders — one per index plus HULL REPAIR and SMOKE SCREEN (Story 10.6, R1; RANGE out since Story 11.2, R9), each with a tier array per copy', () => {
+    expect([...UNIVERSAL].sort()).toEqual([...INDEX_IDS, 'hullRepair', 'smokeScreen'].sort());
     for (const id of UNIVERSAL) expect(CATALOG[id].tiers, id).toHaveLength(CATALOG[id].cap);
   });
 
@@ -484,7 +507,7 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
       engines: (p) => p === 'kinematics.maxSpeed',
       intel: (p) => p === 'sweepRpm' || p === 'sweepPeriodMs',
       reload: (p) => p === 'cooldownScale' || (p.startsWith('equipment.') && p.endsWith('.reloadMs')),
-      range: (p) => p === 'secondaryRangeU' || RANGE_ROWS.some((w) => p === `equipment.${w}.rangeU`),
+      // (`range` — the RANGE index's derived reaches — left with Story 11.2, R9.)
       'repair.reload': (p) => p === 'repair.cooldownMs',
       'smoke.reload': (p) => p === 'smoke.cooldownMs',
       'smoke.sizeRung': (p) => p === 'smoke.r0' || p === 'smoke.r1',
@@ -582,7 +605,7 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
     expect(v.maxHp).toBe(base.maxHp);
     expect({ ...v, armor: base.armor, damageMultiplier: base.damageMultiplier }).toEqual(base);
     // ...and no other ladder moves it.
-    for (const id of ['power', 'engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen'] as const) {
+    for (const id of ['power', 'engines', 'intel', 'reload', 'hullRepair', 'smokeScreen'] as const) {
       const s = effectiveStats(BASE, stack(id, CATALOG[id].cap));
       expect([s.armor, s.damageMultiplier], id).toEqual([base.armor, base.damageMultiplier]);
     }
@@ -607,7 +630,7 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
 
   it('POWER is the envelope\'s index on every hull at base and under every other ladder, and moves nothing else', () => {
     for (const id of SHIP_CLASS_IDS) expect(effectiveStats(CONFIG.shipClasses[id]).power, id).toBe(CONFIG.shipClasses[id].index.power);
-    for (const id of ['armor', 'engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen'] as const) {
+    for (const id of ['armor', 'engines', 'intel', 'reload', 'hullRepair', 'smokeScreen'] as const) {
       expect(effectiveStats(BASE, stack(id, CATALOG[id].cap)).power, id).toBe(BASE.index.power);
     }
     const base = effectiveStats(BASE);
@@ -704,12 +727,12 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
 });
 
 // ---------------------------------------------------------------------------
-// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Six
-// AUTHORED indices — armor, power, reload, engines, intel, range (RUDDER
-// deleted by Story 10.6, R2) — are seeded from the hull envelope and stepped
-// by the ship ladders; the speed, sweep rate, cooldown scale and deck-gun
-// reach are DERIVED from them in the fold (sim/indexStats.ts) and nowhere
-// else. Every expectation is a RELATION to CONFIG, never a literal.
+// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Five
+// AUTHORED indices — armor, power, reload, engines, intel (RUDDER deleted by
+// Story 10.6, R2; RANGE by Story 11.2, R9) — are seeded from the hull
+// envelope and stepped by the ship ladders; the speed, sweep rate and
+// cooldown scale are DERIVED from them in the fold (sim/indexStats.ts) and
+// nowhere else. Every expectation is a RELATION to CONFIG, never a literal.
 // ---------------------------------------------------------------------------
 describe('THE INDEX MODEL — the authored indices and what the fold derives from them (Story 10.3)', () => {
   const step = (id: LineId): number => (CATALOG[id].tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
@@ -775,38 +798,12 @@ describe('THE INDEX MODEL — the authored indices and what the fold derives fro
     expect(cd(5)).toBeLessThan(cd(0));
   });
 
-  it('RANGE scales the deck-gun rows\' reach by range / base and NOTHING else (star and phosphor shells untouched)', () => {
-    const base = effectiveStats(BASE);
-    const far = { ...BASE, index: { ...BASE.index, range: BASE.index.range * 2 } };
-    const s = effectiveStats(far);
-    for (const w of RANGE_ROWS) {
-      expect(s.equipment[w].rangeU, w).toBeCloseTo(base.equipment[w].rangeU * (s.range / CONFIG.index.base), 9);
-    }
-    expect(s.equipment.starShells.rangeU).toBe(base.equipment.starShells.rangeU);
-    expect(s.equipment.phosphorShells.rangeU).toBe(base.equipment.phosphorShells.rangeU);
-    // …plus the secondaries' reach, which is DERIVED from the folded main reach (Story 10.4).
-    expect(changed(base, s)).toEqual(['range', 'secondaryRangeU', ...RANGE_ROWS.map((w) => `equipment.${w}.rangeU`)].sort());
-    // At the base index the multiply is the exact identity — zero cards is bytes.
-    expect(effectiveStats(BASE).equipment.gun.rangeU).toBe(CONFIG.gun.rangeU);
-  });
-
-  it('RANGE composes with a line\'s own tiered reach: Tier V reach × range / base', () => {
-    const far = { ...BASE, index: { ...BASE.index, range: BASE.index.range + 50 } };
-    const s = effectiveStats(far, stack('deckGun', CATALOG.deckGun.cap));
-    expect(s.equipment.gun.rangeU).toBeCloseTo(CONFIG.gun.rangeUAtV * (s.range / CONFIG.index.base), 9);
-  });
-
-  it('the RANGE multiply fails CLOSED on a non-finite product: a hostile finite RANGE near MAX_VALUE leaves every reach a finite number (review gate 2026-11-04)', () => {
-    const huge: Catalog = {
-      range: { id: 'range' as LineId, kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'range', add: Number.MAX_VALUE }]] },
-    } as unknown as Catalog;
-    const s = effectiveStats(BASE, ['range'], huge);
-    expect(Number.isFinite(s.range)).toBe(true);
-    for (const w of RANGE_ROWS) {
-      expect(Number.isFinite(s.equipment[w].rangeU), w).toBe(true);
-      expect(s.equipment[w].rangeU, w).toBeGreaterThan(0);
-    }
-  });
+  // THE THREE RANGE-INDEX CASES ('RANGE scales the deck-gun rows' reach…',
+  // 'RANGE composes with a line's own tiered reach…', 'the RANGE multiply
+  // fails CLOSED…') are DELETED with the RANGE index (Story 11.2, 2026-11-12,
+  // epic-11 amendment <N — number taken at PR time>, R9). The reach contract
+  // that replaces them — base × the hull's `battery.reachFrac`, untouched by
+  // every card — sits in the ZERO-CARD identity suite above.
 
   it('every index is floored WHOLE in the fold: armor / power at 0, the rest at 1 (injected fractional and near-zero steps)', () => {
     const frac: Catalog = Object.fromEntries(
@@ -822,7 +819,7 @@ describe('THE INDEX MODEL — the authored indices and what the fold derives fro
     ) as unknown as Catalog;
     const t = effectiveStats(BASE, [...INDEX_IDS], tiny);
     expect([t.armor, t.power]).toEqual([0, 0]);
-    for (const k of ['reload', 'engines', 'intel', 'range'] as const) expect(t[k], k).toBe(1);
+    for (const k of ['reload', 'engines', 'intel'] as const) expect(t[k], k).toBe(1);
     // ...so no derivation ever divides by or multiplies to zero.
     expect(Number.isFinite(t.cooldownScale) && t.cooldownScale > 0).toBe(true);
     expect(t.kinematics.maxSpeed).toBeGreaterThan(0);
@@ -855,7 +852,7 @@ describe('THE INDEX MODEL — the authored indices and what the fold derives fro
 
   it('the fold is permutation-invariant over the ship ladders', () => {
     const hand: LineId[] = [
-      ...stack('engines', 3), ...stack('range', 2), ...stack('intel', 4), ...stack('reload', 1), ...stack('armor', 5),
+      ...stack('engines', 3), ...stack('intel', 4), ...stack('reload', 1), ...stack('armor', 5),
       ...stack('power', 2), ...stack('hullRepair', 3), ...stack('smokeScreen', 1),
     ];
     const a = effectiveStats(BASE, hand);
@@ -1241,14 +1238,11 @@ describe('effectiveStats — doctrine verb folds (NO add-on is left since Story 
 });
 
 // ---------------------------------------------------------------------------
-// STORY 9.8 — WEAPON RANGES ARE TIERED DIALS ON THE TWELFTHS RULER (Eric
-// 2026-10-13, epic-9 ruling 125, superseding amendment 105's "defaults =
-// today's values"). Each tiered weapon's reach is `CONFIG.<w>.rangeU` at Tier I
-// plus an EVEN step per upgrade card, landing exactly on `CONFIG.<w>.rangeUAtV`
-// at Tier V. At the shipped ruler (one rung = 125 u) the 0 / 2 / 4-card reach
-// is: cannon 1,000 / 1,125 / 1,250; machine gun 750 / 812.5 / 875; flak and
-// broadside 625 / 687.5 / 750; star shells 1,375 / 1,437.5 / 1,500; phosphor
-// 1,000 / 1,125 / 1,250. Asserted by derivation, never by those literals
+// STORY 9.8 — WEAPON RANGES ARE TIERED DIALS (Eric 2026-10-13, epic-9 ruling
+// 125, superseding amendment 105's "defaults = today's values"; hectometer
+// facts since Story 11.2). Each tiered weapon's reach is `CONFIG.<w>.rangeU`
+// at Tier I plus an EVEN step per upgrade card, landing on
+// `CONFIG.<w>.rangeUAtV` at Tier V. Asserted by derivation, never by literals
 // (epic-9 amendment 8).
 // ---------------------------------------------------------------------------
 describe('STORY 9.8 — every weapon range is its own tiered dial (ruling 125)', () => {
@@ -1263,12 +1257,15 @@ describe('STORY 9.8 — every weapon range is its own tiered dial (ruling 125)',
     ['phosphorShells', 'phosphorShells', 1],
   ];
 
-  it.each(LINES)('%s: 0 / 2 / 4 upgrade cards reach Tier I + k × step, and four cards land EXACTLY on Tier V', (w, line, tierI) => {
+  // Since Story 11.2 the reaches are hectometer facts (not binary-exact), so
+  // the fold's repeated adds land on Tier V to float precision, not bit for
+  // bit — the "no dust" exactness was a property of the retired 125 u rung.
+  it.each(LINES)('%s: 0 / 2 / 4 upgrade cards reach Tier I + k × step, and four cards land on Tier V', (w, line, tierI) => {
     for (const k of [0, 1, 2, 3, 4]) {
       const row = effectiveStats(BASE, stack(line, tierI + k)).equipment[w];
-      expect(row.rangeU, `${w} +${k}`).toBe(CONFIG[w].rangeU + k * rangeStep(w));
+      expect(row.rangeU, `${w} +${k}`).toBeCloseTo(CONFIG[w].rangeU + k * rangeStep(w), 6);
     }
-    expect(effectiveStats(BASE, stack(line, tierI + 4)).equipment[w].rangeU).toBe(CONFIG[w].rangeUAtV);
+    expect(effectiveStats(BASE, stack(line, tierI + 4)).equipment[w].rangeU).toBeCloseTo(CONFIG[w].rangeUAtV, 6);
     // The step is a positive climb (Tier V outreaches Tier I on every line).
     expect(rangeStep(w)).toBeGreaterThan(0);
   });
@@ -1297,16 +1294,29 @@ describe('effectiveStats — derived ranges and rings', () => {
     expect(writers).toEqual([]);
   });
 
-  it('sightRange is DERIVED as radarRange/3 (the 4/12 rung, epic-9 amendment 103), never stat-addressable', () => {
+  // The 'sightRange is DERIVED as radarRange/3' pin is DELETED (Story 11.2,
+  // 2026-11-12, epic-11 amendment <N — number taken at PR time>): the two eye
+  // reaches are their own CONFIG facts. What stays is the mechanism — they
+  // are read from CONFIG, never stat-addressable, and a radar write never
+  // moves them.
+  it('the two eye reaches are the CONFIG facts, never stat-addressable, and a radar fold never moves them (Story 11.2, R3)', () => {
     const s = effectiveStats(BASE);
-    expect(s.sightRange).toBeCloseTo(s.radarRange / 3, 9);
-    expect(s.sightRange).toBe(CONFIG.vision.sight); // radar IS SIGHT*3
+    expect(s.sightRange).toBe(CONFIG.vision.sight);
+    expect(s.hullSightRange).toBe(CONFIG.vision.hullSight);
+    expect(BOON_STAT_PATH_SET.has('sightRange')).toBe(false);
+    expect(BOON_STAT_PATH_SET.has('hullSightRange')).toBe(false);
+    const rogue: Catalog = {
+      x: { id: 'x', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'radarRange', mult: 2 }]] },
+    } as unknown as Catalog;
+    const wide = effectiveStats(BASE, ['x' as LineId], rogue);
+    expect(wide.radarRange).toBe(s.radarRange * 2);
+    expect([wide.sightRange, wide.hullSightRange]).toEqual([s.sightRange, s.hullSightRange]);
   });
 
   // The "eighths ladder ordering holds by ARITHMETIC" pin is DELETED (Story
   // 9.8): it re-derived farRadar from a hard-coded 0.875 and so could never
-  // fail (deferred-work 1552, epic-9 amendment 8). The ladder's rung ratios
-  // are pinned against CONFIG in zone.test.ts.
+  // fail (deferred-work 1552, epic-9 amendment 8). (The rung-ratio pins that
+  // replaced it in zone.test.ts are deleted with the ladder, Story 11.2.)
 
   it('a CONTACT mine trip ring is DERIVED from its blast radius (naval AND fouling)', () => {
     const eq = effectiveStats(BASE).equipment;
@@ -1545,14 +1555,14 @@ describe('THE EXHAUSTED HULL\'S BONUS POINTS — folded after the cards, beyond 
     return out;
   };
 
-  it('the stats a level may land on are six distinct indices — nothing else (no HULL REPAIR, no SMOKE SCREEN)', () => {
+  it('the stats a level may land on are distinct indices, exactly the index list — nothing else (no HULL REPAIR, no SMOKE SCREEN, no RANGE since Story 11.2)', () => {
     expect(new Set(BONUS_IDS).size).toBe(BONUS_IDS.length);
     expect([...BONUS_IDS].sort()).toEqual([...INDEX_IDS].sort());
   });
 
   it('no bonus — absent, empty, or all zeros — is byte-identical to the fold without the argument', () => {
     const zeros = Object.fromEntries(INDEX_IDS.map((id) => [id, 0]));
-    const builds: LineId[][] = [[], stack('armor', 2), ['engines', 'reload', 'range', 'intel', 'power']];
+    const builds: LineId[][] = [[], stack('armor', 2), ['engines', 'reload', 'intel', 'power']];
     for (const clsId of SHIP_CLASS_IDS) {
       const cls = CONFIG.shipClasses[clsId];
       for (const cards of builds) {
@@ -1597,7 +1607,7 @@ describe('THE EXHAUSTED HULL\'S BONUS POINTS — folded after the cards, beyond 
     const plain = effectiveStats(BASE);
     const junk = { armor: -4, power: Number.NaN, engines: Number.POSITIVE_INFINITY, reload: 0.5, intel: 'x' as unknown as number };
     expect(effectiveStats(BASE, [], CATALOG, junk)).toEqual(plain);
-    expect(effectiveStats(BASE, [], CATALOG, { range: 2.9 }).range).toBe(plain.range + 2 * POINTS);
+    expect(effectiveStats(BASE, [], CATALOG, { intel: 2.9 }).intel).toBe(plain.intel + 2 * POINTS);
   });
 
   it('a count past the safe-integer range (1e308, MAX_SAFE_INTEGER + 2) is ignored, not folded; a null bonus is no bonus', () => {

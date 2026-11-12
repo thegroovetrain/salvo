@@ -29,8 +29,10 @@
 // re-derives it per side.
 //
 // Radar range is NEVER touched and never an input: a flash blinds, it does not
-// deafen (the radar-anchored rungs — muzzle flash, smoke halo, foghorn — stay
-// undazzled; epic-2 amendment 52 "dazzle stays optics-only" stands).
+// deafen (the muzzle flash, smoke halo and foghorn reaches stay undazzled —
+// a flash is a light source; epic-2 amendment 52 "dazzle stays optics-only"
+// stands). Since Story 11.2 there are TWO eye tiers (class-and-name sight and
+// plain-hull sight) — both go through `whiteoutReach`, the one law.
 //
 // FAIL CLOSED: a pending dazzle (`dazzledUntil > 0`) with a non-finite `now` or
 // a non-finite `dazzledUntil` reads as sight 0. The alternative — treating a
@@ -69,20 +71,43 @@ export function flashClearFraction(elapsedMs: number): number {
 }
 
 /**
- * u — the truesight radius a hull actually has: its derived `sightRange`, or
- * `sightRange × flashClearFraction(elapsed)` while a flash mark is pending.
+ * u — ANY eye reach under THE WHITEOUT LAW: `reachU` undazzled, or `reachU ×
+ * flashClearFraction(elapsed)` while a flash mark is pending (fail closed to 0
+ * on an unreadable mark). The ONE law every eye reach goes through — the
+ * class-and-name sight, the plain-hull sight (Story 11.2) and any CONFIG eye
+ * reach a caller scales the same way (e.g. `CONFIG.vision.torpedoSight`) — so
+ * a flashed hull is blinded by one curve at every reach, never a forked copy.
  * `dazzledUntil` is the hull's server-clock mark (0 / absent = never flashed);
- * `now` is the caller's clock (the server reads its tick clock, the client its
- * server-clock estimate) — this function never reads a clock itself. Both
- * default to 0 so a caller with no dazzle to report (a wake reader)
- * passes the stats alone.
+ * `now` is the caller's clock — this function never reads a clock itself.
+ */
+export function whiteoutReach(reachU: number, dazzledUntil = 0, now = 0): number {
+  if (Number.isNaN(dazzledUntil)) return 0; // fail closed: an unreadable mark is a pending one
+  if (dazzledUntil <= 0 || now >= dazzledUntil) return reachU;
+  return reachU * flashClearFraction(flashElapsedMs(dazzledUntil, now));
+}
+
+/**
+ * u — the CLASS-AND-NAME sight a hull actually has: its `sightRange` under
+ * the whiteout law (`whiteoutReach`). Both clock arguments default to 0 so a
+ * caller with no dazzle to report (a wake reader) passes the stats alone.
  */
 export function effectiveSight(
   stats: Pick<EffectiveStats, 'sightRange'>,
   dazzledUntil = 0,
   now = 0,
 ): number {
-  if (Number.isNaN(dazzledUntil)) return 0; // fail closed: an unreadable mark is a pending one
-  if (dazzledUntil <= 0 || now >= dazzledUntil) return stats.sightRange;
-  return stats.sightRange * flashClearFraction(flashElapsedMs(dazzledUntil, now));
+  return whiteoutReach(stats.sightRange, dazzledUntil, now);
+}
+
+/**
+ * u — the PLAIN-HULL sight a hull actually has (Story 11.2, R3): its
+ * `hullSightRange` under the SAME whiteout factor as `effectiveSight`, so the
+ * two tiers clear together and the outer one is never under the inner one.
+ */
+export function effectiveHullSight(
+  stats: Pick<EffectiveStats, 'hullSightRange'>,
+  dazzledUntil = 0,
+  now = 0,
+): number {
+  return whiteoutReach(stats.hullSightRange, dazzledUntil, now);
 }

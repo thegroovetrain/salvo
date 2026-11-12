@@ -19,7 +19,7 @@
 // guardrail at the bottom of this file, whose whole subject is what the real
 // generator produces — it pays for five maps and stays under a second.
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
   CONFIG,
   SEA_HEIGHT,
@@ -34,17 +34,34 @@ import {
 } from '../index.js';
 
 const CELL = 14; // the production raster cell size
-// Covers ±1400u. Since Story 9.8 radar (1,500 u) reaches past the raster's
-// edge from the origin; a ray leaving the grid is transparent beyond it and a
-// shadow folded inside persists (the off-raster suite), so every placement
-// below still reads the law it names.
+// Covers ±1400u. At the fixture reach below a ray from the origin reaches
+// just past the raster's edge; a ray leaving the grid is transparent beyond
+// it and a shadow folded inside persists (the off-raster suite), so every
+// placement below still reads the law it names.
 const N = 201;
 const MID = (N - 1) / 2; // 100
 const X0 = -MID * CELL; // -1400: sample (MID, MID) sits at (0, 0)
 
-const R = CONFIG.vision.radar; // 1500 since Story 9.8 (epic-9 amendment 103)
-const H = CONFIG.vision.radarMastQ; // 64
-const K = radarShadowK(); // R²/4 (562,500 at the twelfths ladder)
+// THE LAW'S FIXTURE REACH (Story 11.2, 2026-11-12). The shadow law is
+// scale-free — every rule here is stated against R and K = R²/4 — but the
+// hand-authored placements (fixed columns, ±200 u offsets, 10 u steps) and
+// the real-terrain oracle's bands were all laid out at a 1,500 u reach. Story
+// 11.2 moved the live radar to 400 hm (R15: K still follows it), far past this
+// ±1400 u raster, so this file runs the law at that FIXTURE reach by patching
+// `CONFIG.vision.radar` for the file's duration (the module reads it per
+// call) and restores the live value after. That K follows the LIVE radar is
+// asserted in the first suite.
+const LIVE_RADAR = CONFIG.vision.radar;
+const FIXTURE_RADAR = 1500;
+const visionRadar = CONFIG.vision as unknown as { radar: number };
+visionRadar.radar = FIXTURE_RADAR;
+afterAll(() => {
+  visionRadar.radar = LIVE_RADAR;
+});
+
+const R = CONFIG.vision.radar; // the fixture reach (above)
+const H = CONFIG.vision.radarMastQ;
+const K = radarShadowK(); // R²/4 at the fixture reach
 
 /** Synthetic raster: `cells` is [i, j, quantizedHeight] triples, rest is sea. */
 function rasterOf(cells: ReadonlyArray<readonly [number, number, number]>): HeightRaster {
@@ -69,9 +86,17 @@ function reachFor(q: number, i: number, ox: number): number {
 
 describe('K — the world constant', () => {
   it('is radarRange²/4 (= 2RH, amendment 114/182), from BASE CONFIG.vision.radar — the module takes no observer stats anywhere in its API, so a boon-widened stats.radarRange structurally cannot reach it (amendment 185)', () => {
-    // By DERIVATION, never the literal (epic-9 amendment 8; Story 9.8 moved
-    // radar 660 → 1,500 u, so K moved 108,900 → 562,500 by construction).
+    // By DERIVATION, never the literal (epic-9 amendment 8).
     expect(K).toBe(CONFIG.vision.radar ** 2 / 4);
+  });
+
+  it('follows the LIVE radar reach, not a frozen number (Story 11.2, R15 — supersedes R13\'s frozen K)', () => {
+    visionRadar.radar = LIVE_RADAR;
+    try {
+      expect(radarShadowK()).toBe(LIVE_RADAR ** 2 / 4);
+    } finally {
+      visionRadar.radar = FIXTURE_RADAR;
+    }
   });
 });
 
@@ -619,6 +644,12 @@ describe('the shadow character at radarMastQ (amendment 184 guardrail)', () => {
     // 66.5 % and 45.0 %. The band keeps its ±8pp width (~10σ at this n) and is
     // re-centred on the measurement; it still fires before the character has
     // drifted halfway to a neighbouring mast height.
+    //
+    // STORY 11.2 (2026-11-12) moved the live radar to 400 hm; this oracle's
+    // ray stays at the file's FIXTURE reach (1,500 u — the length these bands
+    // were measured at), because what it guards is GENERATOR drift, and map
+    // generation is untouched by that story. It is not a measurement of the
+    // live set's shadow share.
     const share = hard / land;
     expect(share).toBeGreaterThan(0.47);
     expect(share).toBeLessThan(0.63);

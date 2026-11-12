@@ -4,6 +4,7 @@ import {
   HULL_IDS,
   SHIP_CLASS_IDS,
   ZONE_BEATS_PER_GROUP,
+  ZONE_FORMULA_UNIT_U,
   hullEnvelope,
   isOutside,
   mapRadius,
@@ -97,13 +98,13 @@ describe('zone timeline shape — the ratified design targets', () => {
     expect(zoneRingRadii(2000, LADDER)).toEqual([2000, 2000, 1500, 700, 0]);
     expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 1500, 0] })[3]).toBe(1);
     // An EMPTY ladder is no ladder: the formula path takes over.
-    expect(zoneTerminalRadius({ ...LADDER, ringRadii: [], terminalSightFactor: 2 })).toBe(2 * CONFIG.vision.sight);
+    expect(zoneTerminalRadius({ ...LADDER, ringRadii: [], terminalSightFactor: 2 })).toBe(2 * ZONE_FORMULA_UNIT_U);
   });
 
   it('the retired formula still drives a timeline that carries no ladder (dev zoneOverride literals, smokes)', () => {
     const formula: ZoneTimeline = { beatMs: BEAT, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2, suddenDeath: true };
     const radii = zoneRingRadii(MAP_R, formula);
-    expect(zoneTerminalRadius(formula)).toBe(2 * CONFIG.vision.sight);
+    expect(zoneTerminalRadius(formula)).toBe(2 * ZONE_FORMULA_UNIT_U);
     const ratio = radii[1] / radii[0];
     expect(radii[2] / radii[1]).toBeCloseTo(ratio, 9);
     expect(radii[3] / radii[2]).toBeCloseTo(ratio, 9);
@@ -111,64 +112,15 @@ describe('zone timeline shape — the ratified design targets', () => {
   });
 });
 
-// Endgame Guarantee sensor-vs-ring pins, honestly described: with the
-// committed derivation CONFIG.vision.radar === 3 × CONFIG.vision.sight (Story
-// 9.8, epic-9 amendment 103; it was 2 × when the paragraph below was written,
-// so its "factor <= 2" now reads "factor <= 3") and
-// zoneTerminalRadius(cfg) === terminalSightFactor × sight, BOTH inequalities
-// below reduce algebraically to a pure comparison against terminalSightFactor
-// once `sight` (> 0) cancels: radar >= terminal <=> factor <= 2, and
-// sight < terminal <=> factor > 1. Together they bind
-// terminalSightFactor ∈ (1, 2] against the shared derivation — sight itself
-// cancels out, so a truesight-only retune (changing CONFIG.vision.sight alone)
-// can NEVER fail either test. That is exactly the intent: these are FACTOR /
-// DERIVATION pins, not a sight pin — a one-sided retune of terminalSightFactor
-// out of (1, 2], or of the radar-from-sight derivation itself, is what must
-// fail loudly here.
-describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
-  it('radar is structurally 3 × sight — 12/12 over 4/12 (Story 9.8, epic-9 amendment 103; was 2 × on the eighths ruler — derivation pin)', () => {
-    expect(CONFIG.vision.radar).toBe(3 * CONFIG.vision.sight);
-  });
-
-  it('muzzleFlash is structurally 1.5 × sight — the ladder 6/12 rung (Story 9.8, epic-9 amendment 103; was 1.25 × / 5/8 — derivation pin)', () => {
-    expect(CONFIG.vision.muzzleFlash).toBe(1.5 * CONFIG.vision.sight);
-    // ...and the runtime factor names the same circle off radar: 6/12 = 0.5.
-    expect(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor).toBe(CONFIG.vision.muzzleFlash);
-  });
-
-  it('detect is structurally 1 × sight — the ladder 4/12 rung, mines + torpedoes (Story 9.1, Eric 2026-10-08; re-read on twelfths by Story 9.8 — derivation pin)', () => {
-    expect(CONFIG.vision.detect).toBe(1 * CONFIG.vision.sight);
-  });
-
-  it('farRadar is structurally 2 × sight — the ladder 8/12 rung, the red→blue fit anchor (Story 9.8, epic-9 amendment 103 / ruling 121 — derivation pin; never a threshold branch)', () => {
-    expect(CONFIG.vision.farRadar).toBe(2 * CONFIG.vision.sight);
-  });
-
-  it('the detect RUNG and the runtime detectFactor can never drift: detect === sight × detectFactor (amendment 121 — the gate is observer-scaled, the rung is what it equals at base stats)', () => {
-    expect(CONFIG.vision.detectFactor).toBe(1);
-    expect(CONFIG.vision.detect).toBe(CONFIG.vision.sight * CONFIG.vision.detectFactor);
-  });
-
-  it('the full twelfths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119, epic-9 103 — one ruler, no rung out of place)', () => {
-    expect(CONFIG.vision.detect).toBeLessThanOrEqual(CONFIG.vision.sight); // equal since 2026-10-08 (4/12 = sight)
-    expect(CONFIG.vision.sight).toBeLessThan(CONFIG.vision.muzzleFlash);
-    expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.farRadar);
-    expect(CONFIG.vision.farRadar).toBeLessThan(CONFIG.vision.radar);
-  });
-
-  // THE TWELFTHS RULER (Story 9.8, Eric 2026-10-13, epic-9 amendment 103):
-  // the denominator moved from eighths of radar to twelfths. Pinned as RATIOS
-  // of `radar / 12`, never as the literal radar range (epic-9 amendment 8).
-  it('every rung is a TWELFTH of intel range — radar/12 divides each one exactly (the ruler is real, not approximate)', () => {
-    const rung = CONFIG.vision.radar / 12;
-    expect(CONFIG.vision.detect / rung).toBe(4);
-    expect(CONFIG.vision.sight / rung).toBe(4);
-    expect(CONFIG.vision.muzzleFlash / rung).toBe(6);
-    expect(CONFIG.vision.farRadar / rung).toBe(8);
-    expect(CONFIG.vision.radar / rung).toBe(12);
-  });
-
-});
+// THE SENSOR-LADDER PINS ARE DELETED (Story 11.2, 2026-11-12, epic-11
+// amendment <N — number taken at PR time>; the epic's ruling: "the rung-ratio
+// tests die on purpose when the ladder retires — never patched to pass"). The
+// 'Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints' suite pinned
+// radar = 3 × sight, muzzleFlash = 1.5 × sight, detect = sight ×
+// detectFactor, farRadar = 2 × sight, the ladder's order and every rung as a
+// fixed fraction of radar. Every reach is now its own hectometer fact, so
+// there is no derivation left to pin, and a ratio between two ruled numbers
+// is a coincidence, not a contract.
 
 // Radar-shadow constants (Story 4.11), pinned BUILD-FAILING beside the ladder
 // they hang off. If the shadow model's K were ever un-pinned from
@@ -442,7 +394,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
     expect(zoneGroups(cfg)).toBe(1);
     expect(zoneClosedAtMs(cfg)).toBe(ZONE_BEATS_PER_GROUP * BEAT);
     const radii = zoneRingRadii(MAP_R, cfg);
-    expect(radii).toEqual([MAP_R, 2 * CONFIG.vision.sight]);
+    expect(radii).toEqual([MAP_R, 2 * ZONE_FORMULA_UNIT_U]);
   });
 
   it('NaN/negative ringSteps and offsetCap never produce NaN or growing rings', () => {
@@ -458,9 +410,9 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   });
 
   it('a NaN terminalSightFactor falls back to the ratified ×2', () => {
-    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: undefined, terminalSightFactor: NaN })).toBe(2 * CONFIG.vision.sight);
+    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: undefined, terminalSightFactor: NaN })).toBe(2 * ZONE_FORMULA_UNIT_U);
     // ...and so does a NaN terminal on the literal ladder.
-    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: [3500, 2000, NaN] })).toBe(2 * CONFIG.vision.sight);
+    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: [3500, 2000, NaN] })).toBe(2 * ZONE_FORMULA_UNIT_U);
   });
 
   it('a map smaller than the terminal radius clamps every ring to the map', () => {

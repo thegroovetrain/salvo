@@ -57,9 +57,9 @@
 // is STRUCTURAL: each next ring's center offset is bounded by
 // offsetCap × (r_cur − r_next), so ring g+1 ⊆ ring g for ANY stream values.
 //
-// The TERMINAL radius is DERIVED from CONFIG.vision.sight (never an
-// independent constant — retuning truesight moves the endgame, Story 3.4);
-// intermediate radii step down geometrically via per-group `ringSteps`
+// The TERMINAL radius is the ring ladder's last entry; on the retired formula
+// path it is a factor × `ZONE_FORMULA_UNIT_U` (once × CONFIG.vision.sight —
+// Story 3.4; decoupled from sight by Story 11.2, 2026-11-12); intermediate radii step down geometrically via per-group `ringSteps`
 // exponents (equal ratio steps at the shipped defaults).
 
 import { CONFIG } from '../constants.js';
@@ -110,7 +110,8 @@ export interface ZoneTimeline {
   /** 0..1 — max next-ring center offset as a fraction of (r_cur − r_next).
    *  Clamped into [0,1] so containment holds for ANY stream values. */
   offsetCap: number;
-  /** × CONFIG.vision.sight — the terminal (endgame) ring radius of the RETIRED
+  /** × `ZONE_FORMULA_UNIT_U` (the 500 u truesight it multiplied until Story
+   *  11.2) — the terminal (endgame) ring radius of the RETIRED
    *  formula (the ratified "two truesight diameters across" reading, amendment
    *  4; fail-closed default 2). Ignored whenever `ringRadii` is set. */
   terminalSightFactor?: number;
@@ -234,23 +235,32 @@ export function stormDpsFor(
   return Number.isFinite(dps) && dps > 0 ? dps : 0;
 }
 
+/**
+ * u — THE FORMULA PATH'S UNIT: the truesight radius (500 u) the retired
+ * `terminalSightFactor` multiplies. Story 11.2 (2026-11-12, epic-11 amendment
+ * <N — number taken at PR time>) moved `CONFIG.vision.sight` to 200 hm on the
+ * hectometer ruler; this dev-override fallback keeps TODAY'S result (factor ×
+ * 500 u — 1,000 u at the ratified ×2) by reading its own fact rather than
+ * sight, so smokes and `zoneOverride` literals behave as before.
+ */
+export const ZONE_FORMULA_UNIT_U = 500;
+
 /** Terminal ring radius (u). With a literal ladder (`ringRadii`, the shipped
  *  shape since 2026-10-07) it is the ladder's LAST entry, clamped non-negative
- *  and fail-closed to the old ×2-sight reading on NaN. On the formula path it
- *  is terminalSightFactor × CONFIG.vision.sight — COMPUTED from the truesight
- *  tunable (Story 3.4's original endgame guarantee), clamped non-negative and
- *  fail-closed to the ratified ×2 on NaN. The formula path is a DEV-OVERRIDE
- *  FALLBACK only (smokes, `zoneOverride` literals): since Story 9.8 moved
- *  sight to 500 u its ×2 reads 1,000 u — by coincidence the shipped terminal —
- *  and nothing in production reaches it. */
+ *  and fail-closed to the old ×2 reading on NaN. On the formula path it is
+ *  terminalSightFactor × `ZONE_FORMULA_UNIT_U` (Story 3.4's original endgame
+ *  guarantee, once × truesight), clamped non-negative and fail-closed to the
+ *  ratified ×2 on NaN. The formula path is a DEV-OVERRIDE FALLBACK only
+ *  (smokes, `zoneOverride` literals): its ×2 reads 1,000 u — by coincidence
+ *  the shipped terminal — and nothing in production reaches it. */
 export function zoneTerminalRadius(cfg: ZoneTimeline = CONFIG.zone): number {
   const ladder = ringRadiiOf(cfg);
   if (ladder !== null) {
     const last = ladder[ladder.length - 1];
-    return Number.isFinite(last) ? Math.max(last, 0) : 2 * CONFIG.vision.sight;
+    return Number.isFinite(last) ? Math.max(last, 0) : 2 * ZONE_FORMULA_UNIT_U;
   }
   const factor = Number.isFinite(cfg.terminalSightFactor) ? Math.max(cfg.terminalSightFactor as number, 0) : 2;
-  return factor * CONFIG.vision.sight;
+  return factor * ZONE_FORMULA_UNIT_U;
 }
 
 /**

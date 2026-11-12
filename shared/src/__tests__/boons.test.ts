@@ -109,11 +109,11 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
   it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
     const expected: string[] = [
       // THE INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 8; RUDDER
-      // deleted by Story 10.6, R2) after `maxHp`, then radarRange and the four
-      // pass-through kinematics. `kinematics.maxSpeed` / `turnRate`,
-      // `sweepRpm`, `cooldownScale` and the `regen.*` pair are GONE from the
-      // whitelist: derived or deleted.
-      'maxHp', 'armor', 'power', 'reload', 'engines', 'intel', 'range', 'radarRange',
+      // deleted by Story 10.6, R2; RANGE by Story 11.2, R9) after `maxHp`,
+      // then radarRange and the four pass-through kinematics.
+      // `kinematics.maxSpeed` / `turnRate`, `sweepRpm`, `cooldownScale` and the
+      // `regen.*` pair are GONE from the whitelist: derived or deleted.
+      'maxHp', 'armor', 'power', 'reload', 'engines', 'intel', 'radarRange',
       'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
       // Story 10.6: the two abilities' card-written halves (R8 / R9), then the
       // four mount counts of the one-off WEAPON cards (R6 / R7).
@@ -140,6 +140,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
   it('pins the derived paths ABSENT: sightRange, sweepPeriodMs, the broadside arcs, every triggerRadius, every tier', () => {
     const absent = [
       'sightRange',
+      'hullSightRange', // the plain-hull eye (Story 11.2) — a CONFIG fact, never a card path
+      'range', // RANGE left the index (Story 11.2, R9) — no `range` path is accepted
       'sweepPeriodMs',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
       'damageMultiplier',
@@ -202,9 +204,11 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // 2026-11-05): RUDDER is gone (R2); RANGE, HULL REPAIR and SMOKE SCREEN
     // write theirs (R1 / R8 / R9); the four one-offs write the mount counts
     // (R6 / R7); and NO weapon tier writes a capacity (`maxAmmo`) any more —
-    // only the undealt legacy gun ladders still do (R4).
+    // only the undealt legacy gun ladders still do (R4). Story 11.2 (Eric
+    // 2026-11-12): RANGE is gone (R9) and every torpedo line's tiers write
+    // the RUN (R5).
     expect([...written].sort()).toEqual([
-      'armor', 'power', 'reload', 'engines', 'intel', 'range',
+      'armor', 'power', 'reload', 'engines', 'intel',
       'repair.reload', 'repair.instantHp', 'repair.regenHp',
       'smoke.reload', 'smoke.lifeMs', 'smoke.sizeRung',
       'torpedoLaunchers', 'tubesPerLauncher', 'mineRacks', 'rackBonus',
@@ -230,6 +234,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.broadside.rangeU', 'equipment.starShells.rangeU', 'equipment.phosphorShells.rangeU',
       // Story 10.5: the three moved weapons' one tiered stat each.
       'equipment.supercavTorpedo.damage', 'equipment.dazzleShells.radius', 'equipment.foulingShell.radius',
+      // Story 11.2 (R5): the torpedo run, every kind.
+      'equipment.lightTorpedo.runU', 'equipment.heavyTorpedo.runU', 'equipment.supercavTorpedo.runU',
     ].sort());
     // Still addressable in principle, still written by nothing: the
     // BROADSIDE's damage is fixed by ruling (amendment 133), radarRange has no
