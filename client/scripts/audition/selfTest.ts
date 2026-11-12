@@ -2,12 +2,11 @@
 // (near, and far for sounds heard out on the water) and every engine set × hull
 // through an OfflineAudioContext and the real master chain, and report each
 // render's length, peak and loudness (engines also: energy below 200 Hz,
-// 200 Hz–1 kHz and above 1 kHz, today's set beside the three retune takes).
+// 200 Hz–1 kHz and above 1 kHz).
 // `soundAudition.mjs --selftest` calls it
 // in headless Chromium and fails on silence, non-finite samples or clipping.
 
 import { CUE_SLOTS, ENGINE_CANDIDATES, SINKING_DEMO_S, STORM_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
-import { ENGINE_RETUNE_CANDIDATES } from '../../src/audio/synth/candidates/engineRetune.js';
 import { bandRms, type Bands } from './bands.js';
 import { StormBedVoice, type StormBedProfile } from '../../src/audio/stormBed.js';
 import { klaxonSeriesS, scheduleSinkingDemo } from './sinking.js';
@@ -132,7 +131,7 @@ async function cueItems(): Promise<SelfTestItem[]> {
 
 async function engineItems(): Promise<SelfTestItem[]> {
   const out: SelfTestItem[] = [];
-  for (const set of [...ENGINE_CANDIDATES, ...ENGINE_RETUNE_CANDIDATES]) {
+  for (const set of ENGINE_CANDIDATES) {
     for (const [hull, profile] of Object.entries(set.profiles)) {
       out.push(await renderEngine(`engine.${set.id}.${hull}.idle`, profile, IDLE));
       out.push(await renderEngine(`engine.${set.id}.${hull}.full`, profile, FULL));
@@ -145,7 +144,7 @@ async function engineItems(): Promise<SelfTestItem[]> {
 /** Another ship (Bismarck) flat out right alongside, per set: the remote voice must stay dark too. */
 async function remoteItems(): Promise<SelfTestItem[]> {
   const out: SelfTestItem[] = [];
-  for (const set of [...ENGINE_CANDIDATES, ...ENGINE_RETUNE_CANDIDATES]) {
+  for (const set of ENGINE_CANDIDATES) {
     const profile = set.profiles.bismarck;
     out.push(await renderVoice(`engine.${set.id}.remote.alongside`, (ctx, sink) => {
       new RemoteEngineVoice(ctx, sink, profile, { rand: seeded(5) }).update({ speed01: 1, distance01: 0, pan: 0 }, 0);

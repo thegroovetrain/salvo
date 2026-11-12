@@ -108,7 +108,6 @@ fieldset.radios legend { font: 600 14px/1.4 var(--mono); letter-spacing: 0.1em; 
 .slider-label { font-size: 14px; color: var(--text-2); }
 .slider input { width: 100%; accent-color: var(--phosphor); min-height: 28px; margin: 0; }
 .slider .ends { display: flex; justify-content: space-between; font-size: 14px; color: var(--text-2); }
-.picks-line { font: 500 15px/1.4 var(--mono); color: var(--text); background: var(--panel-deep); border: 1px solid var(--hairline); border-radius: 8px; padding: 10px 12px; min-height: 44px; flex: 1 1 260px; min-width: 0; width: 100%; }
 
 
 @media (prefers-reduced-motion: reduce) {

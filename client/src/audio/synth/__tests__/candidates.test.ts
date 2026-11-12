@@ -10,7 +10,6 @@ import { cueLengthS } from '../recipe.js';
 import { TONES } from '../../tones.js';
 import { STANDARD_HORN } from '../../horns.js';
 import { engineTargets, type EngineTargets } from '../../engine.js';
-import { ENGINE_RETUNE_CANDIDATES } from '../candidates/engineRetune.js';
 
 /** No audition cue should run longer than this (s); a longer one is a typo. */
 const MAX_CUE_S = 12;
@@ -85,31 +84,10 @@ describe('ENGINE_CANDIDATES', () => {
         expect(allFinite(full), `${hull} full`).toBe(true);
       }
     });
-  }
-});
 
-describe('ENGINE_RETUNE_CANDIDATES (audition only)', () => {
-  const hulls = Object.keys(CONFIG.shipClasses).sort();
-
-  it('has takes with words and ids unique among themselves and apart from the shipped sets', () => {
-    expect(ENGINE_RETUNE_CANDIDATES.length).toBeGreaterThanOrEqual(1);
-    const ids = [...ENGINE_CANDIDATES, ...ENGINE_RETUNE_CANDIDATES].map((e) => e.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    for (const e of ENGINE_RETUNE_CANDIDATES) {
-      expect(e.label.trim()).not.toBe('');
-      expect(e.blurb.trim()).not.toBe('');
-    }
-  });
-
-  for (const set of ENGINE_RETUNE_CANDIDATES) {
-    it(`${set.id} voices exactly the hulls in CONFIG.shipClasses, with finite targets idle and flat out`, () => {
-      expect(Object.keys(set.profiles).sort()).toEqual(hulls);
-      for (const [hull, profile] of Object.entries(set.profiles)) {
-        const idle = engineTargets(profile, { throttle: 0, speed01: 0, boost: false });
-        const full = engineTargets(profile, { throttle: 1, speed01: 1, boost: true });
-        expect(allFinite(idle), `${hull} idle`).toBe(true);
-        expect(allFinite(full), `${hull} full`).toBe(true);
-      }
+    it(`${set.id} gives each hull its own profile`, () => {
+      const seen = new Set(Object.values(set.profiles).map((p) => JSON.stringify(p)));
+      expect(seen.size).toBe(hulls.length);
     });
   }
 });

@@ -159,10 +159,10 @@ export const CUE_TIER: Record<CueId, CueTier> = Object.fromEntries(ids.map((id) 
   CueTier
 >;
 
-/** The engine set Eric picked ("Steam turbine"), one profile per hull. */
+/** The shipped engine set ("Deep rumble"), one profile per hull. */
 function pickedEngines(): Record<ShipClassId, EngineProfile> {
-  const set = ENGINE_CANDIDATES.find((c) => c.id === 'turbine');
-  if (!set) throw new Error('no turbine engine set');
+  const set = ENGINE_CANDIDATES.find((c) => c.id === 'deepRumble');
+  if (!set) throw new Error('no deepRumble engine set');
   return set.profiles;
 }
 
