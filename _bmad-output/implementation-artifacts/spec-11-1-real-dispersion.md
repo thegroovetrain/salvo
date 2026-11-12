@@ -108,6 +108,7 @@ warnings: ['oversized']
   - R15 The reticle is brighter and bigger by default: bright amber, 2× today's size. Two player settings: aim color (a full color picker; tints reticle AND oval) and aim size 1×–5× (default 2×).
   - R16 No traverse: among READY turrets whose arc holds the aim point the bow-most fires, at the aim point; a turret or launcher never fires outside its arc; drawn turrets and launchers snap to the aim while it is in their arc and rest otherwise. `CONFIG.mainBattery.traverseDegPerS` / `onTargetDeg` and the launcher equivalents retire.
   - R17 (author's readings, for veto): the settings labels are the minimal `AIM COLOR` / `AIM SIZE`; bots keep `aimScatterU` and their fire discipline with "on target" re-read as "a ready turret bears"; How-to-Play text about turret traverse is stamped stale for 11.11, not rewritten here.
+  - R18 (Eric, same day, restated): the targeting reticle stays AS TODAY (ring + cross) AND the oval is drawn with it. They SHARE the aim color. ONLY the reticle is sizable (1×–5×, default 2×); the oval is never scaled by the setting.
   - Phase B tasks as amended: Wave 1 `shared` + `server` (dispersion wiring with R13, attenuation removal, traverse removal, bots, harness, smokes, tests); Wave 2 `client` (snap rendering, prediction cleanup, the R14 oval, the R15 reticle + settings); then records.
 
 ## Review Triage Log
