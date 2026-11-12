@@ -1487,6 +1487,27 @@ export const CONFIG = {
   },
 
   /**
+   * REAL DISPERSION (Eric 2026-11-12, Story 11.1 rulings R2–R4): where a gun
+   * shell lands around its aim point. The pattern is an ellipse centered on the
+   * aim point, its long axis along the line of fire:
+   *  - full length ALONG the shot = `alongFrac` × range (R2);
+   *  - full width ACROSS the shot = `acrossFrac` × that length (R2);
+   *  - each axis' full length is never below `floorU` (R4 point-blank floor);
+   *  - the spread is BELL-SHAPED (most shells near the middle) and the ellipse
+   *    is a HARD EDGE, nothing lands outside it (R3); the edge sits at
+   *    `sigmas` standard deviations of the bell.
+   * `sigmas` and "the floor applies to each axis" are the spec author's
+   * readings, shown on the dispersion bench page for Eric's veto. The pure
+   * math is sim/dispersion.ts (`dispersionAxes`, `dispersedPoint`).
+   */
+  dispersion: {
+    alongFrac: 0.01, // full length along the shot, as a fraction of range (R2)
+    acrossFrac: 1 / 3, // full width across, as a fraction of the length along (R2)
+    floorU: 2, // u — smallest full length of either axis (R4; per-axis = spec-author reading)
+    sigmas: 2, // the hard edge in standard deviations of the bell (spec-author reading)
+  },
+
+  /**
    * THE MAIN BATTERY (Story 10.4, Eric 2026-11-04, epic-10 amendments 7 and 9)
    * — a captain's slot 0. The shared half of every battleship's guns; the
    * per-hull half (train limit, turret stations, guns per turret, shell

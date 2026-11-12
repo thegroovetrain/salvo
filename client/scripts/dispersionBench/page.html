@@ -1,0 +1,63 @@
+<title>Dispersion Bench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*__BENCH_CSS__*/</style>
+<div class="wrap">
+  <header class="top">
+    <h1>Dispersion Bench</h1>
+    <p class="sub">Story 11.1 — real dispersion, the numbers before the game</p>
+    <p class="intro">Where a battleship shell lands around the point you aimed at. Every landing on this page comes from the game's own shared dispersion code — the same function the server will fire with — run live in your browser with the dials below. Nothing here is wired into the game yet.</p>
+    <p class="note">The landing area is an oval centered on the aim point, its long side along the line of fire. Shells bunch toward the middle and never land outside the oval.</p>
+  </header>
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section class="card">
+    <h2>The dials</h2>
+    <div id="dials" class="sliders"></div>
+    <div class="row">
+      <span class="label">Shells per salvo</span>
+      <div class="seg" role="radiogroup" aria-label="Shells per salvo">
+        <label><input type="radio" name="shells" value="2"> 2</label>
+        <label><input type="radio" name="shells" value="3" checked> 3</label>
+      </div>
+    </div>
+    <div class="row presets" id="presets"></div>
+    <p class="note small">"How tightly bunched": the oval's edge sits this many standard deviations out on a bell curve. Higher puts more shells near the middle; at 0.5 the spread is nearly even across the oval.</p>
+  </section>
+
+  <section class="card">
+    <h2>The pattern, to scale</h2>
+    <p class="note">Top-down around the aim point (the cross), shells coming in from the left. Solid oval: where a shell can land. Dashed oval: the middle half (half the length, half the width). Each landing shows its <span id="blastU"></span> u blast circle — <span class="hit-text">bright</span> when the blast reaches the hull, <span class="miss-text">muted</span> when it misses. Drag the hull to move it.</p>
+    <canvas id="pattern" class="canvas" tabindex="0" aria-label="Shell landing pattern around a target hull, to scale"></canvas>
+    <div class="row">
+      <button type="button" id="reroll" class="primary">Reroll salvo</button>
+      <label class="check"><input type="checkbox" id="accumulate"> Fire 200 salvos</label>
+      <span class="mono" id="seed"></span>
+    </div>
+    <div class="row">
+      <label class="field"><span class="label">Target hull</span><select id="hull"></select></label>
+      <button type="button" id="centerHull">Put hull on the aim point</button>
+    </div>
+    <div id="hullDials" class="sliders"></div>
+    <dl class="readouts" id="readouts"></dl>
+  </section>
+
+  <section class="card">
+    <h2>The aim preview candidates</h2>
+    <p class="note">A mock of the game's aim preview on the game's water, in the preview's own colors and line weights. Left: today's preview. A: the oval's thin outline at the aim point. B: the same outline with a faint fill.</p>
+    <div id="previewDials" class="sliders"></div>
+    <label class="check"><input type="checkbox" id="keepCircles" checked> Also show today's lines and blast circles in A and B</label>
+    <div class="previews">
+      <figure><figcaption>Today</figcaption><canvas id="pvToday" class="canvas" aria-label="Today's aim preview"></canvas></figure>
+      <figure><figcaption>A — outline</figcaption><canvas id="pvA" class="canvas" aria-label="Candidate A: oval outline"></canvas></figure>
+      <figure><figcaption>B — outline + fill</figcaption><canvas id="pvB" class="canvas" aria-label="Candidate B: oval outline with faint fill"></canvas></figure>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Numbers to record</h2>
+    <p class="note">The four dials as they stand now, in one line to read back.</p>
+    <pre id="record" class="record"></pre>
+  </section>
+  <p id="build" class="build"></p>
+</div>
+<script>/*__BENCH_JS__*/</script>
