@@ -43,7 +43,7 @@ export class StormPanel {
     return h('section', { class: 'card storm', 'aria-labelledby': 'storm-title' }, [
       h('h3', { id: 'storm-title', class: 'card-title' }, ['Storm (continuous)']),
       h('p', { class: 'note' }, [
-        'No one-shot warning: wind and rain play the whole time you are inside the storm, and fade out over a few seconds when you leave. Turn on the engine under it to check they sit well together (the engine uses the settings in the Engines card below).',
+        'No one-shot warning: wind and rain play the whole time you are inside the storm, and fade out over a few seconds when you leave. Turn on the engine under it to check they sit well together (the engine uses the settings in the Engines card above).',
       ]),
       h('div', { class: 'controls' }, [this.stormButton, this.engineButton]),
       level.root,

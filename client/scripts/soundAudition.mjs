@@ -86,6 +86,26 @@ function verdict(item) {
 
 const db = (v) => (v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-inf');
 
+/** Engines: steady RMS and the three band RMS values, in dB. */
+function bandCells(b) {
+  if (!b) return '';
+  const steady = Math.sqrt(b.low ** 2 + b.mid ** 2 + b.high ** 2);
+  return `  steady ${db(steady).padStart(6)}  <200 ${db(b.low).padStart(6)}  200-1k ${db(b.mid).padStart(6)}  >1k ${db(b.high).padStart(6)}`;
+}
+
+/** Engines: full ahead, every set side by side per hull (dB RMS, loudest window). */
+function printEngineSummary(items) {
+  const full = items.filter((i) => /^engine\.[^.]+\.[^.]+\.full$/.test(i.id));
+  const sets = [...new Set(full.map((i) => i.id.split('.')[1]))];
+  const hulls = [...new Set(full.map((i) => i.id.split('.')[2]))];
+  if (!sets.length) return;
+  console.log(`\nengine full ahead, rms dB:  ${'hull'.padEnd(10)}${sets.map((s) => s.padStart(9)).join('')}`);
+  for (const hull of hulls) {
+    const cells = sets.map((s) => db(full.find((i) => i.id === `engine.${s}.${hull}.full`)?.rms ?? 0).padStart(9));
+    console.log(`                           ${hull.padEnd(10)}${cells.join('')}`);
+  }
+}
+
 function printTable(items) {
   const w = Math.max(...items.map((i) => i.id.length));
   console.log(`${'item'.padEnd(w)}  length s   peak  peak dB   rms   rms dB  raw peak dB  verdict  (end dB)`);
@@ -100,6 +120,7 @@ function printTable(items) {
       db(i.rawPeak).padStart(11),
       verdict(i),
       i.tailRms === undefined || i.tailRms === null ? '' : `  end ${db(i.tailRms)}`,
+      bandCells(i.bands),
     ];
     console.log(row.join('  '));
   }
@@ -133,6 +154,7 @@ async function main() {
   if (!args.selftest) return;
   const { items, requests, errors } = await selftest(html);
   printTable(items);
+  printEngineSummary(items);
   const bad = items.filter((i) => verdict(i) !== 'ok');
   console.log(`\n${items.length} renders, ${bad.length} failing; ${requests.length} network requests; ${errors.length} page errors`);
   for (const r of requests) console.log(`  request: ${r}`);

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.19.19] - 2026-11-12
+
+### Changed
+- **The engine sound is calmer.** A deep rumble with a slow propeller throb: no whine, no hiss, and much quieter.
+
 ## [0.19.18] - 2026-11-11
 
 ### Added

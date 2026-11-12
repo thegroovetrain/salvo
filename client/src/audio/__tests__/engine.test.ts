@@ -14,7 +14,14 @@ import {
   SILENCE,
   SPEED_CAP,
   CLOSE_ALONGSIDE_CUTOFF,
+  DEFAULT_WASH_Q,
+  DEFAULT_WHINE_OVERSHOOT,
+  IDLE_LEVEL_SHARE,
   closeAlongside01,
+  idleShareOf,
+  remoteLowpassNearOf,
+  washQOf,
+  whineOvershootOf,
   engineTargets,
   remoteEngineTargets,
   type EngineProfile,
@@ -45,10 +52,20 @@ const DIESEL: EngineProfile = {
   whineGain: [0.2, 0.5],
 };
 
+/** Every optional voicing knob set away from its default (the retune's kind of profile). */
+const TUNED: EngineProfile = {
+  ...DEFAULT_ENGINE_PROFILE,
+  idleShare: IDLE_LEVEL_SHARE / 3,
+  whineOvershoot: 1,
+  washQ: DEFAULT_WASH_Q * 2,
+  remoteLowpassHz: (REMOTE_LOWPASS_HZ[0] + REMOTE_LOWPASS_HZ[1]) / 4,
+};
+
 const PROFILES: ReadonlyArray<readonly [string, EngineProfile]> = [
   ['standard', DEFAULT_ENGINE_PROFILE],
   ['heavy', HEAVY],
   ['diesel', DIESEL],
+  ['tuned', TUNED],
 ];
 
 const steps = (lo: number, hi: number, n: number): number[] =>
@@ -412,5 +429,95 @@ describe('own-engine specifics', () => {
     const c = new FakeEngineCtx(['createPeriodicWave']);
     new EngineVoice(asCtx(c), asSink(c), DIESEL, { rand: fixedRand });
     expect(c.of('oscillator').some((o) => o.type === 'sawtooth')).toBe(true);
+  });
+});
+
+// --- the optional voicing knobs (engine retune) ---------------------------------
+
+describe('optional voicing knobs — absent means the merged behavior', () => {
+  const INPUTS = [
+    { throttle: 0, speed01: 0, boost: false },
+    { throttle: 0.5, speed01: 0.4, boost: false },
+    { throttle: 1, speed01: SPEED_CAP, boost: true },
+  ];
+
+  it('setting every knob to its default changes no target', () => {
+    const explicit: EngineProfile = {
+      ...DEFAULT_ENGINE_PROFILE,
+      idleShare: IDLE_LEVEL_SHARE,
+      whineOvershoot: DEFAULT_WHINE_OVERSHOOT,
+      washQ: DEFAULT_WASH_Q,
+      remoteLowpassHz: REMOTE_LOWPASS_HZ[0],
+    };
+    for (const input of INPUTS) expect(engineTargets(explicit, input)).toEqual(engineTargets(DEFAULT_ENGINE_PROFILE, input));
+    for (const distance01 of [0, 0.3, 1]) {
+      const remote = { speed01: 0.6, distance01, pan: 0 };
+      expect(remoteEngineTargets(explicit, remote)).toEqual(remoteEngineTargets(DEFAULT_ENGINE_PROFILE, remote));
+    }
+  });
+
+  it('the graph keeps its defaults: the exported overshoot is the default one', () => {
+    expect(WHINE_OVERSHOOT).toBe(DEFAULT_WHINE_OVERSHOOT);
+  });
+
+  it('idleShare: absent or junk is the default, otherwise clamped into (0, 1]', () => {
+    expect(idleShareOf(DEFAULT_ENGINE_PROFILE)).toBe(IDLE_LEVEL_SHARE);
+    for (const bad of [NaN, Infinity, -Infinity]) expect(idleShareOf({ ...DEFAULT_ENGINE_PROFILE, idleShare: bad })).toBe(IDLE_LEVEL_SHARE);
+    expect(idleShareOf({ ...DEFAULT_ENGINE_PROFILE, idleShare: 7 })).toBe(1);
+    for (const low of [0, -1]) expect(idleShareOf({ ...DEFAULT_ENGINE_PROFILE, idleShare: low })).toBeGreaterThan(0);
+  });
+
+  it('a lower idleShare makes idle quieter and leaves full load alone', () => {
+    const idle = { throttle: 0, speed01: 0, boost: false };
+    const full = { throttle: 1, speed01: 1, boost: false };
+    expect(engineTargets(TUNED, idle).level).toBeLessThan(engineTargets(DEFAULT_ENGINE_PROFILE, idle).level);
+    expect(engineTargets(TUNED, full).level).toBeCloseTo(engineTargets(DEFAULT_ENGINE_PROFILE, full).level);
+  });
+
+  it('whineOvershoot: absent or junk is the default, never below 1', () => {
+    expect(whineOvershootOf(DEFAULT_ENGINE_PROFILE)).toBe(DEFAULT_WHINE_OVERSHOOT);
+    expect(whineOvershootOf({ ...DEFAULT_ENGINE_PROFILE, whineOvershoot: NaN })).toBe(DEFAULT_WHINE_OVERSHOOT);
+    expect(whineOvershootOf({ ...DEFAULT_ENGINE_PROFILE, whineOvershoot: 0.5 })).toBe(1);
+  });
+
+  it('washQ: absent, junk or non-positive is the default', () => {
+    expect(washQOf(DEFAULT_ENGINE_PROFILE)).toBe(DEFAULT_WASH_Q);
+    for (const bad of [NaN, 0, -2]) expect(washQOf({ ...DEFAULT_ENGINE_PROFILE, washQ: bad })).toBe(DEFAULT_WASH_Q);
+    expect(washQOf(TUNED)).toBe(TUNED.washQ);
+  });
+
+  it('remoteLowpassHz: absent or junk is the merged cutoff, otherwise clamped into REMOTE_LOWPASS_HZ', () => {
+    expect(remoteLowpassNearOf(DEFAULT_ENGINE_PROFILE)).toBe(REMOTE_LOWPASS_HZ[0]);
+    expect(remoteLowpassNearOf({ ...DEFAULT_ENGINE_PROFILE, remoteLowpassHz: NaN })).toBe(REMOTE_LOWPASS_HZ[0]);
+    expect(remoteLowpassNearOf({ ...DEFAULT_ENGINE_PROFILE, remoteLowpassHz: REMOTE_LOWPASS_HZ[0] * 10 })).toBe(REMOTE_LOWPASS_HZ[0]);
+    expect(remoteLowpassNearOf({ ...DEFAULT_ENGINE_PROFILE, remoteLowpassHz: 0 })).toBe(REMOTE_LOWPASS_HZ[1]);
+  });
+
+  it('a capped remote lowpass starts at the cap, ends at the far cutoff and never rises with distance', () => {
+    const at = (distance01: number) => remoteEngineTargets(TUNED, { speed01: 0.5, distance01, pan: 0 }).lowpassHz;
+    expect(at(0)).toBeCloseTo(TUNED.remoteLowpassHz as number);
+    expect(at(1)).toBeCloseTo(REMOTE_LOWPASS_HZ[1]);
+    const ds = steps(0, 1, 20);
+    for (let i = 1; i < ds.length; i++) expect(at(ds[i])).toBeLessThanOrEqual(at(ds[i - 1]));
+  });
+
+  it('the graph builds the wash band at the profile Q', () => {
+    const c = new FakeEngineCtx();
+    new EngineVoice(asCtx(c), asSink(c), TUNED, { rand: fixedRand });
+    const qs = c.of('biquad').filter((f) => f.type === 'bandpass').map((f) => (f.Q as FakeParam).value);
+    expect(qs).toContain(TUNED.washQ);
+    expect(qs).not.toContain(DEFAULT_WASH_Q);
+  });
+
+  it('a boost onset overshoots by the profile multiplier (1 = no overshoot)', () => {
+    const c = new FakeEngineCtx();
+    const v = new EngineVoice(asCtx(c), asSink(c), TUNED, { rand: fixedRand });
+    v.update(RUN, 11);
+    const idleHz = engineTargets(TUNED, { throttle: 0, speed01: 0, boost: false }).whineHz;
+    const pitch = c.of('oscillator').map((o) => o.frequency as FakeParam).find((p) => p.value === idleHz) as FakeParam;
+    const before = pitch.writes.length;
+    v.update({ ...RUN, boost: true }, 12);
+    const [peak] = pitch.writes.slice(before);
+    expect(peak.value).toBeCloseTo(engineTargets(TUNED, { ...RUN, boost: true }).whineHz);
   });
 });

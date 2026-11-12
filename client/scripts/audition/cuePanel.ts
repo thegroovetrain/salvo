@@ -16,7 +16,7 @@ const MAIN_STAGGER_S: readonly [number, number] = [0.07, 0.18];
 const SERIES_STEP_S = 0.25;
 const SERIES_COUNT = 3;
 
-function seriesDelays(slotId: string): number[] {
+export function seriesDelays(slotId: string): number[] {
   const out = [0];
   for (let i = 1; i < SERIES_COUNT; i++) {
     const step = slotId === 'mainBattery' ? MAIN_STAGGER_S[0] + Math.random() * (MAIN_STAGGER_S[1] - MAIN_STAGGER_S[0]) : SERIES_STEP_S;

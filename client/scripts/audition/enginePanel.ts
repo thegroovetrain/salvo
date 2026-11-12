@@ -1,12 +1,15 @@
 // The ENGINES section of the audition page (Story 10.13): your own engine
-// (EngineVoice) with throttle / speed / boost, and another ship heard across
-// the water (RemoteEngineVoice) with distance and left–right. Both are the
-// game's real voices on the shipped profiles in candidates/engines.ts.
+// (EngineVoice) with throttle / speed / boost, and another ship heard across the
+// water (RemoteEngineVoice) with distance and left–right. Both are the game's
+// real voices on the shipped set (candidates/engines.ts); a salvo button fires
+// the shipped main battery over it.
 
 import type { ShipClassId } from '@salvo/shared';
 import { ENGINE_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
+import { MAIN_BATTERY } from '../../src/audio/synth/candidates/guns.js';
 import { EngineVoice, RemoteEngineVoice } from '../../src/audio/engineGraph.js';
 import { closeAlongside01 } from '../../src/audio/engine.js';
+import { seriesDelays } from './cuePanel.js';
 import { button, h, radios, slider } from './dom.js';
 import type { Rig } from './rig.js';
 
@@ -15,13 +18,14 @@ const TICK_MS = 100;
 const SPEED_TAU_S = 3;
 /** Where boost pushes speed (the engine model honors a little past 1). */
 const BOOST_SPEED = 1.15;
+/** The one shipped engine set. */
+const SET = ENGINE_CANDIDATES[0];
 
-const HULLS = Object.keys(ENGINE_CANDIDATES[0].profiles) as ShipClassId[];
+const HULLS = Object.keys(SET.profiles) as ShipClassId[];
 const hullName = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 const HULL_OPTIONS = HULLS.map((id) => ({ value: id, label: hullName(id) }));
 
 interface OwnState {
-  setId: string;
   hull: ShipClassId;
   throttle: number;
   speed: number;
@@ -39,7 +43,7 @@ interface RemoteState {
 }
 
 export class EnginePanel {
-  private readonly own: OwnState = { setId: ENGINE_CANDIDATES[0].id, hull: HULLS[0], throttle: 0.5, speed: 0, follow: true, boost: false, on: false };
+  private readonly own: OwnState = { hull: HULLS[0], throttle: 0.5, speed: 0, follow: true, boost: false, on: false };
   private readonly remote: RemoteState = { hull: HULLS[1] ?? HULLS[0], distance: 0.3, pan: 0.4, speed: 0.7, on: false };
   private ownVoice: EngineVoice | null = null;
   private remoteVoice: RemoteEngineVoice | null = null;
@@ -56,18 +60,11 @@ export class EnginePanel {
   render(): HTMLElement {
     return h('section', { class: 'card engines', 'aria-labelledby': 'engines-title' }, [
       h('h2', { id: 'engines-title' }, ['Engines']),
-      h('p', { class: 'note' }, ['The engine plays all the time while you sail. Pick a ship, then move the throttle. Each ship has its own weight and pitch.']),
-      this.setList(),
+      h('p', { class: 'note' }, ['The engine plays all the time while you sail. Pick a ship, then move the throttle.']),
+      h('p', { class: 'blurb' }, [`${SET.label}. ${SET.blurb}`]),
       this.ownControls(),
       this.remoteControls(),
     ]);
-  }
-
-  private setList(): HTMLElement {
-    const rows = ENGINE_CANDIDATES.map((c) =>
-      h('div', { class: 'row' }, [h('span', { class: 'cand' }, [c.label]), h('p', { class: 'blurb' }, [c.blurb])]),
-    );
-    return h('div', { class: 'block' }, [h('h3', {}, ['The engine']), ...rows]);
   }
 
   private ownControls(): HTMLElement {
@@ -89,9 +86,10 @@ export class EnginePanel {
     this.onButton = button('ENGINE ON', () => this.toggleOwn(), 'primary');
     this.boostButton = button('BOOST', () => this.toggleBoost());
     this.boostButton.setAttribute('aria-pressed', 'false');
+    const salvo = button('PLAY A SALVO OVER IT', () => this.salvo(), 'ghost');
     return h('div', { class: 'block' }, [
       h('h3', {}, ['Your ship']),
-      h('div', { class: 'controls' }, [this.onButton, this.boostButton]),
+      h('div', { class: 'controls' }, [this.onButton, this.boostButton, salvo]),
       hull,
       throttle.root,
       speed.root,
@@ -111,7 +109,7 @@ export class EnginePanel {
     return h('div', { class: 'block' }, [
       h('h3', {}, ['Another ship, heard across the water']),
       h('p', { class: 'note' }, ['A simpler, cheaper engine voice for ships you can see. It uses the same engine.']),
-      h('p', { class: 'note ruling' }, ['Ruling: realistic \u2014 your own machinery drowns out other ships; you only hear another ship\u2019s engine when it is close alongside.']),
+      h('p', { class: 'note ruling' }, ['Ruling: realistic — your own machinery drowns out other ships; you only hear another ship’s engine when it is close alongside.']),
       h('div', { class: 'controls' }, [this.remoteButton]),
       hull,
       dist.root,
@@ -121,8 +119,7 @@ export class EnginePanel {
   }
 
   private profile(hull: ShipClassId) {
-    const set = ENGINE_CANDIDATES.find((c) => c.id === this.own.setId) ?? ENGINE_CANDIDATES[0];
-    return set.profiles[hull];
+    return SET.profiles[hull];
   }
 
   /** Turn your own engine on or off (the storm card uses this to play an engine under the storm). */
@@ -132,6 +129,12 @@ export class EnginePanel {
 
   get engineOn(): boolean {
     return this.own.on;
+  }
+
+  /** The shipped main battery, three guns in a ragged salvo, over the engine. */
+  private salvo(): void {
+    const recipe = MAIN_BATTERY.candidates[0]?.recipe;
+    if (recipe) for (const d of seriesDelays(MAIN_BATTERY.id)) this.rig.play(recipe, 0, d);
   }
 
   private toggleOwn(): void {
@@ -163,7 +166,7 @@ export class EnginePanel {
     if (!this.own.on) return;
     this.rig.guard('Starting the engine', () => {
       const ctx = this.rig.start();
-      const sink = this.rig.sink;
+      const sink = ctx ? this.rig.sink : null;
       if (!ctx || !sink) return;
       this.ownVoice = new EngineVoice(ctx, sink, this.profile(this.own.hull));
       if (this.ownVoice.released) throw new Error('the engine sound could not be built in this browser');
@@ -176,7 +179,7 @@ export class EnginePanel {
     if (!this.remote.on) return;
     this.rig.guard("Starting the other ship's engine", () => {
       const ctx = this.rig.start();
-      const sink = this.rig.sink;
+      const sink = ctx ? this.rig.sink : null;
       if (!ctx || !sink) return;
       this.remoteVoice = new RemoteEngineVoice(ctx, sink, this.profile(this.remote.hull));
       if (this.remoteVoice.released) throw new Error('the engine sound could not be built in this browser');

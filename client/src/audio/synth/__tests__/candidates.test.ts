@@ -84,6 +84,11 @@ describe('ENGINE_CANDIDATES', () => {
         expect(allFinite(full), `${hull} full`).toBe(true);
       }
     });
+
+    it(`${set.id} gives each hull its own profile`, () => {
+      const seen = new Set(Object.values(set.profiles).map((p) => JSON.stringify(p)));
+      expect(seen.size).toBe(hulls.length);
+    });
   }
 });
 

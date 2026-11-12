@@ -14,6 +14,9 @@ import {
   engineTargets,
   remoteEngineTargets,
   DEFAULT_DIESEL_VOICING,
+  DEFAULT_WHINE_OVERSHOOT,
+  washQOf,
+  whineOvershootOf,
   type EngineInput,
   type EngineProfile,
   type EngineTargets,
@@ -31,8 +34,9 @@ export const SURGE_TAU_S = 0.6;
 export const FADE_IN_S = 0.5;
 /** Default release fade. */
 export const RELEASE_S = 0.3;
-/** Boost onset whine overshoot: × this for WHINE_OVERSHOOT_S, then settle. */
-export const WHINE_OVERSHOOT = 1.15;
+/** Boost onset whine overshoot (the default; a profile may set its own via
+ *  `whineOvershoot`): × this for WHINE_OVERSHOOT_S, then settle. */
+export const WHINE_OVERSHOOT = DEFAULT_WHINE_OVERSHOOT;
 export const WHINE_OVERSHOOT_S = 1.5;
 
 const VIBRATO_HZ = 0.3;
@@ -304,11 +308,11 @@ export class EngineVoice extends ContinuousVoice<EngineInput> {
     const out = this.bag.gain(SILENCE);
     if (this.profile.kind === 'diesel') {
       this.diesel = buildDiesel(this.bag, this.profile, t, mix);
-      this.common = buildCommon(this.bag, t, mix, null);
+      this.common = buildCommon(this.bag, t, mix, null, washQOf(this.profile));
       chain(mix, out); // recipe B clips before its resonators, not at the sum
     } else {
       this.turbine = buildTurbine(this.bag, t, mix);
-      this.common = buildCommon(this.bag, t, mix, this.bag.shaper(t.drive));
+      this.common = buildCommon(this.bag, t, mix, this.bag.shaper(t.drive), washQOf(this.profile));
       chain(mix, this.common.shaper, out);
     }
     this.lastDrive = t.drive;
@@ -372,7 +376,7 @@ export class EngineVoice extends ContinuousVoice<EngineInput> {
     if (!surge && t < this.overshootUntil) return;
     for (const [p, mult] of this.pitchParams()) {
       if (surge) {
-        glide(p, hz * mult * WHINE_OVERSHOOT, t, GLIDE_TAU_S / 2);
+        glide(p, hz * mult * whineOvershootOf(this.profile), t, GLIDE_TAU_S / 2);
         glide(p, hz * mult, t + WHINE_OVERSHOOT_S, GLIDE_TAU_S);
       } else {
         glide(p, hz * mult, t, GLIDE_TAU_S);
@@ -381,7 +385,7 @@ export class EngineVoice extends ContinuousVoice<EngineInput> {
   }
 }
 
-function buildCommon(bag: NodeBag, x: EngineTargets, mix: GainNode, shaper: WaveShaperNode | null): CommonParts {
+function buildCommon(bag: NodeBag, x: EngineTargets, mix: GainNode, shaper: WaveShaperNode | null, washQ: number): CommonParts {
   // Throb: pink noise in the throb band, its gain pulsed at blade rate per shaft.
   const throbBp = bag.filter('bandpass', x.throbHz, 1.5);
   const throbAmp = bag.gain(x.throbGain);
@@ -394,7 +398,7 @@ function buildCommon(bag: NodeBag, x: EngineTargets, mix: GainNode, shaper: Wave
     return { lfo, depth };
   });
   // Hull wash: pink noise with a slow, irregular swell; spray rides on top.
-  const washBp = bag.filter('bandpass', x.washHz, 0.5);
+  const washBp = bag.filter('bandpass', x.washHz, washQ);
   const washAm = bag.gain(1);
   const washGain = bag.gain(x.washGain);
   chain(bag.noise('pink'), washBp, washAm, washGain, mix);

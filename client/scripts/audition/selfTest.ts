@@ -1,16 +1,19 @@
 // The audition page's SELF-TEST (Story 10.13): render every cue candidate
 // (near, and far for sounds heard out on the water) and every engine set × hull
 // through an OfflineAudioContext and the real master chain, and report each
-// render's length, peak and loudness. `soundAudition.mjs --selftest` calls it
+// render's length, peak and loudness (engines also: energy below 200 Hz,
+// 200 Hz–1 kHz and above 1 kHz).
+// `soundAudition.mjs --selftest` calls it
 // in headless Chromium and fails on silence, non-finite samples or clipping.
 
 import { CUE_SLOTS, ENGINE_CANDIDATES, SINKING_DEMO_S, STORM_CANDIDATES } from '../../src/audio/synth/candidates/index.js';
+import { bandRms, type Bands } from './bands.js';
 import { StormBedVoice, type StormBedProfile } from '../../src/audio/stormBed.js';
 import { klaxonSeriesS, scheduleSinkingDemo } from './sinking.js';
 import { Synth } from '../../src/audio/synth/render.js';
 import { createMasterChain } from '../../src/audio/synth/master.js';
 import { cueLengthS, distanceShape, type CueRecipe } from '../../src/audio/synth/recipe.js';
-import { EngineVoice } from '../../src/audio/engineGraph.js';
+import { EngineVoice, RemoteEngineVoice } from '../../src/audio/engineGraph.js';
 import type { EngineInput, EngineProfile } from '../../src/audio/engine.js';
 
 export interface SelfTestItem {
@@ -23,6 +26,8 @@ export interface SelfTestItem {
   rawPeak: number;
   /** RMS of the last half second (the sinking demo must end in silence). */
   tailRms?: number;
+  /** Engines: RMS per band over the settled part of the render (bands.ts). */
+  bands?: Bands;
 }
 
 const SAMPLE_RATE = 44100;
@@ -30,7 +35,9 @@ const SAMPLE_RATE = 44100;
 const REVERB_TAIL_S = 3.2;
 const MAX_RENDER_S = 15;
 const FAR = 0.8;
-const ENGINE_RENDER_S = 2;
+const ENGINE_RENDER_S = 3;
+/** Engine band energy is measured from here on (after the fade-in and the boost surge). */
+const ENGINE_SETTLED_S = 1.5;
 const RMS_WINDOW_S = 0.1;
 
 /** A deterministic LCG in [0, 1), so a self-test run is repeatable. */
@@ -88,18 +95,24 @@ async function renderCue(id: string, recipe: CueRecipe, d01: number): Promise<Se
   return { id, lengthS, ...m, rawPeak: raw.peak };
 }
 
-async function engineOnce(profile: EngineProfile, input: EngineInput, master: boolean): Promise<{ peak: number; rms: number }> {
-  const { ctx, input: sink } = offline(ENGINE_RENDER_S, master);
-  const voice = new EngineVoice(ctx, sink, profile, { rand: seeded(5) });
-  voice.update(input, 0);
-  return measure(await ctx.startRendering());
+type Build = (ctx: BaseAudioContext, sink: AudioNode) => void;
+
+async function voiceOnce(build: Build, master: boolean): Promise<{ peak: number; rms: number; bands: Bands }> {
+  const { ctx, input } = offline(ENGINE_RENDER_S, master);
+  build(ctx, input);
+  const buf = await ctx.startRendering();
+  return { ...measure(buf), bands: bandRms(buf, ENGINE_SETTLED_S) };
 }
 
-async function renderEngine(id: string, profile: EngineProfile, input: EngineInput): Promise<SelfTestItem> {
-  const m = await engineOnce(profile, input, true);
-  const raw = await engineOnce(profile, input, false);
+/** A continuous engine voice: through the master chain (with band energy) and raw. */
+async function renderVoice(id: string, build: Build): Promise<SelfTestItem> {
+  const m = await voiceOnce(build, true);
+  const raw = await voiceOnce(build, false);
   return { id, lengthS: ENGINE_RENDER_S, ...m, rawPeak: raw.peak };
 }
+
+const renderEngine = (id: string, profile: EngineProfile, input: EngineInput): Promise<SelfTestItem> =>
+  renderVoice(id, (ctx, sink) => new EngineVoice(ctx, sink, profile, { rand: seeded(5) }).update(input, 0));
 
 const IDLE: EngineInput = { throttle: 0, speed01: 0, boost: false };
 const FULL: EngineInput = { throttle: 1, speed01: 1, boost: false };
@@ -124,6 +137,18 @@ async function engineItems(): Promise<SelfTestItem[]> {
       out.push(await renderEngine(`engine.${set.id}.${hull}.full`, profile, FULL));
       out.push(await renderEngine(`engine.${set.id}.${hull}.boost`, profile, BOOSTED));
     }
+  }
+  return out;
+}
+
+/** Another ship (Bismarck) flat out right alongside, per set: the remote voice must stay dark too. */
+async function remoteItems(): Promise<SelfTestItem[]> {
+  const out: SelfTestItem[] = [];
+  for (const set of ENGINE_CANDIDATES) {
+    const profile = set.profiles.bismarck;
+    out.push(await renderVoice(`engine.${set.id}.remote.alongside`, (ctx, sink) => {
+      new RemoteEngineVoice(ctx, sink, profile, { rand: seeded(5) }).update({ speed01: 1, distance01: 0, pan: 0 }, 0);
+    }));
   }
   return out;
 }
@@ -185,5 +210,5 @@ async function stormItems(): Promise<SelfTestItem[]> {
 }
 
 export async function auditionSelfTest(): Promise<SelfTestItem[]> {
-  return [...(await cueItems()), ...(await klaxonItems()), ...(await stormItems()), ...(await engineItems())];
+  return [...(await cueItems()), ...(await klaxonItems()), ...(await stormItems()), ...(await engineItems()), ...(await remoteItems())];
 }

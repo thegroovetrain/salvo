@@ -136,3 +136,7 @@ Two play paths stay separate on purpose: the legacy `ToneSpec` table keeps its 1
 - The layered path is heavier on CPU than the old tones (worst case about 3,300 transient WebAudio nodes, typical a few hundred); performance can only be judged on staging/production.
 - The `main.ts` teardown and visibility wiring has no unit test.
 - The airhorn is not built.
+
+## Spec Change Log
+
+- 2026-11-12 follow-up (cycle 225, 0.19.19; epic-10 amendment 23). Triggering finding: Eric's staging verdict on the engine ("too loud and too whiny, like a vacuum cleaner"). Amended: the shipped engine set (take A, "Deep rumble", at 75 % of its auditioned level). Known-bad state avoided: a continuous sound with whine and broadband hiss. KEEP: every other pick of amendment 22.
