@@ -23,10 +23,8 @@
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import {
-  batteryAimPoint,
   initialTurrets,
-  pickTurret,
-  turretSalvo,
+  type LitCircle,
   type TurretState,
   CONFIG,
   blockedWater,
@@ -55,7 +53,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
 import type { OwnFire } from './projectiles.js';
-import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
+import { isMineEquipment, isTorpedoItem, mainBatteryAim, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
 const P = CLIENT_CONFIG.aimPreview;
 
@@ -98,6 +96,12 @@ export interface AimPreviewInput {
    * clamp byte-for-byte, which is what every non-main caller (tests) wants.
    */
   gunReachU?: number;
+  /**
+   * THE OWN LIVE LIT ZONES (render/litZones.ts `ownActiveZones`) — read by the
+   * MAIN BATTERY only, whose reach is measured from the firing turret's station
+   * (`mainBatteryAim`, review F-A), never from `gunReachU` above. Omitted = none.
+   */
+  ownLitZones?: readonly LitCircle[];
   /**
    * THE OWN TURRETS (Story 10.4) — the predicted battery state (sim/ownBattery.ts)
    * the main-battery preview picks from, so it shows where the NEXT shot will
@@ -341,20 +345,6 @@ function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
   });
 }
 
-/** Reused scratch for the main-battery preview's "as if loaded" pick. */
-const LOADED_SCRATCH: TurretState[] = [];
-
-/** The turrets as they stand but every one loaded (into the reused scratch). */
-function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
-  LOADED_SCRATCH.length = turrets.length;
-  for (let i = 0; i < turrets.length; i++) {
-    const t = LOADED_SCRATCH[i] ?? (LOADED_SCRATCH[i] = { a: 0, reloadMsLeft: 0 });
-    t.a = turrets[i].a;
-    t.reloadMsLeft = 0;
-  }
-  return LOADED_SCRATCH;
-}
-
 /**
  * PURE: the dispersion oval of one salvo fired from `station` — centered on
  * the salvo center, its semi-axes the shared `dispersionAxes` at the station →
@@ -377,18 +367,21 @@ export function salvoOval(station: Vec2, salvo: Pick<TurretSalvo, 'center' | 'be
  * a reload. No turret bears at all: no oval.
  */
 function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
-  const row = inp.stats.equipment.mainBattery;
-  const hull = inp.ship.cls;
-  const turrets = inp.turrets ?? initialTurrets(hull);
-  // NO AIM (review gate C5): the shared `batteryAimPoint` the server steps and
-  // fires with — null holds every turret and the click is denied, so nothing
-  // falls anywhere.
-  const aimPoint = batteryAimPoint(inp.ship, inp.aim, inp.aimDist);
-  if (aimPoint === null) return EMPTY;
-  const pick = pickTurret(turrets, hull, inp.ship, aimPoint) ?? pickTurret(asLoaded(turrets), hull, inp.ship, aimPoint);
-  if (pick === null) return EMPTY;
-  const salvo = turretSalvo(pick, hull, inp.ship, inp.gunReachU ?? row.rangeU, inp.mapRadius);
-  return { lines: [], bursts: [], place: null, band: null, oval: salvoOval(pick.station, salvo) };
+  // THE ONE HELPER (review F-A / R19): the shared pick, the reach measured
+  // from the picked turret's STATION (the server's `gunReachU` call) and the
+  // salvo — the same call main.ts makes for the range-clamp marker.
+  const b = mainBatteryAim({
+    stats: inp.stats,
+    hullId: inp.ship.cls,
+    pose: inp.ship,
+    aim: inp.aim,
+    aimDist: inp.aimDist,
+    turrets: inp.turrets ?? initialTurrets(inp.ship.cls),
+    mapRadius: inp.mapRadius,
+    ownLitZones: inp.ownLitZones ?? [],
+  });
+  if (b === null) return EMPTY;
+  return { lines: [], bursts: [], place: null, band: null, oval: salvoOval(b.pick.station, b.salvo) };
 }
 
 /**
@@ -734,14 +727,15 @@ const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveSt
   dazzleShells: (s) => s.equipment.dazzleShells.radius,
 };
 
-/** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
- *  cool-green identity (as its arc and reticle already do) — all three fish
- *  since Story 8.13, the belt's supercav included — and everything else takes
- *  the player's AIM COLOR (`aimTint`, Story 11.1 R15; palette amber by
- *  default), the same tint the reticle draws in. Color is decoration here —
- *  the INFORMATION is the geometry. */
-export function previewTint(id: EquipmentId | null, aimTint: number = CLIENT_CONFIG.colors.amber): number {
-  return isTorpedoItem(id) ? CLIENT_CONFIG.colors.legacy.torpGlow : aimTint;
+/** The stroke tint for a weapon's preview: EVERY weapon — the torpedo family
+ *  included since Story 11.1 R21 (Eric 2026-11-12: "All aim previews, even
+ *  torpedoes. Make it all amber. Everything gets AIM COLOR") — takes the
+ *  player's AIM COLOR (`aimTint`; palette amber by default), the same tint the
+ *  reticle and the arcs draw in. `id` is kept so the call sites stay one
+ *  statement per primed weapon. Color is decoration here — the INFORMATION is
+ *  the geometry. */
+export function previewTint(_id: EquipmentId | null, aimTint: number = CLIENT_CONFIG.colors.amber): number {
+  return aimTint;
 }
 
 /**

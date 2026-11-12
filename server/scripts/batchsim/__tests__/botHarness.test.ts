@@ -694,7 +694,8 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
     world.shells.set('e', stagedShell('e', bot.id, { family: 'mg' })); // MG / secondaries
     world.shells.set('f', stagedShell('f', bot.id, { family: 'flak' })); // flak
     world.shells.set('g', stagedShell('g', bot.id, { kind: 'torp', family: null, targetX: null, targetY: null }));
-    world.shells.set('h', stagedShell('h', bot.id, { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage })); // main battery
+    // main battery — its server-private marker, with damage EQUAL to its contact damage (the case the old inference misfiled)
+    world.shells.set('h', stagedShell('h', bot.id, { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage, contactDamage: CONFIG.mainBattery.contactDamage, batteryShell: true }));
     col.observe(world, 1);
     const row = col.samples(world)[0];
     expect(row.gunShells).toBe(4);
@@ -706,7 +707,7 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
     const bot = world.addBot(undefined, undefined);
     const col = new BotCollector([bot.id]);
     const reach = bot.stats.equipment.mainBattery.rangeU;
-    const mb = { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage };
+    const mb = { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage, batteryShell: true as const };
     world.shells.set('near', stagedShell('near', bot.id, { ...mb, targetX: reach * 0.1 })); // band 0
     world.shells.set('far', stagedShell('far', bot.id, { ...mb, targetX: reach * 0.9 })); // the last band
     col.observe(world, 1);

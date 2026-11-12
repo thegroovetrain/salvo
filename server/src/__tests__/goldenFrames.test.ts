@@ -131,6 +131,19 @@
 // on the first click, which shifts that torpedo's `torpU` and wake (`wk`)
 // paints on observer `c` by a tick or two (14 frames' event lists). The
 // perception chokepoint, the six exceptions and every proof are unchanged.
+//
+// RE-RECORDED 2026-11-12 (Story 11.1 REVIEW FIX — parallel salvo tracks and
+// the HMAC dispersion key; PV stays 103, unreleased). Structurally diffed
+// frame by frame: 168 frames before and after, 22 moved, NO key added or
+// removed anywhere, and ONLY event values moved: (1) every main-battery
+// shell now flies on the SALVO BEARING (parallel tracks, abreast off the
+// muzzle line), so the 20 `shell` reveals' vx / vy moved, and 12 of them
+// their x / y (a spawn on the muzzle line, not a barrel offset); the `mz`
+// rides the salvo's first spawn, so 6 `mz` points moved with it; (2) every
+// landing is re-rolled under the new per-shell seed (HMAC under the World's
+// offline key — no scenario passes a key), so 12 `burst`, 8 `hc`, 6 `sp` and
+// 4 `boom` points moved by a few units. No frame, tick, contact, paint or
+// count moved; the six exceptions and every proof are unchanged.
 
 import { describe, it, expect } from 'vitest';
 import {

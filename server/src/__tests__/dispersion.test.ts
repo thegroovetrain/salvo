@@ -3,10 +3,13 @@
 // (dispersion.test.ts); this suite pins the SERVER's wiring of it, as
 // contracts:
 //   (a) every main-battery shell of a salvo gets its OWN landing inside the
-//       ellipse for its muzzle → center range, flies from its muzzle straight
-//       at it, and arrives there with a collinear path (no sideways snap);
-//   (b) the same world seeds and inputs land every shell on the same point,
-//       and the stream is room-private (another pseudonym seed, other points);
+//       ONE ellipse for the station → center range, and the whole salvo
+//       flies PARALLEL to the salvo bearing, abreast off the muzzle line, each
+//       shell arriving exactly on its landing (review fix: no converging
+//       tracks on the wire);
+//   (b) the per-shell seed is an HMAC under the room's dispersion key,
+//       independent of every other stream both ways; the same key (or, offline,
+//       the same seeds) replays every landing;
 //   (c) a main-battery hit deals the same damage at short and at long range
 //       (range attenuation retired);
 //   (d) the utility shells and the legacy unmounted weapons never ask for a
@@ -28,6 +31,9 @@ import {
   transformPolygon,
   pickTurret,
   turretSalvo,
+  turretStationWorld,
+  SHIP_CLASS_IDS,
+  type ShipClassId,
   type EquipmentId,
   type InputMsg,
   type LoadoutSlot,
@@ -36,6 +42,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { EQUIPMENT, freshAmmo, type ActivationContext } from '../game/equipment/index.js';
+import { dispersionShellSeed, offlineDispersionKey } from '../game/dispersionKey.js';
 import { flatRaster } from './islandFixture.js';
 import { neutralize } from './deckGunFixture.js';
 
@@ -49,8 +56,8 @@ function bareWorld(seed = 7, opts: WorldOptions = {}): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined));
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'bismarck'): ShipRecord {
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -81,46 +88,73 @@ function click(w: World, a: ShipRecord, aim: number, aimDist: number, seq = 1): 
   return own(w, a.id, 'cannon').filter((s) => !before.has(s.id));
 }
 
-describe('(a) the main battery: every shell its own landing, a straight flight there', () => {
-  it('each shell of the salvo lands inside the ellipse for ITS muzzle → center range, its velocity points from its muzzle at its landing, and it arrives on a collinear path', () => {
+describe('(a) the main battery: every shell its own landing, PARALLEL tracks off the muzzle line', () => {
+  it('every hull: one velocity direction (the salvo bearing), spawns abreast on the muzzle line, landings inside the station → center ellipse, each arriving exactly on its landing', () => {
+    let hullsChecked = 0;
+    for (const hull of SHIP_CLASS_IDS) {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0, 0, hull);
+      if (a.turrets.length === 0) continue;
+      hullsChecked += 1;
+      const dist = a.stats.equipment.mainBattery.rangeU * 0.9;
+      // The un-dispersed solution, from the very shared calls the server makes.
+      const aimPt = aimPointOf(a.state, BEAM, dist);
+      const pick = pickTurret(a.turrets, a.hullId, a.state, aimPt)!;
+      const reach = gunReachU(pick.station, pick.bearing, pick.aimDistU, a.stats.equipment.mainBattery.rangeU, w.map.radius, []);
+      const salvo = turretSalvo(pick, a.hullId, a.state, reach, w.map.radius);
+      const ux = Math.cos(salvo.bearing);
+      const uy = Math.sin(salvo.bearing);
+      const muzzle = salvo.shells[0].origin;
+      const shells = click(w, a, BEAM, dist);
+      expect(shells, hull).toHaveLength(salvo.shells.length);
+      expect(shells.length, hull).toBeGreaterThan(1);
+      const landings = new Set<string>();
+      for (const sh of shells) {
+        const speed = Math.hypot(sh.vx, sh.vy);
+        // ONE velocity direction for the whole salvo: the salvo bearing.
+        expect(Math.abs(sh.vx * uy - sh.vy * ux) / speed, `${hull} ${sh.id} not parallel`).toBeLessThan(1e-12);
+        expect(sh.vx * ux + sh.vy * uy, hull).toBeGreaterThan(0);
+        // Spawned ON the muzzle line (through the muzzle, perpendicular to the bearing).
+        expect((sh.x - muzzle.x) * ux + (sh.y - muzzle.y) * uy, `${hull} ${sh.id} off the muzzle line`).toBeCloseTo(0, 9);
+        const land = { x: sh.targetX!, y: sh.targetY! };
+        // …straight behind its landing along the bearing (no sideways snap on arrival).
+        expect(Math.abs((land.x - sh.x) * uy - (land.y - sh.y) * ux), hull).toBeLessThan(1e-9);
+        expect(inEllipse(pick.station, salvo.center, land), hull).toBeLessThanOrEqual(1 + EPS); // the ONE station → center ellipse (R3 hard edge)
+        landings.add(`${land.x},${land.y}`);
+      }
+      expect(landings.size, hull).toBe(shells.length); // R5: every shell rolls its own landing
+      // Fly them out: every tracked position stays on its own parallel track, and the burst is AT the landing.
+      const track = new Map(shells.map((s) => [s.id, { o: { x: s.x, y: s.y }, t: { x: s.targetX!, y: s.targetY! } }]));
+      const burstAt = new Map<string, Vec2>();
+      for (let i = 0; i < 400 && own(w, 'a', 'cannon').length > 0; i++) {
+        w.step();
+        for (const s of own(w, 'a', 'cannon')) {
+          const { o } = track.get(s.id)!;
+          expect(Math.abs((s.x - o.x) * uy - (s.y - o.y) * ux)).toBeLessThan(1e-6);
+        }
+        for (const e of w.tickEvents) if (e.k === 'burst' && track.has(e.id)) burstAt.set(e.id, { x: e.x, y: e.y });
+      }
+      expect(burstAt.size, hull).toBe(shells.length);
+      for (const [id, p] of burstAt) {
+        const { t } = track.get(id)!;
+        expect(p.x).toBeCloseTo(t.x, 9);
+        expect(p.y).toBeCloseTo(t.y, 9);
+      }
+    }
+    expect(hullsChecked).toBeGreaterThan(0);
+  });
+
+  it('a point-blank salvo spawns each shell ON its own landing, still on the salvo bearing', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const dist = a.stats.equipment.mainBattery.rangeU * 0.9;
-    // The un-dispersed solution, from the very shared calls the server makes.
-    const aimPt = aimPointOf(a.state, BEAM, dist);
-    const pick = pickTurret(a.turrets, a.hullId, a.state, aimPt)!;
-    const reach = gunReachU(pick.station, pick.bearing, pick.aimDistU, a.stats.equipment.mainBattery.rangeU, w.map.radius, []);
-    const salvo = turretSalvo(pick, a.hullId, a.state, reach, w.map.radius);
-    const shells = click(w, a, BEAM, dist);
-    expect(shells).toHaveLength(salvo.shells.length);
-    const landings = new Set<string>();
-    shells.forEach((sh, k) => {
-      const origin = salvo.shells[k].origin;
-      expect(sh.x).toBeCloseTo(origin.x, 9); // its OWN muzzle
-      expect(sh.y).toBeCloseTo(origin.y, 9);
-      const land = { x: sh.targetX!, y: sh.targetY! };
-      expect(inEllipse(origin, salvo.center, land)).toBeLessThanOrEqual(1 + EPS); // inside ITS ellipse (R3 hard edge)
-      expect(Math.atan2(sh.vy, sh.vx)).toBeCloseTo(Math.atan2(land.y - origin.y, land.x - origin.x), 12); // flies AT it
-      landings.add(`${land.x},${land.y}`);
-    });
-    expect(landings.size).toBe(shells.length); // R5: every shell rolls its own landing
-    // Fly them out: every tracked position stays on its muzzle → landing line, and the burst is AT the landing.
-    const track = new Map(shells.map((s) => [s.id, { o: { x: s.x, y: s.y }, t: { x: s.targetX!, y: s.targetY! } }]));
-    const burstAt = new Map<string, Vec2>();
-    for (let i = 0; i < 200 && own(w, 'a', 'cannon').length > 0; i++) {
-      w.step();
-      for (const s of own(w, 'a', 'cannon')) {
-        const { o, t } = track.get(s.id)!;
-        const cross = (s.x - o.x) * (t.y - o.y) - (s.y - o.y) * (t.x - o.x);
-        expect(Math.abs(cross) / Math.hypot(t.x - o.x, t.y - o.y)).toBeLessThan(1e-6);
-      }
-      for (const e of w.tickEvents) if (e.k === 'burst' && track.has(e.id)) burstAt.set(e.id, { x: e.x, y: e.y });
-    }
-    expect(burstAt.size).toBe(shells.length);
-    for (const [id, p] of burstAt) {
-      const { t } = track.get(id)!;
-      expect(p.x).toBeCloseTo(t.x, 9);
-      expect(p.y).toBeCloseTo(t.y, 9);
+    // 2 u off the bow turret's station, on a bearing inside its arc: nearer than its muzzle.
+    const st = turretStationWorld(a.hullId, 0, a.state);
+    const p = { x: st.x + Math.cos(a.state.heading + 1.2) * 2, y: st.y + Math.sin(a.state.heading + 1.2) * 2 };
+    const shells = click(w, a, Math.atan2(p.y - a.state.y, p.x - a.state.x), Math.hypot(p.x - a.state.x, p.y - a.state.y));
+    expect(shells.length).toBeGreaterThan(0);
+    for (const sh of shells) {
+      expect(sh.x).toBe(sh.targetX);
+      expect(sh.y).toBe(sh.targetY);
     }
   });
 
@@ -141,32 +175,73 @@ describe('(a) the main battery: every shell its own landing, a straight flight t
   });
 });
 
-describe('(b) replay and privacy', () => {
-  /** Every main-battery and secondaries landing over a short scripted fight. */
-  function landings(opts: WorldOptions): string[] {
+describe('(b) the dispersion key: replay, and independence from every other stream', () => {
+  /** A short scripted fight with the zone clock running (so beacons and
+   *  airdrops roll): every main-battery and secondaries landing, the track
+   *  ids, the beacon chart and the airdrops. */
+  function run(opts: WorldOptions): { landings: string[]; tracks: string[]; beacons: string; drops: string } {
     const w = bareWorld(21, opts);
-    const a = place(w, 'a', 0, 0);
+    place(w, 'a', 0, 0);
+    place(w, 'b', 3000, 0);
+    w.startZone(w.now);
     const out: string[] = [];
     for (let seq = 1; seq <= 30; seq++) {
       w.submitInput('a', inp(seq, { aim: BEAM + seq * 0.01, aimDist: 300 + seq * 7, fireSeq: seq, sec: seq % 2 === 0 }));
       w.step();
       for (const s of w.shells.values()) out.push(`${s.id}:${s.targetX},${s.targetY}`);
     }
-    return [...new Set(out)];
+    return {
+      landings: [...new Set(out)],
+      tracks: [...w.pseudonyms.entries()].map(([k, v]) => `${k}=${v}`),
+      beacons: JSON.stringify(w.beaconChart.beacons),
+      drops: JSON.stringify([...w.drops.values()]),
+    };
   }
+  const KEY_A = new Uint8Array(32).fill(0xa5);
+  const KEY_B = new Uint8Array(32).fill(0x5a);
 
-  it('the same world seeds and inputs land every shell on the same point', () => {
-    const first = landings({ pseudonymSeed: 0xabc });
-    expect(first.length).toBeGreaterThan(0);
-    expect(landings({ pseudonymSeed: 0xabc })).toEqual(first);
-    expect(landings({})).toEqual(landings({})); // the batch-sim case: no pseudonym seed, still deterministic
+  it('(a) INDEPENDENCE: another key moves every landing and nothing else; another pseudonym seed moves everything else and no landing', () => {
+    const base = run({ pseudonymSeed: 0xabc, dispersionKey: KEY_A });
+    expect(base.landings.length).toBeGreaterThan(0);
+    expect(base.tracks.length).toBe(2);
+    expect(JSON.parse(base.beacons).length).toBeGreaterThan(0); // non-vacuous: beacons rolled
+    expect(JSON.parse(base.drops).length).toBeGreaterThan(0); // non-vacuous: airdrops rolled
+    // Same seeds, another key: the same shells land elsewhere; the private streams are untouched.
+    const otherKey = run({ pseudonymSeed: 0xabc, dispersionKey: KEY_B });
+    expect(otherKey.landings.map((s) => s.split(':')[0])).toEqual(base.landings.map((s) => s.split(':')[0]));
+    expect(otherKey.landings).not.toEqual(base.landings);
+    expect(otherKey.tracks).toEqual(base.tracks);
+    expect(otherKey.beacons).toBe(base.beacons);
+    expect(otherKey.drops).toBe(base.drops);
+    // Same key, another pseudonym seed: the private streams move, the landings do not.
+    const otherPriv = run({ pseudonymSeed: 0xdef, dispersionKey: KEY_A });
+    expect(otherPriv.tracks).not.toEqual(base.tracks);
+    expect(otherPriv.beacons).not.toBe(base.beacons);
+    expect(otherPriv.drops).not.toBe(base.drops);
+    expect(otherPriv.landings).toEqual(base.landings);
   });
 
-  it('the stream is ROOM-PRIVATE: another pseudonym seed on the same map lands the same shells elsewhere', () => {
-    const a = landings({ pseudonymSeed: 0xabc });
-    const b = landings({ pseudonymSeed: 0xdef });
-    expect(a.map((s) => s.split(':')[0])).toEqual(b.map((s) => s.split(':')[0])); // the same shells…
-    expect(b).not.toEqual(a); // …on other points
+  it('(b) the same key and inputs land every shell on the same point', () => {
+    const first = run({ pseudonymSeed: 0xabc, dispersionKey: KEY_A }).landings;
+    expect(run({ pseudonymSeed: 0xabc, dispersionKey: new Uint8Array(KEY_A) }).landings).toEqual(first);
+  });
+
+  it('(c) OFFLINE (no key — batch sims, tests, the RL env): the same seeds replay every landing exactly, and the derived key is not a fixed one', () => {
+    expect(run({}).landings).toEqual(run({}).landings);
+    expect(run({ pseudonymSeed: 0xabc }).landings).toEqual(run({ pseudonymSeed: 0xabc }).landings);
+    expect(run({ pseudonymSeed: 0xabc }).landings).not.toEqual(run({ pseudonymSeed: 0xdef }).landings);
+  });
+
+  it('(d) consecutive ordinals\' seeds are not related by XOR with a fixed constant (the retired first cut was)', () => {
+    for (const key of [KEY_A, KEY_B, offlineDispersionKey(21, 0xabc)]) {
+      const xors = new Set<number>();
+      for (let n = 1; n <= 16; n += 1) xors.add((dispersionShellSeed(key, n) ^ dispersionShellSeed(key, n + 1)) >>> 0);
+      expect(xors.size).toBeGreaterThan(8);
+      for (let n = 1; n <= 16; n += 1) {
+        const s = dispersionShellSeed(key, n);
+        expect(Number.isInteger(s) && s >= 0 && s <= 0xffffffff).toBe(true);
+      }
+    }
   });
 });
 

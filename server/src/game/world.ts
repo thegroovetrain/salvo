@@ -85,7 +85,6 @@ import {
   pointPolygonDistance,
   flakRimFactor,
   settleBlow,
-  shellDispersionSeed,
   mulberry32,
   resolveShipPose,
   slowedKinematics,
@@ -187,6 +186,7 @@ import type { BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
+import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
@@ -292,6 +292,21 @@ export interface WorldOptions {
    * room.
    */
   pseudonymSeed?: number;
+  /**
+   * THE DISPERSION KEY (Story 11.1 review fix — anti-cheat): 32 bytes of
+   * per-room secret from which every gun shell's dispersion seed is minted
+   * (`HMAC-SHA256(key, ordinal)`, see `mintShell`). It is INDEPENDENT of
+   * `pseudonymSeed` and of every other stream on purpose: a shooter sees its
+   * own shells' exact landings, so any one shell's 32-bit seed is
+   * brute-forceable — and under an HMAC that reveals nothing about the key,
+   * any other shell or any other stream. ArenaRoom passes
+   * `crypto.randomBytes(32)` for every real room. Omitted => a deterministic
+   * key derived from the World's seeds (SHA-256 over a fixed label, the map
+   * seed and the pseudonym material) — for OFFLINE runs only (batch sims,
+   * tests, the RL env), so they replay exactly; NEVER acceptable for a
+   * production room.
+   */
+  dispersionKey?: Uint8Array;
   /**
    * THE RADIO BEACON SWITCH (Story 10.8, a DEV SMOKE ARM). `false` makes
    * `placeBeacons` and `tickBeacons` no-ops, so no beacon is ever charted and
@@ -1422,10 +1437,6 @@ function interceptionAmount(shell: ShellState): number {
  *  material) — unused by any other stream (see the spawnPhase roster). */
 const DROP_STREAM_K = 0x5bd1e995;
 
-/** THE DISPERSION stream's mint constant (Story 11.1, R5 — XORed into the
- *  room-private pseudonym material) — unused by any other stream (see the
- *  spawnPhase roster). */
-const DISPERSION_STREAM_K = 0x2c1b3c6d;
 /** The PICKUP sub-stream key base (Eric 2026-11-08 — the amount is rolled at
  *  pickup): the k-th pickup of this World draws on
  *  `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)`, far from the minute
@@ -2035,8 +2046,13 @@ export class World {
    * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
    * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
    * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key;
-   * the room-private DISPERSION stream is 0x2c1b3c6d — Story 11.1; the beacon
-   * stream 0x68e31da4, dropout 0x2545f491, fog 0x3c6ef372).
+   * the beacon stream 0x68e31da4, dropout 0x2545f491, fog 0x3c6ef372).
+   * 0x2c1b3c6d was Story 11.1's first DISPERSION stream constant (XORed into
+   * the pseudonym material) — RETIRED at its review: a shooter sees its own
+   * exact landings, so a 32-bit seed off `priv` could be brute-forced back to
+   * `priv` and with it every room-private stream here. Dispersion now has its
+   * own per-room key (`WorldOptions.dispersionKey`, an HMAC per shell) and
+   * draws on NO constant in this roster.
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -2087,18 +2103,18 @@ export class World {
    */
   private readonly dropSeed: number;
   /**
-   * THE DISPERSION STREAM SEED (Story 11.1, Eric 2026-11-12, R5). ROOM-PRIVATE
-   * like the airdrops' (the pseudonym material under its own constant,
-   * DISPERSION_STREAM_K = 0x2c1b3c6d — see the spawnPhase roster): where a
-   * gun shell lands must not be predictable from the public map seed. Every
-   * dispersed shell (main battery, secondaries) draws on
-   * `shellDispersionSeed(dispersionSeed, ordinal)`, the ordinal being the
-   * shell's own projectile sequence number (`shellSeq`), so the seed of one
-   * shell never depends on another and a replay with the same seeds and
-   * inputs lands every shell on the same point. Batch sims pass no
-   * `pseudonymSeed`, so this stays deterministic off the map seed there.
+   * THE DISPERSION KEY (Story 11.1, Eric 2026-11-12, R5; review fix). Where a
+   * gun shell lands must not be predictable — from the public map seed, from
+   * another shell's landing, or from any other stream. Every dispersed shell
+   * (main battery, secondaries) draws on `shellSeedFor(ordinal)` = the first
+   * 4 bytes of HMAC-SHA256(this key, ordinal as 8-byte big-endian), the
+   * ordinal being the shell's own projectile sequence number (`shellSeq`): one
+   * shell's seed never depends on another, a brute-forced seed reveals nothing
+   * about the key, and a replay with the same key and inputs lands every
+   * shell on the same point. See WorldOptions.dispersionKey for where the key
+   * comes from (a random per-room key; a seed-derived one OFFLINE only).
    */
-  private readonly dispersionSeed: number;
+  private readonly dispersionKey: Buffer;
   /** The next match minute whose batch has not been scattered yet. */
   private nextDropMinute = 0;
   /** Wreck pickups placed this World's life — the id suffix (`drp-w-<k>`:
@@ -2122,7 +2138,9 @@ export class World {
     this.beacons = new BeaconField((priv ^ 0x68e31da4) >>> 0);
     this.dropsEnabled = opts.drops !== false;
     this.dropSeed = (priv ^ DROP_STREAM_K) >>> 0;
-    this.dispersionSeed = (priv ^ DISPERSION_STREAM_K) >>> 0;
+    // A copy, so the caller's buffer cannot be mutated under the World; the
+    // seed-derived key is the OFFLINE fallback only (see WorldOptions).
+    this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -7090,7 +7108,7 @@ export class World {
       mkId: () => this.nextBallisticId(),
       mintShell: () => {
         const id = this.nextBallisticId();
-        return { id, seed: shellDispersionSeed(this.dispersionSeed, this.shellSeq) };
+        return { id, seed: dispersionShellSeed(this.dispersionKey, this.shellSeq) };
       },
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y, kind) => this.spawnMine(ship, x, y, kind, fireT),

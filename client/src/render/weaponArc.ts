@@ -37,7 +37,10 @@
 import {
   CONFIG,
   arcFor,
+  batteryAimPoint,
   gunReachU,
+  pickTurret,
+  turretSalvo,
   inArc,
   isMineEquipment,
   launcherArcHolds,
@@ -50,6 +53,10 @@ import {
   type LitCircle,
   type EquipmentId,
   type HullId,
+  type AimPose,
+  type TurretPick,
+  type TurretSalvo,
+  type TurretState,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -87,9 +94,10 @@ export function isPlacedItem(id: EquipmentId | null): boolean {
 
 /**
  * THE TORPEDO FAMILY — the three torpedo lines (the `Q` slot's family since
- * Story 10.5). Every fish
- * shares the family's identity on screen: the cool-green arc, reticle and
- * preview tint, and the torpedo glyph.
+ * Story 10.5). Since Story 11.1 R21 (Eric 2026-11-12: "Make it all amber.
+ * Everything gets AIM COLOR") the family no longer has its own aim tint — the
+ * old cool green is retired from the arc, reticle and preview; the family
+ * still differs in geometry (no range clamp, launcher wedges) and glyph.
  */
 export const TORPEDO_ITEM_IDS = ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const satisfies
   readonly EquipmentId[];
@@ -238,13 +246,18 @@ export { pointInLitZone };
 
 /**
  * THE DECK GUNS (amendment 114) — the slot-0 gun rows that fire into the
- * shooter's own lit-up area: the cannon (`gun`), the MACHINE GUN, the FLAK
- * GUN and (Story 10.4) the captain's MAIN BATTERY, whose server fire path calls
- * the same `gunReachU` (measured there from the firing turret's station; this
- * client read measures from the hull centre). An explicit, pinned id SET (never an id equality), mirroring the server,
- * where exactly these three rows call `gunReachU`.
+ * shooter's own lit-up area AND measure their reach from the hull centre: the
+ * cannon (`gun`), the MACHINE GUN and the FLAK GUN. An explicit, pinned id SET
+ * (never an id equality), mirroring the server.
+ *
+ * THE MAIN BATTERY IS NOT HERE (Story 11.1 review F-A / R19): its server fire
+ * path calls `gunReachU` from the FIRING TURRET'S STATION along that turret's
+ * line of fire, so a centre-measured read here disagreed with it near the rim
+ * or a lit-zone edge. Its reach is `mainBatteryAim` below — the one helper the
+ * oval and the range-clamp marker both read — and this function hands it its
+ * plain row `rangeU`.
  */
-const DECK_GUNS: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak', 'mainBattery']);
+const DECK_GUNS: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak']);
 
 /**
  * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114): the reach
@@ -291,6 +304,78 @@ export function weaponReachU(
   return gunReachU(ship, aim, aimDist, base, mapRadius, ownLitZones);
 }
 
+/** Reused scratch for the main battery's "as if loaded" pick. */
+const LOADED_SCRATCH: TurretState[] = [];
+
+/** The turrets as they stand but every one loaded (into the reused scratch). */
+function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
+  LOADED_SCRATCH.length = turrets.length;
+  for (let i = 0; i < turrets.length; i++) {
+    const t = LOADED_SCRATCH[i] ?? (LOADED_SCRATCH[i] = { a: 0, reloadMsLeft: 0 });
+    t.a = turrets[i].a;
+    t.reloadMsLeft = 0;
+  }
+  return LOADED_SCRATCH;
+}
+
+/** Everything the main battery's next salvo is resolved from. */
+export interface MainBatteryAimInput {
+  stats: EffectiveStats;
+  hullId: HullId;
+  /** The firing pose (the PREDICTED own hull). */
+  pose: AimPose;
+  aim: number;
+  /** u — cursor distance from the ship CENTRE (the InputMsg's `aimDist`). */
+  aimDist: number;
+  /** The predicted turrets the pick reads. */
+  turrets: readonly TurretState[];
+  mapRadius: number;
+  /** The own LIVE lit zones (render/litZones.ts `ownActiveZones`). */
+  ownLitZones: readonly LitCircle[];
+}
+
+/** The main battery's next salvo as the server will resolve it. */
+export interface MainBatteryAim {
+  pick: TurretPick;
+  /** u — the reach measured from `pick.station` (row rangeU, lifted by an own lit zone). */
+  reachU: number;
+  salvo: TurretSalvo;
+  /** True when the aim lies beyond the turret's reach — the salvo center is cut short. */
+  clamped: boolean;
+}
+
+/**
+ * PURE: THE MAIN BATTERY'S NEXT SALVO (Story 11.1, R16 / R19, review F-A) —
+ * exactly the server's fire path (server/src/game/equipment/mainBattery.ts):
+ * the shared `batteryAimPoint` → `pickTurret` → `gunReachU` FROM THE PICKED
+ * TURRET'S STATION along its line of fire → `turretSalvo`. One difference, the
+ * preview's own: with no READY turret bearing, the pick is taken as if every
+ * turret were loaded (the turret the player is waiting on), so the oval and
+ * the clamp marker do not vanish during a reload. Null: no aim, or no turret
+ * bears at all.
+ *
+ * THE ONE HELPER for everything that draws main-battery reach — the oval
+ * (render/aimPreview.ts) and the range-clamp marker (render/firing.ts) — so
+ * the two can never sit on different points.
+ */
+export function mainBatteryAim(inp: MainBatteryAimInput): MainBatteryAim | null {
+  const { hullId, pose, turrets, mapRadius } = inp;
+  const aimPoint = batteryAimPoint(pose, inp.aim, inp.aimDist);
+  if (aimPoint === null) return null;
+  const pick = pickTurret(turrets, hullId, pose, aimPoint) ?? pickTurret(asLoaded(turrets), hullId, pose, aimPoint);
+  if (pick === null) return null;
+  const base = inp.stats.equipment.mainBattery.rangeU;
+  const reachU = gunReachU(pick.station, pick.bearing, pick.aimDistU, base, mapRadius, inp.ownLitZones);
+  const salvo = turretSalvo(pick, hullId, pose, reachU, mapRadius);
+  return { pick, reachU, salvo, clamped: pick.aimDistU > reachU };
+}
+
+/** Where the range-clamp marker sits for the main battery (R19): the salvo
+ *  center — the oval's own center — when the shot is cut short, else null. */
+export function batteryClampMark(b: MainBatteryAim | null): { x: number; y: number; bearing: number } | null {
+  if (b === null || !b.clamped) return null;
+  return { x: b.salvo.center.x, y: b.salvo.center.y, bearing: b.salvo.bearing };
+}
 
 /**
  * Pure: is the CLICKED POINT within a hard range DENIAL gate? Only the CLICK-

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, type GameEvent, type ShellState } from '@salvo/shared';
 import { RANGE_BANDS, emptyBands, isMainBatteryShell, rangeBandOf, shellDamagedHull } from '../rangeBands.js';
 import { bandLine } from '../botReadoutReport.js';
+import { isDeckGunShell } from '../botReadouts.js';
 
 describe('rangeBandOf — four equal bands of the reach, nearest first', () => {
   it('cuts the reach into RANGE_BANDS equal bands; the edges belong to the farther band', () => {
@@ -46,13 +47,20 @@ describe('shellDamagedHull — one tick\'s events', () => {
   });
 });
 
-describe('isMainBatteryShell — told apart from the broadside by its smaller bodyblock', () => {
-  const base = { kind: 'shell', family: 'cannon', hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage } as unknown as ShellState;
-  it('the main battery\'s shell is; a full-damage bodyblock (the broadside), a tagged shell or another family is not', () => {
-    expect(isMainBatteryShell(base)).toBe(true);
-    expect(isMainBatteryShell({ ...base, contactDamage: base.damage })).toBe(false);
-    expect(isMainBatteryShell({ ...base, lit: { radius: 1, durationMs: 1 } })).toBe(false);
-    expect(isMainBatteryShell({ ...base, family: 'mg' })).toBe(false);
+describe('isMainBatteryShell — keyed on the server-private main-battery marker', () => {
+  const unmarked = { kind: 'shell', family: 'cannon', hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage, contactDamage: CONFIG.mainBattery.contactDamage } as unknown as ShellState;
+  const marked = { ...unmarked, batteryShell: true } as ShellState;
+  it('a marked shell is one EVEN WHEN its damage equals its contact damage (a hull or --tune arm like that); an unmarked cannon shell on the same mask (the broadside) is not', () => {
+    expect(marked.damage).toBe(marked.contactDamage); // the premise the old inference misfiled
+    expect(isMainBatteryShell(marked)).toBe(true);
+    expect(isMainBatteryShell({ ...marked, damage: marked.contactDamage + 1 })).toBe(true);
+    expect(isMainBatteryShell(unmarked)).toBe(false);
+    expect(isMainBatteryShell({ ...unmarked, damage: unmarked.contactDamage + 1 })).toBe(false);
+  });
+
+  it('isDeckGunShell (the shot ledger) follows the marker the same way', () => {
+    expect(isDeckGunShell(marked)).toBe(true);
+    expect(isDeckGunShell(unmarked)).toBe(false);
   });
 });
 

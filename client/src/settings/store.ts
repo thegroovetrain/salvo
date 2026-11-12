@@ -94,12 +94,19 @@ export function coerceAimSize(v: unknown): number {
   return Math.min(R.sizeMax, Math.max(R.sizeMin, snapped));
 }
 
-/** The last AIM COLOR converted (the frame loop asks every frame). */
-let tintMemo = { hex: '', tint: 0 };
+/** Pure: a `#rrggbb` (already coerced) as a Pixi tint. */
+function hexTint(hex: string): number {
+  return parseInt(coerceAimColor(hex).slice(1), 16);
+}
+
+/** The last AIM COLOR converted (the frame loop asks every frame). Seeded with
+ *  the DEFAULT's own answer under the key '' (review F-D), so a first call with
+ *  an empty string reads the default tint, never black. */
+let tintMemo = { hex: '', tint: hexTint(DEFAULT_SETTINGS.aimColor) };
 
 /** Pure: the AIM COLOR as a Pixi tint (0xrrggbb); garbage reads the default. */
 export function aimColorTint(hex: string): number {
-  if (hex !== tintMemo.hex) tintMemo = { hex, tint: parseInt(coerceAimColor(hex).slice(1), 16) };
+  if (hex !== tintMemo.hex) tintMemo = { hex, tint: hexTint(hex) };
   return tintMemo.tint;
 }
 

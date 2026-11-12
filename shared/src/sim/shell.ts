@@ -115,6 +115,15 @@ export interface ShellState {
    * every bursting projectile; never on the wire.
    */
   direct?: true;
+  /**
+   * SERVER-INTERNAL main-battery marker (Story 11.1 review fix): set ONLY by
+   * the main battery's salvo (server equipment/mainBattery.ts), so the batch
+   * harness can tell a main-battery shell from every other cannon-family
+   * shell without inferring it from damage values. stepShell never reads it;
+   * NEVER on the wire (the `lit` tag's exact posture — perception's
+   * forbidden-key scan pins it).
+   */
+  batteryShell?: true;
   // `originX` / `originY` / `attenRangeU` (the deck-gun range-attenuation
   // launch point and reference, Story 9.12) — RETIRED 2026-11-12, Story 11.1:
   // damage is flat with range.

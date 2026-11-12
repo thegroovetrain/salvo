@@ -10,9 +10,17 @@
 // stretched onto the ellipse. The ellipse is therefore a HARD EDGE.
 //
 // Pure: no I/O, no Math.random — every landing comes from a mulberry32 seed,
-// so the same inputs and seed give the same point on every machine.
-// `dispersedPoint` does no map clamping; `dispersedLanding` (the server's
-// one call, Story 11.1 Phase B) clamps inside the water disk.
+// so the same inputs and seed give the same point ON A GIVEN JS ENGINE. It is
+// NOT bit-identical across engines: the bell and the angle go through
+// `Math.log` / `Math.exp` / `Math.cos` / `Math.sin`, whose last bits the spec
+// leaves to the implementation. That is fine because ONLY THE SERVER SAMPLES
+// LANDINGS (`dispersedPoint` / `dispersedLanding`); the client never predicts
+// a landing and may call `dispersionAxes` only (the preview oval — plain
+// arithmetic). The per-shell seed is minted server-side (World `mintShell`,
+// an HMAC off the room's private dispersion key — Story 11.1 review fix), so
+// no seed derivation lives here.
+// `dispersedPoint` does no map clamping; `dispersedLanding` clamps inside the
+// water disk along the origin → landing ray.
 
 import { CONFIG } from '../constants.js';
 import { mulberry32 } from '../math/rng.js';
@@ -92,22 +100,12 @@ export function dispersedPoint(
 }
 
 /**
- * THE PER-SHELL SEED (Story 11.1, R5): one shell's dispersion seed from the
- * room's private dispersion stream seed and the shell's ORDINAL (the World's
- * projectile sequence number). Order-independent — a shell's seed depends on
- * nothing but its own ordinal — so a replay with the same seeds and inputs
- * lands every shell on the same point.
- */
-export function shellDispersionSeed(streamSeed: number, ordinal: number): number {
-  return (streamSeed ^ Math.imul(ordinal, 0x9e3779b9)) >>> 0;
-}
-
-/**
  * One dispersed shell's LANDING (Story 11.1, R5 / R8): `dispersedPoint` from
- * the shell's own muzzle (`originX`, `originY`) around its aim point, then
- * pulled back inside the water disk along the muzzle → landing ray
- * (`clampInsideMap`). It may land past the gun's reach (by at most half the
- * ellipse's along axis), never outside the map.
+ * `originX`, `originY` around its aim point, then pulled back inside the water
+ * disk along the origin → landing ray (`clampInsideMap`). It may land past the
+ * gun's reach (by at most half the ellipse's along axis), never outside the
+ * map. (The secondaries' one-round path; the main battery's salvo clamps
+ * along its salvo bearing instead — server equipment/ballistics.ts.)
  */
 export function dispersedLanding(
   originX: number,

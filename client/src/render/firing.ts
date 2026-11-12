@@ -13,8 +13,11 @@
 //     two mirrored BEAM sectors are now thin OUTLINES marking the deny boundary
 //     while ONE SMALL WEDGE PER TURRET carries the aiming information (Eric
 //     ruling 2026-08-27) — exactly the side containing the aim lights.
-//     The gun FAMILY (gun / star shells) draws NO arc sector: it is 360° and
-//     fires to the clicked point (Eric ruling 2026-07-21), so a wedge would lie.
+//     The gun FAMILY (main battery / cannon / secondaries / special shells)
+//     draws NO arc sector: it is 360° and fires to the clicked point (Eric
+//     ruling 2026-07-21, reaffirmed 2026-11-12), so a wedge would lie. Every
+//     arc, wedge, reticle and preview takes the player's AIM COLOR (Story 11.1
+//     R21 — the torpedo green retired).
 //     The remaining instant ability (the boost) never primes and draws no
 //     marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
@@ -57,7 +60,6 @@ import {
 } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
-const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
 const DIM = CLIENT_CONFIG.colors.textMuted;
 const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
 const EDGE = CLIENT_CONFIG.aimPreview.placementEdge;
@@ -116,20 +118,6 @@ function bakedWedgeTexture(half: number): Texture {
   return tex;
 }
 
-/**
- * Pure: the aim colour of one primed system — THE TORPEDO FAMILY's cool green,
- * or aim amber for everything else.
- *
- * ONE ANSWER, EVERY SURFACE (the wedges, the twin-beam outlines and the
- * reticle), because they are one statement: "this is the system you are
- * aiming". It keys on the FAMILY since Story 8.13 rather than on
- * `id === 'heavyTorpedo'` — every torpedo line is a torpedo, and a torpedo
- * that drew amber would read as gunnery.
- */
-function weaponTint(id: EquipmentId | null): number {
-  return isTorpedoItem(id) ? TORP_TINT : AMBER;
-}
-
 /** The reticle's drawn geometry at one AIM SIZE (u / stroke px). */
 export interface ReticleGeometry {
   /** Ring radius. */
@@ -156,14 +144,25 @@ export function reticleGeometry(size: number): ReticleGeometry {
 }
 
 /**
- * PURE: the reticle's tint. The TORPEDO FAMILY keeps its cool green (and dims
- * when it would not fire); every other aimed weapon draws in the player's AIM
- * COLOR (`aimTint`, Story 11.1 R15) when it would fire and the muted tint when
- * it would not. The range-clamp ring + tick take the same answer.
+ * PURE: the reticle's tint. EVERY aimed weapon — the torpedo family included
+ * since Story 11.1 R21 (its cool green is retired) — draws in the player's AIM
+ * COLOR (`aimTint`, R15) when it would fire and the muted tint when it would
+ * not (R21d: the "would not fire" state is unchanged). The range-clamp ring +
+ * tick take the same answer. `id` is kept so every caller stays one statement
+ * per primed weapon.
  */
-export function reticleTint(id: EquipmentId | null, armed: boolean, aimTint: number): number {
-  if (!armed) return DIM;
-  return isTorpedoItem(id) ? TORP_TINT : aimTint;
+export function reticleTint(_id: EquipmentId | null, armed: boolean, aimTint: number): number {
+  return armed ? aimTint : DIM;
+}
+
+/**
+ * The MAIN BATTERY's per-frame display input (Story 11.1, R19), set by
+ * `FiringUX.setAimStyle`: where the range-clamp marker sits
+ * (weaponArc.batteryClampMark — the oval's own center; null when the shot is
+ * not cut short).
+ */
+export interface MainBatteryView {
+  clamp: { x: number; y: number; bearing: number } | null;
 }
 
 export interface FiringPose {
@@ -262,6 +261,48 @@ export function turretWedges(side: 1 | -1, bs: BroadsideArcs): TurretWedge[] {
   return wedges;
 }
 
+/** What `paintedWedges` needs beyond the primed id. */
+export interface WedgeContext {
+  /** The hull whose launcher stations the torpedo wedges spring from (null: none named). */
+  launcherHull: HullId | null;
+  /** Torpedo launchers held (`stats.torpedoLaunchers`). */
+  launchers: number;
+}
+
+/** A painted wedge set and the key its sprites are placed under. */
+export interface PaintedWedges {
+  key: string;
+  wedges: LauncherWedge[];
+}
+
+/**
+ * PURE: THE PAINTED FIRING WEDGES for the primed weapon — the one show rule
+ * (Story 10.6 R28): a TORPEDO (`launcher` arc kind) paints one wedge per firing
+ * band of each held launcher, from its station, `launcherWedgeLengthU(ARC_R)`
+ * long, WHENEVER it is primed, whatever the aim (only the fill changes —
+ * `wedgeStyle`). Everything else — the whole gun family (main battery, cannon,
+ * secondaries, special shells: 360°, Eric 2026-11-12 "don't need displayed
+ * arcs") — returns null. Mines and the broadside keep their own sector /
+ * twin-beam displays (drawSectorArc / drawTwinArcs).
+ */
+export function paintedWedges(id: EquipmentId | null, ctx: WedgeContext): PaintedWedges | null {
+  if (id === null || fireArcKind(id) !== 'launcher') return null;
+  if (ctx.launcherHull === null) return null; // no hull named: no station to spring from
+  return {
+    key: `${ctx.launcherHull}|${ctx.launchers}`,
+    wedges: launcherWedges(ctx.launcherHull, ctx.launchers, launcherWedgeLengthU(ARC_R)),
+  };
+}
+
+/**
+ * PURE: the fill every painted wedge takes — lit when the shared pick would
+ * fire (`hasAmmo`: `pickTube` for a torpedo — main.ts slotHasRound) or on a denial (red at the lit weight), else the
+ * muted dim fill; lit in the player's AIM COLOR (R21b).
+ */
+export function wedgeStyle(aimTint: number, hasAmmo: boolean, denied: boolean): { color: number; alpha: number } {
+  return arcFillStyle(denied ? DENIED_RED : aimTint, denied || hasAmmo);
+}
+
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
@@ -285,6 +326,8 @@ export class FiringUX {
   private readonly wedgeLayer = new Container();
   private readonly wedgeSprites: Sprite[] = [];
   private wedgeKey = '';
+  /** The main battery's clamp-marker input (`setAimStyle`). */
+  private battery: MainBatteryView | null = null;
   /** The player's AIM COLOR (tint) and AIM SIZE — set by `setAimStyle`. */
   private aimTint: number = AMBER;
   private aimSize: number = RET.defaultSize;
@@ -302,11 +345,14 @@ export class FiringUX {
     aimLayer.addChild(this.reticle);
   }
 
-  /** The player's AIM COLOR (as a tint) and AIM SIZE (×) for the reticle and
-   *  the range-clamp marker (Story 11.1, R15 / R18). */
-  setAimStyle(tint: number, size: number): void {
+  /** The player's AIM COLOR (as a tint) for every aim surface and AIM SIZE (×)
+   *  for the reticle (Story 11.1, R15 / R18 / R21), plus the MAIN BATTERY's
+   *  clamp-marker input for this frame (R19; null when the battery is not
+   *  primed). Call before `update`. */
+  setAimStyle(tint: number, size: number, battery: MainBatteryView | null = null): void {
     this.aimTint = tint;
     this.aimSize = size;
+    this.battery = battery;
   }
 
   /** Clear both graphics (own ship sunk — no arcs/reticle). */
@@ -369,7 +415,8 @@ export class FiringUX {
   ): void {
     if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
     if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
-    if (kind === 'launcher') this.drawLauncherArcs(id, ammo, denied);
+    const painted = paintedWedges(id, { launcherHull: this.launcherHull, launchers: this.launchers });
+    if (painted !== null) this.paintWedges(painted, ammo, denied);
     // (The four buoys' 360° placement DISC left with the buoys — 2026-11-05,
     // Story 10.5, epic-10 amendment 11: the mines' wedge is the only
     // placement shape.)
@@ -381,7 +428,7 @@ export class FiringUX {
    * sector IS the enforced one. The MINE draws at its true placement reach
    * (this.rangeU = CONFIG.mine.placeRange) because for it the wedge is the
    * reachable water, not an indicator. (Since Story 10.6 no torpedo declares
-   * a sector — its wedge is `drawLauncherArcs`.)
+   * a sector — its wedge is `paintedWedges`.)
    */
   private drawSectorArc(
     id: EquipmentId,
@@ -407,10 +454,10 @@ export class FiringUX {
     // through `isPlacedItem`, exactly as the mines do.
     // ALL THREE MINE LINES place (Story 8.13), not just the naval one, and the
     // belt's SUPERCAV TORPEDO is a LAUNCH, so the two halves are asked
-    // separately: `isPlacedItem` decides the placement grammar, `weaponTint`
-    // decides the family colour.
+    // separately: `isPlacedItem` decides the placement grammar; the colour is
+    // the AIM COLOR for every weapon (Story 11.1 R21).
     const placement = isPlacedItem(id);
-    const tint = weaponTint(id);
+    const tint = this.aimTint; // R21: every aim surface takes AIM COLOR
     const radius = placement ? this.rangeU : ARC_R;
     const color = denied ? DENIED_RED : tint;
     this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius, placement);
@@ -419,24 +466,11 @@ export class FiringUX {
     if (placement) this.sectorEdge(t.offset, t.halfArc, radius, color, denied || lit);
   }
 
-  /**
-   * THE TORPEDO WEDGES (Story 10.6, R6 / R28; Eric 2026-11-06): one wedge per
-   * FIRING BAND of each held launcher (`launcherWedges` — the shared
-   * `launcherSectors` bands), each springing from ITS launcher's station (the
-   * point `pickTube` measures from), `launcherWedgeLengthU(ARC_R)` long and
-   * fading to nothing at its end (the baked texture). Each is its own fill, so
-   * the fore and aft wedges stack into a brighter patch where they cross
-   * (Eric). Lit when some held launcher bears and a tube would fire; the
-   * reload sweep-back is a small DIM wedge at each station.
-   */
-  private drawLauncherArcs(id: EquipmentId, ammo: FiringAmmo, denied: boolean): void {
-    if (this.launcherHull === null) return; // no hull named: no station to spring from
-    // `hasAmmo` for a torpedo IS the shared `pickTube` fire verdict (main.ts
-    // slotHasRound), measured from each launcher's station — the wedge never
-    // second-guesses it with a ship-centre read.
-    const lit = denied || ammo.hasAmmo;
-    const style = arcFillStyle(denied ? DENIED_RED : weaponTint(id), lit);
-    const wedges = this.placeWedges(this.launcherHull, this.launchers);
+  /** Paint the torpedo wedges: place the set, give every sprite the shared
+   *  lit/dim/denied fill, and the reload sweep-back. */
+  private paintWedges({ key, wedges }: PaintedWedges, ammo: FiringAmmo, denied: boolean): void {
+    const style = wedgeStyle(this.aimTint, ammo.hasAmmo, denied);
+    this.placeWedges(key, wedges);
     for (const sp of this.wedgeSprites) {
       sp.tint = style.color;
       sp.alpha = style.alpha;
@@ -447,11 +481,9 @@ export class FiringUX {
     }
   }
 
-  /** The wedge model for (hull, launcher count), re-placing the sprites only when it changes. */
-  private placeWedges(hull: HullId, launchers: number): LauncherWedge[] {
-    const wedges = launcherWedges(hull, launchers, launcherWedgeLengthU(ARC_R));
-    const key = `${hull}|${launchers}`;
-    if (key === this.wedgeKey) return wedges;
+  /** Re-place the pooled sprites on `wedges` — only when the set (`key`) changes. */
+  private placeWedges(key: string, wedges: readonly LauncherWedge[]): void {
+    if (key === this.wedgeKey) return;
     this.wedgeKey = key;
     while (this.wedgeSprites.length < MAX_LAUNCHERS * 2) {
       const sp = new Sprite();
@@ -468,7 +500,6 @@ export class FiringUX {
       sp.rotation = w.offset;
       sp.scale.set(w.r / LW.texPx);
     });
-    return wedges;
   }
 
   /** The reload sweep-back for one torpedo wedge: a small DIM wedge at its station. */
@@ -511,7 +542,7 @@ export class FiringUX {
     const t = arcFor(id);
     if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
     const firing = twinSectorSide(heading, aim, t);
-    const color = denied ? DENIED_RED : weaponTint(id);
+    const color = denied ? DENIED_RED : this.aimTint;
     for (const side of [1, -1] as const) {
       const lit = denied || (firing === side && ammo.hasAmmo);
       this.drawLegalOutline(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
@@ -671,7 +702,13 @@ export class FiringUX {
     // promise the torpedo stops there.
     // NOR FOR A PLACED id (a mine): a placement past the leash is DENIED,
     // never clamped, so no clamp marker.
-    if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id) && !isPlacedItem(id)) {
+    if (id === 'mainBattery') {
+      // R19 "ring follows the turret": the marker sits on the salvo center —
+      // the oval's own point, the firing turret's reach — never on a reach
+      // measured from the ship center.
+      const c = this.battery?.clamp ?? null;
+      if (c !== null) this.drawClampMark(c.x, c.y, c.bearing, color);
+    } else if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id) && !isPlacedItem(id)) {
       this.drawRangeClampMarker(pose, aim, cursor, color);
     }
   }
@@ -690,20 +727,21 @@ export class FiringUX {
     color: number,
   ): void {
     if (Math.hypot(cursor.x - pose.x, cursor.y - pose.y) <= this.rangeU) return;
+    this.drawClampMark(pose.x + Math.cos(aim) * this.rangeU, pose.y + Math.sin(aim) * this.rangeU, aim, color);
+  }
+
+  /** The clamp marker itself: a small ring at (ix, iy) + a tick across `bearing`. */
+  private drawClampMark(ix: number, iy: number, bearing: number, color: number): void {
     const g = this.reticle;
-    const ix = pose.x + Math.cos(aim) * this.rangeU;
-    const iy = pose.y + Math.sin(aim) * this.rangeU;
     g.circle(ix, iy, IMPACT_R).stroke({ width: 1.5, color, alpha: 0.9 });
     // A short cross-bearing tick: "the shell stops on this line".
-    const tx = Math.cos(aim + Math.PI / 2) * (IMPACT_R + 4);
-    const ty = Math.sin(aim + Math.PI / 2) * (IMPACT_R + 4);
+    const tx = Math.cos(bearing + Math.PI / 2) * (IMPACT_R + 4);
+    const ty = Math.sin(bearing + Math.PI / 2) * (IMPACT_R + 4);
     g.moveTo(ix - tx, iy - ty).lineTo(ix + tx, iy + ty).stroke({ width: 1, color, alpha: 0.6 });
   }
 
   /** Would the primed weapon fire on this aim — the reticle's lit/dim verdict.
-   *  The colour is `reticleTint`'s: the torpedo keeps its cool-green identity,
-   *  everything else (gun family, the broadside's beams, the mine's rear
-   *  placement) takes the player's AIM COLOR. */
+   *  The colour is `reticleTint`'s: every weapon's AIM COLOR (R21). */
   private armed(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): boolean {
     // A TORPEDO's `hasAmmo` is the shared `pickTube` fire verdict (station-
     // measured, R16 / R28): no ship-centre arc read may disagree with it.

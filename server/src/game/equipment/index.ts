@@ -69,10 +69,11 @@ export interface ActivationContext {
   mkId: () => string;
   /**
    * REAL DISPERSION (Story 11.1, R5): mint the next projectile id AND its
-   * per-shell dispersion seed — `shellDispersionSeed(streamSeed, ordinal)`
-   * off the World's ROOM-PRIVATE dispersion stream, keyed on the id's own
-   * ordinal (the same sequence `mkId` advances), so a replay with the same
-   * seeds and inputs lands every shell on the same point. Only the main
+   * per-shell dispersion seed — `dispersionShellSeed(key, ordinal)`
+   * (game/dispersionKey.ts: HMAC-SHA256 under the World's per-room
+   * dispersion key, independent of every other stream), keyed on the id's
+   * own ordinal (the same sequence `mkId` advances), so a replay with the
+   * same key and inputs lands every shell on the same point. Only the main
    * battery and the secondaries call it (R6); the seed never leaves the
    * server.
    */

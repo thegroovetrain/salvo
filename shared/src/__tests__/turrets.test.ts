@@ -405,22 +405,16 @@ describe('turretSalvo — the fire solution (CONVERGE, R13)', () => {
     expect(Math.atan2(salvo.center.y - pick.station.y, salvo.center.x - pick.station.x)).toBeCloseTo(wrapAngle(pick.bearing), 9);
   });
 
-  it('one shell per gun, every barrel from its OWN muzzle (the barrel spacing apart, across the line of fire), every shell aimed at the ONE center', () => {
+  it('one shell per gun, every one from the ONE muzzle point on the line of fire, every shell aimed at the ONE center', () => {
     for (const hull of SHIP_CLASS_IDS) {
       const { pick, salvo } = solve(aimAt(POSE, -Math.PI / 2, 700), hull);
       expect(salvo.shells).toHaveLength(pick.guns);
-      for (const sh of salvo.shells) expect(sh.target).toEqual(salvo.center); // converge: no parallel landing tracks
-      // Adjacent muzzles are one spacing apart, on a line ACROSS the line of fire.
-      for (let k = 1; k < salvo.shells.length; k += 1) {
-        const a = salvo.shells[k - 1].origin;
-        const b = salvo.shells[k].origin;
-        expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(CONFIG.mainBattery.barrelSpacingU, 9);
-        const along = (b.x - a.x) * Math.cos(pick.bearing) + (b.y - a.y) * Math.sin(pick.bearing);
-        expect(along).toBeCloseTo(0, 9);
+      for (const sh of salvo.shells) {
+        expect(sh.target).toEqual(salvo.center); // converge on the one center
+        expect(sh.origin).toEqual(salvo.shells[0].origin); // the muzzle line's point on the salvo axis — the server places the shells
       }
-      // The muzzles straddle the line of fire: their mean lies on it.
-      const mid = salvo.shells.reduce((m, sh) => ({ x: m.x + sh.origin.x / pick.guns, y: m.y + sh.origin.y / pick.guns }), { x: 0, y: 0 });
-      expect(Math.atan2(mid.y - pick.station.y, mid.x - pick.station.x)).toBeCloseTo(wrapAngle(pick.bearing), 9);
+      const o = salvo.shells[0].origin;
+      expect(Math.atan2(o.y - pick.station.y, o.x - pick.station.x)).toBeCloseTo(wrapAngle(pick.bearing), 9);
     }
   });
 

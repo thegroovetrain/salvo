@@ -48,7 +48,10 @@ export const STAT_SHELLS = 2000;
 const STAT_SALVO_BASE = 1_000_000;
 
 export const BLAST_U = CONFIG.mainBattery.burstRadius;
-export const SPACING_U = CONFIG.mainBattery.barrelSpacingU;
+// Every shell of a salvo aims at the ONE point (Eric 2026-11-12, R13) and the
+// game's `CONFIG.mainBattery.barrelSpacingU` retired with the parallel landing
+// tracks, so the bench's tracks are all on the aim point.
+export const SPACING_U = 0;
 
 /** One shell's seed from (salvo, shell): order-independent hash. */
 export function shellSeed(salvo: number, shell: number): number {

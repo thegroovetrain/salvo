@@ -101,7 +101,7 @@ const deg = (d: number): number => (d * Math.PI) / 180;
 
 describe('shared barrel', () => {
   it('exposes the blow, dispersion, mount-angle, fog-field and dropout functions and the FOG_NO_CUT sentinel', () => {
-    for (const fn of [shared.flakRimFactor, shared.settleBlow, shared.dispersedPoint, shared.dispersedLanding, shared.dispersionAxes, shared.shellDispersionSeed, shared.turretAngle, shared.launcherAngle]) {
+    for (const fn of [shared.flakRimFactor, shared.settleBlow, shared.dispersedPoint, shared.dispersedLanding, shared.dispersionAxes, shared.turretAngle, shared.launcherAngle]) {
       expect(typeof fn).toBe('function');
     }
     for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice, shared.fogEyeReach, shared.fogEyeReachFan]) {

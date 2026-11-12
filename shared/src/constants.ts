@@ -1485,17 +1485,17 @@ export const CONFIG = {
    * 11.1, R11 / R16 — point and shoot): a click fires ONE turret, the LOWEST
    * INDEX (bow first) among the READY turrets whose arc holds the aim point,
    * at the aim point exactly; no ready turret bears → nothing fires. The
-   * turret's guns fire as one salvo: every barrel from its own muzzle
-   * (`barrelSpacingU` apart, sim/spread.ts) at the ONE aim point (R13,
-   * converge), each shell landing at its own dispersed point
-   * (`dispersion` above), each `shipClasses.<id>.battery.shellDamage`.
+   * turret's guns fire as one salvo at the ONE aim point (R13, converge),
+   * each shell landing at its own dispersed point (`dispersion` above) and
+   * flying PARALLEL to the line of fire off the muzzle line (sim/turrets.ts
+   * `turretSalvo`), each `shipClasses.<id>.battery.shellDamage`.
    *
    * R2 "Equal broadside, 10 s": `reloadMs` per turret before RELOAD; reach is
    * the cannon's Tier I reach (`RUNG × 8`), scaled once by RANGE in the fold
    * (sim/indexStats.ts RANGE_ROWS).
    *
    * THE SHELL IS TODAY'S CANNON SHELL, READING OF RECORD (not a ruling): the
-   * five values marked below are COPIED from `CONFIG.gun` as it stood at
+   * four values marked below are COPIED from `CONFIG.gun` as it stood at
    * Story 10.4 — copies, not aliases, so a later retune of the retired
    * cannon row does not silently move the battleships. Its wire family word
    * stays `'cannon'`.
@@ -1515,7 +1515,9 @@ export const CONFIG = {
     contactDamage: 18, // hp to an early interceptor outside the blast — today's cannon shell, reading of record
     burstRadius: 15, // u — today's cannon shell, reading of record
     shellRadius: 2, // u — today's cannon shell, reading of record
-    barrelSpacingU: 12, // u between adjacent barrels' muzzles of one turret's salvo — today's cannon shell, reading of record
+    // `barrelSpacingU` (12 u between a salvo's muzzles) — RETIRED 2026-11-12,
+    // Story 11.1 review fix: a salvo's shells leave abreast off the muzzle line,
+    // placed by the dispersion roll, never by barrel offsets (sim/turrets.ts).
   },
 
   /**

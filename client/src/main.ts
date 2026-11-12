@@ -58,9 +58,9 @@ import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from '
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
-import { FiringUX, type BroadsideArcs } from './render/firing.js';
-import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { clickInArc, isTorpedoItem, weaponReachU } from './render/weaponArc.js';
+import { FiringUX, type BroadsideArcs, type MainBatteryView } from './render/firing.js';
+import { AimPreview, computeAimPreview, ownBurstRadius, previewTint, type PreviewShip } from './render/aimPreview.js';
+import { batteryClampMark, clickInArc, isTorpedoItem, mainBatteryAim, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
@@ -3700,9 +3700,10 @@ function renderFiring(
   // derivations of one reach would let the marker and the burst circle disagree
   // about where the shell stops.
   const reachU = weaponReachU(status.stats, primedItem, pose, aim, aimDist, g.mapRadius, ownZones);
-  // Story 11.1 (R15 / R18): the player's AIM COLOR tints the reticle, its
-  // range-clamp marker and the main-battery oval; AIM SIZE scales the reticle.
-  g.firing.setAimStyle(aimColorTint(settings.current.aimColor), settings.current.aimSize);
+  // Story 11.1 (R15 / R18 / R21): AIM COLOR tints every aim surface; AIM SIZE
+  // scales the reticle. (R19, F-A): the main battery's clamp marker — on the salvo center the oval is drawn at, from the
+  // SAME helper (`mainBatteryAim`) and the same pose the preview reads.
+  g.firing.setAimStyle(aimColorTint(settings.current.aimColor), settings.current.aimSize, mainBatteryView(g, pose, status, primedItem, aim, aimDist, ownZones));
   g.firing.update(
     pose,
     aim,
@@ -3715,7 +3716,38 @@ function renderFiring(
     status.stats.torpedoLaunchers, // Story 10.6: the torpedo wedge is the held launchers' arcs
     g.ownLaunchers.hullId, // R28: each wedge springs from its launcher's station on this hull
   );
-  renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU);
+  renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU, ownZones);
+}
+
+/** The pose the main battery's preview and clamp marker are resolved from: the
+ *  render position with the PREDICTED heading (the fire gate's heading). */
+function batteryPreviewPose(g: Game, pose: RenderPose): PreviewShip {
+  return { x: pose.x, y: pose.y, heading: predictedHeading(g), cls: g.ownClass };
+}
+
+/** The main battery's display inputs for the firing UX (Story 11.1, R19) — null unless the battery is the primed weapon. */
+function mainBatteryView(
+  g: Game,
+  pose: RenderPose,
+  status: OwnStatus,
+  primedItem: EquipmentId | null,
+  aim: number,
+  aimDist: number,
+  ownZones: readonly OwnZone[],
+): MainBatteryView | null {
+  if (primedItem !== 'mainBattery') return null;
+  const ship = batteryPreviewPose(g, pose);
+  const b = mainBatteryAim({
+    stats: status.stats,
+    hullId: ship.cls,
+    pose: ship,
+    aim,
+    aimDist,
+    turrets: g.ownBattery.turrets,
+    mapRadius: g.mapRadius,
+    ownLitZones: ownZones,
+  });
+  return { clamp: batteryClampMark(b) };
 }
 
 /** The bearing (and placement-reach) half of the click gate for the primed
@@ -3784,10 +3816,11 @@ function renderAimPreview(
   primedId: EquipmentId | null,
   legal: boolean,
   gunReachU: number,
+  ownZones: readonly OwnZone[],
 ): void {
   const model = computeAimPreview({
     id: primedId,
-    ship: { x: pose.x, y: pose.y, heading: predictedHeading(g), cls: g.ownClass },
+    ship: batteryPreviewPose(g, pose),
     aim,
     aimDist,
     stats: status.stats,
@@ -3795,6 +3828,7 @@ function renderAimPreview(
     islands: g.islands,
     legal,
     gunReachU,
+    ownLitZones: ownZones, // the main battery measures its reach from the firing turret (F-A)
     turrets: g.ownBattery.turrets, // Story 10.4: the predicted turrets the next salvo picks from
     launchers: g.ownLaunchers.states, // Story 10.6: the predicted launchers the next torpedo picks from
   });

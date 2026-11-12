@@ -22,7 +22,7 @@
 // Pure helpers + one small tracker; READ-ONLY over the World, like every
 // number in the harness.
 
-import { CONFIG, type GameEvent, type ShellState } from '@salvo/shared';
+import type { GameEvent, ShellState } from '@salvo/shared';
 
 /** How many equal bands the reach is cut into. */
 export const RANGE_BANDS = 4;
@@ -41,13 +41,12 @@ export function rangeBandOf(rangeU: number, reachU: number): number {
   return Math.min(RANGE_BANDS - 1, band);
 }
 
-/** True for a MAIN-BATTERY shell: the cannon family on the main battery's
- *  mask, untagged, and with a bodyblock smaller than its damage (the
- *  broadside, which shares the mask, deals its full damage on contact). */
+/** True for a MAIN-BATTERY shell: the server-private `batteryShell` marker,
+ *  which ONLY the main battery's salvo sets (equipment/mainBattery.ts). The
+ *  old inference from `contactDamage !== damage` misfiled a hull or `--tune`
+ *  arm whose shell damage equals its contact damage (Story 11.1 review fix). */
 export function isMainBatteryShell(s: ShellState): boolean {
-  if (s.kind !== 'shell' || s.family !== 'cannon') return false;
-  if (s.lit !== undefined || s.burn !== undefined || s.foul !== undefined) return false;
-  return s.hits === CONFIG.mainBattery.hits && s.contactDamage !== s.damage;
+  return s.kind === 'shell' && s.batteryShell === true;
 }
 
 /** Did shell `shellId` (owned by `ownerId`) damage a hull on this tick's

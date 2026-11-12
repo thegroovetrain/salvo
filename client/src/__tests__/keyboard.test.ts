@@ -70,6 +70,7 @@ import {
   nextPrimedSlot,
   slotHoldsAbility,
   textEntryFocused,
+  textFieldElement,
   cooldownAbilityDenied,
   ABILITY_KEY_CODES,
   BOOST_KEY_CODES,
@@ -1190,6 +1191,28 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     expect(log).toEqual(['esc', 'enter', 'mute']); // and steer nothing
     expect(kb.throttle).toBe(0);
     range.remove();
+  });
+
+  // Story 11.1 review F-C: the AIM COLOR picker is an <input type="color"> —
+  // focused by Tab, or with its picker dismissed unchanged, it keeps focus and
+  // must not swallow the ESC that closes the settings overlay.
+  it('a focused COLOR picker still routes ESC (the overlay stays closable) and is no text field', () => {
+    const log: string[] = [];
+    kb = new KeyboardInput({ isOverlayFocused: () => true, onEscape: () => log.push('esc') });
+    kb.attach();
+    const color = document.createElement('input');
+    color.type = 'color';
+    document.body.appendChild(color);
+    color.focus();
+    expect(document.activeElement).toBe(color); // the premise
+    expect(textEntryFocused()).toBe(false);
+    expect(textFieldElement(color)).toBe(false);
+    expect(press('Escape')).toBe(true);
+    expect(log).toEqual(['esc']);
+    color.remove();
+    const text = document.createElement('input');
+    text.type = 'text';
+    expect(textFieldElement(text)).toBe(true); // a real text field still is one
   });
 
   it('a focused overlay leaves TAB native (focus can reach the overlay controls)', () => {

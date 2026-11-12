@@ -687,11 +687,13 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(computeAimPreview(torp({ id: 'heavyTorpedo', stats: light })).band).toBeNull();
   });
 
-  it('keeps the TORPEDO FAMILY tint for every fish, and amber for everything else', () => {
-    const torp = previewTint('heavyTorpedo');
-    expect(previewTint('lightTorpedo')).toBe(torp);
-    expect(previewTint('supercavTorpedo')).toBe(torp);
-    expect(previewTint('navalMines')).not.toBe(torp);
+  // Story 11.1 R21 ("All aim previews, even torpedoes ... Everything gets AIM
+  // COLOR"): the family's own green is retired.
+  it('every fish previews in the AIM COLOR, like everything else', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      expect(previewTint(id, 0x00ff00), id).toBe(0x00ff00);
+      expect(previewTint(id), id).toBe(previewTint('gun'));
+    }
   });
 
   it('no torpedo previews a point burst any more — contact only', () => {
@@ -980,9 +982,14 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
 });
 
 describe('previewTint', () => {
-  it('keeps the torpedo on its own identity and everything else on aim amber', () => {
-    expect(previewTint('heavyTorpedo')).not.toBe(previewTint('gun'));
-    expect(previewTint('navalMines')).toBe(previewTint('gun'));
+  // R21a: EVERY preview family follows the AIM COLOR setting.
+  it('every preview family — guns, battery, shells, broadside, mines, torpedoes — takes the AIM COLOR', () => {
+    const ids = ['gun', 'mainBattery', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells',
+      'foulingShell', 'dazzleShells', 'navalMines', 'captiveMines', 'foulingMines',
+      'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const;
+    for (const tint of [0x00ff00, 0x3355ff]) {
+      for (const id of ids) expect(previewTint(id, tint), id).toBe(tint);
+    }
   });
 });
 
@@ -1178,9 +1185,9 @@ describe('the MAIN BATTERY preview — one true-size oval at the salvo center', 
     expect(computeAimPreview(battery({ aimDist: Number.NaN }))).toEqual(EMPTY_MODEL);
   });
 
-  it('the oval is drawn in the AIM COLOR, the torpedo keeps its own tint', () => {
+  it('the oval is drawn in the AIM COLOR, and so is the torpedo (R21)', () => {
     expect(previewTint('mainBattery', 0x123456)).toBe(0x123456);
-    expect(previewTint('heavyTorpedo', 0x123456)).toBe(previewTint('heavyTorpedo'));
+    expect(previewTint('heavyTorpedo', 0x123456)).toBe(0x123456);
   });
 });
 

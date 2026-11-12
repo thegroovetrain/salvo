@@ -228,9 +228,9 @@ const bump = (rec: Record<string, number>, key: string, by = 1): void => {
  *  star / phosphor / fouling shells all fly `family: 'cannon'`. The tagged
  *  three carry `lit` / `burn` / `foul`. The cannon row is CONFIG.gun.hits.
  *  The main battery shares its mask object with the broadside, so it is told
- *  apart by the broadside's own rule — a broadside interceptor takes the
- *  shell's full damage (contactDamage === damage); a main-battery shell has a
- *  smaller bodyblock (rangeBands.ts `isMainBatteryShell`). */
+ *  apart by its server-private `batteryShell` marker (rangeBands.ts
+ *  `isMainBatteryShell` — Story 11.1 review fix; damage values are not a
+ *  discriminator). */
 export function isDeckGunShell(s: ShellState): boolean {
   if (s.family === null || s.kind !== 'shell') return false;
   if (s.lit !== undefined || s.burn !== undefined || s.foul !== undefined) return false;

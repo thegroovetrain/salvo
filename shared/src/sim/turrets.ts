@@ -38,10 +38,13 @@
 //
 // CONVERGE (R13: "a real turret's barrels would all be aimed to train on the
 // same target point, though they wouldn't all land on it"). Every barrel of
-// the fired turret keeps its own muzzle (`barrelSpacingU` apart across the
-// line of fire) and aims at the ONE salvo center; where each shell actually
+// the fired turret aims at the ONE salvo center; where each shell actually
 // lands is the server's dispersion roll (sim/dispersion.ts) around that
-// center — never here, and never on the client.
+// center — never here, and never on the client. The barrels' own lateral
+// offsets no longer place shells (Story 11.1 review fix — no converging
+// tracks on the wire): the server flies every shell of a salvo PARALLEL to
+// the salvo bearing, abreast off the muzzle line, each to its own landing
+// (server equipment/ballistics.ts `salvoShellFlight`).
 //
 // STATE IS MUTATED IN PLACE (`stepTurrets`, `fireTurret`, `reloadAllTurrets`
 // return nothing new): the arrays live on the ship record / the client's own
@@ -68,7 +71,6 @@ import {
   mountWant,
   type TrainedMount,
 } from './mountAim.js';
-import { parallelOffsets } from './spread.js';
 
 // The aiming machinery itself lives in sim/mountAim.ts since Story 10.6 (the
 // torpedo launchers share it); this file is the battery's hull-keyed face of
@@ -304,7 +306,7 @@ export function pickTurret(
   return null;
 }
 
-/** One shell of a salvo: its barrel's muzzle and the point it is AIMED at (the salvo center). */
+/** One shell of a salvo: its un-dispersed launch point and the point it is AIMED at (the salvo center). */
 export interface SalvoShell {
   origin: Vec2;
   target: Vec2;
@@ -314,18 +316,22 @@ export interface SalvoShell {
 export interface TurretSalvo {
   /** The salvo's ONE aim point — the pick's aim point, reach- and map-clamped. Every shell's `target`. */
   center: Vec2;
-  /** rad — the turret's line of fire (station → center), which places the muzzles; NOT each shell's own flight bearing. */
+  /** rad — the turret's line of fire (station → center): the dispersion ellipse's long axis AND every shell's flight bearing. */
   bearing: number;
-  /** One entry per gun: its own muzzle `origin`, and `target` = `center` (converge, R13). */
+  /** One entry per gun: `origin` = the muzzle on the salvo axis (the SAME point for every gun), `target` = `center`. */
   shells: SalvoShell[];
 }
 
 /**
- * THE FIRE SOLUTION of a pick: the salvo center and every barrel's own
- * muzzle, all aimed at the ONE center (CONVERGE, Eric 2026-11-12, Story 11.1,
- * R13). Un-dispersed: the server rolls each shell's landing around the center
- * (sim/dispersion.ts `dispersedLanding`) and flies it straight from its
- * muzzle to there.
+ * THE FIRE SOLUTION of a pick: the salvo center and the turret's muzzle on
+ * the line of fire, every gun aimed at the ONE center (CONVERGE, Eric
+ * 2026-11-12, Story 11.1, R13). Un-dispersed: the server rolls each shell's
+ * landing around the center inside the ellipse for the STATION → CENTER range
+ * (the very range the client's preview oval is sized from) and flies it
+ * PARALLEL to `bearing`, abreast off the MUZZLE LINE (the line through
+ * `shells[k].origin` perpendicular to `bearing`) — server
+ * equipment/ballistics.ts `salvoShellFlight`. Parallel tracks never
+ * intersect, so two visible shells give an observer no aim point and no range.
  *
  *   - CENTER: `min(pick.aimDistU, reachU)` along `pick.bearing` FROM THE
  *     STATION, pulled back inside the water disk (`burstPointAlong`) — the aim
@@ -335,12 +341,12 @@ export interface TurretSalvo {
  *     lit zone — `gunReachU(pick.station, pick.bearing, pick.aimDistU, rangeU,
  *     mapRadius, ownLitZones)` — which is why the pick and the solution are
  *     two calls.
- *   - MUZZLES: the station pushed out along the bearing to just clear the own
- *     silhouette (`muzzleSpawnFrom`), each barrel offset ACROSS the line of
- *     fire by the shared straddle law (`parallelOffsets`, `barrelSpacingU`
- *     apart — three guns: one on the line; two: straddling it). Unless the
- *     center is nearer than the muzzle, in which case every shell spawns AT
- *     the center (no inner dead ring — the cannon's `muzzleOrTarget` rule).
+ *   - ORIGIN (every gun the same): the station pushed out along the bearing
+ *     to just clear the own silhouette (`muzzleSpawnFrom`) — the muzzle
+ *     line's point on the salvo axis. Unless the center is nearer than the
+ *     muzzle (POINT BLANK), in which case every origin is the center (no
+ *     inner dead ring — the cannon's `muzzleOrTarget` rule) and the server
+ *     spawns each shell on its own landing.
  *   - TARGETS: every shell's `target` is the center.
  */
 export function turretSalvo(
@@ -355,9 +361,9 @@ export function turretSalvo(
   const muzzle = muzzleSpawnFrom(pick.station, pose, hullId, pick.bearing, cfg.shellRadius);
   const centerDist = Math.hypot(center.x - pick.station.x, center.y - pick.station.y);
   const muzzleDist = Math.hypot(muzzle.x - pick.station.x, muzzle.y - pick.station.y);
-  const pointBlank = centerDist <= muzzleDist + cfg.shellRadius;
-  const shells = parallelOffsets(pick.bearing, pick.guns, cfg.barrelSpacingU).map((o) => ({
-    origin: pointBlank ? { x: center.x, y: center.y } : { x: muzzle.x + o.x, y: muzzle.y + o.y },
+  const from = centerDist <= muzzleDist + cfg.shellRadius ? center : muzzle; // point blank → the center
+  const shells = Array.from({ length: pick.guns }, () => ({
+    origin: { x: from.x, y: from.y },
     target: { x: center.x, y: center.y },
   }));
   return { center, bearing: pick.bearing, shells };

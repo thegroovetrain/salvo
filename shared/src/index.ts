@@ -12,6 +12,17 @@
  *  `lu` now carry the DERIVED angle (at the aim inside the arc, rest
  *  otherwise); a burst's center is the shell's dispersed landing point. No
  *  landing point, seed or origin ever reaches a client before a shell lands.
+ *  Every shell of one main-battery salvo flies PARALLEL to the salvo bearing
+ *  (station → aim center), leaving abreast off the muzzle line, each to its
+ *  own landing — so the reveals of one salvo carry ONE velocity direction and
+ *  their tracks never intersect: an observer gets the back-bearing line set
+ *  (as one shell always gave), NOT the aim point or the shooter's range by
+ *  triangulation. What it can still read: the salvo's lateral spread, which
+ *  scales with the (station → center) range at `dispersion.acrossFrac ×
+ *  alongFrac` — a noisy statistical range hint over 2–3 samples, of the order
+ *  of 1 u per 300 u of range. The per-shell seed is an HMAC under a per-room
+ *  random key (server World `mintShell`), independent of every other stream.
+ *  CONFIG `mainBattery.barrelSpacingU` is RETIRED (no client reads it).
  *  102 — Story 10.13 THE SOUND PASS (2026-11-11, Eric's ruling: four
  *  selectable horns — Foghorn, Whistle, Bell, Sad Trombone): the
  *  horn CATALOG's content widens, `HORN_IDS` = ['standard', 'whistle', 'bell',

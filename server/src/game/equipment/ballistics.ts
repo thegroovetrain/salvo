@@ -12,7 +12,9 @@
 // the owner — so clearance is only about clean spawn geometry, not self-hits.
 
 import {
+  clampInsideMap,
   dispersedLanding,
+  dispersedPoint,
   hullClearOffset as sharedHullClearOffset,
   muzzleSpawn as sharedMuzzleSpawn,
   type ShellFamily,
@@ -78,6 +80,9 @@ export interface BallisticParams {
    *  at its aim point with a splash instead of bursting, and a hull it strikes
    *  takes a plain contact hit (see ShellState.direct). */
   direct?: true;
+  /** Server-internal MAIN-BATTERY marker (see ShellState.batteryShell). Only
+   *  the main battery's salvo sets it; never on the wire. */
+  batteryShell?: true;
   // `attenRangeU` (the deck-gun range-attenuation reference, Story 9.12) —
   // RETIRED 2026-11-12, Story 11.1: damage is flat with range.
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
@@ -128,6 +133,56 @@ export function dispersedFlight(origin: Vec2, aim: Vec2, seed: number, mapRadius
   return { landing, dir: distU > 0 ? Math.atan2(dy, dx) : fallbackDir, distU };
 }
 
+/** One main-battery shell's flight: where it spawns, where it lands, how far it flies. */
+export interface SalvoShellFlight {
+  /** Its spawn point — on the muzzle line, abreast of its salvo-mates (or its landing, point blank). */
+  spawn: Vec2;
+  /** Its own dispersed landing, inside the water disk. */
+  landing: Vec2;
+  /** u — spawn → landing, along the salvo bearing. */
+  distU: number;
+}
+
+/**
+ * ONE SHELL OF A MAIN-BATTERY SALVO (Story 11.1 R13, review fix — no
+ * converging tracks on the wire). The dispersion is rolled ONCE per shell
+ * around the salvo `center` inside the ellipse for the STATION → CENTER range
+ * (the client preview oval's range), its long axis on the salvo bearing
+ * (station → center). The shell then flies PARALLEL to the salvo bearing
+ * (`bearing`): its spawn is its landing projected straight back along the
+ * bearing onto the MUZZLE LINE (through `muzzle` — the salvo's un-dispersed
+ * origin, `turretSalvo` `shells[k].origin` — perpendicular to the bearing).
+ * Every shell of a salvo therefore leaves abreast, flies on one velocity
+ * direction and arrives exactly on its own landing (no sideways snap); only
+ * its travel differs, by its along-shot offset. A landing on or behind the
+ * muzzle line — or any shell of a POINT-BLANK salvo (`turretSalvo` puts its
+ * origin on the center) — is spawned ON the landing (the `muzzleOrTarget`
+ * rule). The map clamp pulls the landing back ALONG THE BEARING, so the track
+ * stays parallel.
+ */
+export function salvoShellFlight(
+  station: Vec2,
+  center: Vec2,
+  muzzle: Vec2,
+  bearing: number,
+  seed: number,
+  mapRadius: number,
+): SalvoShellFlight {
+  const ux = Math.cos(bearing);
+  const uy = Math.sin(bearing);
+  const p = dispersedPoint(station.x, station.y, center.x, center.y, seed);
+  const along = (p.x - muzzle.x) * ux + (p.y - muzzle.y) * uy;
+  // `turretSalvo` reports a point-blank salvo by putting its origin ON the center.
+  const pointBlank = muzzle.x === center.x && muzzle.y === center.y;
+  if (pointBlank || !(along > 0)) {
+    const landing = clampInsideMap(station, p, mapRadius);
+    return { spawn: landing, landing, distU: 0 };
+  }
+  const spawn = { x: p.x - ux * along, y: p.y - uy * along };
+  const landing = clampInsideMap(spawn, p, mapRadius);
+  return { spawn, landing, distU: Math.hypot(landing.x - spawn.x, landing.y - spawn.y) };
+}
+
 /**
  * Build a ShellState launched from `ship` along bearing `dir`, spawned at
  * `origin` when given (gun muzzle) or hull-clear along the bearing (plus
@@ -161,13 +216,18 @@ export function makeBallistic(
     hits: p.hits,
     family: p.family,
   };
+  copyOptionalTags(shell, p);
+  return shell;
+}
+
+/** The optional tags are set only when the caller carries one (never an
+ *  explicit `undefined` key — the shape stays clean for plain projectiles). */
+function copyOptionalTags(shell: ShellState, p: BallisticParams): void {
   if (p.direct === true) shell.direct = true;
-  // The optional doctrine tags are set only when the caller carries one (never
-  // an explicit `undefined` key — the shape stays clean for plain projectiles).
+  if (p.batteryShell === true) shell.batteryShell = true;
   if (p.lit) shell.lit = p.lit;
   if (p.burn) shell.burn = p.burn;
   if (p.foul) shell.foul = p.foul;
   if (p.flash) shell.flash = p.flash;
   if (p.homing) shell.homing = p.homing;
-  return shell;
 }

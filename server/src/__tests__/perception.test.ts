@@ -443,6 +443,8 @@ const OWN_MOUNTS_SEEN = { n: 0 };
 /** Story 11.1 non-vacuity: in-flight DISPERSED shells (main battery /
  *  secondaries) whose landing point the fuzz proved absent from a frame. */
 const LANDING_GUARDED = { n: 0 };
+/** Story 11.1 review fix: pairs of one salvo's shell reveals checked parallel (verifyParallelSalvoTracks). */
+const PARALLEL_PAIRS = { n: 0 };
 const CLOUD_DELIVERED_BY_RADAR = { n: 0 };
 /** Story 8.19: how many frames carried a POSITIVE `you.draft` (the drafting
  *  arm of the self-private clause ran against a real lift, not only the
@@ -2599,6 +2601,31 @@ function verifyNoLandingPoint(w: World, f: FrameMsg): void {
   }
 }
 
+/** Story 11.1 review fix — NO CONVERGING TRACKS ON THE WIRE: the shell
+ *  reveals of ONE main-battery salvo in a frame (grouped by the server's
+ *  truth: same owner, same birth time) carry parallel velocities, read off
+ *  the wire fields ONLY (vx, vy) — pairwise cross product ~0, so their tracks
+ *  never intersect and two visible shells solve no aim point and no range. */
+function verifyParallelSalvoTracks(w: World, f: FrameMsg): void {
+  const salvos = new Map<string, BallisticEvent[]>();
+  for (const e of f.events) {
+    if (e.k !== 'shell') continue;
+    const s = w.shells.get(e.id);
+    if (s === undefined || s.batteryShell !== true) continue;
+    const key = `${s.ownerId}@${s.bornAt}`;
+    salvos.set(key, [...(salvos.get(key) ?? []), e]);
+  }
+  for (const rows of salvos.values()) {
+    for (let i = 1; i < rows.length; i += 1) {
+      const a = rows[0];
+      const b = rows[i];
+      const cross = (a.vx * b.vy - a.vy * b.vx) / (Math.hypot(a.vx, a.vy) * Math.hypot(b.vx, b.vy));
+      expect(Math.abs(cross), `salvo tracks ${a.id} / ${b.id} converge`).toBeLessThan(1e-9);
+      PARALLEL_PAIRS.n += 1;
+    }
+  }
+}
+
 /** Assert one frame leaks nothing beyond the observer's vision. */
 function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
@@ -2694,7 +2721,8 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // dispersion seed as a field — the muzzle would become solvable and the
   // fall of shot predictable; the ballistic reveal is built field by field.
   // (The amendment-202 cursor point these lines used to guard is deleted.)
-  expect(hasForbiddenKey(f, ['originX', 'originY', 'attenRangeU', 'cursor', 'targetX', 'targetY', 'origin', 'landing', 'seed', 'dispersionSeed'])).toBe(false);
+  expect(hasForbiddenKey(f, ['originX', 'originY', 'attenRangeU', 'cursor', 'targetX', 'targetY', 'origin', 'landing', 'seed', 'dispersionSeed', 'dispersionKey', 'batteryShell'])).toBe(false);
+  verifyParallelSalvoTracks(w, f);
   verifyNoLandingPoint(w, f);
   // ...and the hand is never bigger than the dial that sizes it (a pool with
   // fewer dealable lines than the offer size draws SHORT, never long).
@@ -4307,6 +4335,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     LU_SEEN.n = 0;
     OWN_MOUNTS_SEEN.n = 0;
     LANDING_GUARDED.n = 0;
+    PARALLEL_PAIRS.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
     DRAFT_SEEN.n = 0;
     FOUL_ZONE_DELIVERED.n = 0;
@@ -4816,6 +4845,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(LU_SEEN.n).toBeGreaterThan(0); // Story 10.6: the `lu` pin was exercised
     expect(OWN_MOUNTS_SEEN.n).toBeGreaterThan(0); // ...and the own launchers / racks pin
     expect(LANDING_GUARDED.n).toBeGreaterThan(0); // Story 11.1: in-flight dispersed landings were checked absent
+    expect(PARALLEL_PAIRS.n).toBeGreaterThan(0); // Story 11.1 review fix: salvo reveals were checked parallel
     expect(CLOUD_DELIVERED_BY_RADAR.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
     // (Story 8.19 — the value is PLANTED on ids[0] on odd ticks, above), so

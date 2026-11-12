@@ -96,12 +96,29 @@ describe('OwnBattery.correct — a frame overwrites the prediction', () => {
     for (let i = 0; i < 5; i++) b.step(POSE, AIM, AIM_DIST, true, DT);
     const phase = b.sec.untilRoundMs;
     const server = initialTurrets(DEFAULT_CLASS_ID).map((t, i) => ({ a: t.a, reloadMsLeft: 1000 * (i + 1) }));
+    const local = b.turrets.map((t) => t.a);
     b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: { heat: 0.75, locked: true } }, 0);
-    expect(b.turrets).toEqual(server);
+    expect(b.turrets.map((t) => t.reloadMsLeft)).toEqual(server.map((t) => t.reloadMsLeft));
+    expect(b.turrets.map((t) => t.a)).toEqual(local); // the angles stay local (F-B)
     expect(b.turrets).not.toBe(server); // copied, never aliased
     expect(b.heat).toBe(0.75);
     expect(b.locked).toBe(true);
     expect(b.sec.untilRoundMs).toBe(phase);
+  });
+
+  // Review F-B: with no traverse a turret's angle is a pure function of the
+  // local pose + aim NOW; the frame's was derived from a latency-old aim, and
+  // taking it flicked every turret back for a tick at 20 Hz.
+  it('keeps every turret\'s LOCALLY DERIVED angle over the frame\'s, while the reloads are the frame\'s', () => {
+    const b = new OwnBattery(DEFAULT_CLASS_ID);
+    b.step(POSE, AIM, AIM_DIST, false, DT);
+    const aimPt = aimPointOf(POSE, AIM, AIM_DIST);
+    const derived = b.turrets.map((_, i) => turretAngle(DEFAULT_CLASS_ID, i, POSE, aimPt));
+    expect(b.turrets.map((t) => t.a)).toEqual(derived); // the premise
+    const server = b.turrets.map((t, i) => ({ a: t.a + 0.2, reloadMsLeft: 500 * (i + 1) }));
+    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: { heat: 0, locked: false } }, 0);
+    expect(b.turrets.map((t) => t.a)).toEqual(derived);
+    expect(b.turrets.map((t) => t.reloadMsLeft)).toEqual(server.map((t) => t.reloadMsLeft));
   });
 
   it('INSTANT RELOAD (Story 10.5, R10) is not predicted: the vented own frame unlocks a locked local gun, which fires on the next held step', () => {
@@ -267,8 +284,7 @@ describe('no aim (review C5)', () => {
 
 // REVIEW GATE C2 — a frame the server built BEFORE it processed the click
 // must not roll the predicted shot back: a turret whose predicted fire rides
-// an input newer than the frame's `ackSeq` keeps its local reload (the angle
-// still comes from the frame) until a frame acks that input — or until the
+// an input newer than the frame's `ackSeq` keeps its local reload until a frame acks that input — or until the
 // safety valve (PENDING_CAPACITY frames) lets the server's value through.
 describe('OwnBattery.correct — a stale frame keeps a predicted shot (review C2)', () => {
   const RELOAD = 4000;
@@ -289,12 +305,13 @@ describe('OwnBattery.correct — a stale frame keeps a predicted shot (review C2
     };
   }
 
-  it("a frame older than the click: the fired turret still reads reloading, its angle is the server's", () => {
+  it('a frame older than the click: the fired turret still reads reloading, its angle stays local', () => {
     const { b, idx } = fired();
+    const local = b.turrets[idx].a;
     const f = frame(0, 0.1);
     b.correct(f, SEQ - 1);
     expect(b.turrets[idx].reloadMsLeft).toBe(RELOAD);
-    expect(b.turrets[idx].a).toBe(f.turrets[idx].a);
+    expect(b.turrets[idx].a).toBe(local);
     b.turrets.forEach((t, i) => {
       if (i !== idx) expect(t.reloadMsLeft).toBe(0);
     });

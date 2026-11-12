@@ -104,10 +104,24 @@ describe('OwnLaunchers.step — the shared stepper, same aim point', () => {
 describe('OwnLaunchers.correct — from the wire, keeping un-acked fires', () => {
   const wire = (tubes: number[], a = 0): LauncherState[] => [{ a, tubes }];
 
-  it('takes the wire angle and clocks verbatim', () => {
-    const l = seeded();
+  it('takes the wire clocks verbatim; a launcher the model did not hold takes the wire angle', () => {
+    const l = new OwnLaunchers(HULL);
     l.correct({ cls: HULL, launchers: wire([1234], 0.5) }, 3);
     expect(l.states).toEqual(wire([1234], 0.5));
+  });
+
+  // Review F-B: the frame's angle came from a latency-old aim; with no
+  // traverse the angle is a pure function of the local pose + aim, so the
+  // correction must not flick it back.
+  it('keeps the LOCALLY DERIVED angle over the frame\'s, while the tubes are the frame\'s', () => {
+    const l = seeded();
+    aimAt(l, BEAM);
+    const derived = launcherAngle(HULL, 0, POSE, launcherAimPoint(POSE, HULL, BEAM, AIM_DIST));
+    expect(l.states[0].a).toBe(derived); // the premise
+    const stale = derived + 0.3;
+    l.correct({ cls: HULL, launchers: wire([1234], stale) }, 3);
+    expect(l.states[0].a).toBe(derived);
+    expect(l.states[0].tubes).toEqual([1234]);
   });
 
   it('a frame older than the fire keeps the local clock; the acking frame takes the server value', () => {
@@ -115,7 +129,7 @@ describe('OwnLaunchers.correct — from the wire, keeping un-acked fires', () =>
     l.fire(0, 0, 9000, 10);
     l.correct({ cls: HULL, launchers: wire([0], 0.2) }, 9); // stale: built before the click
     expect(l.states[0].tubes[0]).toBe(9000);
-    expect(l.states[0].a).toBe(0.2); // the angle is always the frame's
+    expect(l.states[0].a).not.toBe(0.2); // the angle is never the frame's (F-B)
     l.correct({ cls: HULL, launchers: wire([0]) }, 10); // acked: denied on the server
     expect(l.states[0].tubes[0]).toBe(0);
   });

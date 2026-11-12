@@ -3,7 +3,7 @@
 // defaults), AIM SIZE scales the reticle's geometry linearly and never the
 // main-battery oval, and AIM COLOR reaches both the reticle and the oval.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CONFIG, DEFAULT_CLASS_ID, effectiveStats, initialTurrets } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
@@ -93,9 +93,20 @@ describe('the oval never reads AIM SIZE; AIM COLOR reaches reticle and oval', ()
     }
   });
 
-  it('an unarmed reticle drops to the muted tint; the torpedo family keeps its own identity', () => {
+  it('an unarmed reticle drops to the muted tint; an armed torpedo reticle takes the AIM COLOR (R21)', () => {
     expect(reticleTint('mainBattery', false, 0x00ff00)).not.toBe(0x00ff00);
-    expect(reticleTint('heavyTorpedo', true, 0x00ff00)).toBe(previewTint('heavyTorpedo', 0x00ff00));
-    expect(reticleTint('heavyTorpedo', true, 0x00ff00)).not.toBe(0x00ff00);
+    expect(reticleTint('heavyTorpedo', false, 0x00ff00)).toBe(reticleTint('mainBattery', false, 0x00ff00));
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo', 'navalMines', 'gun'] as const) {
+      expect(reticleTint(id, true, 0x00ff00), id).toBe(0x00ff00);
+      expect(reticleTint(id, true, 0x00ff00), id).toBe(previewTint(id, 0x00ff00));
+    }
+  });
+
+  // Review F-D: the memo is seeded so a FIRST call with garbage reads the
+  // default, never black. Run in a fresh module so no earlier call warmed it.
+  it('a first-ever call with an empty string reads the default tint', async () => {
+    vi.resetModules();
+    const fresh = await import('../settings/store.js');
+    expect(fresh.aimColorTint('')).toBe(parseInt(fresh.DEFAULT_SETTINGS.aimColor.slice(1), 16));
   });
 });
