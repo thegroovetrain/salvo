@@ -96,6 +96,13 @@ warnings: ['oversized']
 
 ## Spec Change Log
 
+- **2026-11-12 — Eric on the bench page (chat), rulings R9–R12; they override the intent contract where they differ.**
+  - R9 The four dials stand: `alongFrac 0.01`, `acrossFrac 1/3`, `floorU 2` (per axis — "that scale is too small to matter"), `sigmas 2`.
+  - R10 The aim preview is re-cut (supersedes R7's single outlined oval): NO travel lines, NO blast circles; one FILLED oval per shell of the next turret to fire, overlapping, no outline needed, in a color bright enough to be seen on the ocean ("dull amber isn't cutting it"). Candidates are rendered on the bench page; his pick gates the commit.
+  - R11 Turret and launcher TRAVERSE TIME IS REMOVED — back to point and shoot; each turret or launcher fires only if the target point is within its arc. Supersedes epic-10 amendment 7's load-bearing traverse and the hold-outside-the-arc half of amendment 10 as far as traverse goes; the exact reading (which turret is "next", what the bots' `readyOnTarget` becomes, what the client's turret-angle prediction becomes) is settled with Eric before Phase B.
+  - R12 Phase B is not started until R10's look is picked.
+  - KEEP: `dispersion.ts`, its tests and the bench page's first two cards as built.
+
 ## Review Triage Log
 
 ## Design Notes

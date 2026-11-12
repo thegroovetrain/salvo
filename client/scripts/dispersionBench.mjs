@@ -122,9 +122,10 @@ async function main() {
   if (!args.selftest) return;
   let failed = 0;
   for (const res of await selftest(html)) {
-    const canv = res.report.canvases.map((c) => `${c.id} ${c.inked}`).join(', ');
+    const least = res.report.canvases.reduce((m, c) => (c.inked < m.inked ? c : m));
+    const canv = `${res.report.canvases.length} canvases, least inked ${least.id} ${least.inked} px`;
     const r = res.report.readouts;
-    console.log(`width ${res.width}: inked px [${canv}]; oval ${r.fullLengthU.toFixed(2)} × ${r.fullWidthU.toFixed(2)} u; hit ${(r.hitShare * 100).toFixed(1)} %; middle half ${(r.innerShare * 100).toFixed(1)} %`);
+    console.log(`width ${res.width}: ${canv}; aim oval ${r.aimOvalLongPx.toFixed(1)} px long; oval ${r.fullLengthU.toFixed(2)} × ${r.fullWidthU.toFixed(2)} u; hit ${(r.hitShare * 100).toFixed(1)} %; middle half ${(r.innerShare * 100).toFixed(1)} %`);
     const bad = failures(res);
     for (const b of bad) console.log(`  FAIL ${b}`);
     failed += bad.length;

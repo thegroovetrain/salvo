@@ -32,8 +32,6 @@ export interface BenchState {
   /** The salvo counter: the drawn salvo's seeds derive from it. */
   counter: number;
   accumulate: boolean;
-  zoom: number;
-  keepCircles: boolean;
 }
 
 export interface Shell {

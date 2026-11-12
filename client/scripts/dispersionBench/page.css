@@ -146,3 +146,17 @@ figcaption { font: 600 15px/1.4 var(--font); color: var(--text); margin-bottom: 
 .record { font: 600 15px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: 8px; color: var(--text); }
 .error { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 8px; background: var(--error-bed); font-size: 15px; overflow-wrap: anywhere; }
 .build { margin: 32px 0 0; font: 400 14px/1.4 var(--mono); color: var(--text-2); }
+
+.seg.stack { flex-direction: column; gap: 8px; }
+.swatch-head { margin: 16px 0 0; }
+.swatches { gap: 8px; }
+.swatch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; }
+.swatch .chip { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--hairline); flex: none; }
+.swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.marker-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 16px; }
+.marker-grid figure { padding: 8px; border: 1px solid transparent; border-radius: 10px; }
+.marker-grid figure.picked { border-color: var(--accent); }
+.mk-line { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(--text-2); }
+.mk-line.strong { color: var(--text); font-weight: 600; }
+.field { flex-wrap: wrap; max-width: 100%; }
+.field select { max-width: 100%; min-width: 0; }

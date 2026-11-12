@@ -42,20 +42,34 @@
   </section>
 
   <section class="card">
-    <h2>The aim preview candidates</h2>
-    <p class="note">A mock of the game's aim preview on the game's water, in the preview's own colors and line weights. Left: today's preview. A: the oval's thin outline at the aim point. B: the same outline with a faint fill.</p>
-    <div id="previewDials" class="sliders"></div>
-    <label class="check"><input type="checkbox" id="keepCircles" checked> Also show today's lines and blast circles in A and B</label>
-    <div class="previews">
-      <figure><figcaption>Today</figcaption><canvas id="pvToday" class="canvas" aria-label="Today's aim preview"></canvas></figure>
-      <figure><figcaption>A — outline</figcaption><canvas id="pvA" class="canvas" aria-label="Candidate A: oval outline"></canvas></figure>
-      <figure><figcaption>B — outline + fill</figcaption><canvas id="pvB" class="canvas" aria-label="Candidate B: oval outline with faint fill"></canvas></figure>
+    <h2>Aim marker ideas</h2>
+    <p class="note">Each idea draws one filled oval per shell of the next turret to fire: where that shell can land, at the range set above. No lines, no blast circles. Long side along the line of fire (shells come in from the left).</p>
+    <p class="note">The water behind them copies the game's battle view in its own colors. Pick which kind of water the aim point sits on.</p>
+    <div id="aimDials" class="sliders"></div>
+    <div class="row presets" id="zoomPresets"></div>
+    <p class="note small" id="zoomFacts"></p>
+    <div class="row">
+      <label class="field"><span class="label">Backdrop</span><select id="backdrop"></select></label>
     </div>
+    <div class="row">
+      <div class="seg stack" role="radiogroup" aria-label="How the shells fly">
+        <label><input type="radio" name="converge" value="side" checked> Shells fly side by side (how the game works today)</label>
+        <label><input type="radio" name="converge" value="one"> Shells aim at one point (converge)</label>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="showReticle" checked> Show today's reticle (ring and cross)</label>
+    <p class="label swatch-head">Color for ideas D to H</p>
+    <div class="row swatches" id="swatches"></div>
+    <div class="previews marker-grid" id="candidates"></div>
+    <dl class="readouts" id="aimReadouts"></dl>
+    <p class="note small">Copied from the game exactly: the ocean, fog and sight hole, range ring, island colors, radar paint colors and strength, storm, star-shell glow and the reticle.</p>
+    <p class="note small">Approximated: the island shape (the real one needs a whole generated map), the radar return's spread (one cell of blue and one of green around a real hull outline on the real 9 u grid), the fog bank's puffs (fixed, not the game's drifting noise), and the radar sweep line is left out.</p>
+    <p class="note small">The backdrop is a stage set, not where the shooter really is. At 1,000 u the aim point is outside your 500 u sight, so in the game it usually sits on fog.</p>
   </section>
 
   <section class="card">
     <h2>Numbers to record</h2>
-    <p class="note">The four dials as they stand now, in one line to read back.</p>
+    <p class="note">The four dials as they stand now, in one line to read back, and the aim marker idea you picked.</p>
     <pre id="record" class="record"></pre>
   </section>
   <p id="build" class="build"></p>

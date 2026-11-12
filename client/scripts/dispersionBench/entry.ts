@@ -9,13 +9,15 @@ import { byId, button, pct, slider } from './controls.js';
 import { toWorld, type View } from './canvas.js';
 import { BLAST_U, readouts, type BenchState } from './model.js';
 import { drawPattern } from './pattern.js';
-import { drawPreview } from './preview.js';
+import { aim, aimRecordLine, buildAimCard, candidateCanvasIds, renderAimCard } from './aimCard.js';
+import { trueOvalPx } from './markers.js';
+import { BACKDROPS } from './scene.js';
 
 declare const __BENCH_BUILD__: string;
 
 declare global {
   interface Window {
-    __benchSelfTest?: () => { canvases: Array<{ id: string; inked: number }>; readouts: ReturnType<typeof readouts> };
+    __benchSelfTest?: () => { canvases: Array<{ id: string; inked: number }>; readouts: ReturnType<typeof readouts> & { aimOvalLongPx: number } };
   }
 }
 
@@ -37,8 +39,6 @@ const state: BenchState = {
   hullAngleDeg: 90,
   counter: 0,
   accumulate: false,
-  zoom: 2,
-  keepCircles: true,
 };
 
 let patternView: View | null = null;
@@ -68,14 +68,13 @@ function renderRecord(): void {
   const c = state.cfg;
   byId('record').textContent =
     `CONFIG.dispersion = { alongFrac: ${c.alongFrac.toFixed(3)}, acrossFrac: ${c.acrossFrac.toFixed(3)}, floorU: ${c.floorU}, sigmas: ${c.sigmas.toFixed(1)} }\n` +
-    `In words: length along the shot ${(c.alongFrac * 100).toFixed(1)} % of range; width across ${c.acrossFrac.toFixed(2)} of that; smallest size ${c.floorU} u; bunching ${c.sigmas.toFixed(1)}.`;
+    `In words: length along the shot ${(c.alongFrac * 100).toFixed(1)} % of range; width across ${c.acrossFrac.toFixed(2)} of that; smallest size ${c.floorU} u; bunching ${c.sigmas.toFixed(1)}.\n` +
+    aimRecordLine();
 }
 
 function render(): void {
   patternView = drawPattern(byId<HTMLCanvasElement>('pattern'), state);
-  drawPreview(byId<HTMLCanvasElement>('pvToday'), state, 'today');
-  drawPreview(byId<HTMLCanvasElement>('pvA'), state, 'A');
-  drawPreview(byId<HTMLCanvasElement>('pvB'), state, 'B');
+  renderAimCard(state);
   byId('seed').textContent = state.accumulate
     ? `Salvos #${state.counter}–#${state.counter + 199} (seeds come from these numbers)`
     : `Salvo #${state.counter} (its seeds come from this number)`;
@@ -165,9 +164,6 @@ function wireFire(): void {
   document.querySelectorAll<HTMLInputElement>('input[name="shells"]').forEach((r) =>
     r.addEventListener('change', () => ((state.shells = Number(r.value)), render())),
   );
-  const keep = byId<HTMLInputElement>('keepCircles');
-  keep.addEventListener('change', () => ((state.keepCircles = keep.checked), render()));
-  slider(byId('previewDials'), { label: 'Preview zoom (screen pixels per u; line weights scale with it, as in the game)', min: 0.5, max: 8, step: 0.25, value: state.zoom, fmt: (v) => `${v}×`, onInput: (v) => ((state.zoom = v), render()) });
 }
 
 function inked(id: string): number {
@@ -177,6 +173,20 @@ function inked(id: string): number {
   let n = 0;
   for (let i = 4; i < d.length; i += 4) if (d[i] !== d[0] || d[i + 1] !== d[1] || d[i + 2] !== d[2]) n++;
   return n;
+}
+
+/** Every backdrop once (each marker idea on it must be non-blank), then back to the viewer's pick. */
+function selfTestBackdrops(): Array<{ id: string; inked: number }> {
+  const keep = aim.backdrop;
+  const out: Array<{ id: string; inked: number }> = [];
+  for (const b of BACKDROPS) {
+    aim.backdrop = b.id;
+    renderAimCard(state);
+    for (const id of candidateCanvasIds()) out.push({ id: `${id} on ${b.id}`, inked: inked(id) });
+  }
+  aim.backdrop = keep;
+  render();
+  return out;
 }
 
 function showError(msg: string): void {
@@ -193,6 +203,7 @@ function main(): void {
   buildHull();
   wireDrag();
   wireFire();
+  buildAimCard(() => state, render);
   byId('build').textContent = __BENCH_BUILD__;
   // Redraw on WIDTH changes only: render() itself sets each canvas' height.
   let lastWidth = -1;
@@ -204,8 +215,8 @@ function main(): void {
   }).observe(byId('pattern'));
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => render());
   window.__benchSelfTest = () => ({
-    canvases: ['pattern', 'pvToday', 'pvA', 'pvB'].map((id) => ({ id, inked: inked(id) })),
-    readouts: readouts(state),
+    canvases: [...selfTestBackdrops(), ...['pattern', ...candidateCanvasIds()].map((id) => ({ id, inked: inked(id) }))],
+    readouts: { ...readouts(state), aimOvalLongPx: trueOvalPx(state, aim.zoom).long },
   });
   render();
 }
