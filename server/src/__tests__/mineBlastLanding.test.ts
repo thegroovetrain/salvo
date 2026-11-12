@@ -5,14 +5,16 @@
 // cannon too to some extent since its 2 shells)"; the cursor clause of
 // amendment 202 RETIRES).
 //
-// The contract: a deck-gun shell that lands at `at` deals
-// `settleBlow(damage × atten(flown))` to EVERY mine whose centre lies within
-// `burstRadius + CONFIG.mine.hitRadiusU` of `at` — no cursor term, no rim term.
+// The contract: a deck-gun shell that lands at `at` deals `settleBlow(damage)`
+// to EVERY mine whose centre lies within `burstRadius + CONFIG.mine.hitRadiusU`
+// of `at` — no cursor term, no rim term, and since Story 11.1 (2026-11-12) no
+// range term either: the "attenuate the mine landings" half of 184(i) retired
+// with range attenuation.
 // The machine gun (no blast) keeps "within 10 u of where it arrived".
 // Every number is derived from CONFIG and the shared functions.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, rangeAttenuation, settleBlow, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
+import { CONFIG, settleBlow, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 import { mountDeckGun, neutralize } from './deckGunFixture.js';
@@ -56,9 +58,6 @@ function fire(w: World, id: string, dist: number): { log: GameEvent[]; shells: S
   throw new Error('the shot never resolved');
 }
 
-const landAtten = (s: ShellState): number =>
-  rangeAttenuation(Math.hypot(s.targetX! - s.originX!, s.targetY! - s.originY!), s.attenRangeU!, CONFIG.gunAttenuation);
-
 describe('the flak burst clears a cluster', () => {
   it('pops two mines 40 u apart, each 20 u off the burst point — neither is under the click', () => {
     const w = bareWorld();
@@ -67,8 +66,8 @@ describe('the flak burst clears a cluster', () => {
     expect(20).toBeLessThanOrEqual(CONFIG.flak.burstRadius + CONFIG.mine.hitRadiusU);
     lay(w, 'm1', 280, 0);
     lay(w, 'm2', 320, 0);
-    const { shells } = fire(w, 'a', 300);
-    expect(settleBlow(CONFIG.flak.damage * landAtten(shells[0]))).toBeGreaterThanOrEqual(CONFIG.mine.hp);
+    fire(w, 'a', 300);
+    expect(settleBlow(CONFIG.flak.damage)).toBeGreaterThanOrEqual(CONFIG.mine.hp);
     expect(w.mines.has('m1')).toBe(false);
     expect(w.mines.has('m2')).toBe(false);
   });
@@ -96,21 +95,18 @@ describe('the cannon — every barrel, one blow each', () => {
     lay(w, 'm1', 300, 0);
     const { log, shells } = fire(w, 'a', 300);
     expect(shells).toHaveLength(CONFIG.gun.barrels);
-    for (const s of shells) expect(landAtten(s)).toBe(1);
     expect(w.mines.has('m1')).toBe(false);
     expect(log.filter((e) => e.k === 'boom' && e.id === 'm1')).toHaveLength(1);
   });
 
-  it('a max-range landing deals the ATTENUATED blow per shell', () => {
+  it('a max-range landing deals the FULL blow per shell (flat with range, Story 11.1)', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
     const R = a.stats.equipment.gun.rangeU;
     const tough = 100; // a mine that survives, so the hp spent can be read
     lay(w, 'm1', R, 0, tough);
     const { shells } = fire(w, 'a', R);
-    const per = settleBlow(CONFIG.gun.damage * landAtten(shells[0]));
-    expect(per).toBeLessThan(CONFIG.gun.damage);
-    expect(tough - w.mines.get('m1')!.hp).toBe(shells.length * per);
+    expect(tough - w.mines.get('m1')!.hp).toBe(shells.length * settleBlow(CONFIG.gun.damage));
   });
 });
 
@@ -124,7 +120,6 @@ describe('the machine gun — no blast, within 10 u of where it arrived', () => 
     lay(w, 'near', 300, 9);
     const { shells } = fire(w, 'a', 300);
     expect(shells).toHaveLength(1);
-    expect(landAtten(shells[0])).toBe(1);
     // The near mine takes ONE whole blow: popped if the blow reaches its hp,
     // else hp − D.
     const left = CONFIG.mine.hp - CONFIG.machineGun.damage;
@@ -137,17 +132,13 @@ describe('the machine gun — no blast, within 10 u of where it arrived', () => 
     expect(w2.mines.get('off')!.hp).toBe(CONFIG.mine.hp);
   });
 
-  it('at max range the mine takes the attenuated blow: settleBlow(D × a factor in [minFactor, 1))', () => {
+  it('at max range the mine takes the FULL blow (flat with range, Story 11.1)', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 'machineGun');
     const R = a.stats.equipment.machineGun.rangeU;
-    lay(w, 'm1', R, 0);
-    const { shells } = fire(w, 'a', R);
-    const f = landAtten(shells[0]);
-    expect(f).toBeLessThan(1);
-    expect(f).toBeGreaterThanOrEqual(CONFIG.gunAttenuation.minFactor); // flown ≤ R (the muzzle sits forward)
-    const blow = settleBlow(CONFIG.machineGun.damage * f);
-    expect(blow).toBeLessThan(CONFIG.machineGun.damage);
-    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp - blow);
+    const tough = 100; // a mine that survives, so the hp spent can be read
+    lay(w, 'm1', R, 0, tough);
+    fire(w, 'a', R);
+    expect(w.mines.get('m1')!.hp).toBe(tough - settleBlow(CONFIG.machineGun.damage));
   });
 });

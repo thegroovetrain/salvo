@@ -2995,13 +2995,12 @@ describe('THE SECONDARIES — held on a live hull in reach, with a burst discipl
 // ---------------------------------------------------------------------------
 // Story 10.6 review gate: the torpedo tactic decides with the SHARED launcher
 // law (`pickTube` over the bot's own launchers, stepped one tick ahead) — it
-// clicks only when a launcher is ON TARGET, and a torpedo it cannot fire never
-// takes the main battery's tick.
+// clicks only when a tube FIRES (at the aim point: no traverse since Story
+// 11.1), and a torpedo it cannot fire never takes the main battery's tick.
 // ---------------------------------------------------------------------------
 
-describe('TORPEDO LAUNCHERS — the bot clicks only ON TARGET and never blocks the battery (Story 10.6 review gate)', () => {
+describe('TORPEDO LAUNCHERS — the bot clicks only when a tube fires and never blocks the battery (Story 10.6 review gate)', () => {
   const DT = CONFIG.tick.simDtMs;
-  const ON_TARGET = (CONFIG.mainBattery.onTargetDeg * Math.PI) / 180;
 
   /** The server's half of one tick for the bot's own mounts: the latest aim
    *  steps the turrets and the launchers (the World's two STEP_ORDER rows). */
@@ -3019,7 +3018,7 @@ describe('TORPEDO LAUNCHERS — the bot clicks only ON TARGET and never blocks t
     rec.loadout[slot].state = launcherSummary(rec.launchers);
   }
 
-  it('(a) a crossing target: every launched torpedo runs within the on-target tolerance of the solved aim', () => {
+  it('(a) a crossing target: every launched torpedo runs AT the solved aim (no traverse, Story 11.1)', () => {
     const w = openWorld(10601);
     const port = fakePort(w);
     const rec = mkBot(w, 'bismarck', 0, 0, 0);
@@ -3041,7 +3040,7 @@ describe('TORPEDO LAUNCHERS — the bot clicks only ON TARGET and never blocks t
       if (pick.verdict !== 'fire') continue;
       const pt = launcherAimPoint(rec.state, rec.hullId, d.aim, d.aimDist)!;
       const solved = Math.atan2(pt.y - pick.station.y, pt.x - pick.station.x);
-      expect(Math.abs(angleDiff(pick.bearing, solved))).toBeLessThanOrEqual(ON_TARGET + 1e-9);
+      expect(Math.abs(angleDiff(pick.bearing, solved))).toBeLessThanOrEqual(1e-9);
       fireTube(rec.launchers, pick.launcher, pick.tube, rec.stats.equipment.heavyTorpedo.reloadMs);
       syncTorpSlot(rec, slot);
       fired += 1;
@@ -3079,14 +3078,14 @@ describe('TORPEDO LAUNCHERS — the bot clicks only ON TARGET and never blocks t
     expect(batteryShots).toBeGreaterThan(0);
   });
 
-  it('(c) a torpedo the launcher cannot fire on target YET never takes the tick from a ready battery', () => {
+  it('(c) a torpedo click the server would refuse never takes the tick from a ready battery', () => {
     const w = openWorld(10603);
     const port = fakePort(w);
     const rec = mkBot(w, 'bismarck', 0, 0, 0);
     rec.state.speed = 0;
     const slot = slotOf(rec, 'heavyTorpedo');
     const mind = mkMind('raider');
-    // On the beam: inside the fore launcher's band, but the launcher rests dead ahead.
+    // On the beam: inside the fore launcher's band (it rests dead ahead; no traverse to wait for).
     plot(mind, track(port.now, { x: 0, y: 200, heading: 0, speed: 0, live: true }));
     let run = 0;
     let worst = 0;
@@ -3096,11 +3095,17 @@ describe('TORPEDO LAUNCHERS — the bot clicks only ON TARGET and never blocks t
       const d = COMBAT_BRAIN.decide(rec, mind, port, i === 0);
       serverStep(rec, d);
       if (d.fireSlot === 0) batteryShots += 1;
-      // A torpedo click the server refuses, or fires off its aim, is a tick taken from the battery.
+      // A torpedo click the server refuses is a tick taken from the battery.
       const pick = d.fireSlot === slot ? serverPick(rec, d) : null;
-      const wasted = pick !== null && (pick.verdict !== 'fire' || !pick.onTarget);
+      const wasted = pick !== null && pick.verdict !== 'fire';
       run = wasted ? run + 1 : 0;
       worst = Math.max(worst, run);
+      // A torpedo that flies spends its tube (the server's half), so the tube
+      // reloads and the battery gets the ticks after it.
+      if (pick !== null && pick.verdict === 'fire') {
+        fireTube(rec.launchers, pick.launcher, pick.tube, rec.stats.equipment.heavyTorpedo.reloadMs);
+        syncTorpSlot(rec, slot);
+      }
     }
     expect(worst).toBe(0);
     expect(batteryShots).toBeGreaterThan(0);

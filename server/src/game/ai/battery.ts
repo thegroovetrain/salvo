@@ -2,21 +2,21 @@
 // "functional" only; tuning is Story 10.12).
 //
 // MAIN BATTERY. The bot aims with its existing lead solver (tacticKit
-// `leadPoint` at the main-battery shell speed) plus the competence scatter —
-// but the scatter offset is HELD (`BotMind.batteryScatter`) rather than
-// re-drawn every tick, because the aim it writes into `InputMsg.aim` /
-// `aimDist` every tick IS the point every turret chases at a finite traverse
-// rate: a per-tick jitter would keep the turrets forever just off it. The
-// offset is re-drawn after each click, and whenever the target changes
-// (`BotMind.batteryScatterKey`). The bot CLICKS only when a turret is
-// READY AND ON TARGET for the aim it is holding — read off its OWN turret
-// states (`BotSelf.turrets`, exactly the `OwnShip.turrets` a human client is
-// sent), stepped one tick ahead through the SHARED `stepTurrets` the server
-// runs before it picks (so a turret tracking a turning hull still reads on
-// target), then the shared `pickTurret`. A target in reach that no ready
-// turret can bear (the blind sector) keeps the aim and never clicks. The
-// reach is the row's folded `rangeU` with the cannon's lit lift; the
-// coastline gate is the cannon's.
+// `leadPoint` at the main-battery shell speed) plus the competence scatter
+// (`CONFIG.bots.aimScatterU`, untouched by Story 11.1's real dispersion — R8)
+// — the scatter offset HELD (`BotMind.batteryScatter`) rather than re-drawn
+// every tick, so the aim it writes into `InputMsg.aim` / `aimDist` stays one
+// point between clicks. The offset is re-drawn after each click, and
+// whenever the target changes (`BotMind.batteryScatterKey`). The bot CLICKS
+// only when A READY TURRET BEARS on the aim it is holding (no traverse since
+// Story 11.1, R16 / R17: "on target" re-read as "a ready turret bears") —
+// read off its OWN turret states (`BotSelf.turrets`, exactly the
+// `OwnShip.turrets` a human client is sent), stepped one tick ahead through
+// the SHARED `stepTurrets` the server runs before it picks (so a reload that
+// finishes this tick counts), then the shared `pickTurret`. A target in
+// reach that no ready turret can bear (the blind sector) keeps the aim and
+// never clicks. The reach is the row's folded `rangeU` with the cannon's lit
+// lift; the coastline gate is the cannon's.
 //
 // SECONDARIES. Held (`InputMsg.sec`) while the bot has a LIVE hull target
 // inside `stats.secondaryRangeU`, with a burst discipline: released once heat
@@ -26,7 +26,7 @@
 // THE NEXT-TICK POSE (Story 10.12). The server steps the hull BEFORE it steps
 // the turrets and picks one (STEP_ORDER: stepShips ... stepTurrets,
 // fireControl), and it resolves the input's aim / aimDist from the hull
-// centre AS IT STANDS THEN. So the on-target check reads the pose the brain
+// centre AS IT STANDS THEN. So the bears check reads the pose the brain
 // predicted for this tick (`BotMind.nextPose`, ai/tactics.ts decide) — for the
 // aim point, the turret step and the pick alike — and falls back to the
 // current pose when there is none.
@@ -116,10 +116,12 @@ export function turretPoseOf(self: BotSelf, mind: BotMind, now: number): AimPose
   return next !== undefined && next !== null && next.at === now ? next : self.state;
 }
 
-/** Would a turret be READY and ON TARGET for `aim` after this tick's turret
- *  step? One shared step on a COPY of the own turrets, then the shared pick —
- *  aim point, step and pick all against `pose`, the pose the server will read
- *  them from (`turretPoseOf`; the current pose when the caller has none). */
+/** Would a READY turret BEAR on `aim` after this tick's turret step (no
+ *  traverse — Story 11.1, R16 / R17)? One shared step on a COPY of the own
+ *  turrets, then the shared pick — aim point, step and pick all against
+ *  `pose`, the pose the server will read them from (`turretPoseOf`; the
+ *  current pose when the caller has none). The name is kept from the
+ *  traverse era: "on target" now means "a ready turret bears". */
 export function readyOnTarget(self: BotSelf, aim: BatteryAim, pose: AimPose = self.state): boolean {
   const own = self.turrets;
   if (own === undefined || own.length === 0) return false;
@@ -127,11 +129,11 @@ export function readyOnTarget(self: BotSelf, aim: BatteryAim, pose: AimPose = se
   if (p === null) return false; // no aim (gate S2): the server would refuse the click
   const next = copyTurrets([], own);
   stepTurrets(next, self.hullId, pose, p, CONFIG.tick.simDtMs);
-  return pickTurret(next, self.hullId, pose, p)?.onTarget === true;
+  return pickTurret(next, self.hullId, pose, p) !== null;
 }
 
 /** The main battery's shot: a click on the held aim when it is legal (reach,
- *  coastline) and a ready turret is on it; else null (the brain keeps writing
+ *  coastline) and a ready turret bears on it; else null (the brain keeps writing
  *  the held aim regardless — tactics.ts triggerOf). */
 function batterySolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;

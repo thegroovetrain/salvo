@@ -26,8 +26,8 @@
 // LANDS (amendment 200, Eric 2026-10-01): a mine within `CONFIG.mine.hitRadiusU`
 // of it takes the shell's `damage` off its 10 hp — two near shells (5 + 5)
 // pop one, three far — and a shell in flight never touches a mine (amendment
-// 20). Every blow, hull or mine, is RANGE-ATTENUATED by the distance flown
-// against the row's `rangeU` at fire time (Story 9.12, epic-9 amendment 184).
+// 20). Every blow, hull or mine, is flat with range (range attenuation
+// retired 2026-11-12, Story 11.1); the shell is NOT dispersed (R6).
 // 360°, no arc (amendment 106). Every shell emits its OWN `mz`
 // (amendment 89(i): the stream IS the spectacle, like the broadside's barrage).
 //
@@ -39,7 +39,7 @@
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
-import { attenRangeFor, burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Advance a running magazine swap by `dtMs`; on completion the magazine is
@@ -98,7 +98,6 @@ function fireStreamShell(ctx: ActivationContext): void {
     hits: CONFIG.machineGun.hits, // AR44 target mask (hull | mine — a mine only where it lands, amendment 200)
     family: 'mg',
     direct: true,
-    attenRangeU: attenRangeFor(ctx, mg.rangeU, target), // ruling 184(b) + amendment 187: none into own light
   });
   ctx.spawnBallistic(shell, { perShellFlash: true }); // one `mz` per shell (amendment 89(i))
 }

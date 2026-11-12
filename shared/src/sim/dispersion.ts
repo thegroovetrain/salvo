@@ -10,11 +10,13 @@
 // stretched onto the ellipse. The ellipse is therefore a HARD EDGE.
 //
 // Pure: no I/O, no Math.random — every landing comes from a mulberry32 seed,
-// so the same inputs and seed give the same point on every machine. No map
-// clamping here; callers clamp.
+// so the same inputs and seed give the same point on every machine.
+// `dispersedPoint` does no map clamping; `dispersedLanding` (the server's
+// one call, Story 11.1 Phase B) clamps inside the water disk.
 
 import { CONFIG } from '../constants.js';
 import { mulberry32 } from '../math/rng.js';
+import { clampInsideMap } from './aim.js';
 
 /** The four dispersion dials (CONFIG.dispersion's shape). */
 export interface DispersionCfg {
@@ -87,4 +89,35 @@ export function dispersedPoint(
   const b = acrossU * r * Math.sin(theta);
   // along = (ux, uy); across = (-uy, ux)
   return { x: aimX + ux * a - uy * b, y: aimY + uy * a + ux * b };
+}
+
+/**
+ * THE PER-SHELL SEED (Story 11.1, R5): one shell's dispersion seed from the
+ * room's private dispersion stream seed and the shell's ORDINAL (the World's
+ * projectile sequence number). Order-independent — a shell's seed depends on
+ * nothing but its own ordinal — so a replay with the same seeds and inputs
+ * lands every shell on the same point.
+ */
+export function shellDispersionSeed(streamSeed: number, ordinal: number): number {
+  return (streamSeed ^ Math.imul(ordinal, 0x9e3779b9)) >>> 0;
+}
+
+/**
+ * One dispersed shell's LANDING (Story 11.1, R5 / R8): `dispersedPoint` from
+ * the shell's own muzzle (`originX`, `originY`) around its aim point, then
+ * pulled back inside the water disk along the muzzle → landing ray
+ * (`clampInsideMap`). It may land past the gun's reach (by at most half the
+ * ellipse's along axis), never outside the map.
+ */
+export function dispersedLanding(
+  originX: number,
+  originY: number,
+  aimX: number,
+  aimY: number,
+  seed: number,
+  mapRadius: number,
+  cfg: DispersionCfg = CONFIG.dispersion,
+): { x: number; y: number } {
+  const p = dispersedPoint(originX, originY, aimX, aimY, seed, cfg);
+  return clampInsideMap({ x: originX, y: originY }, p, mapRadius);
 }

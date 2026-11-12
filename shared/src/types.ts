@@ -474,7 +474,9 @@ export interface OwnShip {
   /**
    * THE OWN MAIN BATTERY, PER TURRET (Story 10.4): one entry per turret, bow
    * to stern — its hull-relative angle `a` (rad, unwrapped, the convention in
-   * sim/turrets.ts) and its remaining reload. The client steps its own copy
+   * sim/turrets.ts — since Story 11.1 the DERIVED angle `turretAngle`: at the
+   * aim point inside the turret's arc, at rest otherwise; no traverse) and
+   * its remaining reload. The client steps its own copy
    * with the shared `stepTurrets` every tick and overwrites it from this
    * (`copyTurrets`). `ammo[0]` is only the hotbar SUMMARY of this array
    * (`batterySummary`: turrets ready + the soonest reload).
@@ -717,7 +719,8 @@ export interface OwnShip {
   /**
    * THE OWN TORPEDO LAUNCHERS (Story 10.6, Eric 2026-11-05, R6 / R13, epic-10
    * amendment 12): one entry per launcher, fore first — its hull-relative
-   * angle `a` (rad, unwrapped, the convention in sim/launchers.ts) and
+   * angle `a` (rad, unwrapped, the convention in sim/launchers.ts — since
+   * Story 11.1 the DERIVED angle `launcherAngle`, no traverse) and
    * `tubes`, the ms until each tube is loaded again (0 = loaded). The client
    * steps its own copy with the shared `stepLaunchers` and overwrites it from
    * this (`copyLaunchers`). The torpedo slot's `ammo` entry is only the hotbar
@@ -1014,8 +1017,12 @@ export interface TorpedoUpdateEvent {
  * A gun shell BURST at its target point (reached it un-intercepted, or was
  * intercepted inside the would-be blast — see sim/shell.ts). `id` matches the
  * originating shell so the client terminates its dead-reckoned render; x/y is
- * the burst center (= the firer's clicked point, so it reveals nothing beyond
- * the visible detonation). ANTI-CHEAT: no range or origin-derivable field may
+ * the burst center = the shell's LANDING point (Story 11.1, 2026-11-12: a
+ * main-battery or secondaries shell lands at its own DISPERSED point around
+ * the firer's clicked point, never the click itself; a utility shell still
+ * lands on the clamped click), so it reveals nothing beyond the visible
+ * detonation — the landing is announced only when the shell is there, and
+ * neither the click, the seed nor the origin ever rides it. ANTI-CHEAT: no range or origin-derivable field may
  * EVER be added here (a gun's burstRadius ships in CONFIG; the BallisticEvent
  * rationale applies unchanged). Damage still arrives ONLY as victim-private
  * `dmg` events — a multi-victim burst emits one `dmg` per victim.
@@ -1047,7 +1054,7 @@ export interface TorpedoUpdateEvent {
 export interface BurstEvent {
   k: 'burst';
   id: string; // originating shell id
-  x: number; // u — burst center (the target point)
+  x: number; // u — burst center (the shell's landing point)
   y: number; // u
   f?: true; // FLASH SHELLS burst tag — present only on a flash round's burst
   r?: number; // u — the flash disc's radius (tiered, stamped at launch) — present IFF `f`; LAST key

@@ -17,8 +17,9 @@
 //   1. TORPEDO KILL — an Iowa with a stationary Yamato on its starboard BEAM
 //      (R28: the launchers fire across the beam, never dead ahead), fitted
 //      heavy torpedo + SECOND LAUNCHER TUBE (two tubes on the fore launcher,
-//      each on its own clock — Story 10.6), trains the launcher onto the
-//      target, then clicks every tick. The own block's `launchers` are checked loaded. The KILL
+//      each on its own clock — Story 10.6), aims the launcher at the target
+//      (it points there at once — no traverse, Story 11.1), then clicks
+//      every tick. The own block's `launchers` are checked loaded. The KILL
 //      PLAN (torpedo count, time) is simulated below from the fitted row and
 //      the target's hp (with the R8 passive regen, Story 10.5), and printed; the budget is the plan
 //      plus one reload. Asserts a hit at the armor-curve blow, the roster
@@ -42,18 +43,21 @@
 //      mine was first sighted inside detect (the victim starts at detect + 100u,
 //      so this IS the fog-crossing pin).
 //   4. LIGHT TORPEDO — the target posed on the shooter's PORT BEAM (heading +
-//      π/2), inside the fore launcher's firing band (R28); the shooter TRAINS the
-//      launcher onto the beam (no click) before firing (Story 10.6, R6 / R13);
+//      π/2), inside the fore launcher's firing band (R28); the shooter AIMS the
+//      launcher at the beam (no click) and checks it points there before
+//      firing (no traverse, Story 11.1);
 //      kill plan as in 1.
 //   5. CAPTIVE MINE — the layer lays one captive; the victim drives straight
 //      through its trip ring. Asserts the captive row's gated damage, a boom, and
 //      that the mine was expended.
-//   6. MAIN BATTERY (Story 10.4, R2/R4) — shooter (the default hull) and target
-//      stationary, the target dead on the shooter's beam inside the full-damage
-//      band so EVERY turret bears. The shooter holds its aim until its own
-//      `you.turrets` show every turret on the aim point, clicks ONCE (exactly
-//      one turret — the lowest index — starts reloading, `ammo[0].n` drops by
-//      one), then once per tick until every turret has fired. Asserts every
+//   6. MAIN BATTERY (Story 10.4, R2/R4; Story 11.1) — shooter (the default
+//      hull) and target stationary, the target dead on the shooter's beam at
+//      GUN_RANGE_FRAC of reach so EVERY turret bears. The shooter holds its aim
+//      until its own `you.turrets` show every turret pointing at the aim point
+//      (no traverse: a socket round-trip), clicks ONCE (exactly one turret —
+//      the lowest index — starts reloading, `ammo[0].n` drops by one), then
+//      once per tick until every turret has fired; every dispersed shell still
+//      lands on the broadside hull. Asserts every
 //      shell reveal is `cannon`, the target took one gated blow per gun, and on
 //      every own frame `ammo[0]` is the turrets' summary.
 //   7. SECONDARIES (R3) — `sec: true` on a target inside half the main reach:
@@ -116,7 +120,6 @@ import {
   abilityCode,
   bearing,
   damageMultiplierFor,
-  desiredTurretAngle,
   effectiveStats,
   equipmentMaxAmmo,
   familySlotFor,
@@ -126,12 +129,12 @@ import {
   islandDistance,
   launcherAimPoint,
   launcherArcHolds,
-  SHIP_CLASS_IDS,
   launcherStationWorld,
   regenGain,
   settleBlow,
   slotsWithCards,
   stepSecondaries,
+  turretAngle,
   turretBears,
   turretMounts,
 } from '@salvo/shared';
@@ -156,10 +159,16 @@ const NO_EVICTION_MINES = 6;
 /** u — a torpedo click's aim distance: any positive distance names the
  *  bearing (Story 10.6 — a torpedo click with none is refused out-of-arc). */
 const TORP_AIM_U = 300;
-/** ms — a launcher traverses its whole train interval (2 × trainDeg) inside
- *  this, plus two ticks of slack (Story 10.6, R6: the turrets' traverse rate). */
-const LAUNCHER_TRAIN_MS =
-  Math.ceil((2 * Math.max(...SHIP_CLASS_IDS.flatMap((id) => [CONFIG.shipClasses[id].launchers.fore.trainDeg, CONFIG.shipClasses[id].launchers.aft.trainDeg])) * 1000) / CONFIG.mainBattery.traverseDegPerS) + 2 * DT;
+/** ms — an aim-only hold before a torpedo click: the aim reaches the server
+ *  and the launcher's DERIVED angle comes back on the own frame — a few ticks
+ *  (no traverse since Story 11.1, R16; `CONFIG.mainBattery.traverseDegPerS`
+ *  retired 2026-11-12). */
+const LAUNCHER_TRAIN_MS = 4 * DT;
+/** The gunnery distance as a share of the folded reach: a mid-range shot
+ *  well inside reach and sight (it was 80 % of the retired attenuation's
+ *  full-damage band, 0.8 × 0.5 — kept so the scenarios stand where they
+ *  stood). Dispersion at this range is a few units along the shot. */
+const GUN_RANGE_FRAC = 0.4;
 
 /** THE HULLS PER ROLE (Story 10.4: the four battleships replaced the three
  *  placeholder classes, which had no 1:1 successor — a reading, by intent).
@@ -350,9 +359,8 @@ const clickAt = (aim, aimDist = 0) => (ctx, inp) => {
   inp.fireSeq = ++ctx.fireSeq;
 };
 /** Hold the fitted weapon's aim on a bearing WITHOUT clicking — the
- *  launchers chase the cursor at all times (Story 10.6, R13), so a torpedo
- *  shooter trains before its first click (an early click fires along the
- *  launcher's CURRENT bearing — the battery's rule). */
+ *  launchers point at the cursor inside their bands (no traverse since Story
+ *  11.1), so this is only the aim's round trip before the first click. */
 const aimAt = (aim, aimDist) => (ctx, inp) => {
   inp.slot = weaponSlotOf(ctx);
   inp.aim = aim;
@@ -529,8 +537,8 @@ async function torpedoPhase(log) {
   // The own block carries the launchers (Story 10.6): the fore, with every tube loaded.
   const own = (a.you.launchers ?? []).flatMap((l) => l.tubes);
   assert(own.length === row.maxAmmo && own.every((t) => t === 0), `torpedo: own launchers carry tubes ${JSON.stringify(own)}, planned ${row.maxAmmo} loaded`);
-  // TRAIN FIRST (R13 / R28): the fore launcher rests dead ahead, inside its
-  // own dead wedge, and must swing onto the beam before a click fires.
+  // AIM FIRST (R28): the beam is in the fore launcher's band; it points there
+  // the tick the aim arrives (no traverse, Story 11.1).
   a.script = aimAt(brg, TORP_AIM_U);
   await holdFor([a, b], LAUNCHER_TRAIN_MS);
   a.script = clickAt(brg, TORP_AIM_U);
@@ -667,7 +675,7 @@ async function ambushPhase(log) {
   await leaveAll([a, b]);
 }
 
-/** PHASE 4 — the light torpedo, fired ABEAM from the trained fore launcher
+/** PHASE 4 — the light torpedo, fired ABEAM from the fore launcher
  *  (Story 10.6: the twin beam sectors are gone). */
 async function lightTorpedoPhase(log) {
   const D = 250; // u — inside sight; a tier-I light fish is a straight-runner with no max range
@@ -687,9 +695,9 @@ async function lightTorpedoPhase(log) {
   assert(tubes !== null && tubes !== undefined && tubes.n === row.maxAmmo, `light: shooter slot ${familySlotFor('lightTorpedo')} holds ${tubes?.n} torpedoes, planned ${row.maxAmmo} tubes`);
   const brg = bearing(a.you, b.you);
   precondition(launcherArcHolds(TORP_SHOOTER, statsOf(TORP_SHOOTER, fit.pick.cards).torpedoLaunchers, a.you.heading, brg), 'light: target outside the launcher arcs');
-  // TRAIN FIRST: the fore launcher rests dead ahead and chases the cursor at
-  // the turrets' rate (R6 / R13); a click before it arrives fires along its
-  // current bearing and would waste a torpedo.
+  // AIM FIRST: the fore launcher points at the cursor inside its band the
+  // tick the aim arrives (no traverse, Story 11.1) — checked below on the
+  // own frame before the click.
   a.script = aimAt(brg, TORP_AIM_U);
   await holdFor([a, b], LAUNCHER_TRAIN_MS);
   // ON the aim point as seen FROM ITS OWN STATION (the shared geometry the
@@ -699,7 +707,7 @@ async function lightTorpedoPhase(log) {
   const st = launcherStationWorld(TORP_SHOOTER, 0, a.you);
   const ap = launcherAimPoint(a.you, TORP_SHOOTER, brg, TORP_AIM_U);
   const want = Math.atan2(ap.y - st.y, ap.x - st.x);
-  assert(ang !== undefined && Math.abs(angleDiff(a.you.heading + ang, want)) < 0.05, `light: the fore launcher sits at ${ang} rad after training, not on the aim (${want.toFixed(3)} rad from its station)`);
+  assert(ang !== undefined && Math.abs(angleDiff(a.you.heading + ang, want)) < 0.05, `light: the fore launcher sits at ${ang} rad after the aim, not on it (${want.toFixed(3)} rad from its station)`);
   a.script = clickAt(brg, TORP_AIM_U);
   const budget = fit.pick.plan.killAtMs + row.reloadMs; // the simulated kill + ONE reload of slack
   const took = await pilotUntil([a, b], () => roster(a.room, b.room.sessionId)?.deaths >= 1, budget, 'light torpedo kill');
@@ -748,30 +756,30 @@ async function captiveMinePhase(log) {
  *  crosses the hull before it expires at its aim point (the old machine gun's
  *  rule; the secondaries round IS that round, contract §5). */
 const SEC_OVERSHOOT_U = 30;
-/** rad — R4's on-target tolerance, from CONFIG. */
-const ON_TARGET_RAD = (CONFIG.mainBattery.onTargetDeg * Math.PI) / 180;
+/** rad — "on the aim" for an own-frame turret angle: half a degree of display
+ *  slack (the derived angle is exact on the server; `onTargetDeg` retired
+ *  2026-11-12, Story 11.1). */
+const ON_AIM_TOL_RAD = Math.PI / 360;
+/** ms — the aim reaches the server and the derived turret angles come back
+ *  on the own frame: socket slack only (no traverse since Story 11.1, R16). */
+const SNAP_BUDGET_MS = 1000;
 
-/** ms — the longest any turret can need to train onto a legal aim: twice its
- *  train limit (stop to stop) at the CONFIG traverse rate. */
-function worstTrainMs(hull) {
-  const trainDeg = CONFIG.shipClasses[hull].battery.trainDeg;
-  return ((2 * trainDeg) / CONFIG.mainBattery.traverseDegPerS) * 1000;
-}
-
-/** Indices of the turrets this own frame shows ON the aim point (R4's test). */
+/** Indices of the turrets this own frame shows AT their derived angle for
+ *  the aim point — at the aim inside the arc (shared `turretAngle`). */
 function turretsOnAim(ctx, aimPt) {
   const t = ctx.you?.turrets ?? [];
   const pose = { x: ctx.you.x, y: ctx.you.y, heading: ctx.you.heading };
-  return t.flatMap((tt, i) => (turretBears(ctx.cls, i, pose, aimPt) && Math.abs(tt.a - desiredTurretAngle(ctx.cls, i, pose, aimPt)) <= ON_TARGET_RAD ? [i] : []));
+  return t.flatMap((tt, i) => (turretBears(ctx.cls, i, pose, aimPt) && Math.abs(tt.a - turretAngle(ctx.cls, i, pose, aimPt)) <= ON_AIM_TOL_RAD ? [i] : []));
 }
 const reloadingTurrets = (ctx) => (ctx.you?.turrets ?? []).flatMap((t, i) => (t.reloadMsLeft > 0 ? [i] : []));
 
 /**
  * Hold the main-battery aim on `aimPt` (bearing `aim`, distance `aimDist`
- * from the ship centre) until EVERY turret is on it, click ONCE and check that
- * exactly ONE turret (the lowest index — every turret bears, R4 priority 1)
- * started its reload, then click once per tick until every turret has fired.
- * Returns what the trace prints.
+ * from the ship centre) until the own frame shows EVERY turret pointing at it
+ * (no traverse — a socket round-trip, R16), click ONCE and check that exactly
+ * ONE turret (the lowest index — every turret bears, bow first) started its
+ * reload, then click once per tick until every turret has fired. Returns what
+ * the trace prints.
  */
 async function trainAndFireBroadside(a, others, aim, aimDist, aimPt, label) {
   const mounts = turretMounts(a.cls);
@@ -789,9 +797,8 @@ async function trainAndFireBroadside(a, others, aim, aimDist, aimPt, label) {
       clickNow = false;
     }
   };
-  // TRAIN: budget = the worst stop-to-stop traverse + a second of socket slack.
-  const trainBudget = worstTrainMs(a.cls) + 1000;
-  const trainedIn = await pilotUntil([a, ...others], () => turretsOnAim(a, aimPt).length === mounts.length, trainBudget, `${label}: every turret on the aim`);
+  // AIM: no traverse (R16) — the budget is socket slack only.
+  const trainedIn = await pilotUntil([a, ...others], () => turretsOnAim(a, aimPt).length === mounts.length, SNAP_BUDGET_MS, `${label}: every turret on the aim`);
   assert(reloadingTurrets(a).length === 0, `${label}: a turret is reloading before the first click`);
   assert(a.you.ammo[0].n === mounts.length, `${label}: ammo[0].n ${a.you.ammo[0].n} before the first click, expected ${mounts.length} ready turrets`);
   // ONE CLICK: one turret fires, only its reload starts.
@@ -800,7 +807,7 @@ async function trainAndFireBroadside(a, others, aim, aimDist, aimPt, label) {
   const first = reloadingTurrets(a);
   const firstN = a.you.ammo[0].n;
   assert(first.length === 1, `${label}: ONE click started ${first.length} reloads (turrets ${JSON.stringify(first)}) — expected exactly one`);
-  assert(first[0] === 0, `${label}: the click fired turret ${first[0]}, expected turret 0 (lowest index on target, R4)`);
+  assert(first[0] === 0, `${label}: the click fired turret ${first[0]}, expected turret 0 (the lowest-index turret that bears, R16)`);
   assert(firstN === mounts.length - 1, `${label}: ammo[0].n ${firstN} after one click, expected ${mounts.length - 1}`);
   assert(a.you.turrets[0].reloadMsLeft <= row.reloadMs, `${label}: turret 0 reload ${a.you.turrets[0].reloadMsLeft} > the folded ${row.reloadMs}`);
   // ONCE PER TICK until every turret is reloading.
@@ -812,27 +819,27 @@ async function trainAndFireBroadside(a, others, aim, aimDist, aimPt, label) {
   assert(a.you.ammo[0].n === 0, `${label}: ammo[0].n ${a.you.ammo[0].n} with every turret reloading`);
   return {
     guns: mounts.reduce((s, m) => s + m.guns, 0),
-    text: `trained in ${secs(trainedIn)} (worst ${secs(worstTrainMs(a.cls))}); click 1 -> turret ${first[0]} reloading, ammo[0].n ${mounts.length}->${firstN}; ` +
+    text: `on the aim in ${secs(trainedIn)} (no traverse); click 1 -> turret ${first[0]} reloading, ammo[0].n ${mounts.length}->${firstN}; ` +
       `${clicks} click(s) total -> every turret reloading [${left.join(', ')}] ms (folded ${row.reloadMs})`,
   };
 }
 
-/** PHASE 6 — the main battery: train, one turret per click, a full broadside. */
+/** PHASE 6 — the main battery: aim, one turret per click, a full broadside. */
 async function mainBatteryPhase(log) {
-  // The FOLDED row from the same fold the server uses (EMPTY fit). Every blow
-  // is range-attenuated past `gunAttenuation.fullFrac` of `rangeU`
-  // (sim/attenuation.ts), so the pair sits at 80 % of the full-damage band.
+  // The FOLDED row from the same fold the server uses (EMPTY fit). Damage is
+  // flat with range (Story 11.1); the pair sits at GUN_RANGE_FRAC of reach.
   const row = statsOf(GUNNER).equipment.mainBattery;
-  const D = Math.round(0.8 * CONFIG.gunAttenuation.fullFrac * row.rangeU);
+  const D = Math.round(GUN_RANGE_FRAC * row.rangeU);
   // The target dead on the shooter's STARBOARD beam (shooter heading +π/2,
-  // bearing 0), broadside to the fall of shot (its length across the
-  // parallel tracks, so every shell of a salvo lands on the hull).
+  // bearing 0), broadside to the fall of shot (its length across the line of
+  // fire): every barrel aims at its centre (converge, R13) and each shell's
+  // dispersed landing is a few units off it, so every shell lands on the hull.
   const aPose = { x: -D, y: 0, heading: Math.PI / 2 };
   const bPose = { x: 0, y: 0, heading: Math.PI / 2 };
   checkPoseWater('main A', aPose);
   checkPoseWater('main B', bPose);
   checkLane('main', aPose, bPose);
-  precondition(D <= CONFIG.gunAttenuation.fullFrac * row.rangeU && D < CONFIG.vision.sight, `main: ${D}u outside the full-damage band or the target's sight`);
+  precondition(D <= row.rangeU && D < CONFIG.vision.sight, `main: ${D}u outside the reach or the target's sight`);
   const aim = bearing(aPose, bPose);
   const aimPt = aimPointOf(aPose, aim, D);
   const mounts = turretMounts(GUNNER);
@@ -879,13 +886,13 @@ function roundsToLock() {
 async function secondariesPhase(log) {
   const st = statsOf(GUNNER);
   const reach = st.secondaryRangeU;
-  const D = Math.round(0.8 * CONFIG.gunAttenuation.fullFrac * reach);
+  const D = Math.round(GUN_RANGE_FRAC * reach);
   const aPose = { x: -D, y: 0, heading: Math.PI / 2 };
   const bPose = { x: 0, y: 0, heading: Math.PI / 2 };
   checkPoseWater('sec A', aPose);
   checkPoseWater('sec B', bPose);
   checkLane('sec', aPose, bPose);
-  precondition(D + SEC_OVERSHOOT_U <= reach && D <= CONFIG.gunAttenuation.fullFrac * reach, `sec: ${D}u (+${SEC_OVERSHOOT_U}) outside the reach ${reach} or the full-damage band`);
+  precondition(D + SEC_OVERSHOOT_U <= reach, `sec: ${D}u (+${SEC_OVERSHOOT_U}) outside the reach ${reach}`);
   const cfg = CONFIG.secondaries;
   const blow = gatedBlow(cfg.damage, statsOf(GUN_TARGET), st);
   const toLock = roundsToLock();
@@ -986,7 +993,7 @@ async function secondariesMinePhase(log) {
   await awaitPosed([a], 'sec-mine');
   const laid = await layOne(a, 'sec-mine');
   const st = statsOf(GUNNER);
-  const D = Math.round(0.8 * CONFIG.gunAttenuation.fullFrac * st.secondaryRangeU);
+  const D = Math.round(GUN_RANGE_FRAC * st.secondaryRangeU);
   // The shooter due north of the mine, the round flying straight down onto
   // the marker (the layer sits east of the line).
   const sPose = { x: laid.x, y: laid.y + D, heading: 0 };
@@ -997,8 +1004,9 @@ async function secondariesMinePhase(log) {
   precondition(D < DETECT, 'sec-mine: the shooter cannot see the mine it shoots');
   const s = await joinClient('SM-S', GUNNER, { fit: [], pose: sPose, roomId: a.room.roomId });
   await awaitPosed([a, s], 'sec-mine shooter');
-  // CONFIG's landings: the round's damage settled once (inside the full-damage
-  // band, so unattenuated), against the mine's hp. No armor gate: a mine is not a hull.
+  // CONFIG's landings: the round's damage settled once (flat with range), against
+  // the mine's hp — each dispersed landing a unit or two off the marker's
+  // centre, well inside its `hitRadiusU`. No armor gate: a mine is not a hull.
   const perRound = settleBlow(CONFIG.secondaries.damage);
   const landingsNeeded = Math.ceil(CONFIG.mine.hp / perRound);
   const aim = bearing(sPose, laid);
@@ -1041,7 +1049,7 @@ async function mainBatteryMinePhase(log) {
   await awaitPosed([a], 'main-mine');
   const laid = await layOne(a, 'main-mine');
   const row = statsOf(GUNNER).equipment.mainBattery;
-  const D = Math.round(0.8 * CONFIG.gunAttenuation.fullFrac * row.rangeU);
+  const D = Math.round(GUN_RANGE_FRAC * row.rangeU);
   // Due north of the mine, heading 0: the mine on the STARBOARD beam, every turret bears.
   const sPose = { x: laid.x, y: laid.y + D, heading: 0 };
   checkPoseWater('main-mine shooter', sPose);
@@ -1093,7 +1101,7 @@ async function awaitAnswer(clients, ctx, seq, ok, label) {
 async function torpedoOnce(s, v, label) {
   const brg = bearing(s.you, v.you);
   precondition(launcherArcHolds(s.cls, statsOf(s.cls, s.fit).torpedoLaunchers, s.you.heading, brg), `${label}: target outside the launcher arcs`);
-  // TRAIN FIRST (R13 / R28): the launcher swings out of its dead wedge onto the aim.
+  // AIM FIRST (R28): the launcher points at the aim inside its band (no traverse, Story 11.1).
   s.script = aimAt(brg, TORP_AIM_U);
   await holdFor([s, v], LAUNCHER_TRAIN_MS);
   s.script = clickAt(brg, TORP_AIM_U);

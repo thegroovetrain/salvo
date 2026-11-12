@@ -10,7 +10,8 @@
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { MatchSample } from './runner.js';
 import type { BotSample } from './botMetrics.js';
-import { emptyEdgeTally, emptyFamilyTally, emptyPostureTally } from './botReadouts.js';
+import { emptyEdgeTally, emptyPostureTally } from './botReadouts.js';
+import { RANGE_BANDS, emptyBands } from './rangeBands.js';
 
 /** One profile's posture split (POSTURE block rows). */
 export interface PostureGroup {
@@ -45,9 +46,11 @@ export interface BotReadoutAggregate {
   /** Participant kills by the victim's last damage source. */
   killsBySource: Record<string, number>;
   gunShells: number;
-  shotsBeyondRange: Record<string, number>;
-  litShots: number;
   starShellsFired: number;
+  /** Story 11.1: main-battery shells fired / that damaged a hull, per range
+   *  band of the turret's reach (four equal bands, nearest first). */
+  mbBandShells: number[];
+  mbBandHits: number[];
   postureTicks: Record<string, number>;
   postureTransitions: Record<string, number>;
   tacticCounts: Record<string, number>;
@@ -120,15 +123,33 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
   };
 }
 
-type ShotKeys = 'gunShells' | 'shotsBeyondRange' | 'litShots' | 'starShellsFired';
+type ShotKeys = 'gunShells' | 'starShellsFired' | 'mbBandShells' | 'mbBandHits';
+
+/** Band-wise sum of per-bot band arrays (a missing array reads as zeros). */
+function sumBands(rows: readonly BotSample[], f: (r: BotSample) => readonly number[] | undefined): number[] {
+  const out = emptyBands();
+  for (const r of rows) (f(r) ?? []).forEach((v, i) => { if (i < out.length) out[i] += v; });
+  return out;
+}
 
 function shotReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, ShotKeys> {
   return {
     gunShells: sum(rows, (r) => r.gunShells),
-    shotsBeyondRange: sumRecords(emptyFamilyTally(), rows.map((r) => r.shotsBeyondRange)),
-    litShots: sum(rows, (r) => r.litShots),
     starShellsFired: sum(rows, (r) => r.starShellsFired),
+    mbBandShells: sumBands(rows, (r) => r.mbBandShells),
+    mbBandHits: sumBands(rows, (r) => r.mbBandHits),
   };
+}
+
+/** `0-25% n=… hit=…% | 25-50% … | 75-100%+ …` — the main-battery hit share by range band. */
+export function bandLine(shells: readonly number[], hits: readonly number[]): string {
+  const step = 100 / RANGE_BANDS;
+  const cells: string[] = [];
+  for (let i = 0; i < RANGE_BANDS; i += 1) {
+    const label = `${fmt(i * step, 0)}-${fmt((i + 1) * step, 0)}%${i === RANGE_BANDS - 1 ? '+' : ''}`;
+    cells.push(`${label} n=${shells[i] ?? 0} hit=${pct(ratio(hits[i] ?? 0, shells[i] ?? 0))}`);
+  }
+  return cells.join(' | ');
 }
 
 type WorkKeys = 'gunsBearing' | 'gunsInReach' | 'gunsBearingRate' | 'minesSwept' | 'repairByStyle' | 'repairAll';
@@ -198,7 +219,8 @@ export function renderReadoutLines(a: BotReadoutAggregate): string[] {
     `  grounded (sim landContact): ${a.groundedTicks} ticks = ${pct(a.groundedRate)} of afloat | stuck episodes (>= CONFIG.bots.stuckMs): ${a.stuckEpisodes}`,
     `  outside the live ring: ${a.outsideRingTicks} ticks = ${pct(a.outsideRingRate)} | storm deaths aground-or-outside: ${a.stormDeathStuck} (aground: ${a.stormDeathAground})`,
     `  kills by source: ${countLine(a.killsBySource)}`,
-    `  deck-gun shells: ${a.gunShells} | beyond full range: ${countLine(a.shotsBeyondRange)} | into own light: ${a.litShots} | star shells: ${a.starShellsFired}`,
+    `  deck-gun shells: ${a.gunShells} | star shells: ${a.starShellsFired}`,
+    `  main-battery hit share by range band (of reach): ${bandLine(a.mbBandShells, a.mbBandHits)}`,
     `  solid fog: ${a.fogTicks} ticks = ${pct(a.fogRate)} of afloat`,
     `  ability presses: ${a.actPresses} | by ability: ${countLine(a.pressesByAbility)}`,
     `  activations (took effect): ${countLine(a.activations)}`,

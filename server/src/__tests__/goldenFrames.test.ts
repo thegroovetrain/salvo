@@ -115,6 +115,22 @@
 // key alone; no `kcls` or `aggro` was ever in a captured frame. No RNG
 // stream moved (no scenario runs the zone clock, so the deleted wave spawner
 // never drew). The six exceptions and every proof are unchanged.
+//
+// RE-RECORDED 2026-11-12 (Story 11.1, real dispersion + no traverse; PV
+// 103). Structurally diffed frame by frame (168 frames before and after, none
+// added or removed; NO key added or removed on any row): (1) every turret /
+// launcher angle is the DERIVED angle (at the aim inside the arc, rest
+// outside), so 83 contact `tu`, 1 `lu`, 2 `you.turrets[].a` and 1
+// `you.launchers[].a` values moved; (2) every main-battery shell flies from
+// its own muzzle straight at its own DISPERSED landing (converge, R13), so 20
+// `shell` reveals' vx / vy and the matching 12 `burst`, 8 `hc`, 6 `sp` and 4
+// `boom` points moved by a few units; (3) with no traverse to wait for, the
+// gunnery scenario's `holdAim` is one tick, so its 9 captured frames sit
+// earlier (tick 82 → 2, 117 → 37, 118 → 38, 426 → 265 — `t` / `tick` /
+// `sweep` / `xp` move with them) and its torpedo leaves at the aim bearing
+// on the first click, which shifts that torpedo's `torpU` and wake (`wk`)
+// paints on observer `c` by a tick or two (14 frames' event lists). The
+// perception chokepoint, the six exceptions and every proof are unchanged.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -1028,12 +1044,11 @@ function scnGunnery(g: Golden): void {
   );
 }
 
-/** Ticks for a turret to traverse any legal arc (≤ 360°) at the main
- *  battery's rate, plus one — derived, never a literal. */
-const SETTLE_TICKS = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * DT) / 1000)) + 1;
+/** One tick: no traverse since Story 11.1 (R16) — the step sets the derived angle. */
+const SETTLE_TICKS = 1;
 
 /** Story 10.4: hold `aim` / `aimDist` (no click) until every turret that can
- *  bear has trained onto it. Consumes input seq `seq`. */
+ *  bear points at it. Consumes input seq `seq`. */
 function holdAim(w: World, id: string, seq: number, aim: number, aimDist: number): void {
   const fireSeq = w.ships.get(id)!.lastFireSeq;
   w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });

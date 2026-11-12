@@ -7,7 +7,7 @@
 // oracles in perception.test.ts; wire fixtures in goldenFrames.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
+import { CONFIG, dispersionAxes, type GameEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { circleIsland } from './islandFixture.js';
@@ -190,7 +190,10 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     expect(acc.sp).toHaveLength(a.stats.equipment.gun.barrels);
     for (const sp of acc.sp) {
       expect(sp.id).toBe('a'); // the SHOOTER's id — the self-private gate key
-      expect(sp.x).toBeCloseTo(500, 4); // the true burst point (each track's own)
+      // The true burst point: each shell's own DISPERSED landing around the
+      // click (Story 11.1) — inside the ellipse, whose long semi-axis at
+      // twice the range bounds it.
+      expect(Math.hypot(sp.x - 500, sp.y)).toBeLessThanOrEqual(dispersionAxes(1000).alongU);
     }
     expect(acc.hc).toHaveLength(0);
   });

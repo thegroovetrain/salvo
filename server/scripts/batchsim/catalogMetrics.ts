@@ -91,21 +91,17 @@ function rawSources(): { label: string; amount: number }[] {
     // collide AT TIER I; the merge-by-amount below stays, so any future
     // collision still prints as one merged label rather than a silent mislabel.
     // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
-    // so a laddered or attenuated hit is classified by first match on its
-    // amount — a DamageEvent names neither its weapon nor its shell family, so
-    // this ledger cannot key on family the way classifyShell's LAUNCH ledger
-    // does (that would need a field on the wire event, i.e. server/src). Since
-    // Story 9.12 (Eric 2026-10-16, epic-9 amendment 184) EVERY deck-gun blow
-    // is range-attenuated (to `gunAttenuation.minFactor` at range — the dial,
-    // not a number here) unless aimed into the firer's own light (amendment
-    // 187), and a flak burst falls to HALF at the rim (`flak.rimFactor`), so
-    // only a near or lit, dead-centre hit lands on its bare-amount row. A Tier
-    // III flak burst (20) files under `starShells` (20); an attenuated cannon
-    // or machine-gun blow (floor(D × factor)) files under whichever base
-    // amount it happens to equal — at the 2026-10-17 dial (0.5) a Tier I
-    // cannon shell at max range lands 4 and files under `flakBodyblock`;
-    // anything else files by first match or under `other:<amount>`. Harness attribution only; the fix (classify by
-    // shell family, not amount) is in deferred-work.md.
+    // so a laddered hit is classified by first match on its amount — a
+    // DamageEvent names neither its weapon nor its shell family, so this
+    // ledger cannot key on family the way classifyShell's LAUNCH ledger does
+    // (that would need a field on the wire event, i.e. server/src). A flak
+    // burst falls to HALF at the rim (`flak.rimFactor`), so only a
+    // dead-centre flak hit lands on its bare-amount row; a Tier III flak burst
+    // (20) files under `starShells` (20); anything else files by first match
+    // or under `other:<amount>`. (Range attenuation, which also moved deck-gun
+    // amounts, retired 2026-11-12, Story 11.1: deck-gun blows are flat with
+    // range.) Harness attribution only; the fix (classify by shell family,
+    // not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
@@ -247,9 +243,9 @@ export interface CatalogSample {
    *  max (2 barrels x 13 at CANNON tier V, near — Eric 2026-10-16, Story
    *  9.12; two barrels at every tier), but THIS METRIC CANNOT SEE IT: a hit
    *  counts as 'gun' only at the bare amount (`CONFIG.gun.damage`, 8), so
-   *  laddered (10–13) or range-attenuated cannon shells file under another
-   *  label or `other:<amount>` and the only multi-barrel click it records is
-   *  the near Tier I twin (2 x 8 = 16). Attribution by shell family is open
+   *  laddered (10–13) cannon shells file under another label or
+   *  `other:<amount>` and the only multi-barrel click it records is the Tier
+   *  I twin (2 x 8 = 16). Attribution by shell family is open
    *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */

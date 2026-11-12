@@ -115,26 +115,9 @@ export interface ShellState {
    * every bursting projectile; never on the wire.
    */
   direct?: true;
-  /**
-   * THE LAUNCH POINT (Story 9.12, Eric 2026-10-16, epic-9 amendment 184(b)):
-   * where the shell left the muzzle (the hull-clear launch origin). The
-   * World's deck-gun blow sites measure the distance FLOWN as
-   * `hypot(impact − origin)` for the range attenuation (sim/attenuation.ts).
-   * Set only by the three deck guns; absent → no attenuation.
-   * SERVER-PRIVATE: stepShell never reads it, and the projectile wire row
-   * (server signals.ts ballisticSignal) picks only k,id,x,y,vx,vy,t,w — never
-   * add it to any wire shape (the muzzle becomes solvable).
-   */
-  originX?: number;
-  /** The launch point's y (see `originX`). SERVER-PRIVATE. */
-  originY?: number;
-  /**
-   * THE ATTENUATION REFERENCE (Story 9.12, ruling 184(b)): the firer's
-   * effective gun `rangeU` AT FIRE TIME — never the lit-zone-lifted reach.
-   * Absent or 0 = no range attenuation (injected test shells, broadside,
-   * star/phosphor/fouling shells, torpedoes). SERVER-PRIVATE, like `originX`.
-   */
-  attenRangeU?: number;
+  // `originX` / `originY` / `attenRangeU` (the deck-gun range-attenuation
+  // launch point and reference, Story 9.12) — RETIRED 2026-11-12, Story 11.1:
+  // damage is flat with range.
   /**
    * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
    * shell also spawns a lit zone of `radius` for `durationMs` (World.

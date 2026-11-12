@@ -67,6 +67,16 @@ export interface ActivationContext {
    *  island-blindness stays deliberately out of scope — see the ledger). */
   islands: readonly Island[];
   mkId: () => string;
+  /**
+   * REAL DISPERSION (Story 11.1, R5): mint the next projectile id AND its
+   * per-shell dispersion seed — `shellDispersionSeed(streamSeed, ordinal)`
+   * off the World's ROOM-PRIVATE dispersion stream, keyed on the id's own
+   * ordinal (the same sequence `mkId` advances), so a replay with the same
+   * seeds and inputs lands every shell on the same point. Only the main
+   * battery and the secondaries call it (R6); the seed never leaves the
+   * server.
+   */
+  mintShell: () => { id: string; seed: number };
   /** Store + reveal a launched projectile. `opts.perShellFlash` is the ONE
    *  declared opt-out from the per-owner-per-tick muzzle-flash dedupe: the
    *  BROADSIDE BARRAGE emits a flash PER SHELL (Story 7-5 wave 2, R2.5), where
@@ -220,7 +230,7 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
   instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
   hunker: hunkerEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
-  mainBattery: mainBatteryEquipment, // Story 10.4: the captain's slot 0 — per-turret traverse + reload (R2/R4)
+  mainBattery: mainBatteryEquipment, // Story 10.4: the captain's slot 0 — per-turret reload (R2/R4); no traverse since Story 11.1
 });
 
 /**

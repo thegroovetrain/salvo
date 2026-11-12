@@ -3,6 +3,15 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  103 — Story 11.1 REAL DISPERSION (2026-11-12, Eric's rulings R1–R17): the
+ *  CONFIG the client reads changed — `gunAttenuation` RETIRED (damage is flat
+ *  with range), `mainBattery.traverseDegPerS` / `onTargetDeg` RETIRED (no
+ *  traverse: a turret or launcher fires only inside its arc, at the aim
+ *  point), `dispersion` new (the preview's ellipse). The wire SHAPE is
+ *  unchanged: `OwnShip.turrets[].a` / `launchers[].a` and `Contact.tu` /
+ *  `lu` now carry the DERIVED angle (at the aim inside the arc, rest
+ *  otherwise); a burst's center is the shell's dispersed landing point. No
+ *  landing point, seed or origin ever reaches a client before a shell lands.
  *  102 — Story 10.13 THE SOUND PASS (2026-11-11, Eric's ruling: four
  *  selectable horns — Foghorn, Whistle, Bell, Sad Trombone): the
  *  horn CATALOG's content widens, `HORN_IDS` = ['standard', 'whistle', 'bell',
@@ -160,7 +169,8 @@
  *  predictor's ramming mass (setOwnMass) and the class-select HULL pips;
  *  nothing new on the wire.
  *  89 — Story 9.12: catalog content + CONFIG gun/machineGun/flak/
- *  gunAttenuation/torpedo/lightTorpedo/supercavTorpedo/mine/captiveMines read
+ *  gunAttenuation (retired 2026-11-12, Story 11.1)/torpedo/lightTorpedo/
+ *  supercavTorpedo/mine/captiveMines read
  *  by the client; nothing new on the wire.
  *  88 — Story 9.10 fog tune 3 (Eric 2026-10-16 on staging, epic-9 amendment
  *  179): the shared field the client draws from changes shape — density is
@@ -1043,7 +1053,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 102;
+export const PROTOCOL_VERSION = 103;
 
 // Tunables
 export * from './constants.js';

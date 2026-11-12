@@ -12,6 +12,7 @@
 // the owner — so clearance is only about clean spawn geometry, not self-hits.
 
 import {
+  dispersedLanding,
   hullClearOffset as sharedHullClearOffset,
   muzzleSpawn as sharedMuzzleSpawn,
   type ShellFamily,
@@ -77,14 +78,8 @@ export interface BallisticParams {
    *  at its aim point with a splash instead of bursting, and a hull it strikes
    *  takes a plain contact hit (see ShellState.direct). */
   direct?: true;
-  /** THE ATTENUATION REFERENCE (Story 9.12, Eric 2026-10-16, epic-9
-   *  amendment 184(b)): the firing row's effective `rangeU` AT FIRE TIME —
-   *  never the lit-zone-lifted reach; ABSENT for a deck-gun shot aimed into
-   *  the firer's own live lit zone (amendment 187, the lit exemption — full
-   *  damage; guns.ts `attenRangeFor`). Only the three deck guns pass it; when
-   *  given and > 0 the shell also records its launch point (see
-   *  ShellState.originX / attenRangeU). Server-private, never on the wire. */
-  attenRangeU?: number;
+  // `attenRangeU` (the deck-gun range-attenuation reference, Story 9.12) —
+  // RETIRED 2026-11-12, Story 11.1: damage is flat with range.
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
@@ -106,21 +101,31 @@ export interface BallisticParams {
   homing?: { turnRate: number; acquireRange: number };
 }
 
+/** One dispersed shell's flight: where it lands, the bearing it flies and how far. */
+export interface DispersedFlight {
+  /** The shell's own landing point (dispersed, inside the water disk). */
+  landing: Vec2;
+  /** rad — the bearing from its muzzle straight at its landing. */
+  dir: number;
+  /** u — muzzle → landing. */
+  distU: number;
+}
+
 /**
- * THE LAUNCH POINT + REFERENCE (Story 9.12, ruling 184(b), reading r1): a
- * deck-gun shell records where it left the muzzle (its resolved spawn point —
- * call this on the freshly built shell) and the row's range at fire time, so
- * the World can measure the distance FLOWN at impact. Nothing is written for
- * an absent or non-positive reference (every other projectile: no
- * attenuation, and no explicit `undefined` keys on the record) — including a
- * deck-gun shot aimed into the firer's own live lit zone (Eric 2026-10-17,
- * epic-9 amendment 187: the lit region counts as the 100 % damage range).
+ * REAL DISPERSION (Story 11.1, R5 / R8): one shell's landing — the shared
+ * `dispersedLanding` from its own muzzle `origin` around its aim point
+ * `aim`, from `seed` (`ActivationContext.mintShell`), kept inside the water
+ * disk — and the STRAIGHT flight to it: the bearing and travel are
+ * recomputed from the muzzle to the landing, so `stepShell` flies the shell
+ * there with no sideways snap on arrival. A shell spawned on its landing
+ * (the point-blank rule) keeps `fallbackDir`.
  */
-function stampAttenuation(shell: ShellState, attenRangeU: number | undefined): void {
-  if (attenRangeU === undefined || !(attenRangeU > 0)) return;
-  shell.originX = shell.x;
-  shell.originY = shell.y;
-  shell.attenRangeU = attenRangeU;
+export function dispersedFlight(origin: Vec2, aim: Vec2, seed: number, mapRadius: number, fallbackDir: number): DispersedFlight {
+  const landing = dispersedLanding(origin.x, origin.y, aim.x, aim.y, seed, mapRadius);
+  const dx = landing.x - origin.x;
+  const dy = landing.y - origin.y;
+  const distU = Math.hypot(dx, dy);
+  return { landing, dir: distU > 0 ? Math.atan2(dy, dx) : fallbackDir, distU };
 }
 
 /**
@@ -157,7 +162,6 @@ export function makeBallistic(
     family: p.family,
   };
   if (p.direct === true) shell.direct = true;
-  stampAttenuation(shell, p.attenRangeU);
   // The optional doctrine tags are set only when the caller carries one (never
   // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;

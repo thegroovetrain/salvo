@@ -14,26 +14,27 @@
 // ZERO launchers and every function degrades to the empty answer.
 //
 // AIMING IS THE TURRETS' (R6: "they work the same way in terms of aiming and
-// such"; R13: they chase the cursor at all times). The machinery is
-// sim/mountAim.ts, shared with sim/turrets.ts: a launcher trains its OWN
-// `trainDeg` either side of rest, traverses toward the aim
-// point at `CONFIG.mainBattery.traverseDegPerS` — THROUGH its own dead wedge
-// when the aim crosses to the other side — HOLDS its angle when the aim point
-// leaves its train interval, and is ON TARGET within
-// `CONFIG.mainBattery.onTargetDeg`.
+// such"). The machinery is sim/mountAim.ts, shared with sim/turrets.ts. NO
+// TRAVERSE (Eric 2026-11-12, Story 11.1, R11 / R16 — point and shoot; the
+// launchers' borrowed `CONFIG.mainBattery.traverseDegPerS` / `onTargetDeg`
+// retired with the turrets'): a launcher's angle is DERIVED
+// (`launcherAngle`) — at the aim point while the aim lies inside its FIRING
+// BAND, at rest otherwise — and a launcher fires only inside its band, at the
+// aim point exactly.
 //
 // SIDE-FIRING (R28, Eric 2026-11-06 — supersedes R6's "140° to either side").
 // A launcher FIRES only inside its FIRING BAND: from its `deadDeg` to its
 // `trainDeg` off its own end (fore from dead ahead, aft from dead astern), on
-// both sides. Inside `deadDeg` of rest it may swing but never fires. THE BAND
+// both sides. Inside `deadDeg` of rest it never fires (and rests). THE BAND
 // IS PER HULL AND PER LAUNCHER (R30, Eric 2026-11-06):
 // `CONFIG.shipClasses.<id>.launchers.{fore,aft}.{deadDeg,trainDeg}` — one
 // source, no global. The angle `a` follows turrets.ts's
 // convention: radians, hull-relative, counter-clockwise positive, UNWRAPPED in
 // `[rest − train, rest + train]`; the world bearing is `pose.heading + a`.
 //
-// THE STATE is `LauncherState[]` — per launcher `{ a, tubes }`, `tubes[k]` =
-// ms until tube `k` is loaded again (0 = loaded). It is the server's record,
+// THE STATE is `LauncherState[]` — per launcher `{ a, tubes }`, `a` = the
+// derived angle as of the last step with an aim, `tubes[k]` = ms until tube
+// `k` is loaded again (0 = loaded). It is the server's record,
 // the client's predicted copy AND the `OwnShip.launchers` wire shape, exactly
 // as `TurretState[]` is for the battery, so the client's correction is a plain
 // overwrite (`copyLaunchers`). MUTATED IN PLACE on the tick path.
@@ -41,30 +42,25 @@
 // THE AIM POINT (`launcherAimPoint`). A torpedo has no reach, so only the
 // BEARING of the cursor matters — but each launcher measures that bearing from
 // its OWN station, which is ill-defined for a cursor on the own deck. So the
-// launchers chase the cursor's point with its distance from the ship centre
+// launchers read the cursor's point with its distance from the ship centre
 // FLOORED at one hull length (every station is within half a length of the
 // centre, so the floored point is outside the hull and at least half a length
 // from every station): a close-in cursor keeps its bearing from the centre and
 // is simply read as "that way". NO AIM (a zero / non-finite distance, the
 // neutral input) is `null`, the same test as `batteryAimPoint`: the launchers
-// hold exactly when the turrets hold, and a click with no aim is refused
-// `out-of-arc` (it names no area).
+// keep their angles exactly when the turrets do, and a click with no aim is
+// refused `out-of-arc` (it names no area).
 //
 // THE PICK (R16, verbatim: "if the tube CANNOT POSSIBLY point at the aimed
-// area, it doesn't fire no matter what"; R28). `pickTube` is pure:
+// area, it doesn't fire no matter what"; R28; no traverse since Story 11.1).
+// `pickTube` is pure:
 //   - no launcher's firing band holds the aim point → `out-of-arc`, nothing
 //     spent;
-//   - a launcher whose band holds it but whose CURRENT bearing is not yet in
-//     that SAME band — still in its dead wedge, or pointed into the band on the
-//     other side of its end — cannot fire yet (never an early shot across the
-//     ship);
-//   - among launchers whose band holds the aim, pointed into their band, AND
-//     with a loaded tube: one ON TARGET wins (fore first) and fires at the aim
-//     point exactly; otherwise the smallest angular error fires EARLY along
-//     its CURRENT bearing (the battery's early-click rule); its lowest-index
-//     loaded tube is the one;
-//   - a band holds it but no launcher can fire (every candidate reloading or
-//     still swinging) → `cooling` — the turrets' "cannot fire yet" denial.
+//   - among the launchers whose band holds it AND that have a loaded tube, the
+//     LOWEST INDEX (fore first) fires at the aim point exactly; its
+//     lowest-index loaded tube is the one;
+//   - a band holds it but every such launcher is reloading → `cooling` — the
+//     turrets' "cannot fire yet" denial.
 // One click, one torpedo: the caller fires the pick with `fireTube` and spawns
 // at `torpedoLaunchPoint(pick.station, pose, hullId, pick.bearing)`.
 //
@@ -77,14 +73,11 @@ import { muzzleSpawnFrom, type AimPose } from './aim.js';
 import type { ArcShape } from './arcs.js';
 import {
   ARC_EPS,
+  clampOffset,
   decodeMountAngle,
   encodeMountAngle,
   mountBearingOffset,
   mountStationWorld,
-  rankMounts,
-  readMount,
-  traverseMount,
-  traverseStepRad,
   type TrainedMount,
 } from './mountAim.js';
 
@@ -98,7 +91,7 @@ export const MAX_TUBES_PER_LAUNCHER = 2;
 
 /** One launcher's runtime state (also the `OwnShip.launchers` wire entry). */
 export interface LauncherState {
-  /** rad — hull-relative, unwrapped, inside the launcher's train interval (see the header). */
+  /** rad — hull-relative, unwrapped, inside the launcher's train interval: the DERIVED angle (`launcherAngle`) as of the last step with an aim (see the header). */
   a: number;
   /** Per tube: ms until it is loaded again (0 = loaded). */
   tubes: number[];
@@ -124,7 +117,7 @@ export function launcherTrainRad(hullId: HullId, i: number): number {
   return (launcherRow(hullId, i)?.trainDeg ?? 0) * RAD_PER_DEG;
 }
 
-/** rad — launcher `i`'s dead half-wedge about its rest bearing on `hullId` (R28 / R30): it may swing through it but never fires inside it. */
+/** rad — launcher `i`'s dead half-wedge about its rest bearing on `hullId` (R28 / R30): it never fires inside it. */
 export function launcherDeadRad(hullId: HullId, i: number): number {
   return (launcherRow(hullId, i)?.deadDeg ?? 0) * RAD_PER_DEG;
 }
@@ -288,12 +281,25 @@ export function launcherBears(hullId: HullId, i: number, pose: AimPose, aim: Vec
 }
 
 /**
+ * THE DERIVED LAUNCHER ANGLE (Story 11.1, R16) — what launcher `i` is drawn at
+ * and what `LauncherState.a` / `Contact.lu` carry: the bearing from its own
+ * station to the aim point (hull-relative, the header's convention) while the
+ * aim lies inside its FIRING BAND; its REST bearing otherwise (its dead
+ * wedge, its blind sector, on its station, or `aim === null`). Pure; no
+ * traverse, no history.
+ */
+export function launcherAngle(hullId: HullId, i: number, pose: AimPose, aim: Vec2 | null): number {
+  const rest = launcherRest(i);
+  const off = aim === null || i < 0 || i >= stationsOn(hullId) ? null : aimOffset(hullId, i, pose, aim);
+  if (off === null || !inFiringBand(hullId, i, off)) return rest;
+  return rest + clampOffset(off, launcherTrainRad(hullId, i));
+}
+
+/**
  * ONE 50 ms STEP of a ship's launchers, IN PLACE: every tube's clock counts
- * down toward 0; every launcher whose TRAIN INTERVAL holds the aim point
- * (its dead wedge included — that is how it changes sides) traverses toward
- * it at the main battery's rate (arriving exactly, never leaving its train
- * interval); every other launcher HOLDS its angle. `aim === null` holds every
- * angle and still runs the clocks.
+ * down toward 0, and every launcher's angle is SET to its derived
+ * `launcherAngle` for this aim (no traverse — R16). `aim === null` leaves
+ * every angle where it is and still runs the clocks.
  */
 export function stepLaunchers(
   states: LauncherState[],
@@ -302,12 +308,11 @@ export function stepLaunchers(
   aim: Vec2 | null,
   dtMs: number,
 ): void {
-  const maxStep = traverseStepRad(CONFIG.mainBattery.traverseDegPerS, dtMs);
   const n = Math.min(states.length, stationsOn(hullId));
   for (let i = 0; i < n; i += 1) {
     const st = states[i];
     for (let k = 0; k < st.tubes.length; k += 1) st.tubes[k] = Math.max(0, st.tubes[k] - dtMs);
-    if (aim !== null) traverseMount(st, trained(hullId, i), pose, aim, maxStep);
+    if (aim !== null) st.a = launcherAngle(hullId, i, pose, aim);
   }
 }
 
@@ -321,26 +326,13 @@ export type TubePick =
       launcher: number;
       /** Which of its tubes (the lowest-index loaded one). */
       tube: number;
-      /** True iff the launcher was ON the aim point; false = it fires early along its current bearing. */
-      onTarget: boolean;
       /** The launcher's world station. */
       station: Vec2;
-      /** rad — the WORLD bearing the torpedo runs on. */
+      /** rad — the WORLD bearing the torpedo runs on: station → aim point. */
       bearing: number;
     }
   | { verdict: 'out-of-arc' }
   | { verdict: 'cooling' };
-
-/**
- * True iff a launcher whose CURRENT offset from rest is `current` points into
- * the same firing band as an aim at offset `aimOff` — a launcher has TWO
- * disjoint bands, one each side of its end, so same side (sign) AND inside the
- * band (R28; orchestrator ruling 2026-11-06 under R16: never an early shot
- * across the ship).
- */
-function inSameBand(hullId: HullId, i: number, aimOff: number, current: number): boolean {
-  return inFiringBand(hullId, i, current) && Math.sign(current) === Math.sign(aimOff);
-}
 
 /** The lowest-index LOADED tube of a launcher, or −1. */
 function loadedTube(st: LauncherState): number {
@@ -352,34 +344,24 @@ function loadedTube(st: LauncherState): number {
 
 /**
  * THE PICK (R16) — pure; see the header for the three verdicts. `aim` is
- * `launcherAimPoint(...)`; `null` (no aim) is `out-of-arc`. Step the launchers
- * for the tick BEFORE picking, so a launcher that arrives on the aim point (or
- * a tube that finishes reloading) this tick counts this tick.
+ * `launcherAimPoint(...)`; `null` (no aim) is `out-of-arc`. Step the
+ * launchers for the tick BEFORE picking, so a tube that finishes reloading
+ * this tick counts this tick. A launcher's current angle plays no part.
  */
 export function pickTube(states: readonly LauncherState[], hullId: HullId, pose: AimPose, aim: Vec2 | null): TubePick {
   if (aim === null) return { verdict: 'out-of-arc' };
-  const onTargetRad = CONFIG.mainBattery.onTargetDeg * RAD_PER_DEG;
   let bears = false;
-  const won = rankMounts(Math.min(states.length, stationsOn(hullId)), (i) => {
+  const n = Math.min(states.length, stationsOn(hullId));
+  for (let i = 0; i < n; i += 1) {
     const off = aimOffset(hullId, i, pose, aim);
-    if (off === null || !inFiringBand(hullId, i, off)) return null; // its band does not hold the aim: it never fires
+    if (off === null || !inFiringBand(hullId, i, off)) continue; // its band does not hold the aim: it never fires
     bears = true;
-    // Still swinging — in its dead wedge, or pointed into the OTHER side's band:
-    // it cannot possibly put a torpedo on the aimed side yet (R16 / R28).
-    if (!inSameBand(hullId, i, off, states[i].a - launcherRest(i))) return null;
-    if (loadedTube(states[i]) < 0) return null;
-    return readMount(states[i].a, trained(hullId, i), pose, aim, onTargetRad);
-  });
-  if (won === null) return { verdict: bears ? 'cooling' : 'out-of-arc' };
-  const { index, read } = won;
-  return {
-    verdict: 'fire',
-    launcher: index,
-    tube: loadedTube(states[index]),
-    onTarget: read.on,
-    station: read.station,
-    bearing: read.on ? read.exactBearing : pose.heading + states[index].a,
-  };
+    const tube = loadedTube(states[i]);
+    if (tube < 0) continue;
+    const station = launcherStationWorld(hullId, i, pose);
+    return { verdict: 'fire', launcher: i, tube, station, bearing: pose.heading + launcherRest(i) + off };
+  }
+  return { verdict: bears ? 'cooling' : 'out-of-arc' };
 }
 
 /**

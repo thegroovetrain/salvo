@@ -33,7 +33,8 @@ import { buildFrame } from '../game/frames.js';
 import { B, DT, SURFACE_MS, bareWorld, captain, inp, moveTo, openCycle, run, seatBeacons } from './beaconFixture.js';
 
 const TAU = Math.PI * 2;
-const SETTLE = Math.ceil(360 / ((CONFIG.mainBattery.traverseDegPerS * DT) / 1000)) + 1;
+/** One tick: no traverse since Story 11.1 (R16) — the step sets the derived angle. */
+const SETTLE = 1;
 
 /** Every object anywhere in `value` that carries a numeric x and y. */
 function positioned(value: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] {

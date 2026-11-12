@@ -156,53 +156,24 @@ describe('--tune ranges — the weapon weighting', () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE DECK-GUN BLOW FRACTIONS (Story 9.12, Eric 2026-10-16, epic-9 amendments
-// 184–185): the shared functions CLAMP an out-of-range dial, so an arm outside
+// THE DECK-GUN BLOW FRACTION (Story 9.12, Eric 2026-10-16, epic-9 amendments
+// 184–185): the shared function CLAMPS an out-of-range dial, so an arm outside
 // [0, 1] would print as moved while the sim ran the clamp — false evidence.
-// `fullFrac` at or past 1 collapses the attenuation curve to a step at range,
-// refused on the finished CONFIG like the dropout curve.
+// The range-attenuation dials (`gunAttenuation.*`) retired with the block
+// (2026-11-12, Story 11.1): the family itself is refused.
 // ---------------------------------------------------------------------------
 
-describe('--tune ranges — range attenuation and the flak rim', () => {
-  const KEYS = ['gunAttenuation.fullFrac', 'gunAttenuation.minFactor', 'flak.rimFactor'];
-
-  it('reaches all three leaves from 0, `minFactor` and `rimFactor` up to 1 inclusive, shipped values included', () => {
-    for (const key of KEYS) {
-      expect(() => validateTuneKey(key)).not.toThrow();
-      expect(() => validateTuneValue(key, 0)).not.toThrow();
-    }
-    expect(() => validateTuneValue('gunAttenuation.minFactor', 1)).not.toThrow(); // attenuation off, a real arm
-    expect(() => validateTuneValue('flak.rimFactor', 1)).not.toThrow();
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', CONFIG.gunAttenuation.fullFrac)).not.toThrow();
-    expect(() => validateTuneValue('gunAttenuation.minFactor', CONFIG.gunAttenuation.minFactor)).not.toThrow();
-    expect(() => validateTuneValue('flak.rimFactor', CONFIG.flak.rimFactor)).not.toThrow();
+describe('--tune ranges — the flak rim', () => {
+  it('reaches `flak.rimFactor` from 0 up to 1 inclusive, the shipped value included', () => {
+    expect(() => validateTuneKey('flak.rimFactor')).not.toThrow();
+    for (const v of [0, 1, CONFIG.flak.rimFactor]) expect(() => validateTuneValue('flak.rimFactor', v)).not.toThrow();
   });
 
   it('refuses anything outside [0, 1] and anything non-finite', () => {
-    for (const key of KEYS) {
-      expect(() => validateTuneValue(key, -0.1)).toThrow(TunableError);
-      expect(() => validateTuneValue(key, 1.2)).toThrow(TunableError);
-      expect(() => validateTuneValue(key, Number.NaN)).toThrow(TunableError);
-    }
+    for (const v of [-0.1, 1.2, Number.NaN]) expect(() => validateTuneValue('flak.rimFactor', v)).toThrow(TunableError);
   });
 
-  it('REFUSES `fullFrac` at 1 or more at the PARSE leaf (half-open [0, 1) — the curve would be a step)', () => {
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', 1)).toThrow(/\[0, 1\)/);
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', 1.2)).toThrow(TunableError);
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', 0.999)).not.toThrow();
-  });
-
-  it('REFUSES `fullFrac = 1` at APPLY time (the curve would be a step) and rolls the apply back', () => {
-    const before = { ...CONFIG.gunAttenuation };
-    expect(() => applyOverrides({}, { 'gunAttenuation.fullFrac': 1 })).toThrow(/fullFrac/);
-    expect(CONFIG.gunAttenuation).toEqual(before); // all-or-nothing
-  });
-
-  it('a legal attenuation arm applies and restores', () => {
-    const before = { ...CONFIG.gunAttenuation };
-    const restore = applyOverrides({}, { 'gunAttenuation.fullFrac': 0.25, 'gunAttenuation.minFactor': 1 });
-    expect(CONFIG.gunAttenuation).toEqual({ fullFrac: 0.25, minFactor: 1 });
-    restore();
-    expect(CONFIG.gunAttenuation).toEqual(before);
+  it('the retired `gunAttenuation.*` family is refused by key (no dial is left to move)', () => {
+    for (const key of ['gunAttenuation.fullFrac', 'gunAttenuation.minFactor']) expect(() => validateTuneKey(key)).toThrow(TunableError);
   });
 });

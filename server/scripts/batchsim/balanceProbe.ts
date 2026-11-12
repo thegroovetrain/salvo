@@ -157,7 +157,7 @@ function barrelBlock(): void {
   console.log('');
   console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
   console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
-  console.log('tier | barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u, near — before range attenuation)');
+  console.log('tier | barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u, near; flat with range since Story 11.1)');
   // Each row is the CANNON build at that tier, read off the real fold: the
   // barrels column is the fold's (TWO at every tier since Eric 2026-10-16,
   // Story 9.12 — `CONFIG.gun.barrels`, no barrel rungs) and the damage is the

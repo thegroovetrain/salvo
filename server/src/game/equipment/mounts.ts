@@ -176,9 +176,10 @@ export function instantReloadMounts(ship: ShipRecord): void {
 
 /**
  * THE LAUNCHER STEP for one ship (the World's `stepLaunchers` STEP_ORDER row):
- * an AFLOAT hull's launchers chase the latest input's aim point (R13 — always,
- * like the turrets); a sinking or dead hull's HOLD their angles while the tube
- * clocks still run. A ship with no launcher steps nothing.
+ * an AFLOAT hull's launchers take their DERIVED angle for the latest input's
+ * aim point (no traverse — Story 11.1, R16); a sinking or dead hull's KEEP
+ * their angles while the tube clocks still run. A ship with no launcher steps
+ * nothing.
  */
 export function stepShipLaunchers(ship: ShipRecord, dtMs: number): void {
   if (ship.launchers.length === 0) return;

@@ -4,7 +4,7 @@
 // determinism, bell shape) — never a seed-produced number, never a shipped
 // CONFIG literal.
 import { describe, expect, it } from 'vitest';
-import { dispersedPoint, dispersionAxes, type DispersionCfg } from '../sim/dispersion.js';
+import { dispersedLanding, dispersedPoint, dispersionAxes, shellDispersionSeed, type DispersionCfg } from '../sim/dispersion.js';
 
 const CFG: DispersionCfg = { alongFrac: 0.02, acrossFrac: 0.25, floorU: 3, sigmas: 2 };
 const SEEDS = 4000;
@@ -166,5 +166,35 @@ describe('dispersedPoint — bell-shaped: denser in the middle than a uniform di
 
   it('the uniform fallback (sigmas 0) is close to a quarter', () => {
     expect(Math.abs(innerShare({ ...CFG, sigmas: 0 }) - 0.25)).toBeLessThan(0.05);
+  });
+});
+
+describe('dispersedLanding — the dispersed point, kept inside the water disk (R8)', () => {
+  it('is the dispersed point itself whenever that lies inside the map', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const p = dispersedPoint(0, 0, 900, 300, seed, CFG);
+      expect(dispersedLanding(0, 0, 900, 300, seed, 1e6, CFG)).toEqual(p);
+    }
+  });
+
+  it('never lands outside the map disk, on the muzzle → landing ray, however close to the rim the aim sits', () => {
+    const R = 1000;
+    for (let seed = 0; seed < 500; seed += 1) {
+      const p = dispersedLanding(0, 0, R, 0, seed, R, CFG); // aim ON the rim: about half the pattern falls outside
+      expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(R);
+      const raw = dispersedPoint(0, 0, R, 0, seed, CFG);
+      expect(Math.abs(p.x * raw.y - p.y * raw.x)).toBeLessThan(1e-6 * R * R); // collinear with the raw landing from the muzzle
+    }
+  });
+});
+
+describe('shellDispersionSeed — order-independent per-shell seeds', () => {
+  it('depends only on the stream seed and the ordinal: the same pair, the same seed; neighbouring ordinals differ', () => {
+    const stream = 0x7feb352d;
+    const seeds = Array.from({ length: 1000 }, (_, k) => shellDispersionSeed(stream, k + 1));
+    expect(Array.from({ length: 1000 }, (_, k) => shellDispersionSeed(stream, k + 1))).toEqual(seeds);
+    expect(new Set(seeds).size).toBe(seeds.length);
+    for (const s of seeds) expect(Number.isInteger(s) && s >= 0 && s <= 0xffffffff).toBe(true);
+    expect(shellDispersionSeed(stream ^ 1, 5)).not.toBe(shellDispersionSeed(stream, 5));
   });
 });

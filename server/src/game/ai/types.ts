@@ -155,15 +155,15 @@ export interface BotSelf {
    * This hull's OWN MAIN-BATTERY TURRETS (Story 10.4) — exactly the
    * `OwnShip.turrets` a human client is sent (angle + remaining reload per
    * turret). The main-battery tactic reads it to click only when a ready
-   * turret is on the aim it is holding (ai/battery.ts). Optional so hand-built
+   * turret bears on the aim it is holding (ai/battery.ts). Optional so hand-built
    * fixtures that predate it stay valid; absent / empty = no battery.
    */
   readonly turrets?: readonly TurretState[];
   /**
    * This hull's OWN TORPEDO LAUNCHERS (Story 10.6) — exactly the
    * `OwnShip.launchers` a human client is sent (angle + per-tube reload).
-   * The torpedo tactic reads it to click only when a tube would fire ON
-   * TARGET (ai/torpedoMount.ts). Optional like `turrets`; absent / empty =
+   * The torpedo tactic reads it to click only when a tube would fire
+   * (ai/torpedoMount.ts). Optional like `turrets`; absent / empty =
    * no torpedo held.
    */
   readonly launchers?: readonly LauncherState[];
@@ -655,14 +655,8 @@ export interface BotMind {
    * applied to another. Optional; absent = no held draw.
    */
   batteryScatterKey?: string | null;
-  /**
-   * THE TORPEDO HOLD (Story 10.6 review gate, ai/torpedoMount.ts): the
-   * torpedo aim the tactic wanted THIS tick (`at` = the decision's `now`)
-   * but could not yet fire on target — written instead of the battery's held
-   * aim only while the battery has nothing loaded, so the launcher can swing
-   * onto it. A stale `at` is ignored. Optional; absent / null = none.
-   */
-  torpedoHold?: { aim: number; aimDist: number; at: number } | null;
+  // THE TORPEDO HOLD seat (`torpedoHold`, Story 10.6) — RETIRED 2026-11-12
+  // with the traverse (Story 11.1, ai/torpedoMount.ts).
   /**
    * SECONDARIES BURST DISCIPLINE (Story 10.4, ai/battery.ts): true while the
    * bot has released the secondaries at the high-heat line and is waiting for

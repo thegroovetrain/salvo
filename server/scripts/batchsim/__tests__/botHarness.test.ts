@@ -32,6 +32,7 @@ import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
 import { TEST_PROFILE_IDS, profileOf } from '../../../src/game/ai/profiles.js';
 import { emptyBotReadouts, postureEdges } from '../botReadouts.js';
+import { RANGE_BANDS } from '../rangeBands.js';
 
 // --- args --------------------------------------------------------------------
 
@@ -571,11 +572,11 @@ function stageEvents(world: World, events: GameEvent[]): void {
 
 const NUMERIC_FIELDS = [
   'groundedTicks', 'stuckEpisodes', 'outsideRingTicks', 'stormDeathStuck', 'stormDeathAground',
-  'gunShells', 'litShots', 'starShellsFired', 'fogTicks', 'actPresses',
+  'gunShells', 'starShellsFired', 'fogTicks', 'actPresses',
   'gunsBearing', 'gunsInReach', 'minesSwept', 'repairPresses', 'repairHullFracSum',
 ] as const;
 const RECORD_FIELDS = [
-  'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
+  'killsBySource', 'mbBandShells', 'mbBandHits', 'postureTicks', 'postureTransitions', 'tacticCounts',
   'fogTicksByPosture', 'pressesByAbility', 'activations',
 ] as const;
 const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS'] as const;
@@ -602,7 +603,8 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     for (const b of first.bots!) {
       for (const f of NUMERIC_FIELDS) expect(typeof b[f], f).toBe('number');
       for (const f of RECORD_FIELDS) expect(allNumbers(b[f]), f).toBe(true);
-      expect(Object.keys(b.shotsBeyondRange).sort()).toEqual(['cannon', 'flak', 'mg']);
+      expect(b.mbBandShells).toHaveLength(RANGE_BANDS);
+      expect(b.mbBandHits).toHaveLength(RANGE_BANDS);
       expect(Object.keys(b.postureTransitions).sort()).toEqual(['brokenOff', 'held', 'hid', 'kited', 'opened', 'rammed']);
     }
     for (const f of MATCH_FIELDS) expect(typeof first[f], f).toBe('number');
@@ -679,26 +681,45 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
 });
 
 describe('Story 9.13 — the readout counters on a staged world', () => {
-  it('classifies deck-gun shells: own-light (no attenRangeU), beyond range per family, star shells; broadside and tagged shells stay out', () => {
+  it('classifies deck-gun shells and star shells; broadside, tagged shells and torpedoes stay out', () => {
     // The classifier keys the cannon row on its own `hits` — the broadside's must differ.
     expect(CONFIG.gun.hits).not.toBe(CONFIG.broadside.hits);
     const world = new World(42, 20);
     const bot = world.addBot(undefined, undefined);
     const col = new BotCollector([bot.id]);
-    const far = { originX: 0, originY: 0, targetX: 400, targetY: 0, attenRangeU: 300 };
-    world.shells.set('a', stagedShell('a', bot.id, {})); // cannon row, no attenRangeU = into own light
-    world.shells.set('b', stagedShell('b', bot.id, { hits: CONFIG.broadside.hits })); // broadside
+    world.shells.set('a', stagedShell('a', bot.id, {})); // cannon row
+    world.shells.set('b', stagedShell('b', bot.id, { hits: CONFIG.broadside.hits, damage: 5, contactDamage: 5 })); // broadside
     world.shells.set('c', stagedShell('c', bot.id, { lit: { radius: 1, durationMs: 1 } })); // star shell
     world.shells.set('d', stagedShell('d', bot.id, { burn: { radius: 1, durationMs: 1, dps: 1 } })); // phosphor
-    world.shells.set('e', stagedShell('e', bot.id, { family: 'mg', ...far })); // MG past full range
-    world.shells.set('f', stagedShell('f', bot.id, { family: 'flak', ...far, targetX: 200 })); // flak inside it
+    world.shells.set('e', stagedShell('e', bot.id, { family: 'mg' })); // MG / secondaries
+    world.shells.set('f', stagedShell('f', bot.id, { family: 'flak' })); // flak
     world.shells.set('g', stagedShell('g', bot.id, { kind: 'torp', family: null, targetX: null, targetY: null }));
+    world.shells.set('h', stagedShell('h', bot.id, { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage })); // main battery
     col.observe(world, 1);
     const row = col.samples(world)[0];
-    expect(row.gunShells).toBe(3);
-    expect(row.litShots).toBe(1);
+    expect(row.gunShells).toBe(4);
     expect(row.starShellsFired).toBe(1);
-    expect(row.shotsBeyondRange).toEqual({ cannon: 0, mg: 1, flak: 0 });
+  });
+
+  it('MAIN-BATTERY HIT SHARE BY RANGE BAND (Story 11.1): a shell is filed by muzzle → target over the owner\'s reach, and counted a hit when its burst came with the owner\'s `hc`', () => {
+    const world = new World(44, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    const reach = bot.stats.equipment.mainBattery.rangeU;
+    const mb = { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage };
+    world.shells.set('near', stagedShell('near', bot.id, { ...mb, targetX: reach * 0.1 })); // band 0
+    world.shells.set('far', stagedShell('far', bot.id, { ...mb, targetX: reach * 0.9 })); // the last band
+    col.observe(world, 1);
+    world.shells.clear();
+    stageEvents(world, [
+      { k: 'burst', id: 'near', x: reach * 0.1, y: 0 },
+      { k: 'hc', id: bot.id, x: reach * 0.1, y: 0 },
+      { k: 'burst', id: 'far', x: reach * 0.9, y: 0 }, // no `hc` there: a miss
+    ]);
+    col.observe(world, 2);
+    const row = col.samples(world)[0];
+    expect(row.mbBandShells).toEqual([1, 0, 0, 1]);
+    expect(row.mbBandHits).toEqual([1, 0, 0, 0]);
   });
 
   it('stuckEpisodes counts a staged 2 s landContact run once; groundedTicks counts every contact tick', () => {

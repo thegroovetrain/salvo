@@ -84,8 +84,8 @@ import {
   hullSilhouette,
   pointPolygonDistance,
   flakRimFactor,
-  rangeAttenuation,
   settleBlow,
+  shellDispersionSeed,
   mulberry32,
   resolveShipPose,
   slowedKinematics,
@@ -609,7 +609,8 @@ export interface ShipRecord {
   /**
    * THE MAIN BATTERY'S TURRETS (Story 10.4, R2/R4): one `{a, reloadMsLeft}`
    * per turret, bow to stern — the TRUTH slot 0's `{n, reloadMsLeft}` pair is
-   * derived from (`batterySummary`). Stepped in place by the shared
+   * derived from (`batterySummary`); `a` is the DERIVED angle (no traverse,
+   * Story 11.1). Stepped in place by the shared
    * `stepTurrets` in the `stepTurrets` STEP_ORDER row; a turret's reload is
    * started by the mainBattery row's `fireTurret`. `initialTurrets(hullId)` at
    * every spawn / redeploy / respawn.
@@ -1386,39 +1387,31 @@ function onMine(mine: Vec2, p: Vec2, r: number): boolean {
   return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
 }
 
-/** THE RANGE-ATTENUATION FACTOR of a shell's blow landing at `at` (Story
- *  9.12, Eric 2026-10-16, epic-9 amendment 184(b)): the distance FLOWN —
- *  launch point → `at` — against the firer's row `rangeU` at fire time, both
- *  stamped on the shell by `makeBallistic` for the three deck guns alone. A
- *  shell with no reference or no launch point (every other projectile, an
- *  injected test shell) is unattenuated: 1. */
-function shellAttenuation(shell: ShellState, at: Vec2): number {
-  const ref = shell.attenRangeU;
-  if (ref === undefined || !(ref > 0) || shell.originX === undefined || shell.originY === undefined) return 1;
-  return rangeAttenuation(Math.hypot(at.x - shell.originX, at.y - shell.originY), ref, CONFIG.gunAttenuation);
-}
+// THE RANGE-ATTENUATION FACTOR (`shellAttenuation`, Story 9.12, epic-9
+// amendments 184(b) / 187) — RETIRED 2026-11-12, Story 11.1 (Eric's lock 3 /
+// #39): every deck-gun blow is flat with range.
 
 /** The hp one burst deals to one caught hull. The ONE settle of a
  *  deck-gun blow (Story 9.12, ruling 184(c)): `damage` × the FLAK rim falloff
  *  (half at the rim, by the NEAREST point of the caught outline —
- *  `CONFIG.flak.rimFactor`; 1 for every other burster) × the range
- *  attenuation, floored ONCE to a whole number with a floor of one
- *  (`settleBlow`) before the damage gate. */
+ *  `CONFIG.flak.rimFactor`; 1 for every other burster), floored ONCE to a
+ *  whole number with a floor of one (`settleBlow`) before the damage gate.
+ *  Flat with range (Story 11.1). */
 function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
   const rim =
     shell.family === 'flak' ? flakRimFactor(pointPolygonDistance(at, t.poly), shell.burstRadius, CONFIG.flak.rimFactor) : 1;
-  return settleBlow(shell.damage * rim * shellAttenuation(shell, at));
+  return settleBlow(shell.damage * rim);
 }
 
 /** The hp an EARLY INTERCEPTION deals (Story 9.12, ruling 184(c)): a DIRECT
- *  shell's contact hit — the machine gun's, whose `contactDamage` IS its
- *  damage — is range-attenuated by where it struck and settled once; every
- *  other interception (the cannon / flak 6 / 4 bodyblock, torpedoes, the
- *  broadside, star / phosphor / fouling shells) deals its `contactDamage`
- *  untouched. */
-function interceptionAmount(shell: ShellState, stop: Vec2): number {
+ *  shell's contact hit — the machine gun's / the secondaries', whose
+ *  `contactDamage` IS their damage — is settled once (flat with range since
+ *  Story 11.1); every other interception (the cannon / flak bodyblock,
+ *  torpedoes, the broadside, star / phosphor / fouling shells) deals its
+ *  `contactDamage` untouched. */
+function interceptionAmount(shell: ShellState): number {
   if (shell.direct !== true) return shell.contactDamage;
-  return settleBlow(shell.contactDamage * shellAttenuation(shell, stop));
+  return settleBlow(shell.contactDamage);
 }
 
 // ---------------------------------------------------------------------------
@@ -1428,6 +1421,11 @@ function interceptionAmount(shell: ShellState, stop: Vec2): number {
 /** The airdrop stream's mint constant (XORed into the room-private pseudonym
  *  material) — unused by any other stream (see the spawnPhase roster). */
 const DROP_STREAM_K = 0x5bd1e995;
+
+/** THE DISPERSION stream's mint constant (Story 11.1, R5 — XORed into the
+ *  room-private pseudonym material) — unused by any other stream (see the
+ *  spawnPhase roster). */
+const DISPERSION_STREAM_K = 0x2c1b3c6d;
 /** The PICKUP sub-stream key base (Eric 2026-11-08 — the amount is rolled at
  *  pickup): the k-th pickup of this World draws on
  *  `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)`, far from the minute
@@ -2036,7 +2034,9 @@ export class World {
    * steering stream (Story 10.8), 0x6c078965 the retired drone-drop stream's
    * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
    * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
-   * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key).
+   * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key;
+   * the room-private DISPERSION stream is 0x2c1b3c6d — Story 11.1; the beacon
+   * stream 0x68e31da4, dropout 0x2545f491, fog 0x3c6ef372).
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -2086,6 +2086,19 @@ export class World {
    * later offers).
    */
   private readonly dropSeed: number;
+  /**
+   * THE DISPERSION STREAM SEED (Story 11.1, Eric 2026-11-12, R5). ROOM-PRIVATE
+   * like the airdrops' (the pseudonym material under its own constant,
+   * DISPERSION_STREAM_K = 0x2c1b3c6d — see the spawnPhase roster): where a
+   * gun shell lands must not be predictable from the public map seed. Every
+   * dispersed shell (main battery, secondaries) draws on
+   * `shellDispersionSeed(dispersionSeed, ordinal)`, the ordinal being the
+   * shell's own projectile sequence number (`shellSeq`), so the seed of one
+   * shell never depends on another and a replay with the same seeds and
+   * inputs lands every shell on the same point. Batch sims pass no
+   * `pseudonymSeed`, so this stays deterministic off the map seed there.
+   */
+  private readonly dispersionSeed: number;
   /** The next match minute whose batch has not been scattered yet. */
   private nextDropMinute = 0;
   /** Wreck pickups placed this World's life — the id suffix (`drp-w-<k>`:
@@ -2109,6 +2122,7 @@ export class World {
     this.beacons = new BeaconField((priv ^ 0x68e31da4) >>> 0);
     this.dropsEnabled = opts.drops !== false;
     this.dropSeed = (priv ^ DROP_STREAM_K) >>> 0;
+    this.dispersionSeed = (priv ^ DISPERSION_STREAM_K) >>> 0;
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -4109,27 +4123,27 @@ export class World {
     // Foul zones (Story 9.4): the same natural-expiry sweep, beside the burn
     // zones' and AFTER applyFoulZones (the stamp lands through the final tick).
     { name: 'expireFoulZones', run: (w) => w.expireFoulZones() },
-    // THE TURRET STEP (Story 10.4, contract §4) — DELIBERATE seat, directly
-    // BEFORE fireControl: every captain hull's turrets traverse toward the
-    // latest input's aim point (the shared `stepTurrets`, the very call the
-    // client predicts with) and their reloads count down. AFTER the motion
-    // block (stepShips / resolveCollisions) so the turrets read the tick's
-    // RESOLVED pose, and after founderSinking so a hull that left the water
-    // this tick already holds its angles. BEFORE fireControl so a turret that
-    // arrives on the aim point — or finishes its reload — THIS tick may fire
-    // this tick (a turret fired at tick T is ready again at exactly T +
-    // reloadMs / dt), and so the mainBattery row's per-tick hotbar sync reads
-    // the stepped reloads.
+    // THE TURRET STEP (Story 10.4, contract §4; no traverse since Story 11.1,
+    // R16) — DELIBERATE seat, directly BEFORE fireControl: every captain
+    // hull's turret reloads count down and its turret angles are set to the
+    // DERIVED angle for the latest input's aim point (the shared
+    // `stepTurrets`, the very call the client predicts with). AFTER the
+    // motion block (stepShips / resolveCollisions) so the angles read the
+    // tick's RESOLVED pose, and after founderSinking so a hull that left the
+    // water this tick already keeps its angles. BEFORE fireControl so a
+    // turret that finishes its reload THIS tick may fire this tick (a turret
+    // fired at tick T is ready again at exactly T + reloadMs / dt), and so the
+    // mainBattery row's per-tick hotbar sync reads the stepped reloads.
     { name: 'stepTurrets', run: (w, ctx) => w.stepTurrets(ctx.dtMs) },
-    // THE LAUNCHER STEP (Story 10.6, Eric 2026-11-05, R6 / R13) — the
-    // turret step's twin, seated directly beside it and for the same reasons:
-    // every torpedo launcher traverses toward the SAME latest-input aim the
-    // turrets chase (the shared `stepLaunchers` over `launcherAimPoint`, the
-    // very calls the client predicts with) and its tube clocks count down;
-    // a sinking / dead hull holds its angles. BEFORE fireControl so a launcher
-    // that arrives on the aim point — or a tube that finishes reloading —
-    // this tick may fire this tick, and the torpedo row's hotbar sync reads
-    // the stepped tubes.
+    // THE LAUNCHER STEP (Story 10.6, Eric 2026-11-05, R6 / R13; no traverse
+    // since Story 11.1, R16) — the turret step's twin, seated directly beside
+    // it and for the same reasons: every torpedo launcher's tube clocks count
+    // down and its angle is set to the DERIVED angle for the SAME
+    // latest-input aim (the shared `stepLaunchers` over `launcherAimPoint`,
+    // the very calls the client predicts with); a sinking / dead hull keeps
+    // its angles. BEFORE fireControl so a tube that finishes reloading this
+    // tick may fire this tick, and the torpedo row's hotbar sync reads the
+    // stepped tubes.
     { name: 'stepLaunchers', run: (w, ctx) => w.stepLaunchers(ctx.dtMs) },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
@@ -6127,11 +6141,10 @@ export class World {
       return;
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
-    const amount = interceptionAmount(shell, outcome);
+    const amount = interceptionAmount(shell);
     // A SETTLED 0 is NO blow, exactly as at the burst site (burstDamage): a
-    // direct (machine-gun) blow attenuated to nothing — reachable under
-    // `--tune gunAttenuation.minFactor=0` at max range — must not fire the
-    // aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
+    // direct blow settled to nothing (a non-positive raw damage) must not fire
+    // the aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
     if (amount <= 0) return;
     // Selected by KIND, not by "the ships map had no such id" (P2): a hull
     // takes contact damage through the gate, a RADIO BEACON through its own
@@ -6234,7 +6247,7 @@ export class World {
     else this.emitSplash(shell, at.x, at.y);
     // THE LANDING TEST (amendment 200; Story 9.12, epic-9 amendment 184(i)):
     // a deck-gun shell's burst point IS where it landed, so every mine whose
-    // 10 u marker the blast touches takes the shell's attenuated damage. Run
+    // 10 u marker the blast touches takes the shell's damage. Run
     // AFTER the hc/sp decision on purpose: a mine is never counted in
     // `resolved` (the hit call is about the hulls the shell connected with —
     // a pop with no hull victim keeps `sp`), and a sprung trap announces
@@ -6292,9 +6305,8 @@ export class World {
     const amount = burstHitAmount(shell, t, at);
     // A 0-hp blow is NO blow (Story 9.8 review; Story 9.12 reading r3):
     // `settleBlow` answers 0 only for a non-positive raw blow — reachable
-    // under `--tune flak.rimFactor=1` at the exact rim or `--tune
-    // gunAttenuation.minFactor=0` at max range (resolveInterception holds the
-    // same guard for a direct blow).
+    // under `--tune flak.rimFactor=1` at the exact rim (resolveInterception
+    // holds the same guard for a direct blow).
     // That must not fire the aggro seam, credit damage or emit a `dmg`, so
     // nothing below runs.
     if (amount <= 0) return 0;
@@ -6329,7 +6341,8 @@ export class World {
    * the three deck guns — that LANDS at `at` uses its WHOLE BLAST against
    * mines: EVERY mine whose 10 u marker the blast touches (centre within
    * `shell.burstRadius + CONFIG.mine.hitRadiusU` of `at`) takes the shell's
-   * range-attenuated `damage` (never contactDamage, and no flak rim term —
+   * `damage` (never contactDamage, and no flak rim term; flat with range since
+   * Story 11.1 —
    * a mine is not a burst victim), any kind, armed or arming, any owner (the
    * shooter's own included — the standing friendly-fire exception). So a flak
    * burst clears a cluster, and a Tier I cannon click's two shells on one
@@ -6346,7 +6359,7 @@ export class World {
   private landOnMines(shell: ShellState, at: Vec2, targets: readonly Target[]): void {
     if (!shell.hits.includes('mine')) return;
     const reach = shell.burstRadius + CONFIG.mine.hitRadiusU;
-    const amount = settleBlow(shell.damage * shellAttenuation(shell, at));
+    const amount = settleBlow(shell.damage);
     for (const t of targets) {
       if (t.kind !== 'mine') continue;
       const mine = this.mines.get(t.id);
@@ -6753,12 +6766,13 @@ export class World {
   /**
    * THE TURRET STEP (Story 10.4; see the STEP_ORDER row): every hull with a
    * battery steps its turrets through the shared stepper. An AFLOAT hull's
-   * turrets chase the latest input's aim point (`batteryAimPoint` — the same
-   * aim `InputMsg.aim` / `aimDist` the client predicts with; an input with no
-   * positive aimDist is NO AIM and holds every angle, gate S2); a SINKING or dead
-   * hull's turrets HOLD their angles (aimPoint null — orchestrator ruling,
-   * wave-1 gate) while their reloads still count down, so a dying captain can
-   * still fire whatever is ready (amendment 10).
+   * turrets point at the latest input's aim point where it is inside their
+   * arcs and rest elsewhere (`batteryAimPoint` — the same aim `InputMsg.aim`
+   * / `aimDist` the client predicts with; an input with no positive aimDist
+   * is NO AIM and keeps every angle, gate S2); a SINKING or dead hull's
+   * turrets KEEP their angles (aimPoint null — orchestrator ruling, wave-1
+   * gate) while their reloads still count down, so a dying captain can still
+   * fire whatever is ready (amendment 10).
    */
   /** THE LAUNCHER STEP (Story 10.6; see the STEP_ORDER row): every hull
    *  holding a torpedo steps its launchers (equipment/mounts.ts). */
@@ -7074,6 +7088,10 @@ export class World {
       mapRadius: this.map.radius,
       islands: this.map.islands,
       mkId: () => this.nextBallisticId(),
+      mintShell: () => {
+        const id = this.nextBallisticId();
+        return { id, seed: shellDispersionSeed(this.dispersionSeed, this.shellSeq) };
+      },
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y, kind) => this.spawnMine(ship, x, y, kind, fireT),
       // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell

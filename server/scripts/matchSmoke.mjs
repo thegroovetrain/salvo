@@ -134,10 +134,13 @@ const LAUNCH_BRG = Math.atan2(AIM_AT.y - LAUNCHER_AT.y, AIM_AT.x - LAUNCHER_AT.x
 const LAUNCH_AT = torpedoLaunchPoint(LAUNCHER_AT, A_POSE, DEFAULT_CLASS_ID, LAUNCH_BRG);
 const FISH_RUN = Math.hypot(LAUNCH_AT.x - B_POSE.x, LAUNCH_AT.y - B_POSE.y) - HULL_L / 2 - 2 * CONFIG.torpedo.hitRadius;
 const FLIGHT_MS = (FISH_RUN / FISH.speed) * 1000;
-/** ms — the fore launcher swings its whole train interval inside this, plus two
- *  ticks of slack: it rests dead ahead, inside its own dead wedge, and must
- *  train onto the beam before a click fires (R13 / R28). */
-const LAUNCHER_TRAIN_MS = Math.ceil((2 * TB.launchers.fore.trainDeg * 1000) / CONFIG.mainBattery.traverseDegPerS) + 2 * CONFIG.tick.simDtMs;
+/** ms — the aim reaches the server and the fore launcher's DERIVED angle
+ *  comes back on the own frame: a few ticks (no traverse since Story 11.1,
+ *  R16 — `CONFIG.mainBattery.traverseDegPerS` retired 2026-11-12). */
+const LAUNCHER_TRAIN_MS = 4 * CONFIG.tick.simDtMs;
+/** rad — "on the aim" for the own frame's launcher angle: half a degree of
+ *  display slack (the derived angle is exact on the server). */
+const ON_AIM_TOL_RAD = Math.PI / 360;
 /** Socket + tick slack on every wait (join round-trips, frame delivery). */
 const SLACK_MS = 5000;
 
@@ -362,19 +365,21 @@ function idle(ctx) {
 }
 
 /** AIM WITHOUT A CLICK: dead stop, aim = the bearing to B, the fireSeq not
- *  bumped — the launchers chase the aim (R13) and nothing fires. */
+ *  bumped — the launchers point at the aim inside their bands and nothing
+ *  fires. */
 function aimOnly(ctx) {
   ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE), aimDist: D });
 }
 
-/** True once A's fore launcher sits on LAUNCH_BRG (inside the battery's on-target tolerance). */
+/** True once A's fore launcher sits on LAUNCH_BRG (its derived angle, ON_AIM_TOL_RAD). */
 function trained(ctx) {
   const l = ctx.you?.launchers?.[0];
-  const tol = (CONFIG.mainBattery.onTargetDeg * Math.PI) / 180;
-  return l !== undefined && Math.abs(angleDiff(ctx.you.heading + l.a, LAUNCH_BRG)) <= tol;
+  return l !== undefined && Math.abs(angleDiff(ctx.you.heading + l.a, LAUNCH_BRG)) <= ON_AIM_TOL_RAD;
 }
 
-/** TRAIN FIRST: aim (no click) until the fore launcher is on the aim. */
+/** AIM FIRST: aim (no click) until the own frame shows the fore launcher on
+ *  the aim — it snaps there (no traverse, Story 11.1), so this is a socket
+ *  round-trip, not a swing. */
 async function trainLauncher(a, b) {
   await runUntil(() => { aimOnly(a); idle(b); }, () => trained(a), LAUNCHER_TRAIN_MS + SLACK_MS, 'the fore launcher trains onto the beam');
 }

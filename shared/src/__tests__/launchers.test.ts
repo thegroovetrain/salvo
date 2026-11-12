@@ -4,16 +4,15 @@
 //   (1) geometry: stations on the centerline inside the hull, FORE ahead of
 //       the forward turrets and AFT abaft the aft turrets;
 //   (2) the arc: trains rest ± its OWN trainDeg (per hull, per launcher —
-//       R30, CONFIG.shipClasses.<id>.launchers); traverse at the
-//       BATTERY's rate, through its own dead wedge to change sides; HOLD
-//       outside the train interval; never through the blind wedge;
+//       R30, CONFIG.shipClasses.<id>.launchers); NO TRAVERSE (Story 11.1,
+//       R16): the angle is derived — at the aim inside its firing band, at
+//       rest outside it;
 //   (3) THE FIRING BAND (R28): deadDeg ≤ |offset from rest| ≤ trainDeg, both
 //       sides — per side from the bow: fore only, then both, then aft only;
 //   (4) THE PICK (R16 + R28): no launcher's band holds the aim → `out-of-arc`,
-//       nothing spent; a launcher still swinging through its dead wedge never
-//       fires (`cooling`); on-target first, else the nearest fires early along
-//       its CURRENT bearing; band holds but no tube loaded → `cooling`; one
-//       click, one torpedo;
+//       nothing spent; the fore-most loaded launcher whose band holds it fires
+//       at the aim point on the first click tick; band holds but no tube
+//       loaded → `cooling`; one click, one torpedo;
 //   (4) each tube its own clock;
 //   (5) the torpedo leaves from the launcher's station along its bearing,
 //       clear of the own hull;
@@ -36,6 +35,7 @@ import {
   initialLaunchers,
   MAX_TUBES_PER_LAUNCHER,
   launcherAimPoint,
+  launcherAngle,
   launcherArcHolds,
   launcherBears,
   launcherDeadRad,
@@ -65,9 +65,6 @@ import {
 } from '../index.js';
 
 const DT = CONFIG.tick.simDtMs;
-const RATE = (CONFIG.mainBattery.traverseDegPerS * Math.PI) / 180; // rad/s — the turrets' rate, READ
-const STEP = (RATE * DT) / 1000;
-const TOL = (CONFIG.mainBattery.onTargetDeg * Math.PI) / 180;
 const DEG = Math.PI / 180;
 /** rad — launcher `i`'s band on `hull`, READ off its CONFIG row (R30: per hull, per launcher). */
 const band = (hull: ShipClassId, i: number): { dead: number; train: number } => {
@@ -151,7 +148,7 @@ describe('launcher geometry', () => {
   });
 });
 
-describe('the arc and the traverse', () => {
+describe('the arc and the derived angle', () => {
   it.each(SHIP_CLASS_IDS)('%s: each launcher fires from ITS dead to ITS train off its own end, on both sides, and nowhere else (R30)', (hull) => {
     for (const i of [0, 1]) {
       const { dead, train } = band(hull, i);
@@ -184,56 +181,53 @@ describe('the arc and the traverse', () => {
     expect(launcherArcHolds(HULL, 0, POSE.heading, POSE.heading)).toBe(false);
   });
 
-  it('traverses through its own dead wedge to change sides', () => {
+  it('NO TRAVERSE (R16): one step points a launcher at an aim inside its firing band, whichever side it was on', () => {
     const ls = initialLaunchers(HULL, counts(2, 1));
-    settle(ls, HULL, POSE, at(POSE, BEAM));
-    expect(ls[0].a).toBeCloseTo(BEAM, 3);
-    const other = at(POSE, -BEAM);
-    let crossed = false;
-    for (let t = 0; t < 400; t += 1) {
-      stepLaunchers(ls, HULL, POSE, other, DT);
-      if (Math.abs(ls[0].a) < DEAD) crossed = true;
+    for (const rel of [BEAM, -BEAM, BEAM, 1.0]) {
+      const aim = at(POSE, rel);
+      stepLaunchers(ls, HULL, POSE, aim, DT);
+      ls.forEach((l, i) => expect(l.a, `${rel}/${i}`).toBe(launcherAngle(HULL, i, POSE, aim)));
+      expect(ls[0].a).toBeCloseTo(rel, 3); // the aim is at a hull-relative `rel` from the CENTRE; the station's parallax at 1e6 u is ~3e-5
     }
-    expect(crossed).toBe(true);
-    expect(ls[0].a).toBeCloseTo(-BEAM, 3);
-    expect(ls[1].a).toBeCloseTo(Math.PI + BEAM, 3); // the aft launcher crossed astern
   });
 
-  it('traverses at the battery rate, arrives exactly and never overshoots', () => {
+  it('RESTS when the aim leaves its firing band (dead wedge or blind sector); keeps its angle with no aim at all', () => {
     const ls = initialLaunchers(HULL, counts(1, 1));
-    const aim = at(POSE, 1.0);
-    stepLaunchers(ls, HULL, POSE, aim, DT);
-    expect(ls[0].a).toBeCloseTo(STEP, 12);
-    settle(ls, HULL, POSE, aim);
-    expect(ls[0].a).toBeCloseTo(1.0, 3); // the aim is at a hull-relative 1.0 rad from the CENTRE; the station's parallax at 1e6 u is ~3e-5
-    const before = ls[0].a;
-    stepLaunchers(ls, HULL, POSE, aim, DT);
-    expect(ls[0].a).toBe(before);
-  });
-
-  it('HOLDS its angle when the aim leaves the arc, and with no aim at all', () => {
-    const ls = initialLaunchers(HULL, counts(1, 1));
-    settle(ls, HULL, POSE, at(POSE, 1.2));
+    stepLaunchers(ls, HULL, POSE, at(POSE, 1.2), DT);
+    expect(ls[0].a).not.toBe(launcherRest(0));
+    stepLaunchers(ls, HULL, POSE, at(POSE, Math.PI), DT); // dead astern: the fore launcher's blind wedge
+    expect(ls[0].a).toBe(launcherRest(0));
+    stepLaunchers(ls, HULL, POSE, at(POSE, 1.2), DT);
+    stepLaunchers(ls, HULL, POSE, at(POSE, DEAD / 2), DT); // inside its dead wedge
+    expect(ls[0].a).toBe(launcherRest(0));
+    stepLaunchers(ls, HULL, POSE, at(POSE, 1.2), DT);
     const held = ls[0].a;
-    settle(ls, HULL, POSE, at(POSE, Math.PI), 40); // dead astern: the fore launcher's blind wedge
-    expect(ls[0].a).toBe(held);
     stepLaunchers(ls, HULL, POSE, null, DT);
     expect(ls[0].a).toBe(held);
+    expect(launcherAngle(HULL, 0, POSE, null)).toBe(launcherRest(0));
   });
 
-  it('never leaves its train interval and reaches the far side through rest', () => {
+  it('PROPERTY: after every step each launcher sits at launcherAngle — at the aim inside its band, at rest outside it — never outside its train interval', () => {
     const ls = initialLaunchers(HULL, counts(2, 1));
     const rnd = mulberry32(7);
     let aim = at(POSE, 2.3);
+    let aimed = 0;
+    let rested = 0;
     for (let t = 0; t < 4000; t += 1) {
       if (t % 37 === 0) aim = at(POSE, (rnd.next() * 2 - 1) * Math.PI, 50 + rnd.next() * 2000);
-      const prev = ls.map((l) => l.a);
       stepLaunchers(ls, HULL, POSE, aim, DT);
       ls.forEach((l, i) => {
+        expect(l.a).toBe(launcherAngle(HULL, i, POSE, aim));
+        if (launcherBears(HULL, i, POSE, aim)) aimed += 1;
+        else {
+          rested += 1;
+          expect(l.a).toBe(launcherRest(i));
+        }
         expect(Math.abs(l.a - launcherRest(i))).toBeLessThanOrEqual(band(HULL, i).train + 1e-9);
-        expect(Math.abs(l.a - prev[i])).toBeLessThanOrEqual(STEP + 1e-12);
       });
     }
+    expect(aimed).toBeGreaterThan(0);
+    expect(rested).toBeGreaterThan(0);
   });
 
   it('the aim point: none for a neutral input; a close-in cursor keeps its bearing', () => {
@@ -255,7 +249,7 @@ describe('the arc and the traverse', () => {
   });
 });
 
-describe('the pick (R16)', () => {
+describe('the pick (R16, no traverse)', () => {
   it.each([0, Math.PI])('both launchers held, aim %f off the bow (an end): out-of-arc, nothing spent', (rel) => {
     const ls = initialLaunchers(HULL, counts(2, 2));
     const aim = at(POSE, rel);
@@ -265,61 +259,38 @@ describe('the pick (R16)', () => {
     expect(JSON.stringify(ls)).toBe(snapshot);
   });
 
-  it('a launcher still swinging through its dead wedge does not fire (cooling); it fires once in its band', () => {
-    const ls = initialLaunchers(HULL, counts(1, 1)); // fore only, at rest: inside its own dead wedge
-    const aim = at(POSE, BEAM);
-    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
-    let ticks = 0;
-    while (Math.abs(ls[0].a) < DEAD - 1e-9) {
-      expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
-      stepLaunchers(ls, HULL, POSE, aim, DT);
-      ticks += 1;
-      expect(ticks).toBeLessThan(1000);
+  it('FIRST CLICK TICK: a loaded launcher whose band holds the aim fires AT the aim point at once, wherever it pointed before (rest, the other side, its wedge)', () => {
+    for (const before of [0, -BEAM, DEAD / 2]) {
+      const ls = initialLaunchers(HULL, counts(1, 1));
+      ls[0].a = before;
+      const aim = at(POSE, BEAM);
+      const pick = pickTube(ls, HULL, POSE, aim);
+      expect(pick, `${before}`).toMatchObject({ verdict: 'fire', launcher: 0, tube: 0 });
+      if (pick.verdict !== 'fire') return;
+      const st = launcherStationWorld(HULL, 0, POSE);
+      expect(pick.station).toEqual(st);
+      expect(wrapAngle(pick.bearing - Math.atan2(aim.y - st.y, aim.x - st.x))).toBeCloseTo(0, 9);
     }
-    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 0, onTarget: false });
   });
 
-  it('a launcher pointed into its OTHER side\'s band never fires early across the ship (cooling, nothing spent); it fires once it has swung across', () => {
-    const ls = initialLaunchers(HULL, counts(1, 1));
-    settle(ls, HULL, POSE, at(POSE, BEAM)); // resting in the port band (+ side)
-    expect(launcherBears(HULL, 0, POSE, at(POSE, -BEAM))).toBe(true); // the starboard aim IS in its band
-    const aim = at(POSE, -BEAM);
-    const snapshot = JSON.stringify(ls);
-    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
-    expect(JSON.stringify(ls)).toBe(snapshot);
-    let ticks = 0;
-    while (ls[0].a > -DEAD + 1e-9) {
-      expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' }); // still on the far side or in the wedge
-      stepLaunchers(ls, HULL, POSE, aim, DT);
-      ticks += 1;
-      expect(ticks).toBeLessThan(1000);
-    }
+  it('FORE FIRST: both launchers bear and are loaded — the fore launcher fires; once it is empty, the aft', () => {
+    const ls = initialLaunchers(HULL, counts(2, 1));
+    const aim = at(POSE, Math.PI / 2);
+    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 0 });
+    fireTube(ls, 0, 0, 9000);
     const pick = pickTube(ls, HULL, POSE, aim);
-    expect(pick).toMatchObject({ verdict: 'fire', launcher: 0 });
-    if (pick.verdict === 'fire') expect(Math.sin(pick.bearing - POSE.heading)).toBeLessThan(0); // the starboard side
+    expect(pick).toMatchObject({ verdict: 'fire', launcher: 1 });
+    if (pick.verdict !== 'fire') return;
+    const st = launcherStationWorld(HULL, 1, POSE);
+    expect(wrapAngle(pick.bearing - Math.atan2(aim.y - st.y, aim.x - st.x))).toBeCloseTo(0, 9);
   });
 
-  it('with both launchers held, a wrong-side launcher yields to a same-side one', () => {
-    const ls = initialLaunchers(HULL, counts(2, 1));
-    const aim = at(POSE, -BEAM);
-    settle(ls, HULL, POSE, aim);
-    ls[0].a = BEAM; // the fore launcher across the ship; the aft is on target
-    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 1 });
-    fireTube(ls, 1, 0, 9000); // the same-side launcher is empty: the loaded wrong-side one still never fires
-    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
+  it('an aim inside a launcher\'s dead wedge never fires it (out-of-arc when no other band holds it)', () => {
+    const ls = initialLaunchers(HULL, counts(1, 1));
+    expect(pickTube(ls, HULL, POSE, at(POSE, DEAD / 2))).toEqual({ verdict: 'out-of-arc' });
   });
 
-  it('a launcher pointed into its dead wedge never fires even when the aim sits in its band', () => {
-    const ls = initialLaunchers(HULL, counts(2, 1));
-    const aim = at(POSE, BEAM);
-    settle(ls, HULL, POSE, aim);
-    ls[0].a = DEAD / 2; // the fore launcher is mid-swing; the aft is on target
-    expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 1 });
-    fireTube(ls, 1, 0, 9000);
-    expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
-  });
-
-  it('fore-only, aim astern: out-of-arc, nothing spent, the launcher holds', () => {
+  it('fore-only, aim astern: out-of-arc, nothing spent', () => {
     const ls = initialLaunchers(HULL, counts(1, 2));
     const aim = at(POSE, Math.PI);
     stepLaunchers(ls, HULL, POSE, aim, DT);
@@ -332,7 +303,6 @@ describe('the pick (R16)', () => {
   it('both launchers bear, four tubes loaded: exactly ONE torpedo per click', () => {
     const ls = initialLaunchers(HULL, counts(2, 2));
     const aim = at(POSE, Math.PI / 2); // the beam: inside both arcs
-    settle(ls, HULL, POSE, aim);
     const pick = pickTube(ls, HULL, POSE, aim);
     expect(pick.verdict).toBe('fire');
     if (pick.verdict !== 'fire') return;
@@ -342,36 +312,9 @@ describe('the pick (R16)', () => {
     expect(ls[pick.launcher].tubes[pick.tube]).toBe(25000);
   });
 
-  it('on-target first: an on-target aft launcher beats an off-target fore one', () => {
-    const ls = initialLaunchers(HULL, counts(2, 1));
-    const aim = at(POSE, Math.PI / 2);
-    settle(ls, HULL, POSE, aim);
-    ls[0].a -= 0.4; // the fore launcher is knocked off the aim; aft stays on it
-    const pick = pickTube(ls, HULL, POSE, aim);
-    expect(pick).toMatchObject({ verdict: 'fire', launcher: 1, onTarget: true });
-    if (pick.verdict !== 'fire') return;
-    const st = launcherStationWorld(HULL, 1, POSE);
-    expect(wrapAngle(pick.bearing - Math.atan2(aim.y - st.y, aim.x - st.x))).toBeCloseTo(0, 9);
-    expect(pick.station).toEqual(st);
-  });
-
-  it('nobody on target: the smallest error fires EARLY along its current bearing', () => {
-    const ls = initialLaunchers(HULL, counts(2, 1));
-    const aim = at(POSE, Math.PI / 2);
-    settle(ls, HULL, POSE, aim);
-    ls[0].a -= 0.5;
-    ls[1].a += 0.2; // nearer than the fore launcher, still beyond the tolerance
-    expect(0.2).toBeGreaterThan(TOL);
-    const pick = pickTube(ls, HULL, POSE, aim);
-    expect(pick).toMatchObject({ verdict: 'fire', launcher: 1, onTarget: false });
-    if (pick.verdict !== 'fire') return;
-    expect(pick.bearing).toBe(POSE.heading + ls[1].a);
-  });
-
   it('a launcher whose arc does not hold the aim NEVER fires, however ready it is', () => {
     const ls = initialLaunchers(HULL, counts(2, 2));
     const aim = at(POSE, Math.PI - AFT.dead - DEG); // the aft quarter: only the aft launcher's band holds it
-    settle(ls, HULL, POSE, aim);
     for (let k = 0; k < 2; k += 1) {
       const pick = pickTube(ls, HULL, POSE, aim);
       expect(pick).toMatchObject({ verdict: 'fire', launcher: 1 });
@@ -385,7 +328,6 @@ describe('the pick (R16)', () => {
   it('arc holds but every tube is reloading: cooling', () => {
     const ls = initialLaunchers(HULL, counts(1, 2));
     const aim = at(POSE, 1.0);
-    settle(ls, HULL, POSE, aim);
     fireTube(ls, 0, 0, 20000);
     fireTube(ls, 0, 1, 20000);
     expect(pickTube(ls, HULL, POSE, aim)).toEqual({ verdict: 'cooling' });
@@ -394,7 +336,6 @@ describe('the pick (R16)', () => {
   it('a bearing launcher with no loaded tube yields to a bearing one that has one', () => {
     const ls = initialLaunchers(HULL, counts(2, 1));
     const aim = at(POSE, Math.PI / 2);
-    settle(ls, HULL, POSE, aim);
     fireTube(ls, 0, 0, 20000);
     expect(pickTube(ls, HULL, POSE, aim)).toMatchObject({ verdict: 'fire', launcher: 1, tube: 0 });
   });
