@@ -31,6 +31,8 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
+import { profileOf } from '../../src/game/ai/profiles.js';
+import type { AnyProfileId } from '../../src/game/ai/types.js';
 import { BotReadoutCollector, type BotReadouts, type MatchReadouts } from './botReadouts.js';
 
 /**
@@ -191,6 +193,14 @@ export interface BotSample extends BotReadouts {
    *  the shared turret mounts (`layoutOf`) — the gun × tier readout's
    *  successor, since the main battery has no ladder. */
   layout: string;
+  /** The bot's HULL REPAIR style (Story 10.12, R3 — `early` / `late`), read
+   *  off its profile row (`repairStyle`); 'unknown' for an unknown profile. */
+  repairStyle: string;
+}
+
+/** A profile id's HULL REPAIR style (see BotSample.repairStyle). */
+export function repairStyleOf(profile: AnyProfileId | null): string {
+  return profile === null ? 'unknown' : profileOf(profile).repairStyle;
 }
 
 /**
@@ -439,11 +449,12 @@ export class BotCollector {
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
       if (ship === undefined) continue;
+      const profile = world.bots.profileOf(id);
       out.push({
         id,
         name: ship.name,
         cls: ship.hullId,
-        profile: world.bots.profileOf(id) ?? 'unknown',
+        profile: profile ?? 'unknown',
         kills: track.kills,
         end: track.end,
         lifeS: Math.round(track.lifeS * 10) / 10,
@@ -471,6 +482,7 @@ export class BotCollector {
         placement: placements?.get(id) ?? null,
         shift: ship.shift,
         layout: layoutOf(ship.hullId),
+        repairStyle: repairStyleOf(profile),
         ...this.readouts.sample(id),
       });
     }

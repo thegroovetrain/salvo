@@ -198,7 +198,7 @@ describe('the ring run — down the flow field around the land (amendments 192(a
     expect(at(runMs + margin / 2)).toBe(true); // the margin is what arms it
     // The situation carries it and ring escape arms on it, inside the live ring.
     port.zone = { phase: 'reveal', closesInMs: runMs + margin / 2 };
-    const full = situationOf(rec, mkMind('forager'), port);
+    const full = situationOf(rec, mkMind('bulwark'), port);
     expect(full.departing).toBe(true);
     expect(ringEscaping(full, false)).toBe(true);
     // A bot already inside the next ring never departs.
@@ -240,7 +240,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius });
     port.safe = { cx: 1800, cy: 0, r: 500 };
     const rec = mkBot(w, 'bismarck', -1200, 0, 0);
-    const mind = mkMind('forager');
+    const mind = mkMind('bulwark');
     const centre = { x: port.safe.cx, y: port.safe.cy };
     const start = dist(rec.state, centre);
     const budget = Math.ceil(((2 * start) / rec.stats.kinematics.maxSpeed) * 1000 / DT);
@@ -258,7 +258,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     const map = { radius: 2000, islands: [circleIsland(0, 0, 700)] };
     const grid = buildNavGrid(map);
     const disc: ZoneRing = { cx: 0, cy: 0, r: 1200 };
-    const mind = mkMind('forager', 99);
+    const mind = mkMind('bulwark', 99);
     // Fog solid over the x > 0 half (public weather — the bot's fogAt thunk).
     mind.fogAt = (x) => (x > 0 ? 1 : 0);
     let inFog = 0;
@@ -271,7 +271,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     // Eight samples per pick: the fog half wins almost every time.
     expect(inFog / N).toBeGreaterThan(0.9);
     // Without fog the same draw is a plain uniform water pick: about half.
-    const plain = mkMind('forager', 99);
+    const plain = mkMind('bulwark', 99);
     let east = 0;
     for (let i = 0; i < N; i += 1) if (pickPatrolWaypoint(plain, grid, disc, [])!.x > 0) east += 1;
     expect(east / N).toBeLessThan(0.8);

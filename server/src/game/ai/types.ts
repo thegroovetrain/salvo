@@ -254,6 +254,15 @@ export interface BotBeaconGoal {
    *  fixed: a swing of more than 90° off it re-fixes the standoff. */
   readonly bearing: number;
   readonly standoff: Vec2;
+  /** Was the standoff fixed on the DISC-CENTRE side (the bot-side point lay
+   *  outside the patrol disc)? Such a goal is on station only AT its standoff
+   *  point (ai/beacons.ts onStation) — the "anywhere within the standoff
+   *  distance of the centre" reading would let the bot park outside the disc. */
+  readonly centerSide: boolean;
+  /** Is the beacon PAYING now (not gone, not merely charted, rate above 0)?
+   *  Re-read off the chart EVERY deliberation (ai/beacons.ts beaconGoalOf),
+   *  the kept goal included; the beacon stayer reads it (ai/posture.ts). */
+  readonly paying: boolean;
 }
 
 /**
@@ -462,21 +471,9 @@ export interface RememberedContact {
    * clears the mark.
    */
   missSweptAt: number;
-  /**
-   * THE DECOY CUES (Story 9.13, epic-9 amendment 197) — what a human reads
-   * off the scope to call a radar plot a probable buoy, carried on the plot by
-   * the fold (ai/utility.ts foldPaint / ai/plot.ts). OPTIONAL so hand-built
-   * tracks stay valid; absent reads as "no evidence" (never a decoy).
-   *   - `paintCells`: lit-cell count of the plot's LAST radar paint (a buoy's
-   *     paint square covers a few lattice cells; a hull's silhouette many);
-   *   - `stillSweeps`: consecutive paint-to-paint measurements that read
-   *     STATIONARY (any measured motion resets it to 0);
-   *   - `hasWake`: a wake-ribbon course was EVER fitted to this plot (a buoy
-   *     lays no wake — the amendment-123 precedent).
-   */
-  paintCells?: number;
-  stillSweeps?: number;
-  hasWake?: boolean;
+  // (The DECOY CUES `paintCells` / `stillSweeps` / `hasWake` — Story 9.13,
+  // epic-9 amendment 197 — left with their last reader, the decoy buoys, at
+  // Story 10.5; the bookkeeping itself was removed at Story 10.12.)
 }
 
 /** One painted WAKE segment remembered for the course fit (ai/plot.ts): the
@@ -673,6 +670,24 @@ export interface BotMind {
    * false.
    */
   secResting?: boolean;
+  /**
+   * THE NEXT-TICK POSE (Story 10.12, ai/tactics.ts decide -> ai/battery.ts):
+   * the pose this hull will have when the server steps its turrets THIS tick
+   * — the server steps the hull (STEP_ORDER `stepShips`) before `stepTurrets`
+   * and `fireControl`, so the turret step and the pick both read the
+   * post-move pose. Predicted with the shared `stepShip` from the hull's own
+   * state, its rated kinematics and the helm this same decision submits
+   * (collisions, a live boost and a slow are not modelled). `at` = the
+   * decision's `now`; a stale or absent seat reads as the current pose.
+   */
+  nextPose?: { x: number; y: number; heading: number; speed: number; at: number } | null;
+  /**
+   * THE MINE SWEEP (Story 10.12, ai/battery.ts): the sighted hostile mine
+   * the secondaries are sweeping THIS tick (`at` = the decision's `now`) —
+   * the aim is the mine's, so the main battery does not click on it. A stale
+   * or absent seat = not sweeping.
+   */
+  sweep?: { x: number; y: number; at: number } | null;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

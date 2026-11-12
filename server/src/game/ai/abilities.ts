@@ -4,29 +4,60 @@
 // brain asks `chooseCooldownAbility` after the Shift (tactics.ts chooseAct)
 // and the driver sends the ability's wire code on `InputMsg.act`.
 //
-// FUNCTIONAL, NOT TUNED (tuning is Story 10.12): each row fires on the very
-// condition its belt row fired on (HULL REPAIR's hurt read, the 9.3 cloud's
-// occasions) and adds exactly one gate — the shared refusal law
-// (`repairRefusal` / `smokeRefusal`, sim/abilities.ts) reads ready, so a bot
-// never presses into its own cooldown or a full hull. No new dial.
+// SMOKE fires on the 9.3 cloud's occasions; HULL REPAIR on the profile's
+// REPAIR STYLE (Story 10.12, R3 — early or late, below). Each adds the shared
+// refusal law (`repairRefusal` / `smokeRefusal`, sim/abilities.ts), so a bot
+// never presses into its own cooldown or a full hull. No dial of its own.
 //
 // Every want() is AFLOAT-guarded, draws no rng and writes nothing.
 
 import { isAfloat, repairRefusal, smokeRefusal, type CooldownAbilityId } from '@salvo/shared';
 import type { BotMind, BotPosture } from './types.js';
+import { brokenHull } from './posture.js';
 import { anyHostileWithin, healthy, radarChaser, type TacticContext } from './tacticKit.js';
 
-/** THE HURT READ (the belt row's, unchanged): the hull plus its paid pool
- *  under the profile's `healHpFrac` (which defaults to
- *  `CONFIG.bots.healHpFrac`). Counting the pool asks where the hull WILL be,
- *  so a bot never presses again for hp already on its way. */
-function hurt(ctx: TacticContext): boolean {
-  return ctx.sit.maxHp > 0 && (ctx.sit.hp + ctx.self.repairHp) / ctx.sit.maxHp < ctx.sit.profile.healHpFrac;
+/** hp — the hull a HULL REPAIR press would still have to mend: missing hull
+ *  less the paid pool already owed (`repairHp`). Counting the pool asks where
+ *  the hull WILL be, so a bot never presses again for hp already on its way. */
+function unmendedHp(ctx: TacticContext): number {
+  return ctx.sit.maxHp - ctx.sit.hp - ctx.self.repairHp;
 }
 
-/** HULL REPAIR — pressed when hurt, the ability ready and not refused. */
+/** hp — everything ONE press heals: the instant half plus the paid pool, read
+ *  off the bot's own folded stats (cards grow both — Story 10.6). */
+function onePressHealHp(ctx: TacticContext): number {
+  const { instantHp, regenHp } = ctx.self.stats.repair;
+  return instantHp + regenHp;
+}
+
+/**
+ * THE TWO REPAIR STYLES (Story 10.12, Eric 2026-11-11, epic-10 amendment 21,
+ * R3 — the profile's `repairStyle`):
+ *   EARLY — the whole heal of one press fits the unmended hull with no waste;
+ *   LATE  — the bot is breaking off HURT: under its break-off line
+ *           (posture.ts brokenHull, the profile's `disengageHpFrac`), or the
+ *           break-off latch still holding (`mind.disengagedSince` set — the
+ *           hull was broken when it turned away) — and something is still
+ *           unmended. A healthy bot that merely declined a fight (a
+ *           `disengage` / `ram` posture with no hurt behind it) never burns
+ *           the cooldown on a scratch.
+ * (`healHpFrac`, the one line every profile pressed under, retired here.)
+ */
+function wantsRepair(ctx: TacticContext): boolean {
+  const unmended = unmendedHp(ctx);
+  if (ctx.sit.profile.repairStyle === 'early') return unmended >= onePressHealHp(ctx);
+  return unmended > 0 && (brokenHull(ctx.sit) || breakOffLatched(ctx.mind));
+}
+
+/** Is the break-off latch set (posture.ts latchBreakOff)? */
+function breakOffLatched(mind: BotMind): boolean {
+  return mind.disengagedSince !== undefined && mind.disengagedSince !== null;
+}
+
+/** HULL REPAIR — pressed on the profile's style, the ability ready and not
+ *  refused. */
 function repairWant(ctx: TacticContext): boolean {
-  if (!isAfloat(ctx.self.lifecycle) || !hurt(ctx)) return false;
+  if (!isAfloat(ctx.self.lifecycle) || ctx.sit.maxHp <= 0 || !wantsRepair(ctx)) return false;
   return repairRefusal(ctx.self.hp, ctx.self.stats.maxHp, ctx.sit.now, ctx.self.repairReadyAt) === null;
 }
 

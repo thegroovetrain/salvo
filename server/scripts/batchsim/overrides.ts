@@ -196,10 +196,13 @@ const TUNE_FAMILIES = [
   // P10), and the `cardPoints.*` scores, which may be NEGATIVE, take any
   // finite number. (`decoyDemote`, `decoyStillSweeps` and the `carried` /
   // `beltHunger` card scores left CONFIG with the decoys and the kit, Story
-  // 10.5.) `nav.cellU`,
-  // `disengageHpFrac` and `healHpFrac` are REFUSED (DERIVED_TUNE_KEYS): the
-  // first must equal the generator's NAV_CELL and is never read, the other
-  // two are snapshotted into the profile tables at module load.
+  // 10.5.) Story 10.12: `shiftFitWeight` (the weighted Shift roll's fitting
+  // share) on CLOSED [0, 1] (BOT_FRACTION_KEYS). `nav.cellU`,
+  // `disengageHpFrac` and `arcOpenMarginDeg` are REFUSED (DERIVED_TUNE_KEYS):
+  // the first must equal the generator's NAV_CELL and is never read, the
+  // second is snapshotted into the profile tables and the third into
+  // ai/arcs.ts ARC_OPEN_MARGIN_RAD at module load. (`healHpFrac` left CONFIG
+  // with the one-line repair gate, Story 10.12.)
   'bots.',
 ];
 
@@ -237,8 +240,8 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
     'server ai/profiles.ts snapshots it into every profile table at module load, so a --tune never reaches a bot',
   ],
   [
-    'bots.healHpFrac',
-    'server ai/profiles.ts snapshots it into every profile table at module load, so a --tune never reaches a bot',
+    'bots.arcOpenMarginDeg',
+    'server ai/arcs.ts snapshots it into ARC_OPEN_MARGIN_RAD at module load, so a --tune never reaches a bot',
   ],
 ]);
 
@@ -596,8 +599,15 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
  *  arms; outside it is not a probability. */
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
 
-/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat lines since Story 10.4; see the `bots.` family). */
-const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.secReleaseHeat', 'bots.secRepressHeat']);
+/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat
+ *  lines since Story 10.4; the weighted Shift roll's fitting share since Story
+ *  10.12 — read live by ai/profiles.ts rollShift; see the `bots.` family). */
+const BOT_FRACTION_KEYS = new Set([
+  'bots.disengageHysteresis',
+  'bots.secReleaseHeat',
+  'bots.secRepressHeat',
+  'bots.shiftFitWeight',
+]);
 /** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
 const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;
 /** The routing dials: counts / lengths / clocks, floored at 1 … */

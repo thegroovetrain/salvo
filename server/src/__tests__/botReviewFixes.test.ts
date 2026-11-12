@@ -27,7 +27,6 @@ import { circleIsland } from './islandFixture.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { choosePosture, foldView, ringDeadband, type BotSituation } from '../game/ai/utility.js';
 import { BotController } from '../game/ai/botDriver.js';
-import { nextStillSweeps } from '../game/ai/plot.js';
 import type { PerceptionView } from '../game/perception.js';
 import type {
   BotMind,
@@ -219,7 +218,7 @@ describe('P5 (Codex + Edge Case Hunter): the patrol never picks land, and a zero
     const port = fakePort(w, live);
     port.safe = { cx: 0, cy: 0, r: 0 };
     const rec = mkBot(w, 'yamato', 0, 0, 0);
-    const m = mkMind('forager');
+    const m = mkMind('bulwark');
     const wps = pick(w, port, rec, m, 40);
     const grid = navOf(port).grid;
     let far = 0;
@@ -238,7 +237,7 @@ describe('P5 (Codex + Edge Case Hunter): the patrol never picks land, and a zero
     const port = fakePort(w, { cx: 0, cy: 0, r: 2500 });
     port.next = { cx: 0, cy: 0, r: 450 }; // all of it ashore
     const rec = mkBot(w, 'yamato', 1200, 0, Math.PI);
-    const m = mkMind('forager');
+    const m = mkMind('bulwark');
     const grid = navOf(port).grid;
     for (const p of pick(w, port, rec, m, 20)) {
       if (p !== null) expect(isWater(grid, cellOf(grid, p.x, p.y))).toBe(true);
@@ -401,16 +400,6 @@ describe('P16 (Blind Hunter): the departure rule is evaluated once per bot per t
   });
 });
 
-describe('P17 (Blind Hunter): the stillness cue is a speed floor, not an exact-zero float test', () => {
-  it('a 1 u/s paint-to-paint jitter still counts as still; 10 u/s resets; no measurement keeps the run', () => {
-    expect(nextStillSweeps(1, { vx: 1, vy: 0 })).toBe(2);
-    expect(nextStillSweeps(1, { vx: 0.6, vy: -0.8 })).toBe(2);
-    expect(nextStillSweeps(3, { vx: 10, vy: 0 })).toBe(0);
-    expect(nextStillSweeps(2, null)).toBe(2);
-    expect(nextStillSweeps(undefined, { vx: 0, vy: 0 })).toBe(1);
-  });
-});
-
 describe('P20 (grounding investigation, orchestrator reading under amendment 192): entry damping beside a coast', () => {
   const setup = (withCoast: boolean): number => {
     const w = openWorld(91321);
@@ -420,7 +409,7 @@ describe('P20 (grounding investigation, orchestrator reading under amendment 192
     port.safe = { cx: -1500, cy: 0, r: 400 }; // the patrol lies astern: a turn of more than 90°
     const rec = mkBot(w, 'yamato', 0, 0, 0);
     rec.state.speed = rec.stats.kinematics.maxSpeed;
-    return COMBAT_BRAIN.decide(rec, mkMind('forager'), port, true).throttle;
+    return COMBAT_BRAIN.decide(rec, mkMind('bulwark'), port, true).throttle;
   };
 
   it('a hull turning more than 90° with a ray blocked inside one turn radius turns at cruise, not full ahead', () => {

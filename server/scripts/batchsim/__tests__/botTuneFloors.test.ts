@@ -53,4 +53,15 @@ describe('P10 (Edge Case Hunter): --tune bots.* floors', () => {
     accept('bots.nav.routeRetryMs', 1);
     refuse('bots.nav.routeRetryMs', 0);
   });
+
+  it('Story 10.12: shiftFitWeight lives on [0, 1]; arcOpenMarginDeg (a module-load snapshot) is refused', () => {
+    accept('bots.shiftFitWeight', CONFIG.bots.shiftFitWeight);
+    accept('bots.shiftFitWeight', 0);
+    accept('bots.shiftFitWeight', 1);
+    refuse('bots.shiftFitWeight', 1.01);
+    refuse('bots.shiftFitWeight', -0.1);
+    expect(() => validateTuneKey('bots.arcOpenMarginDeg')).toThrow(/module load/);
+    // healHpFrac left CONFIG (Story 10.12): it is no dial at all.
+    expect(() => validateTuneKey('bots.healHpFrac')).toThrow();
+  });
 });

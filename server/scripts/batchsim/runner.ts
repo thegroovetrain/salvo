@@ -25,9 +25,7 @@
 import {
   CATALOG,
   CONFIG,
-  SHIFT_IDS,
   SHIP_CLASS_IDS,
-  mulberry32,
   zoneClosedAtMs,
   zoneGroups,
   type ShiftId,
@@ -58,9 +56,9 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
-/** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
- *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
-const BOT_SHIFT_SEED_ORDINAL = 0x6a4e;
+/* (mixSeed ordinal 0x6a4e was the BOT-SHIFT stream, Stories 8.15–10.11;
+ * retired by Story 10.12 — the controller deals a bot's Shift now. Keep it
+ * out of any new band.) */
 
 export interface RunSpec {
   seed: number;
@@ -107,17 +105,18 @@ export interface RunSpec {
   /**
    * LOBBY HULL POLICY (see rotate/botHull). 'rolled' — the default and the
    * shipped behaviour — lets each bot roll its own class off the controller's
-   * stream, and deals captains the un-offset `i % 3` rotation they have always
-   * had. 'even' deals SHIP_CLASS_IDS round-robin across BOTH halves of the
-   * lobby, OFFSET BY MATCH INDEX, so per-class win share measures balance
-   * rather than representation.
+   * stream, and deals captains the un-offset `i % SHIP_CLASS_IDS.length`
+   * rotation they have always had. 'even' deals SHIP_CLASS_IDS round-robin
+   * across BOTH halves of the lobby, OFFSET BY MATCH INDEX, so per-class win
+   * share measures balance rather than representation.
    *
    * THE GUARANTEE, exactly: within one match the per-class spread is at most 1
-   * (it cannot be better — 20 hulls over 3 classes is 7/7/6). Campaign totals
-   * are EXACTLY even when the match count or the hull count is a multiple of 3;
-   * otherwise the offset carries the shortfall around the classes and the
-   * totals land within one hull per class (e.g. 20 bots x 4 matches = 27/27/26,
-   * and at --matches 1 the offset buys nothing at all: 7/7/6).
+   * (it cannot be better — 18 hulls over the 4 classes is 5/5/4/4). Campaign
+   * totals are EXACTLY even when the match count or the hull count is a
+   * multiple of the class count (4); otherwise the offset carries the
+   * shortfall around the classes and the totals land within one hull per class
+   * (e.g. 18 bots x 3 matches = 14/14/13/13, and at --matches 1 the offset
+   * buys nothing: 5/5/4/4).
    *
    * Undefined => 'rolled' => every existing run key is byte-identical.
    */
@@ -154,11 +153,11 @@ export function botProfileFor(
  *  seeded stream and the brain drives itself from World's `botsTick` row.
  *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
-export function buildBotLobby(world: World, spec: RunSpec, botCount: number, matchSeed: number, index: number): string[] {
+export function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
-  const shifts = botShiftDealer(spec, matchSeed);
+  const shifts = botShiftDealer(spec);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
@@ -170,8 +169,8 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
     // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-    // and PICK A SHIFT (Story 10.4): the forced --shift, else a seeded uniform
-    // draw — production's rule (see botShiftDealer).
+    // and PICK A SHIFT: the forced --shift, else the controller's weighted
+    // roll at enrollment — production's rule (see botShiftDealer).
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
     ids.push(world.addBot(hull, profile, shifts()).id);
   }
@@ -179,20 +178,17 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
 }
 
 /**
- * THE BOT SHIFT DEAL (Story 10.4 — the Story 8.15 gun deal's successor, on
- * the same seed ordinal). `--shift` forces every bot onto one Shift; without
- * it each bot draws one of SHIFT_IDS UNIFORMLY off a stream seeded from the
- * MATCH seed on its own ordinal — the mirror of ArenaRoom.buildBotFleet's
- * seeded draw, so a harness lobby fights the Shift mix staging fights, and the
- * deal is part of the reproducible run key. A stream of its own, never the
- * World's or the controller's: drawing Shifts must not move any other roll.
- * Exported for the determinism pin.
+ * THE BOT SHIFT DEAL (Story 10.4; Story 10.12, Eric 2026-11-11, R5).
+ * `--shift` forces every bot onto one Shift; without it the dealer hands
+ * World.addBot NO Shift (undefined), so the bot controller's weighted roll at
+ * enrollment stands (ai/profiles.ts rollShift, on the controller's own seeded
+ * Shift stream) — exactly what ArenaRoom.buildBotFleet does, so a harness
+ * lobby fights the Shift mix staging fights. (Until Story 10.12 this drew one
+ * of SHIFT_IDS uniformly off its own match-seed stream.) Exported for the pin.
  */
-export function botShiftDealer(spec: Pick<RunSpec, 'botShift'>, matchSeed: number): () => ShiftId {
+export function botShiftDealer(spec: Pick<RunSpec, 'botShift'>): () => ShiftId | undefined {
   const forced = spec.botShift;
-  if (forced !== undefined) return () => forced;
-  const rng = mulberry32(mixSeed(matchSeed, BOT_SHIFT_SEED_ORDINAL));
-  return () => SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)];
+  return () => forced;
 }
 
 export interface ReachSample {
@@ -422,22 +418,22 @@ function harnessHooks(): MatchHooks {
  * World.addBot is behaviourally identical to omitting the argument (the roll
  * comes off the same stream position), so the default run key is unchanged.
  *
- * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 20 bots over 3 classes is
- * 7/7/6 at best, so without rotating by match index the SAME class is short in
- * every match and a campaign stays ~14% skewed — which is precisely the
- * representation artefact the even roster exists to remove.
+ * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 18 bots over the 4
+ * classes is 5/5/4/4 at best, so without rotating by match index the SAME
+ * classes are short in every match and a campaign stays ~25% skewed — which is
+ * precisely the representation artefact the even roster exists to remove.
  */
 /** THE ONE ROUND-ROBIN DEAL, shared by both halves of the lobby: slot `i` of
  *  the SHIP_CLASS_IDS rotation, started at `offset`. A match-index offset is
- *  what makes the campaign totals even — without it the SAME class is short in
- *  every match and a 20-hull lobby stays ~14% skewed forever, which is the
+ *  what makes the campaign totals even — without it the SAME classes are short
+ *  in every match and an 18-hull lobby stays ~25% skewed forever, which is the
  *  representation artefact --roster even exists to remove. */
 function rotate(offset: number, i: number): ShipClassId {
   return SHIP_CLASS_IDS[(i + offset) % SHIP_CLASS_IDS.length];
 }
 
 /** The rotation offset for this match: the match index under 'even', and ZERO
- *  under 'rolled' — which is what keeps the captain deal (`i % 3`, dealt since
+ *  under 'rolled' — which is what keeps the captain deal (`i % SHIP_CLASS_IDS.length`, dealt since
  *  the harness shipped) byte-identical on every pre-existing run key. */
 function rosterOffset(spec: RunSpec, index: number): number {
   return spec.roster === 'even' ? index : 0;
@@ -497,9 +493,9 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const controls: CaptainControl[] = [];
   const captainIds: string[] = [];
   // CAPTAINS TAKE THE SAME ROTATION AS THE BOTS under 'even'. Dealing them the
-  // un-offset `i % 3` while the bots rotate leaves the captain half of a mixed
-  // lobby (`--captains 2 --bots 18`) short the SAME class in every single
-  // match — the exact representation artefact the flag exists to remove, and
+  // un-offset `i % SHIP_CLASS_IDS.length` while the bots rotate leaves the
+  // captain half of a mixed lobby (`--captains 2 --bots 18`) short the SAME
+  // class in every single match — the exact representation artefact the flag exists to remove, and
   // it matters because BatchAggregate.winnerClass pools captains and bots into
   // one tally. Under 'rolled' rosterOffset is 0, so this line deals exactly
   // what it always dealt.
@@ -516,7 +512,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
   // bot-shaped in the per-tick loop below. The roster policy deals the hull
   // and the test rig deals the profile; buildBotLobby resolves which wins.
-  const botIds = buildBotLobby(world, spec, botCount, matchSeed, index);
+  const botIds = buildBotLobby(world, spec, botCount, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);

@@ -432,13 +432,6 @@ export const CONFIG = {
      */
     disengageHpFrac: 0.35,
     /**
-     * Fraction of max hp below which a bot PRESSES HULL REPAIR (epic-8
-     * amendment 49) — the `C` cooldown ability since Story 10.5 (2026-11-05,
-     * epic-10 amendment 11; a stocked consumable copy before it). Above it,
-     * bots never heal.
-     */
-    healHpFrac: 0.5,
-    /**
      * u — `[DRAFT]` hull-avoidance probe length for bots (Story
      * 9.5, Eric 2026-10-12, epic-9 amendments 26/78): every live remembered
      * hull ahead within this reach biases the rudder away, the same kernel
@@ -725,21 +718,39 @@ export const CONFIG = {
       waypointTimeoutMs: 20000,
     },
     /**
-     * The six priority profiles (Eric ruling E1: *"Each ship should just get
+     * The five priority profiles (Eric ruling E1: *"Each ship should just get
      * 2-3 different 'priority profiles'"*; unlocked from hulls by Eric ruling
      * 2026-09-30, R6: ANY personality on ANY hull). Enrollment deals one off
      * the seeded RNG with a single pick over this flat list — the hull is
      * rolled separately and a personality never decides it. Profiles decide
      * what a bot WANTS, never its competence: raider = isolated/damaged
      * targets, torpedo opener, boost out; duelist = rear-quarter turn-fights vs
-     * peers; bulwark = attrition on HP; siege = standoff broadside + star
-     * shells; forager = beacon farming for the level lead (the PvE fleet
-     * before Story 10.8, 2026-11-06); trapper = mines
-     * astern while withdrawing. Behavior tables (fighting style + build taste)
+     * peers; bulwark = attrition on HP; siege = standoff gunnery + star
+     * shells; trapper = mines astern while withdrawing. (`forager` — beacon
+     * farming for the level lead — was RETIRED by Story 10.12, Eric
+     * 2026-11-11, R6.) Behavior tables (fighting style + build taste)
      * live in server ai/profiles.ts — only the ID VOCABULARY is data, so it
      * lives here.
      */
-    profiles: ['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper'] as const,
+    profiles: ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const,
+    /**
+     * THE FITTING-SHIFT WEIGHT (Story 10.12, Eric 2026-11-11, epic-10
+     * amendment 21, R5): a bot's Shift is a roll weighted by its personality —
+     * the profile's fitting Shift (ai/profiles.ts `shiftFit`) comes up with
+     * this probability, and every other Shift splits the rest evenly. Read
+     * by server ai/profiles.ts `rollShift` only.
+     */
+    shiftFitWeight: 0.5,
+    /**
+     * ° — THE ARC-OPENING SETTLE MARGIN (Story 10.12, Eric 2026-11-11,
+     * epic-10 amendment 21, R2 "always angle off"; the value is an
+     * orchestrator reading, Eric may veto on staging): a bot angling off to
+     * bring every main-battery turret to bear steers this far INSIDE the edge
+     * of the all-bearing window, toward the beam. The helm closes on a bearing
+     * ever more slowly, so handed the exact edge it sits a hair short with one
+     * turret masked for seconds. Read by server ai/arcs.ts only. A harness dial.
+     */
+    arcOpenMarginDeg: 5,
     /**
      * THE CARD POINTS TABLE (Eric ruling 2026-09-30, R3) — how a bot scores
      * each card on offer; highest wins, ties by a seeded coin flip. Any upgrade

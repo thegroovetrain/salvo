@@ -21,6 +21,7 @@
 
 import {
   CONFIG,
+  DEFAULT_SHIFT,
   SHIP_CLASS_IDS,
   SLOT_COUNT,
   abilityCode,
@@ -128,7 +129,9 @@ export class HullcrackerEnv {
     this.agents = enrollAgents(world, seed, opts);
     // Bots draw from the COMMON POOL on the default gun (Story 8.14), like
     // the arena's.
-    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined);
+    // The DEFAULT Shift, forced (Story 10.12): the controller now deals a
+    // weighted Shift per bot; this environment keeps its pre-10.12 lobby.
+    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined, DEFAULT_SHIFT);
     match.notifyRosterChanged();
     this.world = world;
     this.match = match;
