@@ -102,6 +102,13 @@ warnings: ['oversized']
   - R11 Turret and launcher TRAVERSE TIME IS REMOVED — back to point and shoot; each turret or launcher fires only if the target point is within its arc. Supersedes epic-10 amendment 7's load-bearing traverse and the hold-outside-the-arc half of amendment 10 as far as traverse goes; the exact reading (which turret is "next", what the bots' `readyOnTarget` becomes, what the client's turret-angle prediction becomes) is settled with Eric before Phase B.
   - R12 Phase B is not started until R10's look is picked.
   - KEEP: `dispersion.ts`, its tests and the bench page's first two cards as built.
+- **2026-11-12 later — Eric (chat + AskUserQuestion), rulings R13–R17; Phase B is unblocked.**
+  - R13 CONVERGE: every barrel of a turret aims at the ONE target point ("a real turret's barrels would all be aimed to train on the same target point, though they wouldn't all land on it"); each shell still rolls its own landing (R5) around that point. The parallel landing tracks are gone; barrels keep their own muzzles.
+  - R14 The oval is ONE oval at the center of the targeting cursor at its TRUE size (never a minimum screen size), fill = bench idea E "bright middle" (brightest at the center, fading to the edge, following `sigmas`), no outline, no lines, no blast circles; tinted by the aim color setting.
+  - R15 The reticle is brighter and bigger by default: bright amber, 2× today's size. Two player settings: aim color (a full color picker; tints reticle AND oval) and aim size 1×–5× (default 2×).
+  - R16 No traverse: among READY turrets whose arc holds the aim point the bow-most fires, at the aim point; a turret or launcher never fires outside its arc; drawn turrets and launchers snap to the aim while it is in their arc and rest otherwise. `CONFIG.mainBattery.traverseDegPerS` / `onTargetDeg` and the launcher equivalents retire.
+  - R17 (author's readings, for veto): the settings labels are the minimal `AIM COLOR` / `AIM SIZE`; bots keep `aimScatterU` and their fire discipline with "on target" re-read as "a ready turret bears"; How-to-Play text about turret traverse is stamped stale for 11.11, not rewritten here.
+  - Phase B tasks as amended: Wave 1 `shared` + `server` (dispersion wiring with R13, attenuation removal, traverse removal, bots, harness, smokes, tests); Wave 2 `client` (snap rendering, prediction cleanup, the R14 oval, the R15 reticle + settings); then records.
 
 ## Review Triage Log
 
