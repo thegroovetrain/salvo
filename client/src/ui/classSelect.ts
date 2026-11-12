@@ -26,10 +26,21 @@
 // cssRgba for the own accent, which has no --hc-* var; registerCss for
 // the DESIGN type ramp). DESIGN spine over mock: CONFIRM SELECTION is an
 // amber OUTLINE+GLOW primary button (never a filled slab).
+//
+// THE HORN ROW (Story 10.13, Eric 2026-11-11: "a few sounds that will be
+// selectable"): the captain's horn is picked in the FOOTER, left of CONFIRM —
+// the class bay footer is where the captain-wide picks have lived (the Color
+// Hoist, the CONSUMABLES row) — in the SPECIAL row's exact chip grammar: key
+// `HORN` over one chip per horn by name, the pick lit in the own accent.
+// A chip click saves the horn at once and plays it once as a preview (the
+// caller's `onHorn`); it never moves the card highlight and never closes.
 
 import {
   CONFIG,
+  DEFAULT_HORN_ID,
   DEFAULT_SHIFT,
+  HORN_IDS,
+  type HornId,
   SHIFT_IDS,
   INDEX_IDS,
   SHIP_CLASS_IDS,
@@ -47,6 +58,7 @@ import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import { registerCss } from './theme.js';
 import { monoTextWidth } from '../util/monoMeasure.js';
 import { CLASS_DISPLAY_NAMES } from './classNames.js';
+import { HORN_NAMES } from '../audio/horns.js';
 import {
   LOADOUT_KEY_COL_PX,
   LOADOUT_KEY_GAP_PX,
@@ -83,6 +95,10 @@ export const SPECIAL_NAMES: Readonly<Record<ShiftId, string>> = {
 
 /** The Shift chip row's key (amendment 96(e)'s word — never "Shift"). */
 export const SPECIAL_KEY = 'SPECIAL';
+
+/** The horn row's key (Story 10.13). The chips print the horn NAMES from
+ *  audio/horns.ts `HORN_NAMES`, upper-cased by the register. */
+export const HORN_KEY = 'HORN';
 
 /**
  * The card's read-only loadout rows: NONE since Story 10.4. The Shift is the
@@ -355,31 +371,57 @@ export function shiftChipWidth(id: ShiftId): number {
  * reaches the card root that would re-select that card's hull.
  */
 function buildShiftRow(onShift: (id: ShiftId) => void): { el: HTMLElement; chips: Map<ShiftId, HTMLButtonElement> } {
+  return buildChipRow(SPECIAL_KEY, SHIFT_IDS, (id) => SPECIAL_NAMES[id], 'hc-shiftchip', 'shift', onShift);
+}
+
+/**
+ * THE `HORN` ROW (Story 10.13) — the SPECIAL row's grammar for the captain's
+ * horn: the key over one chip per horn, by name. Lives in the footer.
+ */
+function buildHornRow(onHorn: (id: HornId) => void): { el: HTMLElement; chips: Map<HornId, HTMLButtonElement> } {
+  return buildChipRow(HORN_KEY, HORN_IDS, (id) => HORN_NAMES[id], 'hc-hornchip', 'horn', onHorn);
+}
+
+/**
+ * One chip row in the SPECIAL grammar: the key on its own line and the chips
+ * under it, wrapping. A chip is a `<button>` painted by `paintChipSet`. It
+ * STOPS propagation (review gate C4): the pick is the captain's, never the
+ * card's hull, so a chip click — or a focused chip's Enter/Space, the same
+ * native `click` — reaches only `onPick`.
+ */
+function buildChipRow<T extends string>(
+  key: string,
+  ids: readonly T[],
+  name: (id: T) => string,
+  className: string,
+  dataKey: string,
+  onPick: (id: T) => void,
+): { el: HTMLElement; chips: Map<T, HTMLButtonElement> } {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:4px';
   const line = document.createElement('div');
   line.style.cssText = `display:flex;flex-wrap:wrap;gap:${SHIFT_CHIP_GAP_PX}px`;
-  const chips = new Map<ShiftId, HTMLButtonElement>();
-  for (const id of SHIFT_IDS) {
+  const chips = new Map<T, HTMLButtonElement>();
+  for (const id of ids) {
     const chip = document.createElement('button');
     chip.type = 'button';
-    chip.className = 'hc-shiftchip';
-    chip.dataset.shift = id;
-    chip.textContent = SPECIAL_NAMES[id];
+    chip.className = className;
+    chip.dataset[dataKey] = id;
+    chip.textContent = name(id);
     chip.style.cssText =
       `${registerCss('hudMicro')};letter-spacing:${SHIFT_CHIP_TRACKING_EM}em;flex:0 0 auto;white-space:nowrap;` +
       `padding:5px ${SHIFT_CHIP_PAD_X_PX}px;border:${SHIFT_CHIP_BORDER_PX}px solid var(--hc-hairline);` +
       'border-radius:6px;background:transparent;cursor:pointer;box-sizing:border-box';
     chip.addEventListener('click', (e) => {
-      e.stopPropagation(); // the Shift only — never the card's hull (C4)
-      onShift(id);
+      e.stopPropagation(); // the pick only — never the card's hull (C4)
+      onPick(id);
       // Release focus so Enter/Space reach the layer again.
       chip.blur();
     });
     chips.set(id, chip);
     line.appendChild(chip);
   }
-  row.append(rowKey(SPECIAL_KEY, 'display:block'), line);
+  row.append(rowKey(key, 'display:block'), line);
   return { el: row, chips };
 }
 
@@ -449,9 +491,14 @@ function paintCards(cards: CardEls[], highlight: number, accent: OwnAccent, shif
  * every card shows the same chip lit.
  */
 function paintChips(card: CardEls, shift: ShiftId, accentN: number): void {
+  paintChipSet(card.chips, shift, accentN);
+}
+
+/** One chip set in the selected / unselected register (see paintChips). */
+function paintChipSet<T>(chips: Map<T, HTMLButtonElement>, picked: T, accentN: number): void {
   const accent = cssHex(accentN);
-  for (const [id, chip] of card.chips) {
-    const on = id === shift;
+  for (const [id, chip] of chips) {
+    const on = id === picked;
     chip.style.borderColor = on ? accent : cssHex(C.hairline);
     chip.style.color = on ? accent : cssHex(C.textSecondary);
     chip.style.background = on ? cssRgba(accentN, 0.07) : 'transparent';
@@ -603,18 +650,22 @@ function buildConfirm(onConfirm: () => void): HTMLButtonElement {
 interface FooterEls {
   el: HTMLElement;
   confirm: HTMLButtonElement;
+  /** The HORN chips (Story 10.13), keyed by horn id. */
+  hornChips: Map<HornId, HTMLButtonElement>;
 }
 
-/** The footer: CONFIRM alone (the CONSUMABLES row left with the kit — Story
- *  10.5; the Color Hoist row went in Story 10.4, R6). */
-function buildFooter(onConfirm: () => void): FooterEls {
+/** The footer: the HORN row (Story 10.13) at the left, CONFIRM at the right
+ *  (the CONSUMABLES row left with the kit — Story 10.5; the Color Hoist row
+ *  went in Story 10.4, R6). */
+function buildFooter(onConfirm: () => void, onHorn: (id: HornId) => void): FooterEls {
   const foot = document.createElement('div');
   foot.style.cssText =
     'display:flex;align-items:center;flex-wrap:wrap;gap:18px 30px;padding:18px 42px 0;' +
     'border-top:1px solid var(--hc-hairline);margin-top:4px';
+  const horn = buildHornRow(onHorn);
   const confirm = buildConfirm(onConfirm);
-  foot.append(confirm);
-  return { el: foot, confirm };
+  foot.append(horn.el, confirm);
+  return { el: foot, confirm, hornChips: horn.chips };
 }
 
 // --- open / lifecycle --------------------------------------------------------
@@ -624,6 +675,11 @@ export interface ClassSelectOpts {
   initial: ShipClassId;
   /** The Shift chip lit on open (Story 10.4) — the stored pick, else DEFAULT_SHIFT. */
   initialShift?: ShiftId;
+  /** The HORN chip lit on open (Story 10.13) — the stored pick, else the default. */
+  initialHorn?: HornId;
+  /** A HORN chip was picked (Story 10.13): the caller saves it and previews it.
+   *  Fires on every chip click, including the already-lit one (a re-listen). */
+  onHorn?: (id: HornId) => void;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
   /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
@@ -736,10 +792,11 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select, pickShift));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
   let shift: ShiftId = opts.initialShift ?? DEFAULT_SHIFT;
+  let horn: HornId = opts.initialHorn ?? DEFAULT_HORN_ID;
 
   const { container, dimmer, panel } = makeLayerShell();
   const rail = buildRail(cards);
-  const footer = buildFooter(confirmPick);
+  const footer = buildFooter(confirmPick, pickHorn);
   panel.append(buildHeader(), rail.el, footer.el);
 
   // Ignore any keydown dispatched at/before this instant — the very keystroke
@@ -749,6 +806,14 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const onResize = (): void => rail.evaluateOverflow();
   function repaint(): void {
     paintCards(cards, highlight, OWN_ACCENT, shift);
+    paintChipSet(footer.hornChips, horn, OWN_ACCENT.accentValue);
+  }
+  /** A HORN chip: move the horn pick, repaint, hand it to the caller (save +
+   *  preview). Like the Shift chips it never touches the hull highlight. */
+  function pickHorn(id: HornId): void {
+    horn = id;
+    repaint();
+    opts.onHorn?.(id);
   }
   /** A Shift chip: move the ONE Shift pick and repaint. The chip's click
    *  stops at the chip — the highlighted hull never moves (review gate C4). */

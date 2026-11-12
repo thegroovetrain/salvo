@@ -34,7 +34,38 @@ export type OscWave = 'sine' | 'triangle' | 'sawtooth' | 'square';
  * `tauMs` it is a `setTargetAtTime` approach (which MAY target 0, e.g. an FM
  * index dying away). Give one of the two; `tauMs` wins if both are present.
  */
-export type Sweep = number | { from: number; to: number; ms?: number; tauMs?: number };
+export type Sweep = number | { from: number; to: number; ms?: number; tauMs?: number } | PointSweep;
+
+/**
+ * A breakpoint curve (Story 10.13 wave C): `value` reached at `atMs` after the
+ * grain starts, ramped from the previous point — exponentially where both ends
+ * are above 0, else linearly. The first point is set at its own time (a point
+ * at 0 is the start value). Points are read in time order; a junk point
+ * (non-finite time or value) is skipped.
+ */
+export interface PointSweep {
+  points: ReadonlyArray<{ atMs: number; value: number }>;
+}
+
+/** Narrow a Sweep to its breakpoint form. */
+export function isPointSweep(s: Sweep): s is PointSweep {
+  return typeof s === 'object' && 'points' in s;
+}
+
+/** The usable points of a breakpoint sweep, in time order. */
+export function sweepPoints(s: PointSweep): Array<{ atMs: number; value: number }> {
+  return s.points
+    .filter((p) => Number.isFinite(p.atMs) && Number.isFinite(p.value))
+    .map((p) => ({ atMs: Math.max(0, p.atMs), value: p.value }))
+    .sort((a, b) => a.atMs - b.atMs);
+}
+
+/** The first value of any Sweep (a breakpoint sweep's first point; 0 if it has none). */
+export function sweepStartValue(s: Sweep): number {
+  if (typeof s === 'number') return s;
+  if (isPointSweep(s)) return sweepPoints(s)[0]?.value ?? 0;
+  return s.from;
+}
 
 /** Looping noise from the shared buffer, read from a random offset. */
 export interface NoiseSource {
@@ -42,12 +73,19 @@ export interface NoiseSource {
   color: NoiseColor;
 }
 
+/** A custom oscillator wave: harmonic amplitudes, fundamental first (built
+ *  with `createPeriodicWave` as a sine series; a browser without it plays a
+ *  sawtooth, the nearest all-harmonics stock wave). */
+export interface PartialsWave {
+  partials: readonly number[];
+}
+
 /** One oscillator. `vibrato.depth` is a fraction of the pitch (0.004 = ±0.4 %).
  *  `fm` adds a modulator at `ratio ×` the carrier pitch whose deviation is
  *  `index ×` the modulator frequency (the classic FM index). */
 export interface OscSource {
   kind: 'osc';
-  wave: OscWave;
+  wave: OscWave | PartialsWave;
   freq: Sweep;
   vibrato?: { rateHz: number; depth: number };
   fm?: { ratio: number; index: Sweep };
@@ -63,9 +101,11 @@ export interface ClickSource {
 export type Source = NoiseSource | OscSource | ClickSource;
 
 export interface Filter {
-  type: 'lowpass' | 'highpass' | 'bandpass';
+  type: 'lowpass' | 'highpass' | 'bandpass' | 'peaking' | 'highshelf' | 'lowshelf';
   freq: Sweep;
   q?: number;
+  /** Boost / cut in dB for 'peaking' and the shelves (the biquad's `gain`). */
+  gainDb?: number;
 }
 
 /** Amplitude envelope: linear attack to `peak`, optional hold, then either a

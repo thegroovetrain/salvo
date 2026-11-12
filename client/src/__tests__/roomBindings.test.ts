@@ -24,7 +24,7 @@ import {
 import type { Connection } from '../net/connection';
 import type { OwnFire } from '../render/projectiles';
 import { CLIENT_CONFIG } from '../config';
-import { fitDetune, fitTone } from '../audio/tones';
+import { fitDetune, fitGain, fitPitch, fitTone } from '../audio/tones';
 import { UNKNOWN_VESSEL, killLine, type KillSegment, type NameRef } from '../ui/killFeed';
 import { KILL_LEADER_MARK, bountyKillLine } from '../ui/bounty';
 import { boonFitToastLine, dropToastLine } from '../ui/boonCopy';
@@ -1086,7 +1086,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
   it('an OWN fog kill still plays the kill tone and reaches onSunkObserved', () => {
     const { sink, spawnEffect, markSunk, play, onSunkObserved } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'me' })); // no seen — fog kill
-    expect(play).toHaveBeenCalledWith('kill'); // your victim went down, witnessed or not
+    // Story 10.13: the far boom, UNPLACED at a far distance — an unseen kill
+    // must not say where it happened (the `seen` rule).
+    expect(play).toHaveBeenCalledWith('killSound', { pan: 0, distance01: CLIENT_CONFIG.audio.killUnplacedDistance01 });
     expect(onSunkObserved).toHaveBeenCalledWith('victim', 'me'); // "SHIPS YOU SANK" credit
     expect(spawnEffect).not.toHaveBeenCalled(); // still no spatial render
     expect(markSunk).not.toHaveBeenCalled();
@@ -1202,18 +1204,21 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(toneIds(play)).toEqual([]);
   });
 
-  it('YOUR OWN DEATH plays the sink alarm ALONE, witnessed or not', () => {
+  it('YOUR OWN DEATH makes no one-shot here — the klaxon repeats through the sinking window instead (Story 10.13)', () => {
+    // The sinking alarm is driven per frame off `you.sinkingUntil`
+    // (audio/engineMix.ts → audio/klaxon.ts); never the witness groan either.
     const { sink, play } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'me', by: 'killer', seen: true }));
-    expect(toneIds(play)).toEqual(['sink']); // never the witness groan on top
+    expect(toneIds(play)).toEqual([]);
   });
 
-  it('YOUR CREDITED KILL plays the chime ALONE, even when you watched it go down', () => {
-    // The chime is the CREDIT and the groan is the hull; stacking both would
-    // smear one second into two overlapping low tones for nothing gained.
+  it('YOUR CREDITED KILL, watched going down: the far boom PLACED at the wreck, and the groan too (Story 10.13, Eric: keep both)', () => {
     const { sink, play } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'me', seen: true }));
-    expect(toneIds(play)).toEqual(['kill']);
+    expect(toneIds(play)).toEqual(['killSound', 'sinkWitness']);
+    const kill = play.mock.calls[0][1] as { pan: number; distance01: number };
+    expect(kill.pan).toBeGreaterThan(0); // the wreck's last-known contact is to starboard
+    expect(kill.distance01).toBeLessThan(CLIENT_CONFIG.audio.killUnplacedDistance01);
   });
 
   // --- A SINKING IS TERMINAL, NOT A SALVO (review gate) ---------------------
@@ -1413,7 +1418,11 @@ describe('bindRoom reward toasts', () => {
     expect(toastLines()).toEqual([boonFitToastLine('reload')]);
     // The cue carries BOTH axes as of Story 2.9, re-keyed in 8.1: the KIND picks
     // the tone AND transposes it (see the fitDetune suite below).
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ladder') });
+    // Story 10.13: one layered recipe, pitched by kind; the legacy pair is its fallback.
+    expect(play).toHaveBeenCalledWith(
+      'cardFitted',
+      expect.objectContaining({ pitch: fitPitch('ladder'), fallback: 'fitCommon', fallbackDetune: fitDetune('ladder') }),
+    );
   });
 
   it('WEIGHTS the fit cue by the fitted line\'s KIND (Story 2.9, re-keyed in 8.1)', () => {
@@ -1426,7 +1435,7 @@ describe('bindRoom reward toasts', () => {
       document.body.replaceChildren();
       const { sink, play } = setupToasts();
       sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, cards: [boon] }));
-      expect(play).toHaveBeenCalledWith(tone, expect.anything());
+      expect(play).toHaveBeenCalledWith('cardFitted', expect.objectContaining({ fallback: tone }));
     }
   });
 
@@ -1443,7 +1452,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, cards: ['notARealBoon'] }));
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
+    expect(play).toHaveBeenCalledWith('cardFitted', expect.objectContaining({ pitch: 1, fallback: 'fitCommon', fallbackDetune: 0 }));
     expect(onBoonFitted).toHaveBeenCalledWith('notARealBoon');
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
@@ -2173,7 +2182,10 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
         {},
       ),
     );
-    expect(play.mock.calls.map((c) => c[0])).toEqual(['ownHit', 'sink']);
+    // Story 10.13: the sink alarm is the KLAXON, started by the NEXT render
+    // frame off `you.sinkingUntil` (audio/engineMix.ts) — so the thud is
+    // still felt first, and is the only cue this net frame plays.
+    expect(play.mock.calls.map((c) => c[0])).toEqual(['ownHit']);
   });
 
   it('a frame with NO own damage is silent (the common case costs nothing)', () => {
@@ -2397,7 +2409,10 @@ describe('the fit cue is transposed by KIND (Story 2.9 carry-over, re-keyed in 8
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'navalMines' }, { alive: true, cards: ['navalMines'] }));
-    expect(play).toHaveBeenCalledWith('fitRare', { detune: fitDetune('equipment') });
+    expect(play).toHaveBeenCalledWith(
+      'cardFitted',
+      expect.objectContaining({ pitch: fitPitch('equipment'), gain: fitGain('equipment'), fallback: 'fitRare', fallbackDetune: fitDetune('equipment') }),
+    );
   });
 
   it('gives two fits of DIFFERENT kinds different voices', () => {
@@ -2415,7 +2430,7 @@ describe('the fit cue is transposed by KIND (Story 2.9 carry-over, re-keyed in 8
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, cards: ['x'] }));
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
+    expect(play).toHaveBeenCalledWith('cardFitted', expect.objectContaining({ pitch: 1, fallback: 'fitCommon', fallbackDetune: 0 }));
   });
 });
 
@@ -3230,7 +3245,7 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
     expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
   });
 
-  it('a `dp` for the own id toasts the stat row (one roll and a bundle), no tone', () => {
+  it('a `dp` for the own id toasts the stat row (one roll and a bundle) with the pickup chime (Story 10.13)', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     const g = [['armor', 3]] as const;
@@ -3238,16 +3253,17 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, { alive: true }));
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: bundle }, { alive: true }));
     expect(toastLines()).toEqual([dropToastLine(g), dropToastLine(bundle)]);
-    expect(play).not.toHaveBeenCalled();
+    expect(play.mock.calls.map(([id]) => id)).toEqual(['airdropChime', 'airdropChime']);
   });
 
-  it('is suppressed while dead or spectating, and for someone else', () => {
+  it('is suppressed while dead or spectating, and for someone else — toast and chime alike', () => {
     document.body.replaceChildren();
-    const { sink } = setupToasts();
+    const { sink, play } = setupToasts();
     const g = [['armor', 3]];
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, { alive: false }));
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, null));
     sink.handler(rewardFrame({ k: 'dp', id: 'other', t: 300, g }, { alive: true }));
     expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
   });
 });

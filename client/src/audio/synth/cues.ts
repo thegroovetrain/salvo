@@ -23,6 +23,9 @@ import { BEACON, BOOST, REPAIR, SMOKE } from './candidates/ship.js';
 import { COUNTDOWN_TICK, DENIED, LEVEL_UP, MATCH_START, TELEGRAPH } from './candidates/signals.js';
 import { BURNING, DAZZLED, HIT_CALL, PROP_FOULED, RAM_GRIND } from './candidates/hull.js';
 import { ENGINE_CANDIDATES } from './candidates/engines.js';
+import { AIRDROP_CHIME, BOUNTY_OMINOUS, CARD_FITTED_SUBTLE, KILL_SOUND, KLAXON } from './candidates/round3.js';
+import { STORM_CANDIDATES } from './candidates/storm.js';
+import type { StormBedProfile } from '../stormBed.js';
 import type { CueSlot } from './candidates/types.js';
 
 /** Every layered cue the game can play. `…World` ids are another ship's
@@ -56,7 +59,13 @@ export type CueId =
   | 'ramGrind'
   | 'hitCall'
   | 'propFouled'
-  | 'dazzled';
+  | 'dazzled'
+  // wave C (Eric's round-3 picks)
+  | 'airdropChime'
+  | 'killSound'
+  | 'cardFitted'
+  | 'bounty'
+  | 'klaxon';
 
 /** 'own' = about the player's own ship or console; 'world' = out on the water. */
 export type CueTier = 'own' | 'world';
@@ -115,6 +124,14 @@ const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   hitCall: row(take(HIT_CALL, 'A'), own('hitCall', 2)),
   propFouled: row(take(PROP_FOULED, 'A'), own('slowed', 1)),
   dazzled: row(take(DAZZLED, 'B'), own('dazzled', 1)),
+  airdropChime: row(take(AIRDROP_CHIME, 'C'), own('pickup', 2)),
+  // Your credited kill is about YOU even when it is placed far away: own tier.
+  killSound: row(take(KILL_SOUND, 'C'), own('kill', 2)),
+  cardFitted: row(take(CARD_FITTED_SUBTLE, 'A'), own('fit', 2)),
+  bounty: row(take(BOUNTY_OMINOUS, 'A'), own('bounty', 1)),
+  // The hull alarms and the sinking repeat (audio/klaxon.ts): three blasts of
+  // a series can overlap a held sinking blast, so four seats.
+  klaxon: row(take(KLAXON, 'C'), own('klaxon', 4)),
   // Out on the water.
   mainBatteryWorld: row(take(MAIN_BATTERY, 'A'), world('worldMain', 4)),
   secondariesWorld: row(take(SECONDARIES, 'A'), world('worldSecondary', 4)),
@@ -148,6 +165,15 @@ function pickedEngines(): Record<ShipClassId, EngineProfile> {
 
 export const ENGINE_PROFILES: Record<ShipClassId, EngineProfile> = pickedEngines();
 
+/** The storm bed Eric picked ("Heavy rain, far thunder" — `downpour`). */
+function pickedStormBed(): StormBedProfile {
+  const c = STORM_CANDIDATES.find((x) => x.id === 'downpour');
+  if (!c) throw new Error('no downpour storm bed');
+  return c.profile;
+}
+
+export const STORM_BED_PROFILE: StormBedProfile = pickedStormBed();
+
 /**
  * The legacy tone a cue falls back to when the layered path cannot build on
  * this browser (a missing node type, a throwing factory). A cue with no row —
@@ -180,6 +206,10 @@ export const LEGACY_FALLBACK: Partial<Record<CueId, ToneId>> = {
   hitCall: 'hitCall',
   propFouled: 'slowed',
   dazzled: 'dazzled',
+  killSound: 'kill',
+  cardFitted: 'fitCommon',
+  bounty: 'bounty',
+  klaxon: 'hpHurt',
 };
 
 /** The voice-budget knobs `cueAdmitted` reads (CLIENT_CONFIG.audio's). */

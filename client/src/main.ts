@@ -112,7 +112,8 @@ import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from 
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
-import { ToneFloor } from './render/gunneryFeed.js';
+import type { ToneFloor } from './render/gunneryFeed.js';
+import { GrindCue } from './audio/grindCue.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import {
   KeyboardInput,
@@ -221,7 +222,6 @@ import { Audio } from './audio/context.js';
 import { EngineMix, sinkingProgress, speedFraction, type EngineFrame, type RemoteHull } from './audio/engineMix.js';
 import {
   audioCues,
-  stormEnterEdge,
   telegraphTone,
   INITIAL_CUE_STATE,
   type AudioCueState,
@@ -633,7 +633,7 @@ interface Game {
   analyticsEndSent: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
-  /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
+  /** Own-ship storm-membership last frame — feeds the continuous storm bed (Story 10.13). */
   wasInStorm: boolean;
   /**
    * THIS FRAME'S HULL SIGHT-BOUNDARY FEATHER (this cycle) — the spatial alpha
@@ -1304,7 +1304,7 @@ function updateBounty(g: Game): void {
   }
   if (t.self) {
     pushUpgradeToast(bountyToastLine());
-    g.audio.play('bounty');
+    g.audio.playCue('bounty');
   }
 }
 
@@ -1349,13 +1349,12 @@ function telegraphCue(dir: number): { pitch: number; fallback: ReturnType<typeof
 }
 
 /** The hull-contact scrape (Story 10.13): ContactFx asks every 120 ms while
- *  grinding; a ~1.5 s shot is started every `grindCuePeriodMs`, so the shots
- *  overlap into one continuous scrape whose level still follows the bleed. */
-function grindCue(audio: Audio): (gain: number) => void {
-  const period = new ToneFloor(CLIENT_CONFIG.audio.grindCuePeriodMs);
-  return (gain) => {
-    if (period.request(performance.now())) audio.playCue('ramGrind', { gain });
-  };
+ *  grinding and says when the scrape ends; audio/grindCue.ts starts a ~1.5 s
+ *  shot every `grindCuePeriodMs` (overlapping into one continuous scrape whose
+ *  level follows the bleed) and stops the live shots at the end. */
+function contactFx(stage: Stage, audio: Audio): ContactFx {
+  const cue = new GrindCue((gain) => audio.playCue('ramGrind', { gain }), CLIENT_CONFIG.audio.grindCuePeriodMs);
+  return new ContactFx(stage.layers.burstFx, (gain) => cue.play(gain), () => cue.end());
 }
 
 /** Story 10.13: this frame's ship audio (audio/engineMix.ts decides). */
@@ -1384,6 +1383,7 @@ function shipAudioFrame(g: Game, now: number): EngineFrame {
     drawn: g.projectiles.drawnBallistics(now),
     beaconCycle: publicState(g).beaconCycle,
     beaconAfloat: g.beaconViews.some((v) => v.phase === 'afloat'),
+    inStorm: g.wasInStorm,
     matchOver,
   };
 }
@@ -2704,7 +2704,7 @@ function buildGame(
     beaconViews: [],
     beaconBodies: new BeaconBodies(),
     beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
-    contactFx: new ContactFx(stage.layers.burstFx, grindCue(audio)),
+    contactFx: contactFx(stage, audio),
     lastBleedMs: -Infinity,
     camera,
     keyboard,
@@ -4197,7 +4197,9 @@ function updateZone(
 function playHpSting(g: Game, status: OwnStatus, nowMs: number): void {
   const frac = ownHpFrac(status);
   const cue = hpStingCueAt(g.wasHpFrac, frac, nowMs, g.hpStingFloor);
-  if (cue) g.audio.play(cue);
+  // Story 10.13: the KLAXON (Eric's pick) sounds the edge — one blast under
+  // half, three under a quarter (audio/klaxon.ts); the stings are its fallback.
+  if (cue) g.engineMix.klaxonEdge(cue === 'hpCritical' ? 'critical' : 'hurt');
   g.wasHpFrac = frac;
 }
 
@@ -4284,7 +4286,8 @@ function renderAlive(
   // revealed by our flare (projectiles) and clear our own fog over them (fog).
   const ownZones = ownActiveZones(g.state.net.litZones, g.state.net.sessionId, now);
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
-  if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
+  // Story 10.13: the one-shot storm warning is retired (Eric: a CONTINUOUS storm
+  // bed instead); `wasInStorm` now feeds the bed (updateShipAudio, next frame).
   g.wasInStorm = inStorm;
   // The 50%/25% band alarms (Story 4.7) — same edge idiom. The two HP-driven
   // channels here are deliberately NOT symmetric through the sinking window
@@ -5419,6 +5422,12 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
         shell.audio.resume();
         openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift });
       },
+    },
+    // Story 10.13: the class bay's HORN chip previews the horn once. The click
+    // is a user gesture, so the context may be created here.
+    (horn) => {
+      shell.audio.resume();
+      shell.audio.playHorn(horn, 1);
     },
   );
   homeRef = home;

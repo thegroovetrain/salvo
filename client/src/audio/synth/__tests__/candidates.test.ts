@@ -4,12 +4,12 @@
 // engine set voices every hull with finite targets. Nothing here judges sound.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_HORN_ID } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 import { CUE_GROUPS, CUE_SLOTS, ENGINE_CANDIDATES, STORM_CANDIDATES } from '../candidates/index.js';
 import { stormBedTargets } from '../../stormBed.js';
 import { cueLengthS } from '../recipe.js';
 import { TONES } from '../../tones.js';
-import { hornVoice } from '../../horns.js';
+import { STANDARD_HORN } from '../../horns.js';
 import { engineTargets, type EngineTargets } from '../../engine.js';
 
 /** No audition cue should run longer than this (s); a longer one is a typo. */
@@ -57,7 +57,7 @@ describe('CUE_SLOTS', () => {
 
       it('its "today" comparison, if any, is a real legacy tone or a synthesized default horn', () => {
         if (slot.today !== undefined) expect(Object.hasOwn(TONES, slot.today)).toBe(true);
-        if (slot.todayHorn) expect(hornVoice(DEFAULT_HORN_ID).kind).toBe('synth');
+        if (slot.todayHorn) expect(STANDARD_HORN.kind).toBe('synth'); // the pre-10.13 voice, kept as the fallback
       });
     });
   }

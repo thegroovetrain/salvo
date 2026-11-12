@@ -65,12 +65,16 @@ import { settings, volumeGain, type Settings } from '../settings/store.js';
 import { TONES, type ToneId, type ToneSpec } from './tones.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { createMasterChain, type MasterChain } from './synth/master.js';
-import { Synth, type PlayResult } from './synth/render.js';
+import { Synth, type ShotHandle } from './synth/render.js';
 import { CUES, CUE_TIER, LEGACY_FALLBACK, cueAdmitted, type CueId } from './synth/cues.js';
 import { SinkFade } from './sinkFade.js';
 import {
   HORNS,
+  HORN_FAMILY,
   HORN_MAX_CONCURRENT,
+  MAX_HORN_S,
+  STANDARD_HORN,
+  type HornRecipeVoice,
   HornBufferCache,
   hornGain,
   hornVoice,
@@ -121,7 +125,15 @@ export interface CueOptions {
   gain?: number;
   distance01?: number;
   pitch?: number;
-  fallback?: ToneId;
+  /** Seconds from now to start (the klaxon's three-blast series); junk → 0. */
+  delayS?: number;
+  /** Hard length ceiling, seconds (a sinking blast never outlives the window). */
+  maxS?: number;
+  /** The legacy tone instead of the table's; null = no fallback for this play
+   *  (a series' later blasts, so a fallback is one tone, never a stack). */
+  fallback?: ToneId | null;
+  /** Cents for the fallback tone (the fit family's per-kind transposition). */
+  fallbackDetune?: number;
 }
 
 /** Node factories the layered path needs; missing any = the legacy fallback. */
@@ -300,33 +312,36 @@ export class Audio {
    * tone (`LEGACY_FALLBACK`, at the legacy world level `legacyCueGain`), and
    * to silence for a cue that has none.
    */
-  playCue(id: CueId, opts: CueOptions = {}): void {
-    if (this.silenced || !this.ctx || !this.buses) return;
+  playCue(id: CueId, opts: CueOptions = {}): ShotHandle | null {
+    if (this.silenced || !this.ctx || !this.buses) return null;
     try {
       const synth = this.cueSynth();
       if (!synth) return this.playFallback(id, opts);
-      if (!cueAdmitted(CUE_TIER[id], opts.distance01, synth.liveVoices, CLIENT_CONFIG.audio)) return;
-      const result: PlayResult = synth.playResult(CUES[id], {
+      if (!cueAdmitted(CUE_TIER[id], opts.distance01, synth.liveVoices, CLIENT_CONFIG.audio)) return null;
+      const shot = synth.launch(CUES[id], {
         pan: opts.pan,
         gain: opts.gain,
         distance01: opts.distance01,
         pitch: opts.pitch,
+        delayS: opts.delayS,
+        maxS: opts.maxS,
       });
-      if (result === 'failed') this.playFallback(id, opts);
+      return shot.result === 'failed' ? this.playFallback(id, opts) : shot.handle;
     } catch {
-      this.playFallback(id, opts);
+      return this.playFallback(id, opts);
     }
   }
 
   /** The legacy tone for a cue the layered path could not build. Never throws. */
-  private playFallback(id: CueId, opts: CueOptions): void {
-    const tone = opts.fallback ?? LEGACY_FALLBACK[id];
-    if (!tone) return;
+  private playFallback(id: CueId, opts: CueOptions): null {
+    const tone = opts.fallback === null ? undefined : (opts.fallback ?? LEGACY_FALLBACK[id]);
+    if (!tone) return null;
     try {
-      this.play(tone, { pan: opts.pan, gain: legacyCueGain(opts.gain, opts.distance01) });
+      this.play(tone, { pan: opts.pan, gain: legacyCueGain(opts.gain, opts.distance01), detune: opts.fallbackDetune });
     } catch {
       // a presentation failure is silence for this cue, never a throw
     }
+    return null; // a legacy tone is 150 ms: nothing to end early
   }
 
   /** The one Synth, built on first use; null when a node type it needs is missing. */
@@ -411,12 +426,36 @@ export class Audio {
    */
   playHorn(hornId: string, gain: number): void {
     if (this.silenced || !this.ctx || !this.buses) return;
-    if (this.liveHorns >= HORN_MAX_CONCURRENT) return;
+    if (this.hornsSounding() >= HORN_MAX_CONCURRENT) return;
     const voice = this.resolveHornVoice(hornVoice(hornId));
     const peak = hornGain(voice, gain);
     if (peak <= 0) return;
     if (voice.kind === 'sample') this.playSampleHorn(voice, peak);
-    else this.playSynthHorn(voice, peak);
+    else if (voice.kind === 'synth') this.playSynthHorn(voice, peak);
+    else if (!this.playRecipeHorn(voice, peak)) this.playSynthHorn(STANDARD_HORN, hornGain(STANDARD_HORN, gain));
+  }
+
+  /** Horns sounding now: the synth / sample ones counted here, plus the recipe
+   *  ones the Synth is holding in the horn family (each until its shot ends). */
+  private hornsSounding(): number {
+    return this.liveHorns + (this.synth?.familyVoices(HORN_FAMILY) ?? 0);
+  }
+
+  /**
+   * A RECIPE horn (Story 10.13): Eric's picked layered voice through the one
+   * Synth, in the horn family (capped at HORN_MAX_CONCURRENT there too) and
+   * never longer than MAX_HORN_S. Returns false only when the layered path
+   * could not BUILD — the caller then plays the plain synthesized horn, so a
+   * honk is never silent; a drop at the cap is a drop (true), never a fallback.
+   */
+  private playRecipeHorn(voice: HornRecipeVoice, peak: number): boolean {
+    try {
+      const synth = this.cueSynth();
+      if (!synth) return false;
+      return synth.playResult(voice.recipe, { gain: peak, maxS: MAX_HORN_S }) !== 'failed';
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -426,7 +465,7 @@ export class Audio {
    * all. An asset problem must never produce silence or a throw.
    */
   private resolveHornVoice(voice: HornVoice): HornVoice {
-    if (voice.kind === 'synth') return voice;
+    if (voice.kind !== 'sample') return voice;
     if (this.hornBuffers.get(voice.url)) return voice;
     if (!this.hornBuffers.hasFailed(voice.url)) void this.hornBuffers.load(voice.url);
     return HORNS[DEFAULT_HORN_ID];

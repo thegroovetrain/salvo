@@ -346,3 +346,110 @@ describe('applyEnvelope', () => {
     }
   });
 });
+
+// --- Story 10.13 wave C: ending a shot early ---------------------------------
+
+describe('Synth.launch — the stop handle', () => {
+  it('stop fades the shot’s level to the floor, stops every source after the fade, and frees the voice on ended', () => {
+    const ctx = new FakeAudioContext();
+    const synth = new Synth(ctx.asContext, ctx.destination as unknown as AudioNode);
+    const { result, handle } = synth.launch(gun, { rand: seeded(2) });
+    expect(result).toBe('played');
+    const level = ctx.nodesOf('gain').find((g) => (g.gain as FakeParam).writes.length > 0) as FakeNode;
+    handle?.stop(0.2);
+    const writes = (level.gain as FakeParam).writes;
+    expect(writes.at(-1)).toEqual({ method: 'exp', value: SILENCE, time: ctx.currentTime + 0.2 });
+    for (const s of ctx.built.filter((n) => n.started?.length)) expect(s.stopped?.at(-1)).toBeCloseTo(ctx.currentTime + 0.2, 9);
+    expect(synth.liveVoices).toBe(1);
+    ctx.endAll();
+    expect(synth.liveVoices).toBe(0);
+    expect(handle?.ended).toBe(true);
+  });
+
+  it('maxS fades a longer shot out to END at the ceiling, never extending a source that ends sooner', () => {
+    const lastStops = (maxS?: number): number[] => {
+      const ctx = new FakeAudioContext();
+      new Synth(ctx.asContext, ctx.destination as unknown as AudioNode).play(gun, { rand: seeded(2), maxS });
+      return ctx.built.filter((n) => n.stopped?.length).map((n) => (n.stopped?.at(-1) as number) - ctx.currentTime);
+    };
+    const free = lastStops();
+    const cap = Math.max(...free) / 2;
+    const capped = lastStops(cap);
+    capped.forEach((s, i) => expect(s).toBeCloseTo(Math.min(free[i], cap), 9));
+    expect(lastStops(NaN)).toEqual(free); // junk = no ceiling
+  });
+
+  it('stop is a no-op after the shot ended, and a dropped shot has no handle', () => {
+    const ctx = new FakeAudioContext();
+    const synth = new Synth(ctx.asContext, ctx.destination as unknown as AudioNode, { maxVoices: 1 });
+    const { handle } = synth.launch(gun, { rand: seeded(2) });
+    ctx.endAll();
+    const stops = ctx.built.map((n) => n.stopped?.length ?? 0);
+    handle?.stop();
+    expect(ctx.built.map((n) => n.stopped?.length ?? 0)).toEqual(stops);
+    synth.launch(gun, { rand: seeded(3) });
+    expect(synth.launch(gun, { rand: seeded(4) })).toEqual({ result: 'dropped', handle: null });
+  });
+});
+
+// --- Story 10.13 wave C: the recipe model's three additions -----------------
+
+describe('Synth — shelving / peaking filters, breakpoint sweeps, partials waves', () => {
+  const tone = (over: Record<string, unknown> = {}): CueRecipe =>
+    ({
+      layers: [{ source: { kind: 'osc', wave: 'sine', freq: 200, ...over }, env: { peak: 1, attackMs: 0, tauMs: 50 } }],
+    }) as CueRecipe;
+
+  it('a peaking / shelf filter takes its type and writes gainDb to the biquad gain', () => {
+    const ctx = new FakeAudioContext();
+    const r: CueRecipe = {
+      layers: [
+        {
+          source: { kind: 'noise', color: 'pink' },
+          filters: [
+            { type: 'peaking', freq: 900, q: 2, gainDb: 6 },
+            { type: 'highshelf', freq: 4000, gainDb: -9 },
+            { type: 'lowshelf', freq: 120 },
+          ],
+          env: { peak: 1, attackMs: 0, tauMs: 50 },
+        },
+      ],
+    };
+    new Synth(ctx.asContext, ctx.destination as unknown as AudioNode).play(r, { rand: seeded(1) });
+    const bqs = ctx.nodesOf('biquad');
+    expect(bqs.map((b) => b.type)).toEqual(['peaking', 'highshelf', 'lowshelf']);
+    expect(bqs.map((b) => (b.gain as FakeParam).value)).toEqual([6, -9, 0]); // absent gainDb leaves the default
+  });
+
+  it('a breakpoint sweep sets its first point and ramps to the rest: exponential between positives, else linear; junk points skipped; pitch scales', () => {
+    const ctx = new FakeAudioContext();
+    const freq = { points: [{ atMs: 100, value: 400 }, { atMs: 0, value: 200 }, { atMs: 300, value: 0 }, { atMs: NaN, value: 5 }] };
+    new Synth(ctx.asContext, ctx.destination as unknown as AudioNode).play(tone({ freq }), { rand: seeded(1), pitch: 2 });
+    const t0 = ctx.currentTime;
+    const writes = (ctx.nodesOf('oscillator')[0].frequency as FakeParam).writes;
+    expect(writes.map((w) => w.method)).toEqual(['set', 'exp', 'linear']);
+    expect(writes.map((w) => w.value)).toEqual([400, 800, 0]);
+    const at = writes.map((w) => w.time - t0);
+    [0, 0.1, 0.3].forEach((x, i) => expect(at[i]).toBeCloseTo(x, 9));
+  });
+
+  it('a breakpoint sweep on a filter starts the biquad at its first point', () => {
+    const ctx = new FakeAudioContext();
+    const r: CueRecipe = {
+      layers: [{ source: { kind: 'noise', color: 'pink' }, filters: [{ type: 'lowpass', freq: { points: [{ atMs: 0, value: 700 }, { atMs: 50, value: 300 }] } }], env: { peak: 1, attackMs: 0, tauMs: 50 } }],
+    };
+    new Synth(ctx.asContext, ctx.destination as unknown as AudioNode).play(r, { rand: seeded(1) });
+    expect((ctx.nodesOf('biquad')[0].frequency as FakeParam).value).toBe(700);
+  });
+
+  it('a partials wave is built with createPeriodicWave as a sine series; without the factory it is a sawtooth', () => {
+    const ctx = new FakeAudioContext();
+    new Synth(ctx.asContext, ctx.destination as unknown as AudioNode).play(tone({ wave: { partials: [1, 0.5, 0.25] } }), { rand: seeded(1) });
+    const wave = ctx.nodesOf('oscillator')[0].wave as { real: Float32Array; imag: Float32Array };
+    expect([...wave.imag]).toEqual([0, 1, 0.5, 0.25]);
+    expect([...wave.real]).toEqual([0, 0, 0, 0]);
+    const old = new FakeAudioContext(['createPeriodicWave']);
+    new Synth(old.asContext, old.destination as unknown as AudioNode).play(tone({ wave: { partials: [1, 0.5] } }), { rand: seeded(1) });
+    expect(old.nodesOf('oscillator')[0].type).toBe('sawtooth');
+  });
+});

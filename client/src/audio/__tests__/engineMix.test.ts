@@ -10,8 +10,10 @@ import {
   EngineMix,
   audibleHulls,
   sinkFadeTarget,
+  sinkingLeftS,
   sinkingProgress,
   speedFraction,
+  STORM_UPDATE_S,
   type EngineAudio,
   type EngineFrame,
   type RemoteHull,
@@ -84,7 +86,13 @@ function rig() {
   const ownBuilt: unknown[] = [];
   const remotes = new Map<number, { update: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> }>();
   let n = 0;
+  const storms: Array<{ update: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> }> = [];
   const makers: VoiceMakers = {
+    storm: () => {
+      const v = { update: vi.fn(), release: vi.fn() };
+      storms.push(v);
+      return v;
+    },
     own: (_c, _s, profile) => {
       ownBuilt.push(profile);
       return { update: own.update, release: own.release };
@@ -95,7 +103,8 @@ function rig() {
       return v;
     },
   };
-  let bus: ReturnType<EngineAudio['engineBus']> = { ctx: {} as BaseAudioContext, sink: {} as AudioNode };
+  const clock = { currentTime: 0 };
+  let bus: ReturnType<EngineAudio['engineBus']> = { ctx: clock as BaseAudioContext, sink: {} as AudioNode };
   const audio = {
     engineBus: () => bus,
     setSinkFade: vi.fn(),
@@ -103,9 +112,9 @@ function rig() {
   };
   const mix = new EngineMix(audio, makers);
   const setBus = (on: boolean): void => {
-    bus = on ? { ctx: {} as BaseAudioContext, sink: {} as AudioNode } : null;
+    bus = on ? { ctx: clock as BaseAudioContext, sink: {} as AudioNode } : null;
   };
-  return { mix, audio, own, ownBuilt, remotes, setBus };
+  return { mix, audio, own, ownBuilt, remotes, setBus, storms, clock };
 }
 
 const frame = (over: Partial<EngineFrame> = {}): EngineFrame => ({
@@ -117,6 +126,7 @@ const frame = (over: Partial<EngineFrame> = {}): EngineFrame => ({
   drawn: [],
   beaconCycle: undefined,
   beaconAfloat: false,
+  inStorm: false,
   matchOver: false,
   ...over,
 });
@@ -222,5 +232,59 @@ describe('EngineMix — the sink fade and the edge cues', () => {
     const opts = hums[0][1] as { pan: number; distance01: number };
     expect(opts.distance01).toBeCloseTo(0.5, 10);
     expect(opts.pan).toBeGreaterThan(0);
+  });
+});
+
+describe('EngineMix — the storm bed', () => {
+  it('is built the first frame inside the storm, at intensity 1; outside it glides to 0 on the same voice', () => {
+    const r = rig();
+    r.mix.update(frame());
+    expect(r.storms).toHaveLength(0); // never built before it is needed
+    r.mix.update(frame({ inStorm: true }));
+    r.mix.update(frame({ inStorm: false }));
+    expect(r.storms).toHaveLength(1);
+    expect(r.storms[0].update.mock.calls.map(([i]) => i)).toEqual([1, 0]);
+  });
+
+  it('re-targets only on a flip or after STORM_UPDATE_S (its thunder is scheduled from updates)', () => {
+    const r = rig();
+    r.mix.update(frame({ inStorm: true }));
+    r.mix.update(frame({ inStorm: true }));
+    expect(r.storms[0].update).toHaveBeenCalledTimes(1);
+    r.clock.currentTime = STORM_UPDATE_S;
+    r.mix.update(frame({ inStorm: true }));
+    expect(r.storms[0].update).toHaveBeenCalledTimes(2);
+  });
+
+  it('is released with no conned hull (spectating is silent), no bus, or match over', () => {
+    for (const gate of [{ own: null }, { matchOver: true }] as Partial<EngineFrame>[]) {
+      const r = rig();
+      r.mix.update(frame({ inStorm: true }));
+      r.mix.update(frame({ inStorm: true, ...gate }));
+      expect(r.storms[0].release).toHaveBeenCalledTimes(1);
+    }
+    const r = rig();
+    r.mix.update(frame({ inStorm: true }));
+    r.setBus(false);
+    r.mix.update(frame({ inStorm: true }));
+    expect(r.storms[0].release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EngineMix — the klaxon (Story 10.13)', () => {
+  it('a sinking frame sounds the klaxon capped to the window left; a band edge schedules its blasts', () => {
+    const r = rig();
+    r.mix.update(frame({ sinking01: 0.5 }));
+    const klaxons = r.audio.playCue.mock.calls.filter(([id]) => id === 'klaxon');
+    expect(klaxons).toHaveLength(1);
+    expect((klaxons[0][1] as { maxS: number }).maxS).toBeCloseTo(sinkingLeftS(0.5) as number, 9);
+    r.mix.klaxonEdge('critical');
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'klaxon')).toHaveLength(4);
+  });
+
+  it('seconds left in the window from its progress; null when not sinking', () => {
+    expect(sinkingLeftS(null)).toBeNull();
+    expect(sinkingLeftS(1)).toBe(0);
+    expect(sinkingLeftS(0)).toBe(CONFIG.ship.sinkingWindowMs / 1000);
   });
 });

@@ -20,6 +20,7 @@ export interface FakeParam {
   linearRampToValueAtTime: (v: number, t: number) => FakeParam;
   exponentialRampToValueAtTime: (v: number, t: number) => FakeParam;
   setTargetAtTime: (v: number, t: number, tau: number) => FakeParam;
+  cancelScheduledValues: (t: number) => FakeParam;
 }
 
 export interface FakeNode {
@@ -51,12 +52,13 @@ export function fakeParam(initial = 0): FakeParam {
       return p;
     },
     setTargetAtTime: (value, time) => (p.writes.push({ method: 'target', value, time }), p),
+    cancelScheduledValues: (time) => (p.writes.push({ method: 'cancel', value: NaN, time }), p),
   };
   return p;
 }
 
 /** Factories a test may remove to simulate an older browser. */
-export type OptionalFactory = 'createStereoPanner' | 'createConvolver' | 'createWaveShaper' | 'createDelay';
+export type OptionalFactory = 'createStereoPanner' | 'createConvolver' | 'createWaveShaper' | 'createDelay' | 'createPeriodicWave';
 
 export class FakeAudioContext {
   currentTime = 10;
@@ -105,11 +107,16 @@ export class FakeAudioContext {
   }
 
   createBiquadFilter(): FakeNode {
-    return this.track(this.node('biquad', { type: 'lowpass', frequency: fakeParam(350), Q: fakeParam(1) }));
+    return this.track(this.node('biquad', { type: 'lowpass', frequency: fakeParam(350), Q: fakeParam(1), gain: fakeParam(0) }));
   }
 
   createOscillator(): FakeNode {
-    return this.source('oscillator', { type: 'sine', frequency: fakeParam(440), detune: fakeParam(0) });
+    const o = this.source('oscillator', { type: 'sine', frequency: fakeParam(440), detune: fakeParam(0), wave: null });
+    o.setPeriodicWave = (w: unknown) => {
+      o.type = 'custom';
+      o.wave = w;
+    };
+    return o;
   }
 
   createBufferSource(): FakeNode {
@@ -126,6 +133,10 @@ export class FakeAudioContext {
 
   createDelay(max = 1): FakeNode {
     return this.track(this.node('delay', { maxDelayTime: max, delayTime: fakeParam(0) }));
+  }
+
+  createPeriodicWave(real: Float32Array, imag: Float32Array): { real: Float32Array; imag: Float32Array } {
+    return { real, imag };
   }
 
   createConvolver(): FakeNode {

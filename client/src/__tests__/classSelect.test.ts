@@ -22,6 +22,10 @@ import {
   PIP_LABEL_COL_PX,
   PIP_LABEL_TRACKING_EM,
   SPECIAL_KEY,
+  HORN_KEY,
+  SHIFT_CHIP_TRACKING_EM,
+  SHIFT_CHIP_PAD_X_PX,
+  SHIFT_CHIP_BORDER_PX,
   CARD_INNER_PX,
   LOADOUT_KEY_COL_PX,
   LOADOUT_KEY_TRACKING_EM,
@@ -31,9 +35,13 @@ import { monoTextWidth } from '../util/monoMeasure.js';
 import { pipFill } from '../util/pips.js';
 import { indexWord } from '../ui/boonCopy.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { HORN_NAMES } from '../audio/horns.js';
 import {
   CONFIG,
+  DEFAULT_HORN_ID,
   DEFAULT_SHIFT,
+  HORN_IDS,
+  type HornId,
   INDEX_IDS,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
@@ -50,7 +58,7 @@ const OTHER_SHIFT = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT) as ShiftId;
  *  by role, never by label). */
 function confirmButtonIn(root: ParentNode): HTMLButtonElement {
   return [...root.querySelectorAll<HTMLButtonElement>('button')].find(
-    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && b.textContent !== '',
+    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && !b.classList.contains('hc-hornchip') && b.textContent !== '',
   ) as HTMLButtonElement;
 }
 
@@ -512,6 +520,52 @@ describe('the SPECIAL row — fit (Story 10.4)', () => {
       expect(w, `${id} chip is ${w.toFixed(1)}px on a ${CARD_INNER_PX}px line`).toBeLessThanOrEqual(CARD_INNER_PX);
     }
     expect(CLIENT_CONFIG.type.registers.hudMicro.size).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
+  });
+});
+
+describe('openClassSelect — the HORN row (Story 10.13)', () => {
+  let blurTarget: HTMLElement;
+  beforeEach(() => {
+    blurTarget = document.createElement('div');
+    document.body.appendChild(blurTarget);
+  });
+  afterEach(() => {
+    document.getElementById('hc-class-select')?.remove();
+    blurTarget.remove();
+  });
+
+  const hornChips = (): HTMLButtonElement[] =>
+    [...document.querySelectorAll('#hc-class-select .hc-hornchip')] as HTMLButtonElement[];
+  const lit = (): string[] => hornChips().filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.horn as string);
+
+  it('one chip per catalog horn, by its display name, the stored pick lit alone', () => {
+    const other = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID) as HornId;
+    openClassSelect({ initial: FIRST, initialHorn: other, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
+    expect(hornChips().map((c) => c.dataset.horn)).toEqual([...HORN_IDS]);
+    expect(hornChips().map((c) => c.textContent)).toEqual(HORN_IDS.map((id) => HORN_NAMES[id]));
+    expect(lit()).toEqual([other]);
+  });
+
+  it('a chip click lights it, hands it to onHorn, and never moves the hull highlight or closes', () => {
+    const onHorn = vi.fn();
+    const onConfirm = vi.fn();
+    openClassSelect({ initial: SECOND, blurTarget, onConfirm, onClose: vi.fn(), onHorn });
+    expect(lit()).toEqual([DEFAULT_HORN_ID]);
+    const target = hornChips().at(-1) as HTMLButtonElement;
+    target.click();
+    expect(onHorn).toHaveBeenCalledWith(target.dataset.horn);
+    expect(lit()).toEqual([target.dataset.horn]);
+    expect(litMap()).toEqual(only(1));
+    expect(document.getElementById('hc-class-select')).not.toBeNull();
+  });
+
+  it('the HORN key fits the key column, and each chip alone fits the card’s inner line', () => {
+    const micro = CLIENT_CONFIG.type.registers.hudMicro.size;
+    expect(monoTextWidth(HORN_KEY, micro, micro * LOADOUT_KEY_TRACKING_EM)).toBeLessThanOrEqual(LOADOUT_KEY_COL_PX);
+    for (const id of HORN_IDS) {
+      const w = monoTextWidth(HORN_NAMES[id], micro, micro * SHIFT_CHIP_TRACKING_EM) + 2 * (SHIFT_CHIP_PAD_X_PX + SHIFT_CHIP_BORDER_PX);
+      expect(w, id).toBeLessThanOrEqual(CARD_INNER_PX);
+    }
   });
 });
 

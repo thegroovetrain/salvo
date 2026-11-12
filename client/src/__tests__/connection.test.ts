@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CONFIG,
   DEFAULT_HORN_ID,
+  HORN_IDS,
   DEFAULT_SHIFT,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
@@ -130,6 +131,7 @@ import {
   resumeFailedStatus,
   isQueueCancelled,
   loadHornPref,
+  saveHornPref,
   HORN_PREF_KEY,
   QueueError,
   RECONNECT_MAX_RETRIES,
@@ -474,9 +476,20 @@ describe('connect', () => {
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {
     await connectAndWelcome();
     // ALWAYS sent (loadHornPref never returns undefined) and re-sanitized
-    // server-side in onJoin, exactly like `cls`. Exactly one horn ships and no
-    // UI writes the key — a second horn is CONTENT and needs an Eric ruling.
+    // server-side in onJoin, exactly like `cls`.
     expect(lastJoinOpts?.horn).toBe(DEFAULT_HORN_ID);
+  });
+
+  it('Story 10.13: a stored NON-DEFAULT horn (the class bay’s pick) rides the join as-is', async () => {
+    const picked = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID);
+    expect(picked).toBeDefined();
+    saveHornPref(picked as (typeof HORN_IDS)[number]);
+    try {
+      await connectAndWelcome();
+      expect(lastJoinOpts?.horn).toBe(picked);
+    } finally {
+      localStorage.removeItem(HORN_PREF_KEY);
+    }
   });
 
   it('rejects immediately when the socket closes during the welcome handshake', async () => {
@@ -552,9 +565,7 @@ describe('connectErrorStatus', () => {
 describe('loadHornPref — the persisted foghorn variant (Story 4.5, amendment 52)', () => {
   afterEach(() => localStorage.removeItem(HORN_PREF_KEY));
 
-  it('FAILS OPEN to the default horn for an absent key — the shipped case', () => {
-    // No UI writes this key: exactly one horn ships, and adding variants is
-    // CONTENT that needs an Eric ruling. The seam is plumbed, not surfaced.
+  it('FAILS OPEN to the default horn for an absent key (nothing picked yet)', () => {
     localStorage.removeItem(HORN_PREF_KEY);
     expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
   });
@@ -566,9 +577,19 @@ describe('loadHornPref — the persisted foghorn variant (Story 4.5, amendment 5
     }
   });
 
-  it('returns a valid stored id unchanged', () => {
-    localStorage.setItem(HORN_PREF_KEY, DEFAULT_HORN_ID);
-    expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
+  it('returns a valid stored id unchanged — every catalog id round-trips through saveHornPref', () => {
+    for (const id of HORN_IDS) {
+      saveHornPref(id);
+      expect(loadHornPref()).toBe(id);
+    }
+  });
+
+  it('saveHornPref survives storage that throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    expect(() => saveHornPref(DEFAULT_HORN_ID)).not.toThrow();
+    spy.mockRestore();
   });
 
   it('survives storage that throws (blocked / private-mode localStorage)', () => {

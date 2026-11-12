@@ -27,7 +27,7 @@ import type { CueId } from './synth/cues.js';
  * `TONE_TWINS` is kept deliberately — the law is unchanged and no call site
  * should have to move for a type widening.
  */
-export type AudioCueId = ToneId | 'foghorn' | CueId | 'engine';
+export type AudioCueId = ToneId | 'foghorn' | CueId | 'engine' | 'stormBed';
 
 /** AudioCueId -> the visual channel that carries the SAME information, muted. */
 export const TONE_TWINS: Record<AudioCueId, string> = {
@@ -147,6 +147,21 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   ramGrind:
     'the own hull drawn pressed against the other hull or the coast, plus the strike sparks where it first touched (render/ships, contactFx)',
   propFouled: 'the SLOWED tell + its countdown under the chrome bar (render/hud)',
+  // Wave C (Eric's round-3 picks). The kill and the fit replace legacy tones
+  // whose rows above (kill, fit*) keep serving their fallbacks.
+  airdropChime: 'the airdrop pickup\'s stat toast naming what you hauled aboard (ui/upgradeToast)',
+  killSound: 'the kill-feed line naming your victim (ui/killFeed)',
+  cardFitted:
+    'the ◆ FITTED toast + the consoles\' readouts changing to the new values (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
+  // `bounty` keeps its row above (same id).
+  // THE KLAXON replaces the two hp stings and the own sink tone (their rows
+  // above stay — they are its fallbacks): one blast / three blasts at the hull
+  // gauge's two band edges, and the repeat while the own hull sinks.
+  klaxon:
+    'the ship console\'s hull gauge turning amber, then crimson, at the band edges (render/console/shipConsole), and while sinking the sinking hull itself and the elimination modal (render/effects, ui/results)',
+  // The STORM BED is continuous, like the engine: it says you are inside the storm.
+  stormBed:
+    'the storm ring closing in and its vignette while you are outside the safe water, plus the storm damage on the ship console\'s hull bar (render/zone, render/console/shipConsole)',
   // The ENGINE is continuous, not a cue: it follows your helm order and your
   // speed, both of which the console and the water already show — and another
   // ship's engine only while that hull is drawn close alongside.

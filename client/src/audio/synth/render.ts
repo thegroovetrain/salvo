@@ -17,6 +17,9 @@ import { reverbBuffer } from './reverb.js';
 import {
   SILENCE,
   distanceShape,
+  isPointSweep,
+  sweepPoints,
+  sweepStartValue,
   envTimes,
   planShot,
   sanitizeDelay,
@@ -32,6 +35,7 @@ import {
   type Layer,
   type ModeBank,
   type OscSource,
+  type PointSweep,
   type ShotPlan,
   type Source,
   type Sweep,
@@ -55,6 +59,9 @@ export interface PlayOptions {
   delayS?: number;
   /** Per-shot randomness (default Math.random). */
   rand?: () => number;
+  /** A hard length ceiling, seconds: a shot whose plan runs longer is faded
+   *  out to end AT this length (the horn path's MAX_HORN_S). Junk = none. */
+  maxS?: number;
   /** Frequency multiplier for the whole shot (see `planShot`); junk → 1. */
   pitch?: number;
 }
@@ -70,6 +77,30 @@ export const DEFAULT_MAX_VOICES = 24;
 interface Shot {
   nodes: AudioNode[];
   sources: AudioScheduledSourceNode[];
+  /** Each source's scheduled stop time (parallel to `sources`), so an early
+   *  stop only ever SHORTENS a source, never extends one. */
+  stopAt: number[];
+  /** The level the shot's level gain is set to (its param's `.value` may not
+   *  have reached it yet when a stop is scheduled ahead). */
+  levelValue?: number;
+  /** The shot's level gain — everything of the shot (dry, echoes, reverb
+   *  send) is downstream of it, so fading it fades the whole shot. */
+  level?: GainNode;
+  /** Set once the last source has ended and the voice was released. */
+  ended?: boolean;
+}
+
+/** Default fade of an early stop (s): short enough to read as "it stopped",
+ *  long enough not to click. */
+export const STOP_FADE_S = 0.08;
+
+/** A live shot, so its owner can end it early (the hull-contact scrape when
+ *  the scrape ends). `stop` fades the shot's level to the silence floor over
+ *  `fadeS`, then stops its sources — which releases the voice through the
+ *  ordinary `ended` path. A no-op once the shot has ended or was stopped. */
+export interface ShotHandle {
+  stop(fadeS?: number): void;
+  readonly ended: boolean;
 }
 
 const has = (ctx: BaseAudioContext, factory: string): boolean =>
@@ -83,6 +114,10 @@ export function applySweep(param: AudioParam, sweep: Sweep, t: number, scale = 1
     param.setValueAtTime(sweep * scale, t);
     return;
   }
+  if (isPointSweep(sweep)) {
+    applyPoints(param, sweep, t, scale);
+    return;
+  }
   if (sweep.tauMs !== undefined) {
     param.setValueAtTime(sweep.from * scale, t);
     param.setTargetAtTime(sweep.to * scale, t, Math.max(0.001, sweep.tauMs / 1000));
@@ -92,8 +127,21 @@ export function applySweep(param: AudioParam, sweep: Sweep, t: number, scale = 1
   param.exponentialRampToValueAtTime(Math.max(SILENCE, sweep.to * scale), t + Math.max(0.001, (sweep.ms ?? 0) / 1000));
 }
 
+/** A breakpoint sweep: the first point set, every later one ramped to —
+ *  exponential where both ends are above 0, else linear. Every value × `scale`. */
+function applyPoints(param: AudioParam, sweep: PointSweep, t: number, scale: number): void {
+  const pts = sweepPoints(sweep);
+  pts.forEach((p, i) => {
+    const at = t + p.atMs / 1000;
+    const v = p.value * scale;
+    if (i === 0) param.setValueAtTime(v, at);
+    else if (pts[i - 1].value * scale > 0 && v > 0) param.exponentialRampToValueAtTime(v, at);
+    else param.linearRampToValueAtTime(v, at);
+  });
+}
+
 /** The first value of a Sweep (FM needs the modulator's start frequency). */
-const sweepStart = (s: Sweep): number => (typeof s === 'number' ? s : s.from);
+const sweepStart = (s: Sweep): number => sweepStartValue(s);
 
 /** Write the amplitude envelope onto a gain param starting at `t`. */
 export function applyEnvelope(param: AudioParam, env: Envelope, t: number, peak: number, decayScale: number): void {
@@ -143,25 +191,48 @@ export class Synth {
    * Never throws.
    */
   play(recipe: CueRecipe, opts: PlayOptions = {}): boolean {
-    return this.playResult(recipe, opts) === 'played';
+    return this.launch(recipe, opts).result === 'played';
   }
 
   /** `play`, telling a deliberate drop apart from a build failure. Never throws. */
   playResult(recipe: CueRecipe, opts: PlayOptions = {}): PlayResult {
-    if (!this.hasRoom(recipe)) return 'dropped';
+    return this.launch(recipe, opts).result;
+  }
+
+  /** `playResult` plus, when the shot sounded, a handle that can end it early. */
+  launch(recipe: CueRecipe, opts: PlayOptions = {}): { result: PlayResult; handle: ShotHandle | null } {
+    if (!this.hasRoom(recipe)) return DROPPED;
     const level = sanitizeGain(recipe.gain) * sanitizeGain(opts.gain);
     const d01 = sanitizeDistance(opts.distance01);
     const plan = planShot(recipe, opts.rand ?? Math.random, d01, opts.pitch);
-    if (level <= 0 || plan.grains.length === 0) return 'dropped';
-    const shot: Shot = { nodes: [], sources: [] };
+    if (level <= 0 || plan.grains.length === 0) return DROPPED;
+    const shot: Shot = { nodes: [], sources: [], stopAt: [] };
     try {
-      this.buildShot(shot, recipe, plan, level, d01, opts);
+      const t0 = this.buildShot(shot, recipe, plan, level, d01, opts);
+      capShot(shot, t0, plan.lengthS, opts.maxS);
     } catch {
       teardown(shot, true);
-      return 'failed';
+      return { result: 'failed', handle: null };
     }
     this.track(shot, recipe.family);
-    return 'played';
+    return { result: 'played', handle: this.handleOf(shot) };
+  }
+
+  private handleOf(shot: Shot): ShotHandle {
+    const ctx = this.ctx;
+    let stopped = false;
+    return {
+      get ended() {
+        return shot.ended === true;
+      },
+      stop(fadeS?: number) {
+        if (stopped || shot.ended) return;
+        stopped = true;
+        const fade = fadeS !== undefined && Number.isFinite(fadeS) && fadeS > 0 ? fadeS : STOP_FADE_S;
+        const t = ctx.currentTime;
+        stopShot(shot, t, fade);
+      },
+    };
   }
 
   private hasRoom(recipe: CueRecipe): boolean {
@@ -170,11 +241,14 @@ export class Synth {
     return this.familyVoices(recipe.family) < recipe.maxVoices;
   }
 
-  private buildShot(shot: Shot, recipe: CueRecipe, plan: ShotPlan, level: number, d01: number, opts: PlayOptions): void {
+  /** Build the shot's graph; returns its start time. */
+  private buildShot(shot: Shot, recipe: CueRecipe, plan: ShotPlan, level: number, d01: number, opts: PlayOptions): number {
     const shape = distanceShape(d01);
     const t0 = this.ctx.currentTime + sanitizeDelay(opts.delayS) + shape.preDelayS;
     const out = this.outNode(shot, opts.pan, t0);
     const cueIn = this.gain(shot, level * shape.gain, t0);
+    shot.level = cueIn;
+    shot.levelValue = level * shape.gain;
     const post = d01 > 0 ? this.filter(shot, { type: 'lowpass', freq: shape.lowpassHz }, t0, 1) : cueIn;
     if (post !== cueIn) cueIn.connect(post);
     post.connect(out);
@@ -185,6 +259,7 @@ export class Synth {
     for (const g of plan.grains) {
       this.grain(shot, recipe.layers[g.layer], g, cueIn, t0 + g.onsetS, g.lengthS + plan.echoTailS);
     }
+    return t0;
   }
 
   /** Where the dry path lands: a panner when a pan was given (and exists), else the sink. */
@@ -265,7 +340,7 @@ export class Synth {
 
   private osc(shot: Shot, src: OscSource, scale: number, t: number, runS: number): AudioNode {
     const osc = this.ctx.createOscillator();
-    osc.type = src.wave;
+    this.setWave(osc, src.wave);
     applySweep(osc.frequency, src.freq, t, scale);
     this.start(shot, osc, t, runS);
     if (src.vibrato) this.lfo(shot, osc.detune, src.vibrato.rateHz, centsOf(src.vibrato.depth), 'sine', t, runS);
@@ -280,6 +355,22 @@ export class Synth {
       this.start(shot, mod, t, runS);
     }
     return osc;
+  }
+
+  /** A stock wave, or a partials series through createPeriodicWave (sawtooth
+   *  when the browser has no such factory). */
+  private setWave(osc: OscillatorNode, wave: OscSource['wave']): void {
+    if (typeof wave === 'string') {
+      osc.type = wave;
+      return;
+    }
+    if (!has(this.ctx, 'createPeriodicWave') || wave.partials.length === 0) {
+      osc.type = 'sawtooth';
+      return;
+    }
+    const imag = new Float32Array(wave.partials.length + 1);
+    wave.partials.forEach((a, i) => (imag[i + 1] = Number.isFinite(a) ? a : 0));
+    osc.setPeriodicWave(this.ctx.createPeriodicWave(new Float32Array(imag.length), imag));
   }
 
   /** A modulating oscillator: lfo → depth gain → param. */
@@ -328,6 +419,7 @@ export class Synth {
     // jump from the defaults while it already carries signal rings out tens of
     // dB hot (measured in Chromium: +25 dB on a Q 90 mode bank).
     if (f.q !== undefined) bq.Q.value = f.q;
+    if (f.gainDb !== undefined && Number.isFinite(f.gainDb)) bq.gain.value = f.gainDb;
     bq.frequency.value = Math.max(SILENCE, sweepStart(f.freq) * scale);
     applySweep(bq.frequency, f.freq, t, scale);
     return bq;
@@ -345,7 +437,9 @@ export class Synth {
     shot.sources.push(src);
     if (offset !== undefined) (src as AudioBufferSourceNode).start(t, offset);
     else src.start(t);
-    src.stop(t + runS + 0.02);
+    const end = t + runS + 0.02;
+    src.stop(end);
+    shot.stopAt.push(end);
   }
 
   /** Count the voice until its LAST source ends, then disconnect everything. */
@@ -357,11 +451,49 @@ export class Synth {
       pending--;
       if (pending > 0) return;
       teardown(shot);
+      shot.ended = true;
       this.live = Math.max(0, this.live - 1);
       if (family !== undefined) this.families.set(family, Math.max(0, this.familyVoices(family) - 1));
     };
     for (const s of shot.sources) s.onended = release;
   }
+}
+
+const DROPPED: { result: PlayResult; handle: null } = { result: 'dropped', handle: null };
+
+/** End a live shot early: fade its level to the floor over `fade`, then stop
+ *  every source at the end of the fade (their `ended` releases the voice). */
+function stopShot(shot: Shot, t: number, fade: number, from?: number): void {
+  const g = shot.level?.gain;
+  if (g) {
+    try {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(Math.max(SILENCE, from ?? g.value), t);
+      g.exponentialRampToValueAtTime(SILENCE, t + fade);
+    } catch {
+      /* a param that refuses automation: the stop below still ends the shot */
+    }
+  }
+  const end = t + fade;
+  shot.sources.forEach((s, i) => {
+    if (!(shot.stopAt[i] > end)) return; // never extend a source that ends sooner
+    try {
+      s.stop(end);
+      shot.stopAt[i] = end;
+    } catch {
+      /* already stopped */
+    }
+  });
+}
+
+/** Longest fade a length ceiling uses (s); a short ceiling fades over a quarter of itself. */
+export const CAP_FADE_S = 0.5;
+
+/** Apply a length ceiling: a shot planned longer than `maxS` fades out to end at it. */
+function capShot(shot: Shot, t0: number, lengthS: number, maxS: number | undefined): void {
+  if (maxS === undefined || !Number.isFinite(maxS) || maxS <= 0 || lengthS <= maxS) return;
+  const fade = Math.min(CAP_FADE_S, maxS / 4);
+  stopShot(shot, t0 + maxS - fade, fade, shot.levelValue);
 }
 
 /** Silence and disconnect every node of a shot; a node that refuses is

@@ -490,6 +490,25 @@ export function fitDetune(kind: string): number {
   return Object.hasOwn(FIT_KIND_CENTS, kind) ? FIT_KIND_CENTS[kind] : 0;
 }
 
+/**
+ * Pure (Story 10.13): the fit cue's transposition as a frequency RATIO for the
+ * layered `cardFitted` cue's `pitch` — the same cents table, so the old
+ * relationship survives (equipment lowest, ladder at the root, addon higher).
+ */
+export function fitPitch(kind: string): number {
+  return Math.pow(2, fitDetune(kind) / 1200);
+}
+
+/**
+ * Pure (Story 10.13): the fit cue's relative LEVEL, carried over from the two
+ * legacy weights — the kind's tone volume over the loudest fit tone, so an
+ * equipment fit stays slightly louder than a ladder rung or an add-on.
+ */
+export function fitGain(kind: LineKind | undefined): number {
+  const loudest = Math.max(TONES[FIT_TONE.equipment].volume, TONES[FIT_TONE.ladder].volume, TONES[FIT_TONE.addon].volume);
+  return TONES[fitTone(kind)].volume / loudest;
+}
+
 /** The kinds the fit transposition covers (test seam - pinned against the live
  *  catalog so a new kind cannot ship without a voice). */
 export const FIT_KINDS: readonly string[] = Object.keys(FIT_KIND_CENTS);

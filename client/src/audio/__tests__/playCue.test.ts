@@ -6,6 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Audio, legacyCueGain } from '../context.js';
 import { CUES } from '../synth/cues.js';
+import { HORN_IDS } from '@salvo/shared';
+import { HORN_MAX_CONCURRENT, MAX_HORN_S, STANDARD_HORN } from '../horns.js';
 import { TONES } from '../tones.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import { settings } from '../../settings/store.js';
@@ -175,6 +177,46 @@ describe('setSinkFade — the sinking insert', () => {
 
   it('is a no-op before the context exists', () => {
     expect(() => new Audio().setSinkFade(0.5)).not.toThrow();
+  });
+});
+
+describe('playHorn — the recipe horns (Story 10.13)', () => {
+  it('every selectable horn renders its recipe onto the bus', () => {
+    for (const id of HORN_IDS) {
+      const { audio, ctx } = setup();
+      audio.playHorn(id, 1);
+      const sources = ctx.built.filter((n) => n.started?.length);
+      expect(sources.length, id).toBeGreaterThan(0);
+      // (LFO sources feed params, not the signal path, so ask for the audible ones.)
+      expect(sources.some((s) => downstream(s).has(buses(ctx).effects)), id).toBe(true);
+    }
+  });
+
+  it('no horn sounds past MAX_HORN_S: a longer recipe is faded out to end at the ceiling', () => {
+    for (const id of HORN_IDS) {
+      const { audio, ctx } = setup();
+      audio.playHorn(id, 1);
+      // The LAST stop each source was given is the one that holds.
+      const stops = ctx.built.flatMap((n) => (n.stopped?.length ? [n.stopped.at(-1) as number] : []));
+      expect(Math.max(...stops) - ctx.currentTime, id).toBeLessThanOrEqual(MAX_HORN_S + 1e-9);
+    }
+  });
+
+  it('holds the mix cap on the recipe path: the honk past HORN_MAX_CONCURRENT is dropped, and a finished one frees its seat', () => {
+    const { audio, ctx } = setup();
+    for (let i = 0; i < HORN_MAX_CONCURRENT; i++) audio.playHorn('bell', 1);
+    const before = ctx.built.length;
+    audio.playHorn('bell', 1);
+    expect(ctx.built.length).toBe(before);
+    ctx.endAll();
+    audio.playHorn('bell', 1);
+    expect(ctx.built.length).toBeGreaterThan(before);
+  });
+
+  it('falls back to the plain synthesized horn when the layered path cannot build — never silent', () => {
+    const { audio, ctx } = setup([], ['createBiquadFilter']);
+    audio.playHorn('trombone', 1);
+    expect(ctx.nodesOf('oscillator')).toHaveLength(STANDARD_HORN.layers.length);
   });
 });
 

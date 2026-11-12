@@ -51,12 +51,9 @@ const WELCOME_TIMEOUT_MS = 5000;
 export const HORN_PREF_KEY = 'hullcracker.horn';
 
 /**
- * The persisted foghorn variant (Story 4.5, amendment 52) — the cosmetic seam
- * for a future purchasable horn, PLUMBED ONLY. Exactly one horn ships this
- * cycle and **NO UI WRITES THIS KEY**: adding horn variants is CONTENT and
- * needs an Eric ruling, so a picker is out of scope by construction, not by
- * omission — a plumbed join option ahead of the surface that will one day set
- * it.
+ * The persisted foghorn variant (Story 4.5, amendment 52). Since Story 10.13
+ * the catalog is Eric's ruling of 2026-11-11 (four selectable horns), and the
+ * class bay's HORN row writes this key (`saveHornPref`); every join sends it.
  *
  * `sanitizeHornId` is fail-open, so a corrupt, stale, or absent key resolves to
  * the default horn rather than to an error; the server re-sanitizes the value
@@ -68,6 +65,17 @@ export function loadHornPref(): HornId {
     return sanitizeHornId(localStorage.getItem(HORN_PREF_KEY));
   } catch {
     return sanitizeHornId(undefined);
+  }
+}
+
+/** Persist the captain's horn (Story 10.13 — the class bay's HORN row). The id
+ *  is sanitized on the way in as on the way out; blocked storage is a silent
+ *  no-op (the pick then lives for this page only, through the open bay). */
+export function saveHornPref(id: HornId): void {
+  try {
+    localStorage.setItem(HORN_PREF_KEY, sanitizeHornId(id));
+  } catch {
+    // private mode / blocked storage
   }
 }
 

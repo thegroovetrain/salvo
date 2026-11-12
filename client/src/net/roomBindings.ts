@@ -70,7 +70,7 @@ import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine, dropToastLine } from '../ui/boonCopy.js';
-import { fitDetune, fitTone, worldPlacement, type ToneId } from '../audio/tones.js';
+import { fitDetune, fitGain, fitPitch, fitTone, worldPlacement, type ToneId } from '../audio/tones.js';
 import type { CueId } from '../audio/synth/cues.js';
 import type { CueOptions } from '../audio/context.js';
 import { freshCloudCueState, newClouds, ownHitGain, type CloudCueState } from '../audio/cueEdges.js';
@@ -1535,7 +1535,11 @@ function handleDropPickup(e: DropPickupEvent, f: FrameMsg, deps: RoomBindingDeps
   if (e.id !== deps.state.net.sessionId) return;
   if (frameIsDeadOrSpectating(f)) return;
   const g = Array.isArray(e.g) ? e.g.filter((r) => isDropRoll(r)) : [];
-  if (g.length > 0) pushUpgradeToast(dropToastLine(g));
+  if (g.length === 0) return;
+  pushUpgradeToast(dropToastLine(g));
+  // Story 10.13: the pickup chime (Eric's pick), centered — it rides the
+  // stat toast it twins, so a pickup that draws no toast makes no sound.
+  deps.audio.playCue('airdropChime');
 }
 
 /**
@@ -1570,7 +1574,15 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // without a cue. The KIND picks the cue's weight and transposes it (fitDetune,
   // in cents), so a ladder rung and a weapon fit are audibly different events
   // without becoming different cues.
-  deps.audio.play(fitTone(line?.kind), { detune: fitDetune(line?.kind ?? '') });
+  // Story 10.13: ONE layered recipe (Eric's pick), pitched and weighted by kind
+  // through the same cents table; the legacy pair stays the fallback.
+  const kind = line?.kind;
+  deps.audio.playCue('cardFitted', {
+    pitch: fitPitch(kind ?? ''),
+    gain: fitGain(kind),
+    fallback: fitTone(kind),
+    fallbackDetune: fitDetune(kind ?? ''),
+  });
   deps.onBoonFitted(e.boon);
   deps.onSpendAck();
 }
@@ -2213,19 +2225,30 @@ function sunkCue(
   deps: RoomBindingDeps,
 ): void {
   const sessionId = deps.state.net.sessionId;
-  if (e.id === sessionId) {
-    deps.audio.play('sink');
-    return;
-  }
-  if (e.by === sessionId) {
-    deps.audio.play('kill'); // your victim went down — fog or not
-    return;
-  }
+  // Our own hull: Story 10.13 retired the one-shot `sink` tone here — the
+  // KLAXON repeats through the whole sinking window instead, driven per frame
+  // off `you.sinkingUntil` (audio/engineMix.ts → audio/klaxon.ts), with `sink`
+  // as its first blast's fallback.
+  if (e.id === sessionId) return;
+  // Your victim went down — fog or not. Story 10.13: a WITNESSED kill also
+  // groans below like any witnessed wreck (Eric: keep both).
+  if (e.by === sessionId) killCue(e.seen === true ? pos : null, t, deps);
   if (!e.seen) return; // the fog kill's silence — see above
   // A witnessed wreck whose last-known contact has already aged out of the store
   // still sounds, unpanned at the floor (worldTone): we SAW it go down, so the
   // fact is legitimately ours even when the bearing is unavailable.
   worldCueAt('sinkWitness', null, pos, t, deps);
+}
+
+/**
+ * YOUR CREDITED KILL (Story 10.13, Eric's pick: the far boom). Placed by the
+ * wreck's distance only when the sinking was WITNESSED (the `seen` rule above:
+ * an unseen kill must not tell you where it happened); otherwise unplaced at a
+ * far distance — it is a distant kill — `killUnplacedDistance01`.
+ */
+function killCue(pos: { x: number; y: number } | null, t: number, deps: RoomBindingDeps): void {
+  const placed = pos ? placeCue(pos, deps, t) : { pan: 0, distance01: CLIENT_CONFIG.audio.killUnplacedDistance01 };
+  deps.audio.playCue('killSound', placed);
 }
 
 /**

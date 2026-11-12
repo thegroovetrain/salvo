@@ -3280,14 +3280,18 @@ export function sanitizeClassId(raw: unknown): ShipClassId {
  * The horn catalog (Story 4.5, amendment 52) — the shared vocabulary for the
  * `h` field on a FoghornEvent and the optional `horn` join option.
  *
- * EXACTLY ONE HORN SHIPS. The variant id exists now because the wire carries
- * it (a purchased horn must be audible to everyone, not just its owner), but
- * ADDING A SECOND HORN IS CONTENT AND NEEDS AN ERIC RULING — no cycle may
- * invent horn variants. A horn's VOICE (synth layers or a sample url) is
- * client-only presentation (client/src/audio/horns.ts); this catalog is only
- * the id space both sides validate against.
+ * THE CATALOG IS ERIC'S RULING OF 2026-11-11 (Story 10.13): FOUR selectable
+ * horns — Foghorn, Whistle, Bell, Sad Trombone — picked on the ship-select
+ * screen (the airhorn was dropped; Eric may add his own later). 'standard' IS
+ * THE FOGHORN'S ID and stays the default, so stored prefs and bots stay
+ * valid. A fifth horn is one id in this list plus one voice row (`HORNS`) and
+ * one display name (`HORN_NAMES`) in client/src/audio/horns.ts; and, being a
+ * catalog content change, a PROTOCOL_VERSION bump. Any further horn is
+ * content and needs an Eric ruling. A horn's VOICE and
+ * its display name are client-only presentation (client/src/audio/horns.ts);
+ * this catalog is only the id space both sides validate against.
  */
-export const HORN_IDS = ['standard'] as const;
+export const HORN_IDS = ['standard', 'whistle', 'bell', 'trombone'] as const;
 
 /** A foghorn variant id as it appears on the wire (FoghornEvent.h). */
 export type HornId = (typeof HORN_IDS)[number];

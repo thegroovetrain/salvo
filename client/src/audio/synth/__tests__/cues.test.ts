@@ -8,6 +8,7 @@ import { CUES, CUE_TIER, ENGINE_PROFILES, LEGACY_FALLBACK, cueAdmitted, ownVoice
 import { CUE_SLOTS } from '../candidates/index.js';
 import { TONES } from '../../tones.js';
 import { CLIENT_CONFIG } from '../../../config.js';
+import { HORN_MAX_CONCURRENT } from '../../horns.js';
 
 const IDS = Object.keys(CUES) as CueId[];
 
@@ -37,7 +38,8 @@ describe('the cue table', () => {
 
   it('THE OWN-CUE PROMISE: the global cap leaves room for every own family at its cap at once', () => {
     const a = CLIENT_CONFIG.audio;
-    expect(a.cueVoiceCap - a.worldCueVoiceCap).toBeGreaterThanOrEqual(ownVoiceCeiling());
+    // ...and the horns (the recipe horns share the Synth, capped in their own family).
+    expect(a.cueVoiceCap - a.worldCueVoiceCap).toBeGreaterThanOrEqual(ownVoiceCeiling() + HORN_MAX_CONCURRENT);
     expect(a.farWorldCueVoiceCap).toBeLessThanOrEqual(a.worldCueVoiceCap);
   });
 

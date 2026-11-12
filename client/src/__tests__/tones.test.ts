@@ -16,6 +16,8 @@ import {
   hpBandEdge,
   worldCue,
   worldPlacement,
+  fitPitch,
+  fitGain,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
   audioCues,
@@ -779,6 +781,21 @@ describe('worldPlacement (Story 10.13) — a layered world cue’s pan and dista
       expect(p.pan).toBe(worldCue(dx, dy, REACH)!.pan);
       expect(p.distance01).toBeCloseTo(Math.hypot(dx, dy) / REACH, 12);
     }
+  });
+
+  it('Story 10.13: the fit cue’s pitch ratio is the cents table as a ratio — equipment lowest, ladder at the root, addon higher', () => {
+    for (const k of FIT_KINDS) expect(fitPitch(k)).toBeCloseTo(Math.pow(2, fitDetune(k) / 1200), 12);
+    expect(fitPitch('equipment')).toBeLessThan(fitPitch('ladder'));
+    expect(fitPitch('ladder')).toBe(1);
+    expect(fitPitch('addon')).toBeGreaterThan(fitPitch('ladder'));
+    expect(fitPitch('junk')).toBe(1);
+  });
+
+  it('Story 10.13: the fit cue’s level keeps the legacy weights — equipment the loudest (1), the rest in proportion', () => {
+    expect(fitGain('equipment')).toBe(1);
+    expect(fitGain('ladder')).toBeCloseTo(TONES[fitTone('ladder')].volume / TONES[fitTone('equipment')].volume, 12);
+    expect(fitGain('ladder')).toBeLessThan(1);
+    expect(fitGain(undefined)).toBe(fitGain('ladder'));
   });
 
   it('clamps past the reach (never dropped) and rejects the input worldCue rejects', () => {

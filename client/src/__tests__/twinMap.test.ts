@@ -17,7 +17,7 @@ import { CUES, type CueId } from '../audio/synth/cues.js';
  *  paths. The horn is the first of the latter (Story 4.5): it is not a ToneSpec,
  *  and the whole point of widening the key was that dodging `TONES` must not let
  *  a cue dodge its twin. */
-const OFF_TABLE: AudioCueId[] = ['foghorn', 'engine'];
+const OFF_TABLE: AudioCueId[] = ['foghorn', 'engine', 'stormBed'];
 /** Story 10.13: every LAYERED cue (audio/synth/cues.ts) — some share a tone's
  *  id (and its row), the rest are new rows. */
 const LAYERED = Object.keys(CUES) as CueId[];

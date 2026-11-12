@@ -16,12 +16,25 @@
 // ENTRY USES IT: no licensed or CC0 recording exists in this repo and none may
 // be sourced unattended (amendment 57, recorded as a constraint, not a caveat).
 //
-// EXACTLY ONE HORN SHIPS. `HORNS` has a single entry, and it is total over the
-// shared `HornId` catalog, so a new horn is a shared-catalog line plus a row
-// here. **Adding a second horn is CONTENT and needs an Eric ruling** (amendment
-// 52) — no cycle may invent horn variants.
+// THE CATALOG IS ERIC'S RULING OF 2026-11-11 (Story 10.13): FOUR selectable
+// horns — Foghorn, Whistle, Bell, Sad Trombone — chosen on the ship-select
+// screen (the airhorn was dropped: "I'll do it myself later"). `HORNS` and
+// `HORN_NAMES` are total over the shared `HornId` catalog, so a fifth horn is
+// exactly: one id in shared `HORN_IDS`, one row in `HORNS`, one name in
+// `HORN_NAMES` — the picker, the join and the wire follow by themselves. Any
+// further horn is content and needs an Eric ruling.
+//
+// THE THIRD ARM (Story 10.13): a `recipe` voice is one of Eric's picked layered
+// recipes (audio/synth), rendered through the Synth on its own family. The
+// four shipped horns are recipes; the `synth` arm stays as the fallback voice
+// (STANDARD_HORN) when the layered path cannot build, and the `sample` arm
+// stays the licensed-recording seam.
 
 import { DEFAULT_HORN_ID, type HornId } from '@salvo/shared';
+import type { CueRecipe } from './synth/recipe.js';
+import { HORN_BELL, HORN_FOGHORN, HORN_WHISTLE } from './synth/candidates/hornVoices.js';
+import { HORN_TROMBONE } from './synth/candidates/brass.js';
+import type { CueSlot } from './synth/candidates/types.js';
 
 /** One oscillator in a synthesized horn: a partial with its own body + weight. */
 export interface HornSynthLayer {
@@ -56,7 +69,15 @@ export interface HornSampleVoice {
   volume: number;
 }
 
-export type HornVoice = HornSynthVoice | HornSampleVoice;
+/** A horn rendered from a picked layered recipe (Story 10.13 — the shipped kind). */
+export interface HornRecipeVoice {
+  kind: 'recipe';
+  recipe: CueRecipe;
+  /** 0..1 peak gain before the caller's band multiplier — the level-match knob. */
+  volume: number;
+}
+
+export type HornVoice = HornSynthVoice | HornSampleVoice | HornRecipeVoice;
 
 /** At most this many horns sound at once; a honk arriving at the cap is DROPPED
  *  from the mix (never queued, never voice-stolen). The cap protects the mix in
@@ -64,11 +85,15 @@ export type HornVoice = HornSynthVoice | HornSampleVoice;
  *  survives even when the audio cannot (amendment 56). */
 export const HORN_MAX_CONCURRENT = 3;
 
+/** The Synth voice family every recipe horn plays in (so the mix cap above
+ *  holds on the layered path too). */
+export const HORN_FAMILY = 'horn';
+
 /** Sanity ceiling on a horn's length, seconds. Not the tone ceiling
  *  (`MAX_TONE_S`, which stays 150ms and is deliberately untouched) — this is the
  *  horn path's own bound, pinned by __tests__/horns.test.ts so a catalog entry
  *  can never park an oscillator on the bus for a quarter of a match. */
-export const MAX_HORN_S = 3;
+export const MAX_HORN_S = 4;
 
 /**
  * THE STANDARD HORN — the recipe, so a future tuner can read it (amendment 57).
@@ -92,7 +117,7 @@ export const MAX_HORN_S = 3;
  * release (the tail rolling away over water), 1.8s total — the length Eric
  * named. Layer weights sum to 1.0 so `volume` alone sets the level.
  */
-const STANDARD_HORN: HornSynthVoice = {
+export const STANDARD_HORN: HornSynthVoice = {
   kind: 'synth',
   layers: [
     { freq: 118, type: 'sawtooth', gain: 0.42 },
@@ -106,9 +131,36 @@ const STANDARD_HORN: HornSynthVoice = {
   volume: 0.5,
 };
 
-/** The shipped catalog — EXACTLY ONE entry, total over the shared `HornId`. */
+/** The take a horn slot ships, by its audition id. Throws at load for a take
+ *  that does not exist — a broken pick fails the suite, not a honk. */
+function hornTake(slot: CueSlot, id: string): CueRecipe {
+  const c = slot.candidates.find((x) => x.id === id);
+  if (!c) throw new Error(`no take ${id} in ${slot.id}`);
+  return { ...c.recipe, family: HORN_FAMILY, maxVoices: HORN_MAX_CONCURRENT };
+}
+
+/**
+ * The shipped catalog — total over the shared `HornId`. Eric's picks of
+ * 2026-11-11 (hornFoghorn B, hornWhistle C, hornBell A, hornTrombone B).
+ *
+ * LEVEL MATCH (implementer's draft, Eric's to judge by ear): each `volume`
+ * brings the take's measured pre-limiter peak (the audition self-test's "raw
+ * peak dB" at volume 1: foghorn −3.0, whistle −8.7, bell −4.3, trombone
+ * −0.1 dBFS) down to the quietest one's, so no horn is louder than another.
+ */
 export const HORNS: Record<HornId, HornVoice> = {
-  standard: STANDARD_HORN,
+  standard: { kind: 'recipe', recipe: hornTake(HORN_FOGHORN, 'B'), volume: 0.52 },
+  whistle: { kind: 'recipe', recipe: hornTake(HORN_WHISTLE, 'C'), volume: 1 },
+  bell: { kind: 'recipe', recipe: hornTake(HORN_BELL, 'A'), volume: 0.6 },
+  trombone: { kind: 'recipe', recipe: hornTake(HORN_TROMBONE, 'B'), volume: 0.37 },
+};
+
+/** The picker's display names (client-side presentation; the wire carries ids). */
+export const HORN_NAMES: Record<HornId, string> = {
+  standard: 'Foghorn',
+  whistle: 'Whistle',
+  bell: 'Bell',
+  trombone: 'Sad Trombone',
 };
 
 /**

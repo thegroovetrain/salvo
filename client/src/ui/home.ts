@@ -78,6 +78,7 @@ import {
   DEFAULT_CLASS_ID,
   sanitizeClassId,
   sanitizeShiftId,
+  type HornId,
   type ShiftId,
   type LivenessPayload,
   type QueueStatusMsg,
@@ -107,6 +108,7 @@ import {
 // Entry cap = the shared display cap (Story 1.13). Re-exported so existing
 // consumers/tests keep importing NAME_MAX from the home module.
 import { NAME_MAX } from '../util/text.js';
+import { loadHornPref, saveHornPref } from '../net/connection.js';
 
 export { NAME_MAX };
 
@@ -903,6 +905,10 @@ interface Home {
   currentClass: ShipClassId | null;
   /** The captain's Shift pick (Story 10.4) — never null, DEFAULT_SHIFT by default. */
   currentShift: ShiftId;
+  /** The captain's horn (Story 10.13) — the stored pick, saved on every chip click. */
+  currentHorn: HornId;
+  /** Play a horn once as the bay's preview (the shell's audio; a user gesture). */
+  onHornPreview: (id: HornId) => void;
   layerOpen: boolean;
   busy: boolean;
   /** Drives the callsign field's personal-color focus ring (see paintCallsign). */
@@ -1059,6 +1065,14 @@ function openLayer(h: Home): void {
   h.layer = openClassSelect({
     initial: h.currentClass ?? DEFAULT_CLASS_ID,
     initialShift: h.currentShift,
+    initialHorn: h.currentHorn,
+    // Story 10.13: a HORN chip saves at once (it is the captain's, not part of
+    // the CONFIRM pick) and plays the horn once as its preview.
+    onHorn: (id) => {
+      h.currentHorn = id;
+      saveHornPref(id);
+      h.onHornPreview(id);
+    },
     blurTarget: h.overlay,
     // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
     // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
@@ -1182,6 +1196,7 @@ export function showHome(
   onSettings: () => void = () => undefined,
   onSoloDeploy: DeployFn = onDeploy,
   privateDoors: PrivateDoors = { onCreate: () => undefined, onJoin: () => undefined },
+  onHornPreview: (id: HornId) => void = () => undefined,
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
   const overlay = document.createElement('div');
@@ -1213,6 +1228,7 @@ export function showHome(
     onSettings,
     currentClass: loadSavedClassOrNull(),
     currentShift: loadSavedShift(),
+    currentHorn: loadHornPref(), onHornPreview, // Story 10.13: the bay's HORN row
     layerOpen: false,
     busy: false,
     inputFocused: false,
