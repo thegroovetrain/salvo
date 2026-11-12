@@ -38,14 +38,14 @@
     <p class="note">The shadow math has one number, K, that says how far you can see over an island's top before the curve of the sea hides a ship behind it. Bigger K: you see further past islands, so shadows are shorter.</p>
     <p class="mono" id="shadowStatus" aria-live="polite"></p>
     <div class="previews">
-      <figure class="picked">
-        <figcaption>Islands hide like today (ruled)</figcaption>
+      <figure>
+        <figcaption>Today's shadow number (shown for comparison)</figcaption>
         <canvas id="shadowRuled" class="canvas" aria-label="Radar shadows with K as today"></canvas>
         <p class="mk-line strong" id="shadowRuledShare"></p>
-        <p class="mk-line">K stays today's value whatever the radar reach.</p>
+        <p class="mk-line">K stays today's value whatever the radar reach: a sea whose horizon is only 33 hm away.</p>
       </figure>
-      <figure>
-        <figcaption>Shadows follow radar range (rejected — shown for comparison)</figcaption>
+      <figure class="picked">
+        <figcaption>Real horizon at our scale (ruled)</figcaption>
         <canvas id="shadowFollow" class="canvas" aria-label="Radar shadows with K following the radar reach"></canvas>
         <p class="mk-line strong" id="shadowFollowShare"></p>
         <p class="mk-line" id="followK"></p>
@@ -80,9 +80,9 @@
       </fieldset>
       <fieldset>
         <legend>Sweep</legend>
-        <label><input type="radio" name="sweep" value="1" checked> 1 · Today (wide fading wedge)</label>
+        <label><input type="radio" name="sweep" value="1"> 1 · Today (wide fading wedge)</label>
         <label><input type="radio" name="sweep" value="2"> 2 · Thin line</label>
-        <label><input type="radio" name="sweep" value="3"> 3 · Line and a short afterglow</label>
+        <label><input type="radio" name="sweep" value="3" checked> 3 · Line and a short afterglow</label>
         <label><input type="radio" name="sweep" value="4"> 4 · No sweep line, echoes light up as the beam passes</label>
       </fieldset>
       <fieldset>

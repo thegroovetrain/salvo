@@ -5,7 +5,7 @@ import { byId } from '../dispersionBench/controls.js';
 import { SPAN_MAX_U, SPAN_MIN_U, drawScopeFrame, layoutScope, type LabelPos, type RingStyle, type ScopeInput, type ScopeState, type SweepStyle } from './scope.js';
 
 /** Starts at the game's default framing: client/src/config.ts:1512 `zoom.defaultSpanU` (copied, not imported — the page must not pull the client bundle). */
-export const scope: ScopeState = { spanU: 1320, ringStyle: 'A', labelPos: 'bow', bearing: false, headingLine: false, sweep: 1 };
+export const scope: ScopeState = { spanU: 1320, ringStyle: 'A', labelPos: 'bow', bearing: false, headingLine: false, sweep: 3 };
 
 let input: ScopeInput | null = null;
 

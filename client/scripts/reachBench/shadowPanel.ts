@@ -2,7 +2,7 @@
 // today's value — R13), the rejected "K follows radar" comparison, and a K
 // dial from a quarter of today's K up to the follows-radar value.
 
-import { formatHm, type GameMap, type HullId, type Vec2 } from '@salvo/shared';
+import { HM_U, formatHm, type GameMap, type HullId, type Vec2 } from '@salvo/shared';
 import { byId } from '../dispersionBench/controls.js';
 import { TODAY_K, computeShadow, drawShadow, type ShadowResult } from './shadow.js';
 
@@ -74,7 +74,7 @@ export function drawShadows(a: ShadowArgs): void {
     drawShadow(byId<HTMLCanvasElement>(id), a.map, a.ship, a.heading, a.hull, a.radarU, res);
     byId(`${id}Share`).textContent = `${pctText(res.share)} of the sea inside ${formatHm(a.radarU)} hm is in shadow`;
   }
-  byId('followK').textContent = `K here is ${(followK(a.radarU) / TODAY_K).toFixed(1)} × today’s.`;
+  byId('followK').textContent = `The horizon is half the radar reach (${Math.round(a.radarU / 2 / HM_U)} hm), the real one on this ruler. K is ${(followK(a.radarU) / TODAY_K).toFixed(1)} × today’s.`;
 }
 
 /** Recompute after the dials settle (the walk is the real one, so it is not free). */

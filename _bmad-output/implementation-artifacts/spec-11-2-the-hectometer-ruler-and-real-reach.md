@@ -101,6 +101,11 @@ warnings: ['oversized']
   - R13 Islands keep casting radar shadows on the big ocean. Eric: "the islands are actually supposed to be casting radar shadows. The 'scale' of the game is somewhat compressed, but hiding in radar shadows is part of the game. Vision and intel management IS the game." Reading: the shadow constant `K` is FROZEN at today's value (1,500² / 4) as its own named `CONFIG` fact and no longer follows `CONFIG.vision.radar`, so every island hides a ship from radar exactly as it does today. The author's first reading of his AskUserQuestion answer ("let it follow radar") was wrong. Whether shadows should be STRONGER than today at 400 hm is his to say on the bench page, which draws both.
   - Known-bad state avoided: at 400 hm radar a `K` that follows radar grows 36×, and only terrain above the mast would still hide a ship.
   - KEEP: `radarMastQ` 64 and the walk itself untouched.
+- **2026-11-12 later — Eric (chat, on the bench page), rulings R14–R17.**
+  - R14 Sight is "what is realistic given our scale compression": candidates set on the page for his yes — class-and-name sight 200 hm (the whole hull is above a ~35 m lookout's horizon to about 23 km), plain-hull sight 350 hm (hull-down, upper works only). They REPLACE R1's 130 / 200 hm sight pair once he confirms; radar 400 and guns 380 stand.
+  - R15 "I want the radar shadow number to be realistic for our scale compression." `K` FOLLOWS the radar reach (K = radar² / 4, a sea horizon of half the radar reach = 200 hm, the real one on this ruler). This RESTORES R7 and SUPERSEDES R13's frozen K. Islands still cast shadows (89 % of in-reach sea on seed 1 from a spawn point on the page's grid).
+  - R16 The display: range rings are style A (clear white, a number on every ring); the sweep is style 3 (a thin line with a short afterglow).
+  - R17 Three new user settings: where the ring numbers sit, the compass (bearing) scale on / off, the heading line on / off. Defaults `[unruled]` — the page's are bow line / off / off.
 
 ## Design Notes
 

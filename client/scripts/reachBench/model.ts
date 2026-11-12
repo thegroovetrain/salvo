@@ -34,8 +34,8 @@ const RULED_MAIN_HM = 380;
 const SHELL_SCALE = hmToU(RULED_MAIN_HM) / TODAY_MAIN_U;
 const scaledHm = (todayU: number): number => Math.round(uToHm(todayU * SHELL_SCALE));
 
-const HULL_SIGHT_HM = 200;
-const CLASS_SIGHT_HM = 130;
+const HULL_SIGHT_HM = 350;
+const CLASS_SIGHT_HM = 200;
 const RADAR_HM = 400;
 
 export const DIALS: ReachDial[] = [
