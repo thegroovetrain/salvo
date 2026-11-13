@@ -14,10 +14,12 @@
 // a card taken while a shell is in the air never changes that shell.
 //   - FLASH: the burst carries the server-internal `flash` tag — every
 //     non-owner afloat hull whose centre is inside the stamped radius gets the
-//     whiteout (World.applyFlash, amendment 5 unchanged); an interception en
-//     route flashes at the stop point.
+//     whiteout (World.applyFlash, amendment 5 unchanged).
 //   - FOULING: the burst carries the `foul` tag — the World spawns a foul zone
 //     of the stamped radius where the shell stops (World.spawnFoulZone).
+// ARCING SHOTS (Eric 2026-11-13, epic-11 amendment 8): "not interrupted by
+// hitting other ships or even islands en-route to their destination" — both
+// fly `arcs: 'all'`, so neither is ever intercepted; they burst at the click.
 //
 // Pure adapter: the fire geometry is the star shell's (burstPoint /
 // muzzleOrTarget / makeBallistic with D1 fireT); the World owns shell storage,
@@ -73,7 +75,9 @@ export function makeBurstShell(
     targetX: target.x,
     targetY: target.y,
     burstRadius: row.radius, // the one-time burst — stamped at launch (R7)
-    contactDamage: 0, // an interception does 0 — and still bursts there (World.resolveInterception)
+    contactDamage: 0, // unreachable: the shell arcs over every ship (below)
+    overShips: true,
+    overLand: true, // ARCING (Eric 2026-11-13): over ships AND islands, straight to the click
     hits: flight.hits, // the star shell's mask — never a mine
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
     ...payloadOf(id, row),

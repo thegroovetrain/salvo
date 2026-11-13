@@ -230,6 +230,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     profile: profileRowOf(mind),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
+    raster: port.map.heightRaster,
     waterR: port.map.radius,
     gunId: self.loadout[SLOT_GUN]?.equipmentId ?? null, // the band's anchor (Story 9.8, ruling 126)
     // Story 9.13: own class (ram exit, cover arrival), own lit zones (the

@@ -19,6 +19,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  BATTERY_BLOCK_HEIGHT,
   FLASH_WINDOW_MS,
   CONFIG,
   abilityCode,
@@ -53,7 +54,7 @@ import {
   type EquipmentId,
 } from '@salvo/shared';
 import { batteryAimPoint, fireTube, launcherAimPoint, launcherSummary, pickTube, stepLaunchers, stepTurrets } from '@salvo/shared';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, rasterOfIslands } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches, situationOf } from '../game/ai/tactics.js';
@@ -294,6 +295,7 @@ function botOfClass(w: World, cls: ShipClassId): ShipRecord {
 function openWorld(seed: number, cap = 8): World {
   const w = new World(seed, cap);
   w.map.islands.length = 0;
+  w.map.heightRaster = rasterOfIslands([]); // ...and no high ground (epic-11 amendment 8)
   return w;
 }
 
@@ -331,9 +333,10 @@ function astride(w: World, dist: number): { botX: number; plotX: number } {
   return { botX: -dist / 2, plotX: dist / 2 };
 }
 
-function islandWorld(seed: number, isle: Island): World {
+function islandWorld(seed: number, isle: Island, q = 255): World {
   const w = openWorld(seed);
   w.map.islands.push(isle);
+  w.map.heightRaster = rasterOfIslands([isle], q); // the island IS terrain of height q (HIGH GROUND by default)
   return w;
 }
 
@@ -1010,19 +1013,16 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     expect(Math.abs(slow.rudder)).toBeLessThan(0.05);
   });
 
-  it('STAR SHELLS TAKE THE TERRAIN GATE: no flare is spent bursting inside an island', () => {
-    // 71% of the bot's remaining into-terrain ordnance after the first pass.
-    const blocked = islandWorld(305, circleIsland(250, 0, 120)); // squarely on the line
+  it('STAR SHELLS ARC OVER ISLANDS (Eric 2026-11-13, epic-11 amendment 8 — RE-CUT; the terrain gate it pinned is retired): the flare goes up over an island on the line', () => {
+    const blocked = islandWorld(305, circleIsland(250, 0, 120)); // squarely on the line, high ground
     const p1 = fakePort(blocked);
     const rec = mkBot(blocked, 'yamato', LOST_FROM_X, 0, 0);
     const m1 = mkMind('siege');
     plot(m1, track(p1.now, { x: LOST_X, y: 0, live: false, seenAt: p1.now - 3000 }));
-    expect(COMBAT_BRAIN.decide(rec, m1, p1).fireSlot).not.toBe(slotOf(rec, 'starShells'));
+    expect(COMBAT_BRAIN.decide(rec, m1, p1).fireSlot).toBe(slotOf(rec, 'starShells'));
 
     // THE C2 BEHAVIOUR ITSELF IS UNCHANGED — the same plot, the same profile,
-    // the same island moved off the line, and the flare goes up. `flareTarget`
-    // was deliberately NOT filtered: the bot still WANTS the nearest lost plot,
-    // it just holds the round when the round cannot arrive.
+    // the island off the line: the flare goes up.
     const clear = islandWorld(305, circleIsland(250, 600, 120));
     const p2 = fakePort(clear);
     const rec2 = mkBot(clear, 'yamato', LOST_FROM_X, 0, 0);
@@ -1405,6 +1405,15 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
     const mind2 = mkMind('bulwark');
     plot(mind2, track(clearPort.now, { x: 400, y: 0, speed: 0, heading: null }));
     expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'mainBattery'));
+  });
+
+  it('the MAIN BATTERY fires over an island of the LOWEST band (Eric 2026-11-13, epic-11 amendment 8): only higher ground denies the shot', () => {
+    const w = islandWorld(301, circleIsland(200, 0, 60), BATTERY_BLOCK_HEIGHT - 1);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'mainBattery'));
   });
 
   it('a coastline BESIDE the flight line denies nothing — only a line THROUGH land does', () => {

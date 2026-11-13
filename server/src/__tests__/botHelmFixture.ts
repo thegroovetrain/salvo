@@ -7,6 +7,7 @@
 
 import { CONFIG, desiredTurretAngle, mulberry32, stepShip, type HullId, type Island, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { rasterOfIslands } from './islandFixture.js';
 import type { BotDecision, BotMind, BotPosture, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 
 /** s — one sim tick. */
@@ -57,11 +58,16 @@ export function mkMind(profile: BotProfileId, seed = 7): BotMind {
   };
 }
 
-/** An ocean with no islands — or exactly the ones handed in. */
+/** An ocean with no islands — or exactly the ones handed in. The height
+ *  raster agrees: open water, each handed-in island HIGH GROUND to its
+ *  coastline (Eric 2026-11-13, epic-11 amendment 8: the main battery and the
+ *  secondaries are stopped by high ground, not by a coastline — a polygon
+ *  with no raster presence would stop nothing). */
 export function ocean(seed: number, islands: readonly Island[] = []): World {
   const w = new World(seed, 8);
   w.map.islands.length = 0;
   w.map.islands.push(...islands);
+  w.map.heightRaster = rasterOfIslands(islands);
   return w;
 }
 

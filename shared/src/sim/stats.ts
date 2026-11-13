@@ -273,9 +273,10 @@ export interface EffectiveFlak extends EquipmentRowCommon {
  */
 export interface EffectiveMainBattery extends EquipmentRowCommon {
   rangeU: number; // u — max shell travel from the firing turret's station — CONFIG.mainBattery.rangeU × the hull's battery.reachFrac (Story 11.2, R2)
-  damage: number; // hp per shell (per burst victim)
-  contactDamage: number; // hp to an early interceptor outside the blast
-  burstRadius: number; // u — blast radius around each shell's own point
+  damage: number; // hp per shell — to every hull whose silhouette holds its landing point
+  // `contactDamage` / `burstRadius` — RETIRED 2026-11-13, Eric; epic-11
+  // amendment 8: direct hits only (the shell arcs over ships and counts only
+  // where it lands).
 }
 
 export type EffectiveInstantReload = EquipmentRowCommon;
@@ -790,8 +791,6 @@ function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
     maxAmmo: cls.battery?.turrets.length ?? 0,
     rangeU: CONFIG.mainBattery.rangeU * (cls.battery?.reachFrac ?? 1),
     damage: cls.battery?.shellDamage ?? 0,
-    contactDamage: CONFIG.mainBattery.contactDamage,
-    burstRadius: CONFIG.mainBattery.burstRadius,
   };
 }
 

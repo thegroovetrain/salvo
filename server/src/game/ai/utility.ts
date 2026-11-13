@@ -68,6 +68,7 @@ import {
   type EffectiveStats,
   type GameEvent,
   type HullId,
+  type HeightRaster,
   type Island,
   type LitZoneView,
   type EquipmentId,
@@ -155,6 +156,13 @@ export interface BotSituation {
    *  IS THERE A LINE OF FIRE (see lineBlocked). Steering reads the port's copy
    *  directly; scoring and the trigger read it from here. */
   islands: readonly Island[];
+  /** The map's height raster — `port.map.heightRaster`, rebuilt from the seed
+   *  by every client, so it discloses nothing. Read for the MAIN BATTERY'S and
+   *  SECONDARIES' terrain rule (epic-11 amendment 8: the lowest land band is
+   *  passed over, higher ground stops the round — tacticKit
+   *  `overLandReaches`). Optional so a hand-built situation can omit it (no
+   *  terrain: open water). */
+  raster?: HeightRaster;
   /** The public map radius about the map centre (`port.map.radius`): plot
    *  predictions stay on the water (ai/plot.ts predictedPos). Optional so a
    *  hand-built situation can omit it (no clamp). */

@@ -1461,8 +1461,17 @@ export const CONFIG = {
    * math is sim/dispersion.ts (`dispersionAxes`, `dispersedPoint`).
    */
   dispersion: {
-    alongFrac: 0.01, // full length along the shot, as a fraction of range (R2)
-    acrossFrac: 1 / 3, // full width across, as a fraction of the length along (R2)
+    // HULL-SCALE DISPERSION (Eric 2026-11-13, epic-11 amendment 8: "realistic
+    // dispersion … accurate to our compressed scale"). Real battleship salvos
+    // ran about 0.6–1.2 % of range long (Iowa 1987: 200 m at 31.9 km;
+    // Massachusetts 1942: 183–274 m) and about 2 mils wide (0.2 % of range).
+    // A pattern is a fraction of range at any scale, but our hulls are drawn at
+    // about TWICE the distance ruler (U_PER_M 0.4585 against 1 hm = 22.7 u), so
+    // the real pattern-to-ship proportion needs the pattern doubled: 2 % long,
+    // 0.4 % wide. Was 0.01 and 1 / 3 (Story 11.1, R2). Main battery and
+    // secondaries share it; reach is unchanged.
+    alongFrac: 0.02, // full length along the shot, as a fraction of range
+    acrossFrac: 0.2, // full width across, as a fraction of the length along (0.4 % of range)
     floorU: 2, // u — smallest full length of either axis (R4; per-axis = spec-author reading)
     sigmas: 2, // the hard edge in standard deviations of the bell (spec-author reading)
   },
@@ -1491,11 +1500,20 @@ export const CONFIG = {
    * Story 11.2, epic-11 amendment 4 (R9): no
    * index row or card changes a hull's reach.
    *
-   * THE SHELL IS TODAY'S CANNON SHELL, READING OF RECORD (not a ruling): the
-   * four values marked below are COPIED from `CONFIG.gun` as it stood at
-   * Story 10.4 — copies, not aliases, so a later retune of the retired
-   * cannon row does not silently move the battleships. Its wire family word
-   * stays `'cannon'`.
+   * THE SHELL WAS TODAY'S CANNON SHELL, READING OF RECORD (not a ruling): the
+   * values marked below were COPIED from `CONFIG.gun` as it stood at Story
+   * 10.4 — copies, not aliases, so a later retune of the retired cannon row
+   * does not silently move the battleships. Its wire family word stays
+   * `'cannon'`.
+   *
+   * DIRECT HITS ONLY (Eric 2026-11-13, epic-11 amendment 8): "Remove the
+   * 'burst radius' from the main guns … Only direct hits count", and "Only
+   * the landing point counts". The shell ARCS OVER every ship between the
+   * muzzle and its landing point (no in-flight hull or beacon contact —
+   * ShellState.arcs `'ships'`) and, at the landing point, every afloat
+   * non-owner hull whose SILHOUETTE contains the point takes the full
+   * `battery.shellDamage`; a landing outside every hull damages nothing.
+   * Islands still stop it on the way (unchanged — sim/shell.ts).
    *
    * `hits` carries NO `mine` bit: a main-battery shell never damages a mine
    * (R3 — the secondaries are the only thing that hurts one).
@@ -1509,9 +1527,10 @@ export const CONFIG = {
     // `onTargetDeg` (0.5°) — RETIRED 2026-11-12, Story 11.1 (Eric R11 / R16:
     // no traverse, point and shoot inside the arc).
     shellSpeed: 500, // u/s — today's cannon shell, reading of record
-    contactDamage: 18, // hp to an early interceptor outside the blast — today's cannon shell, reading of record
-    burstRadius: 15, // u — today's cannon shell, reading of record
-    shellRadius: 2, // u — today's cannon shell, reading of record
+    // `contactDamage` (18 hp to an early interceptor) and `burstRadius` (15 u
+    // blast around the landing) — RETIRED 2026-11-13, Eric; epic-11
+    // amendment 8: direct hits only, at the landing point.
+    shellRadius: 2, // u — today's cannon shell, reading of record (the shell's own size; no longer a hull-contact radius)
     // `barrelSpacingU` (12 u between a salvo's muzzles) — RETIRED 2026-11-12,
     // Story 11.1 review fix: a salvo's shells leave abreast off the muzzle line,
     // placed by the dispersion roll, never by barrel offsets (sim/turrets.ts).

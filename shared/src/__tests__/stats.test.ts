@@ -301,8 +301,6 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           maxAmmo: cls.battery!.turrets.length,
           rangeU: CONFIG.mainBattery.rangeU,
           damage: cls.battery!.shellDamage,
-          contactDamage: CONFIG.mainBattery.contactDamage,
-          burstRadius: CONFIG.mainBattery.burstRadius,
         },
         // THE THREE MOVED WEAPONS (Story 10.5, Eric 2026-11-05, epic-10
         // amendment 11): slot weapons with a row again. The supercav never

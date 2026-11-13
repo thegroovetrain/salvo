@@ -1588,7 +1588,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   // main battery's row — no ladder writes it today, so the seam is the row
   // itself: every shell of a salvo carries the row's numbers, one shell per
   // gun of the turret that fired).
-  it('main-battery shells ride the EFFECTIVE row — damage, contact damage, burst radius, one per gun', () => {
+  it('main-battery shells ride the EFFECTIVE row — damage, one per gun; direct hits only (no blast, no contact blow)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
@@ -1597,8 +1597,10 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const row = a.stats.equipment.mainBattery;
     for (const s of shells) {
       expect(s.damage).toBe(row.damage);
-      expect(s.contactDamage).toBe(row.contactDamage);
-      expect(s.burstRadius).toBe(row.burstRadius);
+      expect(s.contactDamage).toBe(0);
+      expect(s.burstRadius).toBe(0);
+      expect(s.overShips).toBe(true);
+      expect(s.overLand).toBe(true);
       expect(s.family).toBe('cannon');
     }
     const fired = a.turrets.findIndex((t) => t.reloadMsLeft > 0);

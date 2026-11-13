@@ -72,6 +72,9 @@
 //      implies (ceil(mine hp / the settled round damage)), not before.
 //   9. MAIN BATTERY IGNORES A MINE — a full broadside lands on a mine's
 //      marker; the mine is still on the water afterwards.
+//  6b. DIRECT HITS ONLY (epic-11 amendment 8) — a broadside aimed at open
+//      water: a hull lying across the path is passed over, a hull beside the
+//      landing (inside the retired 15 u blast) is untouched; the shells land.
 //  10. HULL REPAIR (Story 10.5, R1) — a full hull's `C` press is denied
 //      'blocked' and starts no cooldown; a torpedo hurts it; the next press
 //      lands the instant heal (+ the first pool tick at most) and the own
@@ -134,6 +137,8 @@ import {
   launcherStationWorld,
   pointPolygonDistance,
   polygonMaxRadius,
+  transformPolygon,
+  dispersionAxes,
   regenGain,
   settleBlow,
   slotsWithCards,
@@ -924,6 +929,56 @@ async function mainBatteryPhase(log) {
   await leaveAll([a, b]);
 }
 
+/**
+ * PHASE 6b — DIRECT HITS ONLY (Eric 2026-11-13, epic-11 amendment 8: "Only
+ * the landing point counts"). The shooter aims at OPEN WATER 2·D out on its
+ * beam. Hull P lies broadside ACROSS the line of fire at D — every shell's
+ * path crosses it — and hull Q lies ALONG the line of fire beside the aim
+ * point, its outline a few units off it: inside the retired 15 u blast,
+ * outside every landing (the across-shot spread at 2·D). Neither takes a
+ * blow, and the shooter sees its shells land (landing booms at the aim).
+ */
+async function mainBatteryDirectHitPhase(log) {
+  const row = statsOf(GUNNER).equipment.mainBattery;
+  const D = Math.round(GUN_RANGE_FRAC * row.rangeU);
+  const aPose = { x: -D, y: 0, heading: Math.PI / 2 };
+  const aimPt = { x: D, y: 0 };
+  const pPose = { x: 0, y: 0, heading: Math.PI / 2 }; // across the line of fire, mid-path
+  // Q along the line of fire, beside the aim point: its nearest outline
+  // `GAP` u off the aim, the across spread (half its full width) inside that.
+  const across = dispersionAxes(2 * D).acrossU / 2;
+  const GAP = Math.ceil(across) + 3;
+  precondition(GAP < CONFIG.gun.burstRadius, `main-direct: a ${GAP} u gap is outside the retired 15 u blast (the case would not discriminate)`);
+  const halfBeam = Math.max(...hullSilhouette(GUN_TARGET).map((v) => Math.abs(v.y)));
+  const qPose = { x: D, y: halfBeam + GAP, heading: 0 };
+  const qPoly = transformPolygon(hullSilhouette(GUN_TARGET), qPose.x, qPose.y, qPose.heading);
+  precondition(Math.abs(pointPolygonDistance(aimPt, qPoly) - GAP) < 0.5, 'main-direct: Q is not GAP u off the aim point');
+  for (const [l, p] of [['A', aPose], ['P', pPose], ['Q', qPose]]) checkPoseWater(`main-direct ${l}`, p);
+  checkLane('main-direct', aPose, aimPt);
+  precondition(2 * D <= row.rangeU, 'main-direct: the aim point is past the reach');
+  const aim = bearing(aPose, aimPt);
+  const mounts = turretMounts(GUNNER);
+  precondition(mounts.every((_, i) => turretBears(GUNNER, i, aPose, aimPt)), 'main-direct: a turret cannot bear on the beam aim');
+  const a = await joinClient('MD-A', GUNNER, { fit: [], pose: aPose });
+  const pc = await joinClient('MD-P', GUN_TARGET, { fit: [], pose: pPose, roomId: a.room.roomId });
+  const qc = await joinClient('MD-Q', GUN_TARGET, { fit: [], pose: qPose, roomId: a.room.roomId });
+  await awaitPosed([a, pc, qc], 'main-direct');
+  const hpP = pc.you.hp;
+  const hpQ = qc.you.hp;
+  const fired = await trainAndFireBroadside(a, [pc, qc], aim, 2 * D, aimPt, 'main-direct');
+  await holdFor([a, pc, qc], ((2 * D) / CONFIG.mainBattery.shellSpeed) * 1000 + 20 * DT);
+  const reachAlong = dispersionAxes(2 * D).alongU / 2 + 1;
+  const landed = eventsAt(a, aimPt, reachAlong, ['boom']).filter((e) => e.hit === undefined).length;
+  log.push(
+    `main-direct: ${fired.guns} guns at open water ${2 * D}u out; P across the path at ${D}u hp ${hpP}->${pc.you.hp} (${pc.dmg.length} dmg); ` +
+      `Q ${GAP}u beside the aim (outline) hp ${hpQ}->${qc.you.hp} (${qc.dmg.length} dmg); ${landed} landing booms within ${reachAlong.toFixed(1)}u of the aim`,
+  );
+  assert(landed >= 1, 'main-direct: no shell landed at the aim point (vacuous)');
+  assert(pc.dmg.length === 0 && pc.you.hp === hpP, 'main-direct: the hull on the path took a blow — the shell must pass over it');
+  assert(qc.dmg.length === 0 && qc.you.hp === hpQ, 'main-direct: the hull beside the landing took a blow — only a landing INSIDE a hull counts');
+  await leaveAll([a, pc, qc]);
+}
+
 /** The shared stepper's own count: rounds a CONTINUOUS hold fires from cold
  *  before the lock (sim/secondaries.ts — the very function the server steps). */
 function roundsToLock() {
@@ -1121,9 +1176,10 @@ async function mainBatteryMinePhase(log) {
   const fired = await trainAndFireBroadside(s, [a], aim, D, aimPt, 'main-mine');
   const flightMs = (D / CONFIG.mainBattery.shellSpeed) * 1000;
   await holdFor([a, s], flightMs + 20 * DT);
-  // The salvo LANDED ON the marker: the landing test's own reach (blast + marker).
-  const reach = row.burstRadius + CONFIG.mine.hitRadiusU;
-  const onMarker = eventsAt(s, laid, reach, ['burst', 'boom'], laid.id).length;
+  // The salvo LANDED ON the marker: a landing (a `boom` since the blast
+  // retired — epic-11 amendment 8) within the marker's own hit radius.
+  const reach = CONFIG.mine.hitRadiusU;
+  const onMarker = eventsAt(s, laid, reach, ['boom'], laid.id).length;
   const stillOwn = a.mines.some((m) => m.id === laid.id);
   log.push(`main-mine: ${fired.guns}-gun broadside at ${laid.id} from ${D}u: ${fired.text}; ${onMarker} detonations within ${reach}u of the marker; mine still on the water (its layer's own list: ${stillOwn})`);
   assert(onMarker >= 1, 'main-mine: no shell detonated on the marker (vacuous)');
@@ -1333,6 +1389,7 @@ async function main() {
   await lightTorpedoPhase(log);
   await captiveMinePhase(log);
   await mainBatteryPhase(log);
+  await mainBatteryDirectHitPhase(log);
   await secondariesPhase(log);
   await secondariesMinePhase(log);
   await mainBatteryMinePhase(log);

@@ -14,9 +14,11 @@
 //     that moment (no lit-zone lift); a shot past it (a lit lift, or a
 //     dispersed landing beyond reach) files in the last band.
 //   - DAMAGED A HULL: on the tick the shell leaves the table, either a `boom`
-//     names it with a `hit` (an interception on a ship), or its `burst` came
-//     with its owner's `hc` at the same point (the burst resolved a victim —
-//     the World's hit-call rule, which also counts a radio beacon).
+//     names it with a `hit` (a direct hit on a ship), or its `boom` / `burst`
+//     came with its owner's `hc` at the same point (the landing resolved a
+//     victim — the World's hit-call rule, which also counts a radio beacon).
+//     Since the blast retired (2026-11-13, epic-11 amendment 8) a main-battery
+//     landing is a `boom`; the `burst` arm stays for every blast shell.
 //   - BLIND SPOT: a shell created and spent inside one tick is never seen.
 //
 // Pure helpers + one small tracker; READ-ONLY over the World, like every
@@ -54,7 +56,7 @@ export function isMainBatteryShell(s: ShellState): boolean {
 export function shellDamagedHull(events: readonly GameEvent[], shellId: string, ownerId: string): boolean {
   for (const e of events) {
     if (e.k === 'boom' && e.id === shellId && e.hit !== undefined) return true;
-    if (e.k === 'burst' && e.id === shellId) return events.some((h) => h.k === 'hc' && h.id === ownerId && h.x === e.x && h.y === e.y);
+    if ((e.k === 'burst' || e.k === 'boom') && e.id === shellId) return events.some((h) => h.k === 'hc' && h.id === ownerId && h.x === e.x && h.y === e.y);
   }
   return false;
 }

@@ -19,6 +19,7 @@
 
 import {
   type EquipmentId,
+  type HeightRaster,
   type Island,
   type LitCircle,
   type LoadoutSlot,
@@ -66,6 +67,11 @@ export interface ActivationContext {
    *  (Story 1.10 'blocked'); no other row reads them (gun/broadside muzzle
    *  island-blindness stays deliberately out of scope — see the ledger). */
   islands: readonly Island[];
+  /** The map's height raster (`GameMap.heightRaster` — rebuilt from the seed
+   *  on every client, never on the wire): the MAIN BATTERY reads it once per
+   *  shell at launch for the high ground that stops it (epic-11 amendment 8,
+   *  sim/terrainBlock.ts). */
+  heightRaster: HeightRaster;
   mkId: () => string;
   /**
    * REAL DISPERSION (Story 11.1, R5): mint the next projectile id AND its

@@ -125,7 +125,8 @@ describe('(a) the main battery: every shell its own landing, PARALLEL tracks off
         landings.add(`${land.x},${land.y}`);
       }
       expect(landings.size, hull).toBe(shells.length); // R5: every shell rolls its own landing
-      // Fly them out: every tracked position stays on its own parallel track, and the burst is AT the landing.
+      // Fly them out: every tracked position stays on its own parallel track, and
+      // the landing (a `boom` since the blast retired — epic-11 amendment 8) is AT the landing point.
       const track = new Map(shells.map((s) => [s.id, { o: { x: s.x, y: s.y }, t: { x: s.targetX!, y: s.targetY! } }]));
       const burstAt = new Map<string, Vec2>();
       for (let i = 0; i < 400 && own(w, 'a', 'cannon').length > 0; i++) {
@@ -134,7 +135,7 @@ describe('(a) the main battery: every shell its own landing, PARALLEL tracks off
           const { o } = track.get(s.id)!;
           expect(Math.abs((s.x - o.x) * uy - (s.y - o.y) * ux)).toBeLessThan(1e-6);
         }
-        for (const e of w.tickEvents) if (e.k === 'burst' && track.has(e.id)) burstAt.set(e.id, { x: e.x, y: e.y });
+        for (const e of w.tickEvents) if (e.k === 'boom' && e.id !== undefined && track.has(e.id)) burstAt.set(e.id, { x: e.x, y: e.y });
       }
       expect(burstAt.size, hull).toBe(shells.length);
       for (const [id, p] of burstAt) {
@@ -282,13 +283,12 @@ describe('(c) flat damage: a main-battery hit is the same at short and at long r
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
       const d = a.stats.equipment.mainBattery.rangeU * frac;
-      const b = place(w, 'b', 0, d, 0); // broadside to the fall of shot
-      // Aim a blast's reach short of its near side: every dispersed shell
-      // bursts on the water just short of it (or on contact inside its would-be
-      // blast) and the blast catches the hull — the same burst blow at any range.
-      const edge = pointPolygonDistance({ x: 0, y: 0 }, transformPolygon(hullSilhouette(b.hullId), b.state.x, b.state.y, b.state.heading));
+      // Bow-on to the line of fire (the long pattern axis along the hull):
+      // aimed at its centre, the shells that LAND on the silhouette are the
+      // direct hits (epic-11 amendment 8 — no blast) — the same blow at any range.
+      const b = place(w, 'b', 0, d, BEAM);
       const out: number[] = [];
-      click(w, a, BEAM, edge - a.stats.equipment.mainBattery.burstRadius / 2);
+      for (let seq = 1; seq <= a.turrets.length; seq++) click(w, a, BEAM, d, seq); // every turret that bears
       for (let i = 0; i < 200 && own(w, 'a', 'cannon').length > 0; i++) {
         w.step();
         for (const e of w.tickEvents) if (e.k === 'dmg' && e.id === b.id) out.push(e.amount);
@@ -298,7 +298,7 @@ describe('(c) flat damage: a main-battery hit is the same at short and at long r
     const near = blows(0.2);
     const far = blows(0.95);
     expect(near.length).toBeGreaterThan(0);
-    expect(far.length).toBe(near.length);
+    expect(far.length).toBeGreaterThan(0);
     for (const amount of [...near, ...far]) expect(amount).toBe(near[0]);
   });
 });
@@ -318,6 +318,7 @@ describe('(d) never dispersed: utility shells and the legacy unmounted weapons',
       fireT: w.now,
       mapRadius: w.map.radius,
       islands: [],
+      heightRaster: w.map.heightRaster,
       mkId: () => `t${++n}`,
       mintShell: () => {
         throw new Error(`${id} asked for a dispersion seed`);

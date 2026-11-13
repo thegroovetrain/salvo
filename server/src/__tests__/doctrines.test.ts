@@ -1011,16 +1011,16 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     expect(w.litZones.size).toBe(1);
   });
 
-  it('an early interceptor takes the tier damage as CONTACT damage, and the flare STILL lights at the stop point', () => {
+  it('ARCS (Eric 2026-11-13, epic-11 amendment 8 — RE-CUT; the interception it pinned is retired): a hull on the path takes nothing and the flare lights AT THE CLICK', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'yamato');
-    const mid = place(w, 'mid', 300, 0, 0); // bodyblocks a 650 u click
+    const mid = place(w, 'mid', 300, 0, 0); // on the line of a 650 u click
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 650);
-    expect(kinds(seen)).toContain('boom');
-    expect(kinds(seen)).not.toContain('burst');
-    expect(mid.hp).toBe(mid.stats.maxHp - CONFIG.starShells.damage);
+    expect(kinds(seen)).toContain('burst');
+    expect(kinds(seen)).not.toContain('boom');
+    expect(mid.hp).toBe(mid.stats.maxHp);
     expect(w.litZones.size).toBe(1);
-    expect(Math.hypot([...w.litZones.values()][0].x, [...w.litZones.values()][0].y)).toBeLessThan(400);
+    expect([...w.litZones.values()][0].x).toBeCloseTo(650, 6);
   });
 
   it('a lit zone carries NO verbs and burns/blinds nobody — it only lights (amendment 134)', () => {
@@ -1227,17 +1227,19 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(A.hp).toBe(hp); // no further burn
   });
 
-  it('an early interceptor takes the tier damage as CONTACT damage and the zone BURNS where the shell stopped', () => {
+  it('ARCS (Eric 2026-11-13, epic-11 amendment 8 — RE-CUT; the interception it pinned is retired): a hull on the path takes no contact blow and the zone BURNS at the click', () => {
     const { w, a, slot } = board();
-    const mid = place(w, 'mid', 250, 0, 0); // bodyblocks a 650 u click
+    const mid = place(w, 'mid', 250, 0, 0); // on the line of a 650 u click
+    const hp0 = mid.hp;
     const { seen } = fireUntilStop(w, a, slot, 0, 650);
-    expect(kinds(seen)).toContain('boom');
-    expect(kinds(seen)).not.toContain('burst');
+    expect(kinds(seen)).toContain('burst');
+    expect(kinds(seen)).not.toContain('boom');
+    expect(dmgFor(seen, 'mid')).toEqual([]);
+    expect(mid.hp).toBe(hp0);
     const row = a.stats.equipment.phosphorShells;
-    expect(mid.hp).toBeLessThanOrEqual(mid.stats.maxHp - row.damage);
     expect(w.burnZones.size).toBe(1);
     const zone = [...w.burnZones.values()][0];
-    expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400); // short of the click
+    expect(zone.x).toBeCloseTo(650, 6); // at the click
     expect(zone.dps).toBe(row.dps);
   });
 
@@ -1401,18 +1403,20 @@ describe('FLASH SHELLS (`dazzleShells`) — a special-shell slot weapon whose on
     expect(A.dazzledUntil).toBe(0);
   });
 
-  it('an interception en route flashes at the STOP POINT, exactly as a flare lights there; the interceptor takes 0', () => {
+  it('ARCS (Eric 2026-11-13, epic-11 amendment 8 — RE-CUT; the interception it pinned is retired): a hull on the path is flown over and the flash goes off AT THE CLICK', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.applyCard(a, 'dazzleShells');
-    const mid = place(w, 'mid', 300, 0, 0); // bodyblocks; its centre is within the radius of the stop point
-    const far = place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
+    const mid = place(w, 'mid', 300, 0, 0); // on the line of fire
+    const far = place(w, 'far', 650, 0, Math.PI / 2); // the clicked point
+    expect(650 - 300).toBeGreaterThan(a.stats.equipment.dazzleShells.radius); // premise: `mid` is outside the flash at the click
     const { seen, at } = fireUntilStop(w, a, BELT, 0, 650);
-    expect(kinds(seen)).toContain('boom');
+    expect(kinds(seen)).toContain('burst');
+    expect(kinds(seen)).not.toContain('boom');
     expect(mid.hp).toBe(mid.stats.maxHp);
-    expect(mid.dazzledUntil).toBe(at + FLASH_WINDOW_MS);
-    expect(far.dazzledUntil).toBe(0);
+    expect(mid.dazzledUntil).toBe(0);
+    expect(far.dazzledUntil).toBe(at + FLASH_WINDOW_MS);
   });
 
   it('the dazzled hull\'s OWN sight is the whiteout\'s clear circle (sightOf → the shared effectiveSight): 0 through ramp + hold, half at mid-clear, full at the window\'s end; radar is untouched', () => {
@@ -1490,9 +1494,14 @@ describe('FLASH SHELLS (`dazzleShells`) — a special-shell slot weapon whose on
       expect((burst as { f?: true }).f).toBe(true);
       expect((burst as { r?: number }).r).toBe(a.stats.equipment.dazzleShells.radius);
     }
-    // ...and the ordinary cannon (slot 0) burst carries no tag at all.
-    const { w: w2, a: a2 } = board();
-    const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 400);
+    // ...and any OTHER burst carries no tag at all — a PHOSPHOR burst (the
+    // main battery's landing, the old contrast here, has no burst since
+    // epic-11 amendment 8).
+    const w2 = bareWorld();
+    const a2 = placeBare(w2, 'a', 0, 0, 0, 'yamato');
+    fitTier(w2, a2, 'phosphorShells', 1);
+    place(w2, 'watcher', 560, 60);
+    const { seen: seen2 } = fireUntilStop(w2, a2, slotOf(a2, 'phosphorShells'), 0, 400);
     const cannon = seen2.find((e) => e.k === 'burst');
     expect(cannon).toBeDefined();
     expect('f' in cannon!).toBe(false);
@@ -1503,38 +1512,11 @@ describe('FLASH SHELLS (`dazzleShells`) — a special-shell slot weapon whose on
     }
   });
 
-  it('an INTERCEPTED flash round also emits the flash burst (`f: true`) at the STOP POINT — the owner and a sighted bystander get it beside the ordinary boom; an intercepted CANNON round emits a boom and NO burst (gate fix F1)', () => {
-    const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined);
-    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.applyCard(a, 'dazzleShells');
-    place(w, 'mid', 300, 0, 0); // bodyblocks the line of fire
-    place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
-    place(w, 'by', 300, FL.radius + 100, 0); // outside the radius, inside sight of the stop point
-    const { seen } = fireUntilStop(w, a, BELT, 0, 650);
-    const boom = seen.find((e) => e.k === 'boom') as { id: string; x: number; y: number } | undefined;
-    expect(boom).toBeDefined();
-    const internal = seen.find((e) => e.k === 'burst') as { id: string; x: number; y: number; f?: true } | undefined;
-    expect(internal).toBeDefined();
-    expect(internal!.f).toBe(true);
-    expect(internal!.x).toBeCloseTo(boom!.x, 9); // AT the stop point, not the click
-    expect(internal!.y).toBeCloseTo(boom!.y, 9);
-    for (const obs of ['a', 'by']) {
-      const evs = buildFrame(w, obs).events;
-      const burst = evs.find((e) => e.k === 'burst');
-      expect(burst, obs).toBeDefined();
-      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f', 'r']);
-      expect(evs.some((e) => e.k === 'boom'), obs).toBe(true);
-    }
-    // ...and an intercepted cannon round (slot 0) bursts nowhere: boom only.
-    const w2 = bareWorld();
-    const a2 = place(w2, 'a', 0, 0, 0, 'yamato');
-    place(w2, 'mid', 300, 0, 0);
-    place(w2, 'far', 650, 0, Math.PI / 2);
-    const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 650);
-    expect(kinds(seen2)).toContain('boom');
-    expect(kinds(seen2)).not.toContain('burst');
-  });
+  // RETIRED 2026-11-13 (Eric, epic-11 amendment 8 — the special shells ARC:
+  // nothing en route interrupts them): "an INTERCEPTED flash round also emits
+  // the flash burst at the STOP POINT … an intercepted CANNON round emits a
+  // boom and NO burst" (gate fix F1). Neither a flash round nor a main-battery
+  // shell can be intercepted any more.
 
   it('the flashed VICTIM receives the flash burst (`f: true`) in the very tick its sight drops to 0 — its centre is inside the radius (Eric 2026-10-29, gate fix F2); a blind hull 100 u from a CANNON burst still receives nothing', () => {
     const { w, a, A } = board(); // A sits 100 u from the burst point
@@ -1544,11 +1526,15 @@ describe('FLASH SHELLS (`dazzleShells`) — a special-shell slot weapon whose on
     expect(burst).toBeDefined();
     expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f', 'r']);
     expect((burst as { f?: true }).f).toBe(true);
-    // A CANNON burst 100 u from an already-blind hull: the point is unsighted
-    // and the radius arm is the flash row's alone.
-    const { w: w2, a: a2, A: A2 } = board();
+    // A NON-FLASH burst (PHOSPHOR — the main battery has no burst since
+    // epic-11 amendment 8) 100 u from an already-blind hull: the point is
+    // unsighted and the radius arm is the flash row's alone.
+    const w2 = bareWorld();
+    const a2 = placeBare(w2, 'a', 0, 0, 0, 'yamato');
+    fitTier(w2, a2, 'phosphorShells', 1);
+    const A2 = place(w2, 'A', 500, 0, Math.PI / 2);
     A2.dazzledUntil = w2.now + FLASH_WINDOW_MS;
-    const { seen } = fireUntilStop(w2, a2, 0, 0, 400);
+    const { seen } = fireUntilStop(w2, a2, slotOf(a2, 'phosphorShells'), 0, 400);
     expect(kinds(seen)).toContain('burst');
     expect(sightOf(A2, w2.now)).toBe(0); // premise: still blind at the burst tick
     expect(buildFrame(w2, 'A').events.filter((e) => e.k === 'burst')).toEqual([]);

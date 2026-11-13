@@ -24,11 +24,16 @@
 // room-private stream through `ctx.mintShell()`, kept inside the water disk,
 // possibly past the reach), and the round flies STRAIGHT from its muzzle to
 // it.
+//
+// ISLANDS (Eric 2026-11-13, epic-11 amendment 8): the main battery's terrain
+// rule — the chart's lowest land band is passed over, the first higher ground
+// stops the round (resolved at launch, `terrainFlightEnd`); a landing on land
+// is spent and does nothing. Against SHIPS the round is unchanged.
 
 import { CONFIG } from '@salvo/shared';
 import type { ActivationContext } from './index.js';
 import { burstPointAlong, muzzleOrTarget } from './guns.js';
-import { dispersedFlight, makeBallistic } from './ballistics.js';
+import { dispersedFlight, makeBallistic, terrainFlightEnd } from './ballistics.js';
 
 /** Spawn ONE secondaries round along the ship's aim (see the header). */
 export function fireSecondaryRound(ctx: ActivationContext): void {
@@ -40,10 +45,15 @@ export function fireSecondaryRound(ctx: ActivationContext): void {
   const origin = muzzleOrTarget(ship, dir, aimPt, cfg.shellRadius);
   const { id, seed } = ctx.mintShell();
   const f = dispersedFlight(origin, aimPt, seed, ctx.mapRadius, dir);
-  const target = f.landing;
+  // ISLANDS (Eric 2026-11-13, epic-11 amendment 8 — "the same rule with
+  // firing over islands"): the round clears the lowest land band and the
+  // first higher ground on its path stops it, decided once at launch. SHIPS
+  // are unchanged: it still strikes the first hull on its path.
+  const end = terrainFlightEnd(ctx.heightRaster, origin, f.landing);
+  const target = end.point;
   const shell = makeBallistic(id, ship, f.dir, ctx.now, {
     speed: cfg.shellSpeed,
-    range: f.distU + cfg.shellRadius,
+    range: Math.hypot(target.x - origin.x, target.y - origin.y) + cfg.shellRadius,
     damage: cfg.damage,
     hitRadius: cfg.shellRadius,
     kind: 'shell',
@@ -55,6 +65,8 @@ export function fireSecondaryRound(ctx: ActivationContext): void {
     hits: cfg.hits, // hull | mine — a mine only where the round lands
     family: 'mg',
     direct: true,
+    overLand: true, // the coastline alone never stops it; high ground does (terrainStop)
+    ...end.tag,
   });
   ctx.spawnBallistic(shell, { perShellFlash: true }); // one `mz` per round, the machine gun's rule
 }

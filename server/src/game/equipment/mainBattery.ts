@@ -34,16 +34,24 @@
 // back-bearing line set, which one shell has always given. The landing is
 // server-private until the shell gets there. Still readable: the LATERAL
 // spread of the 2–3 abreast shells scales with range (full width
-// `alongFrac × acrossFrac` of range — ≈ 1 u per 300 u, floored at
+// `alongFrac × acrossFrac` of range — ≈ 1 u per 250 u, floored at
 // `floorU`), a noisy statistical range hint; and once shells land, their
-// along-shot spread (≈ 1 u per 100 u) likewise. Neither is a solution.
+// along-shot spread (≈ 1 u per 50 u) likewise. Neither is a solution.
 //
-// THE SHELL IS TODAY'S CANNON SHELL (reading of record): family `'cannon'`,
-// a burst of `burstRadius`, the contact damage, the mask
-// `CONFIG.mainBattery.hits` (hull only, NO mine bit: a main shell never
+// THE SHELL (reading of record): family `'cannon'`, the mask
+// `CONFIG.mainBattery.hits` (hull + beacon, NO mine bit: a main shell never
 // hurts a mine — R3; the World's mask-driven `landOnMines` honours that
-// without a special case). Damage is flat with range (range attenuation
-// retired 2026-11-12, Story 11.1). One `mz` per salvo (the cannon's dedupe).
+// without a special case). DIRECT HITS ONLY (Eric 2026-11-13, epic-11
+// amendment 8 — "Only direct hits count", "Only the landing point counts"):
+// the shell ARCS OVER every ship and beacon between muzzle and landing
+// (`overShips` — the sweep never runs against them), and at the landing point
+// every afloat non-owner hull whose silhouette holds the point takes the full
+// `damage` (World.resolveBurst at radius 0 — a point test). The 15 u blast and
+// the 18 hp graze are retired. TERRAIN (same ruling): the shell clears the
+// chart's lowest land band and is stopped by the first higher ground on its
+// path, resolved at launch (`terrainFlightEnd`); a landing on land is spent there
+// and damages nothing. The coastline polygon alone no longer stops it. Damage is flat with range
+// (range attenuation retired 2026-11-12, Story 11.1). One `mz` per salvo.
 //
 // THE HOTBAR PAIR. Slot 0's `{n, reloadMsLeft}` is DERIVED — `batterySummary`
 // over the turrets (n = turrets ready, reloadMsLeft = the soonest running
@@ -63,7 +71,7 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
-import { makeBallistic, salvoShellFlight } from './ballistics.js';
+import { makeBallistic, salvoShellFlight, terrainFlightEnd } from './ballistics.js';
 
 /** Write slot 0's derived hotbar pair from the turrets (see the header). */
 export function syncBatterySlot(ship: ShipRecord, slot: LoadoutSlot): void {
@@ -92,18 +100,26 @@ function fireSalvo(ctx: ActivationContext): ActivationResult {
   for (const sh of salvo.shells) {
     const { id, seed } = ctx.mintShell();
     const f = salvoShellFlight(pick.station, salvo.center, sh.origin, salvo.bearing, seed, ctx.mapRadius);
+    const end = terrainFlightEnd(ctx.heightRaster, f.spawn, f.landing);
     ctx.spawnBallistic(
       makeBallistic(id, ship, salvo.bearing, ctx.fireT, {
         speed: cfg.shellSpeed,
-        range: f.distU + cfg.shellRadius,
+        range: Math.hypot(end.point.x - f.spawn.x, end.point.y - f.spawn.y) + cfg.shellRadius,
         damage: row.damage,
         hitRadius: cfg.shellRadius,
         kind: 'shell',
         origin: f.spawn,
-        targetX: f.landing.x,
-        targetY: f.landing.y,
-        burstRadius: row.burstRadius,
-        contactDamage: row.contactDamage,
+        targetX: end.point.x,
+        targetY: end.point.y,
+        // DIRECT HITS ONLY (Eric 2026-11-13, epic-11 amendment 8): no blast —
+        // the landing POINT is the whole test (a 0 radius admits exactly the
+        // hulls whose silhouette holds it) — and no contact damage, because
+        // the shell ARCS OVER every ship (and the low ground) on the way.
+        burstRadius: 0,
+        contactDamage: 0,
+        overShips: true,
+        overLand: true, // the coastline alone never stops it; high ground does (terrainStop)
+        ...end.tag,
         hits: cfg.hits, // AR44 mask — hull only, NO mine bit (R3; the decoy bit left with Story 10.5)
         family: 'cannon', // the reveal's `w`: today's cannon shell
         batteryShell: true, // server-private harness marker — never on the wire

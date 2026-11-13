@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  105 — HULL-SCALE DISPERSION (2026-11-13, Eric; epic-11 amendment 8; cycle
+ *  231, 0.19.25): no wire shape change — the CONFIG the client reads changed:
+ *  `dispersion.alongFrac` 0.01 -> 0.02 and `acrossFrac` 1/3 -> 0.2 (the aim
+ *  oval is drawn from them, so a stale client would draw the wrong pattern).
  *  104 — Story 11.2 THE HECTOMETER RULER AND REAL REACH (2026-11-12, Eric's
  *  rulings R1–R20; 104 is confirmed: cycle 227, 0.19.21): FrameMsg gains the optional `pc` channel (PlainContact
  *  {h,x,y,heading,speed} — a hull seen by eye beyond the class-and-name reach
@@ -1080,7 +1084,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 104;
+export const PROTOCOL_VERSION = 105;
 
 // Tunables
 export * from './constants.js';
@@ -1140,6 +1144,7 @@ export * from './sim/noise.js';
 export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
+export * from './sim/terrainBlock.js';
 // `./sim/dropout.js` (the radar paint dropout) — REMOVED 2026-11-12, Story
 // 11.2, epic-11 amendment 4 (R8).
 export * from './sim/wake.js';

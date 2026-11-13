@@ -216,9 +216,10 @@ export interface AimPreviewModel {
 const EMPTY: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
 
 /** A point-burst system's aim-relevant numbers, off EFFECTIVE stats (never raw
- *  CONFIG for anything a boon scales). PLUNGING FIRE's `arcing` flag is GONE
- *  with the cannon (Story 7-5 wave 2, R2.6): nothing overflies terrain any
- *  more, so every line here is island-clipped. */
+ *  CONFIG for anything a boon scales). Every line is island-clipped EXCEPT an
+ *  ARCING shell's (`overLand` — the star, phosphor, flash and fouling shells,
+ *  Eric 2026-11-13, epic-11 amendment 8: the sim flies them over islands, so
+ *  the preview shows the true destination). */
 interface BurstSpec {
   rangeU: number;
   burstRadius: number;
@@ -234,6 +235,9 @@ interface BurstSpec {
    *  blast circles at full weight) and the FOULING SHELL's zone. Defaults to
    *  false: every other circle here is drawn at damage weight. */
   effect?: boolean;
+  /** The shell ARCS over islands (`ShellState.arcs === 'all'` on the server):
+   *  never clipped, never drawn blocked by land. */
+  overLand?: boolean;
 }
 
 /**
@@ -282,7 +286,7 @@ function shellPreview(
   into: AimPreviewModel,
   clamped = false,
 ): void {
-  const clip = clipAtIslands(origin, target, inp.islands);
+  const clip = spec.overLand === true ? { point: target, clipped: false } : clipAtIslands(origin, target, inp.islands);
   into.lines.push({ x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y, clamped });
   if (spec.burstRadius <= 0) return;
   // A muzzle already outside the rim is the same promise-breaker an island
@@ -489,12 +493,10 @@ export function effectiveLitRadius(stats: EffectiveStats): number {
  * it is spent — a one-shot 20s-cooldown flare landing 100u off the ship you
  * meant to reveal is the whole cost of guessing.
  *
- * It flies exactly like the gun family (360°, to the clicked point, range- and
- * map-clamped) and it is stopped dead by islands: an island/expiry outcome
- * takes the plain splash-boom path in World.resolveShell, which — unlike an
- * interception — spawns NO lit zone at all. So a blocked flare lights NOTHING,
- * and the standard blocked tell is exactly the right, and rather important,
- * thing to show. Since Story 8.17 (amendment 130) the same circle is also the
+ * It flies to the clicked point (360°, range- and map-clamped) and ARCS over
+ * every ship and island on the way (Eric 2026-11-13, epic-11 amendment 8), so
+ * the circle is always drawn at the true destination, never island-blocked.
+ * Since Story 8.17 (amendment 130) the same circle is also the
  * flare's damage area — the tier's damage (10 → 20) to every hull inside it at
  * burst. It is still drawn in the quieter EFFECT register (see
  * PreviewBurst.effect): the lit radius is ~7× a gun blast, and at damage weight
@@ -508,17 +510,17 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
     barrels: 1,
     spacingU: 0,
     effect: true,
+    overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
 
 /**
  * PHOSPHOR SHELLS (Story 8.17, amendment 131): the star-shell preview pattern —
- * one 360° shell to the click at its own tiered reach (`rangeU`, ruling 125), island- and
- * map-clamped — with the burst ring at the owner's effective `zoneRadius`,
- * which is both the burst's damage circle and the burning zone it leaves. Drawn
- * at DAMAGE weight (not the flare's quieter effect register): a phosphor burst
- * is a damage burst, and a blocked shell burns nothing, so the standard
- * blocked tell is exactly right.
+ * one 360° shell to the click at its own tiered reach (`rangeU`, ruling 125),
+ * map-clamped and ARCING over islands (epic-11 amendment 8) — with the burst
+ * ring at the owner's effective `zoneRadius`, which is both the burst's damage
+ * circle and the burning zone it leaves. Drawn at DAMAGE weight (not the
+ * flare's quieter effect register): a phosphor burst is a damage burst.
  */
 function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.phosphorShells;
@@ -528,6 +530,7 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
     shellRadius: CONFIG.phosphorShells.shellRadius,
     barrels: 1,
     spacingU: 0,
+    overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
 
@@ -548,6 +551,7 @@ function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
     barrels: 1,
     spacingU: 0,
     effect: true,
+    overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
 
@@ -566,6 +570,7 @@ function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
     barrels: 1,
     spacingU: 0,
     effect: true,
+    overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
 
@@ -720,7 +725,8 @@ export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | un
  *  star shell's burst is its lit circle, drawn by the zone itself. */
 const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveStats) => number>> = {
   gun: (s) => s.equipment.gun.burstRadius,
-  mainBattery: (s) => s.equipment.mainBattery.burstRadius, // Story 10.4
+  // `mainBattery` is ABSENT since 2026-11-13 (epic-11 amendment 8): its shell
+  // has no blast and lands as an impact (`boom`), never a `burst`.
   broadside: (s) => s.equipment.broadside.burstRadius,
   flak: (s) => s.equipment.flak.burstRadius, // Story 8.15 — the fixed 50 u blast
   // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; the FOULING

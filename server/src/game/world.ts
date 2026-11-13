@@ -6559,7 +6559,10 @@ export class World {
    * cycle-44 rebalance.
    */
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly Target[]): void {
-    this.pushBurst(shell, at);
+    // Victims first (pure — burstVictims reads only its arguments), so a
+    // POINT landing's boom can name the hull it struck before any `dmg`.
+    const victims = burstVictims(at, shell.burstRadius, hulls, shell.ownerId);
+    this.announceLanding(shell, at, victims);
     // A star shell's burst also lights its zone (Story 1.7), a PHOSPHOR
     // shell's spawns its burning zone (Story 8.17) and a FOULING shell's
     // spawns its foul zone (Story 9.4): the three server-internal tags ride
@@ -6576,7 +6579,6 @@ export class World {
     // are removed. A MINE IS NEVER A BURST VICTIM (amendment 200 — shared
     // burstVictims skips the kind); the LANDING TEST at the burst point runs
     // after the hit call, where the old burst detonation sat.
-    const victims = burstVictims(at, shell.burstRadius, hulls, shell.ownerId);
     let resolved = 0; // hulls the burst RESOLVED (Story 4.3 — counted ahead of
     // the damage-suppression phase guard inside hitShip, so the Hit Call keys
     // off resolution, not dmg: the weapons-safe ready room still calls hits).
@@ -6784,6 +6786,31 @@ export class World {
       burst.r = shell.flash.radius;
     }
     this.pending.push(burst);
+  }
+
+  /**
+   * WHAT A LANDING LOOKS LIKE (the first event resolveBurst emits). A shell
+   * with a blast (`burstRadius > 0`) bursts: the `burst` ring, unchanged. A
+   * ZERO-RADIUS landing — the MAIN BATTERY's direct-hit shell (Eric
+   * 2026-11-13, epic-11 amendment 8: "Only direct hits count") — has no blast
+   * to draw, so it lands as an IMPACT: a `boom` at the landing point, naming
+   * the hull whose silhouette holds the point (the first, in target order)
+   * as `hit`, or none on a miss — the secondary round's own impact shape. It
+   * carries the server-internal `land` owner tag so the boom row keeps the
+   * retired burst's owner arm (signals.ts BoomSubject). A beacon struck this
+   * way is never named (its id never leaves the server, Story 10.8).
+   */
+  private announceLanding(shell: ShellState, at: Vec2, victims: readonly Target[]): void {
+    if (shell.burstRadius > 0) {
+      this.pushBurst(shell, at);
+      return;
+    }
+    const struck = victims.find((t) => t.kind === 'hull');
+    const boom: BoomSubject =
+      struck === undefined
+        ? { k: 'boom', id: shell.id, x: at.x, y: at.y, land: shell.ownerId }
+        : { k: 'boom', id: shell.id, hit: struck.id, x: at.x, y: at.y, land: shell.ownerId };
+    this.pending.push(boom);
   }
 
   /** An INTERCEPTED FLASH round's burst at the stop point (gate fix F1): the
@@ -7461,6 +7488,7 @@ export class World {
       fireT,
       mapRadius: this.map.radius,
       islands: this.map.islands,
+      heightRaster: this.map.heightRaster,
       mkId: () => this.nextBallisticId(),
       mintShell: () => {
         const id = this.nextBallisticId();

@@ -851,17 +851,16 @@ describe('star shells — the lit radius is the preview', () => {
   // An island-stopped flare takes World.resolveShell's plain splash-boom path,
   // which — unlike an interception — spawns NO lit zone. A blocked flare lights
   // NOTHING, so the dim tell here is not cosmetic, it is the warning.
-  it('DIMS the circle when a rock stops the flare short (a blocked flare lights nothing)', () => {
+  // RE-CUT 2026-11-13 (Eric, epic-11 amendment 8 — the flare ARCS over
+  // islands): it pinned "a rock dims the circle and clips the line".
+  it('a rock on the line neither dims the circle nor clips the line — the flare arcs over it to the true destination', () => {
     const m = computeAimPreview(
       input({ id: 'starShells', aimDist: 400, islands: [squareIsland(150, 0, 30)] }),
     );
-    expect(m.bursts[0].blocked).toBe(true);
-    expect(m.lines[0].x2).toBeCloseTo(120, 3); // the line still clips at the rock
-  });
-
-  it('never overflies a rock — the flare is not plunging fire', () => {
     const clear = computeAimPreview(input({ id: 'starShells', aimDist: 400 }));
-    expect(clear.bursts[0].blocked).toBe(false);
+    expect(m.bursts[0].blocked).toBe(false);
+    expect(m.lines[0].x2).toBeCloseTo(clear.lines[0].x2, 9);
+    expect(m.bursts[0].x).toBeCloseTo(clear.bursts[0].x, 9);
   });
 });
 
@@ -956,12 +955,14 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     expect(flash.bursts[0].y).toBeCloseTo(foul.bursts[0].y, 9);
   });
 
-  it('DIMS either circle when a rock stops the shell short', () => {
+  // RE-CUT 2026-11-13 (Eric, epic-11 amendment 8 — the special shells ARC
+  // over islands): it pinned "a rock dims the circle".
+  it('a rock on the line never dims either circle — the shell arcs over it', () => {
     for (const id of ['phosphorShells', 'foulingShell', 'dazzleShells'] as const) {
       const m = computeAimPreview(
         input({ id, stats: stats('phosphorShells'), aimDist: 400, islands: [squareIsland(150, 0, 30)] }),
       );
-      expect(m.bursts[0].blocked, id).toBe(true);
+      expect(m.bursts[0].blocked, id).toBe(false);
     }
   });
 });

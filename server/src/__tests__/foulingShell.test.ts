@@ -146,19 +146,19 @@ describe('FOULING SHELL — the shell and its zone (amendments 61, 67)', () => {
     expect('burn' in shell).toBe(false);
   });
 
-  it('an interception en route spawns the zone at the STOP POINT with 0 damage to the interceptor', () => {
+  it('ARCS (Eric 2026-11-13, epic-11 amendment 8 — RE-CUT; the interception it pinned is retired): a hull on the path is flown over and the zone spawns AT THE CLICK', () => {
     const w = bareWorld();
     const a = armed(w);
-    const mid = place(w, 'mid', 300, 0, 0); // bodyblocks the flight to (650, 0)
-    place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
+    const mid = place(w, 'mid', 300, 0, 0); // on the line of the flight to (650, 0)
+    place(w, 'far', 650, 0, Math.PI / 2); // the clicked point
     const { seen, at } = fireUntilStop(w, a, SLOT, 0, 650);
-    expect(kinds(seen)).toContain('boom');
-    expect(kinds(seen)).not.toContain('burst');
+    expect(kinds(seen)).toContain('burst');
+    expect(kinds(seen)).not.toContain('boom');
     expect(kinds(seen)).not.toContain('dmg');
     expect(mid.hp).toBe(mid.stats.maxHp);
     expect(w.foulZones.size).toBe(1);
     const zone = [...w.foulZones.values()][0];
-    expect(Math.abs(zone.x - mid.state.x)).toBeLessThanOrEqual(mid.cls.hull.length / 2 + FS.shellRadius); // at the hull, not the click
+    expect(zone.x).toBeCloseTo(650, 6); // at the click, not the hull
     expect(zone.until).toBe(at + FS.durationMs);
   });
 
