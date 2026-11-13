@@ -182,11 +182,13 @@ import {
   type MineTripRules,
 } from './equipment/index.js';
 import { emptyRackBank, instantReloadMounts, isMountBacked, refitMounts, resetMounts, stepShipLaunchers } from './equipment/mounts.js';
-import type { BurstSubject } from './signals.js';
+import type { BoomSubject, BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
 import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
+import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
+import { plainHandle, plainHandleKey } from './plainHandle.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
@@ -1113,18 +1115,9 @@ export interface ShipRecord {
   cloudUntil: number;
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
-  /**
-   * THE SWEEP REVOLUTION INDEX (Story 9.8, rulings 121–123): a whole-number
-   * count of how many times this hull's beam has WRAPPED past 2π this life —
-   * `advanceSweeps` adds one per wrap, and every placement edge that
-   * re-anchors `sweepAngle` (addShip / redeployShip / respawn) resets it to 0.
-   * It is the `rev` term of the radar DROPOUT roll (`dropoutPaints(d, seed,
-   * observer, target, rev)` in signals.ts): every bearing is swept exactly
-   * once per revolution (the half-open window), so keying the roll on the
-   * revolution makes "this sweep saw it or didn't" ONE decision per pass.
-   * SERVER-PRIVATE, never on the wire.
-   */
-  sweepRev: number;
+  // (`sweepRev`, the per-ship sweep REVOLUTION COUNTER — the `rev` term of
+  // the radar dropout roll, Story 9.8 — was REMOVED 2026-11-12 with the
+  // dropout: Story 11.2, R8.)
   /**
    * Ballistic ids (shells + torpedoes) this observer has already been sent a
    * reveal for ON THIS VISIT. Perception emits each ballistic exactly once per
@@ -1161,6 +1154,17 @@ export interface ShipRecord {
    * growth.
    */
   torpDirs: Map<string, number>;
+  /**
+   * Per-observer PLAIN-HULL handle memory (Story 11.2, R3): target ship id →
+   * the anonymous handle this observer currently holds for it, for as long
+   * as that hull stays a `PlainContact` in this observer's frames (the outer
+   * sight tier). PER VISIT: perception's ship scan drops an entry the first
+   * pass its hull is not materialized as a plain contact, so a re-entry
+   * mints a fresh handle (`World.plainHandleFor`). SERVER-PRIVATE — only the
+   * handle string ever rides the wire, and it is a keyed hash of a counter
+   * (game/plainHandle.ts), never of either ship id.
+   */
+  plainHandles: Map<string, string>;
   /**
    * The ship's equipment loadout — FIVE FIXED-ROLE SLOTS (Story 10.5;
    * shared/src/sim/loadout.ts): `[gun, boost, torpedo, mine, special shell]`,
@@ -1451,11 +1455,16 @@ const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
 // ---------------------------------------------------------------------------
 
 /** Water the memo lattice extends past the ocean's radius on every side (u):
- *  the LONGEST sight-tier ray (the mz/sm halo, radar × muzzleFlashFactor —
- *  750 u at base), so a ray from a hull anywhere on the ocean is tolled
- *  exactly to its end; fog farther out than that is irrelevant (a ray is
- *  clipped to the lattice, see fogTollAlong). */
-const FOG_MEMO_MARGIN_U = Math.ceil(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
+ *  ONE CELL (Story 11.2 review gate, F2). Fog exists only on the ocean — the
+ *  shared `fogDensityAt` reads 0 at every point beyond the rim (amendment
+ *  179) — so the part of ANY ray outside the ocean's bounding square pays
+ *  nothing wherever its ends lie, and `fogTollAlong` clips the ray to the
+ *  lattice before walking it: no margin is needed for exactness, and the one
+ *  cell only keeps a rim-straddling cell whole. HISTORY: the margin was the
+ *  longest tolled eye ray (750 u; then 350 hm = 7,955 u under Story 11.2's
+ *  first cut, a 2,591² lattice of ~54 MB per World that tolled nothing the
+ *  1,002² one does not). */
+const FOG_MEMO_MARGIN_U = CONFIG.fog.marchStepU;
 
 /** The memo lattice: `side × side` cells of `cell` u from (ox, oy); `dens`
  *  holds a cell's density and `epoch` the fog epoch it was evaluated in
@@ -1798,21 +1807,26 @@ export class World {
   private rng: Rng;
   /** The map seed — kept so per-ship draw streams (drawRngFor) derive from it. */
   private readonly seed: number;
+  // (`dropoutSeed`, `wakeKeys` and `wakeKeyOf` — the radar dropout roll's
+  // seed and its wake target keys, Story 9.8 — were REMOVED 2026-11-12,
+  // Story 11.2, R8, with the dropout itself.)
   /**
-   * THE RADAR DROPOUT SEED (Story 9.8, rulings 121–123): the world term of the
-   * stateless per-revolution dropout roll (signals.ts `radarPaints`), read by
-   * perception's context and the test oracle. SERVER-PRIVATE — derived from
-   * the per-room pseudonym entropy (`WorldOptions.pseudonymSeed`, the
-   * zone-nonce posture), NEVER from the client-known map seed: a client able
-   * to replay the roll could test which known hull an anonymous paint (or a
-   * miss) could have been. Standalone Worlds fall back to a map-seed
-   * derivation, like the pseudonym stream.
+   * THE PLAIN-HULL HANDLE KEY AND MINT COUNTER (Story 11.2, R3): every
+   * `PlainContact.h` is `plainHandle(plainKey, plainSeq++)` — a keyed hash of
+   * a room-wide counter, so a handle names nothing (game/plainHandle.ts has
+   * the full argument). The key is derived from `dispersionKey` under its own
+   * label; the counter never leaves the server.
    */
-  readonly dropoutSeed: number;
-  /** The dropout roll's target key per wake ribbon (Story 9.8): the water's
-   *  SOURCE id — the ship id for a hull's ribbon (carried across reprovision
-   *  and detachment), the shell id for a torpedo's. See wakeKeyOf. */
-  private readonly wakeKeys = new WeakMap<WakeRibbon, string>();
+  private readonly plainKey: Buffer;
+  private plainSeq = 0;
+  /**
+   * THE PAINT-SALT KEY (Story 11.2 review gate, F1): every wire-bound radar
+   * mask (`blip`, `wk`) is fuzzed on a seed salted with
+   * `paintSalt(paintKey, kind, the paint's own words)` so the fuzz cannot be
+   * replayed from a pose a contact row discloses (game/paintSalt.ts has the
+   * full argument). Derived from `dispersionKey` under its own label.
+   */
+  private readonly paintKey: Buffer;
   /**
    * Stable per-ship JOIN ORDINAL counter (Story 2.8): assigned once per
    * addShip, never reused or decremented, so a ship's draw stream is a pure
@@ -1877,8 +1891,9 @@ export class World {
    * THE DENSITY MEMO (Eric: "make it performant"; the review gate's EXACT
    * re-cut of the heuristic quick-reject raster). The server's toll IS a
    * cell walk: a fixed world lattice of `marchStepU` (10 u) cells over the
-   * ocean's bounding square (+ FOG_MEMO_MARGIN_U each side — 1,150² ≈ 1.3 M
-   * cells at a 5,000 u radius, ~10.6 MB of Float32 + Uint32, allocated ONCE
+   * ocean's bounding square (+ FOG_MEMO_MARGIN_U, one cell, each side —
+   * 1,002² ≈ 1.0 M cells at a 5,000 u radius, ~8 MB of Float32 + Uint32;
+   * zero pages until a ray first touches them, allocated ONCE
    * in the constructor), and `fogTollAlong` sums `density(cell centre) × length of
    * the ray inside the cell × sightCostPerU` over the cells an
    * Amanatides–Woo DDA visits. A cell's density is MEMOIZED per EPOCH: first
@@ -1906,6 +1921,18 @@ export class World {
   private fogEpoch = 1;
   /** The one-entry own-bank memo (see `fogObserverInSolidFog`): the last observer position asked about, in which epoch, and the answer. */
   private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
+  /**
+   * The one-entry TOLL memo (Story 11.2 review gate, F2): the last ray
+   * tolled, in which epoch, and its toll. For a hull inside the class reach
+   * the ship scan asks about the one observer → target ray twice in a row
+   * (the `contact` row, then the `plain` row's "not a full contact" term) —
+   * the toll is a pure function of (ray, epoch), so the repeat is a compare
+   * instead of a lattice walk (2 walks → 1 per inner-tier pair per pass; an
+   * outer-tier pair was already 1).
+   */
+  private readonly fogTollMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, toll: 0 };
+  /** Lattice walks since construction — the toll memo's accounting (tests). */
+  private fogWalkCount = 0;
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
   /** Cells evaluated since construction (perf accounting — fogField.test.ts's memo-determinism test reads it). */
@@ -1933,7 +1960,7 @@ export class World {
   /**
    * THE FOG STREAM (Story 9.10): the coverage TARGET's wander — the one fog
    * draw left (the field itself is seeded, never drawn). ROOM-PRIVATE
-   * entropy like the dropout seed: it rides `opts.pseudonymSeed` (the
+   * entropy like the beacon stream: it rides `opts.pseudonymSeed` (the
    * TEST-ONLY map-seed fallback otherwise) under its own constant 0x3c6ef372
    * (unused by any other stream mint in the codebase — 0x7f4a7c15 is the bot
    * SPEND_STREAM_K), so a client holding the wire map seed cannot predict
@@ -2046,7 +2073,7 @@ export class World {
    * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
    * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
    * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key;
-   * the beacon stream 0x68e31da4, dropout 0x2545f491, fog 0x3c6ef372).
+   * the beacon stream 0x68e31da4, the retired dropout seed 0x2545f491 (Story 11.2), fog 0x3c6ef372).
    * 0x2c1b3c6d was Story 11.1's first DISPERSION stream constant (XORed into
    * the pseudonym material) — RETIRED at its review: a shooter sees its own
    * exact landings, so a 32-bit seed off `priv` could be brute-forced back to
@@ -2141,6 +2168,8 @@ export class World {
     // A copy, so the caller's buffer cannot be mutated under the World; the
     // seed-derived key is the OFFLINE fallback only (see WorldOptions).
     this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
+    this.plainKey = plainHandleKey(this.dispersionKey);
+    this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -2153,9 +2182,6 @@ export class World {
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32(priv >>> 0);
-    // The dropout roll's seed rides the SAME server-private entropy, under its
-    // own constant so it is decorrelated from the pseudonym stream (Story 9.8).
-    this.dropoutSeed = (priv ^ 0x2545f491) >>> 0;
     // Bot decision stream (Story 6.4), decorrelated from every other stream
     // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
     // the roster of constants in use).
@@ -2218,6 +2244,62 @@ export class World {
         if (existing === id) { taken = true; break; }
       }
       if (!taken) return id;
+    }
+  }
+
+  /**
+   * THE PLAIN-HULL HANDLE `observer` holds for the hull `targetId` (Story
+   * 11.2, R3) — get-or-mint. The ONE writer of `ShipRecord.plainHandles`
+   * besides perception's per-pass forget. A fresh handle is the next
+   * `plainHandle(plainKey, plainSeq)`; it is re-drawn on the (astronomically
+   * unlikely) collision with a ship id or with a handle this observer
+   * already holds, so a frame's handles are distinct and never a roster id.
+   * `World.pseudonymFor` is NOT this: that id is stable for the match and
+   * shared by every observer.
+   */
+  plainHandleFor(observer: ShipRecord, targetId: string): string {
+    const held = observer.plainHandles.get(targetId);
+    if (held !== undefined) return held;
+    const fresh = this.mintPlainHandle(observer);
+    observer.plainHandles.set(targetId, fresh);
+    return fresh;
+  }
+
+  /**
+   * THE SALT of one radar paint (Story 11.2 review gate, F1): a keyed hash
+   * of the paint's own inputs (`words` = paint time + exact pose) under this
+   * room's private paint key — see game/paintSalt.ts. Bound into the signal
+   * context by perception.ts; read by the `blip` and `wk` shapers only.
+   * ONE STABLE FUNCTION per World (an arrow property, never a per-context
+   * closure): signals.ts keys its one-slot mask memos on its identity, so
+   * consecutive observers of one room share a mask and two rooms never do.
+   */
+  readonly paintSaltFor = (kind: PaintKind, words: readonly number[]): number => paintSalt(this.paintKey, kind, words);
+
+  /**
+   * END EVERY PLAIN VISIT of one observer (Story 11.2 review gate, F3): drop
+   * every plain-hull handle `observerId` holds, so each hull in its outer
+   * band is minted a fresh one on the next pass. Perception forgets a handle
+   * only DURING a pass, and a captain in reconnect grace gets no pass (frames
+   * are built for connected clients) — so without this, a hull that left the
+   * band and came back while the socket was down would keep its old handle
+   * and the two visits could be linked across the gap. The room calls it at
+   * the drop and again at the resume. An unknown id is a no-op.
+   */
+  forgetPlainVisits(observerId: string): void {
+    this.ships.get(observerId)?.plainHandles.clear();
+  }
+
+  /** One fresh handle off the keyed counter (see plainHandleFor). */
+  private mintPlainHandle(observer: ShipRecord): string {
+    for (;;) {
+      const h = plainHandle(this.plainKey, this.plainSeq++);
+      if (this.ships.has(h)) continue;
+      let taken = false;
+      for (const existing of observer.plainHandles.values()) {
+        if (existing === h) { taken = true; break; }
+      }
+      if (!taken) return h;
     }
   }
 
@@ -2372,14 +2454,6 @@ export class World {
    * out. Read per-observer by perception's SignalContext; fresh array per
    * call (a handful of refs at 20Hz — the aliveHulls() allocation posture).
    */
-  /** The radar dropout roll's TARGET KEY for one wake ribbon (Story 9.8,
-   *  ruling 123): the water's source id (see `wakeKeys`). A ribbon the World
-   *  never registered (a test's hand-built ring) reads '' — deterministic,
-   *  so the roll stays a pure function of its inputs. */
-  wakeKeyOf(r: WakeRibbon): string {
-    return this.wakeKeys.get(r) ?? '';
-  }
-
   get wakeRibbons(): readonly WakeRibbon[] {
     const out: WakeRibbon[] = [];
     for (const ship of this.ships.values()) out.push(ship.wake);
@@ -2480,7 +2554,7 @@ export class World {
       // half-open arc [prev, sweep), so an equal pair is zero-width and paints
       // nothing on the hull's first tick.
       // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
-      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading), sweepRev: 0,
+      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading),
       // THE SEAT'S SHIFT (10.4) and the ship's private DRAW stream (8.14):
       // there is no deck to deal any more — the pool is the catalog and a draw
       // is a pure read of this record's own state (materializeOffer). The
@@ -2525,6 +2599,7 @@ export class World {
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
       seenBallistics: new Set(),
       torpDirs: new Map(),
+      plainHandles: new Map(),
       loadout,
       // ONE tally (Story 5.6, amendment 38): `kills` counts human captains
       // AND, since Story 6.4 (Eric ruling B3: bots are ordinary combatants),
@@ -2542,7 +2617,6 @@ export class World {
    *  `spawn` event. */
   private enrolShip(rec: ShipRecord, p: Vec2): void {
     this.ships.set(rec.id, rec);
-    this.wakeKeys.set(rec.wake, rec.id); // the dropout roll's target key (Story 9.8)
     // THE DEV SPAWN FIT (Story 8.10, amendment 65), applied over the just-built
     // deck and loadout exactly as a pick would — and a no-op for every hull
     // that was not handed one, which is all of production.
@@ -2855,7 +2929,6 @@ export class World {
       // ruling 2026-08-16) — see addShip for the rule and why prev must equal it.
       ship.sweepAngle = wrapPositive(ship.state.heading);
       ship.prevSweepAngle = ship.sweepAngle;
-      ship.sweepRev = 0; // the dropout roll's revolution index re-anchors with the beam (Story 9.8)
     }
     // THE ECONOMY: PRESERVED on every path (Story 8.10, amendment 63b, made
     // unconditional by the 8.10 review) — see redeployEconomy.
@@ -2902,6 +2975,7 @@ export class World {
     // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
+    ship.plainHandles.clear(); // Story 11.2: a fresh life starts every plain visit anew
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -4488,6 +4562,33 @@ export class World {
    */
   fogTollAlong(ax: number, ay: number, bx: number, by: number): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
+    const memo = this.fogTollMemo;
+    if (memo.epoch === this.fogEpoch && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.toll;
+    const toll = this.fogTollWalked(ax, ay, bx, by);
+    memo.ax = ax;
+    memo.ay = ay;
+    memo.bx = bx;
+    memo.by = by;
+    memo.epoch = this.fogEpoch;
+    memo.toll = toll;
+    return toll;
+  }
+
+  /** The side of the density memo lattice in u (cells × cell size) — its
+   *  extent accounting (Story 11.2 review gate, F2: the lattice is the
+   *  ocean's bounding square plus one cell a side, never a sight reach). */
+  get fogMemoSpanU(): number {
+    return this.fogMemo.side * this.fogMemo.cell;
+  }
+
+  /** Lattice walks since construction (Story 11.2 review gate, F2 — the toll
+   *  memo's accounting: a ray re-asked in the same epoch walks nothing). */
+  get fogWalks(): number {
+    return this.fogWalkCount;
+  }
+
+  /** The toll of one ray, walked (see `fogTollAlong`, its only caller). */
+  private fogTollWalked(ax: number, ay: number, bx: number, by: number): number {
     const dx = bx - ax;
     const dy = by - ay;
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -4497,6 +4598,7 @@ export class World {
     const t = { t0: 0, t1: 1 };
     if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return 0;
     const ownBank = this.fogObserverInSolidFog(ax, ay);
+    this.fogWalkCount += 1;
     return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0), ownBank) * CONFIG.fog.sightCostPerU;
   }
 
@@ -5118,7 +5220,6 @@ export class World {
       this.orphanWakes.push(ship.wake);
     }
     ship.wake = createShipWake(ship.hullId, World.wakeTopSpeed(ship.stats));
-    this.wakeKeys.set(ship.wake, ship.id); // the detached ribbon keeps its key too (Story 9.8)
   }
 
   /**
@@ -5140,7 +5241,6 @@ export class World {
       appendWakeSample(fresh, old.xs[i], old.ys[i], old.ts[i]);
     }
     ship.wake = fresh;
-    this.wakeKeys.set(fresh, ship.id); // Story 9.8: the replayed ribbon keeps its source key
   }
 
   /** Record a running torpedo's wake sample (Story 4.12, amendment 196) —
@@ -5150,7 +5250,6 @@ export class World {
     let r = this.torpWakes.get(shell.id);
     if (r === undefined) {
       r = createTorpWake();
-      this.wakeKeys.set(r, shell.id); // Story 9.8: fish water rolls under the fish's own id
       this.torpWakes.set(shell.id, r);
     }
     appendWakeSample(r, shell.x, shell.y, this.now);
@@ -5280,12 +5379,12 @@ export class World {
   // makes it a visible TARGET; nothing makes it a HITTABLE one).
 
   /** Every afloat PARTICIPANT's denial disc, of radius
-   *  `CONFIG.vision.dropout.startU` — Eric 2026-10-13 (Story 9.8): deny inside
-   *  the dropout start, not radar; 16 discs of 1,000 u cover ~64 % of the
-   *  5,000 u ocean so the lattice seats a placement without the fallback. A
-   *  placed body may appear in the flickering rim band of someone's radar,
-   *  never where a sweep paints reliably. (Before the ruling the disc rode
-   *  each hull's effective `stats.radarRange`.) THE one derivation of the
+   *  `CONFIG.beacons.keepOutU` — its OWN fact since Story 11.2 (R20: today's
+   *  1,000 u kept; it was `CONFIG.vision.dropout.startU`, Eric 2026-10-13,
+   *  Story 9.8, until the dropout was removed): 16 discs of 1,000 u cover
+   *  ~64 % of the 5,000 u ocean so the lattice seats a placement without the
+   *  fallback. (Before Story 9.8 the disc rode each hull's effective
+   *  `stats.radarRange`.) THE one derivation of the
    *  denied region, read by the RADIO BEACON placement (Story 10.8; the
    *  retired PvE fleet anchor read it before).
    *
@@ -5296,7 +5395,7 @@ export class World {
     const denied: IntelDisc[] = [];
     for (const s of this.ships.values()) {
       if (!isAfloat(s.lifecycle) || !roleIsParticipant(s)) continue;
-      denied.push({ x: s.state.x, y: s.state.y, r: CONFIG.vision.dropout.startU });
+      denied.push({ x: s.state.x, y: s.state.y, r: CONFIG.beacons.keepOutU });
     }
     return denied;
   }
@@ -6049,6 +6148,20 @@ export class World {
     this.pending.push({ k: 'sp', id: shell.ownerId, x, y });
   }
 
+  /**
+   * The boom of a ballistic that stopped without striking a hull. A TORPEDO
+   * that merely ran out of run (`expired`) is tagged with its owner (`run`,
+   * server-internal — signals.ts BoomSubject) so the boom row gates it at the
+   * torpedo eye reach instead of the splash reach (Story 11.2 review gate,
+   * F4): nothing exploded. Everything else — an island stop, a shell's fall —
+   * is the plain boom.
+   */
+  private missBoom(shell: ShellState, outcome: { kind: string; x: number; y: number }): BoomSubject {
+    const boom: BoomSubject = { k: 'boom', id: shell.id, x: outcome.x, y: outcome.y };
+    if (shell.kind === 'torp' && outcome.kind === 'expired') boom.run = shell.ownerId;
+    return boom;
+  }
+
   /** Turn a spent ballistic's outcome into its events, per the projectile's
    *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
    *  `hitShip` is an early interception OUTSIDE the blast — the interceptor
@@ -6063,7 +6176,7 @@ export class World {
       return;
     }
     if (outcome.kind !== 'hitShip') {
-      this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
+      this.pending.push(this.missBoom(shell, outcome));
       // A DIRECT shell (the machine gun's) that ARRIVED without striking a
       // hull LANDS here: the landing test runs at its final point (amendment
       // 200 — a no-op for any mask without `mine`). An island stop is not a
@@ -7451,11 +7564,6 @@ export class World {
       const raw = ship.sweepAngle + delta;
       ship.prevSweepAngle = ship.sweepAngle;
       ship.sweepAngle = wrapPositive(raw);
-      // Story 9.8: one more revolution per wrap past 2π — the dropout roll's
-      // `rev` (rulings 121–123). `raw` is ≥ 0 (a wrapped angle plus a positive
-      // step), so floor(raw / TAU) is the number of wraps this tick (0 or 1 at
-      // any sane period).
-      ship.sweepRev += Math.floor(raw / TAU);
     }
   }
 
@@ -7526,7 +7634,7 @@ export class World {
    * ring's centre, no farther out than the
    * ring's radius minus `CONFIG.beacons.edgeMarginU` (the whole paying circle
    * inside the ring), clear of land, outside every captain's keep-out disc
-   * (`captainDiscs` — `CONFIG.vision.dropout.startU`), max-min against every
+   * (`captainDiscs` — `CONFIG.beacons.keepOutU`), max-min against every
    * afloat hull AND the beacons already picked this cycle. There is no retry
    * queue — the ruling is "at 0:00": a pick that cannot clear the discs takes
    * the rule's max-min fallback at once and is LOGGED. A cycle with no
@@ -7958,7 +8066,6 @@ export class World {
     // nothing on the fresh life's first tick.
     ship.sweepAngle = wrapPositive(ship.state.heading);
     ship.prevSweepAngle = ship.sweepAngle;
-    ship.sweepRev = 0; // the dropout roll's revolution index re-anchors with the beam (Story 9.8)
     // Respawn happens only in the waiting phase (active-phase death = spectate),
     // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
     // XP progress (xpMs/level) and the banked levels + front offer persist with

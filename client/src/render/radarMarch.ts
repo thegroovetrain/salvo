@@ -548,6 +548,45 @@ interface RunCtx {
    *  and stamping time. Never a visibility decision — a dropped cell could not
    *  have lit a pixel at any alpha. */
   minStore: number;
+  /** The angle (rad) between this slice's adjacent rays (`span / rays`, at
+   *  most the derived `rayStep`) — the WIDENING's input (`lateralCells`,
+   *  Story 11.2). Every field widens: terrain, surf, clutter, cloud and the
+   *  wire echo stamps alike, each lateral cell priced through the field. */
+  rayRad: number;
+  /** The map disk's radius (u), or NaN for none: every ray stops where it
+   *  leaves the board (`diskExitU`, Story 11.2). */
+  diskR: number;
+}
+
+/**
+ * u — how far a ray from `obs` along the unit (`dx`, `dy`) runs before it
+ * leaves the map disk of radius `r` about the origin; Infinity with no usable
+ * disk, 0 for an observer already outside it (Story 11.2: a rim ship must not
+ * march thousands of units of nothing).
+ */
+export function diskExitU(obs: Vec2, dx: number, dy: number, r: number): number {
+  if (!finitePositive(r)) return Infinity;
+  const b = obs.x * dx + obs.y * dy;
+  const c = obs.x * obs.x + obs.y * obs.y - r * r;
+  if (c > 0) return 0;
+  return -b + Math.sqrt(b * b - c);
+}
+
+/**
+ * How many EXTRA cells either side of a ray one painted sample at `d` (u) also
+ * paints, so adjacent rays `rayRad` apart leave no unpainted cell between
+ * them (Story 11.2). The ray angle is floored at `minRayRad` to bound the ray
+ * COUNT, so on a 400 hm scope adjacent rays are ~27 u apart at the rim — three
+ * 9 u cells — and terrain out there painted in radial stripes. Each sample now
+ * covers the half-gap to its neighbours with lateral cells at whole-cell
+ * offsets, each priced through the field (no extra ray): 0 wherever the gap is
+ * within a cell (inside ~3,000 u at the shipped 0.003 rad / 9 u pair), 1 at
+ * the 400 hm rim.
+ */
+export function lateralCells(d: number, rayRad: number, cellU: number): number {
+  const half = (d * rayRad) / 2;
+  if (!(half > cellU / 2) || !finitePositive(cellU)) return 0;
+  return Math.ceil((half - cellU / 2) / cellU);
 }
 
 /**
@@ -594,7 +633,8 @@ function marchRay(bearing: number, c: RunCtx): void {
   // this is inert there and only ever bites on the wire-echo slab.
   walk.advanceTo(c.fromU);
   let lastKey = Number.NaN;
-  for (let d = c.fromU; d <= c.toU; d += step) {
+  const toU = Math.min(c.toU, diskExitU(c.obs, dx, dy, c.diskR));
+  for (let d = c.fromU; d <= toU; d += step) {
     const x = c.obs.x + dx * d;
     const y = c.obs.y + dy * d;
     const gx = cellOf(x, cellU);
@@ -646,18 +686,61 @@ function paintSample(
   req: number,
 ): void {
   if (!(vis > 0) && !c.disclosed && !terrainOverRay(c, x, y, req)) return;
+  const i = priceAt(c, x, y, d, gx, gy, vis, req);
+  const stored = i >= c.minStore; // NaN-safe: a non-finite sample stores nothing
+  if (stored) pushCell(key, gx, gy, i);
+  // A DISCLOSED stamp (a wire echo / wake slab — a narrow arc) probes its
+  // lateral cells from EVERY sample, because a bow-on hull is narrower than
+  // the gap between rays at the rim and no ray may land on it at all; the
+  // beam widens only from a sample that painted (open sea costs nothing).
+  if (stored || c.disclosed) widen(c, x, y, d, vis, req);
+}
+
+/**
+ * The field's answer at one point, shaded into a stored intensity — or NaN
+ * when nothing answers there or a surface sits below the grazing ray.
+ */
+function priceAt(c: RunCtx, x: number, y: number, d: number, gx: number, gy: number, vis: number, req: number): number {
   const s = c.field.sampleAt(x, y, d);
-  if (s === null) return;
+  if (s === null) return Number.NaN;
   const lit = s.terrainQ > 0 ? terrainIllumination(s.terrainQ, req, c.o.terrainSoftQ) : vis;
-  if (!(lit > 0) && !c.disclosed) return; // a surface below the grazing ray
+  if (!(lit > 0) && !c.disclosed) return Number.NaN; // a surface below the grazing ray
   // `shadowFloor ?? min` — the two floors are different promises and only one
   // material distinguishes them (see `FieldSample.shadowFloor`); everything that
   // predates Story 4.12 leaves it absent and reads exactly as it did. A disclosed
   // wake segment reaches here with `lit === 0` and survives on that floor alone,
   // which is amendment 190: suppression is forbidden, attenuation is not.
-  const i = shade(sampleIntensity(s, d, gx, gy, c.o.noise), lit, s.shadowFloor ?? s.min);
-  if (!(i >= c.minStore)) return; // NaN-safe: a non-finite sample stores nothing
-  pushCell(key, gx, gy, i);
+  return shade(sampleIntensity(s, d, gx, gy, c.o.noise), lit, s.shadowFloor ?? s.min);
+}
+
+/**
+ * THE WIDENING (Story 11.2): a painted sample also prices its lateral cells
+ * (`lateralCells`) — the half-gap to the neighbouring rays — each through the
+ * FIELD at that point, at this sample's range and under this ray's shadow
+ * reading. So a lateral cell paints only what is really there (a coastline
+ * never fattens into the sea, a stamp never grows past its footprint), and the
+ * ray COUNT never rises. Max-wins, so a cell a real ray reached keeps that
+ * ray's own reading. On the beam only PAINTED samples widen (open sea costs
+ * nothing); a disclosed slab probes from every sample (see `paintSample`).
+ */
+function widen(c: RunCtx, x: number, y: number, d: number, vis: number, req: number): void {
+  const k = lateralCells(d, c.rayRad, c.o.cellU);
+  if (k === 0) return;
+  // The perpendicular to the ray: (−sin, cos) of its bearing, from the sample.
+  const px = -(y - c.obs.y) / d;
+  const py = (x - c.obs.x) / d;
+  for (let j = 1; j <= k; j++) {
+    const o = j * c.o.cellU;
+    priceLateral(c, x + px * o, y + py * o, d, vis, req);
+    priceLateral(c, x - px * o, y - py * o, d, vis, req);
+  }
+}
+
+function priceLateral(c: RunCtx, x: number, y: number, d: number, vis: number, req: number): void {
+  const gx = cellOf(x, c.o.cellU);
+  const gy = cellOf(y, c.o.cellU);
+  const i = priceAt(c, x, y, d, gx, gy, vis, req);
+  if (i >= c.minStore) pushCell(cellKey(gx, gy), gx, gy, i);
 }
 
 /** Is there terrain at this point standing OVER the grazing ray? The cheap
@@ -774,6 +857,8 @@ function marchable(obs: Vec2, span: number, radarRange: number, o: HeatmapOpts):
 export interface MarchWindow {
   fromU?: number;
   toU?: number;
+  /** The map disk's radius (u): rays stop where they leave the board. */
+  diskR?: number;
 }
 
 /** Resolve the radial window against the radar range, or null when it is empty.
@@ -783,6 +868,29 @@ function resolveWindow(radarRange: number, win: MarchWindow): { fromU: number; t
   const toU = Math.min(win.toU ?? radarRange, radarRange);
   const fromU = Math.max(0, win.fromU ?? 0);
   return toU > fromU ? { fromU, toU } : null;
+}
+
+/** One slice's run context (split out of `marchSlice` for its complexity). */
+function runCtx(
+  obs: Vec2,
+  field: RadarField,
+  w: { fromU: number; toU: number },
+  o: HeatmapOpts,
+  dTheta: number,
+  diskR: number | undefined,
+): RunCtx {
+  return {
+    obs,
+    field,
+    disclosed: field.disclosed,
+    raster: field.raster,
+    fromU: w.fromU,
+    toU: w.toU,
+    o,
+    minStore: o.bands[0]?.at ?? 0,
+    rayRad: dTheta,
+    diskR: diskR ?? Number.NaN,
+  };
 }
 
 /**
@@ -813,25 +921,18 @@ export function marchSlice(
   const span = raw >= FULL_TURN ? FULL_TURN : wrapPositive(raw);
   if (!marchable(obs, span, radarRange, o)) return null;
   const w = resolveWindow(radarRange, win);
+  if (w === null) return null;
   const dTheta = rayStep(radarRange, o.march);
-  if (w === null || !finitePositive(dTheta)) return null;
-  const ctx: RunCtx = {
-    obs,
-    field,
-    disclosed: field.disclosed,
-    raster: field.raster,
-    fromU: w.fromU,
-    toU: w.toU,
-    o,
-    minStore: o.bands[0]?.at ?? 0,
-  };
-  SEEN.clear();
-  sN = 0;
+  if (!finitePositive(dTheta)) return null;
   // HALF-OPEN, `(from, to]`, and evenly spaced so the last ray lands EXACTLY on
   // `to`: adjacent slices then meet with no unpainted seam between them, and a
   // bearing on a quantum boundary is marched once rather than twice.
   const rays = Math.max(1, Math.ceil(span / dTheta));
   const d = span / rays;
+  // The widening reads the ACTUAL spacing of this slice's rays (≤ dTheta).
+  const ctx = runCtx(obs, field, w, o, d, win.diskR);
+  SEEN.clear();
+  sN = 0;
   for (let k = 1; k <= rays; k++) marchRay(from + k * d, ctx);
   const slice = freeze(t, o.cellU);
   SEEN.clear();

@@ -64,7 +64,7 @@ import {
   publishedDamageMultiplier,
   type EffectiveStats,
 } from './stats.js';
-import { deriveIndexStats } from './indexStats.js';
+import { deriveIndexStats, deriveSightRanges } from './indexStats.js';
 
 /** Write one stat effect onto the (freshly-built, mutation-safe) stats tree.
  *  Paths are one, two or three segments deep (`maxHp`, `kinematics.turnRate`,
@@ -160,7 +160,7 @@ function rePinDerived(stats: EffectiveStats): void {
   // sweep (and its period, capped) from INTEL, the cooldown scale from RELOAD
   // (the turn rate is the one baseline since Story 10.6 — R2) — idempotent in
   // the authored indices, so a mid-fold index write can never leave a derived
-  // number stale. The ONE-SHOT RANGE, RELOAD-LAW and MOUNT-CAPACITY multiplies
+  // number stale. The ONE-SHOT RELOAD-LAW and MOUNT-CAPACITY multiplies
   // are NOT here (they would double-apply); they live in clampStats alone.
   deriveIndexStats(stats);
   // THE TWO ABILITIES' DERIVED NUMBERS (Story 10.6, sim/abilityStats.ts):
@@ -174,9 +174,12 @@ function rePinDerived(stats: EffectiveStats): void {
   eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
   eq.broadside.traverseRad = broadsideTraverse(eq.broadside.spreadRung);
   eq.broadside.mountSpreadRad = broadsideMountSpread(eq.broadside.spreadRung);
-  // THE LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is the 4/12
-  // rung of intel range (Story 9.8, epic-9 amendment 103 — was 4/8, radar / 2).
-  stats.sightRange = stats.radarRange / 3;
+  // THE TWO EYE REACHES (Story 11.2, R3 / R14 / R18): class-and-name sight and
+  // plain-hull sight are their own CONFIG facts (sim/indexStats.ts
+  // deriveSightRanges). "Truesight is the 4/12 rung of intel range" (Eric
+  // 2026-08-16; `radarRange / 3` since Story 9.8) RETIRED 2026-11-12 with the
+  // twelfths ladder.
+  deriveSightRanges(stats);
   // ARMOR'S DAMAGE MULTIPLIER (Story 9.7, epic-9 amendments 86–88) rides the
   // whitelisted `armor` path through the one formula, so a mid-fold Armor
   // write can never leave it stale (clampStats floors Armor and re-derives).

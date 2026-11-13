@@ -3,10 +3,8 @@ import * as shared from '../index.js';
 import type { EquipmentId } from '../index.js';
 import { NEUTRAL_HULL } from './neutralHull.js';
 
-// ONE RUNG OF THE TWELFTHS RULER (Story 9.8, epic-9 amendment 103): a twelfth
-// of radar, which is `sight / 4` because radar = sight × 3 — derived, never the
-// literal 125 (epic-9 amendment 8).
-const TWELFTH = CONFIG.vision.sight / 4;
+// (The ladder-rung constant this file derived from sight, and the pins that
+// used it, are DELETED — Story 11.2, 2026-11-12, epic-11 amendment 4: the ladder retired, every reach is its own fact.)
 import {
   damageMultiplierFor,
   FLASH_WINDOW_MS,
@@ -100,7 +98,7 @@ import {
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 describe('shared barrel', () => {
-  it('exposes the blow, dispersion, mount-angle, fog-field and dropout functions and the FOG_NO_CUT sentinel', () => {
+  it('exposes the blow, dispersion, mount-angle and fog-field functions and the FOG_NO_CUT sentinel — and no dropout (Story 11.2, R8)', () => {
     for (const fn of [shared.flakRimFactor, shared.settleBlow, shared.dispersedPoint, shared.dispersedLanding, shared.dispersionAxes, shared.turretAngle, shared.launcherAngle]) {
       expect(typeof fn).toBe('function');
     }
@@ -108,9 +106,10 @@ describe('shared barrel', () => {
       expect(typeof fn).toBe('function');
     }
     expect(shared.FOG_NO_CUT).toBe(9);
-    for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
-      expect(typeof fn).toBe('function');
+    for (const gone of ['dropoutPaintP', 'dropoutRoll', 'dropoutPaints']) {
+      expect(gone in shared, gone).toBe(false);
     }
+    expect('dropout' in CONFIG.vision).toBe(false);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -316,8 +315,8 @@ describe('shared barrel', () => {
       expect(gone in CONFIG.starShells, gone).toBe(false);
     }
     expect('rangeU' in CONFIG.starShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
-    // The ratified SIGHT/2 structural derivation survives.
-    expect(CONFIG.starShells.litRadius).toBe(CONFIG.vision.sight / 2);
+    // (The "litRadius = sight / 2" derivation pin is DELETED — Story 11.2,
+    // 2026-11-12: the lit radius is its own hectometer fact, R18.)
   });
 
   it('CONFIG.phosphorShells fires 360° and never hits a mine; its range is its own tiered dial', () => {
@@ -331,9 +330,8 @@ describe('shared barrel', () => {
   it('CONFIG.foulingShell: no damage, a fixed reach, a tiered radius, and a slow that leaves the hull moving (Story 9.4; a slot weapon since 10.5)', () => {
     const fs = CONFIG.foulingShell;
     expect('damage' in fs).toBe(false); // zero damage — a slow is not damage
-    // Its reach is FIXED (ruling 125: 8/12, no Tier V dial) — R7 tiers the
-    // radius, never the reach.
-    expect(fs.rangeU).toBe(TWELFTH * 8);
+    // Its reach is FIXED (no Tier V dial) — R7 tiers the radius, never the
+    // reach. (The 8/12-rung value pin is DELETED with the ladder, Story 11.2.)
     expect('rangeUAtV' in fs).toBe(false);
     expect(fs.hits).toEqual(['hull', 'beacon']); // never a mine
     expect(fs.radiusStepPerTier).toBeGreaterThan(0);
@@ -394,20 +392,23 @@ describe('shared barrel', () => {
     expect(FLASH_WINDOW_MS).toBe(fl.rampMs + fl.holdMs + fl.clearMs);
   });
 
-  it('CONFIG.torpedo: the homing travel budget is finite and positive, so a fish can never orbit forever', () => {
-    // `commandBurstRadius` is RETIRED with COMMAND DETONATION (Story 7-5).
+  it('every torpedo kind runs a finite, positive run that does not shrink from Tier I to Tier V, so no fish runs forever (Story 11.2, R5)', () => {
+    // `commandBurstRadius` is RETIRED with COMMAND DETONATION (Story 7-5), and
+    // the homing-only die-distance retired into the run (Story 11.2).
     expect('commandBurstRadius' in CONFIG.torpedo).toBe(false);
-    // The homing travel budget (review P8): finite, so a fish can never orbit
-    // forever.
-    expect(Number.isFinite(CONFIG.torpedo.homingMaxRangeU)).toBe(true);
-    expect(CONFIG.torpedo.homingMaxRangeU).toBeGreaterThan(0);
+    expect('homingMaxRangeU' in CONFIG.torpedo).toBe(false);
+    for (const kind of [CONFIG.torpedo, CONFIG.lightTorpedo, CONFIG.supercavTorpedo]) {
+      expect(Number.isFinite(kind.runU)).toBe(true);
+      expect(kind.runU).toBeGreaterThan(0);
+      expect(kind.runUAtV).toBeGreaterThanOrEqual(kind.runU);
+    }
   });
 
   it('CONFIG.lightTorpedo (R18): runs under mines and carries no chassis duplicate', () => {
     expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'beacon']); // AR44 — it runs UNDER a minefield
-    // NO MAX RANGE, and no chassis duplication: hit radius, spawn clearance
-    // and the homing acquire/die/update thresholds are the FAMILY's, read from
-    // CONFIG.torpedo (epic-8 amendments 84e/84f).
+    // No chassis duplication: hit radius, spawn clearance and the homing
+    // acquire/update thresholds are the FAMILY's, read from CONFIG.torpedo
+    // (epic-8 amendment 84e). Its RUN is its own (Story 11.2, R5).
     for (const k of ['hitRadius', 'spawnClearance', 'homingAcquireRange', 'homingMaxRangeU', 'rangeU']) {
       expect(k in CONFIG.lightTorpedo, k).toBe(false);
     }
@@ -570,12 +571,14 @@ describe('shared barrel', () => {
     }
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
     // THE INDICES ARE THE AUTHORED PATHS (Story 10.3, Eric 2026-11-04,
-    // epic-10 amendment 8; `rudder` deleted by Story 10.6, R2): `armor`,
-    // `power`, `reload`, `engines`, `intel`, `range` — pinned PRESENT; what
-    // they derive is pinned ABSENT below.
+    // epic-10 amendment 8; `rudder` deleted by Story 10.6, R2; `range` by
+    // Story 11.2, R9): `armor`, `power`, `reload`, `engines`, `intel` —
+    // pinned PRESENT; what they derive is pinned ABSENT below.
     for (const idx of INDEX_IDS) expect(BOON_STAT_PATHS, idx).toContain(idx);
     for (const path of [
-      'sweepPeriodMs', 'sightRange',
+      'sweepPeriodMs', 'sightRange', 'hullSightRange',
+      // Story 11.2 (R9): RANGE left the index — no `range` path is accepted.
+      'range',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): the Armor multiplier
       // is DERIVED from `armor` (which IS addressable) — never a card path.
       'damageMultiplier',

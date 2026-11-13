@@ -798,6 +798,34 @@ export interface Contact {
   lu?: number[];
 }
 
+/**
+ * A PLAIN HULL — THE OUTER SIGHT TIER (Story 11.2, Eric 2026-11-12, R3): a
+ * hull seen by eye beyond the class-and-name reach (`stats.sightRange`,
+ * `CONFIG.vision.sight`) and inside the plain-hull reach
+ * (`stats.hullSightRange`, `CONFIG.vision.hullSight`), island LOS clear. It
+ * is LIVE — one generic shape at the hull's true position, heading and speed
+ * — and carries NOTHING ELSE.
+ *
+ * `h` is an ANONYMOUS PER-OBSERVER HANDLE: stable only while that hull stays
+ * in this observer's outer band (a fresh handle on every visit), never the
+ * roster id and never derivable from it — a stable handle would link a hull
+ * to its class after one close pass. The server mints it.
+ *
+ * ANTI-CHEAT — deliberately omitted: the class (`cls`), the roster id, the
+ * turret and launcher angles (`tu` / `lu`) and any other identity channel.
+ * A hull crossing inward becomes a full `Contact` and leaves this list in the
+ * same frame (the client shows one hull, never both). Not a seventh
+ * perception exception: it rides its own invariant line. KEY ORDER IS
+ * LOAD-BEARING (msgpack): h,x,y,heading,speed.
+ */
+export interface PlainContact {
+  h: string; // the anonymous per-observer handle — never a roster id
+  x: number; // u
+  y: number; // u
+  heading: number; // rad
+  speed: number; // u/s
+}
+
 // --- GameEvent union (discriminated on `k`) --------------------------------
 
 /**
@@ -1114,9 +1142,8 @@ export interface HitCallEvent {
  * muzzle), so a D1 back-dated shell that materializes further along its
  * flight is masked by a flash at the hull it left — never at a reveal point,
  * which is the exact anti-cheat leak the Story 1.5 review closed. Visible to
- * any observer within the derived CONFIG.vision.muzzleFlash halo (the twelfths
- * ladder's 6/12 rung, SIGHT * 1.5 since Story 9.8, epic-9 amendment 103 — the
- * 5/8 rung before) with island LOS clear — a declared, narrowly-scoped fog
+ * any observer within the CONFIG.vision.muzzleFlash halo (its own 350 hm fact
+ * since Story 11.2, R18 — a ladder rung before) with island LOS clear — a declared, narrowly-scoped fog
  * exception (a flash is a light source: no lit zone extends how far it
  * carries). The halo still comfortably covers the
  * back-dated spawn above, because it still exceeds the truesight bubble.
@@ -1142,8 +1169,8 @@ export interface MuzzleEvent {
  * hurt — position and severity band, and nothing else. Emitted on the
  * CONFIG.smoke.puffIntervalMs cadence at the hull's TRUE CURRENT POSITION for
  * as long as it stays below a band, and visible to any observer within the
- * derived CONFIG.vision.muzzleFlash halo (the ladder's 6/12 rung, SIGHT * 1.5
- * since Story 9.8) with island LOS clear
+ * CONFIG.vision.muzzleFlash halo (350 hm since Story 11.2, R18) with island
+ * LOS clear
  * — the muzzle flash's reach reused verbatim, never a fourth vision constant
  * (amendment 42), and islands block this sensor exactly as they block every
  * other (amendment 44). A declared, narrowly-scoped fog exception: the FIFTH,
@@ -1675,6 +1702,13 @@ export interface FrameMsg {
   // per-observer AIRDROP visibility (Story 10.9 — sight-gated, contact-like;
   // omitted when none, the litZones rule). Radar sees a drop only as a blip.
   drops?: DropView[];
+  /**
+   * PLAIN HULLS (Story 11.2, R3): hulls seen by eye beyond the class-and-name
+   * reach and inside the plain-hull reach — pose under an anonymous
+   * per-observer handle only (see `PlainContact`). Omitted when none (the
+   * litZones rule).
+   */
+  pc?: PlainContact[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

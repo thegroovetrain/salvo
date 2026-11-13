@@ -33,13 +33,18 @@ import type { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { bareWorld, captain, moveTo } from './beaconFixture.js';
 
-const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
-const DETECT = SIGHT * CONFIG.vision.detectFactor;
+const CRATE_SIGHT = CONFIG.vision.crateKindSight; // Story 11.2: a crate's kind has its own eye reach
+/** How far the `far` hull sits from the crate: beyond radar altogether. */
+const UNPAINTED = RADAR + 300;
 
 /** One crate at a deliberately non-round position (so its coordinates can be
- *  matched exactly and can never coincide with a cell index or a clock). */
-const CRATE: DropState = Object.freeze({ id: 'drop-7x', x: Math.fround(1237.25), y: Math.fround(-418.75), kind: 'armor' });
+ *  matched exactly and can never coincide with a cell index or a clock).
+ *  MIND THE BOARD (Story 11.2): the radar reach is most of the board's
+ *  diameter, so the crate sits half of UNPAINTED east of the origin and the
+ *  `far` hull as far west — both on the water (a hull seated past the rim is
+ *  pushed back onto it by the first step, which would put it inside radar). */
+const CRATE: DropState = Object.freeze({ id: 'drop-7x', x: Math.fround(UNPAINTED / 2), y: Math.fround(-418.75), kind: 'armor' });
 
 /** Park a hull's beam just short of the bearing to `p`, so the sweep crosses
  *  it within the first ticks of a run (the perception.test.ts posture). */
@@ -109,12 +114,13 @@ function twinWorlds(seed: number): { withCrate: World; without: World; ids: stri
   // the crate's exact floats anywhere in a frame, so a `you.y` or a contact's
   // `x` equal to it by fixture would be a false leak).
   for (const w of [withCrate, without]) {
-    // `near`: ~160 u west-south-west of the crate — inside detect (sighted) and inside radar.
+    // `near`: ~160 u west-south-west of the crate — inside the crate-kind eye reach (sighted) and inside radar.
     captain(w, 'near', CRATE.x - 156, CRATE.y + 37.5, 0);
-    // `radarOnly`: beyond sight, inside radar and the flat dropout band, roughly due south.
-    captain(w, 'radarOnly', CRATE.x + 23.25, CRATE.y + SIGHT + 300, 0);
-    // `far`: beyond radar range altogether.
-    captain(w, 'far', CRATE.x - (RADAR + 600), CRATE.y - 51, 0);
+    // `radarOnly`: beyond the crate-kind eye reach, inside radar, roughly due south.
+    captain(w, 'radarOnly', CRATE.x + 23.25, CRATE.y + CRATE_SIGHT + 300, 0);
+    // `far`: beyond radar range altogether — across the board.
+    captain(w, 'far', CRATE.x - UNPAINTED, CRATE.y - 51, 0);
+    expect(Math.hypot(CRATE.x - UNPAINTED, CRATE.y - 51) + 100).toBeLessThan(w.map.radius); // premise: `far` is seated on the water
     w.respawnEnabled = false;
     parkBeamBefore(w, 'near', CRATE);
     parkBeamBefore(w, 'radarOnly', CRATE);
@@ -125,9 +131,8 @@ function twinWorlds(seed: number): { withCrate: World; without: World; ids: stri
 
 describe('airdrops — the two-world differential (crate on vs off changes only `drops` and one anonymous blip)', () => {
   it('an observer who can neither see nor paint the crate gets byte-identical frames; one who can differs ONLY by `drops` and/or the crate\'s disc blip; a spectator gets `drops` and never a blip', () => {
-    expect(Math.hypot(156, 37.5)).toBeLessThan(DETECT);
-    expect(SIGHT + 300).toBeLessThanOrEqual(CONFIG.vision.dropout.startU); // the radar roll never misses here
-    expect(SIGHT + 300).toBeLessThan(RADAR);
+    expect(Math.hypot(156, 37.5)).toBeLessThan(CRATE_SIGHT);
+    expect(CRATE_SIGHT + 300).toBeLessThan(RADAR);
     const { withCrate, without, ids } = twinWorlds(5100);
     const ledger = { nearDrops: 0, nearBlips: 0, radarBlips: 0, radarDrops: 0, farDiffs: 0, specDrops: 0, specBlips: 0, frames: 0 };
     for (let tick = 0; tick < 60; tick += 1) {
@@ -145,6 +150,8 @@ describe('airdrops — the two-world differential (crate on vs off changes only 
         expect(sa.rest, `${id} tick ${tick}: something besides drops / the crate's blip moved`).toEqual(sb.rest);
         expect('drops' in b, `${id} tick ${tick}: a crate-less frame carries drops`).toBe(false);
         if (id === 'far') {
+          const me = withCrate.ships.get('far')!.state;
+          expect(Math.hypot(me.x - CRATE.x, me.y - CRATE.y), `far tick ${tick}: premise — still beyond radar`).toBeGreaterThan(RADAR);
           if (!same(a, b)) ledger.farDiffs += 1;
           expect(same(a, b), `far tick ${tick}: byte-identical`).toBe(true);
         }
@@ -172,7 +179,7 @@ describe('airdrops — the two-world differential (crate on vs off changes only 
     }
     // NON-VACUITY: the sight arm delivered on every tick, the radar arm painted
     // (both for the sighted observer — a crate is a contact AND a blip, the
-    // amendment-210 rule — and for the one beyond sight), the beyond-sight
+    // amendment-210 rule — and for the one beyond the crate-kind reach), that
     // observer never got the glyph, the far observer never differed, and the
     // spectator saw the row without a single blip.
     expect(ledger.nearDrops).toBe(60);
@@ -215,9 +222,12 @@ describe('airdrops — the pickup tell `dp` reaches the collector alone', () => 
   it('a real sail-over: the collector gets exactly one {k,id,t,g}; a watcher in plain sight gets no event about it and only loses the row; a spectator never gets `dp`', () => {
     const w = bareWorld(5102, { pseudonymSeed: 777, drops: false });
     w.respawnEnabled = false;
+    // Both hulls hold the crate inside the crate-kind eye reach (Story 11.2 —
+    // its own fact): the crate half that reach east of the taker, the watcher
+    // half that reach north of it (√2 / 2 of the reach from the crate).
     const collector = captain(w, 'taker', 0, 0, 0);
-    captain(w, 'watch', 0, 200, 0); // 200 u north: sees the taker and the crate
-    const crate: DropState = { id: 'crate-1', x: 400, y: 0, kind: 'power' };
+    captain(w, 'watch', 0, CRATE_SIGHT / 2, 0); // sees the taker and the crate
+    const crate: DropState = { id: 'crate-1', x: CRATE_SIGHT / 2, y: 0, kind: 'power' };
     w.drops.set(crate.id, crate);
     w.step();
     const before = { taker: buildFrame(w, 'taker'), watch: buildFrame(w, 'watch') };

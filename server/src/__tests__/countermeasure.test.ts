@@ -236,13 +236,20 @@ describe('COUNTERMEASURE — a cloud hides nothing (Story 9.3 session 2: a clien
     }
   });
 
-  it("radar paints a hull standing inside a NON-owner's fresh cloud in the annulus", () => {
+  it("radar paints a hull standing inside a NON-owner's fresh cloud in radar-only water (beyond both eye tiers)", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    place(w, 'b', 700, 0); // sight < 700 ≤ dropout start < radar (Story 9.8, amendment 103)
-    injectCloud(w, 'onB', 'b', 700, 0);
+    // Radar-only water (Story 11.2): past the plain-hull eye reach, inside the
+    // radar reach — the two hulls seated either side of the origin, on the board.
+    const d = (CONFIG.vision.hullSight + CONFIG.vision.radar) / 2;
+    expect(d / 2).toBeLessThan(w.map.radius); // premise: both seats are on the water
+    const a = place(w, 'a', -d / 2, 0);
+    place(w, 'b', d / 2, 0);
+    injectCloud(w, 'onB', 'b', d / 2, 0);
     windowAround(a, 0);
-    expect(eventsOf(buildFrame(w, 'a'), 'blip')).toHaveLength(1);
+    const f = buildFrame(w, 'a');
+    expect(contactIds(f)).toEqual([]); // premise: the eye has nothing —
+    expect('pc' in f).toBe(false); // — at either tier
+    expect(eventsOf(f, 'blip')).toHaveLength(1);
   });
 });
 
@@ -254,11 +261,13 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
   const SIGHT = CONFIG.vision.sight;
   const RADAR = CONFIG.vision.radar;
   const R0 = cloudOutlineRadius(0, SMOKE0);
-  // Placements off the live ladder (Story 9.8, amendment 103): NEAR's nearest
-  // rim point sits 30 u inside sight, FAR's 70 u past it; RADAR_C's whole
-  // disc is beyond sight and its centre inside the dropout's flat band (so
-  // every swept tick delivers — ruling 121); BEYOND's nearest point is past
-  // radar.
+  // Placements off the named reaches (Story 11.2 — `sight` and `radar` are
+  // each their own hectometer fact): NEAR's nearest rim point sits 30 u
+  // inside sight, FAR's 70 u past it; RADAR_C's whole disc is beyond sight
+  // and inside radar (every swept, unshadowed tick delivers — the dropout
+  // roll is gone); BEYOND's nearest point is past radar. A cloud is a raw
+  // store write and none of these cases steps the world, so BEYOND lying off
+  // the board is harmless here.
   const NEAR = SIGHT + R0 - 30;
   const FAR = SIGHT + R0 + 70;
   const RADAR_C = SIGHT + R0 + 100;
@@ -294,7 +303,6 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     place(w, 'b', 900, 900);
     expect(RADAR_C - R0).toBeGreaterThan(SIGHT); // premise: no point of the disc in sight
     expect(RADAR_C - R0).toBeLessThanOrEqual(RADAR); // premise: its nearest point in radar range
-    expect(RADAR_C).toBeLessThanOrEqual(CONFIG.vision.dropout.startU); // premise: no dropout at the centre
     // Half the disc's half-span: inside its bearing span, off the centre's own
     // bearing (derived from the stamped disc — Story 10.6 — never a literal).
     const off = Math.asin(R0 / RADAR_C) / 2;
@@ -330,8 +338,11 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    injectCloud(w, 'mine', 'a', 2000, 0);
-    injectCloud(w, 'theirs', 'b', -2000, 0);
+    // 'mine' lies past a's radar; 'theirs' lies wholly past a's sight (and
+    // a's beam is parked zero-width, so radar delivers nothing) and as far
+    // again from its owner b.
+    injectCloud(w, 'mine', 'a', BEYOND, 0);
+    injectCloud(w, 'theirs', 'b', -FAR, 0);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['mine']);
     expect(cloudIds(buildFrame(w, 'b'))).toEqual(['theirs']);
     expect(cloudIds(buildFrame(w, 'a', 'finished'))).toEqual(['mine', 'theirs']); // unfogged, in press order

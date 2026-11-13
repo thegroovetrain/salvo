@@ -138,13 +138,15 @@
 // of SLICES, so the scope carries a fading trail behind the beam rather than a
 // fixed number of marks per track.
 //
-// Range rings (documented choice): the plan calls for CIC-style range rings;
-// own-ship-centered beats map-centered for readability, so ONE ring at
-// exactly sightRange and ONE at exactly radarRange follow the own ship here
-// (kept subtle). The faint map-centered rings in map.ts remain as the chart
-// grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
+// Range rings: since Story 11.2 (Eric 2026-11-12, R19) the own-ship rings, the
+// compass scale, the heading line and the sweep's crisp line are the radar
+// DISPLAY (render/radarDisplay.ts), driven off this scope's anchor and beam
+// (`beamAngle`); this module keeps the sweep's afterglow sprite. The old
+// unlabeled sight / radar rings here and the map-centered chart rings in
+// map.ts are gone. Thin Pixi adapter; the math lives in phosphor.ts and
+// radarHeatmap.ts.
 
-import { BufferImageSource, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { BufferImageSource, Container, Rectangle, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -163,7 +165,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 import type { ScreenWorldRect } from './camera.js';
-import { fogHoleRadiusU, type DazzleClock } from './fog.js';
+import { eyeHoleRadiusU, type DazzleClock } from './fog.js';
 import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
   FULL_TURN,
@@ -236,8 +238,6 @@ function rayCount(n: number): number {
   return Math.max(0, Math.floor(Number.isFinite(n) ? n : 0));
 }
 
-const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
-const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
 
 /** A `return` echo whose OBSERVER-RELATIVE geometry (the range its intensity
  *  attenuates over) is not resolved yet: the wire coverage footprint alone,
@@ -331,7 +331,9 @@ export interface EyeReachSource {
 
 export class Radar {
   private readonly sweep: Sprite;
-  private readonly rings: Graphics;
+  /** This frame's beam angle (rad), or null while the sweep is hidden — the
+   *  radar DISPLAY's one input from here (render/radarDisplay.ts). */
+  private beam: number | null = null;
   /** THE ELEVATION AUTHORITY (cycle 59 ruling; amendment 129) — and, since cycle
    *  62, the whole of the client's terrain knowledge on this path: its land/water
    *  truth is the shipped coastline's own mask (`height > 0 ⟺ LAND`), so the
@@ -339,6 +341,8 @@ export class Radar {
    *  and never on the wire, so it carries ZERO disclosure. Null until
    *  `setHeightRaster` runs, in which case the field simply carries no terrain. */
   private heightRaster: HeightRaster | null = null;
+  /** See `setMapRadius`. */
+  private mapR = Number.NaN;
   /** THE PAINT LIST (ruling R1) — marched slices, re-rasterized in full
    *  every frame. */
   private readonly paints: MarchSlice[] = [];
@@ -462,15 +466,12 @@ export class Radar {
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
 
-    this.rings = new Graphics();
-    this.rings.visible = false;
-
     this.sweep = new Sprite(bakeSweepTexture());
     this.sweep.anchor.set(0.5);
     this.sweep.blendMode = 'add';
     this.sweep.visible = false;
 
-    sweepLayer.addChild(this.rings, this.sweep);
+    sweepLayer.addChild(this.sweep);
     this.applyRanges();
   }
 
@@ -497,13 +498,14 @@ export class Radar {
    * source boundary any more (amendment 210: every return, inside the bubble or
    * beyond it, arrives on the wire; nothing is synthesized on either side).
    *
-   * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
-   * called rather than re-derived — because that is also, by construction, the
-   * effective-truesight number the server's own `sightOf` uses. Exposed for
-   * tests and for exactly that equality assertion.
+   * It is `eyeHoleRadiusU` — the class-and-name sight on the fog's re-bake
+   * quantum, called rather than re-derived — because that is, by construction,
+   * the effective-truesight number the server's own `sightOf` uses. (It was the
+   * fog hole itself until Story 11.2 moved the hole to the plain-hull reach.)
+   * Exposed for tests and for exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzle);
+    return eyeHoleRadiusU({ sightRange: this.sightRange }, this.dazzle);
   }
 
   /**
@@ -529,10 +531,19 @@ export class Radar {
   }
 
   private applyRanges(): void {
-    this.rings.clear();
-    this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
-    this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
+  }
+
+  /** This frame's beam angle (rad, world: the sweep sprite's rotation), or
+   *  null while the sweep is hidden (no own ship, no sweep sample yet, the
+   *  start line, a spectator) — the radar display hides with it. */
+  get beamAngle(): number | null {
+    return this.beam;
+  }
+
+  /** The observer's radar reach (u) — the radar display's outer ring. */
+  get radarRangeU(): number {
+    return this.radarRange;
   }
 
   /**
@@ -618,6 +629,13 @@ export class Radar {
    */
   setHeightRaster(raster: HeightRaster | null): void {
     this.heightRaster = raster;
+  }
+
+  /** The map disk's radius (u): the beam's rays stop where they leave the
+   *  board (Story 11.2 — a rim ship marches no empty sea past the edge). NaN
+   *  (the default) leaves them running to the radar reach. */
+  setMapRadius(r: number): void {
+    this.mapR = r;
   }
 
   /** How many slices are live in the list (debug/tests). */
@@ -1028,7 +1046,7 @@ export class Radar {
     for (let k = 0; k < plan.owed; k++) {
       const from = this.sliceFrom ?? rot;
       const to = from + cfg.march.sliceRad;
-      const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg);
+      const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg, { diskR: this.mapR });
       if (slice !== null) this.enrollSlice(slice);
       this.sliceFrom = wrapPositive(to);
     }
@@ -1260,13 +1278,12 @@ export class Radar {
   private updateSweep(own: OwnPoint | null, serverNow: number): number | null {
     const visible = own !== null && this.lastSweep !== null;
     this.sweep.visible = visible;
-    this.rings.visible = visible;
+    this.beam = null;
     if (!visible || own === null || this.lastSweep === null) {
       this.sliceFrom = null;
       return null;
     }
     this.sweep.position.set(own.x, own.y);
-    this.rings.position.set(own.x, own.y);
     const rot = sweepRotation(
       this.lastSweep.angle,
       this.lastSweep.t,
@@ -1274,6 +1291,7 @@ export class Radar {
       this.sweepPeriodMs,
     );
     this.sweep.rotation = rot;
+    this.beam = rot;
     return rot;
   }
 

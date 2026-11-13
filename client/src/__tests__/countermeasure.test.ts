@@ -129,8 +129,8 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(main).toContain('new Countermeasure(stage.layers.cloud)');
     expect(main, 'the radar reads the clouds as a return source').toContain('radar.setCloudSource(countermeasure)');
     expect(main).toContain('stage.layers.ownShip.addChild(ownView.gfx)');
-    expect(main, 'the halo follows the live intel range, beside radar.setRanges')
-      .toContain('g.countermeasure.setHaloU(hazeHaloU(stats.radarRange))');
+    expect(main, 'the halo is set beside radar.setRanges, off the muzzle-flash reach')
+      .toContain('g.countermeasure.setHaloU(hazeHaloU())');
     expect(main, 'the alive path centres the halo on the own pose, clipped to the screen')
       .toContain('g.countermeasure.render(now, pose, g.camera.screenWorldRect)');
     expect(main, 'the halo sees past no island: the map\'s islands, beside the radar\'s wake sources')
@@ -147,9 +147,9 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     return { cm: new Countermeasure(layer, seeded()), layer };
   };
 
-  it('the halo radius is the wounded-smoke rung: radarRange × muzzleFlashFactor, starting at the base intel range', () => {
-    expect(hazeHaloU(CONFIG.vision.radar)).toBe(CONFIG.vision.muzzleFlash);
-    expect(BASE_HAZE_HALO_U).toBe(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
+  it('the halo radius is the wounded-smoke reach — the muzzle-flash fact (Story 11.2), the starting value too', () => {
+    expect(hazeHaloU()).toBe(CONFIG.vision.muzzleFlash);
+    expect(BASE_HAZE_HALO_U).toBe(hazeHaloU());
     const { cm } = fresh();
     expect(cm.haloU).toBe(BASE_HAZE_HALO_U);
     expect(haloBakes.calls).toEqual([{ haloU: BASE_HAZE_HALO_U, into: undefined }]);
@@ -257,7 +257,7 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     cm.setHaloU(Number.NaN);
     cm.setHaloU(0);
     expect(haloBakes.calls, 'no-change / degenerate values cost nothing').toHaveLength(1);
-    const wider = hazeHaloU(CONFIG.vision.radar * 1.2);
+    const wider = BASE_HAZE_HALO_U * 1.2;
     cm.setHaloU(wider);
     expect(haloBakes.calls.at(-1)).toEqual({ haloU: wider, into: tex });
     expect(cm.haloMask.texture).toBe(tex);
@@ -266,10 +266,10 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     expect(haloBakes.calls).toHaveLength(2);
   });
 
-  it('a radar-range rise widens the opaque disc and the sprite with it', () => {
+  it('a wider halo widens the opaque disc and the sprite with it', () => {
     const { cm } = fresh();
     const before = cm.haloMask.scale.x;
-    const wider = hazeHaloU(CONFIG.vision.radar * 1.2);
+    const wider = BASE_HAZE_HALO_U * 1.2;
     cm.setHaloU(wider);
     expect(cm.haloU).toBe(wider);
     expect(cm.haloMask.scale.x).toBeGreaterThan(before);
@@ -315,7 +315,7 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
       expect(haloBakes.calls, 'a small move costs nothing').toHaveLength(n);
       cm.render(32, { x: OWN.x + K.losRecastMoveU, y: OWN.y });
       expect(haloBakes.calls).toHaveLength(n + 1);
-      cm.setHaloU(hazeHaloU(CONFIG.vision.radar * 1.2));
+      cm.setHaloU(BASE_HAZE_HALO_U * 1.2);
       cm.render(48, { x: OWN.x + K.losRecastMoveU, y: OWN.y });
       expect(haloBakes.rays.at(-1)![K.losRays / 2], 'the new reach').toBe(reach(cm));
     });

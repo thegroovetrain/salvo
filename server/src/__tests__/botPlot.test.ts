@@ -105,7 +105,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
 }
 
 function view(events: GameEvent[]): PerceptionView {
-  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
+  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
 }
 
 /** The lattice cell centre the fold will derive for a one-cell rect at (x, y). */
@@ -585,64 +585,22 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(empty.contacts.size).toBe(0);
   });
 
-  it('THE DROPOUT LIMIT reads the WHOLE BAND (Story 9.8 review, F2): a miss is evidence only when the plot\'s association disc lies inside dropout.startU', () => {
-    const START = CONFIG.vision.dropout.startU;
+  // (DELETED 2026-11-12 — Story 11.2, R8, a ruling recorded in the epic-11
+  // amendments: "THE DROPOUT LIMIT reads the WHOLE BAND" and "THE DROPOUT
+  // LIMIT (ruling 124): an empty sweep is evidence only inside
+  // dropout.startU". The dropout is removed, so the limit they pinned is
+  // gone; the case below pins what replaced it.)
+  it('NO DROPOUT LIMIT (Story 11.2, R8): an empty sweep is evidence at EVERY range inside the radar reach, and never beyond it', () => {
     const site: SweepSite = {
       x: 0,
       y: 0,
       stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
       islands: [],
     };
-    // A stationary course (vx = vy = 0) whose last paint is aged so the
-    // association radius is exactly 100 u — the prediction stays put.
-    const R = 100;
-    const ageMs = ((R - ANON_ASSOC_U) / (FASTEST_HULL_SPEED / 3)) * 1000;
-    const plotAt = (x: number): RememberedContact =>
-      anon({ x, y: 0, seenAt: NOW - 1000, vx: 0, vy: 0, vAt: NOW - ageMs, paintAt: NOW - ageMs });
-    const straddling = plotAt(START - 10); // centre inside startU, band reaching 90 u past it
-    const inside = plotAt(START - 200); // whole band inside startU
-    expect(predictedAssocRadius(straddling, NOW)).toBeCloseTo(R, 6);
-    expect(predictedAssocRadius(inside, NOW)).toBeCloseTo(R, 6);
-    expect(sweptAndMissed(ACROSS, site, straddling, NOW)).toBe(false);
-    expect(sweptAndMissed(ACROSS, site, inside, NOW)).toBe(true);
-  });
-
-  it('THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124): an empty sweep is evidence only inside dropout.startU — a far plot is not marked gone and ages on its clock', () => {
-    const START = CONFIG.vision.dropout.startU;
-    const site: SweepSite = {
-      x: 0,
-      y: 0,
-      stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
-      islands: [],
-    };
-    const near = anon({ x: START - 100, y: 0, seenAt: NOW - 1000 }); // inside the flat band
-    const far = anon({ x: START + 200, y: 0, seenAt: NOW - 1000 }); // in the dropout band, inside radar
-    expect(START + 200).toBeLessThan(CONFIG.vision.radar); // premise: the far plot is a radar track
-    expect(sweptAndMissed(ACROSS, site, near, NOW)).toBe(true);
-    expect(sweptAndMissed(ACROSS, site, far, NOW)).toBe(false);
-    // Through the real fold: a full revolution of empty sweeps (plus the
-    // grace) drops the near plot and keeps the far one — never marked, so
-    // never expired — and the far one then ages out on the normal memory
-    // clock (`CONFIG.bots.contactMemoryMs`), exactly like any unpainted plot.
-    const m = mkMind();
-    m.contacts.set('near', near);
-    m.contacts.set('far', far);
-    const STEP = (2 * Math.PI * DT) / site.stats.sweepPeriodMs;
-    let last = 2 * Math.PI - 0.05;
-    let k = 0;
-    const sweepUntil = (ms: number): void => {
-      for (; k * DT <= ms; k += 1) {
-        const cur = (last + STEP) % (2 * Math.PI);
-        foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site });
-        last = cur;
-      }
-    };
-    sweepUntil(site.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS);
-    expect(NOW + k * DT - far.seenAt).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: still inside memory
-    expect(m.contacts.has('near')).toBe(false);
-    expect(m.contacts.has('far')).toBe(true);
-    sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
-    expect(m.contacts.has('far')).toBe(false);
+    const rim = anon({ x: CONFIG.vision.radar - 1, y: 0, seenAt: NOW - 1000 }); // the far edge of the scope
+    const beyond = anon({ x: CONFIG.vision.radar + 1, y: 0, seenAt: NOW - 1000 }); // no beam reaches it
+    expect(sweptAndMissed(ACROSS, site, rim, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, site, beyond, NOW)).toBe(false);
   });
 
   it('NO FOG LIMIT (amendment 210, retiring amendment 169): radar sees through fog, so a fogged plot the beam sweeps clean is dropped like any other', () => {
@@ -800,13 +758,20 @@ function fakePort(w: World): BotWorldPort {
   };
 }
 
+/** The player cap of the shooter's board (Story 11.2): the machine gun's reach
+ *  is longer than a small board's radius and an aim point is clamped inside
+ *  the map disk, so the reach-edge scenarios need a board whose rim lies past
+ *  the gun's reach from the centre (asserted in `mgShooter`). */
+const MG_BOARD_CAP = 32;
+
 function mgShooter(): { w: World; rec: ShipRecord; port: BotWorldPort } {
-  const w = new World(1650, 8);
+  const w = new World(1650, MG_BOARD_CAP);
   w.map.islands.length = 0;
   const rec = w.addShip('b-1', 'TESTER', 'bot', 'bismarck', undefined, { x: 0, y: 0 });
   rec.state.x = 0;
   rec.state.y = 0;
   rec.state.heading = 0;
+  expect(w.map.radius).toBeGreaterThan(rec.stats.equipment.machineGun.rangeU);
   rec.loadout[0] = { equipmentId: 'machineGun', state: { n: rec.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 } };
   return { w, rec, port: fakePort(w) };
 }
@@ -892,8 +857,16 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     const at = { x: rangeU - 10, y: 0 };
     const out = anon({ ...at, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
     expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), out))).toBeNull();
-    const inbound = anon({ ...at, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
-    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), inbound))!;
+    // Inbound at a creep that carries it a quarter hull nearer over the
+    // shell's flight to the reach edge (Story 11.2: at the hectometer reach a
+    // shell flies long enough that a hull at speed closes by more than its own
+    // length, and then nothing clamps) — the lead point is inside reach and
+    // only the one-hull overshoot runs past it. A scatter-free mind, so the
+    // lead point is the solve's own.
+    const still: Rng = { next: () => 0, float: (min) => min, int: (min) => min, pick: (arr) => arr[0]! };
+    const creep = LONGEST_HULL_U / 4 / (rangeU / CONFIG.machineGun.shellSpeed);
+    const inbound = anon({ ...at, seenAt: NOW, vx: -creep, vy: 0, vSrc: 'paint', vAt: NOW });
+    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, { ...litMind(rec, at), rng: still }, inbound))!;
     expect(shot.held).toBe(true);
     expect(shot.aimDist).toBe(rangeU); // the overshoot alone clamps at reach
   });
@@ -961,5 +934,49 @@ describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a 
       foldView(m, view([asBlip(hull)]), NOW);
       expect(m.contacts.size, cls).toBe(1);
     }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Story 11.2 review gate (F5): ONE HULL, ONE TRACK ACROSS A SIGHT-TIER CHANGE.
+// A hull crossing between the plain band and the class reach changes its
+// track KEY (anonymous handle to roster id and back, or a fresh handle on a
+// new visit); the fold retires the stale twin under the hull it now holds by
+// eye.
+// ---------------------------------------------------------------------------
+describe('foldView — a hull that changes sight tier is ONE track, never a dead-reckoned twin (Story 11.2 review gate, F5)', () => {
+  const TICK = CONFIG.tick.simDtMs;
+  const SPEED = FASTEST_HULL_SPEED;
+  /** A hull steaming east from (2000, 300): its pose `n` ticks on. */
+  const poseAt = (n: number): { x: number; y: number; heading: number; speed: number } => ({ x: 2000 + (SPEED * n * TICK) / 1000, y: 300, heading: 0, speed: SPEED });
+  const eyes = (over: Partial<PerceptionView>): PerceptionView => ({ ...view([]), ...over });
+  const full = (n: number, id = 'e1'): PerceptionView['contacts'][number] => ({ id, cls: SHIP_CLASS_IDS[0], ...poseAt(n) }) as PerceptionView['contacts'][number];
+
+  it('INBOUND (plain to full contact), OUTBOUND (full to plain) and a NEW VISIT (a fresh handle): every time, exactly one track stands where the hull is, and it is live', () => {
+    const crossings: [string, PerceptionView, PerceptionView][] = [
+      ['inbound', eyes({ plain: [{ h: 'H1', ...poseAt(0) }] }), eyes({ contacts: [full(1)] })],
+      ['outbound', eyes({ contacts: [full(0)] }), eyes({ plain: [{ h: 'H1', ...poseAt(1) }] })],
+      ['new visit', eyes({ plain: [{ h: 'H1', ...poseAt(0) }] }), eyes({ plain: [{ h: 'H2', ...poseAt(1) }] })],
+    ];
+    for (const [label, first, second] of crossings) {
+      const m = mkMind();
+      foldView(m, first, NOW);
+      expect(m.contacts.size, label).toBe(1);
+      foldView(m, second, NOW + TICK);
+      const tracks = [...m.contacts.values()];
+      expect(tracks, label).toHaveLength(1);
+      expect(tracks[0].live, label).toBe(true);
+      expect(tracks[0], label).toMatchObject({ x: poseAt(1).x, y: poseAt(1).y });
+    }
+  });
+
+  it('retires ONLY the twin: a plot farther than a hull length from every sighted hull survives, and so does a wreck\'s own track under a live hull', () => {
+    const m = mkMind();
+    const far = { x: poseAt(1).x + 2 * LONGEST_HULL_U, y: poseAt(1).y };
+    m.contacts.set('a:far', anon({ ...far, seenAt: NOW - TICK }));
+    m.contacts.set('wreck', anon({ id: 'wreck', x: poseAt(1).x, y: poseAt(1).y, sunk: true, seenAt: NOW - TICK }));
+    foldView(m, eyes({ contacts: [full(1)] }), NOW);
+    expect([...m.contacts.keys()].sort()).toEqual(['a:far', 'e1', 'wreck']);
   });
 });

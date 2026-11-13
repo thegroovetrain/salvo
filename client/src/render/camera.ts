@@ -536,19 +536,25 @@ export class Camera {
    * THE INTEL WAYPOINT as a span (amendment 208): the intel fit
    * (`intelFitSpanU`) of the LIVE viewport and bar inset — a getter, never a
    * cached value, so a resize or a UI-scale change re-fits it — never tighter
-   * than the default framing, and never wider than the whole-map fit once that
-   * is known (so the stop stays reachable on a very short viewport). The fit
+   * than the default framing. The fit
    * includes the maximum follow lead (`leadMax`, ruling 9). Without
-   * `intelRadiusU`, or with an unusable fit, it IS the default framing (the
-   * pre-208 camera).
+   * `intelRadiusU`, with an unusable fit, or with a fit at or past the
+   * whole-map fit (Story 11.2), it IS the default framing (the pre-208 camera).
    */
   get intelSpanU(): number {
     const d = this.opts.defaultSpanU;
     const r = this.opts.intelRadiusU ?? NaN;
     const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin, this.opts.leadMax);
     if (!usableSpan(fit)) return d;
-    const capped = usableSpan(this.mapSpanValue) ? Math.min(fit, this.mapSpanValue) : fit;
-    return Math.max(d, capped);
+    // AN INTEL DISC AS WIDE AS THE BOARD IS NO STOP (Story 11.2, R11): at the
+    // 400 hm radar the intel fit reaches the whole-map fit, and a stop AT the
+    // map fit left both centre slides no room (`centreSlideT` → 0), so the
+    // fully-zoomed-out camera stayed on the ship instead of the board centre.
+    // At or past the map fit the waypoint is the default framing — the
+    // pre-208 camera, whose slides run to the ring and then the map centre.
+    // [reading: Story 11.2 — the smallest fix that restores the whole-board view]
+    if (usableSpan(this.mapSpanValue) && fit >= this.mapSpanValue) return d;
+    return Math.max(d, fit);
   }
 
   /** Whether the intel waypoint is a stop of its own (wider than the default

@@ -278,7 +278,7 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
 /**
  * THE FITTED POINT REFERENCE (u) — amendment 118's calibration, SOLVED, not
  * typed in (it scales linearly with the anchor: ~709 u when the anchor sat at
- * 577.5 u on the eighths ladder; ~1,228 u at the twelfths anchor).
+ * 577.5 u on the eighths ladder; ~1,228 u at the twelfths anchor [retired 2026-11-12, Story 11.2]).
  *
  * `CONFIG.vision.farRadar` (8/12 of intel range since Story 9.8 — epic-9
  * amendment 103, the anchor confirmed by ruling 121) is read HERE AND NOWHERE
@@ -409,7 +409,7 @@ const HEAT_WAKE_AGE_FLOOR =
 
 /**
  * THE WAKE'S REFERENCE RANGE (u) — SOLVED so its worst draw crosses
- * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the twelfths ladder's
+ * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the twelfths ladder [retired 2026-11-12, Story 11.2]'s
  * 6/12 rung (Story 9.8, epic-9 amendment 103; the eighths ladder's 5/8 before).
  * A wake READS inside that and FRAYS OUT beyond it, which is both a
  * weak-surface-return result and a "get close to read tracks" dynamic, and it
@@ -420,8 +420,9 @@ const HEAT_WAKE_AGE_FLOOR =
  * `farRadar`: to FIT a curve, once, at module load. No radar PAINT path may
  * compare against the rung — that violates amendment 105 exactly as it would
  * for the crossover. (render/hazeHalo.ts legitimately reads
- * `muzzleFlashFactor`: it sizes the countermeasure's eye-visibility halo to the
- * server's own `sm` gate, a geometry the server decides, not an intensity.)
+ * `CONFIG.vision.muzzleFlash` — `muzzleFlashFactor` until it retired
+ * 2026-11-12, Story 11.2: it sizes the countermeasure's eye-visibility halo to
+ * the server's own `sm` gate, a geometry the server decides, not an intensity.)
  *
  * WATER IS A SURFACE (amendment 106's table): 1/d³, the same geometry as
  * coastline, surf and sea clutter. The reference comes out LONGER than the
@@ -499,6 +500,17 @@ function hornTable<T>(at: (k: number) => T): Readonly<Record<HornWireBand, T>> {
 const CHEVRON_NEAR = { size: 22, thickness: 3, alpha: 0.95 } as const;
 const CHEVRON_EDGE = { size: 13, thickness: 1.8, alpha: 0.5 } as const;
 
+/**
+ * u — THE RETIRED BASE SIGHT: 500 u, the twelfths ladder's 4/12 rung (Story
+ * 9.8). Story 11.2 (Eric 2026-11-12, R18) moved class-and-name sight to 200 hm
+ * (≈ 4,545 u) and the plain-hull sight to 350 hm; the client FEEL knobs that
+ * were written as multiples of sight — the camera lead cap, the lobby / ambient
+ * scene's spans and rival bands, the torpedo hum radius, the radar proximity
+ * dim ramp — keep TODAY'S ABSOLUTE SIZES by reading this literal (R20 reading,
+ * dated 2026-11-12). Never a gameplay reach; nothing on the wire reads it.
+ */
+const FEEL_SIGHT_U = 500;
+
 export const CLIENT_CONFIG = {
   /** Design tokens (Story 1.11) — the single styling source (see above). */
   colors: COLORS,
@@ -538,14 +550,14 @@ export const CLIENT_CONFIG = {
      * Look-ahead time (s). Lead distance = |speed| * leadSeconds, capped at
      * leadMax. At maxSpeed 25 u/s this reaches ~112.5u (step 11 feel-pass
      * tuning, up from 4s; flagged for playtest). The cap was set when sight
-     * was 220 u and engaged near top speed; at the twelfths ladder's 500 u
+     * was 220 u and engaged near top speed; at the twelfths ladder [retired 2026-11-12, Story 11.2]'s 500 u
      * sight (Story 9.8) it sits at 250 u, so only a boosted/drafted hull ever
      * reaches it.
      */
     leadSeconds: 4.5,
-    /** Lead distance cap (u) = 0.5 * sight range, per the plan (250 u at the
-     *  twelfths ladder's base sight). */
-    leadMax: CONFIG.vision.sight * 0.5,
+    /** Lead distance cap (u) = 0.5 × the retired 500 u sight (250 u) — today's
+     *  absolute size kept as a literal (Story 11.2, 2026-11-12: `FEEL_SIGHT_U`). */
+    leadMax: FEEL_SIGHT_U * 0.5,
     /**
      * KEEP THE OWN HULL ON SCREEN past the default framing (Story 9.8 review
      * gate, F2): the centre slide (ruling 128) aims at the ring centre, so a
@@ -716,7 +728,7 @@ export const CLIENT_CONFIG = {
    * purpose:
    *
    *   • THE REACH is not here. Every world cue is attenuated over the SAME
-   *     distance — `CONFIG.vision.radar`, the twelfths ladder's 12/12 rung
+   *     distance — `CONFIG.vision.radar`, the twelfths ladder [retired 2026-11-12, Story 11.2]'s 12/12 rung
    *     (full intel range, epic-9 amendment 103) — read straight from shared CONFIG at the call site, never
    *     mirrored or re-typed into this block. It is a FALLOFF SCALE, not a gate:
    *     the server has already decided which events reach this client, and a
@@ -789,12 +801,17 @@ export const CLIENT_CONFIG = {
     grindCuePeriodMs: 1000,
     /** Other ships' engines heard at once (the nearest audible hulls). */
     remoteEngineVoices: 3,
+    /** u — the radius other ships' engines are heard over (`closeAlongside01`
+     *  scales by it; heard only inside its close-alongside share). A FEEL knob:
+     *  today's size kept as `FEEL_SIGHT_U` when Story 11.2 moved the eye reach to
+     *  200 hm (R20 reading, 2026-11-12) — never the gameplay sight. */
+    remoteEngineHearU: FEEL_SIGHT_U,
     /** ms — a smoke cloud sounds its deploy hiss only when first seen within
      *  this long of its birth (a cloud first painted later is old news). */
     smokeCueFreshMs: 1000,
     /** u — a torpedo the client draws hums (`torpedoRun`) the first time it
      *  comes this close to the listener: half the true-sight radius. */
-    torpedoHumRadiusU: CONFIG.vision.sight / 2,
+    torpedoHumRadiusU: FEEL_SIGHT_U / 2, // 250 u — today's size kept (Story 11.2, `FEEL_SIGHT_U`)
     /** Your OWN torpedo's hum plays at this share of the enemy hum's level, so
      *  it never buries the launch cue it follows (review P3c). */
     ownTorpedoHumGain: 0.5,
@@ -1085,6 +1102,55 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE RADAR DISPLAY (Story 11.2, Eric 2026-11-12, rulings R16 / R19 — FIXED,
+   * no settings): own-ship range rings in "style A" (thin crisp white, a number
+   * on every ring at N / S / E / W), the radar-reach ring drawn distinct, the
+   * compass (bearing) scale and the heading line ALWAYS ON, and the sweep in
+   * "style 3" (a thin crisp line with a short afterglow). Every value is the
+   * APPROVED reach bench's (client/scripts/reachBench/scope.ts), in screen px
+   * at every zoom — EXCEPT the compass numerals: the bench drew them at 10 px,
+   * and only the ring numerals were accepted small ("a little tiny"), so they
+   * take the 13 px floor. [reading: Story 11.2 — compass numerals at 13 px]
+   */
+  radarDisplay: {
+    /** Range rings: white at 0.7, 1 px. */
+    ringColor: COLORS.white,
+    ringAlpha: 0.7,
+    ringWidthPx: 1,
+    /** The radar-reach ring: phosphor at 0.8, 2 px; its numerals phosphor at 1. */
+    reachColor: COLORS.phosphor,
+    reachAlpha: 0.8,
+    reachWidthPx: 2,
+    reachLabelAlpha: 1,
+    /** Ring numerals: 10 px mono 600, white at 0.9, on a void box at 0.85
+     *  (text width + 4 px by 12 px) so the numeral reads over its line. */
+    labelFontPx: 10,
+    labelAlpha: 0.9,
+    labelBoxColor: COLORS.void,
+    labelBoxAlpha: 0.85,
+    labelBoxPadPx: 4,
+    labelBoxHeightPx: 12,
+    /** The heading line: white at 0.75, 1 px, from the hull along its bow. */
+    headingAlpha: 0.75,
+    headingWidthPx: 1,
+    /** The compass scale: ticks white at 0.8, 1 px — 9 px every 10 deg, 5 px
+     *  every 5 deg — numerals white at 0.9, `compassLabelInsetPx` inside. */
+    compassAlpha: 0.8,
+    compassWidthPx: 1,
+    tickLongPx: 9,
+    tickShortPx: 5,
+    compassFontPx: 13,
+    compassLabelAlpha: 0.9,
+    compassLabelInsetPx: 20,
+    /** Sweep "style 3": a 1.5 px phosphor line at 0.95, additive, with a 5 deg
+     *  afterglow fading up to it at 0.45 (render/textures.ts `bakeSweepTexture`). */
+    beamWidthPx: 1.5,
+    beamAlpha: 0.95,
+    afterglowDeg: 5,
+    afterglowPeak: 0.45,
+  },
+
+  /**
    * THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 18, R3/R4; Eric's
    * rulings of 2026-11-08 on the rendered page) — render/drops.ts. A crate is
    * drawn at SIGHT only (fogged world layer `dropWorld`); on radar it is a
@@ -1116,7 +1182,7 @@ export const CLIENT_CONFIG = {
       reload: COLORS.amber,
       engines: COLORS.info,
       intel: COLORS.phosphor,
-      range: COLORS.stormReadout,
+      // `range` (stormReadout) left with the RANGE crate kind (Story 11.2, R9).
       wreck: COLORS.white,
     } satisfies Record<DropKind, number>,
     glow: {
@@ -1354,12 +1420,14 @@ export const CLIENT_CONFIG = {
        * radar range, so a far rival never quietly falls off the scope.
        */
       rivalBands: [
-        { minU: CONFIG.vision.sight * 0.2, maxU: CONFIG.vision.sight * 0.55 },
-        { minU: CONFIG.vision.sight * 1.0, maxU: CONFIG.vision.sight * 1.2 },
-        { minU: CONFIG.vision.sight * 1.15, maxU: CONFIG.vision.sight * 1.35 },
+        // Multiples of the RETIRED 500 u sight — today's absolute sizes kept
+        // (Story 11.2, 2026-11-12: `FEEL_SIGHT_U`).
+        { minU: FEEL_SIGHT_U * 0.2, maxU: FEEL_SIGHT_U * 0.55 },
+        { minU: FEEL_SIGHT_U * 1.0, maxU: FEEL_SIGHT_U * 1.2 },
+        { minU: FEEL_SIGHT_U * 1.15, maxU: FEEL_SIGHT_U * 1.35 },
       ],
       /** The observer's own roaming disc about the anchor (u). */
-      observerRoamU: CONFIG.vision.sight * 0.33,
+      observerRoamU: FEEL_SIGHT_U * 0.33,
       /** How far off the map centre the anchor may be picked (fraction of map
        *  radius) — well inside the boundary, so no hull ever presses the rim. */
       anchorSpreadFrac: 0.5,
@@ -1382,7 +1450,7 @@ export const CLIENT_CONFIG = {
        * genuinely is not, `pickWater` still falls back to the roomiest candidate
        * it saw, which is exactly the right failure.
        */
-      anchorClearU: CONFIG.vision.sight * 1.35 + 130,
+      anchorClearU: FEEL_SIGHT_U * 1.35 + 130,
       spawnClearU: 110,
       /** Seeded rejection-sampling attempts before taking the roomiest miss.
        *  Raised with `anchorClearU`: a stricter predicate needs more looks, and
@@ -1442,7 +1510,7 @@ export const CLIENT_CONFIG = {
        * hull out on the right flank, bubble and rivals clear of the home column
        * — holds exactly as composed rather than shrinking behind the DOM.
        */
-      spanU: CONFIG.vision.sight * 4,
+      spanU: FEEL_SIGHT_U * 4,
       /**
        * Camera-centre offset from the observer (u), in multiples of base
        * truesight. NEGATIVE x pushes the camera left of the hull, which seats
@@ -1450,7 +1518,7 @@ export const CLIENT_CONFIG = {
        * truesight bubble — out on the right flank instead of behind the ~480px
        * centred home column. DOM legibility is a gate, not a nicety.
        */
-      observerOffset: { x: CONFIG.vision.sight * -1.45, y: CONFIG.vision.sight * 0.08 },
+      observerOffset: { x: FEEL_SIGHT_U * -1.45, y: FEEL_SIGHT_U * 0.08 },
       /**
        * Master scene dimmer — alpha over worldRoot + chartRoot (Eric
        * 2026-07-24: the idle radar reads at half strength on the menu).
@@ -2506,10 +2574,11 @@ export const CLIENT_CONFIG = {
     /** u — THE HAZE HALO'S SOFT EDGE (Story 9.3 session 5, Eric 2026-10-12:
      *  "The smoke is visible outside of 5/8 intel range. Why? … I cannot see
      *  the smoke outside of that range, I can only infer it from radar
-     *  returns." — the 5/8 rung then; 6/12 on the twelfths ladder, Story 9.8).
+     *  returns." — the 5/8 rung then; 6/12 on the twelfths ladder [retired 2026-11-12, Story 11.2], Story 9.8).
      *  The grey haze is drawn by eye only within the viewer's flash rung
-     *  (`radarRange × CONFIG.vision.muzzleFlashFactor`, the wounded-smoke
-     *  reach — NOT a knob, render/hazeHalo.ts); it fades linearly to nothing
+     *  (`CONFIG.vision.muzzleFlash` — `radarRange × muzzleFlashFactor` until
+     *  2026-11-12, Story 11.2 — the wounded-smoke reach, NOT a knob,
+     *  render/hazeHalo.ts); it fades linearly to nothing
      *  over this many units past that rung. Feel only. */
     haloFeatherU: 40,
     /** THE HALO'S ISLAND LINE OF SIGHT (Story 9.3 session 6, Eric 2026-10-12:
@@ -3119,7 +3188,7 @@ export const CLIENT_CONFIG = {
         /**
          * Reference range (u) of the SURFACE curve FOR DISTURBED WATER — wake
          * and the chop that hangs off it. SOLVED so the wake's unluckiest draw
-         * crosses `bands[0].at` exactly at the twelfths ladder's 6/12 rung
+         * crosses `bands[0].at` exactly at the twelfths ladder [retired 2026-11-12, Story 11.2]'s 6/12 rung
          * (`CONFIG.vision.muzzleFlash`, epic-9 amendment 103); see
          * `HEAT_WAKE_REF` above the object for why it comes out longer than the
          * coastline's, and for the discipline that keeps the rung out of every
@@ -3309,7 +3378,7 @@ export const CLIENT_CONFIG = {
        * sprite on `blipLayer`, never as a per-cell recompute inside
        * `quantizeInto`.
        *
-       * BOTH RADII LAND ON THE LADDER (amendment 113; twelfths since Story 9.8,
+       * BOTH RADII LAND ON THE LADDER (amendment 113; twelfths since Story 9.8 [retired 2026-11-12, Story 11.2],
        * epic-9 amendment 103), never on literals
        * — and since this cycle they are ANCHORED TO TRUESIGHT AND OBSERVER-
        * SCALED, so what lives here is the RATIO to the observer's effective sight
@@ -3337,12 +3406,16 @@ export const CLIENT_CONFIG = {
          *  4/12 rung). A MULTIPLE and not a radius, because the bubble is a
          *  boon-widened constant per build (no boon widens radar range any more),
          *  so the ramp stays observer-resolved. */
-        innerFactor: 1,
+        // STORY 11.2 (2026-11-12, R20 reading): the ramp keeps TODAY'S ABSOLUTE
+        // radii — flat to 500 u, full at 750 u — against the observer's
+        // effective class-and-name sight (now 200 hm), so both factors are
+        // today's radii over the new base sight; the whiteout still scales them.
+        innerFactor: FEEL_SIGHT_U / CONFIG.vision.sight,
         /** Full painted opacity from this multiple of effective truesight out:
          *  the flash rung expressed against the sight rung (6/12 over 4/12 =
-         *  1.5 on the twelfths ladder; 5/8 over 4/8 = 1.25 before Story 9.8),
+         *  1.5 on the twelfths ladder [retired 2026-11-12, Story 11.2]; 5/8 over 4/8 = 1.25 before Story 9.8),
          *  so it stays a LADDER derivation and never a literal. */
-        outerFactor: CONFIG.vision.muzzleFlash / CONFIG.vision.sight,
+        outerFactor: (FEEL_SIGHT_U * 1.5) / CONFIG.vision.sight,
         /** Displayed fraction of the painted opacity inside the bubble. Eric's
          *  ratified number (*"painted at 20% its usual opacity"*), UNCHANGED by
          *  the re-anchoring above — moving it would be a second knob nobody asked
@@ -3368,7 +3441,11 @@ export const CLIENT_CONFIG = {
          * no paint has ever reached, and hiding a mask-less region that holds
          * nothing costs nothing.
          */
-        spanU: CONFIG.vision.radar * 4,
+        // STORY 11.2 (2026-11-12): 1.25 × radar, was 4 × — the bound above is
+        // radar + ~720 u of travel, and at the 400 hm radar 4 × spread the
+        // 1,024² mask to 71 u a texel (the 250 u ramp in 3.5 texels); 1.25 ×
+        // still covers the bound and keeps the ramp at ~11 texels.
+        spanU: CONFIG.vision.radar * 1.25,
         /**
          * THE FOG SLIDE (epic-9 amendment 210, Eric 2026-10-21) — ERIC'S STAGING
          * DIAL, 0..1. On a bearing where the observer's fog-tolled eye ends at

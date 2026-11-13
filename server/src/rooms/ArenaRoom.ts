@@ -1113,9 +1113,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // whole grace (streamControl reads the stored LEVEL): release it. The
       // helm keeps its last input (ghost sailing, as before).
       this.world.releaseHeld(client.sessionId);
+      // Story 11.2 review gate (F3): no frame (so no perception pass) is built
+      // for this captain during the grace, and a plain-hull handle is only
+      // forgotten during a pass — end every plain visit now and again at the
+      // resume, so no handle links a sighting before the gap to one after it.
+      this.world.forgetPlainVisits(client.sessionId);
       this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
         .then((newClient) => {
           this.log.info('client.resume', { sessionId: client.sessionId });
+          this.world.forgetPlainVisits(client.sessionId); // F3: see onDrop's hold branch
           // The resume branch pushes the new client into `this.clients` without
           // re-running onJoin, so this is the only place that can put the
           // recovered captain back into the published count.

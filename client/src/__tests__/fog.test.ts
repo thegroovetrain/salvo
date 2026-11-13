@@ -14,45 +14,67 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, FLASH_WINDOW_MS, effectiveSight } from '@salvo/shared';
-import { Fog, fogFrameRects, fogHoleRadiusU, fogZoomStale, quantizeSightU } from '../render/fog.js';
+import { CONFIG, FLASH_WINDOW_MS, effectiveHullSight, effectiveSight } from '@salvo/shared';
+import { FOG_BAKE_MAX_PX, Fog, eyeHoleRadiusU, fogBakeSize, fogFrameRects, fogHoleRadiusU, fogZoomStale, quantizeSightU } from '../render/fog.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
+const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar, hullSightRange: CONFIG.vision.hullSight };
 const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
 /** The flash clock `elapsedMs` into a whiteout that hit at t = 0. */
 const at = (elapsedMs: number) => ({ until: FLASH_WINDOW_MS, now: elapsedMs });
 const STEP = BASE.sightRange / CLIENT_CONFIG.flashWhiteout.sightSteps;
+const HULL_STEP = BASE.hullSightRange / CLIENT_CONFIG.flashWhiteout.sightSteps;
 
-describe('fogHoleRadiusU — the flash-honest hole radius', () => {
-  it('is the effective sight range with no flash mark — base and boon-widened alike', () => {
-    expect(fogHoleRadiusU(BASE)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 }, { until: 0, now: 5000 })).toBe(400);
+// STORY 11.2 (R20): the fog-of-war hole is the PLAIN-HULL reach under the
+// whiteout law (`effectiveHullSight`); the class-and-name reach keeps the same
+// rule for the radar's eye-side mirrors (`eyeHoleRadiusU`).
+describe('fogHoleRadiusU — the flash-honest hole radius (the plain-hull reach)', () => {
+  it('is the effective plain-hull sight with no flash mark', () => {
+    expect(fogHoleRadiusU(BASE)).toBe(BASE.hullSightRange);
+    expect(fogHoleRadiusU({ hullSightRange: 400 }, { until: 0, now: 5000 })).toBe(400);
   });
 
   it('is 0 through the ramp and the hold — the whiteout leaves no hole', () => {
     for (const e of [0, rampMs, rampMs + holdMs - 1]) expect(fogHoleRadiusU(BASE, at(e))).toBe(0);
   });
 
-  it('the hole grows back with the shared curve: half the sight at mid-clear, full at the end', () => {
-    expect(fogHoleRadiusU(BASE, at(rampMs + holdMs + clearMs / 2))).toBeCloseTo(BASE.sightRange / 2, 6);
-    expect(fogHoleRadiusU(BASE, at(FLASH_WINDOW_MS))).toBe(BASE.sightRange);
+  it('the hole grows back with the shared curve: half the reach at mid-clear, full at the end', () => {
+    expect(fogHoleRadiusU(BASE, at(rampMs + holdMs + clearMs / 2))).toBeCloseTo(BASE.hullSightRange / 2, 6);
+    expect(fogHoleRadiusU(BASE, at(FLASH_WINDOW_MS))).toBe(BASE.hullSightRange);
   });
 
-  it('follows the SIGHT range, never the radar range, flashed or not', () => {
-    for (const d of [at(0), at(rampMs + holdMs + clearMs / 2), at(FLASH_WINDOW_MS)]) {
-      expect(fogHoleRadiusU({ ...BASE, radarRange: BASE.radarRange * 2 }, d)).toBe(fogHoleRadiusU(BASE, d));
-    }
-  });
-
-  it("IS the shared effectiveSight — the function the server's sightOf calls — floored to one step", () => {
+  it("IS the shared effectiveHullSight — floored to one step, never wider", () => {
     for (let e = 0; e <= FLASH_WINDOW_MS; e += 137) {
-      const exact = effectiveSight(BASE, FLASH_WINDOW_MS, e);
+      const exact = effectiveHullSight(BASE, FLASH_WINDOW_MS, e);
       const hole = fogHoleRadiusU(BASE, at(e));
       expect(hole).toBeLessThanOrEqual(exact + 1e-9); // never wider than the server's sight
-      expect(exact - hole).toBeLessThan(STEP); // and never more than one step narrower
+      expect(exact - hole).toBeLessThan(HULL_STEP); // and never more than one step narrower
     }
-    expect(fogHoleRadiusU(BASE)).toBe(effectiveSight(BASE));
+    expect(fogHoleRadiusU(BASE)).toBe(effectiveHullSight(BASE));
+  });
+});
+
+describe('eyeHoleRadiusU — the class-and-name reach on the same quantum', () => {
+  it("IS the shared effectiveSight — floored to one step, never wider", () => {
+    for (let e = 0; e <= FLASH_WINDOW_MS; e += 137) {
+      const exact = effectiveSight(BASE, FLASH_WINDOW_MS, e);
+      const eye = eyeHoleRadiusU(BASE, at(e));
+      expect(eye).toBeLessThanOrEqual(exact + 1e-9);
+      expect(exact - eye).toBeLessThan(STEP);
+    }
+    expect(eyeHoleRadiusU(BASE)).toBe(effectiveSight(BASE));
+  });
+});
+
+describe('fogBakeSize — the bake covers the screen from any on-screen hull, capped', () => {
+  it('covers twice the viewport (+ the shake margin) and never exceeds FOG_BAKE_MAX_PX', () => {
+    for (const [w, h] of [[1280, 720], [1920, 1080], [3840, 2160], [7680, 4320], [375, 812]] as const) {
+      const b = fogBakeSize(w, h);
+      expect(b.w, `${w}x${h}`).toBeGreaterThanOrEqual(2 * w);
+      expect(b.h, `${w}x${h}`).toBeGreaterThanOrEqual(2 * h);
+      expect(Math.ceil(Math.max(b.w, b.h) * b.scale), `${w}x${h}`).toBeLessThanOrEqual(FOG_BAKE_MAX_PX);
+      expect(b.scale).toBeLessThanOrEqual(1);
+    }
   });
 });
 

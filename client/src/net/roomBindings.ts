@@ -808,7 +808,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
       deps.onOwnSpawn(f.you.x, f.you.y);
     }
   }
-  deps.contacts.pushFrame(f.t, f.contacts);
+  // The plain-hull rows (Story 11.2, R3) ride the same push: the store pairs
+  // a hull changing tier across the two lists (net/plainContacts.ts).
+  deps.contacts.pushFrame(f.t, f.contacts, f.pc);
   syncContactLike(f, deps);
   cueNewClouds(f, deps, s);
   routeVictimTells(f, deps, s);
@@ -1316,7 +1318,7 @@ function worldCueAt(
 function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): CueOptions {
   if (!pos) return unplacedCue();
   const ear = listenerPos(deps, t);
-  // CONFIG.vision.radar — the twelfths ladder's 12/12 rung (full intel range) — is
+  // CONFIG.vision.radar — the twelfths ladder [retired 2026-11-12, Story 11.2]'s 12/12 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
   // they would re-derive the server's own disclosure decision (audio/tones.ts).

@@ -82,17 +82,16 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The eight ship ladders, in Eric's sheet order (Story 10.6, 2026-11-05,
- *  R1): ARMOR · POWER · INTEL · RELOAD over ENGINES · RANGE · HULL REPAIR ·
- *  SMOKE SCREEN. RUDDER is gone (R2); RANGE, HULL REPAIR and SMOKE SCREEN
- *  are the three new SHIP ladders. (Story 10.3 had six in the INDEX order.) */
+/** The seven ship ladders, in Eric's sheet order (Story 10.6, 2026-11-05,
+ *  R1): ARMOR · POWER · INTEL · RELOAD over ENGINES · HULL REPAIR · SMOKE
+ *  SCREEN. RUDDER is gone (R2); RANGE left with its index row (Story 11.2,
+ *  2026-11-12, R9). (Story 10.3 had six in the INDEX order.) */
 const LADDER_LINES: readonly LineId[] = [
   'armor',
   'power',
   'intel',
   'reload',
   'engines',
-  'range',
   'hullRepair',
   'smokeScreen',
 ];

@@ -1,0 +1,104 @@
+<title>Reach Bench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*__BENCH_CSS__*/</style>
+<div class="wrap">
+  <header class="top">
+    <h1>Reach Bench</h1>
+    <p class="sub">Story 11.2 — the hectometer ruler and real reach, the numbers before the game</p>
+    <p class="intro">Every distance in the game on one ruler: hectometers (hm). One hectometer is 100 meters; the 10,000 u board is a real 44 km sea, so 1 hm ≈ 22.7 u. The map, the hull shapes, the shadow math and the speeds on this page are the game's own shared code, run live in your browser. Nothing here is wired into the game yet.</p>
+    <p class="note">Set the numbers with the sliders, pick a look in "The display", then press "Copy numbers" at the bottom and paste the result back.</p>
+  </header>
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section class="card">
+    <h2>1 · The board</h2>
+    <p class="note">A real map from the game's map generator. Faint violet dashes: the three storm rings. Faint dots: the spawn ring and its spawn points. Your ship is the cyan circle (the real hull is drawn at true size inside it — it is tiny at this scale). Drag anywhere on the map to move it.</p>
+    <div class="row" id="seeds"></div>
+    <div class="row">
+      <span class="mono" id="seedText"></span>
+      <span class="mono" id="shipText"></span>
+      <label class="field"><span class="label">Bow points to (compass °)</span><input id="headingDeg" type="number" min="0" max="359" step="5" value="270" class="num"></label>
+    </div>
+    <canvas id="board" class="canvas" aria-label="The board with every reach drawn as a ring around your ship"></canvas>
+    <dl class="readouts" id="readouts"></dl>
+    <div class="row">
+      <label class="field"><span class="label">Hull</span><select id="hull"></select></label>
+      <span id="hullLine" class="mono"></span>
+    </div>
+    <div id="reachDials"></div>
+    <h3 class="group">Torpedo runs</h3>
+    <p class="note">How far each torpedo runs before it sinks. Tiers II to IV fall evenly between tier I and tier V.</p>
+    <p class="note small" id="torpNote"></p>
+    <div id="torps"></div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Radar shadows at this range</h2>
+    <p class="note">Which sea your radar cannot see because an island is in the way, from where your ship is now, out to the radar reach above. Violet: shadow (darker means deeper). Faint green: sea your radar sees. Uses the game's own shadow math on this map's real island heights. Today's radar reach is <span id="todayRadar"></span>.</p>
+    <p class="note">The shadow math has one number, K, that says how far you can see over an island's top before the curve of the sea hides a ship behind it. Bigger K: you see further past islands, so shadows are shorter.</p>
+    <p class="mono" id="shadowStatus" aria-live="polite"></p>
+    <div class="previews">
+      <figure>
+        <figcaption>Today's shadow number (shown for comparison)</figcaption>
+        <canvas id="shadowRuled" class="canvas" aria-label="Radar shadows with K as today"></canvas>
+        <p class="mk-line strong" id="shadowRuledShare"></p>
+        <p class="mk-line">K stays today's value whatever the radar reach: a sea whose horizon is only 33 hm away.</p>
+      </figure>
+      <figure class="picked">
+        <figcaption>Real horizon at our scale (ruled)</figcaption>
+        <canvas id="shadowFollow" class="canvas" aria-label="Radar shadows with K following the radar reach"></canvas>
+        <p class="mk-line strong" id="shadowFollowShare"></p>
+        <p class="mk-line" id="followK"></p>
+      </figure>
+      <figure>
+        <figcaption>Try your own K</figcaption>
+        <canvas id="shadowDial" class="canvas" aria-label="Radar shadows at the K on the dial"></canvas>
+        <p class="mk-line strong" id="shadowDialShare"></p>
+        <label class="slider"><span class="label">K, from a quarter of today's up to the follow-radar value</span><span class="value" id="kValue"></span><input id="kDial" type="range"></label>
+      </figure>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3 · The display</h2>
+    <p class="note">Your radar screen, drawn like a real ship's radar on the game's chart: your ship in the middle, the real islands around it, a few made-up echoes. The sweep turns at the game's real speed. Zoom with the slider; the range rings re-space themselves so about five are on screen.</p>
+    <label class="slider"><span class="label">Zoom: how much sea fits across the screen</span><span class="value" id="spanValue"></span><input id="span" type="range"></label>
+    <canvas id="scope" class="canvas" aria-label="Radar display candidates"></canvas>
+    <div class="choices">
+      <fieldset>
+        <legend>Range rings</legend>
+        <label><input type="radio" name="ringStyle" value="A" checked> A · Clear white, a number on every ring</label>
+        <label><input type="radio" name="ringStyle" value="B"> B · White, a number on every other ring</label>
+        <label><input type="radio" name="ringStyle" value="C"> C · White dashed</label>
+        <label><input type="radio" name="ringStyle" value="D"> D · Today's faint rings</label>
+      </fieldset>
+      <fieldset>
+        <legend>Where the ring numbers sit</legend>
+        <label><input type="radio" name="labelPos" value="bow" checked> Along the bow line</label>
+        <label><input type="radio" name="labelPos" value="east"> At the right of each ring</label>
+        <label><input type="radio" name="labelPos" value="cardinal"> At north, east, south and west</label>
+      </fieldset>
+      <fieldset>
+        <legend>Sweep</legend>
+        <label><input type="radio" name="sweep" value="1"> 1 · Today (wide fading wedge)</label>
+        <label><input type="radio" name="sweep" value="2"> 2 · Thin line</label>
+        <label><input type="radio" name="sweep" value="3" checked> 3 · Line and a short afterglow</label>
+        <label><input type="radio" name="sweep" value="4"> 4 · No sweep line, echoes light up as the beam passes</label>
+      </fieldset>
+      <fieldset>
+        <legend>Extras</legend>
+        <label><input type="checkbox" id="bearing"> Compass scale around the edge</label>
+        <label><input type="checkbox" id="headingLine"> Heading line from the bow</label>
+      </fieldset>
+    </div>
+    <p class="note small">The radar's own reach is the green ring. Rings stop at the radar reach. Echoes fade over one turn of the sweep in every style.</p>
+  </section>
+
+  <section class="card">
+    <h2>Numbers to send back</h2>
+    <div class="row"><button type="button" id="copy" class="primary">Copy numbers</button><span id="copied" class="mono" aria-live="polite"></span></div>
+    <textarea id="numbers" class="record" rows="10" readonly aria-label="Every dial as text"></textarea>
+  </section>
+  <p id="build" class="build"></p>
+</div>
+<script>/*__BENCH_JS__*/</script>

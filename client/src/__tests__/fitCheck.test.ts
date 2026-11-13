@@ -203,7 +203,7 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
     // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): HULL POINTS and
     // PASSIVE HEALING deleted, four ids renamed; Story 10.6: RUDDER deleted, RANGE / HULL REPAIR / SMOKE SCREEN joined.
     const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'addon').map((l) => l.id);
-    expect(shipwide.sort()).toEqual(['armor', 'engines', 'hullRepair', 'intel', 'power', 'range', 'reload', 'smokeScreen']);
+    expect(shipwide.sort()).toEqual(['armor', 'engines', 'hullRepair', 'intel', 'power', 'reload', 'smokeScreen']);
   });
 
   it('a shipwide ladder owns no slot, so its fit falls through to the rank-wide pulse', () => {

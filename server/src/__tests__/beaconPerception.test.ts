@@ -246,11 +246,17 @@ describe('radio beacons — the existing rows a beacon hit reuses', () => {
 
   it('a hurt beacon\'s `sm` passes the smoke row\'s own gate: an observer inside the halo gets the bare puff, one beyond it gets nothing', () => {
     const w = bareWorld(7201);
-    const near = captain(w, 'near', 250, 0);
-    const far = captain(w, 'far', 0, 0);
-    const [beacon] = seatBeacons(w, SURFACE_MS + DT, [{ x: 0, y: 0 }]);
-    const halo = near.stats.radarRange * CONFIG.vision.muzzleFlashFactor;
-    moveTo(far, halo + 100, 0);
+    const halo = CONFIG.vision.muzzleFlash; // its own fact since Story 11.2
+    // MIND THE BOARD: the halo is wider than the map radius, so the beacon
+    // sits on one side of the origin and the out-of-halo observer on the
+    // other (a hull seated past the rim is pushed back onto the water by the
+    // first step — and into the halo).
+    const beyond = halo + 100;
+    expect(beyond / 2 + 100).toBeLessThan(w.map.radius); // premise: both seats are on the water
+    const at = { x: -beyond / 2, y: 0 };
+    captain(w, 'near', at.x + 250, 0);
+    const far = captain(w, 'far', at.x + beyond, 0);
+    const [beacon] = seatBeacons(w, SURFACE_MS + DT, [at]);
     expect(250).toBeLessThan(halo);
     beacon.hp = B.hp * CONFIG.damageBands.criticalBelow - 1;
     const got = { near: [] as GameEvent[], far: [] as GameEvent[] };
@@ -261,6 +267,7 @@ describe('radio beacons — the existing rows a beacon hit reuses', () => {
     }
     expect(got.near.length).toBeGreaterThan(0);
     for (const e of got.near) expect(e).toEqual({ k: 'sm', x: beacon.x, y: beacon.y, tier: 2 });
+    expect(Math.hypot(far.state.x - beacon.x, far.state.y - beacon.y)).toBeGreaterThan(halo); // premise survived the run
     expect(got.far).toEqual([]);
   });
 });

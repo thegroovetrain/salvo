@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { consumableTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
 import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, effectiveStats } from '@salvo/shared';
 
 const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
@@ -18,7 +18,7 @@ const TIERED = [
 // epic-10 amendment 8); RUDDER left with Story 10.6 (R2) and RANGE joined —
 // the six index cards (HULL REPAIR and SMOKE SCREEN wait on Story 10.14's
 // How-to-Play copy).
-const SHIP = ['armor', 'power', 'reload', 'engines', 'intel', 'range'] as const;
+const SHIP = INDEX_IDS;
 
 /** Every row's cells, label-blind — a derived row is found by its VALUES. */
 const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.values);

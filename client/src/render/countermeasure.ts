@@ -231,7 +231,7 @@ export class Countermeasure {
    *  the layer is empty: Pixi runs the masked layer as a FILTER PASS every
    *  frame, into a pooled render target the size of the halo sprite's bounds —
    *  never clipped to the screen, rounded up to a power of two and resolved —
-   *  whether or not there is any haze to mask. At the twelfths ladder's 750 u
+   *  whether or not there is any haze to mask. At the twelfths ladder [retired 2026-11-12, Story 11.2]'s 750 u
    *  halo that is a 2264 px pass in a 4096² target at DPR 2, every alive frame,
    *  and it was the default-framing cadence regression. With no cloud held the
    *  layer draws nothing, so masking it changes no pixel. */

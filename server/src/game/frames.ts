@@ -276,7 +276,7 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
 /**
- * The five OPTIONAL contact-like channels, on one rule for both frame paths:
+ * The six OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
  * zone-free / cloud-free / crate-free frames stay byte-identical to pre-1.7 frames. WIRE
  * ORDER (key insertion, load-bearing for msgpack): `litZones` (Story 1.7),
@@ -286,18 +286,22 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * `{id,x,y,t0}` each; 8.18's `smoke` seat), then `drops` (Story 10.9 — the
  * SIGHTED airdrops, `{id,x,y,c}` each, through the `drop` row: spectator
  * always, else detected or inside an owned lit zone; a crate's radar paint
- * is an anonymous blip in `events`, never a key here). The DECOY BUOYS' `decoys`
+ * is an anonymous blip in `events`, never a key here), then `pc` (Story 11.2
+ * — the PLAIN HULLS of the outer sight tier, `{h,x,y,heading,speed}` each
+ * through the `plain` row, sorted by handle; never present on a spectator
+ * frame, where every hull is a full contact). The DECOY BUOYS' `decoys`
  * channel left with Story 10.5. FOG HAS NO CHANNEL (Story 9.10):
  * the field is public weather off the welcome seed and the schema cut; its
  * hiding is the toll inside every sight site, never a frame key.
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'clouds' | 'drops'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'clouds' | 'drops' | 'pc'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
     ...(view.foulZones.length > 0 ? { foulZones: view.foulZones } : {}),
     ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
     ...(view.drops.length > 0 ? { drops: view.drops } : {}),
+    ...(view.plain.length > 0 ? { pc: view.plain } : {}),
   };
 }
 
@@ -335,7 +339,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...optionalChannels(view), // litZones / burnZones / foulZones / clouds / drops, omitted when none
+    ...optionalChannels(view), // litZones / burnZones / foulZones / clouds / drops / pc, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

@@ -329,7 +329,7 @@ describe('the wave-1 wiring at the helm', () => {
     const t = track(port.now, { x: 1200, y: 0, live: false });
     const zone = { id: 'z', x: 1200, y: 0, r: 200, until: port.now + 5000, by: rec.id };
     const dark = situationOf(rec, mind, port);
-    mind.view = { contacts: [], events: [], mines: [], litZones: [zone], burnZones: [], foulZones: [], clouds: [], drops: [] };
+    mind.view = { contacts: [], events: [], mines: [], litZones: [zone], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
     const lit = situationOf(rec, mind, port);
     expect(lit.ownLitZones).toHaveLength(1);
     expect(scoreTrack(t, lit, [t]) / scoreTrack(t, dark, [t])).toBeCloseTo(CONFIG.bots.litTargetBonus, 9);

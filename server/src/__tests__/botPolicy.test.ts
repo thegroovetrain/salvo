@@ -101,7 +101,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'yamato'): Contact {
@@ -575,7 +575,12 @@ describe('ai/utility — profile-weighted target selection', () => {
 
   it('an isolated target outscores one with company, for a raider', () => {
     const m = mind('raider');
-    foldView(m, view({ contacts: [contact('lone', 250, 0), contact('pair', -250, 0), contact('escort', -260, 10)] }), 1000);
+    // Mirror ranges either side of the bot, a full sight apart — farther than
+    // the scorer's isolation radius (a fraction of sight) reaches — and an
+    // escort a ship's length from the pair.
+    const d = CONFIG.vision.sight / 2;
+    const beside = hullEnvelope('yamato').hull.length;
+    foldView(m, view({ contacts: [contact('lone', d, 0), contact('pair', -d, 0), contact('escort', -d - beside, beside)] }), 1000);
     const sit = situation({ now: NOW, profile: profileOf('raider'), stats: stats('bismarck') });
     expect(selectTarget(m, sit)?.id).toBe('lone');
   });
@@ -876,8 +881,9 @@ function countingRng(seed: number): { rng: Rng; calls: () => number } {
 }
 
 const P = CONFIG.bots.cardPoints;
-// The eight SHIP ladders since Story 10.6 (Eric 2026-11-05, R1 / R2: RUDDER gone; RANGE, HULL REPAIR, SMOKE SCREEN new).
-const SHIP_LADDERS = ['armor', 'power', 'engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen'] as const;
+// The seven SHIP ladders: Story 10.6 (Eric 2026-11-05, R1 / R2) retired RUDDER and added HULL REPAIR and
+// SMOKE SCREEN; Story 11.2 (Eric 2026-11-12, R9) retired RANGE (reach is a fact on the hull's battery).
+const SHIP_LADDERS = ['armor', 'power', 'engines', 'intel', 'reload', 'hullRepair', 'smokeScreen'] as const;
 /** Every DEALABLE weapon line (copy 1 = a new weapon into its family slot),
  *  read off the catalog — a line with no family slot (the BROADSIDE, which
  *  left the deal in Story 10.5, R6) is refused by `pickRefusal`. */

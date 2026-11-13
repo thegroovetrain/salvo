@@ -80,6 +80,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { hullPercent } from '../util/hullPercent.js';
+import { DISTANCE_FIELDS, HM_UNIT, hmText, withUnit } from '../util/hmText.js';
 
 /**
  * THE CARD NAMES — catalog v3 §1, Eric's own sheet, verbatim (Story 8.1).
@@ -161,7 +162,7 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // four one-off WEAPON cards, Eric's names verbatim. HULL REPAIR and SMOKE
   // SCREEN are also the `C` / `V` abilities' names (`ABILITY_NAMES` reads
   // these two entries, so the card and the square can never disagree).
-  range: 'RANGE',
+  // RANGE's card left the catalog with the index row (Story 11.2, R9).
   hullRepair: 'HULL REPAIR',
   smokeScreen: 'SMOKE SCREEN',
   aftTorpedoLauncher: 'AFT LAUNCHER', // Eric 2026-11-05 (line id unchanged)
@@ -342,7 +343,7 @@ const INDEX_WORDS: Readonly<Record<IndexId, string>> = {
   reload: 'Reload',
   engines: 'Engines',
   intel: 'Intel',
-  range: 'Range',
+  // `range: 'Range'` — RETIRED 2026-11-12, Story 11.2 (R9): five index rows.
 };
 
 /** Pure: an index's ONE word in the HUD / card register (uppercase) — the
@@ -381,9 +382,8 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   reload: indexLine('reload'),
   engines: indexLine('engines'),
   intel: indexLine('intel'),
-  // RANGE (Story 10.6, R1): the index card that reaches the main gun and the
-  // secondaries, printed bare like the rest. RUDDER's row left with its line.
-  range: indexLine('range'),
+  // RANGE's row (Story 10.6, R1) left with the index row (Story 11.2, R9 —
+  // a hull's reach is its battery's own fact now). RUDDER's left with its line.
   // PASSIVE HEALING's `Heal` row sat here until Story 10.3 deleted the line
   // (Eric 2026-11-04, epic-10 amendment 8).
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
@@ -666,11 +666,14 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   // THE MACHINE GUN'S SHOT DELAY (Eric 2026-09-30, amendment 189): a stat
   // field and a tier step now. `RATE` is the humanizer's own word, spelled out.
   rateMs: 'RATE',
-  // The weapon's max travel (`rangeU` — its own TIERED dial on the twelfths
-  // ruler since Story 9.8, ruling 125, stepped by every card of its line),
-  // printed LAST on the stat tables that carry it (amendment 185). The
+  // The weapon's max travel (`rangeU` — its own TIERED dial since Story 9.8,
+  // ruling 125, stepped by every card of its line; in hectometers since Story
+  // 11.2), printed LAST on the stat tables that carry it (amendment 185). The
   // humanizer would say `RANGE U`; the unit rides `FIELD_UNITS`.
   rangeU: 'RANGE',
+  // A torpedo's run (Story 11.2, R5): its total travel, a stat label in
+  // RANGE's register, printed LAST beside it (`isReachPath`).
+  runU: 'RUN',
 };
 
 /**
@@ -700,11 +703,10 @@ const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
   // 0.10 s), which the one-decimal `secs` would flatten — two decimals, the
   // trailing zero kept so the ladder reads in one register.
   rateMs: (v) => `${(v / 1000).toFixed(2)} s`,
-  // RANGE prints ONE DECIMAL ONLY WHEN NEEDED (Story 9.8, Eric 2026-10-13):
-  // whole values print whole (1000, 750, 875), fractional ones to one decimal
-  // (781.3, 812.5, the +31.25 u per-card step as 31.3). The sim keeps the
-  // exact value; this is display only.
-  rangeU: (v) => (v % 1 === 0 ? String(v) : v.toFixed(1)),
+  // EVERY DISTANCE prints in HECTOMETERS (Story 11.2, R1 / R18): the reach
+  // and the run whole, an effect radius under 10 hm to one decimal — the one
+  // client printer, util/hmText.ts. The sim keeps the exact u; display only.
+  ...Object.fromEntries([...DISTANCE_FIELDS].map((f) => [f, hmText])),
 };
 
 /**
@@ -725,8 +727,9 @@ const FIELD_UNITS: Readonly<Record<string, string>> = {
   // PHOSPHOR's burn is a RATE (Story 8.17, amendment 135(j): `BURN` in hp/s);
   // a bare `5 → 6` would read as a hit, not a per-second burn.
   dps: ' hp/s',
-  // RANGE in world units, lowercase like the other unit suffixes.
-  rangeU: ' u',
+  // Every distance in hectometers, lowercase like the other unit suffixes
+  // (Story 11.2; RANGE printed ` u` before).
+  ...Object.fromEntries([...DISTANCE_FIELDS].map((f) => [f, HM_UNIT])),
 };
 
 /** Pure: a field's trailing unit, or '' for a field that needs none. */
@@ -781,7 +784,7 @@ function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): C
   return {
     label: statPathLabel(path),
     cur: fmt(readStatPath(before, path)),
-    next: fmt(readStatPath(after, path)) + statPathUnit(path),
+    next: withUnit(fmt(readStatPath(after, path)), statPathUnit(path)),
   };
 }
 
@@ -822,22 +825,27 @@ function ladderRows(
   for (const e of line.tiers[k] ?? []) {
     if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path)) continue;
     const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
-    if (row !== null) (isRangePath(e.path) ? range : rows).push(row);
+    if (row !== null) (isReachPath(e.path) ? range : rows).push(row);
   }
   return [...rows, ...range];
 }
 
 /**
- * Pure: is this authored step a weapon's REACH (`equipment.<w>.rangeU`)? Since
+ * Pure: is this authored step a weapon's REACH (`equipment.<w>.rangeU`) or a
+ * torpedo's RUN (`.runU`, Story 11.2 — the same row style, printed last)? Since
  * Story 9.8 (ruling 125) every gun card steps its line's reach, and the RANGE
  * row prints LAST on the card exactly as it does on every stat table
  * (amendment 185) — one grammar, whatever order the catalog authored the step
  * in. The six-row grid (Eric 2026-10-13) holds the fullest tier face — STAR
  * SHELLS and PHOSPHOR SHELLS to III and V — whole, RANGE included.
  */
-function isRangePath(path: string): boolean {
-  return path.endsWith('.rangeU');
+function isReachPath(path: string): boolean {
+  return REACH_FIELDS.some((f) => path.endsWith(`.${f}`));
 }
+
+/** The reach-like fields every table prints LAST, in this order (RANGE, then a
+ *  torpedo's RUN — Story 11.2). */
+const REACH_FIELDS = ['rangeU', 'runU'] as const;
 
 /**
  * AUTHORED STEPS THE CARD DOES NOT PRINT (Story 9.6, Eric 2026-10-13, epic-9
@@ -911,8 +919,9 @@ const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
  *  the tier cards (`ladderRows`) and the stat tables (amendment 185). */
 function faceFields(target: EquipmentId): readonly string[] {
   const table = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
-  const fields = (FACE_FIELDS[target] ?? table).filter((f) => f !== 'rangeU');
-  return table.includes('rangeU') ? [...fields, 'rangeU'] : fields;
+  const reach: readonly string[] = REACH_FIELDS;
+  const fields = (FACE_FIELDS[target] ?? table).filter((f) => !reach.includes(f));
+  return [...fields, ...REACH_FIELDS.filter((f) => table.includes(f))];
 }
 
 /**
@@ -998,11 +1007,6 @@ function hullPct(hp: number): string {
   return `${hullPercent(hp, HULL_BASIS)}%`;
 }
 
-/** Whole units — a cloud radius (the disc is derived by repeated ×1.1, so its
- *  raw value carries a long tail no player needs). */
-function whole(v: number): string {
-  return String(Math.round(v));
-}
 
 /**
  * THE TWO COOLDOWN ABILITIES' ROWS (Story 10.5, epic-10 amendment 11; PER
@@ -1057,9 +1061,13 @@ const ABILITY_ROW_SPECS: Readonly<Record<CooldownAbilityId, readonly AbilityRowS
     {
       label: 'CLOUD',
       read: (s) => s.smoke.r1,
-      fmt: whole,
-      unit: ' U',
-      absolute: (s) => `${whole(s.smoke.r0)} ${TIER_ARROW} ${whole(s.smoke.r1)} U`,
+      // In hectometers since Story 11.2 (the one distance printer, hmText).
+      fmt: hmText,
+      unit: HM_UNIT,
+      absolute: (s) =>
+        hmText(s.smoke.r0) === '' || hmText(s.smoke.r1) === ''
+          ? '' // a non-finite end fails closed to an empty row, never a bare arrow + unit
+          : `${hmText(s.smoke.r0)} ${TIER_ARROW} ${hmText(s.smoke.r1)}${HM_UNIT}`,
     },
     cooldownSpec('smoke'),
   ],
@@ -1067,7 +1075,7 @@ const ABILITY_ROW_SPECS: Readonly<Record<CooldownAbilityId, readonly AbilityRowS
 
 /** One spec as an ABSOLUTE tooltip row. */
 function abilityAbsoluteRow(spec: AbilityRowSpec, stats: EffectiveStats): CardStatRow {
-  const next = spec.absolute?.(stats) ?? spec.fmt(spec.read(stats)) + (spec.unit ?? '');
+  const next = spec.absolute?.(stats) ?? withUnit(spec.fmt(spec.read(stats)), spec.unit ?? '');
   return { label: specLabel(spec, stats), cur: null, next };
 }
 
@@ -1103,7 +1111,7 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
   return ABILITY_ROW_SPECS[id].map((spec) => ({
     label: specLabel(spec, after),
     cur: spec.fmt(spec.read(before)),
-    next: spec.fmt(spec.read(after)) + (spec.unit ?? ''),
+    next: withUnit(spec.fmt(spec.read(after)), spec.unit ?? ''),
   }));
 }
 
@@ -1264,7 +1272,7 @@ export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): C
 
 /** THE SHIP PANEL'S ROWS (Story 10.3, Eric 2026-11-04, epic-10 amendment
  *  6(c)): the indices in `INDEX_IDS` order — ARMOR, POWER, RELOAD, ENGINES,
- *  INTEL, RANGE (RUDDER left with its index, Story 10.6 R2). Keyed by INDEX,
+ *  INTEL (RUDDER left with its index, Story 10.6 R2; RANGE with its own, Story 11.2 R9). Keyed by INDEX,
  *  not by line. The HULL and PASSIVE HEALING rows left with their lines (no
  *  hull size is ever printed). */
 const SHIP_STAT_LINES: readonly StatLine[] = INDEX_IDS.map(indexLine);

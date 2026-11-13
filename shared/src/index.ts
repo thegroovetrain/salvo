@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  104 — Story 11.2 THE HECTOMETER RULER AND REAL REACH (2026-11-12, Eric's
+ *  rulings R1–R20; 104 is confirmed: cycle 227, 0.19.21): FrameMsg gains the optional `pc` channel (PlainContact
+ *  {h,x,y,heading,speed} — a hull seen by eye beyond the class-and-name reach
+ *  and inside the plain-hull reach, under an anonymous per-observer handle;
+ *  no class, no roster id, no turret / launcher angles; omitted when empty).
+ *  The CONFIG the client reads changed: the twelfths ladder retires — every
+ *  reach is a named hectometer fact (`vision.sight` 200 hm, new
+ *  `vision.hullSight` / `splashSight` / `shellSight` / `torpedoSight` /
+ *  `mineSight` / `crateKindSight`, `vision.radar` 400 hm, the weapon reaches);
+ *  `vision.detect` / `detectFactor` / `muzzleFlashFactor` / `dropout` and
+ *  `torpedo.homingMaxRangeU` are RETIRED; every torpedo kind gains `runU` /
+ *  `runUAtV` and the equipment row `runU`; hull `battery.reachFrac` replaces
+ *  the RANGE index. RANGE LEAVES THE INDEX (`INDEX_IDS` five; the `range`
+ *  catalog line, stat path and `EffectiveStats.range` are gone — catalog
+ *  content changed), so the maxed-hull roll and the airdrop crate kinds
+ *  roll five. Perception exception count stays SIX.
  *  103 — Story 11.1 REAL DISPERSION (2026-11-12, Eric's rulings R1–R17): the
  *  CONFIG the client reads changed — `gunAttenuation` RETIRED (damage is flat
  *  with range), `mainBattery.traverseDegPerS` / `onTargetDeg` RETIRED (no
@@ -1064,7 +1080,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 103;
+export const PROTOCOL_VERSION = 104;
 
 // Tunables
 export * from './constants.js';
@@ -1116,13 +1132,15 @@ export * from './sim/spread.js';
 export * from './sim/shell.js';
 export * from './sim/attenuation.js';
 export * from './sim/dispersion.js';
+export * from './sim/hm.js';
 export * from './sim/map.js';
 export * from './sim/nav.js';
 export * from './sim/noise.js';
 export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
-export * from './sim/dropout.js';
+// `./sim/dropout.js` (the radar paint dropout) — REMOVED 2026-11-12, Story
+// 11.2, epic-11 amendment 4 (R8).
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';

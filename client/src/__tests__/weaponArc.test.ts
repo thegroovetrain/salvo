@@ -524,7 +524,7 @@ describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
   /** A live own flare centred 200u past the gun's own horizon. */
   const FAR_ZONE = [{ x: RANGE + 200, y: 0, r: 150 }];
   const SHIP = { x: 0, y: 0 };
-  const MAP_R = 2400;
+  const MAP_R = RANGE * 3; // a synthetic sea wider than the reach (Story 11.2: the 380 hm gun outreaches 2,400 u)
   /** The reach for a click `d` units dead ahead of a ship at the origin. */
   const reach = (id: Parameters<typeof weaponReachU>[1], d: number, zones: { x: number; y: number; r: number }[]) =>
     weaponReachU(reachStats, id, SHIP, 0, d, MAP_R, zones);

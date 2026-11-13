@@ -317,14 +317,17 @@ function peerFactor(sit: BotSituation, target: BotTrack): number {
 }
 
 /** u — the reach a SIGHTED class carries by what the seat can see: its base
- *  deck-gun reach (the seat default; upgrades and a picked gun are private),
- *  memoized per class. An unclassed plot is a peer: own reach. */
+ *  MAIN-BATTERY reach — `CONFIG.mainBattery.rangeU ×` that hull's
+ *  `battery.reachFrac`, the zero-card fold (Story 11.2, R2 / R9: reach is a
+ *  fact on the hull's battery; the retired RANGE index and the unmounted
+ *  `gun` row are not read) — memoized per class. An unclassed plot — a radar
+ *  paint or a PLAIN hull of the outer sight tier — is a peer: own reach. */
 const BASE_REACH = new Map<HullId, number>();
 export function targetReachU(sit: BotSituation, target: BotTrack): number {
   if (target.cls === null) return ownReachU(sit);
   let r = BASE_REACH.get(target.cls);
   if (r === undefined) {
-    r = effectiveStats(hullEnvelope(target.cls)).equipment.gun.rangeU;
+    r = effectiveStats(hullEnvelope(target.cls)).equipment.mainBattery.rangeU;
     BASE_REACH.set(target.cls, r);
   }
   return r;

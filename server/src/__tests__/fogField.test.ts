@@ -19,6 +19,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, FOG_NO_CUT, FOG_SOLID_DENSITY, fogCutForTarget, fogDensityAt, fogLattice, fogTollAlong, mulberry32, type ZoneRing } from '@salvo/shared';
 import { World } from '../game/world.js';
+import { observe } from '../game/perception.js';
 
 const DT = CONFIG.tick.simDtMs;
 const SEED = 4242;
@@ -418,6 +419,81 @@ describe('fog field — the memoized cell walk agrees with the shared midpoint m
     expect(inside).toBeLessThanOrEqual((50 + CONFIG.fog.marchStepU) * CONFIG.fog.sightCostPerU); // only the 50 u on the ocean pays (amendment 179: no fog past the rim)
     expect(w.fogTollAlong(NaN, 0, 100, 0)).toBe(0);
     expect(w.fogTollAlong(0, 0, 0, 0)).toBe(0);
+  });
+});
+
+describe('fog field — the memo lattice is the OCEAN, and a ray is walked once (Story 11.2 review gate, F2)', () => {
+  const TOLERANCE = CONFIG.fog.sightCostPerU * 2 * CONFIG.fog.marchStepU; // one cell's quantization at each end
+
+  it('the lattice spans the ocean\'s bounding square and at most a cell or two beyond it — its size follows the map, never a sight reach', () => {
+    const w = liveWorld(31);
+    const ocean = 2 * w.map.radius;
+    expect(w.fogMemoSpanU).toBeGreaterThanOrEqual(ocean); // every on-ocean cell is in it
+    expect(w.fogMemoSpanU).toBeLessThanOrEqual(ocean + 4 * CONFIG.fog.marchStepU);
+    expect(w.fogMemoSpanU).toBeLessThan(ocean + CONFIG.vision.sight); // ...so no eye reach sizes it
+  });
+
+  it('a ray that leaves the ocean at the LONGEST eye reach is tolled exactly: the walk agrees with the shared reference march wherever the far end lies (fog is 0 past the rim, so the clipped part owes nothing)', () => {
+    const w = pinnedWorld(32, 0.08);
+    const field = w.fogFieldForTest();
+    const g = mulberry32(0xf2);
+    const R = w.map.radius;
+    const reach = Math.max(CONFIG.vision.hullSight, CONFIG.vision.muzzleFlash, CONFIG.vision.splashSight);
+    let paying = 0;
+    let outside = 0;
+    for (let k = 0; k < 600; k++) {
+      // The observer in the outer part of the ocean, in clear water (no own-bank run to be fragile about).
+      const rad = g.float(0.6 * R, R);
+      const ang = g.float(0, 2 * Math.PI);
+      const ax = Math.cos(ang) * rad;
+      const ay = Math.sin(ang) * rad;
+      if (fogDensityAt(field, ax, ay, w.fogEpochT, w.fogCut) >= FOG_SOLID_DENSITY) continue;
+      const out = g.float(0, 2 * Math.PI);
+      const len = g.float(0.25 * reach, reach);
+      const bx = ax + Math.cos(out) * len;
+      const by = ay + Math.sin(out) * len;
+      if (Math.hypot(bx, by) > R + CONFIG.fog.marchStepU) outside += 1;
+      const walk = w.fogTollAlong(ax, ay, bx, by);
+      const march = fogTollAlong(field, ax, ay, bx, by, w.fogEpochT, w.fogCut);
+      expect(Number.isFinite(walk), `ray ${k}`).toBe(true);
+      // The reference marches the WHOLE ray in `marchStepU` steps; over a ray
+      // this long the two samplings differ by a cell at each bank edge crossed,
+      // so the bound is relative to the toll with the one-cell floor.
+      expect(Math.abs(walk - march), `ray ${k}`).toBeLessThanOrEqual(Math.max(TOLERANCE, 0.05 * march));
+      if (march > TOLERANCE) paying += 1;
+    }
+    expect(outside).toBeGreaterThan(100); // rays DO end past the lattice
+    expect(paying).toBeGreaterThan(100); // and DO cross fog
+  });
+
+  it('the same ray asked again in the same epoch walks NOTHING (the ship scan asks about an inner-tier observer → target ray twice: the contact row, then the plain row\'s "not a full contact" term); another ray or a new epoch walks', () => {
+    const w = pinnedWorld(33, 0.08);
+    const before = w.fogWalks;
+    const first = w.fogTollAlong(-400, 120, 900, -310);
+    expect(w.fogWalks).toBe(before + 1);
+    expect(w.fogTollAlong(-400, 120, 900, -310)).toBe(first);
+    expect(w.fogTollAlong(-400, 120, 900, -310)).toBe(first);
+    expect(w.fogWalks).toBe(before + 1);
+    w.fogTollAlong(900, -310, -400, 120); // the reverse ray is another ray (the toll is directional)
+    expect(w.fogWalks).toBe(before + 2);
+    w.setFogCutForTest(w.fogCut); // a new epoch: the memo is stale
+    expect(w.fogTollAlong(900, -310, -400, 120)).toBeGreaterThanOrEqual(0);
+    expect(w.fogWalks).toBe(before + 3);
+  });
+
+  it('one observe() pass walks an observer → hull ray ONCE whichever eye tier the hull is in (inner: two asks; outer: one)', () => {
+    for (const frac of [0.5, 1.5]) { // of the class-and-name reach: inside it, and in the plain band beyond
+      const w = pinnedWorld(34, 0.08);
+      w.map.islands.length = 0;
+      const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
+      const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
+      Object.assign(a.state, { x: -CONFIG.vision.sight * frac * 0.5, y: 0 });
+      Object.assign(b.state, { x: CONFIG.vision.sight * frac * 0.5, y: 0 });
+      expect(frac * CONFIG.vision.sight).toBeLessThan(CONFIG.vision.hullSight); // premise: within the eye's outer reach
+      const before = w.fogWalks;
+      observe(w, 'a');
+      expect(w.fogWalks - before, `frac ${frac}`).toBe(1);
+    }
   });
 });
 

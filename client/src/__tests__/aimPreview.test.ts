@@ -60,7 +60,8 @@ import {
 } from '../render/aimPreview.js';
 
 const SHIP = { x: 0, y: 0, heading: 0, cls: DEFAULT_CLASS_ID };
-const MAP_R = 2400;
+/** A synthetic sea wide enough that a REACH, never the rim, binds a shot (Story 11.2: the 380 hm battery reaches past the real 10,000 u board). */
+const MAP_R = 30000;
 /** The model a preview returns when there is nothing honest to draw. */
 const EMPTY_MODEL = { lines: [], bursts: [], place: null, band: null };
 /** A torpedo shooter whose BEAM looks down +x (bow toward −y): an aim of 0
@@ -201,7 +202,7 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   });
 
   it('clamps a beyond-range click to the effective range (the shell stops there)', () => {
-    const inp = input({ aimDist: 5000, stats: ONE });
+    const inp = input({ aimDist: ONE.equipment.gun.rangeU * 2, stats: ONE });
     const [b] = computeAimPreview(inp).bursts;
     expect(Math.hypot(b.x, b.y)).toBeCloseTo(inp.stats.equipment.gun.rangeU, 6);
   });
@@ -486,7 +487,7 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
     // base nothing bears at all and the "one gun is still ON the click" half of
     // the claim is no longer available anywhere — that is the 2026-08-24
     // ruling, not a defect).
-    const ship = { ...SHIP, x: MAP_R * 0.98, y: 0, heading: -Math.PI / 6 };
+    const ship = { ...SHIP, x: MAP_R - 48, y: 0, heading: -Math.PI / 6 }; // 48 u off the rim (was 2 % of a 2,400 u fixture sea)
     const inp = broadside({ ship, aim: Math.PI / 3, aimDist: MAP_R, stats: MAXED_SPREAD });
     const m = computeAimPreview(inp);
     const truth = truthFor(inp);
@@ -582,7 +583,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   // STORY 10.6 (R6 / R16 / R28): the track leaves the DECK LAUNCHER the shared
   // pick names — its station, pushed clear of the hull — along the bearing it
   // fires on. (The retired bow-ring `torpedoSpawn` is gone.)
-  it('runs from the PICKED LAUNCHER\'s station to the map edge, far past gun range', () => {
+  it('runs from the PICKED LAUNCHER\'s station along its own run (Story 11.2: no longer to the map edge)', () => {
     const inp = torp({ aimDist: 100 });
     const [l] = computeAimPreview(inp).lines;
     const pick = pickTube(trainedOnBeam(inp.stats), DEFAULT_CLASS_ID, TSHIP, launcherAimPoint(TSHIP, DEFAULT_CLASS_ID, 0, 100));
@@ -592,9 +593,8 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(l.x1).toBeCloseTo(exit.x, 9);
     expect(l.y1).toBeCloseTo(exit.y, 9);
     // weaponArc.weaponRangeU would have answered stats.equipment.gun.rangeU here (a
-    // documented meaningless fallback for the torpedo) — the torpedo runs on.
-    expect(l.x2).toBeGreaterThan(inp.stats.equipment.gun.rangeU);
-    expect(Math.hypot(l.x2, l.y2)).toBeLessThanOrEqual(MAP_R);
+    // documented meaningless fallback for the torpedo) — the torpedo runs ITS run.
+    expect(Math.hypot(l.x2 - l.x1, l.y2 - l.y1)).toBeCloseTo(inp.stats.equipment.heavyTorpedo.runU, 6);
     expect(computeAimPreview(inp).bursts).toEqual([]); // contact-only: no blast
   });
 
@@ -656,7 +656,21 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     // The band tracks the DRAWN line, so it never promises reach the fish's
     // finite travel budget cannot deliver.
     expect(m.band!.x2).toBeCloseTo(m.lines[0].x2, 9);
-    expect(Math.hypot(m.lines[0].x2 - m.lines[0].x1, m.lines[0].y2 - m.lines[0].y1)).toBeCloseTo(CONFIG.torpedo.homingMaxRangeU, 3);
+    const tiered = stats('heavyTorpedo', 'heavyTorpedo');
+    expect(Math.hypot(m.lines[0].x2 - m.lines[0].x1, m.lines[0].y2 - m.lines[0].y1)).toBeCloseTo(tiered.equipment.heavyTorpedo.runU, 3);
+  });
+
+  // STORY 11.2 (R5): every fish — homing or straight — runs its row's tiered
+  // `runU` and expires; the preview draws exactly that run, and a tier moves it.
+  it('the run is the row runU for every kind, and grows with the tier', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      const s1 = stats(id);
+      const [l] = computeAimPreview(torp({ id, stats: s1 })).lines;
+      expect(Math.hypot(l.x2 - l.x1, l.y2 - l.y1), id).toBeCloseTo(s1.equipment[id].runU, 3);
+    }
+    const t1 = stats('heavyTorpedo').equipment.heavyTorpedo.runU;
+    const t2 = stats('heavyTorpedo', 'heavyTorpedo').equipment.heavyTorpedo.runU;
+    expect(t2).toBeGreaterThan(t1);
   });
 
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): the three commanded-

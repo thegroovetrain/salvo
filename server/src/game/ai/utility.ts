@@ -71,6 +71,7 @@ import {
   type Island,
   type LitZoneView,
   type EquipmentId,
+  type PlainContact,
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
@@ -255,9 +256,13 @@ const TARGET_HORIZON_FACTOR = 1.25;
  *  is worth something, just not much. */
 const STALE_FLOOR = 0.15;
 
-/** u — radius that decides whether a track is ALONE. Half of base truesight:
- *  two hulls this close are supporting each other. */
-const ISOLATION_U = CONFIG.vision.sight * 0.5;
+/** u — radius that decides whether a track is ALONE: two hulls this close
+ *  are supporting each other. ITS OWN FACT since 2026-11-12 (Story 11.2
+ *  review gate, F6): it was `CONFIG.vision.sight × 0.5` — 250 u on the old
+ *  500 u sight — and silently grew to 2,273 u when sight became 200 hm.
+ *  Bots are unchanged by Story 11.2 (R6), so it keeps the 250 u it had;
+ *  Story 11.9 tunes it. */
+const ISOLATION_U = 250;
 
 /**
  * Score multiplier for a track with LAND IN THE WAY — a plot the trigger will
@@ -446,7 +451,7 @@ function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
 /** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown
  *  by one cell on every side) contain the position cell of a contact sighted
  *  in this view? */
-function paintCoversSighted(e: BlipEvent, sighted: readonly Contact[]): boolean {
+function paintCoversSighted(e: BlipEvent, sighted: readonly Vec2[]): boolean {
   const cell = CONFIG.vision.radarCellU;
   for (const c of sighted) {
     const cx = Math.floor(c.x / cell);
@@ -519,6 +524,60 @@ function foldContact(tracks: TrackMap, c: Contact, now: number, sunkNow: Readonl
   writeTrack(tracks, c.id, { id: c.id, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: c.cls }, now, true, sunkNow.has(c.id));
 }
 
+/** The track key of a PLAIN hull (Story 11.2, R3): its anonymous handle
+ *  under a prefix no roster id and no anonymous-plot key (`a:x:y`) can take.
+ *  The handle lives one visit of the outer band, so the key does too. */
+function plainKey(h: string): string {
+  return `p:${h}`;
+}
+
+/**
+ * Fold one PLAIN hull — the OUTER sight tier (Story 11.2, R3 / R6): a LIVE
+ * track with a disclosed pose and NO identity (`id` null, `cls` null — what
+ * the wire carries, and all a human in this seat holds). Keyed by the
+ * anonymous handle, so it is one track for the whole visit. When the handle
+ * ends (the hull crossed into the full tier, left the band, went behind an
+ * island) the track simply stops being refreshed and stands as an ordinary
+ * course-carrying plot: a full `Contact` opens its own track by roster id,
+ * and the stale twin under the live hull is retired the same fold
+ * (`retireTwins` — review gate F5). The bot never links a handle to an id.
+ */
+function foldPlain(tracks: TrackMap, c: PlainContact, now: number): void {
+  writeTrack(tracks, plainKey(c.h), { id: null, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: null }, now, true);
+}
+
+/**
+ * RETIRE THE STALE TWIN of every hull held by eye this fold (Story 11.2
+ * review gate, F5). A hull that crosses a sight tier changes its track KEY —
+ * `p:<handle>` to its roster id inbound, the reverse outbound, a fresh handle
+ * on a new visit — so the old track stops being refreshed and would stand as
+ * a dead-reckoned plot ON TOP of the live one until the sweep-miss drop or
+ * memory took it: one hull counted twice (isolation, target count). So any
+ * track that is NOT live, was not refreshed this fold and is not a wreck,
+ * and whose plot (dead-reckoned to now) lies within one hull length
+ * (`LONGEST_HULL_U` — the bot may not know the class) of a hull this view
+ * holds by eye, is dropped: the eye says what is there. The bot still never
+ * links a handle to an id — nothing is carried from the twin to the live
+ * track. A wreck's track stays (it is that hull's own record), and so does a
+ * plot refreshed this fold (a paint that folded is another return nearby).
+ */
+function retireTwins(tracks: TrackMap, sighted: readonly Vec2[], fx: FoldCtx): void {
+  if (sighted.length === 0) return;
+  for (const [key, t] of tracks) {
+    if (t.live || t.sunk || t.seenAt === fx.now) continue;
+    const at = predictedPos(t, fx.now, fx.waterR);
+    if (nearAny(at, sighted, LONGEST_HULL_U)) tracks.delete(key);
+  }
+}
+
+/** Is `p` within `r` of any of `points`? */
+function nearAny(p: Vec2, points: readonly Vec2[], r: number): boolean {
+  for (const q of points) {
+    if (Math.hypot(q.x - p.x, q.y - p.y) <= r) return true;
+  }
+  return false;
+}
+
 /** Route one event to its fold. Everything not named here — the `sp` splash
  *  included, since the review gate deleted its dead feedback channel — is
  *  deliberately ignored: a bot reads only what it is entitled to and only
@@ -537,9 +596,10 @@ interface FoldCtx {
    *  ms of the last credited Hit Call (BotMind.hitVolleyAt). Null = no ledger
    *  (every row counts). */
   volleys: Map<string, number> | null;
-  /** This view's live truesight contacts — a paint on one of them is its own
-   *  echo and is not folded (foldBlip, amendment 210). */
-  sighted: readonly Contact[];
+  /** The positions of every hull this view holds BY EYE — full contacts and
+   *  plain hulls (Story 11.2) alike: a paint on one of them is its own echo
+   *  and is not folded (foldBlip, amendment 210). */
+  sighted: readonly Vec2[];
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -620,7 +680,9 @@ export interface FoldSweep {
  *      view also SIGHTS (its rect covers that hull's cell) is skipped
  *      (amendment 210: a sighted hull paints too; its contact is the better
  *      record) — a paint merely NEAR a sighted hull still folds;
- *   4. live truesight contacts fold — so a hull that is both painted and
+ *   4. live truesight contacts fold, then the PLAIN hulls of the outer sight
+ *      tier (Story 11.2 — class-less live tracks keyed by their anonymous
+ *      handle; the two lists are disjoint in one view) — so a hull that is both painted and
  *      sighted this tick ends up stored LIVE (the reverse order would let a
  *      same-tick radar paint demote a sighted hull to a stale plot — the
  *      sensors disagree about confidence, never about existence, and
@@ -646,10 +708,12 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
     waterR: sweep?.site.waterR ?? Infinity,
     sunkNow: new Set(),
     volleys: volleyLedger(mind),
-    sighted: view.contacts,
+    sighted: [...view.contacts, ...view.plain],
   };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);
+  for (const c of view.plain) foldPlain(tracks, c, now);
+  retireTwins(tracks, fx.sighted, fx);
   if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
   refitWakeCourses(tracks, mind.wakeCells, now);
   prune(tracks, now);

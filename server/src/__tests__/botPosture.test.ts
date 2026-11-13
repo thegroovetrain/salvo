@@ -54,7 +54,7 @@ function mind(profile: BotProfileId = 'bulwark'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [], ...over };
 }
 
 function stats(cls: 'bismarck' | 'yamato' | 'warspite' = 'bismarck'): EffectiveStats {

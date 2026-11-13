@@ -190,7 +190,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
   // is what keeps sim/shell.ts from steering it and perception from emitting a
   // `torpU` for it — and at tier II it must carry the ROW's rate, not the
   // family's tier-V reference value.
-  it('tier I carries NO homing tag and no die-distance; tier II carries the ROW\'s rate and the family budget', () => {
+  it('tier I carries NO homing tag; tier II carries the ROW\'s rate; both launch on their own row\'s run (Story 11.2, R5)', () => {
     const w = bareWorld();
     const one = torpShooter(w, 'a', 0, 0); // the class fit alone = tier I
     expect(one.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
@@ -198,7 +198,10 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     w.step();
     const straight = [...w.shells.values()][0];
     expect(straight.homing).toBeUndefined();
-    expect(straight.distLeft).toBe(Number.POSITIVE_INFINITY);
+    // EVERY fish has a run now (Story 11.2, R5): the launch budget is the
+    // row's folded `runU` (less the launch tick's own travel).
+    expect(straight.distLeft).toBeGreaterThan(0);
+    expect(straight.distLeft).toBeLessThanOrEqual(one.stats.equipment.heavyTorpedo.runU);
 
     const w2 = bareWorld(4);
     const two = torpShooter(w2, 'a', 0, 0);
@@ -210,7 +213,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     w2.step();
     const homer = [...w2.shells.values()][0];
     expect(homer.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
-    expect(homer.distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
+    expect(homer.distLeft).toBeLessThanOrEqual(two.stats.equipment.heavyTorpedo.runU);
   });
 
   it('the fish steers off its launch bearing toward the nearest enemy hull; a standard fish never does', () => {
@@ -269,23 +272,37 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     // It ran out its budget (one tick's travel of slack — the fish is removed
     // on the step that exhausts distLeft).
     const perTick = a.stats.equipment.heavyTorpedo.speed * (DT / 1000);
-    expect(travelled).toBeGreaterThan(CONFIG.torpedo.homingMaxRangeU - 2 * perTick);
-    expect(travelled).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
+    const runU = a.stats.equipment.heavyTorpedo.runU; // the row's own folded run (Story 11.2, R5)
+    expect(travelled).toBeGreaterThan(runU - 2 * perTick);
+    expect(travelled).toBeLessThanOrEqual(runU);
   });
 
-  it('a STRAIGHT-RUNNING fish keeps its unbounded range — the budget rides the turn rate alone', () => {
+  // Story 11.2 (Eric 2026-11-12, R5): "straight-runners no longer run to the
+  // map edge" — the budget rides EVERY fish, not the turn rate. (This case
+  // used to pin the opposite: a straight-runner's unbounded range.)
+  it('a STRAIGHT-RUNNING fish with nothing to hit expires at its row\'s run, never at the map edge', () => {
     const w = bareWorld();
-    const a = torpShooter(w, 'a', 0, 0);
-    fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
+    const a = torpShooter(w, 'a', 0, 0); // tier I — a straight runner
+    const runU = a.stats.equipment.heavyTorpedo.runU;
+    expect(runU).toBeLessThan(w.map.radius); // premise: the run ends on open water
     setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
-    w.step();
-    expect([...w.shells.values()][0].distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
-
-    const control = bareWorld();
-    const ca = torpShooter(control, 'a', 0, 0); // tier I — a straight runner
-    setInput(ca, { ...clickAt(ca, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
-    control.step();
-    expect([...control.shells.values()][0].distLeft).toBe(Number.POSITIVE_INFINITY);
+    let last: { x: number; y: number } | null = null;
+    let ticks = 0;
+    for (; ticks < 4000; ticks++) {
+      w.step();
+      const fish = [...w.shells.values()][0];
+      if (!fish) break;
+      expect(fish.homing).toBeUndefined();
+      last = { x: fish.x, y: fish.y };
+    }
+    expect(ticks).toBeLessThan(4000); // it expired
+    expect(last).not.toBeNull();
+    const perTick = a.stats.equipment.heavyTorpedo.speed * (DT / 1000);
+    // Measured from the launching hull: a straight line of the run's length
+    // (the launch point sits a hull's reach off the centre).
+    const ran = Math.hypot(last!.x - a.state.x, last!.y - a.state.y);
+    expect(ran).toBeGreaterThan(runU - 2 * perTick);
+    expect(ran).toBeLessThan(w.map.radius);
   });
 
   it("torpU updates go to a SIGHTED observer who already holds the track — and NEVER to an unsighted one", () => {
@@ -483,7 +500,9 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
       const fish = [...w.shells.values()][0];
       if (expected === 0) {
         expect(fish.homing).toBeUndefined();
-        expect(fish.distLeft).toBe(Number.POSITIVE_INFINITY);
+        // Story 11.2 (R5): the captive's fish has a run too — the heavy
+        // torpedo's Tier I run (Story 11.2, R21 — Eric 2026-11-12).
+        expect(fish.distLeft).toBe(CONFIG.torpedo.runU);
       } else {
         // The LOCK is pinned at launch (cycle-148 review gate, P6): this fish
         // is the tripping hull's and nobody else's, for its whole run.
@@ -493,7 +512,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
           targetId: 'b',
           locked: true,
         });
-        expect(fish.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);
+        expect(fish.distLeft).toBe(CONFIG.torpedo.runU);
       }
     }
   });
@@ -1224,16 +1243,23 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('the zone REVEALS NOTHING: a hull inside the firer’s burn zone but outside its sight is not a contact (amendment 135(e))', () => {
     const w = bareWorld();
-    const a = placeBare(w, 'a', 0, 0, 0, 'yamato');
-    a.prevSweepAngle = Math.PI; // park the firer's own radar beam away from the target bearing
-    a.sweepAngle = Math.PI + 0.0001;
+    // Laid west to east across the board (Story 11.2): the firer one hull
+    // length inside the WEST rim, the click 200 u past its PLAIN-HULL reach —
+    // beyond every eye reach the firer has, and still inside the shell's own.
+    const x0 = -(w.map.radius - CONFIG.shipClasses.yamato.hull.length);
+    const a = placeBare(w, 'a', x0, 0, 0, 'yamato');
     fitTier(w, a, 'phosphorShells', 1);
-    const hidden = place(w, 'hidden', 520, 40, Math.PI / 2); // inside the zone, ~522 u from the firer — just past its sight bubble
-    fireUntilStop(w, a, slotOf(a, 'phosphorShells'), 0, 500);
+    const click = a.stats.hullSightRange + 200;
+    expect(click).toBeLessThan(a.stats.equipment.phosphorShells.rangeU); // premise: the shell reaches past the eye
+    expect(x0 + click).toBeLessThan(w.map.radius); // ...and lands on the water
+    const hidden = place(w, 'hidden', x0 + click + 20, 40, Math.PI / 2); // inside the zone, past the firer's every eye reach
+    const flightTicks = Math.ceil((click / CONFIG.phosphorShells.shellSpeed) * (1000 / DT)) + 10;
+    fireUntilStop(w, a, slotOf(a, 'phosphorShells'), 0, click, flightTicks);
     expect(w.burnZones.size).toBe(1);
     expect(hidden.hp).toBeLessThan(hidden.stats.maxHp); // it WAS hit — the zone covers it
     const f = buildFrame(w, 'a');
     expect(f.contacts.map((c) => c.id)).not.toContain('hidden');
+    expect(f.pc).toBeUndefined(); // ...not even as an anonymous plain hull (Story 11.2, R3)
     expect(f.burnZones?.map((z) => z.by)).toEqual(['a']); // ...but the firer sees only the circle
   });
 
@@ -1334,10 +1360,16 @@ describe('FLASH SHELLS (`dazzleShells`) — a special-shell slot weapon whose on
 
   it('a click is clamped at the FOULING SHELL\'s reach (ruling 2 — one shared dial) — never an arc denial; the shell carries the flash tag', () => {
     const { w, a } = board();
+    // THE RIM SEAT (Story 11.2): the reach is longer than the board's radius,
+    // so the hull moves one hull length inside the EAST rim and fires WEST
+    // across the board, where the RANGE clamp is the one that bites.
+    const x0 = w.map.radius - a.cls.hull.length;
+    a.state = { ...a.state, x: x0 };
+    expect(x0 - CONFIG.foulingShell.rangeU).toBeGreaterThan(-w.map.radius);
     setInput(a, { aim: Math.PI, aimDist: CONFIG.foulingShell.rangeU * 3, slot: BELT, fireSeq: 1, seq: 2 });
     expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
-    expect(shell.targetX).toBeCloseTo(-CONFIG.foulingShell.rangeU, 6);
+    expect(shell.targetX).toBeCloseTo(x0 - CONFIG.foulingShell.rangeU, 6);
     expect(shell.flash).toEqual({ radius: FL.radius, durationMs: FLASH_WINDOW_MS });
     expect(shell.foul).toBeUndefined();
     expect(shell.damage).toBe(0);

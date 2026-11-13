@@ -22,7 +22,9 @@ import {
   type VoiceMakers,
 } from '../engineMix.js';
 
-const SIGHT = CONFIG.vision.sight;
+/** u — the engines' earshot scale: the client feel knob (Story 11.2 gate C6),
+ *  never the gameplay eye reach `CONFIG.vision.sight`. */
+const SIGHT = CLIENT_CONFIG.audio.remoteEngineHearU;
 const EAR = { x: 0, y: 0 };
 /** Inside earshot: a quarter of the close-alongside band. */
 const NEAR = SIGHT * CLOSE_ALONGSIDE_CUTOFF * 0.25;

@@ -180,7 +180,7 @@ describe('ownStatsChanged — the exhausted hull\'s bonus points are a stat inpu
 
   it('a missing `ib` reads as no points', () => {
     expect(ownStatsChanged(own(undefined), own({}))).toBe(false);
-    expect(ownStatsChanged(own({ range: 1 }), own(undefined))).toBe(true);
+    expect(ownStatsChanged(own({ engines: 1 }), own(undefined))).toBe(true);
   });
 
   it('compares the counts the fold reads: the same malformed entry twice is UNCHANGED, never a re-fold every frame (review gate P3)', () => {
@@ -3263,7 +3263,7 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     const g = [['armor', 3]] as const;
-    const bundle = [['armor', 3], ['intel', 1], ['range', 5]] as const;
+    const bundle = [['armor', 3], ['intel', 1], ['engines', 5]] as const;
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g }, { alive: true }));
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: bundle }, { alive: true }));
     expect(toastLines()).toEqual([dropToastLine(g), dropToastLine(bundle)]);

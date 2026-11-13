@@ -280,7 +280,7 @@ const NFR1_EXTRA_HULLS = 48;
  * THE STRIDE IS THE AREA RATIO, not a feel number. The bubble is `sight` and
  * the scope reaches `radar`, so the bubble is (sight/radar)² of the disc a
  * uniformly-spread population occupies. It was FOUR on the eighths ladder
- * (330/660); the twelfths ladder (Story 9.8, epic-9 amendment 103 — radar =
+ * (330/660); the twelfths ladder [retired 2026-11-12, Story 11.2] (Story 9.8, epic-9 amendment 103 — radar =
  * 3 × sight) makes it NINE, one near and eight in the annulus. Taking every
  * Nth slot also mixes arena captains and extra hulls into both bands, which is
  * the point of using a stride at all.

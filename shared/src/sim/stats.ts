@@ -18,15 +18,17 @@
 //
 // THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Every
 // ship stat is an INDEX — a whole number around 100 — and the hull envelope
-// seeds SIX of them (`INDEX_IDS`: armor, power, reload, engines, intel,
-// range — RUDDER is DELETED by Story 10.6, R2) as the AUTHORED top-level
-// fields of this tree; the ship ladders of the same names step them. What
-// they buy is DERIVED, in sim/indexStats.ts, from BOTH re-pin homes:
-// `kinematics.maxSpeed` (30 u/s × ENGINES / 100), `sweepRpm` +
+// seeds FIVE of them (`INDEX_IDS`: armor, power, reload, engines, intel —
+// RUDDER is DELETED by Story 10.6, R2; RANGE by Story 11.2, R9) as the
+// AUTHORED top-level fields of this tree; the ship ladders of the same names
+// step them. What they buy is DERIVED, in sim/indexStats.ts, from BOTH re-pin
+// homes: `kinematics.maxSpeed` (30 u/s × ENGINES / 100), `sweepRpm` +
 // `sweepPeriodMs` (15 RPM × INTEL / 100, uncapped since Story 10.7 R6),
-// `cooldownScale` (1 / (1 + (RELOAD − 100) / 100) — the haste law), and in
-// clampStats alone the ONE-SHOT multiply of the deck-gun rows' `rangeU` by
-// RANGE / 100. `kinematics.turnRate` is the ONE baseline
+// `cooldownScale` (1 / (1 + (RELOAD − 100) / 100) — the haste law). The
+// one-shot RANGE multiply of the deck-gun rows' `rangeU` RETIRED 2026-11-12
+// (Story 11.2, epic-11 amendment 4): a hull's
+// main-battery reach is `CONFIG.mainBattery.rangeU × battery.reachFrac`,
+// seeded in `mainBatteryRow`. `kinematics.turnRate` is the ONE baseline
 // `CONFIG.index.turnRate` on every hull (R2; the PvE drone's authored rate,
 // I5, retired at Story 10.8, 2026-11-06).
 //
@@ -42,9 +44,9 @@
 // GONE with PASSIVE HEALING: the out-of-combat regen that came back in Story
 // 10.5 (R8) is a fixed law over CONFIG.regen (sim/regen.ts), not a stat.
 //
-// Bases: the ship class for hull-ish stats (hp, the seven indices, the four
+// Bases: the ship class for hull-ish stats (hp, the five indices, the four
 // pass-through kinematics); CONFIG.vision for
-// radar/sweep/sight; the per-equipment CONFIG blocks for everything else,
+// radar/sweep/the two eye reaches; the per-equipment CONFIG blocks for everything else,
 // including every weapon's RANGE (Story 9.8, epic-9 amendment 105 / ruling
 // 125 — the 2026-07-21 "range = radar range" derivation is superseded). STORY 8.15 EMPTIED THE LAST STUB ROWS: missile and
 // monitor are CUT (amendment 89e), and the MACHINE GUN and FLAK GUN became
@@ -55,18 +57,18 @@
 //
 // EVERY WEAPON `rangeU` IS A STAT-ADDRESSABLE DIAL (Story 9.8, Eric
 // 2026-10-13, epic-9 amendment 105 + ruling 125). The row is seeded from
-// `CONFIG.<weapon>.rangeU` — the Tier I reach on the twelfths ruler — and each
+// `CONFIG.<weapon>.rangeU` — the Tier I reach (a hectometer fact since Story 11.2) — and each
 // of the line's four upgrade cards authors `+step` on
 // `equipment.<weapon>.rangeU` (sim/catalog.ts), landing exactly on
 // `CONFIG.<weapon>.rangeUAtV` at Tier V. The old post-fold re-pin to
 // `radarRange` (and the broadside's `× muzzleFlashFactor`) is DELETED from
 // both homes: no gun's reach is the radar rung any more. The remaining
-// re-pins (the broadside spread geometry, sightRange, the mine rings) still
+// re-pins (the broadside spread geometry, the two eye reaches, the mine rings) still
 // live in exactly two homes, FOLD (sim/boons.ts rePinDerived) + CLAMP below.
 //
 // Defensive clamps + derivations (all inside this firewall, nowhere else):
 //   - EVERY INDEX floored whole (Story 10.3): `armor` / `power` ≥ 0 (the 9.7
-//     rule), `reload` / `engines` / `intel` / `range` ≥ 1 so no
+//     rule), `reload` / `engines` / `intel` ≥ 1 so no
 //     derivation divides by or multiplies to zero; then the index derivations
 //     (sim/indexStats.ts deriveIndexStats) re-run over the floored values;
 //   - NO sweepRpm ceiling: the 30-RPM `sweepRpmMax` is DELETED (Story 10.7,
@@ -111,7 +113,7 @@ import { applyCardStats } from './boons.js';
 import { CATALOG, type Catalog } from './catalog.js';
 import { EQUIPMENT_INT_FIELDS } from './effects.js';
 import { EQUIPMENT_IDS, type EquipmentId } from './loadout.js';
-import { deriveIndexStats, reloadCooldownScale, scaleDeckGunRange } from './indexStats.js';
+import { deriveIndexStats, deriveSightRanges, reloadCooldownScale } from './indexStats.js';
 import { secondaryReachU } from './secondaries.js';
 import {
   baseRepairStats,
@@ -153,7 +155,7 @@ export interface EffectiveGun extends EquipmentRowCommon {
  */
 export interface EffectiveBroadside extends EquipmentRowCommon {
   // u — max shell travel / aimDist clamp. Tier I in CONFIG.broadside.rangeU,
-  // +step per BROADSIDE upgrade card (Story 9.8, ruling 125: 5/12 → 6/12).
+  // +step per BROADSIDE upgrade card (Story 9.8, ruling 125; 238 → 285 hm since Story 11.2).
   rangeU: number;
   damage: number; // hp per burst victim, PER SHELL
   burstRadius: number; // u — blast radius around each shell's own point
@@ -182,12 +184,19 @@ export interface EffectiveBroadside extends EquipmentRowCommon {
  * amendment 80): ACOUSTIC HOMING is deleted and homing is a TIER STAT — 0
  * rad/s at tier I, +0.125 per tier, 0.5 at tier V. ZERO IS THE STRAIGHT-RUNNER
  * (no steering, no `torpU` update, no die-distance); anything above zero
- * steers under `CONFIG.torpedo`'s shared acquire/die/update rules.
+ * steers under `CONFIG.torpedo`'s shared acquire/update rules.
+ *
+ * `runU` (Story 11.2, Eric 2026-11-12, R5 / R18) is the fish's TOTAL travel —
+ * homing or straight, every kind: `CONFIG.<kind>.runU` at Tier I, +(runUAtV −
+ * runU) / 4 per upgrade tier (sim/catalog.ts), landing on `runUAtV` at Tier
+ * V. It replaces the homing-only die-distance `CONFIG.torpedo.homingMaxRangeU`
+ * and the straight-runner's "until the map edge".
  */
 export interface EffectiveTorpedo extends EquipmentRowCommon {
   speed: number; // u/s — launch speed
   damage: number; // hp per contact hit
   homingTurnRate: number; // rad/s — 0 = a straight-runner (the tier-I base)
+  runU: number; // u — total travel of one fish, then it expires (the launch's distLeft)
 }
 
 /**
@@ -263,7 +272,7 @@ export interface EffectiveFlak extends EquipmentRowCommon {
  * the PvE drones that did not retired at Story 10.8, 2026-11-06).
  */
 export interface EffectiveMainBattery extends EquipmentRowCommon {
-  rangeU: number; // u — max shell travel from the firing turret's station — CONFIG.mainBattery.rangeU × RANGE / 100
+  rangeU: number; // u — max shell travel from the firing turret's station — CONFIG.mainBattery.rangeU × the hull's battery.reachFrac (Story 11.2, R2)
   damage: number; // hp per shell (per burst victim)
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around each shell's own point
@@ -389,16 +398,16 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
 /**
  * Everything (class, cards) resolves to. See effectiveStats().
  *
- * THE INDEX MODEL (Story 10.3): the six AUTHORED index fields — `armor`,
- * `power`, `reload`, `engines`, `intel`, `range` (`rudder` DELETED by Story
- * 10.6, R2) — are seeded from the hull envelope's `index` block and stepped
+ * THE INDEX MODEL (Story 10.3): the five AUTHORED index fields — `armor`,
+ * `power`, `reload`, `engines`, `intel` (`rudder` DELETED by Story 10.6, R2;
+ * `range` by Story 11.2, R9) — are seeded from the hull envelope's `index` block and stepped
  * by the ship ladders. `maxHp` and `radarRange` are authored pass-throughs no
  * card writes today. Story 10.6 adds the card-written `repair.*` / `smoke.*`
  * scores and amounts and the four mount counts (see below). EVERYTHING ELSE
  * AT THE TOP LEVEL IS DERIVED and never stat-addressable:
  * `kinematics.maxSpeed` (sim/indexStats.ts), `kinematics.turnRate` (the
  * baseline), `sweepRpm`, `sweepPeriodMs`, `cooldownScale`, `sightRange`,
- * `damageMultiplier`, `repair.cooldownMs` / `regenMs`, `smoke.cooldownMs` /
+ * `hullSightRange`, `damageMultiplier`, `repair.cooldownMs` / `regenMs`, `smoke.cooldownMs` /
  * `r0` / `r1`.
  */
 export interface EffectiveStats {
@@ -412,7 +421,16 @@ export interface EffectiveStats {
   radarRange: number; // u
   sweepRpm: number; // rev/min — DERIVED: CONFIG.vision.sweepRpm × intel / 100, UNCAPPED (Story 10.7, R6)
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
-  sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 3 (the 4/12 rung)
+  // u — CLASS AND NAME BY EYE, the inner reach every sight gate reads — pinned
+  // from CONFIG.vision.sight (Story 11.2, R14 / R18; was radarRange / 3, the
+  // 4/12 rung, retired with the ladder). Flash-whiteout scaled at the call
+  // site by sim/sight.ts `effectiveSight`.
+  sightRange: number;
+  // u — A PLAIN HULL BY EYE, the outer reach (Story 11.2, R3 / R14 / R18) —
+  // pinned from CONFIG.vision.hullSight; never under `sightRange`. Read only
+  // by the contact gate and the rows that name it, through sim/sight.ts
+  // `effectiveHullSight`.
+  hullSightRange: number;
   /**
    * u — THE SECONDARIES' reach (Story 10.4, R3): DERIVED post-fold as
    * `equipment.mainBattery.rangeU × CONFIG.secondaries.rangeFrac`, measured
@@ -449,10 +467,9 @@ export interface EffectiveStats {
   // (RUDDER sat here until Story 10.6 deleted it — R2.)
   // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × intel / 100.
   intel: number;
-  // RANGE (ruling 14): the deck-gun rows' folded reach × range / 100 (the
-  // one-shot multiply in clampStats). The RANGE card (+10, Story 10.6 R1)
-  // writes it — so it reaches the main battery and the secondaries only.
-  range: number;
+  // (RANGE sat here until Story 11.2 deleted it — 2026-11-12, epic-11
+  // amendment 4, R9: a hull's main-battery reach
+  // is its battery's `reachFrac`, never an index.)
   // HULL REPAIR (`C`) and SMOKE (`V`) — per ship since Story 10.6 (R8 / R9):
   // improved by their ladders, never by the ship's RELOAD. A press reads
   // these; a smoke press STAMPS its cloud with `smoke.lifeMs` / `r0` / `r1`.
@@ -564,8 +581,15 @@ export function captiveTriggerRadius(tier: number): number {
 
 /** A torpedo row at CONFIG base. `homingTurnRate` starts at ZERO on EVERY
  *  line — a tier-I fish is a straight-runner, and the lines' tiers II–V buy
- *  the steering (epic-8 amendment 80). */
-function torpedoRow(src: { reloadMs: number; maxAmmo: number; speed: number; damage: number }): EffectiveTorpedo {
+ *  the steering (epic-8 amendment 80). `runU` starts at the kind's Tier I run
+ *  (Story 11.2, R5) and the line's tiers step it. */
+function torpedoRow(src: {
+  reloadMs: number;
+  maxAmmo: number;
+  speed: number;
+  damage: number;
+  runU: number;
+}): EffectiveTorpedo {
   return {
     tier: 1,
     reloadMs: src.reloadMs,
@@ -573,6 +597,7 @@ function torpedoRow(src: { reloadMs: number; maxAmmo: number; speed: number; dam
     speed: src.speed,
     damage: src.damage,
     homingTurnRate: 0,
+    runU: src.runU,
   };
 }
 
@@ -753,16 +778,17 @@ function movedWeaponRows(): Pick<EquipmentRows, 'supercavTorpedo' | 'dazzleShell
 
 /**
  * THE MAIN BATTERY at zero cards (Story 10.4): the shared half from
- * `CONFIG.mainBattery`, the per-hull half (turret count, shell damage) from
- * the envelope's `battery`. An envelope without one gets the
- * inert row — see `EffectiveMainBattery`.
+ * `CONFIG.mainBattery`, the per-hull half (turret count, shell damage, and —
+ * Story 11.2, R2 — the reach ratio `reachFrac`) from the envelope's
+ * `battery`. An envelope without one gets the inert row (reach at the base
+ * ratio 1) — see `EffectiveMainBattery`.
  */
 function mainBatteryRow(cls: ShipClass): EffectiveMainBattery {
   return {
     tier: 1,
     reloadMs: CONFIG.mainBattery.reloadMs,
     maxAmmo: cls.battery?.turrets.length ?? 0,
-    rangeU: CONFIG.mainBattery.rangeU,
+    rangeU: CONFIG.mainBattery.rangeU * (cls.battery?.reachFrac ?? 1),
     damage: cls.battery?.shellDamage ?? 0,
     contactDamage: CONFIG.mainBattery.contactDamage,
     burstRadius: CONFIG.mainBattery.burstRadius,
@@ -819,7 +845,7 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
 }
 
 /** The CONFIG-base stats tree for a class — every number a pure base. Split
- *  out so effectiveStats stays lean. The seven indices are COPIED off the
+ *  out so effectiveStats stays lean. The five indices are COPIED off the
  *  envelope (never aliased — the fold mutates this tree); every derived field
  *  is then written by the same derivations the two re-pin homes run
  *  (sim/indexStats.ts), so a zero-card tree is already fully derived. */
@@ -833,7 +859,8 @@ function baseStats(cls: ShipClass): EffectiveStats {
     radarRange: CONFIG.vision.radar,
     sweepRpm: 0, // DERIVED below (INTEL)
     sweepPeriodMs: 0, // DERIVED below (INTEL)
-    sightRange: CONFIG.vision.sight,
+    sightRange: 0, // PINNED below (CONFIG.vision.sight — Story 11.2)
+    hullSightRange: 0, // PINNED below (CONFIG.vision.hullSight — Story 11.2)
     secondaryRangeU: 0, // DERIVED in clampStats (the folded main reach × CONFIG.secondaries.rangeFrac)
     cooldownScale: 0, // DERIVED below (RELOAD)
     armor: cls.index.armor,
@@ -842,13 +869,13 @@ function baseStats(cls: ShipClass): EffectiveStats {
     reload: cls.index.reload,
     engines: cls.index.engines,
     intel: cls.index.intel,
-    range: cls.index.range,
     repair: baseRepairStats(),
     smoke: baseSmokeStats(),
     ...BASE_MOUNTS,
     equipment: baseEquipment(cls),
   };
   deriveIndexStats(stats);
+  deriveSightRanges(stats);
   stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
   return stats;
 }
@@ -926,7 +953,6 @@ function clampIndices(stats: EffectiveStats): void {
   stats.reload = wholeAtLeast(stats.reload, 1);
   stats.engines = wholeAtLeast(stats.engines, 1);
   stats.intel = wholeAtLeast(stats.intel, 1);
-  stats.range = wholeAtLeast(stats.range, 1);
   stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
 }
 
@@ -980,6 +1006,34 @@ function guardRateMs(rateMs: number): number {
   return Number.isFinite(rateMs) && rateMs > 0 ? rateMs : CONFIG.machineGun.rateMs;
 }
 
+/** u — the shortest run the firewall hands out (the --tune floor of every
+ *  `runU` leaf, server/scripts/batchsim/overrides.ts): plumbing, not balance. */
+const TORPEDO_RUN_FLOOR_U = 1;
+
+/**
+ * THE TORPEDO RUN GUARD (Story 11.2 review gate, F7). `runU` is the launch's
+ * `distLeft` (server torpedoCore): a non-finite run never expires (and NaNs
+ * the bots' run-out read) and a run ≤ 0 expires the torpedo in its tube. The
+ * fold's own sanity gate (sim/boons.ts applyStatEffect) already skips an
+ * EFFECT that would land there, so the open path was the BASE row itself (a
+ * malformed or tuned `CONFIG.<kind>.runU`). A PLUMBING guard on the
+ * firewall's OUTPUT, never a balance floor — every reachable tier passes
+ * through untouched; a bad run falls back to the kind's CONFIG Tier I run,
+ * and when that is bad too, to `TORPEDO_RUN_FLOOR_U` (fail-closed: the
+ * shortest run, never an endless one).
+ */
+function guardRunU(runU: number, baseU: number): number {
+  if (Number.isFinite(runU) && runU > 0) return runU;
+  return Number.isFinite(baseU) && baseU > 0 ? baseU : TORPEDO_RUN_FLOOR_U;
+}
+
+/** Every torpedo row's run through `guardRunU` (see there). */
+function guardTorpedoRuns(eq: EquipmentRows): void {
+  eq.lightTorpedo.runU = guardRunU(eq.lightTorpedo.runU, CONFIG.lightTorpedo.runU);
+  eq.heavyTorpedo.runU = guardRunU(eq.heavyTorpedo.runU, CONFIG.torpedo.runU);
+  eq.supercavTorpedo.runU = guardRunU(eq.supercavTorpedo.runU, CONFIG.supercavTorpedo.runU);
+}
+
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
  *  place. */
 function clampStats(stats: EffectiveStats): void {
@@ -996,19 +1050,19 @@ function clampStats(stats: EffectiveStats): void {
   deriveAbilityStats(stats);
   clampMounts(stats);
   // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is its own
-  // CONFIG dial plus its ladder's folded steps — never the radar rung. The
-  // RANGE index then scales the four deck-gun rows ONCE, below, beside the
-  // reload multiply (the two one-shot multiplies of this firewall).
+  // CONFIG dial plus its ladder's folded steps — never the radar reach. (The
+  // RANGE index's one-shot multiply of the deck-gun rows RETIRED with RANGE,
+  // Story 11.2, R9.)
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
   // and BOTH halves of the arc geometry are derived from it.
   eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
   eq.broadside.traverseRad = broadsideTraverse(eq.broadside.spreadRung);
   eq.broadside.mountSpreadRad = broadsideMountSpread(eq.broadside.spreadRung);
-  // TRUESIGHT IS THE 4/12 RUNG OF INTEL RANGE (Eric ruling 2026-08-16; the
-  // twelfths ruler since Story 9.8, epic-9 amendment 103) — derived, never
-  // stat-addressable. At zero cards it is byte-identical to the
-  // CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*3.
-  stats.sightRange = stats.radarRange / 3;
+  // THE TWO EYE REACHES (Story 11.2, R3 / R14 / R18) — pinned from CONFIG,
+  // never stat-addressable. "Truesight is the 4/12 rung of intel range" (Eric
+  // 2026-08-16; `radarRange / 3` since Story 9.8) RETIRED 2026-11-12 with the
+  // twelfths ladder.
+  deriveSightRanges(stats);
   deriveMineRings(eq);
   floorIntegerFields(eq);
   // THE MOUNT CAPACITY (Story 10.6, R6 / R7): the one-shot multiply of the
@@ -1020,12 +1074,10 @@ function clampStats(stats: EffectiveStats): void {
   // catalog).
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
   eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
-  // THE RANGE INDEX, applied ONCE, post-fold, to the four deck-gun rows (the
-  // one-shot sibling of the reload multiply — never in rePinDerived).
-  scaleDeckGunRange(stats);
+  guardTorpedoRuns(eq);
   // THE SECONDARIES' REACH (Story 10.4, R3): half the hull's FOLDED main
-  // reach — derived here, after the one-shot RANGE multiply, and nowhere
-  // else. Not a stat path: no card addresses it.
+  // reach (the base × the hull's `battery.reachFrac` since Story 11.2) —
+  // derived here and nowhere else. Not a stat path: no card addresses it.
   stats.secondaryRangeU = secondaryReachU(eq.mainBattery.rangeU);
   applyReloadLaw(stats);
 }

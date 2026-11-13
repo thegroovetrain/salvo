@@ -55,6 +55,7 @@ import {
   type TurretState,
   type WeaponAmmo,
 } from '@salvo/shared';
+import { hmText, hmWithUnit, isDistanceField } from '../../util/hmText.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import { abilityName, boonName, equipmentStatRows, indexWord } from '../../ui/boonCopy.js';
 import { romanTier } from '../../ui/tierRamp.js';
@@ -112,6 +113,10 @@ function secsText(ms: number): string {
   return `${(ms / 1000).toFixed(1)}S`;
 }
 
+/** A distance (u) as console text in hectometers — `380 hm` (Story 11.2);
+ *  empty (never a bare unit) when the distance is not finite. */
+const hmReadout = hmWithUnit;
+
 /** A plain number: whole when whole, else one decimal (`47.5`, `950`). */
 function numText(v: number): string {
   const r = Math.round(v * 10) / 10;
@@ -128,6 +133,13 @@ const FIELD_TEXT: Readonly<Record<string, (v: number) => string>> = {
 
 function fieldText(field: string, v: number): string {
   if (field === 'damage') return String(v);
+  // Every distance in hectometers (Story 11.2), through the one client printer
+  // (util/hmText.ts): a REACH carries its unit (`380 hm`); an effect RADIUS
+  // prints its bare hm number (`2.1`) in the console's unit-free register,
+  // because `TRIGGER RADIUS 2.1 hm` overruns the fixed cell (weaponsConsole
+  // fit walk). [reading: Story 11.2 — console radii unit-free]
+  if (field === 'rangeU' || field === 'runU') return hmReadout(v);
+  if (isDistanceField(field)) return hmText(v);
   const own = FIELD_TEXT[field];
   if (own !== undefined) return own(v);
   return /Ms$/.test(field) ? secsText(v) : numText(v);
@@ -273,7 +285,7 @@ function secondariesReadouts(src: ReadoutSource): Readout[] {
   const reach = src.stats.secondaryRangeU;
   return [
     { key: READOUT_KEY.stat('secondaries', 'damage'), label: labels.get('damage') ?? '', value: String(dmg), raw: dmg, role: 'stat' },
-    { key: READOUT_KEY.stat('secondaries', 'rangeU'), label: labels.get('rangeU') ?? '', value: numText(Math.round(reach)), raw: Math.round(reach), role: 'stat' },
+    { key: READOUT_KEY.stat('secondaries', 'rangeU'), label: labels.get('rangeU') ?? '', value: hmReadout(reach), raw: Math.round(reach), role: 'stat' },
   ];
 }
 

@@ -89,15 +89,24 @@ describe('star shells — shell construction', () => {
     expect(bb.loadout[SLOT_STAR].state).toEqual({ n: 0, reloadMsLeft: CONFIG.starShells.reloadMs });
   });
 
-  it('a click beyond range clamps the burst point to its own Tier I reach (Story 9.8, ruling 125)', () => {
+  it('a click beyond range clamps the burst point to its own reach (`stats.equipment.starShells.rangeU`; Story 9.8, ruling 125)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'yamato', 0, 0);
-    setInput(bb, { aim: 0, aimDist: CONFIG.vision.radar + 200, slot: SLOT_STAR });
+    // THE RIM SEAT (Story 11.2): the hull sits one hull length inside the WEST
+    // rim and fires EAST across the board.
+    const x0 = -(w.map.radius - CONFIG.shipClasses.yamato.hull.length);
+    const bb = place(w, 'a', 'yamato', x0, 0);
+    expect(bb.stats.equipment.starShells.rangeU).toBe(CONFIG.starShells.rangeU); // Tier I folds the row verbatim
+    // THE FLARE'S REAL REACH IS LONGER THAN THE BOARD IS WIDE (Story 11.2), so
+    // on the water the map-disk clamp always bites first. The range clamp is
+    // still the weapon's own contract: a stats-side reach of one map radius
+    // puts it on the board, and the click past it lands exactly there.
+    const reach = w.map.radius;
+    bb.stats = { ...bb.stats, equipment: { ...bb.stats.equipment, starShells: { ...bb.stats.equipment.starShells, rangeU: reach } } };
+    setInput(bb, { aim: 0, aimDist: 2 * reach, slot: SLOT_STAR });
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
-    expect(bb.stats.equipment.starShells.rangeU).toBe(CONFIG.starShells.rangeU);
-    expect(shell.targetX).toBeCloseTo(CONFIG.starShells.rangeU, 9);
-    expect(shell.targetY).toBeCloseTo(0, 9);
+    expect(shell.targetX).toBeCloseTo(x0 + reach, 6);
+    expect(shell.targetY).toBeCloseTo(0, 6);
   });
 });
 
@@ -198,26 +207,34 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
 
 describe('star shells — the lit intel, end-to-end through the real weapon', () => {
   it('firer gains a contact inside the zone; a radar-range third party gets ONLY the circle; beyond radar is byte-free', () => {
-    // Geometry off the live ladder (Story 9.8, amendment 103): the zone sits
-    // 200 u past the firer's sight, the hidden hull inside it; the third party
-    // is beyond sight of the hidden hull yet inside radar of the zone; the
-    // fourth sits 200 u past radar of the zone centre.
+    // Geometry off the live reach facts (Story 11.2): the zone sits 200 u past
+    // the firer's class-and-name sight, the hidden hull inside it; the third
+    // party is beyond that sight of the hidden hull yet inside radar of the
+    // zone; the fourth sits 200 u past radar of the zone centre. Radar is
+    // nearly the board's width, so the scene is laid west to east: the fourth
+    // party one hull length inside the WEST rim, the zone `R + 200` east of it.
     const S = CONFIG.vision.sight;
     const R = CONFIG.vision.radar;
-    const Z = S + 200;
     const w = bareWorld();
-    place(w, 'a', 'yamato', 0, 0); // the firer
-    const hidden = place(w, 'e', 'bismarck', Z, 40, 1.1); // inside the flare circle, outside everyone's sight
-    const c = place(w, 'c', 'warspite', -300, -100); // third party: zone center inside radar, the hidden hull beyond sight
-    const d = place(w, 'd', 'warspite', Z - R - 200, 0); // zone center beyond radar
+    const dX = -(w.map.radius - CONFIG.shipClasses.warspite.hull.length);
+    const Z = dX + R + 200; // the zone centre's x
+    expect(Z + LIT_R).toBeLessThan(w.map.radius); // the whole flare is on the water
+    const aX = Z - (S + 200); // the firer's x
+    place(w, 'a', 'yamato', aX, 0); // the firer
+    const hidden = place(w, 'e', 'bismarck', Z, 40, 1.1); // inside the flare circle, outside everyone's class-and-name sight
+    const c = place(w, 'c', 'warspite', aX - 300, -100); // third party: zone center inside radar, the hidden hull beyond sight
+    const d = place(w, 'd', 'warspite', dX, 0); // zone center beyond radar
     expect(Math.hypot(hidden.state.x - c.state.x, hidden.state.y - c.state.y)).toBeGreaterThan(S);
     expect(Math.hypot(Z - c.state.x, c.state.y)).toBeLessThan(R);
+    expect(Math.hypot(Z - d.state.x, d.state.y)).toBeGreaterThan(R);
     // Park every sweep away from the relevant bearings so no radar blip muddies the read.
     for (const s of [c, d]) {
       s.prevSweepAngle = Math.PI;
       s.sweepAngle = Math.PI + 0.0001;
     }
-    const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: Z });
+    const flight = Z - aX; // u — the flare's whole run
+    const flightTicks = Math.ceil((flight / CONFIG.starShells.shellSpeed) * (1000 / DT)) + 10;
+    const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: flight }, flightTicks);
     expect(seen).toContain('burst');
     // FIRER: full contact for the hull inside the zone (beyond its sight; c,
     // ~316u away, is an ordinary sight contact riding along).

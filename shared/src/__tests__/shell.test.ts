@@ -418,7 +418,9 @@ describe('stepShell — targeted shell bursts at the clicked point', () => {
 
   it('a point-less (contact-only) shell sails PAST that same point and splashes at range', () => {
     const s = shell(); // no target, burstRadius 0 — legacy behavior byte-for-byte
-    const out = stepToOutcome(s, ctx(), 200);
+    // Enough ticks to fly the whole reach (derived, so a retuned reach never
+    // starves the loop — Story 11.2 moved it onto the hectometer ruler).
+    const out = stepToOutcome(s, ctx(), Math.ceil(GUN_RANGE / (CONFIG.gun.shellSpeed * DT)) + 2);
     expect(out.kind).toBe('expired');
     if (out.kind === 'expired') expect(out.x).toBeCloseTo(GUN_RANGE, 6);
   });

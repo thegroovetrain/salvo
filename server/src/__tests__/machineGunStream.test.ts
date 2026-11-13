@@ -93,7 +93,7 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     const a = gunner(w, 'a');
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('machineGun');
     expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
-    expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU); // its own dial, 6/12 (Story 9.8, ruling 125)
+    expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU); // its own dial (Story 9.8, ruling 125; a hectometer fact since Story 11.2)
   });
 
   it('held for 3 s: one shell per rateMs from the first held tick, each born at `now` with its own `mz`, NO burst, the magazine drained by exactly that count', () => {
@@ -297,34 +297,40 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
 describe('the lit-zone reach — the machine gun fires into its own flare (amendment 114)', () => {
   /** u — a click past the gun's Tier I reach (Story 9.8: derived, never a literal). */
   const FAR = CONFIG.machineGun.rangeU + 140;
-  function litStream(owner: string | null): { w: World; a: ShipRecord } {
+  // THE RIM SEAT (Story 11.2): the reach is longer than the board's radius, so
+  // a shot from the origin would be clamped by the map disk first. The gunner
+  // sits one hull length inside the WEST rim and fires EAST across the board;
+  // `x0` is the seat, and every expectation is a distance from it.
+  function litStream(owner: string | null): { w: World; a: ShipRecord; x0: number } {
     const w = bareWorld();
-    const a = gunner(w, 'a');
+    const x0 = -(w.map.radius - CONFIG.shipClasses.bismarck.hull.length);
+    const a = gunner(w, 'a', x0);
+    expect(x0 + FAR).toBeLessThan(w.map.radius); // the far click is on the water
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: FAR, y: 0, r: 120, until: 10 * 60 * 1000,
+        id: 'z1', ownerId: owner, x: x0 + FAR, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
     w.submitInput('a', makeInput({ seq: 1, held: true, aimDist: FAR }));
     w.step();
-    return { w, a };
+    return { w, a, x0 };
   }
 
   it('a click past reach into an OWN live lit zone lands the shell at the click', () => {
-    const { w, a } = litStream('a');
+    const { w, a, x0 } = litStream('a');
     expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU);
     expect(FAR).toBeGreaterThan(CONFIG.machineGun.rangeU);
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(1);
-    expect(shells[0].targetX).toBeCloseTo(FAR, 6);
+    expect(shells[0].targetX).toBeCloseTo(x0 + FAR, 6);
   });
 
   it('the same click into an ENEMY zone, or with no zone, clamps to the gun reach', () => {
     for (const owner of ['b', null]) {
-      const { w } = litStream(owner);
+      const { w, x0 } = litStream(owner);
       const shells = [...w.shells.values()];
       expect(shells, `owner=${owner}`).toHaveLength(1);
-      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(CONFIG.machineGun.rangeU, 6);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(x0 + CONFIG.machineGun.rangeU, 6);
     }
   });
 });

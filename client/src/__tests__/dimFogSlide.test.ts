@@ -57,9 +57,11 @@ describe('dimScaleAt with a reach — the slide', () => {
 
   it('fogLift 1: the floor holds to the reach R and full strength begins at R + (outer − inner)', () => {
     DIM.fogLift = 1;
-    const R = SIGHT * 0.4;
+    // A shortfall under the inner radius, so the slid floor still has room
+    // (Story 11.2: the inner radius is far inside sight now).
+    const R = SIGHT - INNER * 0.6;
     const width = OUTER - INNER;
-    const floorEndU = INNER - (SIGHT - R); // = R with the shipped innerFactor 1
+    const floorEndU = INNER - (SIGHT - R);
     expect(dimScaleAt(Math.max(0, floorEndU), SIGHT, R)).toBeCloseTo(FLOOR, 9);
     expect(dimScaleAt(floorEndU + width, SIGHT, R)).toBe(1);
     expect(dimScaleAt(floorEndU + width / 2, SIGHT, R)).toBeCloseTo(FLOOR + (1 - FLOOR) / 2, 9);
@@ -199,7 +201,7 @@ describe('the wedge bake (real bakeDimMaskTexture over a recording canvas)', () 
 
   it("dimWedge: a fogged bearing's ramp starts at its slid inner radius and keeps the observer's width", () => {
     DIM.fogLift = 1;
-    const R = SIGHT * 0.6;
+    const R = SIGHT - INNER * 0.4; // a shortfall the inner radius can absorb
     const fan = new Float32Array(RAYS).fill(SIGHT);
     fan[3] = R;
     const fogged = dimWedge(fan, 3, SIGHT, PX);

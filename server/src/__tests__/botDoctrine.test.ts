@@ -69,10 +69,23 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
 }
 
 /** An island-free world (the doctrine is about the bot, not mapgen). */
-function openWorld(seed: number): World {
-  const w = new World(seed, 8);
+function openWorld(seed: number, playerCap = 8): World {
+  const w = new World(seed, playerCap);
   w.map.islands.length = 0;
   return w;
+}
+
+/** The player cap of the board the BEYOND-REACH scenarios run on (Story 11.2):
+ *  the deck-gun reaches are longer than a small board is wide and an aim point
+ *  is clamped inside the map disk, so "a plot beyond the gun's reach" exists
+ *  only where the board is wider than the reach. The scenarios station the
+ *  bot at `westStation` and assert their plot is on the water. */
+const WIDE_CAP = 32;
+
+/** u — the x of a station near the WEST rim (y = 0), so a plot due EAST of it
+ *  can stand a full gun reach away and still be on the board. */
+function westStation(w: World): number {
+  return -0.9 * w.map.radius;
 }
 
 function mkBot(w: World, hullId: ShipClassId, x = 0, y = 0, heading = 0): ShipRecord {
@@ -124,7 +137,7 @@ function plot(mind: BotMind, t: RememberedContact): RememberedContact {
 
 /** A view (never folded: viewAt stays -1) carrying only the given rows. */
 function setView(mind: BotMind, over: Partial<PerceptionView>): void {
-  mind.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
+  mind.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [], ...over };
 }
 
 function litZone(by: string, x: number, y: number, until: number): LitZoneView {
@@ -251,11 +264,12 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
   });
 
   it('a shot beyond range into an OWN live lit zone is solved; into another\'s, or an expired own one, refused', () => {
-    const w = openWorld(9136);
+    const w = openWorld(9136, WIDE_CAP);
     const port = fakePort(w);
-    const rec = mkBot(w, 'yamato');
+    const rec = mkBot(w, 'yamato', westStation(w));
     mountGun(rec, 'gun');
-    const x = rec.stats.equipment.gun.rangeU + 150;
+    const x = rec.state.x + rec.stats.equipment.gun.rangeU + CONFIG.starShells.litRadius / 2;
+    expect(Math.abs(x)).toBeLessThan(w.map.radius); // the plot is on the water (an off-board aim is clamped)
     const solveWith = (zones: LitZoneView[]): ReturnType<typeof EQUIPMENT_TACTICS.gun.solve> => {
       const mind = mkMind('bulwark');
       const t = plot(mind, track(port.now, { x }));
@@ -270,11 +284,12 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
   });
 
   it('the MG hold is waived inside own light: past the hold line, and past reach, a lit plot streams', () => {
-    const w = openWorld(9137);
+    const w = openWorld(9137, WIDE_CAP);
     const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck');
+    const rec = mkBot(w, 'bismarck', westStation(w));
     mountGun(rec, 'machineGun');
-    const x = rec.stats.equipment.machineGun.rangeU + 100;
+    const x = rec.state.x + rec.stats.equipment.machineGun.rangeU + CONFIG.starShells.litRadius / 2;
+    expect(Math.abs(x)).toBeLessThan(w.map.radius); // the plot is on the water
     const mind = mkMind('bulwark');
     plot(mind, track(port.now, { x }));
     setView(mind, { litZones: [litZone(rec.id, x, 0, port.now + 4000)] });
@@ -285,19 +300,21 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
 });
 
 describe('flare to shoot (amendment 198)', () => {
-  /** A siege Battleship (cannon + star shells) and a FRESH radar plot past the
-   *  cannon's reach, inside flare reach. */
+  /** A siege Battleship (cannon + star shells) near the west rim of a wide
+   *  board and a FRESH radar plot due east, past the cannon's reach, inside
+   *  flare reach, on the water. */
   function setup(seed: number): { port: BotWorldPort & { now: number }; rec: ShipRecord; mind: BotMind; t: RememberedContact; flares: number } {
-    const w = openWorld(seed);
+    const w = openWorld(seed, WIDE_CAP);
     const port = fakePort(w);
-    const rec = mkBot(w, 'yamato');
+    const rec = mkBot(w, 'yamato', westStation(w));
     const flares = rec.loadout.findIndex((s) => s.equipmentId === 'starShells');
     expect(flares).toBeGreaterThanOrEqual(0);
     const gunR = rec.stats.equipment.gun.rangeU;
     const flareR = rec.stats.equipment.starShells.rangeU;
     expect(flareR).toBeGreaterThan(gunR);
     const mind = mkMind('siege');
-    const t = plot(mind, track(port.now, { x: (gunR + flareR) / 2, live: false, cls: null }));
+    const t = plot(mind, track(port.now, { x: rec.state.x + (gunR + flareR) / 2, live: false, cls: null }));
+    expect(Math.abs(t.x)).toBeLessThan(w.map.radius); // the plot is on the water
     return { port, rec, mind, t, flares };
   }
 
@@ -326,8 +343,10 @@ describe('flare to shoot (amendment 198)', () => {
   it('both star-shell rows want the one reload: the shoot use wins', () => {
     const { port, rec, mind, t, flares } = setup(9140);
     // A LOST plot the sensor flare would light (stale, past sight, inside flare
-    // reach) on another bearing, nearer than the target.
-    plot(mind, track(port.now, { id: 'lost', x: 0, y: CONFIG.vision.sight + 200, live: false, seenAt: port.now - 5000 }));
+    // reach) on another bearing (60° off the target's), nearer than the target.
+    const lostD = (rec.stats.sightRange + rec.stats.equipment.gun.rangeU) / 2;
+    const lostAt = { x: rec.state.x + lostD * Math.cos(Math.PI / 3), y: rec.state.y + lostD * Math.sin(Math.PI / 3) };
+    plot(mind, track(port.now, { id: 'lost', ...lostAt, live: false, seenAt: port.now - 5000 }));
     const shot = EQUIPMENT_TACTICS.starShells.solve(ctxOf(rec, mind, port, 'pursue', t, flares));
     expect(shot).not.toBeNull();
     expect(mind.lastTactic).toBe('flareToShoot');

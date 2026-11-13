@@ -377,7 +377,8 @@ const broadsideTactic: EquipmentTactic = {
  * straight-running fish (`homingTurnRate === 0`, every line at tier I) is
  * credible only at knife range (TORPEDO_CREDIBLE_U). A STEERING fish corrects
  * its own terminal error, so the gate widens — bounded by BOTH ruled
- * quantities: the family's `homingMaxRangeU` travel budget, less one half-turn
+ * quantities: the row's own folded run `runU` (Story 11.2, R5 — the family's
+ * `homingMaxRangeU` budget before), less one half-turn
  * of correction room (π × turn radius, where turn radius = speed / turn rate).
  * A LOW tier buys a SLOW turn, so an early rung's credible range is barely
  * wider than a straight-runner's, and a speed-carded fish's turn opens and
@@ -388,7 +389,7 @@ function torpedoReachU(stats: EffectiveStats, id: TorpedoLineId): number {
   const row = stats.equipment[id];
   if (row.homingTurnRate <= 0) return TORPEDO_CREDIBLE_U;
   const turnRadius = row.speed / row.homingTurnRate;
-  return Math.max(TORPEDO_CREDIBLE_U, CONFIG.torpedo.homingMaxRangeU - Math.PI * turnRadius);
+  return Math.max(TORPEDO_CREDIBLE_U, row.runU - Math.PI * turnRadius);
 }
 
 /** ONE TORPEDO TACTIC, built per line (epic-8 amendment 79 — the light

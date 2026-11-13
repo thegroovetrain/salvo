@@ -144,6 +144,128 @@
 // offline key — no scenario passes a key), so 12 `burst`, 8 `hc`, 6 `sp` and
 // 4 `boom` points moved by a few units. No frame, tick, contact, paint or
 // count moved; the six exceptions and every proof are unchanged.
+//
+// RE-RECORDED 2026-11-12 (Story 11.2, the hectometer ruler and real reach).
+// What moved, and why it is not a perception regression: every reach is its
+// own CONFIG fact now (sight 500 u → 200 hm ≈ 4,545 u; radar 1,500 u → 400 hm
+// ≈ 9,091 u; the new plain-hull, splash and flash reaches 350 hm ≈ 7,955 u;
+// shell 200 hm; torpedo 15 hm ≈ 341 u; mine 3 hm ≈ 68 u), so the placements
+// sized for the old ladder no longer proved their comments. Each is re-based
+// off the reach it names (the constants block below — no bare distance), and
+// because the board (radius 5,000 u) is narrower than the reaches, an observer
+// whose subject is far sits at a WEST seat with the subject east of it.
+// Structurally diffed frame by frame: 168 frames before and after, same order,
+// same observers; every event KIND is still present.
+//   THE RE-BASES (old → new, and what the row still proves):
+//   * scnSightSpawnBlip: `a` (0,0) → the WEST seat (−4,261, 0), `b` still
+//     100 u east of it (contact AND blip); `c` 700 u → ANNULUS 8,523 u from
+//     `a` on the same swept bearing (beyond every eye reach: blip only, for
+//     `a` and for `b`). NEW hull `p`, 6,250 u from `a` on bearing π/6 — the
+//     plain band, off the beam (see the `pc` note below).
+//   * scnPtBn: `a` → WEST, `b` 700 u → 8,523 u east of it (the credited
+//     sinking still arrives unseen; b's spawn stays out of sight).
+//   * scnMines: `a` → (−4,645, 0); `seen` (500, 0) → 68.2 u due north (the
+//     mine-sight boundary, inclusive); `nearFog` 520 u → 88.2 u (20 u past it,
+//     hidden); `own` / `fog` (±1,700 diagonals) → 9,291 u east (beyond radar:
+//     own shown, enemy hidden).
+//   * scnSpectator: `a` → WEST; `b` 1,000 u → 8,523 u east; `c` (−600, 400)
+//     → 6,250 u out on bearing π/6 (a fogged a's plain band — the spectator
+//     holds it as a full contact and carries no `pc`); the own mine keeps its
+//     (800, 800) offset.
+//   * scnStraddleBoom: nothing re-seated — `b` (SIGHT + 12) and the shell
+//     (SIGHT − 15) follow sight from 512 / 485 u to 4,557 / 4,530 u. The boom
+//     is still hit-stripped for `a`; `b`'s centre is now in a's plain band, so
+//     both of a's and b's frames carry the other as a `pc` row.
+//   * scnIslandLos: `a` → WEST; the rock 75 u → 300 u east (radius 30 kept, so
+//     it subtends less than the fan) and `b` behind it 150 u → 600 u; `c`
+//     keeps its (100, 100) offset; the three radar targets 700 u on bearings
+//     0 / π/2 / π → 8,523 u on bearings 0 (`r`, hard cover: dark) / +π/10
+//     (`p`, open water: paints) / −π/10 (`s`, low cover: paints); the low
+//     ridge (−200, 0) → 200 u out on bearing −π/10; the paint window 0..π →
+//     −π/10..π/4; the raster covers the seat (reach 700 → 4,261 u).
+//   * scnBallisticReveal: the shell SIGHT + 6 (506 u) → shellSight + 6
+//     (4,551 u); the torpedo detect + 6 (506 u) → torpedoSight + 6 (347 u).
+//     The 4.9 fork is real again: the shell reveals beyond the torpedo reach.
+//   * scnSpectatorBallistic: `fly` (300, 300) → 4,551 u out on bearing π/4,
+//     opening (just outside a fogged c's shell sight — never sighted alive).
+//   * scnStarShell: the flare point (SIGHT + 80) and `h` follow sight 580 u →
+//     4,625 u; `c` (flareDist, −radar) → (flareDist − radar, 0), still EXACTLY
+//     at radar range of the zone centre; `d` (−1,700, 0) → (flareDist −
+//     9,291, 0), still beyond radar of it. The longer flight moves the burst
+//     frames' t 1,050 → 9,150 and the expiry frame's 11,100 → 19,200 (`tick`
+//     / `sweep` / `xp` / reloads with them). `h` is a plain hull to the firer
+//     before the burst and after expiry, a full contact under the zone.
+//   * scnZoneKill: `a` → WEST; `b`, the owned zone and the shell 700 u →
+//     8,523 u east — beyond the splash reach too, so the zone alone carries
+//     the boom, its victim id and the sunk row's `seen`.
+//   * scnHoming: `a` / `b` / `c` keep their offsets, shifted 4,770 u west (the
+//     torpedo runs toward the middle of the board); `d` (−1,700, 0) → 9,291 u
+//     east of `c` (beyond every eye reach and the radar of every hull).
+//   * scnGunnery: `a` → WEST with its bow 45° off due east (shot 1 and the
+//     torpedo keep their 45°-off-the-bow geometry, now aimed due east); `o1`
+//     (0, 300) → 300 u due west (inside the halo, and behind the line of fire
+//     so shot 1's burst is beyond its splash reach); `o2` 900 u → 8,105 u out
+//     on bearing +π/10 (150 u past the 350 hm halo); the rock and `o3` 200 /
+//     300 u due east → due south; shot 1 SIGHT + 400 (900 u) → 8,079 u
+//     (halfway between the farthest eye reach and the Bismarck's 361 hm guns);
+//     `b` 700 u due west → 8,079 u on bearing −π/10 (beyond BOTH sight tiers:
+//     the Hit Call still names only the shooter). Flights are ~322 ticks, so
+//     the burst / torpedo / hit frames sit at t 16,200 / 16,250 / 42,450 (were
+//     1,850 / 1,900 / 13,250).
+//   * scnWake: `a` → WEST; the in-sight samples keep 200 / 212 u east of it;
+//     the far run and the torpedo ribbon 700.. / 800.. u → 8,523.. / 8,623.. u
+//     east (beyond every eye reach, inside the radar rim).
+//   * scnTorpReReveal: the torpedo detect + 6 → torpedoSight + 6 (347 u). The
+//     one-tick shrink is the real FLASH mark (`dazzledUntil`) instead of a
+//     `stats.sightRange` write: the torpedo reach is a CONFIG fact, not a
+//     stat, so the stats write no longer moves that gate.
+//   * scnMineKindForAll: enemy `a` 120 u → 60 + mineSight / 2 east, so all
+//     three mines sit inside its mine sight.
+//   * NOT re-seated (every subject already inside the reach its comment
+//     names): scnCombat, scnBurst, scnMineBlast, scnMineBurstDetonation,
+//     scnDenied, scnDebuffs, scnHeal.
+//   THE NEW CHANNEL: `pc` (plain hulls — {h,x,y,heading,speed} under an
+//   anonymous per-observer, per-visit handle), a fogged frame's optional key
+//   after `mines` / `litZones`, omitted when empty. Nine frames carry it:
+//   scnSightSpawnBlip's two (`p`, one row each, a different handle per
+//   observer), scnStraddleBoom's two, scnStarShell's firer and `d` frames
+//   (`h` takes a NEW handle after the zone lifts and drops it — per visit),
+//   and scnGunnery's `o2` frame. No spectator frame carries it. Four new
+//   sub-cases and the channel guard pin it.
+//   THE DROPOUT IS GONE (R8): no captured paint ever rode a dropout roll, and
+//   ANNULUS no longer has to sit inside a flat band.
+//   KEYS, against the previous snapshot: ADDED `pc` on those nine frames, and
+//   `you.dazzledUntil` on scnTorpReReveal's ONE silent frame (the real mark,
+//   above — the self-private key any flashed hull's own frame carries; it
+//   last rode this battery before Story 9.4). REMOVED: none. `ib` is `{}` on
+//   every row before and after; no contact, event, mine, zone or denial row
+//   gained or lost a key.
+//   ROWS that came or went on values alone: `spawn` rows 33 → 56 (the class
+//   reach now covers most spawn-ring points — the row is unchanged, the
+//   spawn point rides it and is still gated at sight); two `torp` reveals
+//   left (scnCombat's `b` and scnGunnery's `o1` sat inside the old 500 u
+//   detect rung and are outside the 341 u torpedo sight); scnDebuffs' two
+//   frames gain the mine's owner `o` at (600, 600) as a contact; two `blip`s
+//   joined scnGunnery's burst-tick frames (the beams turn through a 16 s
+//   flight). The perception chokepoint and the six exceptions are unchanged.
+//
+// RE-RECORDED AGAIN 2026-11-12 (Story 11.2 review gate + the mine-sight
+// ruling). VALUES ONLY — no key, row, event or frame was added or removed
+// (the frame count and every row count are identical). Three causes:
+//   (1) THE PAINT SALT (review gate F1): every hull `blip` and every `wk`
+//       mask is fuzzed under the room-private per-paint salt
+//       (game/paintSalt.ts), so their `gx` / `gy` / `w` / `h` / `bits` move
+//       (and with them seven `bits` array lengths, which are w × h packed).
+//       Crate paints (`paintDiscCoverage`, no class to hide) are unsalted and
+//       did not move.
+//   (2) MINE SIGHT 3 hm → 10 hm (Eric, 2026-11-12): the two scenarios that
+//       seat things at `MINE_SIGHT` move with it — the sight-boundary mine's
+//       `y` (68.2 → 227.3 u, two frames) and scnMineKindForAll's observer
+//       `a` (60 + mineSight / 2: 94.1 → 173.6 u; its own `you.x` and the one
+//       contact row that shows it).
+//   (3) The torpedo run-out gate (review gate F4) moved NOTHING here: no
+//       captured torpedo ran out of run beyond the torpedo eye reach of an
+//       observer who was not its owner.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -153,6 +275,7 @@ import {
   abilityCode,
   FAMILY_SLOT,
   DEFAULT_CLASS_ID,
+  FLASH_WINDOW_MS,
   coverageHas,
   wrapPositive,
   aimPointOf,
@@ -165,6 +288,7 @@ import {
   type MatchPhase,
   type MineKind,
   type MineView,
+  type PlainContact,
   type ShipClassId,
   type WakeBlipEvent,
   type WakeRibbon,
@@ -176,19 +300,42 @@ import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixtur
 
 const TAU = Math.PI * 2;
 const DT = CONFIG.tick.simDtMs;
+// THE RE-BASED PLACEMENTS (Story 11.2, the hectometer ruler — every reach is
+// its own CONFIG fact, and none derives from another). Each scenario seats
+// its hulls, shells and mines off the reach its comment names, never off a
+// bare distance:
+//   SIGHT        class and name by eye — inside it a hull is a full contact;
+//   HULL_SIGHT   a plain hull by eye — between the two it is a `pc` row;
+//   SHELL_SIGHT / TORP_SIGHT / MINE_SIGHT — a shell, a torpedo, a laid mine;
+//   SPLASH_SIGHT a boom / burst POSITION; FLASH — the muzzle flash;
+//   EYE          the farthest any eye reaches: past it only radar holds a hull.
 const SIGHT = CONFIG.vision.sight;
-// Story 4.9: the mine/torpedo detect rung, re-derived as a literal (the
-// perception suite's oracle rule — never CONFIG.vision.detect).
-const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
-// THE RE-BASED PLACEMENTS (Story 9.8, epic-9 amendment 103 — the twelfths
-// ladder: sight = radar / 3, and radar's DROPOUT from `dropout.startU`,
-// rulings 121–123). ANNULUS is the one beyond-sight radar distance every
-// scenario uses (the name predates amendment 210, which removed the radar's
-// inner edge): beyond sight and INSIDE the dropout's flat band, so a swept hull there
-// paints on every revolution (the snapshot pins a paint, never a coin flip).
-// BEYOND_RADAR is past the radar rim. Both derived, never a 1500/500 literal.
-const ANNULUS = SIGHT + 200;
-const BEYOND_RADAR = CONFIG.vision.radar + 200;
+const HULL_SIGHT = CONFIG.vision.hullSight;
+const SHELL_SIGHT = CONFIG.vision.shellSight;
+const TORP_SIGHT = CONFIG.vision.torpedoSight;
+const MINE_SIGHT = CONFIG.vision.mineSight;
+const SPLASH_SIGHT = CONFIG.vision.splashSight;
+const FLASH = CONFIG.vision.muzzleFlash;
+const RADAR = CONFIG.vision.radar;
+const EYE = Math.max(HULL_SIGHT, FLASH, SPLASH_SIGHT);
+// PLAIN_BAND is the middle of the outer sight tier (a plain hull, never a
+// full contact). ANNULUS is the one radar-only distance every scenario uses
+// (the name predates amendment 210, which removed the radar's inner edge):
+// beyond EVERY eye reach and inside the radar rim — the dropout is gone
+// (Story 11.2, R8), so a swept, unshadowed hull there paints on every
+// revolution. BEYOND_RADAR is past the radar rim. All derived.
+const PLAIN_BAND = (SIGHT + HULL_SIGHT) / 2;
+const ANNULUS = (EYE + RADAR) / 2;
+const BEYOND_RADAR = RADAR + 200;
+// THE BOARD IS SMALLER THAN THE REACHES (map radius 5,000 u; a hull past the
+// rim is pushed back onto the water when the world steps), so two hulls that
+// must be ANNULUS / BEYOND_RADAR apart sit on OPPOSITE sides of the origin:
+// the observer at the WEST seat, its far subject that distance east of it.
+const WEST = -ANNULUS / 2; // x of the observer whose subject is ANNULUS away
+const FAR_WEST = -BEYOND_RADAR / 2; // x of the observer whose subject is BEYOND_RADAR away
+// Every far subject of a west-seated observer must sit inside a narrow fan
+// about due east to stay on the board; three far subjects fan across it.
+const FAN = Math.PI / 10;
 // One tick's radar paint window width (rad) — a target at bearing δ/2 is painted
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
@@ -207,9 +354,10 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // hits that used to sink a hull outright now leave it ALIVE and inside the
 // wounded damage band, which is exactly when wounded smoke emits. The battery
 // therefore covers one channel MORE than before; nothing was lost.
+// STORY 11.2 ADDED 'pc' — the plain-hull channel (the outer sight tier).
 const EXPECTED_CHANNELS = [
   'blip', 'bn', 'boom', 'burst', 'contact', 'denied', 'dmg', 'hc', 'heal', 'litzone',
-  'mine', 'mz', 'pt', 'shell', 'sm', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
+  'mine', 'mz', 'pc', 'pt', 'shell', 'sm', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
 ];
 
 // Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
@@ -236,6 +384,7 @@ const EXPECTED_SUBCASES = [
   'litzone-boom-victim-id',
   'litzone-expiry',
   'litzone-firer-reveal',
+  'litzone-lifts-plain-to-contact',
   'litzone-sunk-reveal',
   'litzone-thirdparty-radar-circle',
   'mine-burst-detonation',
@@ -247,14 +396,17 @@ const EXPECTED_SUBCASES = [
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
+  'plain-hull-pose-only',
   'shell-reveal-at-sight',
   'slow-factor-victim-private',
   'slowed-victim-private',
   'soft-cover-allows-radar-blip',
   'spectator-ballistic-reveal',
   'spectator-dmg-passthrough',
+  'spectator-no-plain-channel',
   'spectator-raw-boom',
   'spectator-reveal-once',
+  'straddle-boom-on-plain-hull',
   'torp-re-reveal',
   'torp-re-reveal-silent-outside',
   'torp-reveal-inside-detect',
@@ -287,6 +439,7 @@ function record(g: Golden, f: FrameMsg): FrameMsg {
   if (f.contacts.length > 0) g.channels.add('contact');
   if (f.mines.length > 0) g.channels.add('mine');
   if (f.litZones !== undefined && f.litZones.length > 0) g.channels.add('litzone');
+  if (f.pc !== undefined && f.pc.length > 0) g.channels.add('pc');
   if (f.denied !== undefined && f.denied.length > 0) g.channels.add('denied');
   if (f.spec) g.channels.add('spec');
   g.frames.push(JSON.stringify(f));
@@ -315,6 +468,20 @@ function blipRefs(e: BlipEvent, x: number, y: number): boolean {
 /** Does the frame carry a blip referencing world point (x, y)? */
 function blipAt(f: FrameMsg, x: number, y: number): boolean {
   return f.events.some((e) => e.k === 'blip' && blipRefs(e, x, y));
+}
+
+/** The exact key order of a plain-hull row (msgpack order is load-bearing). */
+const PLAIN_KEYS = 'h,x,y,heading,speed';
+
+/** The frame's plain-hull row AT a hull's pose — the only way to name one: a
+ *  `pc` row carries an anonymous handle, never a roster id. */
+function plainAt(f: FrameMsg, ship: ShipRecord): PlainContact | undefined {
+  return (f.pc ?? []).find((r) => r.x === ship.state.x && r.y === ship.state.y);
+}
+
+/** Step budget for a shell at `shellSpeed` (u/s) to cover `distU`, with slack. */
+function flightTicks(distU: number, shellSpeed: number): number {
+  return Math.ceil(distU / ((shellSpeed * DT) / 1000)) + 40;
 }
 
 /** Build one observer's frame (wire semantics: once per observer per tick). */
@@ -408,17 +575,34 @@ function injectMine(w: World, id: string, ownerId: string, x: number, y: number,
 
 // ---------- scenarios ---------------------------------------------------------
 
-/** contacts + spawn + a radar-only blip (target visible ONLY as a blip), and
- *  a sighted hull the beam crosses (a contact AND a blip — amendment 210). */
+/** contacts + spawn + a radar-only blip (target visible ONLY as a blip), a
+ *  sighted hull the beam crosses (a contact AND a blip — amendment 210), and
+ *  a PLAIN hull (Story 11.2, R3): in the outer sight tier, off the beam — a
+ *  `pc` row of pose under an anonymous handle, and nothing else. */
 function scnSightSpawnBlip(g: Golden): void {
   const w = bareWorld(1001);
-  place(w, 'a', 0, 0);
-  place(w, 'b', 100, 0, 1.5); // inside sight, bearing 0 (swept) -> live contact AND blip (amendment 210)
+  place(w, 'a', WEST, 0);
+  place(w, 'b', WEST + 100, 0, 1.5); // inside sight, bearing 0 (swept) -> live contact AND blip (amendment 210)
   const brg = SWEEP_DELTA / 2; // painted by the first post-step window [0, δ)
-  place(w, 'c', ANNULUS * Math.cos(brg), ANNULUS * Math.sin(brg)); // beyond sight (inside the dropout's flat band) -> blip only
+  place(w, 'c', WEST + ANNULUS * Math.cos(brg), ANNULUS * Math.sin(brg)); // beyond every eye reach, inside radar -> blip only
+  const pb = Math.PI / 6; // off the beam: the eye alone holds it
+  const p = place(w, 'p', WEST + PLAIN_BAND * Math.cos(pb), PLAIN_BAND * Math.sin(pb), 0.7); // between sight and hull sight -> plain
   w.step(); // sweep advances 0 -> δ, publishing the join spawns
-  cap(g, w, 'a'); // spawn(a,b) + contact b + blips b and c (c is never a contact)
+  const fa = cap(g, w, 'a'); // own spawn + contact b + blips b and c (c is never a contact) + plain p
   cap(g, w, 'b');
+  const row = plainAt(fa, p);
+  prove(
+    g,
+    'plain-hull-pose-only',
+    row !== undefined &&
+      (fa.pc ?? []).length === 1 &&
+      Object.keys(row).join(',') === PLAIN_KEYS &&
+      row.heading === p.state.heading &&
+      !fa.contacts.some((ct) => ct.id === 'p') && // never both lists
+      !blipAt(fa, p.state.x, p.state.y) && // off the beam: no paint
+      !fa.events.some((e) => e.k === 'spawn' && e.id === 'p') && // the spawn row stays on the class reach
+      row.h !== 'p', // an anonymous handle, never the roster id
+  );
 }
 
 /** shell + torp reveals, then boom + dmg + sunk + pt from a killing hit. */
@@ -445,8 +629,8 @@ function scnCombat(g: Golden): void {
  *  'radarSweep' -> 'intel', 'speed' -> 'engines', same seats.) */
 function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
-  const a = place(w, 'a', 0, 0);
-  place(w, 'b', ANNULUS, 0); // far (out of a's sight); sunk to bank a a level
+  const a = place(w, 'a', WEST, 0);
+  place(w, 'b', WEST + ANNULUS, 0); // far (beyond every eye reach of a); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
   a.offer = ['deckGun', 'reload', 'intel', 'engines']; // fixed non-heal hand
@@ -457,27 +641,30 @@ function scnPtBn(g: Golden): void {
   cap(g, w, 'a'); // spawn(a) + pt + bn + the unseen sunk(b) (b's spawn stays out of sight)
 }
 
-/** mine channel: own mine always, enemy mine at the DETECT boundary (Story
- *  4.9 — mines re-aimed from the truesight gate; detect = sight since the 4/8
- *  rung, 4/12 on the twelfths), enemy mine just beyond detect hidden, enemy
- *  mine in deep fog (beyond radar) hidden. */
+/** mine channel: own mine always, enemy mine at the MINE-SIGHT boundary
+ *  (Story 11.2, R4 — a laid mine has its own eye reach, 3 hm; Story 4.9's
+ *  detect rung before), enemy mine just beyond it hidden, enemy mine in deep
+ *  fog (beyond radar) hidden. The near mines lie due north of the observer so
+ *  the boundary distance is exact (dx is 0). */
 function scnMines(g: Golden): void {
   const w = bareWorld(1004);
-  place(w, 'a', 0, 0);
-  injectMine(w, 'own', 'a', BEYOND_RADAR, BEYOND_RADAR); // owner sees own mines everywhere
-  injectMine(w, 'seen', 'b', DETECT, 0); // enemy mine at the detect boundary (inclusive)
-  injectMine(w, 'nearFog', 'b', DETECT + 20, 0); // just beyond detect (= sight since 2026-10-08) -> excluded
-  injectMine(w, 'fog', 'b', BEYOND_RADAR, -BEYOND_RADAR); // enemy mine in deep fog -> excluded
+  place(w, 'a', FAR_WEST, 0);
+  injectMine(w, 'own', 'a', -FAR_WEST, MINE_SIGHT); // beyond radar: the owner sees own mines everywhere
+  injectMine(w, 'seen', 'b', FAR_WEST, MINE_SIGHT); // enemy mine at the mine-sight boundary (inclusive)
+  injectMine(w, 'nearFog', 'b', FAR_WEST, MINE_SIGHT + 20); // just beyond mine sight -> excluded
+  injectMine(w, 'fog', 'b', -FAR_WEST, -MINE_SIGHT); // enemy mine in deep fog (beyond radar) -> excluded
   cap(g, w, 'a');
 }
 
 /** spectator frames: a dead-in-active observer and a finished-phase observer. */
 function scnSpectator(g: Golden): void {
   const w = bareWorld(1005);
-  place(w, 'a', 0, 0);
-  place(w, 'b', 2 * SIGHT, 0); // far beyond a fogged bubble
-  place(w, 'c', -600, 400, 1.2);
-  injectMine(w, 'sm', 'a', 800, 800);
+  place(w, 'a', WEST, 0);
+  place(w, 'b', WEST + ANNULUS, 0); // beyond every eye reach of a fogged a
+  // In a fogged a's PLAIN band: a spectator holds it as a full contact, and
+  // no spectator frame carries `pc` at all (Story 11.2, R3).
+  place(w, 'c', WEST + PLAIN_BAND * Math.cos(Math.PI / 6), PLAIN_BAND * Math.sin(Math.PI / 6), 1.2);
+  injectMine(w, 'sm', 'a', WEST + 800, 800);
   w.respawnEnabled = false; // active-phase policy: the dead stay dead
   w.sinkShip('a', 'b'); // a dies in the active phase -> spectates once FOUNDERED
   // Story 5.2: spectate keys on isSunk. Drive the founder edge directly (the
@@ -485,15 +672,24 @@ function scnSpectator(g: Golden): void {
   // fixture's tick count — and every downstream byte — stays put.
   w.ships.get('a')!.lifecycle = transitionLifecycle(w.ships.get('a')!.lifecycle, 'founder', w.now);
   w.step();
-  cap(g, w, 'a', 'active'); // spec: unfogged contacts b,c + own mine
-  cap(g, w, 'b', 'finished'); // finished: everyone spectates
+  const fa = cap(g, w, 'a', 'active'); // spec: unfogged contacts b,c + own mine
+  const fb = cap(g, w, 'b', 'finished'); // finished: everyone spectates
+  prove(
+    g,
+    'spectator-no-plain-channel',
+    fa.spec === true && fb.spec === true && !('pc' in fa) && !('pc' in fb) &&
+      fa.contacts.some((ct) => ct.id === 'b') && fa.contacts.some((ct) => ct.id === 'c'),
+  );
 }
 
 /**
- * A straddling hull: b's center sits just outside a's sight, its hull reaches
- * inside, so a's shell strikes at a point a can see. a gets the boom (impact
- * sighted) but never b's id (center fogged) — the hit-stripped boom path. b, as
- * the victim, sees its own hit. Captures every tick until the boom lands.
+ * A straddling hull: b's center sits just outside a's sight (the CLASS reach),
+ * its hull reaches inside, so a's shell strikes at a point a can see. a gets
+ * the boom (impact seen) but never b's id (center beyond the class reach) —
+ * the hit-stripped boom path. Since Story 11.2 that center is in a's PLAIN
+ * band, so a holds b as a `pc` row the whole time and the boom on it stays
+ * anonymous: no roster id is ever attached to a hull held only by its handle.
+ * b, as the victim, sees its own hit. Captures every tick until the boom lands.
  */
 function scnStraddleBoom(g: Golden): void {
   const w = bareWorld(1006);
@@ -504,9 +700,17 @@ function scnStraddleBoom(g: Golden): void {
   let found = false;
   for (let i = 0; i < 20 && !found; i++) {
     w.step();
-    cap(g, w, 'a'); // at impact: boom with `hit` stripped
+    const fa = cap(g, w, 'a'); // at impact: boom with `hit` stripped
     const fb = cap(g, w, 'b'); // at impact: boom carrying hit === 'b'
     found = fb.events.some((e) => e.k === 'boom' && e.id === 'st');
+    prove(
+      g,
+      'straddle-boom-on-plain-hull',
+      found &&
+        fa.events.some((e) => e.k === 'boom' && e.id === 'st' && !('hit' in e)) &&
+        plainAt(fa, b) !== undefined &&
+        !fa.contacts.some((ct) => ct.id === 'b'),
+    );
   }
   expect(found).toBe(true); // the hit-stripped straddle boom actually occurred
 }
@@ -514,66 +718,74 @@ function scnStraddleBoom(g: Golden): void {
 /**
  * Island LOS + the Story 4.11 radar shadow — the fog GEOMETRY bareWorld()
  * deliberately zeroes. SIGHT occlusion still comes from the island POLYGON:
- * one circle sits on the +x axis between observer `a` and `b` (inside sight,
+ * one circle sits due east of observer `a`, between it and `b` (inside sight,
  * LOS-blocked -> never a contact), with `c` (inside sight, LOS-clear) the
- * positive control. RADAR occlusion now comes from the HEIGHT RASTER
- * (amendment 179): a hard (q255 ≥ mast) ridge is stamped under the island, so
- * `r` (beyond sight behind it) never paints, and neither does `b` (radar's
- * own rule: hard cover darkens it at every range) — while a LOW (q16)
- * ridge on the −x axis leaves `s` (beyond sight, behind it) PARTIALLY illuminated,
- * which DISCLOSES: the genuine widening the ruling accepts, pinned here on
- * the wire. `p` (beyond sight, open water, bearing swept) is the clear-water
- * control. A wide manual paint window (windowAround-style — set, don't step)
- * exposes bearings 0, pi/2 and pi at once, so all three radar targets reach
- * the blip row in one frame. Since amendment 210 the radar has no inner edge:
- * `c` (sighted, swept, open water) is a contact AND a blip, and `b` stays
- * dark on both sensors (eye: island LOS; radar: hard cover).
+ * positive control. RADAR occlusion comes from the HEIGHT RASTER (amendment
+ * 179): a hard (q255 ≥ mast) ridge is stamped under the island, so `r`
+ * (beyond every eye reach behind it) never paints, and neither does `b`
+ * (radar's own rule: hard cover darkens it at every range) — while a LOW
+ * (q16) ridge on the bearing −FAN leaves `s` (beyond every eye reach, behind
+ * it) PARTIALLY illuminated, which DISCLOSES: the genuine widening the ruling
+ * accepts, pinned here on the wire. `p` (beyond every eye reach, open water,
+ * bearing +FAN, swept) is the clear-water control. Story 11.2: `a` sits at
+ * the WEST seat and the three far hulls FAN across due east (the board is
+ * narrower than the radar reach), and the rock stands 300 u off so it
+ * subtends less than FAN. A wide manual paint window (windowAround-style —
+ * set, don't step) exposes every bearing from −FAN to c's at once, so all
+ * three radar targets reach the blip row in one frame. Since amendment 210
+ * the radar has no inner edge: `c` (sighted, swept, open water) is a contact
+ * AND a blip, and `b` stays dark on both sensors (eye: island LOS; radar:
+ * hard cover).
  */
 function scnIslandLos(g: Golden): void {
   const w = bareWorld(1007);
-  w.map.islands.push(circleIsland(75, 0, 30)); // blocks SIGHT on the +x axis
-  // The raster: hard cover under the island (+x), soft cover far out on -x.
-  w.map.heightRaster = rasterFrom(700, (x, y) => {
-    if (Math.abs(x - 75) <= 30 && Math.abs(y) <= 30) return 255; // hard: dark to the rim
-    if (Math.abs(x + 200) <= 40 && Math.abs(y) <= 40) return 16; // low: partial illumination
+  const rockX = WEST + 300; // the rock's centre, due east of a
+  const lowX = WEST + 200 * Math.cos(FAN); // the low ridge's centre, on the bearing −FAN
+  const lowY = -200 * Math.sin(FAN);
+  w.map.islands.push(circleIsland(rockX, 0, 30)); // blocks SIGHT due east
+  // The raster: hard cover under the island, soft cover on the bearing −FAN.
+  w.map.heightRaster = rasterFrom(-WEST, (x, y) => {
+    if (Math.abs(x - rockX) <= 30 && Math.abs(y) <= 30) return 255; // hard: dark to the rim
+    if (Math.abs(x - lowX) <= 40 && Math.abs(y - lowY) <= 40) return 16; // low: partial illumination
     return 0;
   });
-  place(w, 'a', 0, 0);
-  place(w, 'b', 150, 0, 1.5); // inside sight, behind the island -> no contact
-  place(w, 'c', 100, 100); // inside sight, LOS-clear -> contact (sight control)
-  place(w, 'r', ANNULUS, 0); // beyond sight, behind hard cover -> no blip
-  place(w, 'p', 0, ANNULUS); // beyond sight, open water, swept -> blip (clear control)
-  place(w, 's', -ANNULUS, 0); // beyond sight, behind LOW cover -> blip (the 4.11 disclosure)
+  const far = (brg: number): [number, number] => [WEST + ANNULUS * Math.cos(brg), ANNULUS * Math.sin(brg)];
+  place(w, 'a', WEST, 0);
+  place(w, 'b', WEST + 600, 0, 1.5); // inside sight, behind the island -> no contact
+  place(w, 'c', WEST + 100, 100); // inside sight, LOS-clear -> contact (sight control)
+  place(w, 'r', ...far(0)); // radar-only distance, behind hard cover -> no blip
+  place(w, 'p', ...far(FAN)); // radar-only distance, open water, swept -> blip (clear control)
+  place(w, 's', ...far(-FAN)); // radar-only distance, behind LOW cover -> blip (the 4.11 disclosure)
   const a = w.ships.get('a')!;
-  a.prevSweepAngle = wrapPositive(-0.05); // window spans bearings 0..pi inclusive
-  a.sweepAngle = Math.PI + 0.05;
+  a.prevSweepAngle = wrapPositive(-FAN - 0.05); // window spans bearings −FAN..π/4 inclusive
+  a.sweepAngle = Math.PI / 4 + 0.05;
   const f = cap(g, w, 'a');
   const contactIds = f.contacts.map((c) => c.id);
   prove(g, 'island-blocks-sight-contact', !contactIds.includes('b'));
   prove(g, 'island-allows-sight-contact', contactIds.includes('c'));
-  prove(g, 'island-blocks-radar-blip', !blipAt(f, ANNULUS, 0));
-  prove(g, 'island-allows-radar-blip', blipAt(f, 0, ANNULUS));
-  prove(g, 'soft-cover-allows-radar-blip', blipAt(f, -ANNULUS, 0));
+  prove(g, 'island-blocks-radar-blip', !blipAt(f, ...far(0)));
+  prove(g, 'island-allows-radar-blip', blipAt(f, ...far(FAN)));
+  prove(g, 'soft-cover-allows-radar-blip', blipAt(f, ...far(-FAN)));
 }
 
 /**
  * Non-owner ballistic reveal — a shell AND a torpedo fired by phantom owner
  * `a` OUTSIDE observer `b`'s reveal gate, each closing on b. The gates FORK
- * as of Story 4.9: the shell rides FIRST-SIGHT (just outside sight — SHELLS DO
- * NOT MOVE) while the torpedo rides FIRST-DETECT (just outside the detect
- * rung — one with sight since 2026-10-08, 4/12 on the twelfths). At LAUNCH (pre-step) b's frame carries neither. The next tick
+ * as of Story 4.9, and each has its OWN eye reach since Story 11.2 (R4): the
+ * shell reveals at SHELL_SIGHT (200 hm), the torpedo at TORP_SIGHT (15 hm —
+ * a wake just under the surface). At LAUNCH (pre-step) b's frame carries neither. The next tick
  * each crosses ITS OWN boundary, and b's frame reveals both with CURRENT
  * pos/velocity and t = reveal tick (ctx.now), not the hidden launch point or
- * bornAt (=0) — the shell revealing BEYOND detect (proving shells were not
- * narrowed) and the torpedo inside it. The next tick — still in flight — b's
+ * bornAt (=0) — the shell revealing BEYOND the torpedo reach (proving shells
+ * were not narrowed) and the torpedo inside it. The next tick — still in flight — b's
  * frame is empty again: exactly-once per observer (seenBallistics). Three
  * consecutive b frames pin all three states (hidden -> revealed -> silent).
  */
 function scnBallisticReveal(g: Golden): void {
   const w = bareWorld(1008);
   place(w, 'b', 0, 0); // the lone observer; `a` is a phantom owner (no ship needed)
-  injectShell(w, 'sh', 'a', SIGHT + 6, 0, Math.PI, 500, 'shell'); // just outside SIGHT, closing -x
-  injectShell(w, 'tp', 'a', 0, DETECT + 6, -Math.PI / 2, 500, 'torp'); // just outside DETECT, closing -y
+  injectShell(w, 'sh', 'a', SHELL_SIGHT + 6, 0, Math.PI, 500, 'shell'); // just outside SHELL_SIGHT, closing -x
+  injectShell(w, 'tp', 'a', 0, TORP_SIGHT + 6, -Math.PI / 2, 500, 'torp'); // just outside TORP_SIGHT, closing -y
   const pre = cap(g, w, 'b'); // launch tick: neither revealed (each outside its gate)
   prove(g, 'nonowner-hidden-at-launch', !pre.events.some(isBallistic));
   w.step(); // each crosses its own boundary this tick
@@ -587,11 +799,12 @@ function scnBallisticReveal(g: Golden): void {
     !!sh && !!tp && sh.x === live.x && sh.t === w.now && sh.t !== 0,
   );
   // The Story 4.9 fork, proven on the same frame: the shell's reveal point is
-  // BEYOND the detect rung (a detect-gated shell would still be hidden here),
-  // the torpedo's is inside it.
-  // Since the 4/8 rung (2026-10-08) detect = sight, so "beyond detect yet inside sight" is an empty band: the shell proof is that it reveals at or inside sight.
-  prove(g, 'shell-reveal-at-sight', !!sh && Math.hypot(sh.x, sh.y) <= SIGHT);
-  prove(g, 'torp-reveal-inside-detect', !!tp && Math.hypot(tp.x, tp.y) <= DETECT);
+  // BEYOND the torpedo reach (a torpedo-gated shell would still be hidden
+  // here) and inside its own; the torpedo's is inside the torpedo reach. The
+  // band between the two is real again since Story 11.2 (it was empty while
+  // detect = sight, 2026-10-08).
+  prove(g, 'shell-reveal-at-sight', !!sh && Math.hypot(sh.x, sh.y) <= SHELL_SIGHT && Math.hypot(sh.x, sh.y) > TORP_SIGHT);
+  prove(g, 'torp-reveal-inside-detect', !!tp && Math.hypot(tp.x, tp.y) <= TORP_SIGHT);
   w.step(); // still airborne, but already seen
   const after = cap(g, w, 'b');
   prove(g, 'nonowner-reveal-once', !after.events.some(isBallistic));
@@ -614,7 +827,10 @@ function scnSpectatorBallistic(g: Golden): void {
   const e = place(w, 'e', 150, 0); // a live fight c will watch from the afterlife
   e.hp = 100; // survives the hit -> a clean dmg (no sunk)
   injectShell(w, 'hit', 'd', 130, 0, 0, 100, 'shell'); // point-blank on e -> boom + dmg
-  injectShell(w, 'fly', 'd', 300, 300, Math.PI / 4, 500, 'shell'); // stays airborne (reveal subject)
+  // Stays airborne (the reveal subject), launched just outside c's shell
+  // sight and opening — a fogged c could never have sighted it.
+  const flyAt = (SHELL_SIGHT + 6) * Math.SQRT1_2;
+  injectShell(w, 'fly', 'd', flyAt, flyAt, Math.PI / 4, 500, 'shell');
   w.respawnEnabled = false; // active-phase policy: the dead stay dead
   w.sinkShip('c', 'b'); // c dies -> spectates (phantom killer 'b')
   // Story 5.2: spectate begins at founder; stepping the real window would burn
@@ -657,13 +873,17 @@ function scnBurst(g: Golden): void {
  * Star-shell lit zone (Story 1.7) — a REAL battleship flare fired via the
  * input channel: the shell flies to the clicked point (SIGHT+80 out —
  * comfortably beyond the firer's sight bubble) and bursts, spawning the
- * (SIGHT/2)u/10s zone. Captures pin all four zone views in one deterministic
- * pass: the FIRER's frame (zone circle + the hidden hull `h` revealed as a
- * full contact by owned-zone truesight parity), a third party `c` sitting
- * EXACTLY at radar range of the zone center (the tagged {id,x,y,r,until,by}
- * circle — boundary-inclusive — and NO contact for `h`), a beyond-radar
- * observer `d` whose frame stays byte-free of the zone, and the FIRER again
- * after natural expiry (zone gone, `h` fogged once more). Intermediate flight
+ * litRadius/10s zone. Captures pin all four zone views in one deterministic
+ * pass: the FIRER's frame (zone circle + the hull `h` revealed as a full
+ * contact by owned-zone truesight parity — since Story 11.2 `h` sits in the
+ * firer's PLAIN band, so the zone LIFTS a `pc` row to a full contact and the
+ * two lists never both hold it), a third party `c` sitting EXACTLY at radar
+ * range of the zone center (the tagged {id,x,y,r,until,by} circle —
+ * boundary-inclusive — and NO contact for `h`), a beyond-radar observer `d`
+ * whose frame stays byte-free of the zone, and the FIRER again after natural
+ * expiry (zone gone, `h` a plain hull once more). The board is narrower than
+ * the radar reach, so `c` and `d` sit due WEST of the zone, on the far side
+ * of the firer. Intermediate flight
  * ticks are stepped without frame builds — the fixture pins the launch tick,
  * the burst tick, and expiry.
  */
@@ -671,16 +891,19 @@ function scnStarShell(g: Golden): void {
   const w = bareWorld(1011);
   const flareDist = SIGHT + 80; // clicked burst point, comfortably beyond a's sight bubble
   place(w, 'a', 0, 0, 0, 'yamato'); // the firer
-  place(w, 'h', flareDist, 40, 1.1); // inside the future zone, beyond a's sight
-  place(w, 'c', flareDist, -CONFIG.vision.radar); // dist to zone center = radar exactly — at radar range
-  place(w, 'd', -BEYOND_RADAR, 0); // dist to zone center (flareDist,0) > radar — beyond radar
+  const h = place(w, 'h', flareDist, 40, 1.1); // inside the future zone, beyond a's sight (a plain hull to a)
+  // dist to zone center = radar EXACTLY — at radar range. (The round trip
+  // flareDist − (flareDist − RADAR) is exact in doubles: the rounding of the
+  // inner difference is under half an ulp of RADAR.)
+  place(w, 'c', flareDist - RADAR, 0);
+  place(w, 'd', flareDist - BEYOND_RADAR, 0); // dist to zone center (flareDist,0) > radar — beyond radar
   // Story 8.5: the Battleship's seed fits `broadside` into weapon slot 2 and
   // `starShells` into 3.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: FAMILY_SLOT.shell, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step(); // consumes the click; the flare spawns and starts flying
-  cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
+  const launch = cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
   let zoneUp = false;
-  for (let i = 0; i < 80 && !zoneUp; i++) {
+  for (let i = 0; i < flightTicks(flareDist, CONFIG.starShells.shellSpeed) && !zoneUp; i++) {
     w.step();
     zoneUp = w.litZones.size > 0;
   }
@@ -708,12 +931,23 @@ function scnStarShell(g: Golden): void {
     'litzone-expiry',
     w.litZones.size === 0 && !('litZones' in after) && !after.contacts.some((x) => x.id === 'h'),
   );
+  // The zone LIFTS the plain hull: a `pc` row before the burst, a full
+  // contact (and no `pc` row) under the zone, a `pc` row again after expiry.
+  prove(
+    g,
+    'litzone-lifts-plain-to-contact',
+    plainAt(launch, h) !== undefined && !launch.contacts.some((x) => x.id === 'h') &&
+      plainAt(fa, h) === undefined && fa.contacts.some((x) => x.id === 'h') &&
+      plainAt(after, h) !== undefined,
+  );
 }
 
 /**
  * A kill INSIDE an owned lit zone (Story 1.7 zone event parity) — the zone and
  * the killing shell are injected directly (mines precedent; the real flare
- * flow is scnStarShell's job). Observer `a` owns a zone far beyond its sight;
+ * flow is scnStarShell's job). Observer `a` owns a zone beyond every eye reach
+ * it has (the splash reach included, Story 11.2 — so the zone alone carries
+ * the boom, the victim id and the `seen` stamp);
  * its shell strikes `b` inside the zone. Pre-parity, a's frame carried NO boom
  * (owner hit-confirmation suppression) and NO sunk; under the owned zone the
  * boom arrives WITH the victim id (center zone-covered) and the sunk arrives
@@ -721,18 +955,19 @@ function scnStarShell(g: Golden): void {
  */
 function scnZoneKill(g: Golden): void {
   const w = bareWorld(1012);
-  place(w, 'a', 0, 0);
-  const b = place(w, 'b', ANNULUS, 0);
+  const bx = WEST + ANNULUS;
+  place(w, 'a', WEST, 0);
+  const b = place(w, 'b', bx, 0);
   b.hp = 1; // any landed blow sinks it (a blow settles to at least 1 — Story 10.3/10.4)
-  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: ANNULUS, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
-  injectShell(w, 'ks', 'a', ANNULUS - 20, 0, 0, 100); // a's shell, point-blank on b, outside a's sight
+  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: bx, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+  injectShell(w, 'ks', 'a', bx - 20, 0, 0, 100); // a's shell, point-blank on b, beyond every eye reach of a
   w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
   const fa = cap(g, w, 'a');
   prove(g, 'litzone-boom-victim-id', fa.events.some((e) => e.k === 'boom' && e.hit === 'b'));
   prove(
     g,
     'litzone-sunk-reveal',
-    fa.events.some((e) => e.k === 'sunk' && e.id === 'b') && !fa.events.some((e) => e.k === 'dmg'),
+    fa.events.some((e) => e.k === 'sunk' && e.id === 'b' && e.seen === true) && !fa.events.some((e) => e.k === 'dmg'),
   );
 }
 
@@ -902,12 +1137,17 @@ function scnHoming(g: Golden): void {
   // R28 (Eric 2026-11-06): the launchers fire across the beam, never dead
   // ahead — the shooter lies with +x on its STARBOARD beam (heading −π/2), its
   // fore launcher already trained there.
-  const a = place(w, 'a', 0, 0, -Math.PI / 2);
+  // Story 11.2: the action sits at the west of the board (the torpedo runs
+  // east, toward the middle) so the far observer can be beyond radar of every
+  // hull in it — BEYOND_RADAR east of `c`, the easternmost of the three.
+  const spanU = 250; // a..c, west to east
+  const x0 = -(BEYOND_RADAR + spanU) / 2;
+  const a = place(w, 'a', x0, 0, -Math.PI / 2);
   w.applyCard(a, 'heavyTorpedo'); // the second copy: tier II — the fish homes
   for (const l of a.launchers) l.a = Math.PI / 2;
-  place(w, 'b', 200, 60); // the fish acquires and steers toward this hull mid-flight
-  const c = place(w, 'c', 250, -60); // detect covers the turning stretch
-  const d = place(w, 'd', -BEYOND_RADAR, 0); // beyond sight AND radar of everything (Story 9.8: no dropout roll pinned)
+  place(w, 'b', x0 + 200, 60); // the torpedo acquires and steers toward this hull mid-flight
+  const c = place(w, 'c', x0 + spanU, -60); // torpedo sight covers the turning stretch
+  const d = place(w, 'd', x0 + spanU + BEYOND_RADAR, 0); // beyond every eye reach AND the radar of every hull
   for (const s of [c, d]) {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
@@ -971,36 +1211,39 @@ function scnDebuffs(g: Golden): void {
 }
 
 /**
- * The gunnery conversation (Story 4.3; the halo is the 6/12 rung since Story
- * 9.8 — radarRange × muzzleFlashFactor, amendment 103) — a REAL gun click
- * driving all three new channels through the wire. Shooter `a` fires into
- * empty water SIGHT + 400 out: on the launch tick the muzzle flash `mz`
- * reaches o1 (≈300u from the muzzle — unambiguously inside the halo), never
- * o2 (150u past the halo) and never o3 (≈300u but island-blocked: islands
- * block every sensor at all ranges); on the burst tick the shooter alone
- * receives the self-private fall-of-shot `sp` at the true burst point (o1,
- * captured the same tick, gets neither sp nor burst — the point is outside
- * its sight). A torpedo launch next proves the quiet weapon: o1's frame
- * carries NO mz (amendment 20). After the gun reload, a second click
- * centered on fogged hull `b` (ANNULUS out — beyond sight, no boom rides a
- * burst outcome) delivers exactly one Hit Call `hc` carrying only {k,id,x,y}
- * with id = the SHOOTER — no victim id, no severity, and no sp for the same
- * shell.
+ * The gunnery conversation (Story 4.3; the halo is its own fact since Story
+ * 11.2 — CONFIG.vision.muzzleFlash, 350 hm) — a REAL gun click driving all
+ * three channels through the wire. Shooter `a` sits at the WEST seat, bow 45°
+ * off due east, and fires due east into empty water at SHOT — beyond every
+ * eye reach it has and inside its guns' reach: on the launch tick the muzzle
+ * flash `mz` reaches o1 (300u from the shooter — unambiguously inside the
+ * halo), never o2 (150u past the halo) and never o3 (300u but
+ * island-blocked: islands block every sensor at all ranges); on the burst
+ * tick the shooter alone receives the self-private fall-of-shot `sp` at the
+ * true burst point (o1, captured the same tick, gets neither sp nor burst —
+ * it sits 300u BEHIND the line of fire, so the point is beyond its splash
+ * reach). A torpedo launch next proves the quiet weapon: o1's frame carries
+ * NO mz (amendment 20). After the gun reload, a second click centered on
+ * fogged hull `b` (SHOT out on the bearing −FAN — beyond every eye reach, no
+ * boom rides a burst outcome) delivers exactly one Hit Call `hc` carrying
+ * only {k,id,x,y} with id = the SHOOTER — no victim id, no severity, and no
+ * sp for the same shell.
  */
 function scnGunnery(g: Golden): void {
   const w = bareWorld(1019);
-  w.map.islands.push(circleIsland(200, 0, 40)); // the o3 LOS blocker
-  place(w, 'a', 0, 0); // the shooter
-  place(w, 'o1', 0, 300); // unambiguously inside the muzzle halo (6/12)
-  place(w, 'o2', 0, -(CONFIG.vision.muzzleFlash + 150)); // beyond the halo
-  place(w, 'o3', 300, 0); // inside the halo but behind the island
-  place(w, 'b', -ANNULUS, 0); // the fogged victim of the second shot
-  // Shot 1 — a miss into empty water at bearing pi/4 (clear of the island),
-  // bursting outside o1's sight (re-based for the 4/12 sight, Story 9.8).
-  // Story 10.4: the turrets are TRAINED onto the aim first (an un-trained
-  // click would fire along a turret's current bearing — R4 — into the island).
-  holdAim(w, 'a', 1, Math.PI / 4, SIGHT + 400);
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: SIGHT + 400, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  w.map.islands.push(circleIsland(WEST, -200, 40)); // the o3 LOS blocker, due south
+  const a = place(w, 'a', WEST, 0, -Math.PI / 4); // the shooter
+  // Beyond every eye reach of the shooter, inside its main battery's reach.
+  const SHOT = (EYE + a.stats.equipment.mainBattery.rangeU) / 2;
+  const speed = CONFIG.mainBattery.shellSpeed;
+  place(w, 'o1', WEST - 300, 0); // unambiguously inside the muzzle halo, behind the line of fire
+  place(w, 'o2', WEST + (FLASH + 150) * Math.cos(FAN), (FLASH + 150) * Math.sin(FAN)); // beyond the halo
+  place(w, 'o3', WEST, -300); // inside the halo but behind the island
+  place(w, 'b', WEST + SHOT * Math.cos(-FAN), SHOT * Math.sin(-FAN)); // the fogged victim of the second shot
+  // Shot 1 — a miss into empty water due east (45° off the bow, clear of the
+  // island), bursting beyond o1's splash reach.
+  holdAim(w, 'a', 1, 0, SHOT);
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: SHOT, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step(); // the click fires: mz + shell reveal ride this tick
   cap(g, w, 'a'); // shooter: own mz + own shell reveal
   const fo1 = cap(g, w, 'o1');
@@ -1011,7 +1254,7 @@ function scnGunnery(g: Golden): void {
   prove(g, 'muzzle-flash-island-blocked', !fo3.events.some((e) => e.k === 'mz'));
   // Flight to the burst (no frame builds), then the burst/splash tick.
   let burst = false;
-  for (let i = 0; i < 40 && !burst; i++) {
+  for (let i = 0; i < flightTicks(SHOT, speed) && !burst; i++) {
     w.step();
     burst = w.tickEvents.some((e) => e.k === 'burst');
   }
@@ -1022,12 +1265,12 @@ function scnGunnery(g: Golden): void {
     g,
     'gunnery-miss-own-splash',
     faMiss.events.some((e) => e.k === 'sp' && e.id === 'a') &&
-      !fo1Miss.events.some((e) => e.k === 'sp'),
+      !fo1Miss.events.some((e) => e.k === 'sp' || e.k === 'burst'),
   );
   // The torpedo launch — the ratified quiet weapon: no mz for anyone. R28: it
-  // fires along shot 1's bearing (π/4, inside the fore launcher's band, the
-  // launcher already trained there by the held aim) — dead ahead is refused.
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 2, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  // fires along shot 1's bearing (45° off the bow, inside the fore launcher's
+  // band) — dead ahead is refused.
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   cap(g, w, 'a'); // own torp reveal, no mz
   const fo1Torp = cap(g, w, 'o1');
@@ -1036,10 +1279,10 @@ function scnGunnery(g: Golden): void {
   // on the fogged hull b.
   const reloadTicks = Math.ceil(CONFIG.mainBattery.reloadMs / DT) + 1;
   for (let i = 0; i < reloadTicks; i++) w.step();
-  holdAim(w, 'a', 4, Math.PI, ANNULUS);
-  w.submitInput('a', { seq: 5, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: ANNULUS, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
+  holdAim(w, 'a', 4, -FAN, SHOT);
+  w.submitInput('a', { seq: 5, throttle: 0, rudder: 0, aim: -FAN, fireSeq: 3, aimDist: SHOT, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   let hit = false;
-  for (let i = 0; i < 40 && !hit; i++) {
+  for (let i = 0; i < flightTicks(SHOT, speed) && !hit; i++) {
     w.step();
     hit = w.tickEvents.some((e) => e.k === 'hc');
   }
@@ -1052,7 +1295,8 @@ function scnGunnery(g: Golden): void {
     hc !== undefined &&
       Object.keys(hc).join(',') === 'k,id,x,y' && // NO victim id / severity field anywhere in it
       hc.id === 'a' && // the SHOOTER's id — never the victim's
-      !faHit.contacts.some((c) => c.id === 'b') && // b really is fogged
+      !faHit.contacts.some((c) => c.id === 'b') && // b really is fogged...
+      !('pc' in faHit) && // ...to BOTH sight tiers: not even a plain hull
       !faHit.events.some((e) => e.k === 'sp'), // exactly one of hc/sp per shell
   );
 }
@@ -1122,19 +1366,21 @@ function scnHeal(g: Golden): void {
  * on the same wedge paints on the half-life clock while no torp event
  * exists. Water inside a's sight bubble discloses like any radar return
  * (amendment 210: no inner bound), and no wk payload key carries identity.
+ * Story 11.2: `a` sits at the WEST seat and the far run lies ANNULUS east of
+ * it — beyond every eye reach, inside the radar rim.
  */
 function scnWake(g: Golden): void {
   const w = bareWorld(1022);
-  const a = place(w, 'a', 0, 0);
+  const a = place(w, 'a', WEST, 0);
   const b = place(w, 'b', 900, 900); // its WATER is under test, not its hull
   // b's laid track along y=0 (raw ring injection — fixed poses, fixed ages):
-  // two in-sight samples (200, 212), then a beyond-sight run ANNULUS..+48
-  // (Story 9.8: re-based past the 4/12 sight and inside the dropout's flat
-  // band), ages spread so multiple quarter-life buckets ride the wire. The
+  // two in-sight samples (200, 212 east of a), then a radar-only run
+  // ANNULUS..+48 east of a (Story 11.2: beyond every eye reach, inside the
+  // radar rim), ages spread so multiple quarter-life buckets ride the wire. The
   // ages sit INSIDE the torpedo boat's 5.5 s water life (epic-4 amendment 213 cut it
   // from 12 s; the old 11.6 s ages had silently expired the in-sight samples,
   // leaving the bubble proof vacuous).
-  const xs = [200, 212, ANNULUS, ANNULUS + 12, ANNULUS + 24, ANNULUS + 36, ANNULUS + 48];
+  const xs = [200, 212, ANNULUS, ANNULUS + 12, ANNULUS + 24, ANNULUS + 36, ANNULUS + 48].map((dx) => WEST + dx);
   const ages = [5_300, 5_200, 5_000, 4_000, 2_800, 1_200, 0];
   for (let i = 0; i < xs.length; i++) {
     b.wake.xs[i] = xs[i];
@@ -1146,7 +1392,7 @@ function scnWake(g: Golden): void {
   // A torpedo's water: half-life (6000ms), one-cell (9u) ribbon at y=6.
   const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true, hullAheadU: 0 };
   for (let i = 0; i < 5; i++) {
-    torp.xs[i] = ANNULUS + 100 + 12 * i; // beyond detect, inside the flat band
+    torp.xs[i] = WEST + ANNULUS + 100 + 12 * i; // beyond every eye reach, inside the radar rim
     torp.ys[i] = 6;
     torp.ts[i] = w.now - (4 - i) * 1_200;
   }
@@ -1172,11 +1418,11 @@ function scnWake(g: Golden): void {
     'wake-identity-free',
     wks.length > 0 && wks.every((e) => Object.keys(e).join(',') === 'k,t,a,gx,gy,w,h,bits'),
   );
-  prove(g, 'wake-sight-bubble-disclosed', wks.some((e) => covers(e, 206, 0)));
+  prove(g, 'wake-sight-bubble-disclosed', wks.some((e) => covers(e, WEST + 206, 0)));
   prove(
     g,
     'wake-torpedo-ribbon',
-    wks.some((e) => covers(e, ANNULUS + 130, 6)) && !fa.events.some((e) => e.k === 'torp'),
+    wks.some((e) => covers(e, WEST + ANNULUS + 130, 6)) && !fa.events.some((e) => e.k === 'torp'),
   );
   // The record leaves the room entirely: the orphaned water still paints.
   w.removeShip('b');
@@ -1194,38 +1440,42 @@ function scnWake(g: Golden): void {
 
 /**
  * The straight-runner re-reveal (Story 8.13, epic-8 amendment 78): observer
- * `b` is revealed a fish at the detect ring, the gate then SHRINKS under it
- * for one tick (b's sight written to ONE RUNG of its intel range, radar / 12 — the
- * FLASH SHELLS dazzle's old collapse, as a plain stats write since Story 9.4
- * retired the mark; the fish, still live, is outside the shrunken rung), and
- * when sight returns the fish is revealed AGAIN with current pos/velocity and
- * `t` = the re-reveal time, in the unchanged {k,id,x,y,vx,vy,t} shape.
- * Nothing is emitted while outside. Frames captured every tick, so the
- * snapshot pins the silent tick too.
+ * `b` is revealed a torpedo at the torpedo-sight ring, the gate then SHRINKS
+ * under it for one tick, and when sight returns the torpedo is revealed AGAIN
+ * with current pos/velocity and `t` = the re-reveal time, in the unchanged
+ * {k,id,x,y,vx,vy,t} shape. Nothing is emitted while outside. Frames captured
+ * every tick, so the snapshot pins the silent tick too.
+ *
+ * THE SHRINK IS THE REAL WHITEOUT MARK AGAIN (Story 11.2): the torpedo's eye
+ * reach is a CONFIG fact now (`torpedoSight`), not a stat, so Story 9.4's
+ * plain `stats.sightRange` write no longer moves this gate. The one thing
+ * that does is the FLASH SHELLS mark (`dazzledUntil`, restored by Story
+ * 10.9): every eye reach is 0 through the whiteout's ramp. The mark is set
+ * for exactly the silent tick and cleared, so that ONE frame's `you` carries
+ * `dazzledUntil` (the self-private key every flashed hull's own frame has).
  */
 function scnTorpReReveal(g: Golden): void {
   const w = bareWorld(1021);
   const b = place(w, 'b', 0, 0); // the lone observer; `a` is a phantom owner
-  injectShell(w, 'tp', 'a', DETECT + 6, 0, Math.PI, 5_000, 'torp'); // just outside DETECT, closing -x at 25u/tick
+  injectShell(w, 'tp', 'a', TORP_SIGHT + 6, 0, Math.PI, 5_000, 'torp'); // just outside TORP_SIGHT, closing -x at 25u/tick
   cap(g, w, 'b'); // launch tick: hidden
   w.step();
-  const first = cap(g, w, 'b'); // crosses the ring: revealed (DETECT − 19u out)
+  const first = cap(g, w, 'b'); // crosses the ring: revealed (TORP_SIGHT − 19u out)
   const one = first.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
-  const fullSight = b.stats;
-  b.stats = { ...b.stats, sightRange: b.stats.radarRange / 12 }; // shrunk for exactly the next frame: detect collapses to one rung
+  b.dazzledUntil = w.now + FLASH_WINDOW_MS; // flashed for exactly the next frame: every eye reach is 0 in the ramp
   w.step();
-  const shrunk = cap(g, w, 'b'); // DETECT − 44u out: OUTSIDE the shrunken rung — silent, mark cleared
+  const shrunk = cap(g, w, 'b'); // TORP_SIGHT − 44u out: OUTSIDE the whited-out reach — silent, mark cleared
   prove(g, 'torp-re-reveal-silent-outside', !!one && !shrunk.events.some(isBallistic) && !b.seenBallistics.has('tp'));
-  b.stats = fullSight; // sight back
+  b.dazzledUntil = 0; // sight back
   w.step();
-  const again = cap(g, w, 'b'); // DETECT − 69u out: INSIDE again — revealed again
+  const again = cap(g, w, 'b'); // TORP_SIGHT − 69u out: INSIDE again — revealed again
   const two = again.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
   const live = w.shells.get('tp')!;
   prove(
     g,
     'torp-re-reveal',
     !!one && !!two && two.id === one.id && two.x === live.x && two.vx === live.vx && two.t === w.now && two.t > one.t &&
-      Math.hypot(two.x, two.y) <= DETECT && Object.keys(two).join() === 'k,id,x,y,vx,vy,t',
+      Math.hypot(two.x, two.y) <= TORP_SIGHT && Object.keys(two).join() === 'k,id,x,y,vx,vy,t',
   );
   w.step();
   const after = cap(g, w, 'b'); // inside and marked: silent once more
@@ -1237,7 +1487,7 @@ function scnTorpReReveal(g: Golden): void {
  * superseding Story 8.13's own-only rule, epic-8 amendment 76): Mine Layer `o`
  * holds all three mine lines and has one of each kind in the water; `o`'s own
  * frame carries `c` on every mine (naval / captive / fouling), AND enemy `a`,
- * who detects all three, receives the kind on every row too — LAST, after
+ * who has all three inside its mine sight, receives the kind on every row too — LAST, after
  * `by`, so the historical prefix stays byte-stable. Both frames are captured,
  * so the snapshot pins the exact bytes of each.
  */
@@ -1246,7 +1496,7 @@ function scnMineKindForAll(g: Golden): void {
   const o = place(w, 'o', 0, 0, 0, 'warspite'); // holds NAVAL MINES (class weapon)...
   w.applyCard(o, 'captiveMines'); // ...plus the other two lines
   w.applyCard(o, 'foulingMines');
-  place(w, 'a', 120, 0); // enemy observer: every mine below is inside its detect rung
+  place(w, 'a', 60 + MINE_SIGHT / 2, 0); // enemy observer: every mine below is inside its mine sight
   const kinds: readonly MineKind[] = ['naval', 'captive', 'fouling'];
   kinds.forEach((kind, i) => injectMine(w, `m-${kind}`, 'o', 60, (i - 1) * 30, kind));
   const fo = cap(g, w, 'o');
@@ -1272,6 +1522,15 @@ function runBattery(): string[] {
   // actually OBSERVED (each tag is recorded only when its fact held), so a
   // regression or a removed scenario fails here.
   expect([...g.subcases].sort()).toEqual(subcases);
+  // THE PLAIN-HULL CHANNEL IS IN THE GOLDEN (Story 11.2, R3): at least one
+  // snapshotted frame carries a `pc` row, every such row is exactly
+  // {h,x,y,heading,speed} in that order, and no spectator frame carries the
+  // channel at all.
+  const parsed = g.frames.map((s) => JSON.parse(s) as FrameMsg);
+  const plainRows = parsed.flatMap((f) => f.pc ?? []);
+  expect(plainRows.length).toBeGreaterThan(0);
+  for (const row of plainRows) expect(Object.keys(row).join(',')).toBe(PLAIN_KEYS);
+  expect(parsed.some((f) => f.spec === true && 'pc' in f)).toBe(false);
   return g.frames;
 }
 

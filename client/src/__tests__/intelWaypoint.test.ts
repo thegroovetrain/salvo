@@ -19,7 +19,11 @@ import { CLIENT_CONFIG } from '../config.js';
 
 const Z = CLIENT_CONFIG.zoom;
 const M = CLIENT_CONFIG.reveal.mapFitMargin;
-const R = CONFIG.vision.radar;
+/** THE INTEL RADIUS UNDER TEST — a synthetic disc well inside the board, so the
+ *  waypoint MECHANISM is exercised (amendment 208). Since Story 11.2 the game's
+ *  own radar reach (400 hm) is wider than the board, which makes the stop
+ *  vanish by rule — that case has its own describe at the foot of this file. */
+const R = mapRadius(CONFIG.map.playerCap) * 0.3;
 const MAP_R = mapRadius(CONFIG.map.playerCap);
 const MAP_SPAN = ringFitSpanU(MAP_R, M);
 const VW = 1600;
@@ -333,8 +337,13 @@ describe('resize and UI scale re-fit the intel waypoint (amendment 208)', () => 
   });
 });
 
-describe('an intel fit wider than the whole-map fit (tiny map, very short viewport)', () => {
-  it('the intel span is capped at the map fit, so the stop sits on the out limit and stays reachable', () => {
+// STORY 11.2 (R11): an intel fit AT OR PAST the whole-map fit is no stop at all
+// (it was capped onto the out limit, which left both centre slides no room, so
+// the fully-zoomed-out camera stayed on the ship). With the game's own 400 hm
+// radar reach the intel disc is always wider than the board, so this is the
+// shipped camera: zoomed fully out it frames the BOARD, centred on the board.
+describe('an intel fit at or past the whole-map fit is no stop (Story 11.2)', () => {
+  it('a tiny map under the synthetic disc: the intel span falls back to the default framing, one detent', () => {
     const tinyR = expectedIntelSpan(VW, VH, INSET) / (2 * M) / 2; // map fit = half the intel fit
     const c = new Camera({ ...OPTS });
     c.setViewport(VW, VH);
@@ -342,11 +351,40 @@ describe('an intel fit wider than the whole-map fit (tiny map, very short viewpo
     c.setMapRadius(tinyR);
     c.setRing(0, 0, tinyR);
     expect(intelFitSpanU(VW, VH, INSET, R, M, LEAD)).toBeGreaterThan(c.mapSpanU); // premise
-    expect(c.intelSpanU).toBeCloseTo(c.mapSpanU, 9);
-    const [intel] = c.aliveZoomDetents;
-    expect(intel).toBeCloseTo(c.userZoomLimits.min, 12);
-    c.setUserZoom(stepZoom(1, -100_000 * Z.wheelRate, c.aliveZoomDetents));
-    expect(c.userZoom).toBe(c.userZoomLimits.min);
+    expect(c.intelSpanU).toBe(Z.defaultSpanU);
+    expect(c.aliveZoomDetents).toHaveLength(1);
+  });
+
+  it("the GAME's camera (intel = the radar reach): zoomed fully out, a MOVING rim ship sees the board centred", () => {
+    const game: CameraOptions = { ...BASE, intelRadiusU: CONFIG.vision.radar };
+    const ringC = { x: MAP_R * 0.25, y: -MAP_R * 0.15 };
+    for (const ring of [MAP_R, MAP_R * 0.4]) {
+      const c = new Camera({ ...game });
+      c.setViewport(VW, VH);
+      c.setMapRadius(MAP_R);
+      c.setRing(ring === MAP_R ? 0 : ringC.x, ring === MAP_R ? 0 : ringC.y, ring);
+      expect(intelFitSpanU(VW, VH, 0, CONFIG.vision.radar, M, LEAD)).toBeGreaterThanOrEqual(c.mapSpanU); // premise
+      c.setUserZoom(c.userZoomLimits.min); // fully out: the whole-map fit
+      expect(c.userSpanU).toBeCloseTo(c.mapSpanU, 6);
+      // A ship under way near the rim, heading across the board.
+      const ship = { x: -MAP_R * 0.8, y: MAP_R * 0.3, heading: 0.4, speed: FULL };
+      c.snapTo(ship);
+      for (let i = 0; i < 120; i++) {
+        ship.x += Math.cos(ship.heading) * ship.speed * 0.05;
+        ship.y += Math.sin(ship.heading) * ship.speed * 0.05;
+        c.update(0.05, ship);
+      }
+      expect(c.center.x, `ring ${ring}`).toBeCloseTo(0, 6);
+      expect(c.center.y, `ring ${ring}`).toBeCloseTo(0, 6);
+      // ...and the whole board is on screen: the rim at every compass point.
+      for (const [x, y] of [[MAP_R, 0], [-MAP_R, 0], [0, MAP_R], [0, -MAP_R]] as const) {
+        const p = c.worldToScreen({ x, y });
+        expect(p.x).toBeGreaterThanOrEqual(-1e-6);
+        expect(p.x).toBeLessThanOrEqual(VW + 1e-6);
+        expect(p.y).toBeGreaterThanOrEqual(-1e-6);
+        expect(p.y).toBeLessThanOrEqual(VH + 1e-6);
+      }
+    }
   });
 });
 

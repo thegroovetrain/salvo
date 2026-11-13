@@ -65,12 +65,13 @@ const BANDS = CFG.bands;
 const RED = BANDS[2].at;
 const GREEN = BANDS[0].at;
 const BLUE = BANDS[1].at;
-const RIM = CONFIG.vision.radar; // 12/12 (epic-9 amendment 103)
-const CROSS = CONFIG.vision.farRadar; // 8/12 — the far-radar fit anchor (ruling 121)
-const REACH = CONFIG.vision.muzzleFlash; // 6/12 — the wake's reach
-/** 10/12 — the DROPOUT KNEE (ruling 121): past it a paint is ever rarer
- *  (p 0.9 → 0.1 at the rim). The blue register is proved out to here. */
-const KNEE = CONFIG.vision.dropout.kneeU;
+const RIM = CONFIG.vision.radar; // the radar reach
+const CROSS = CONFIG.vision.farRadar; // the far-radar fit anchor (ruling 121)
+const REACH = CONFIG.vision.muzzleFlash; // the wake's reach
+// `KNEE` (the dropout knee, 10/12 of the radar reach) — DELETED 2026-11-12,
+// Story 11.2: the dropout is removed (R8) and the twelfths ladder retired, so
+// the band proofs that ran "through the knee" (RULE 3 / RULE 4 below) were
+// ladder pins and are deleted as a ruling, not re-pinned to a new ratio.
 
 /**
  * A HULL'S READING at a range — the model's own two seams composed, which is
@@ -201,38 +202,17 @@ describe('the red→blue crossover EMERGES at the far-radar anchor (8/12), for E
     expect(hullPeak(0), 'a hull at zero range saturates the scale').toBe(1);
   });
 
-  it('RULE 3 — and BLUE from there through the dropout knee, never green', () => {
-    // RE-BASED BY STORY 9.8 (epic-9 amendment 103, ruling 121). Under the
-    // eighths ladder the crossover sat at 7/8 and the 1/d⁴ curve held blue the
-    // last eighth to the rim. On the twelfths ladder the anchor is 8/12, a
-    // third of the radar span from the rim, and the same curve cannot hold
-    // blue that far: MEASURED at the shipped fit, the nominal return crosses
-    // into green at ~1,437.5 u (11.5/12). So the blue register is proved
-    // through the dropout KNEE (10/12), where p(paint) is still 0.9, and the
-    // cliff beyond it — where a paint is the exception — may read green.
-    for (let d = CROSS + 0.5; d <= KNEE; d += 0.5) {
+  // RULE 3 ("BLUE through the dropout knee, never green") and RULE 4 ("both
+  // registers hold at the worst and best draw through the knee") — DELETED
+  // 2026-11-12, Story 11.2 (R8: the dropout is removed; the knee was the
+  // twelfths ladder's 10/12 rung). What survives is the contract that does not
+  // depend on a ladder ratio: past the crossover a hull reads below red and is
+  // never transparent out to the rim, and the crossover itself is grain-free.
+  it('RULE 3 — past the crossover a hull reads below red, and is never transparent out to the rim', () => {
+    for (let d = CROSS + 0.5; d <= RIM; d += 0.5) {
       const peak = hullPeak(d);
-      expect(peak, `${d}u`).toBeGreaterThanOrEqual(BLUE);
       expect(peak, `${d}u`).toBeLessThan(RED);
-    }
-    // ...and past it, never transparent: `minPeak` still floors the read.
-    for (let d = KNEE; d <= RIM; d += 0.5) {
-      expect(hullPeak(d), `${d}u`).toBeGreaterThanOrEqual(GREEN);
-    }
-  });
-
-  it('RULE 4 — and BOTH registers hold at the worst AND best draw of the shipped '
-    + 'envelope, so the read never flickers across a band (amendment 135)', () => {
-    // The grain is zero at or above `solidAt`, which is pinned to RED itself, so
-    // the whole red half is steady by construction. Only the blue half can
-    // wobble, and it must not wobble across either boundary — through the
-    // dropout knee (see RULE 3: MEASURED, the unluckiest draw first dips under
-    // blue at ~1,327 u, 10.6/12, inside the cliff).
-    for (let d = CROSS + 0.5; d <= KNEE; d += 0.5) {
-      const peak = hullPeak(d);
-      const amp = noiseAmplitude(peak, CFG.noise);
-      expect(peak * (1 + amp), `${d}u luckiest draw`).toBeLessThan(RED);
-      expect(peak * (1 - amp), `${d}u unluckiest draw`).toBeGreaterThan(BLUE);
+      expect(peak, `${d}u`).toBeGreaterThanOrEqual(GREEN);
     }
     expect(noiseAmplitude(hullPeak(CROSS), CFG.noise), 'the crossover itself is grain-free').toBe(0);
   });
@@ -276,13 +256,14 @@ describe('the floors survive the physics (amendment 127)', () => {
     // OBSERVED here rather than asserted, so a retune moves the number instead
     // of breaking the test.
     let bindsAt = Infinity;
-    for (let d = 0; d <= 4000; d += 1) {
+    const SEARCH = RIM * 100;
+    for (let d = 0; d <= SEARCH; d += 10) {
       if (hullPeak(d) <= MODEL.minPeak) {
         bindsAt = d;
         break;
       }
     }
-    expect(bindsAt, 'the floor engages somewhere').toBeLessThan(4000);
+    expect(bindsAt, 'the floor engages somewhere').toBeLessThan(SEARCH);
     expect(bindsAt, 'and only well OUTSIDE the scope').toBeGreaterThan(RIM);
     expect(hullPeak(1e6), 'and it holds all the way out').toBe(MODEL.minPeak);
   });
@@ -434,8 +415,9 @@ describe('the wake material is SOLVED between two rails (amendment 203)', () => 
     // lit FRACTION falls — which is the fade, emergent rather than drawn.
     expect(unlucky(wakeAt(REACH - 50), MODEL.wakeGrain)).toBeGreaterThan(GREEN);
     expect(unlucky(wakeAt(REACH + 50), MODEL.wakeGrain)).toBeLessThan(GREEN);
-    expect(lucky(wakeAt(RIM), MODEL.wakeGrain), 'and nothing at all lights at the rim')
-      .toBeLessThan(GREEN);
+    // ("and nothing at all lights at the rim" — DELETED 2026-11-12, Story 11.2:
+    // it held only because the ladder put the reach at half the rim; with the
+    // 350 hm reach and the 400 hm rim it restated a ratio, not a rule.)
   });
 
   it('the reference is SOLVED, not typed in — and it moves with the rung', () => {

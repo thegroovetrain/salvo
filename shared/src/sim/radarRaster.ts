@@ -471,7 +471,7 @@ const SEG_SEED_U32 = new Uint32Array(SEG_SEED_F64.buffer);
  * observer-free: every observer painting this segment this tick derives the
  * identical seed (which is what keeps the server's one-slot mask memo sound).
  */
-export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, by: number): number {
+export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, by: number, salt = 0): number {
   SEG_SEED_F64[0] = t;
   SEG_SEED_F64[1] = ax;
   SEG_SEED_F64[2] = ay;
@@ -482,7 +482,34 @@ export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, 
     h = Math.imul(h ^ SEG_SEED_U32[i], 0x85ebca6b);
     h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
   }
-  return (h ^ (h >>> 16)) >>> 0;
+  return saltSeed(h, salt);
+}
+
+/**
+ * THE PAINT SALT (Story 11.2 review gate, F1 — anti-cheat). The closing step
+ * of both paint seeds. `salt === 0` (the default) is the UNSALTED seed — the
+ * public hash of (time, exact pose), which is all a caller with no key has
+ * (the client's stand-in scenes, the pure tests). A non-zero salt is folded
+ * through one more round of the same mixer, so the seed is no longer a
+ * function of public inputs.
+ *
+ * WHY. Since Story 11.2 a plain-hull contact (`pc`) and a full contact both
+ * carry a hull's EXACT pose, and `t` is on the blip — so every input of the
+ * unsalted seed is known to an observer who also sees the hull by eye, and a
+ * modified client could replay the fuzz for each hull id and read the class
+ * off the mask (and a source's beam off its wake). The SERVER therefore
+ * passes a per-paint salt minted from a room-private key (game/paintSalt.ts:
+ * an HMAC per paint, never a constant an observer could brute-force from one
+ * known paint and reuse). `shared` stays pure and crypto-free: the salt is a
+ * plain 32-bit number here.
+ */
+function saltSeed(h: number, salt: number): number {
+  let out = h;
+  if (salt !== 0) {
+    out = Math.imul(out ^ salt, 0x85ebca6b);
+    out = Math.imul(out ^ (out >>> 13), 0xc2b2ae35);
+  }
+  return (out ^ (out >>> 16)) >>> 0;
 }
 
 /** GLINT-ERODE a segment mask's flank cells (the covered cells NOT on the
@@ -576,6 +603,7 @@ export function paintSegmentCoverage(
   widthU: number,
   cellU: number,
   t: number,
+  salt = 0,
 ): HullCoverage {
   const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
   const degenerate = degenerateSegment(ax, ay, bx, by, grid);
@@ -591,7 +619,7 @@ export function paintSegmentCoverage(
   for (let i = 0; i < cover.bits.length; i++) cover.bits[i] |= spine.bits[i];
   // A non-finite paint time still hashes deterministically (Float64Array
   // canonicalizes NaN), so no sanitization — mirror paintSeed exactly.
-  glintSegmentFlanks(cover, spine, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey)));
+  glintSegmentFlanks(cover, spine, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey, salt)));
   bridgeCoverageDiagonals(cover);
   return cropPackedCoverage(cover);
 }
@@ -622,7 +650,7 @@ const SEED_U32 = new Uint32Array(SEED_F64.buffer);
  * this hull this tick derives the identical seed, so the wire mask stays
  * observer-independent (and per-(ship, tick) caching stays sound).
  */
-export function paintSeed(t: number, x: number, y: number, heading: number): number {
+export function paintSeed(t: number, x: number, y: number, heading: number, salt = 0): number {
   SEED_F64[0] = t;
   SEED_F64[1] = x;
   SEED_F64[2] = y;
@@ -632,7 +660,7 @@ export function paintSeed(t: number, x: number, y: number, heading: number): num
     h = Math.imul(h ^ SEED_U32[i], 0x85ebca6b);
     h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
   }
-  return (h ^ (h >>> 16)) >>> 0;
+  return saltSeed(h, salt);
 }
 
 /** The knobs `fuzzCoverage` runs on — `CONFIG.vision.radarFuzz` in production;
@@ -818,6 +846,11 @@ function coveredBounds(work: Uint8Array, w: number, h: number): [number, number,
  * client calls it only for the wire's paints, never to synthesize one from a
  * sighted `Contact`), so every footprint is the same artifact by construction
  * (amendment 11).
+ *
+ * `salt` (Story 11.2 review gate, F1): the server passes a per-paint salt
+ * minted from a room-private key, so its fuzz cannot be replayed from the
+ * pose a contact row discloses; 0 (the default) is the unsalted public seed
+ * for callers with no key — see `saltSeed`.
  */
 export function paintCoverage(
   cls: HullId,
@@ -826,9 +859,10 @@ export function paintCoverage(
   heading: number,
   cellU: number,
   t: number,
+  salt = 0,
 ): HullCoverage {
   const sharp = rasterizeHullCoverage(cls, x, y, heading, cellU);
-  return fuzzCoverage(sharp, paintSeed(t, x, y, heading), CONFIG.vision.radarFuzz);
+  return fuzzCoverage(sharp, paintSeed(t, x, y, heading, salt), CONFIG.vision.radarFuzz);
 }
 
 // ---------------------------------------------------------------------------

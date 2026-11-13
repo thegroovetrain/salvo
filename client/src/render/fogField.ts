@@ -77,6 +77,44 @@ const MAX_SCROLL_DT_MS = 500;
 /** Scene-graph label of the fog layer's halo mask (test seam). */
 export const FOG_HALO_MASK_LABEL = 'fogHaloMask';
 
+/** The most cells an ALIVE raster carries on a side (Story 11.2). */
+export const ALIVE_MAX_CELLS = 256;
+/** u — the alive raster's screen-fit side is rounded UP to a multiple of this,
+ *  so a hull moving under a still camera does not re-allocate it every frame. */
+const ALIVE_SIDE_QUANTUM_U = 512;
+
+/**
+ * u — the farthest screen corner from the raster centre `c` (the own hull).
+ */
+export function screenReachU(screen: ScreenWorldRect, c: { x: number; y: number }): number {
+  const dx = Math.max(Math.abs(screen.x - c.x), Math.abs(screen.x + screen.w - c.x));
+  const dy = Math.max(Math.abs(screen.y - c.y), Math.abs(screen.y + screen.h - c.y));
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * Pure: the ALIVE raster's cell count and cell size (Story 11.2). The raster is
+ * the halo square — but the halo rides the muzzle-flash reach, 350 hm since
+ * Story 11.2, ~16,000 u across, which at the 18 u cell is ~900² samples of
+ * fractal noise per refresh. So the side is ALSO capped at what the screen can
+ * show from the hull (`reachU`, its farthest screen corner, + the re-centre
+ * margin, rounded up to `ALIVE_SIDE_QUANTUM_U`), and the cell doubles past
+ * `F.cellU` until the side fits `ALIVE_MAX_CELLS` — the spectator path's rule.
+ * At the default framing the cell stays 18 u. A non-finite reach (no screen
+ * rect yet) leaves the halo square alone.
+ */
+export function aliveRasterGeometry(haloSideU: number, reachU: number, out: { n: number; cell: number }): void {
+  let side = haloSideU;
+  if (Number.isFinite(reachU) && reachU > 0) {
+    const fit = Math.ceil((2 * (reachU + F.recenterU)) / ALIVE_SIDE_QUANTUM_U) * ALIVE_SIDE_QUANTUM_U;
+    side = Math.min(side, fit);
+  }
+  let cell: number = F.cellU;
+  while (side / cell > ALIVE_MAX_CELLS) cell *= 2;
+  out.n = Math.ceil(side / cell) + 1;
+  out.cell = cell;
+}
+
 /** Who is looking: the own hull (halo-masked, halo-square raster) or a spectator (unmasked, screen raster). */
 export type FogViewMode = 'alive' | 'spectate';
 
@@ -263,7 +301,7 @@ export class FogFieldView {
       return;
     }
     this.advanceScroll(dtMs, motionOn, centre);
-    this.maybeRefresh(dtMs, serverNow, centre, spectating ? screen : null);
+    this.maybeRefresh(dtMs, serverNow, centre, spectating ? screen : null, screen);
     this.draw(eye, screen);
   }
 
@@ -396,9 +434,15 @@ export class FogFieldView {
   }
 
   /** Refresh on the cadence, on a re-centre, or on a raster geometry change. */
-  private maybeRefresh(dtMs: number, serverNow: number, c: { x: number; y: number }, spectatorScreen: ScreenWorldRect | null): void {
+  private maybeRefresh(
+    dtMs: number,
+    serverNow: number,
+    c: { x: number; y: number },
+    spectatorScreen: ScreenWorldRect | null,
+    screen: ScreenWorldRect | null,
+  ): void {
     this.sinceRefresh += Math.max(0, dtMs);
-    const { n, cell } = this.geometryFor(spectatorScreen);
+    const { n, cell } = this.geometryFor(spectatorScreen, screen, c);
     const half = ((this.n - 1) / 2) * this.cell;
     const moved = Math.hypot(c.x - (this.ox + half), c.y - (this.oy + half)) > F.recenterU;
     if (this.sinceRefresh < F.refreshMs && !moved && n === this.n && cell === this.cell) return;
@@ -407,12 +451,16 @@ export class FogFieldView {
 
   /** The raster's cell count and cell size: the halo square, or the
    *  spectator's screen — written into the reused `geom` scratch. */
-  private geometryFor(spectatorScreen: ScreenWorldRect | null): { n: number; cell: number } {
+  private geometryFor(
+    spectatorScreen: ScreenWorldRect | null,
+    screen: ScreenWorldRect | null,
+    c: { x: number; y: number },
+  ): { n: number; cell: number } {
     const g = this.geom;
     if (!finiteRect(spectatorScreen)) {
-      const side = 2 * (haloSpanU(this.haloU) + F.recenterU);
-      g.n = Math.ceil(side / F.cellU) + 1;
-      g.cell = F.cellU;
+      const halo = 2 * (haloSpanU(this.haloU) + F.recenterU);
+      const reach = finiteRect(screen) ? screenReachU(screen, c) : NaN;
+      aliveRasterGeometry(halo, reach, g);
       return g;
     }
     const side = Math.max(spectatorScreen.w, spectatorScreen.h) + 2 * F.recenterU;

@@ -2,11 +2,17 @@
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments) and RE-AUTHORED by Story
 // 10.6 (Eric 2026-11-05, R1–R18).
-// 27 card LINES / 116 physical cards: 11 equipment lines (55), 8 SHIP ladders
-// (40), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each — authored,
+// 26 card LINES / 111 physical cards: 11 equipment lines (55), 7 SHIP ladders
+// (35), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each — authored,
 // never dealt to a captain), 4 one-off WEAPON add-ons (4) and the one STUB
 // line (DEPTH CHARGE, 5). (Pinned by catalog.test.ts as Σ cap — computed,
 // never typed.)
+//
+// THE COUNT MOVED 27/116 -> 26/111 IN STORY 11.2 (Eric 2026-11-12, epic-11
+// amendment 4, R9): the RANGE ship ladder is
+// DELETED with the RANGE index — reach is a weapon fact in hectometers. Its
+// seat closes; every surviving line keeps its relative order. The torpedo
+// lines' tiers gain the RUN step (R5).
 //
 // THE COUNT MOVED 21/102 -> 27/116 IN STORY 10.6 (Eric 2026-11-05, R1–R4,
 // R6–R10): RUDDER is DELETED (−1 line, −5 cards — R2, every hull turns at
@@ -153,10 +159,13 @@ import {
 } from './effects.js';
 
 /**
- * THE 27 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 26 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 11.2 DELETED ONE (27 -> 26; Eric 2026-11-12, R9): `range` is GONE —
+ * no alias, its seat closes and every line after it moves up one.
  *
  * STORY 10.6 DELETED ONE AND APPENDED SEVEN (21 -> 27; Eric 2026-11-05):
  * `rudder` is GONE (R2) — no alias, its seat closes and every line after it
@@ -279,8 +288,9 @@ export const LINE_IDS = [
   // FLASH SHELLS, beside the FOULING SHELL; an EQUIPMENT line since Story
   // 10.5. The four buoys appended after it were DELETED by Story 10.5.
   'dazzleShells',
-  // --- Story 10.6 (Eric 2026-11-05): three SHIP ladders ----------------------
-  'range', // R1: +10 RANGE a card — the main gun and the secondaries only
+  // --- Story 10.6 (Eric 2026-11-05): the SHIP ladders appended at the foot ---
+  // `range` (R1: +10 RANGE a card) sat here until Story 11.2 DELETED it (Eric
+  // 2026-11-12, R9: RANGE leaves the index).
   'hullRepair', // R8: the `C` ability's card (was a consumable id until Story 10.5)
   'smokeScreen', // R9: the `V` ability's card (was SMOKE SCREEN's consumable id until Story 9.3)
   // --- Story 10.6: the four one-off WEAPON cards (cap 1, `addon` kind) -------
@@ -290,7 +300,7 @@ export const LINE_IDS = [
   'expandedMineRacks', // R7: +1 capacity on EACH rack
 ] as const;
 
-/** One of the 27 authored card lines. */
+/** One of the 26 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -432,9 +442,24 @@ const FLAK_RANGE_STEP = rangeStep(CONFIG.flak);
 const BROADSIDE_RANGE_STEP = rangeStep(CONFIG.broadside);
 const STAR_SHELLS_RANGE_STEP = rangeStep(CONFIG.starShells);
 const PHOSPHOR_SHELLS_RANGE_STEP = rangeStep(CONFIG.phosphorShells);
-/** One CANNON rung's range step (ruling 125: 8/12 → 10/12 over four cards). */
+/**
+ * THE PER-TIER TORPEDO RUN STEPS (Story 11.2, Eric 2026-11-12, R5 / R18:
+ * "torpedo run, every kind: 55 at tier I to 140 at tier V, linear") — the
+ * `rangeStep` law exactly: (runUAtV − runU) / 4 per upgrade tier, read ONCE
+ * at module load, one step per kind (each kind's pair is its own CONFIG fact).
+ */
+const runStep = (w: { runU: number; runUAtV: number }): number => (w.runUAtV - w.runU) / 4;
+const TORPEDO_RUN_STEPS = {
+  lightTorpedo: runStep(CONFIG.lightTorpedo),
+  heavyTorpedo: runStep(CONFIG.torpedo),
+  supercavTorpedo: runStep(CONFIG.supercavTorpedo),
+} as const;
+/** One torpedo tier's run step on the named line's row. */
+const torpedoRun = (line: keyof typeof TORPEDO_RUN_STEPS): BoonEffect =>
+  statEffect(`equipment.${line}.runU`, { add: TORPEDO_RUN_STEPS[line] });
+/** One CANNON rung's range step (ruling 125: Tier I → Tier V over four cards; 380 → 475 hm since Story 11.2). */
 const cannonRange = (): BoonEffect => statEffect('equipment.gun.rangeU', { add: GUN_RANGE_STEP });
-/** One FLAK rung's range step (ruling 125: 5/12 → 6/12 over four cards). */
+/** One FLAK rung's range step (ruling 125: Tier I → Tier V over four cards; 238 → 285 hm since Story 11.2). */
 const flakRange = (): BoonEffect => statEffect('equipment.flak.rangeU', { add: FLAK_RANGE_STEP });
 
 /** One CANNON rung's whole-number damage step. ×3 PLACEHOLDERS since Story
@@ -514,7 +539,7 @@ function machineGunTier(magStep: number): BoonEffect[] {
   return [
     statEffect('equipment.machineGun.maxAmmo', { add: magStep }),
     statEffect('equipment.machineGun.rateMs', { add: -25 }),
-    statEffect('equipment.machineGun.rangeU', { add: MACHINE_GUN_RANGE_STEP }), // ruling 125: 6/12 → 7/12
+    statEffect('equipment.machineGun.rangeU', { add: MACHINE_GUN_RANGE_STEP }), // ruling 125: 285 → 333 hm (Story 11.2)
   ];
 }
 
@@ -524,12 +549,14 @@ function machineGunTier(magStep: number): BoonEffect[] {
  *  and III): extra tubes are the one-off cards' (R6). Damage since Story 10.3
  *  (Eric 2026-11-04, epic-10 amendment 8, ruling 5): light +50 ×4
  *  (200 → 400), heavy +75 ×4 (300 → 600). (Eric 2026-10-16, Story 9.12:
- *  light +10 ×4, 80 → 120; heavy +11 / +11 / +11 / +12, 90 → 135.) */
+ *  light +10 ×4, 80 → 120; heavy +11 / +11 / +11 / +12, 90 → 135.) And the
+ *  RUN step (Story 11.2, R5: 55 → 140 hm over the four tiers). */
 function torpedoTier(line: 'lightTorpedo' | 'heavyTorpedo', damageStep: number): BoonEffect[] {
   return [
     statEffect(`equipment.${line}.damage`, { add: damageStep }),
     statEffect(`equipment.${line}.speed`, { add: 2.5 }),
     statEffect(`equipment.${line}.homingTurnRate`, { add: 0.125 }),
+    torpedoRun(line),
   ];
 }
 
@@ -568,7 +595,7 @@ function starShellTier(damageStep: number): BoonEffect[] {
     statEffect('equipment.starShells.litDurationMs', { add: 2500 }),
     statEffect('equipment.starShells.litRadius', { mult: 1.1 }),
     statEffect('equipment.starShells.damage', { add: damageStep }),
-    statEffect('equipment.starShells.rangeU', { add: STAR_SHELLS_RANGE_STEP }), // ruling 125: 11/12 → 12/12
+    statEffect('equipment.starShells.rangeU', { add: STAR_SHELLS_RANGE_STEP }), // ruling 125: 523 → 570 hm (Story 11.2)
   ];
 }
 
@@ -582,7 +609,7 @@ function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: numbe
     statEffect('equipment.phosphorShells.damage', { add: damageStep }),
     statEffect('equipment.phosphorShells.dps', { add: dpsStep }),
     statEffect('equipment.phosphorShells.zoneRadius', { mult: 1.1 }),
-    statEffect('equipment.phosphorShells.rangeU', { add: PHOSPHOR_SHELLS_RANGE_STEP }), // ruling 125: 8/12 → 10/12
+    statEffect('equipment.phosphorShells.rangeU', { add: PHOSPHOR_SHELLS_RANGE_STEP }), // ruling 125: 380 → 475 hm (Story 11.2)
   ];
   if (durationStepMs !== 0) tier.push(statEffect('equipment.phosphorShells.zoneDurationMs', { add: durationStepMs }));
   return tier;
@@ -659,13 +686,13 @@ function stubLine(id: LineId): CatalogLine {
  *   THE EIGHT SHIP LADDERS (Story 10.6, Eric 2026-11-05, R1 — "five cards
  *                  each, identical on every hull"): ARMOR, POWER, INTEL +20 on
  *                  their own index; RELOAD and ENGINES +10 (were +20, Story
- *                  10.3 ruling 4); RANGE +10 (new); HULL REPAIR (R8) and
+ *                  10.3 ruling 4); RANGE +10 (DELETED by Story 11.2, R9 —
+ *                  seven ladders remain); HULL REPAIR (R8) and
  *                  SMOKE SCREEN (R9) on the two abilities. RUDDER is DELETED
  *                  (R2). What an index BUYS is derived in sim/indexStats.ts:
  *                  ENGINES 30 u/s × /100 (ruling 15), INTEL 15 RPM × /100
  *                  (uncapped since Story 10.7 R6), RELOAD the haste law
- *                  1 / (1 + (RELOAD − 100) / 100) (ruling 14), RANGE the
- *                  main-gun reach × /100 (the secondaries follow).
+ *                  1 / (1 + (RELOAD − 100) / 100) (ruling 14).
  *   THE FOUR ONE-OFFS (Story 10.6, R6 / R7) — AFT TORPEDO LAUNCHER, SECOND
  *                  LAUNCHER TUBE, SECOND MINE RACK, EXPANDED MINE RACKS:
  *                  cap 1 each, the only cards that add capacity.
@@ -693,13 +720,13 @@ function stubLine(id: LineId): CatalogLine {
  *                  MINES gains its first damage step).
  */
 export const CATALOG: Catalog = deepFreezeRows({
-  // --- the five index ladders that sit at the head (RANGE, HULL REPAIR and
-  // SMOKE SCREEN — the other three SHIP ladders — are appended at the foot) --
+  // --- the five index ladders that sit at the head (HULL REPAIR and SMOKE
+  // SCREEN — the other two SHIP ladders — are appended at the foot) ---------
   // HULL POINTS (+50 max hp ×5, heal on grant) sat here until Story 10.3
   // DELETED it (Eric 2026-11-04, epic-10 amendment 8).
   // THE INDEX CARDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8,
   // ruling 4; re-stepped by Story 10.6, R1): each is a flat step on ITS OWN
-  // INDEX — +20 ARMOR / POWER / INTEL, +10 RELOAD / ENGINES / RANGE — 5 tiers, authored literally (the
+  // INDEX — +20 ARMOR / POWER / INTEL, +10 RELOAD / ENGINES — 5 tiers, authored literally (the
   // catalog is frozen at module load — amendment 110's reason). The index
   // seeds at the hull's envelope value (100 on every scaffold hull; the
   // battleship IS the 100 — ruling 3) and the fold derives what it buys
@@ -808,10 +835,12 @@ export const CATALOG: Catalog = deepFreezeRows({
   // 11, R4): a TORPEDO-SLOT equipment line again (a consumable from amendment
   // 74 until then) — one tube, 45 s reload. Tiers II–V each +100 damage
   // (400/500/600/700/800 — epic-10 amendment 8(e): "SUPERCAVITATING 400 → 800
-  // over their tiers") and nothing else: it never homes, the speed and the
-  // single tube are fixed. The per-weapon RELOAD bonus is derived (R5).
+  // over their tiers") and, since Story 11.2 (R5), the RUN step (55 → 140
+  // hm); it never homes, the speed and the single tube are fixed. The
+  // per-weapon RELOAD bonus is derived (R5).
   supercavTorpedo: tieredWeapon('supercavTorpedo', 'supercavTorpedo', [
     statEffect('equipment.supercavTorpedo.damage', { add: 100 }),
+    torpedoRun('supercavTorpedo'),
   ]),
   // NAVAL MINES (R23/R24; damage re-ruled by Story 10.3, Eric 2026-11-04,
   // ruling 6 — "NAVAL 200 → 300 (+25 a rung)"): the shipped mine, renamed —
@@ -888,7 +917,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   broadside: tieredWeapon('broadside', 'broadside', [
     statEffect('equipment.broadside.spreadRung', { add: 1 }),
     statEffect('equipment.broadside.turrets', { add: 0.5 }),
-    statEffect('equipment.broadside.rangeU', { add: BROADSIDE_RANGE_STEP }), // ruling 125: 5/12 → 6/12
+    statEffect('equipment.broadside.rangeU', { add: BROADSIDE_RANGE_STEP }), // ruling 125: 238 → 285 hm (Story 11.2)
   ]),
   // STAR SHELLS (R31 as ruled by Eric 2026-09-29, amendment 130): tiers II–V
   // each +2.5 s lit, ×1.1 lit radius — 20 s lit, r241.6 at V, ONE flare at
@@ -960,11 +989,10 @@ export const CATALOG: Catalog = deepFreezeRows({
     'dazzleShells',
     shellRadiusTier('dazzleShells', CONFIG.flashShells.radiusStepPerTier),
   ),
-  // --- Story 10.6 (Eric 2026-11-05): three SHIP ladders ----------------------
-  // RANGE (R1): +10 RANGE per tier — the main gun's reach × RANGE / 100 and,
-  // through it, the secondaries' (+100 u / +50 u a card at today's scale).
-  // Star / phosphor / flash / fouling-shell reach is untouched.
-  range: ladder('range', 5, [statEffect('range', { add: 10 })]),
+  // --- Story 10.6 (Eric 2026-11-05): the SHIP ladders at the foot ------------
+  // RANGE (R1: +10 RANGE per tier — the main gun's reach × RANGE / 100) —
+  // DELETED 2026-11-12, Story 11.2, epic-11 amendment 4 (R9): reach is a weapon fact in hectometers; a hull's main-battery
+  // ratio is `battery.reachFrac`.
   // HULL REPAIR (R8, R15): the `C` ability's card. Each +20 hp at once and +20
   // over the FIXED 5 s window (100 + 100 → 200 + 200 at five), and +5 to the
   // ability's own score of 100 — cooldown 75 × 100 ÷ (100 + 5 × cards), 60 s

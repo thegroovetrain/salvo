@@ -4,102 +4,11 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { decodeLauncherAngle, decodeTurretAngle, hullEnvelope, lerpAngle, type Contact, type HullId } from '@salvo/shared';
-import { lerp } from '../util/math.js';
+import { decodeLauncherAngle, decodeTurretAngle, hullEnvelope, type Contact, type HullId, type PlainContact } from '@salvo/shared';
+import { SnapshotBuffer } from './snapshotBuffer.js';
+import { HandoffMarks, PlainContactStore, matchHandoff, type TierPoint } from './plainContacts.js';
 
-/** One timestamped kinematic sample. `t` is server time (ms). */
-export interface Snapshot {
-  t: number; // ms — server time
-  x: number; // u
-  y: number; // u
-  heading: number; // rad
-  speed: number; // u/s (signed)
-}
-
-/** Max dead-reckoning past the newest snapshot before freezing (ms). */
-export const MAX_EXTRAPOLATION_MS = 100;
-/** How much history each buffer retains behind its newest snapshot (ms). */
-export const RETENTION_MS = 1000;
-
-function dup(s: Snapshot): Snapshot {
-  return { t: s.t, x: s.x, y: s.y, heading: s.heading, speed: s.speed };
-}
-
-/** Dead-reckon `s` forward by `dtMs` along its heading at its speed. */
-function extrapolate(s: Snapshot, dtMs: number): Snapshot {
-  const dt = Math.min(dtMs, MAX_EXTRAPOLATION_MS) / 1000;
-  return {
-    t: s.t + dt * 1000,
-    x: s.x + Math.cos(s.heading) * s.speed * dt,
-    y: s.y + Math.sin(s.heading) * s.speed * dt,
-    heading: s.heading,
-    speed: s.speed,
-  };
-}
-
-export class SnapshotBuffer {
-  private buf: Snapshot[] = [];
-
-  get size(): number {
-    return this.buf.length;
-  }
-
-  get newest(): Snapshot | undefined {
-    return this.buf[this.buf.length - 1];
-  }
-
-  /** Drop all history (teleports: respawn snaps instead of interpolating). */
-  clear(): void {
-    this.buf.length = 0;
-  }
-
-  /** Append a snapshot. Non-monotonic timestamps are dropped. Prunes history. */
-  push(s: Snapshot): void {
-    const last = this.newest;
-    if (last && s.t <= last.t) return;
-    this.buf.push(dup(s));
-    const cutoff = s.t - RETENTION_MS;
-    let drop = 0;
-    while (drop < this.buf.length - 1 && this.buf[drop].t < cutoff) drop += 1;
-    if (drop > 0) this.buf.splice(0, drop);
-  }
-
-  /**
-   * Sample the entity's pose at server time `t` (ms). Brackets by binary
-   * search + lerp; clamps to the oldest sample; extrapolates at most
-   * MAX_EXTRAPOLATION_MS past the newest, then freezes. Null when empty.
-   */
-  sampleAt(t: number): Snapshot | null {
-    if (this.buf.length === 0) return null;
-    const first = this.buf[0];
-    const last = this.buf[this.buf.length - 1];
-    if (t <= first.t) return dup(first);
-    if (t >= last.t) return extrapolate(last, t - last.t);
-    const hi = this.upperBound(t);
-    const a = this.buf[hi - 1];
-    const b = this.buf[hi];
-    const k = (t - a.t) / (b.t - a.t);
-    return {
-      t,
-      x: lerp(a.x, b.x, k),
-      y: lerp(a.y, b.y, k),
-      heading: lerpAngle(a.heading, b.heading, k),
-      speed: lerp(a.speed, b.speed, k),
-    };
-  }
-
-  /** Smallest index whose snapshot time is strictly greater than `t`. */
-  private upperBound(t: number): number {
-    let lo = 0;
-    let hi = this.buf.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (this.buf[mid].t <= t) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
-  }
-}
+export { MAX_EXTRAPOLATION_MS, RETENTION_MS, SnapshotBuffer, type Snapshot } from './snapshotBuffer.js';
 
 /**
  * Entity lifecycle for remote contacts: one SnapshotBuffer per id, fed from
@@ -128,13 +37,36 @@ export class ContactStore {
    */
   private launcherAngles = new Map<string, number[]>();
 
-  /** Ingest one frame's contact list at server time `t`. */
-  pushFrame(t: number, contacts: readonly Contact[]): void {
+  /**
+   * THE PLAIN HULL CHANNEL (Story 11.2, R3) — `FrameMsg.pc`, ingested by the
+   * same `pushFrame` call so the TIER HANDOFF sees both lists of one frame
+   * (net/plainContacts.ts). Never part of `ids()`: a plain hull has no roster
+   * id, so it gets no engine voice, no collision body and no targeting.
+   */
+  readonly plain = new PlainContactStore();
+  /** Ids whose view must be born at full alpha (an inward handoff). */
+  private readonly bornByHandoff = new HandoffMarks();
+  /** Ids dropped by an outward handoff: their view goes at once, unfaded. */
+  private readonly retiredByHandoff = new HandoffMarks();
+
+  /**
+   * Ingest one frame at server time `t`: its contact list and its plain-hull
+   * rows (`pc`, omitted = none), then pair the hulls that changed tier on
+   * this frame (`handoff`).
+   */
+  pushFrame(t: number, contacts: readonly Contact[], pc?: readonly PlainContact[]): void {
+    const appeared: TierPoint[] = [];
     for (const c of contacts) {
       let buf = this.buffers.get(c.id);
       if (!buf) {
         buf = new SnapshotBuffer();
         this.buffers.set(c.id, buf);
+        appeared.push({ key: c.id, x: c.x, y: c.y, t });
+        this.retiredByHandoff.forget(c.id); // back on the wire: a stale retire mark must not kill its new view
+      } else if (this.missedPreviousFrame(c.id)) {
+        // A QUICK RE-ENTRY: the id still holds a TTL buffer from an earlier
+        // disappearance, but for the handoff it is appearing on this frame.
+        appeared.push({ key: c.id, x: c.x, y: c.y, t });
       }
       buf.push({ t, x: c.x, y: c.y, heading: c.heading, speed: c.speed });
       this.lastSeen.set(c.id, t);
@@ -144,6 +76,79 @@ export class ContactStore {
       pushAngles(this.turretAngles, c.id, known ? c.tu : undefined, (i, q) => decodeTurretAngle(c.cls, i, q));
       pushAngles(this.launcherAngles, c.id, known ? c.lu : undefined, (i, q) => decodeLauncherAngle(c.cls, i, q));
     }
+    this.bornByHandoff.expire(t);
+    this.retiredByHandoff.expire(t);
+    const plainAppeared = this.plain.pushFrame(t, pc);
+    this.handoff(t, appeared, plainAppeared);
+    this.prevT = t;
+  }
+
+  /** Server time of the previous frame (undefined before the first). */
+  private prevT: number | undefined;
+
+  /** True when `id` was not on the previous frame (read before this frame's `lastSeen` update). */
+  private missedPreviousFrame(id: string): boolean {
+    const seen = this.lastSeen.get(id);
+    return this.prevT !== undefined && seen !== undefined && seen < this.prevT;
+  }
+
+  /**
+   * THE TIER HANDOFF (Story 11.2): INWARD, a new contact id near a plain
+   * handle that just left → the handle is retired (its view goes at once) and
+   * the contact's view is born at full alpha; OUTWARD, a new plain handle near
+   * a contact that stopped arriving inside the handoff window → the contact is
+   * dropped now (its view goes at once) and the handle's view is born at full
+   * alpha. One hull on screen across the swap, never two. The server swaps
+   * tiers ATOMICALLY, so outward pairs only with a contact that disappeared on
+   * THIS frame. A new plain handle no handoff claimed then tries a PLAIN
+   * RE-ENTRY (a one-frame dropout under a new handle — the view carries over).
+   */
+  private handoff(t: number, appeared: readonly TierPoint[], plainAppeared: readonly TierPoint[]): void {
+    for (const [id, h] of matchHandoff(appeared, this.plain.recentlyDeparted())) {
+      this.plain.retire(h, t);
+      this.bornByHandoff.add(id, t);
+    }
+    const claimed = new Set<string>();
+    for (const [h, id] of matchHandoff(plainAppeared, this.goneThisFrame())) {
+      this.drop(id);
+      this.retiredByHandoff.add(id, t);
+      this.plain.markBornByHandoff(h, t);
+      claimed.add(h);
+    }
+    this.plain.pairReentries(
+      t,
+      plainAppeared.filter((p) => !claimed.has(p.key)),
+    );
+  }
+
+  /** Contacts that were on the previous frame and are missing from this one (newest pose each). */
+  private goneThisFrame(): TierPoint[] {
+    const out: TierPoint[] = [];
+    if (this.prevT === undefined) return out;
+    for (const [id, seen] of this.lastSeen) {
+      const last = seen === this.prevT ? this.buffers.get(id)?.newest : undefined;
+      if (last) out.push({ key: id, x: last.x, y: last.y, t: seen });
+    }
+    return out;
+  }
+
+  /** One-shot: was contact `id` born by a handoff? (its view skips the fade-in) */
+  takeBornByHandoff(id: string): boolean {
+    return this.bornByHandoff.take(id);
+  }
+
+  /** One-shot: was contact `id` dropped by a handoff? (its view goes unfaded) */
+  takeRetiredByHandoff(id: string): boolean {
+    return this.retiredByHandoff.take(id);
+  }
+
+  /** Forget one contact entirely, now (the prune's removal, for one id). */
+  private drop(id: string): void {
+    this.buffers.delete(id);
+    this.lastSeen.delete(id);
+    this.classes.delete(id);
+    this.turretAngles.delete(id);
+    this.launcherAngles.delete(id);
   }
 
   /** The contact's turret angles (hull-relative rad, bow to stern) as of its
@@ -188,11 +193,7 @@ export class ContactStore {
     const removed: string[] = [];
     for (const [id, seen] of this.lastSeen) {
       if (serverNow - seen <= ttlMs) continue;
-      this.buffers.delete(id);
-      this.lastSeen.delete(id);
-      this.classes.delete(id);
-      this.turretAngles.delete(id);
-      this.launcherAngles.delete(id);
+      this.drop(id);
       removed.push(id);
     }
     return removed;

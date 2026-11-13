@@ -65,25 +65,27 @@ const RADAR = CONFIG.vision.radar;
 const NARROW = SIGHT * 0.375;
 const FLOOR = CLIENT_CONFIG.blip.heatmap.dim.minScale;
 
-describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => {
-  // Epic-9 amendment 103: the sensor ladder is TWELFTHS of intel range now
-  // (sight = 4/12, flash = 6/12). The ramp still runs sight bubble -> flash halo.
-  it('puts the two radii on the 4/12 and 6/12 rungs for a base hull', () => {
-    expect(BASE_DIM_RADII.innerU, 'inner = the sight bubble (4/12)').toBeCloseTo(SIGHT, 12);
-    expect(BASE_DIM_RADII.innerU, '...which is 4/12 of intel range').toBeCloseTo((RADAR * 4) / 12, 12);
-    expect(BASE_DIM_RADII.outerU, 'outer = the flash rung (6/12)').toBeCloseTo((RADAR * 6) / 12, 12);
-    expect(BASE_DIM_RADII.outerU, '...which is the muzzle-flash halo')
-      .toBeCloseTo(CONFIG.vision.muzzleFlash, 12);
+describe('the dim ramp is anchored to TRUESIGHT', () => {
+  // Story 11.2 (2026-11-12, R20 reading): the ramp keeps TODAY'S ABSOLUTE radii
+  // at base — `innerFactor` / `outerFactor` are those radii over the new 200 hm
+  // sight — and stays OBSERVER-SCALED (a whited-out bubble shrinks it). The
+  // test that put the radii on "the 4/12 and 6/12 rungs" is DELETED as a ruling
+  // (the twelfths ladder retired); its contract is the factor relation below.
+  it('the two radii are the configured multiples of the observer\'s sight, inner under outer', () => {
+    const { innerFactor, outerFactor } = CLIENT_CONFIG.blip.heatmap.dim;
+    expect(BASE_DIM_RADII.innerU).toBeCloseTo(SIGHT * innerFactor, 9);
+    expect(BASE_DIM_RADII.outerU).toBeCloseTo(SIGHT * outerFactor, 9);
+    expect(BASE_DIM_RADII.innerU).toBeLessThan(BASE_DIM_RADII.outerU);
   });
 
-  it('HOLDS THE FLOOR ACROSS THE WHOLE SIGHT BUBBLE, edge included', () => {
-    for (const d of [0, 1, SIGHT / 8, SIGHT / 2, SIGHT * 0.9, SIGHT]) {
+  it('HOLDS THE FLOOR out to the inner radius, edge included', () => {
+    const inner = BASE_DIM_RADII.innerU;
+    for (const d of [0, 1, inner / 8, inner / 2, inner * 0.9, inner]) {
       expect(dimScaleAt(d, SIGHT), `at ${d}u`).toBeCloseTo(FLOOR, 12);
     }
   });
 
-  it('reaches FULL painted opacity at the 6/12 rung and stays there — radar is '
-    + 'never muted where it is the only sensor', () => {
+  it('reaches FULL painted opacity at the outer radius and stays there', () => {
     expect(dimScaleAt(BASE_DIM_RADII.outerU, SIGHT)).toBeCloseTo(1, 12);
     for (const d of [CONFIG.vision.farRadar, RADAR, RADAR * 4, 1e9]) {
       expect(dimScaleAt(d, SIGHT), `at ${d}u`).toBe(1);
@@ -124,22 +126,21 @@ describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => 
     const narrow = NARROW;
     expect(narrow, 'the fixture really is smaller').toBeLessThan(SIGHT);
     const r = dimRadii(narrow);
-    expect(r.innerU).toBeCloseTo(narrow, 12);
-    expect(dimScaleAt(narrow, narrow), 'floor still covers the whole bubble')
-      .toBeCloseTo(FLOOR, 12);
+    expect(r.innerU).toBeCloseTo(narrow * CLIENT_CONFIG.blip.heatmap.dim.innerFactor, 9);
+    expect(dimScaleAt(r.innerU, narrow), 'floor still covers its inner radius').toBeCloseTo(FLOOR, 12);
     // Water the base hull would still be quieting is at FULL strength for the
-    // narrower one — which is the point: the eye cannot see it, so the scope owns it.
-    expect(dimScaleAt(SIGHT, SIGHT)).toBeCloseTo(FLOOR, 12);
-    expect(dimScaleAt(SIGHT, narrow)).toBe(1);
+    // narrower one — the eye cannot see it, so the scope owns it.
+    expect(dimScaleAt(BASE_DIM_RADII.innerU, SIGHT)).toBeCloseTo(FLOOR, 12);
+    expect(dimScaleAt(BASE_DIM_RADII.innerU, narrow)).toBe(1);
   });
 
   it('...AND A WIDENED BUBBLE, in the other direction', () => {
     const wide = SIGHT * 1.5;
-    expect(dimScaleAt(wide, wide), 'the floor followed the bubble out').toBeCloseTo(FLOOR, 12);
+    expect(dimScaleAt(dimRadii(wide).innerU, wide), 'the floor followed the bubble out').toBeCloseTo(FLOOR, 12);
     // ...and water that was at full strength for a base hull is quieted for the
-    // hull that can SEE it.
-    expect(dimScaleAt(CONFIG.vision.muzzleFlash, SIGHT)).toBeCloseTo(1, 12);
-    expect(dimScaleAt(CONFIG.vision.muzzleFlash, wide)).toBeLessThan(1);
+    // hull that can see further.
+    expect(dimScaleAt(BASE_DIM_RADII.outerU, SIGHT)).toBeCloseTo(1, 12);
+    expect(dimScaleAt(BASE_DIM_RADII.outerU, wide)).toBeLessThan(1);
   });
 });
 

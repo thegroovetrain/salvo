@@ -273,7 +273,7 @@ describe('eligibleLines — the whole eligibility law', () => {
     // appliesTo) are gun-blind and stay dealable whatever is mounted (Story
     // 10.3, Eric 2026-11-04, epic-10 amendment 8: HULL POINTS and PASSIVE
     // HEALING deleted; SPEED / TURNING / RADAR SWEEP renamed).
-    for (const id of ['engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen']) {
+    for (const id of ['engines', 'intel', 'reload', 'hullRepair', 'smokeScreen']) {
       expect(elsewhere, id).toContain(id);
     }
 
@@ -291,7 +291,7 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    for (const id of ['armor', 'power', 'engines', 'intel', 'reload', 'range', 'hullRepair', 'smokeScreen'] as const) {
+    for (const id of ['armor', 'power', 'engines', 'intel', 'reload', 'hullRepair', 'smokeScreen'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
       // ...and so eligible on every seat, whatever gun it mounts (Story 9.9,
       // epic-9 amendment 145: the draw covers POWER like ARMOR).
@@ -830,6 +830,7 @@ describe('drawBonusIndex — the exhausted hull\'s pick (Story 10.7, R5)', () =>
     const fixed = (v: number): Rng => ({ next: () => v, float: () => v, int: () => 0, pick: <T>(arr: readonly T[]): T => arr[0] });
     expect(drawBonusIndex(fixed(0.5), [])).toBeUndefined();
     expect(drawBonusIndex(fixed(0.1), ['hullRepair', 'nope'])).toBeUndefined();
+    expect(drawBonusIndex(fixed(0.1), ['range'])).toBeUndefined(); // RANGE left the index (Story 11.2, R9)
     expect(drawBonusIndex(fixed(Number.NaN))).toBeUndefined();
     expect(drawBonusIndex(fixed(-0.5))).toBeUndefined();
     const { rng, calls } = countingRng(7);

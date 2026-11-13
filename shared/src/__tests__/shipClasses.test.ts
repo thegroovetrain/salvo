@@ -62,6 +62,8 @@ describe('the four battleships (Story 10.4)', () => {
       expect(battery.shellDamage, id).toBeGreaterThan(0);
       expect(battery.trainDeg, id).toBeGreaterThan(0);
       expect(battery.trainDeg, id).toBeLessThan(180);
+      // Story 11.2 (R2): the hull's reach ratio is a positive finite fact.
+      expect(Number.isFinite(battery.reachFrac) && battery.reachFrac > 0, id).toBe(true);
     }
   });
 

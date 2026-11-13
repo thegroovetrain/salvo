@@ -345,7 +345,9 @@ describe('mines — only the secondaries hurt one (R3)', () => {
     w.submitInput('a', inp(1, { aim: 0, aimDist: x, fireSeq: 1 }));
     w.step();
     expect(shellsOf(w, 'a', 'cannon').length).toBeGreaterThan(0);
-    for (let i = 0; i < 60 && shellsOf(w, 'a', 'cannon').length > 0; i++) w.step();
+    // The salvo's whole flight at the row's muzzle velocity, plus a few ticks.
+    const flightTicks = Math.ceil((x / CONFIG.mainBattery.shellSpeed) * (1000 / CONFIG.tick.simDtMs)) + 10;
+    for (let i = 0; i < flightTicks && shellsOf(w, 'a', 'cannon').length > 0; i++) w.step();
     expect(shellsOf(w, 'a', 'cannon')).toHaveLength(0); // the salvo landed
     expect(w.mines.get('m')?.hp).toBe(CONFIG.mine.hp);
   });

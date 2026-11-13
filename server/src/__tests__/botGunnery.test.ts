@@ -17,6 +17,11 @@
 // the doctrine's hold line is the Tier I reach these scenarios were measured
 // at. Aim scatter scales with range, not with rangeU, so the measurement is
 // unchanged.
+//
+// THE RIG'S EYE (Story 11.2): the two eye tiers (class-and-name sight, the
+// plain-hull sight) are hectometer facts far longer than these drills'
+// distances, so the rig also SHORTENS the bot's eye (`shortenEye`) to keep
+// the staging the pins were measured at — S1 inside sight, S2–S5 radar-only.
 
 import { describe, it, expect } from 'vitest';
 import { visibilityTo } from '@salvo/shared';
@@ -34,6 +39,24 @@ function widenForDoctrine(bot: ShipRecord): void {
   const hold = gunBand(profileOf('duelist'), bot.stats, 'machineGun').holdFireAboveU;
   const rangeU = mg.rangeU * (mg.rangeU / hold);
   bot.stats = { ...bot.stats, equipment: { ...bot.stats.equipment, machineGun: { ...mg, rangeU } } };
+}
+
+/** u — the SIGHT scenario's orbit (S1) and the nearest any RADAR scenario's
+ *  target ever comes to the bot (the racetrack's south-bound leg, S4). */
+const SIGHT_ORBIT_U = 250;
+const RADAR_NEAR_U = 380;
+
+/** u — the rig's EYE reach, midway between the two (Story 11.2). Both real
+ *  eye tiers — class-and-name sight and the plain-hull sight — now reach past
+ *  every distance these drills are staged at, so an unshortened bot would
+ *  hold every "radar-only" target as a live contact by eye and the radar
+ *  pins would measure nothing. A FIXTURE, like `widenForDoctrine`: the
+ *  subject is the plot estimator on radar paints, not the eye's reach. */
+const RIG_EYE_U = (SIGHT_ORBIT_U + RADAR_NEAR_U) / 2;
+
+/** Shorten both of the bot's eye tiers to the rig's reach. */
+function shortenEye(bot: ShipRecord): void {
+  bot.stats = { ...bot.stats, sightRange: RIG_EYE_U, hullSightRange: RIG_EYE_U };
 }
 
 const TICKS = 1200;
@@ -110,6 +133,7 @@ function buildRig(start: { x: number; y: number }): Rig {
       : { equipmentId: null, state: null };
   });
   widenForDoctrine(bot);
+  shortenEye(bot);
   bot.state.x = 0;
   bot.state.y = 0;
   bot.prevPose = { ...bot.state };
@@ -282,7 +306,7 @@ function racetrack(sArc: number): { x: number; y: number; heading: number } {
   const s = sArc % (2 * LEG + 2 * half);
   if (s < LEG) return { x: 500, y: -300 + s, heading: Math.PI / 2 };
   if (s < LEG + half) return arc(440, 300, (s - LEG) / TURN_R);
-  if (s < 2 * LEG + half) return { x: 380, y: 300 - (s - LEG - half), heading: -Math.PI / 2 };
+  if (s < 2 * LEG + half) return { x: RADAR_NEAR_U, y: 300 - (s - LEG - half), heading: -Math.PI / 2 };
   return arc(440, -300, Math.PI + (s - 2 * LEG - half) / TURN_R);
 }
 
@@ -322,7 +346,7 @@ function sweepMissLag(): number {
 
 describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
   it('S1 SIGHT: orbit at 250 u inside the bubble hits every shell', () => {
-    const r = run({ x: 250, y: 0 }, orbit(250), 'S1 sight orbit 250');
+    const r = run({ x: SIGHT_ORBIT_U, y: 0 }, orbit(SIGHT_ORBIT_U), 'S1 sight orbit 250');
     expect(r.shells).toBeGreaterThan(0);
     // Measured 100 %: a true-sight contact is exact, so the lead must be too.
     expect(r.hitRate).toBeGreaterThanOrEqual(0.99);
@@ -352,16 +376,10 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
     expect(r.hitRate).toBeGreaterThanOrEqual(0.95);
   });
 
-  it('S4: a radar-only target on a racetrack with tight U-turns is still hit most of the time, with few ghost ticks', () => {
-    const r = run({ x: 500, y: -300 }, straight(), 'S4 radar straight x=500');
-    // The racetrack reverses the target twice a minute through 60 u-radius U-turns
-    // that complete inside one sweep, which no dead-reckoning can follow. Measured
-    // 73-80 % across the review-gate variants; the third plot is the post-turn
-    // re-acquisition.
-    expect(r.hitRate).toBeGreaterThanOrEqual(0.65);
-    expect(r.ghostFrac).toBeLessThan(0.25);
-    expect(r.maxTracks).toBeLessThanOrEqual(3);
-  });
+  // S4 (the racetrack drill) DELETED — Story 11.2, 2026-11-12, Eric's ruling: its
+  // 65 % hit-rate bar was a number produced by one room key (48-83 % across six
+  // keys once the radar fuzz took a server-private salt). Bot gunnery at range is
+  // Story 11.9's to tune and test.
 
   it('S5 SWEEP-MISS: a vanished target\'s plot is gone within 4 ticks', () => {
     const lag = sweepMissLag();
