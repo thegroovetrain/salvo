@@ -103,6 +103,7 @@
 import { Application, Container } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from './camera.js';
+import { watchContextRestore, type RestoreRenderer } from './contextRestore.js';
 
 /**
  * Push the camera's world transform onto the world + chart containers — THE one
@@ -507,6 +508,9 @@ export async function createStage(): Promise<Stage> {
      */
     powerPreference: 'high-performance',
   });
+  // A lost-and-restored WebGL context brings every layer back except the text,
+  // which Pixi never re-draws on its own (Story 11.2 follow-up, G3).
+  watchContextRestore(app.canvas, app.renderer as unknown as RestoreRenderer);
 
   // Order added == z-order, and the order IS `STAGE_ROOT_ORDER` — mounted by
   // iterating it rather than by an argument list, so the pin cannot drift from

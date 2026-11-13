@@ -20,7 +20,7 @@ import { CONFIG, baseSmokeStats, buildHeightRaster, cloudOutlineRadius, mulberry
 const SIZE = (({ lifeMs, r0, r1 }) => ({ lifeMs, r0, r1 }))(baseSmokeStats());
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
-import { Radar, type CloudReturnSource } from '../render/radar.js';
+import { PASS_CLIP_LABEL, Radar, type CloudReturnSource } from '../render/radar.js';
 import { sampleGrid, type HeatGrid } from '../render/radarHeatmap.js';
 
 vi.mock('../render/textures.js', async (importOriginal) => {
@@ -125,12 +125,13 @@ describe('the cloud paints the HEAT grid where the beam sweeps hazy cells, and n
     }
   });
 
-  it('the radar draws the cloud through its one heat sprite: the paint layer holds only the dim mask and the heat surface', () => {
+  it('the radar draws the cloud through its one heat sprite: the paint layer holds only the dim mask, the pass-bounds carrier and the heat surface', () => {
     const { radar, blip } = radarWith(source(sector(0.9, 150, 300, 0.2, 0.5)));
     play(radar, T0, QUARTER);
     expect(gridOf(radar)).not.toBeNull();
-    expect(blip.children).toHaveLength(2);
+    expect(blip.children).toHaveLength(3);
     expect(blip.children).toContain(radar.dimMask);
+    expect(blip.children.filter((k) => k.label === PASS_CLIP_LABEL && k.children.length === 0)).toHaveLength(1);
   });
 });
 

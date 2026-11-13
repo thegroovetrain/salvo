@@ -365,7 +365,9 @@ export class AmbientScene {
     this.chart.update(this.camera.zoom);
     this.drawHulls(tick);
     this.effects.update(tick.dtSec, now, this.wakes);
-    this.radar.render(this.world.observer.state, now, this.camera.worldView);
+    // The screen rect bounds the dim-masked pass (radar.ts `dimPassRect`) and
+    // clips the heat sprite, exactly as in a match (Story 11.2 follow-up, G1).
+    this.radar.render(this.world.observer.state, now, this.camera.worldView, this.camera.screenWorldRect);
     const hole = this.camera.worldToScreen(this.world.observer.state);
     this.fog.update(hole.x, hole.y);
   }
