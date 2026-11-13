@@ -11,7 +11,7 @@ import { hmToU } from './sim/hm.js';
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 // THE TWELFTHS LADDER IS RETIRED (Story 11.2, 2026-11-12, epic-11 amendment
-// <N — number taken at PR time>; rulings R1 / R18). The module constants
+// 4; rulings R1 / R18). The module constants
 // `SIGHT` (500 u, the 4/12 truesight rung) and `RUNG` (125 u, a twelfth of
 // the 1,500 u radar — Story 9.8, epic-9 amendment 103) are DELETED: every
 // reach is now its own named fact in hectometers on the one ruler
@@ -78,8 +78,7 @@ const HITS_TRIP: readonly TargetKind[] = ['hull'];
  * The order is the uniform pick's index order — a wire-free but
  * seed-load-bearing order (moving an entry changes which stat a seed draws).
  *
- * FIVE SINCE STORY 11.2 (2026-11-12, epic-11 amendment <N — number taken at
- * PR time>; ruling R9): `'range'` is REMOVED with the RANGE index — reach is
+ * FIVE SINCE STORY 11.2 (2026-11-12, epic-11 amendment 4; ruling R9): `'range'` is REMOVED with the RANGE index — reach is
  * a weapon fact in hectometers, so the maxed-hull roll and the airdrop crate
  * kinds roll five stats.
  */
@@ -249,7 +248,7 @@ export const CONFIG = {
    *     1.25), now a fact of the battery, never a row or a card.
    *
    * THE `range` INDEX IS GONE from every hull (Story 11.2, 2026-11-12,
-   * epic-11 amendment <N — number taken at PR time>; ruling R9): its old
+   * epic-11 amendment 4; ruling R9): its old
    * per-hull values (100 / 95 / 125 / 100) live on as `battery.reachFrac`.
    *
    * THE CLASS `shift` FIELD IS GONE (and `classShift()` with it): the Shift
@@ -897,8 +896,7 @@ export const CONFIG = {
    * blocks. Island LOS applies to every eye reach (Eric 2026-08-02: islands
    * block EVERY sensor at ALL ranges).
    *
-   * RETIRED (Story 11.2, 2026-11-12, epic-11 amendment <N — number taken at
-   * PR time>): THE TWELFTHS LADDER — "INTEL RANGE is the one ruler" (Eric
+   * RETIRED (Story 11.2, 2026-11-12, epic-11 amendment 4): THE TWELFTHS LADDER — "INTEL RANGE is the one ruler" (Eric
    * 2026-08-06, epic-4 amendments 113/119) re-cut to twelfths of 1,500 u by
    * Story 9.8 (epic-9 amendment 103), every boundary a `SIGHT` multiple and
    * the rung ratios pinned in zone.test.ts. Those ratio pins are DELETED as a
@@ -911,7 +909,7 @@ export const CONFIG = {
   vision: {
     // `detect` (the MINE + TORPEDO base rung, = sight since Story 9.1) and
     // `detectFactor` (its observer-scaled runtime factor, 1) — RETIRED
-    // 2026-11-12, Story 11.2, epic-11 amendment <N — number taken at PR time>
+    // 2026-11-12, Story 11.2, epic-11 amendment 4
     // (R4 / R18): a torpedo and a mine each have their own eye reach,
     // `torpedoSight` and `mineSight` below. SHELLS still never ride either —
     // a shell in flight has `shellSight`; a BOOM / BURST rides `splashSight`.
@@ -931,7 +929,7 @@ export const CONFIG = {
     hullSight: hmToU(350),
     // `muzzleFlashFactor` (0.5 — the flash as a fraction of `radarRange`,
     // Story 9.8's 6/12) — RETIRED 2026-11-12, Story 11.2, epic-11 amendment
-    // <N — number taken at PR time>: the flash is its own fact below, so it no
+    // 4: the flash is its own fact below, so it no
     // longer follows the radar reach.
     //
     // u — MUZZLE FLASH CARRY (Story 4.3, amendment 15; Story 11.2, R18: 350
@@ -1011,8 +1009,7 @@ export const CONFIG = {
     // THE RADAR DROPOUT (`dropout { startU, kneeU, kneeP, rimP }` — Story 9.8,
     // epic-9 amendment 104, rulings 121–123: beyond 8/12 of radar a sweep
     // increasingly failed to paint, rolled per revolution in sim/dropout.ts) —
-    // REMOVED 2026-11-12, Story 11.2, epic-11 amendment <N — number taken at
-    // PR time> (Eric R8): Story 11.4's return-strength model replaces it. The
+    // REMOVED 2026-11-12, Story 11.2, epic-11 amendment 4 (Eric R8): Story 11.4's return-strength model replaces it. The
     // beacon keep-out disc that read `dropout.startU` has its own fact,
     // `CONFIG.beacons.keepOutU` (R20).
     sweepRpm: 15, // rev/min — radar rotation rate at INTEL 100 (15 rpm = one 4 s revolution; the fold reads sweepRpm × INTEL / 100 — Story 10.3, ruling 14)
@@ -1491,7 +1488,7 @@ export const CONFIG = {
    * a hull's main-battery reach is `rangeU × shipClasses.<id>.battery
    * .reachFrac`, seeded once in the fold (sim/stats.ts). The RANGE index that
    * scaled it (`RANGE_ROWS`, `scaleDeckGunRange`) is RETIRED 2026-11-12,
-   * Story 11.2, epic-11 amendment <N — number taken at PR time> (R9): no
+   * Story 11.2, epic-11 amendment 4 (R9): no
    * index row or card changes a hull's reach.
    *
    * THE SHELL IS TODAY'S CANNON SHELL, READING OF RECORD (not a ruling): the
@@ -1631,7 +1628,7 @@ export const CONFIG = {
     homingUpdateAngleDeg: 5,
     // `homingMaxRangeU` (1300 u — the homing fish's die-distance; a
     // straight-runner ran to the map edge) — RETIRED 2026-11-12, Story 11.2,
-    // epic-11 amendment <N — number taken at PR time> (R5 / R18): EVERY fish,
+    // epic-11 amendment 4 (R5 / R18): EVERY fish,
     // homing or straight, now runs its tiered `runU` below and then expires
     // (sim/shell.ts `distLeft` — splash boom, no burst).
     //
@@ -2220,7 +2217,7 @@ export const CONFIG = {
     // u — lit-zone radius: its OWN fact since Story 11.2 (R18: 11 hm, today's
     // 250 u). The "half of base truesight" derivation (Eric 2026-07-23,
     // epic-9 amendment 108 — `SIGHT / 2`) RETIRED 2026-11-12 with the ladder
-    // (epic-11 amendment <N — number taken at PR time>): sight is 200 hm now
+    // (epic-11 amendment 4): sight is 200 hm now
     // and the flare's light did not grow with it.
     litRadius: hmToU(11),
     litDurationMs: 10000, // ms — lit-zone lifetime (natural expiry only)
@@ -3186,7 +3183,7 @@ export interface HullLaunchers {
  * the order the SHIP tooltip and the harness print them (amendment 6(c)):
  * ARMOR, POWER, RELOAD, ENGINES, INTEL (RUDDER is DELETED by Story 10.6 —
  * Eric 2026-11-05, R2; RANGE is DELETED by Story 11.2 — 2026-11-12, epic-11
- * amendment <N — number taken at PR time>, R9: reach is a weapon fact in
+ * amendment 4, R9: reach is a weapon fact in
  * hectometers, a hull's main-battery ratio is `battery.reachFrac`). Each is
  * a whole number around 100 (`CONFIG.index.base`), authored on every hull
  * envelope and stepped by the ship ladders of the same names (+20 ARMOR /

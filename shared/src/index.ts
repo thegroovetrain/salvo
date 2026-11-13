@@ -4,8 +4,7 @@
 
 /** Bumped on any breaking change to the client/server wire protocol.
  *  104 — Story 11.2 THE HECTOMETER RULER AND REAL REACH (2026-11-12, Eric's
- *  rulings R1–R20; the final number is confirmed at PR time after `git
- *  fetch`): FrameMsg gains the optional `pc` channel (PlainContact
+ *  rulings R1–R20; 104 is confirmed: cycle 227, 0.19.21): FrameMsg gains the optional `pc` channel (PlainContact
  *  {h,x,y,heading,speed} — a hull seen by eye beyond the class-and-name reach
  *  and inside the plain-hull reach, under an anonymous per-observer handle;
  *  no class, no roster id, no turret / launcher angles; omitted when empty).
@@ -1141,7 +1140,7 @@ export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
 // `./sim/dropout.js` (the radar paint dropout) — REMOVED 2026-11-12, Story
-// 11.2, epic-11 amendment <N — number taken at PR time> (R8).
+// 11.2, epic-11 amendment 4 (R8).
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';

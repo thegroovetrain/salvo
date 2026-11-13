@@ -26,7 +26,7 @@
 // `sweepPeriodMs` (15 RPM × INTEL / 100, uncapped since Story 10.7 R6),
 // `cooldownScale` (1 / (1 + (RELOAD − 100) / 100) — the haste law). The
 // one-shot RANGE multiply of the deck-gun rows' `rangeU` RETIRED 2026-11-12
-// (Story 11.2, epic-11 amendment <N — number taken at PR time>): a hull's
+// (Story 11.2, epic-11 amendment 4): a hull's
 // main-battery reach is `CONFIG.mainBattery.rangeU × battery.reachFrac`,
 // seeded in `mainBatteryRow`. `kinematics.turnRate` is the ONE baseline
 // `CONFIG.index.turnRate` on every hull (R2; the PvE drone's authored rate,
@@ -468,7 +468,7 @@ export interface EffectiveStats {
   // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × intel / 100.
   intel: number;
   // (RANGE sat here until Story 11.2 deleted it — 2026-11-12, epic-11
-  // amendment <N — number taken at PR time>, R9: a hull's main-battery reach
+  // amendment 4, R9: a hull's main-battery reach
   // is its battery's `reachFrac`, never an index.)
   // HULL REPAIR (`C`) and SMOKE (`V`) — per ship since Story 10.6 (R8 / R9):
   // improved by their ladders, never by the ship's RELOAD. A press reads

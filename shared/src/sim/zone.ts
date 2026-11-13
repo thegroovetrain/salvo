@@ -238,7 +238,7 @@ export function stormDpsFor(
 /**
  * u — THE FORMULA PATH'S UNIT: the truesight radius (500 u) the retired
  * `terminalSightFactor` multiplies. Story 11.2 (2026-11-12, epic-11 amendment
- * <N — number taken at PR time>) moved `CONFIG.vision.sight` to 200 hm on the
+ * 4) moved `CONFIG.vision.sight` to 200 hm on the
  * hectometer ruler; this dev-override fallback keeps TODAY'S result (factor ×
  * 500 u — 1,000 u at the ratified ×2) by reading its own fact rather than
  * sight, so smokes and `zoneOverride` literals behave as before.

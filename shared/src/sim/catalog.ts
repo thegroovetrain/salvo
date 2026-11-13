@@ -9,7 +9,7 @@
 // never typed.)
 //
 // THE COUNT MOVED 27/116 -> 26/111 IN STORY 11.2 (Eric 2026-11-12, epic-11
-// amendment <N — number taken at PR time>, R9): the RANGE ship ladder is
+// amendment 4, R9): the RANGE ship ladder is
 // DELETED with the RANGE index — reach is a weapon fact in hectometers. Its
 // seat closes; every surviving line keeps its relative order. The torpedo
 // lines' tiers gain the RUN step (R5).
@@ -991,8 +991,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   ),
   // --- Story 10.6 (Eric 2026-11-05): the SHIP ladders at the foot ------------
   // RANGE (R1: +10 RANGE per tier — the main gun's reach × RANGE / 100) —
-  // DELETED 2026-11-12, Story 11.2, epic-11 amendment <N — number taken at PR
-  // time> (R9): reach is a weapon fact in hectometers; a hull's main-battery
+  // DELETED 2026-11-12, Story 11.2, epic-11 amendment 4 (R9): reach is a weapon fact in hectometers; a hull's main-battery
   // ratio is `battery.reachFrac`.
   // HULL REPAIR (R8, R15): the `C` ability's card. Each +20 hp at once and +20
   // over the FIXED 5 s window (100 + 100 → 200 + 200 at five), and +5 to the

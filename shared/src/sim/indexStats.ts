@@ -38,7 +38,7 @@
 //   RANGE (ruling 14) — "reach × index / 100 on the battleship's base", the
 //     one-shot multiply of the deck-gun rows' reach (`RANGE_ROWS`,
 //     `scaleDeckGunRange`) — RETIRED 2026-11-12, Story 11.2, epic-11
-//     amendment <N — number taken at PR time> (R9): RANGE leaves the index; a
+//     amendment 4 (R9): RANGE leaves the index; a
 //     hull's main-battery reach is `CONFIG.mainBattery.rangeU ×
 //     battery.reachFrac`, seeded in sim/stats.ts, and no card changes it.
 //   THE TWO EYE REACHES (Story 11.2, R3 / R14 / R18) — `sightRange` (class

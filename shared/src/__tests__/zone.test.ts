@@ -113,7 +113,7 @@ describe('zone timeline shape — the ratified design targets', () => {
 });
 
 // THE SENSOR-LADDER PINS ARE DELETED (Story 11.2, 2026-11-12, epic-11
-// amendment <N — number taken at PR time>; the epic's ruling: "the rung-ratio
+// amendment 4; the epic's ruling: "the rung-ratio
 // tests die on purpose when the ladder retires — never patched to pass"). The
 // 'Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints' suite pinned
 // radar = 3 × sight, muzzleFlash = 1.5 × sight, detect = sight ×

@@ -4,8 +4,7 @@ import type { EquipmentId } from '../index.js';
 import { NEUTRAL_HULL } from './neutralHull.js';
 
 // (The ladder-rung constant this file derived from sight, and the pins that
-// used it, are DELETED — Story 11.2, 2026-11-12, epic-11 amendment <N —
-// number taken at PR time>: the ladder retired, every reach is its own fact.)
+// used it, are DELETED — Story 11.2, 2026-11-12, epic-11 amendment 4: the ladder retired, every reach is its own fact.)
 import {
   damageMultiplierFor,
   FLASH_WINDOW_MS,

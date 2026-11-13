@@ -40,7 +40,7 @@ describe('wounded smoke reach + cadence (amendment 42)', () => {
     // The plume's reach moving with the flash is the POINT of the shared
     // constant, not a regression: Eric named the band "muzzle/smoke". (The
     // "muzzleFlash = 1.5 × sight" derivation pin is DELETED — Story 11.2,
-    // 2026-11-12, epic-11 amendment <N — number taken at PR time>: the flash
+    // 2026-11-12, epic-11 amendment 4: the flash
     // is its own hectometer fact, the ladder that derived it retired.)
     expect(Object.keys(CONFIG.vision)).not.toContain('smoke');
     expect(Object.keys(CONFIG.smoke)).not.toContain('range');

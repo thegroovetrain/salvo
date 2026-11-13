@@ -801,7 +801,7 @@ describe('THE INDEX MODEL — the authored indices and what the fold derives fro
   // THE THREE RANGE-INDEX CASES ('RANGE scales the deck-gun rows' reach…',
   // 'RANGE composes with a line's own tiered reach…', 'the RANGE multiply
   // fails CLOSED…') are DELETED with the RANGE index (Story 11.2, 2026-11-12,
-  // epic-11 amendment <N — number taken at PR time>, R9). The reach contract
+  // epic-11 amendment 4, R9). The reach contract
   // that replaces them — base × the hull's `battery.reachFrac`, untouched by
   // every card — sits in the ZERO-CARD identity suite above.
 
@@ -1317,7 +1317,7 @@ describe('effectiveStats — derived ranges and rings', () => {
   });
 
   // The 'sightRange is DERIVED as radarRange/3' pin is DELETED (Story 11.2,
-  // 2026-11-12, epic-11 amendment <N — number taken at PR time>): the two eye
+  // 2026-11-12, epic-11 amendment 4): the two eye
   // reaches are their own CONFIG facts. What stays is the mechanism — they
   // are read from CONFIG, never stat-addressable, and a radar write never
   // moves them.

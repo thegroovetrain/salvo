@@ -182,8 +182,7 @@ export const TOP_LEVEL_STAT_PATHS = [
   // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × this / 100.
   'intel',
   // `range` (RANGE, ruling 14 — the deck-gun rows' reach × this / 100) sat
-  // here until Story 11.2 REMOVED it (2026-11-12, epic-11 amendment <N —
-  // number taken at PR time>, R9): the stat is gone, so its path is too.
+  // here until Story 11.2 REMOVED it (2026-11-12, epic-11 amendment 4, R9): the stat is gone, so its path is too.
   'radarRange',
   // The four kinematics that stay per-class pass-throughs (ruling 3: "accel /
   // decel / reverse / steerage stay per-class kinematics") — addressable in

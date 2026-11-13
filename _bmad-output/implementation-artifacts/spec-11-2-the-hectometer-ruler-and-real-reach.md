@@ -2,7 +2,7 @@
 title: 'Story 11.2: The Hectometer Ruler and Real Reach'
 type: 'feature'
 created: '2026-11-12'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '84008761d3b6f87a5595c15a789388a4c433eb6d'
 review_loop_iteration: 0
 context:
@@ -111,6 +111,37 @@ warnings: ['oversized']
   - R19 The display, FIXED (supersedes R17 — "scratch the options on radar markers"): rings style A, numbers at N / S / E / W, sweep style 3, the compass scale AND the heading line always on. No new settings.
   - R20 Orchestrator readings carried into the build, each surfaced to Eric for veto: the unmounted legacy rows (`gun`, `machineGun`, `flak`, `broadside`) scale by the same 380 / today ratio; the beacon keep-out disc keeps today's 1,000 u as its own fact; client feel knobs that were multiples of sight (camera lead, lobby scene, torpedo hum, the radar proximity dim) keep today's absolute sizes; the fog-of-war hole is the plain-hull reach; fog banks are untouched until 11.6; the three map-centered chart rings go (the own-ship rings replace them); time compression is one named, documented constant (9.3) that no rate reads yet.
   - R21 (Eric, chat, same day: "that's fine for the captive mine") The captive mine's torpedo runs the heavy torpedo's tier I run (55 hm); it does not tier.
+- **2026-11-12 — build and review, rulings R22–R24.**
+  - R22 (Eric, AskUserQuestion: "10") Mines are seen from 10 hm; at 3 hm a hull tripped a mine before it could see it.
+  - R23 (Eric: "Accept the side clues") A modified client can still infer a plain hull's class from turret-position muzzle flashes, the public `sunk` line and hull length through the radar mask; accepted, not hardened.
+  - R24 (Eric: "Delete the drill") `botGunnery` S4 is deleted: its hit-rate bar was produced by one room key.
+  - KEEP from the build: `sweepMiss.ts` stays without its dropout clause (the agent's reading, better than the spec's "delete"); the whole `spawn` row stays on the class reach (its id is required on the wire).
+
+## Review Triage Log
+
+### 2026-11-12 — Review pass 1 (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 15: (high 3, medium 6, low 6)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` own torpedoes and shells ghost for minutes when the owner misses the terminal event (all three) — own tracks expire from the firer's own run / reach
+  - `[high]` `[patch]` a plain hull's class replayable from its radar blip (Blind Hunter reproduced; Codex) — per-paint server-private salt on hull and wake fuzz
+  - `[high]` `[patch]` fog memo ~54 MB per World and a duplicated toll walk (all three) — lattice cut to the ocean square (~8 MB), one walk per pair
+  - `[medium]` `[patch]` a torpedo's run-out announced at splash reach (Blind Hunter) — seen at torpedo sight, owner always
+  - `[medium]` `[patch]` a plain handle survives a disconnect and links two visits (Edge Case Hunter) — forgotten on drop and resume
+  - `[medium]` `[patch]` tier-handoff pairing: wrong hull, quick re-entry, one-frame plain dropout (all three, in three forms) — this-frame nearest-first pairing, re-entry carry-over
+  - `[medium]` `[patch]` bots hold a twin track across a tier change (both hunters) — twins retired on fold
+  - `[medium]` `[patch]` bot isolation radius grew 9× (both hunters) — pinned at today's 250 u
+  - `[medium]` `[patch]` remote engine earshot grew 9× (both hunters) — back to the 500 u feel size
+  - `[low]` `[patch]` a malformed `pc` row aborts the frame handler (Edge Case Hunter)
+  - `[low]` `[patch]` a ring coincident with the reach ring at some ratios (Edge Case Hunter)
+  - `[low]` `[patch]` a bare " hm" on a non-finite distance (Edge Case Hunter)
+  - `[low]` `[patch]` no floor on a torpedo run (Edge Case Hunter)
+  - `[low]` `[patch]` the weaponsSmoke ambush posed for the old mine sight (fix agent)
+  - `[low]` `[patch]` `botGunnery` S4 red under the salted fuzz — deleted by Eric's ruling (R24)
+- accepted by Eric, not patched: the plain-band side clues (R23).
 
 ## Design Notes
 
