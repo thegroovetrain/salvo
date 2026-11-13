@@ -277,7 +277,15 @@ function forwardedEvents(world: World, ctx: SignalContext): GameEvent[] {
  *  gate's MEMORY, not a channel. */
 function ballisticScan(world: World, ctx: SignalContext): BallisticEvent[] {
   const out: BallisticEvent[] = [];
+  // A BOT IS NOT OFFERED SHELLS IN FLIGHT (Eric 2026-11-13, epic-11 amendment
+  // 5: "if they never use it then skip it"). No bot code reads a `shell`
+  // reveal — bots fold `torp` / `torpU` / `boom` only (ai/torpedoThreat.ts) —
+  // and a bot's view is on no wire, so nothing a client receives changes. With
+  // Story 11.2's reaches this scan was the largest share of a 16-hull tick.
+  // Torpedoes are offered to bots exactly as before.
+  const skipShells = ctx.me?.role === 'bot';
   for (const shell of world.shells.values()) {
+    if (skipShells && shell.kind === 'shell') continue;
     const row = SIGNAL_REGISTRY[shell.kind];
     if (!row.visible(ctx, shell)) {
       forgetIfExited(ctx, shell);
