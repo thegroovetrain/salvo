@@ -2,7 +2,8 @@
 title: 'Story 11.2: The Hectometer Ruler and Real Reach'
 type: 'feature'
 created: '2026-11-12'
-status: 'in-review'
+status: 'done'
+final_revision: 'fe085cc66bf98f31d00da77e04663ec48eacf844'
 baseline_revision: '84008761d3b6f87a5595c15a789388a4c433eb6d'
 review_loop_iteration: 0
 context:
@@ -80,13 +81,13 @@ warnings: ['oversized']
 **Execution — Phase A (then STOP for Eric's yes):**
 - [x] `shared/src/sim/hm.ts`, `shared/src/index.ts`, `shared/src/__tests__/hm.test.ts` -- the ruler and its formatter, with round-trip and format contracts -- R1
 - [x] `client/scripts/reachBench.mjs` + `client/scripts/reachBench/` -- one self-contained page from the real `generateMap`, radar-shadow walk and `hm.ts`: a real seed, a ship, every reach as a ring with a dial in hm (radar, guns per hull, secondaries, each shell type, muzzle flash, both sight tiers, shells / torpedoes / mines / crate kind, foghorn, star-shell lit radius, torpedo run per kind and tier), the radar shadow drawn at the chosen radar, shell and torpedo travel times, the time-compression readout, and the display candidates (zoom-following labelled rings; sweep styles; with / without bearing scale + heading line) -- R4, R5, R7, R10, R12
-- [ ] (published 2026-11-12: https://claude.ai/artifact/PTCLELMMLSadymyzucU1TX — awaiting Eric) Publish privately; record Eric's numbers and picks in the Spec Change Log; HALT
+- [x] (published 2026-11-12: https://claude.ai/artifact/PTCLELMMLSadymyzucU1TX — awaiting Eric) Publish privately; record Eric's numbers and picks in the Spec Change Log; HALT
 
 **Execution — Phase B (after the yes):**
-- [ ] `shared` -- named hm facts replace `SIGHT` / `RUNG`; two sight stats; per-hull battery reach; RANGE row, card and roll out; dropout out; torpedo run rows; time-compression name; dated retirement notes; tests deleted or re-cut
-- [ ] `server` -- two-tier contact through `observe` with the anonymous handle; point gates per R4; identity fields gated at class-ID; torpedo run; dropout gates and `sweepMiss` out; beacon keep-out on its own named fact; bots fold the plain contact as a class-less track; perception invariant line; golden frames re-recorded; smokes re-posed
-- [ ] `client` -- plain-hull contact view and handoff; hm text on cards and consoles; five index rows; the picked rings and sweep; camera zoom-out fix; fog-canvas margin cap; radar march rays clipped to the map disk
-- [ ] Records -- PV bump, `VERSION`, `package.json`, both trackers, `epic-11-context-amendments.md` (rulings + the deleted tests as a ruling), `docs/codebase-map.md`, `project-context.md`
+- [x] `shared` -- named hm facts replace `SIGHT` / `RUNG`; two sight stats; per-hull battery reach; RANGE row, card and roll out; dropout out; torpedo run rows; time-compression name; dated retirement notes; tests deleted or re-cut
+- [x] `server` -- two-tier contact through `observe` with the anonymous handle; point gates per R4; identity fields gated at class-ID; torpedo run; dropout gates and `sweepMiss` out; beacon keep-out on its own named fact; bots fold the plain contact as a class-less track; perception invariant line; golden frames re-recorded; smokes re-posed
+- [x] `client` -- plain-hull contact view and handoff; hm text on cards and consoles; five index rows; the picked rings and sweep; camera zoom-out fix; fog-canvas margin cap; radar march rays clipped to the map disk
+- [x] Records -- PV bump, `VERSION`, `package.json`, both trackers, `epic-11-context-amendments.md` (rulings + the deleted tests as a ruling), `docs/codebase-map.md`, `project-context.md`
 
 **Acceptance Criteria:**
 - Given `grep -rn "RUNG\|twelfth" shared/src server/src client/src`, then only dated retirement notes match.
@@ -160,3 +161,11 @@ warnings: ['oversized']
 
 **Manual checks:**
 - Eric's yes on the bench page numbers and the ring / sweep look before Phase B is committed.
+
+## Auto Run Result
+
+- **Summary:** every reach is a hectometer fact on one ruler (1 hm = 10,000 / 440 u); radar 400, guns 380 × the hull's ratio, full-ship sight 200, plain-hull sight 350 hm; two sight tiers through `observe()` with an anonymous `pc` channel; RANGE row, card and roll gone (five rows); radar dropout gone; real-horizon radar shadows; torpedo run 55 → 140 hm by tier; hectometers on every distance text; the fixed radar display (white rings numbered at N / S / E / W following zoom, compass scale, heading line, thin sweep with afterglow); camera zoom-out fixed; PV 104; cycle 227, 0.19.21; epic-11 amendment 4; PR #339.
+- **Files:** `shared/src/sim/hm.ts` (new), `constants.ts`, `stats.ts`, `boons.ts`, `indexStats.ts`, `sight.ts`, `catalog.ts`, `draw.ts`, `effects.ts`, `zone.ts`, `radarRaster.ts`, `types.ts`, `index.ts`, `dropout.ts` (deleted); `server/src/game/plainHandle.ts` and `paintSalt.ts` (new), `signals.ts`, `perception.ts`, `frames.ts`, `world.ts`, `equipment/*`, `ai/*`, `rooms/ArenaRoom.ts`, smokes and batch-sim scripts; `client/src/util/hmText.ts`, `net/plainContacts.ts`, `net/snapshotBuffer.ts`, `render/plainHull*.ts`, `render/rangeRings.ts`, `render/radarDisplay.ts` (new) and the radar, fog, camera, projectile, console and card modules; `client/scripts/reachBench*` (bench page); tests across all three workspaces; records.
+- **Review:** one pass — Blind Hunter + Edge Case Hunter (Fable) + Codex; 15 patches applied (3 high, 6 medium, 6 low), 0 deferred, 0 rejected; the plain-band side clues accepted by Eric (R23).
+- **Verification:** `npm run check` green on the final tree (lint 0 errors; shared 1,435 / server 2,924 / client 166 files / hooks 266); matchSmoke and weaponsSmoke first try on the final code; bench page self-test; screenshots of the real radar layer.
+- **Residual:** world-sound falloff, the scope's wake color band and the lobby scene moved with the new reaches and await Eric (amendment 4(o)); client radar cost at 400 hm is unmeasured until staging; bots fire at full reach untuned until 11.9; `combatSmoke` / `zoneSmoke` stay on the smoke-rewrite ledger; How-to-Play, the GDD, `catalog-v3.md` and DESIGN.md are stale until 11.11; no batch sim was run.
