@@ -198,6 +198,7 @@ import { wakeLitFloor } from './radarSources.js';
 import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 import { dimFanSlides } from './radarDim.js';
+import { maskPassRect, usableScreen, viewAsScreen } from './maskPass.js';
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -230,6 +231,14 @@ function maxSlices(): number {
  *  (or a future consumer) walking that layer's children must be able to tell the
  *  two apart by something better than list order. */
 export const DIM_MASK_LABEL = 'radarDimMask';
+
+/** Scene-graph label of the radar layer's masked-pass bounds carrier (Story
+ *  11.2 follow-up) — a child of the blip layer that draws nothing. */
+export const PASS_CLIP_LABEL = 'radarPassClip';
+
+/** Texels a side the camera-less heat window may reach (`windowFor`): the
+ *  smallest MAX_TEXTURE_SIZE WebGL 2 guarantees. */
+export const HEAT_FALLBACK_MAX_CELLS = 2048;
 
 /** The eye-reach fan's length from the `dim.reachRays` dial: a whole, non-negative
  *  count (a negative dial would throw out of `new Float32Array`; a non-finite one
@@ -418,6 +427,11 @@ export class Radar {
    *  sprite's `boundsArea` cut from it — see `clipHeat`. */
   private screen: ScreenWorldRect | null = null;
   private readonly heatClip = new Rectangle();
+  /** The dim-masked pass's bounds, set as `blipLayer.boundsArea` — see
+   *  `dimPassRect`. */
+  private readonly passClip = new Rectangle();
+  /** The child that carries `passClip` as its `boundsArea` — see `dimPassRect`. */
+  private readonly passCarrier = new Container({ label: PASS_CLIP_LABEL });
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
@@ -465,6 +479,7 @@ export class Radar {
     // is deliberately NOT used: it drops the node out of the build entirely.
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
+    blipLayer.addChild(this.passCarrier);
 
     this.sweep = new Sprite(bakeSweepTexture());
     this.sweep.anchor.set(0.5);
@@ -555,11 +570,12 @@ export class Radar {
    * pooled target). The heat sprite's `boundsArea` is therefore its own extent
    * ∩ the screen's world rect (in its local, one-texel-per-cell units): the
    * pass never exceeds the screen. Nothing off screen is visible, so no
-   * on-screen pixel changes. No rect (tests, ambient) → measured as before.
+   * on-screen pixel changes. The rect is `passScreen` (the screen, else the
+   * camera view); none (tests) → measured as before, and the mask is then off.
    */
   private clipHeat(sprite: Sprite, grid: HeatGrid): void {
-    const s = this.screen;
-    if (s === null || !Number.isFinite(s.x + s.y + s.w + s.h)) {
+    const s = this.passScreen();
+    if (s === null) {
       sprite.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
       return;
     }
@@ -1078,12 +1094,63 @@ export class Radar {
    */
   private updateDimMask(own: OwnPoint | null, serverNow: number): void {
     this.syncDimMask(own, serverNow);
-    if (own === null || !Number.isFinite(own.x + own.y)) {
-      this.blipLayer.mask = null;
+    const pass = own === null ? null : this.dimPassRect(own);
+    if (own === null || pass === null) {
+      this.unmask();
       return;
     }
     this.dim.position.set(own.x, own.y);
+    // The pass bounds go on BEFORE the mask, so not even the frame that attaches
+    // it can measure the ~22,700 u sprite (see `dimPassRect`).
+    this.passCarrier.boundsArea = this.passClip;
     if (this.blipLayer.mask !== this.dim) this.blipLayer.mask = this.dim;
+  }
+
+  /** Take the dim mask off, and its pass bounds with it. */
+  private unmask(): void {
+    this.blipLayer.mask = null;
+    this.passCarrier.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
+  }
+
+  /**
+   * THE MASKED PASS'S BOUNDS (Story 11.2 follow-up, ruling G1). Pixi sizes the
+   * dim-masked pass to `blipLayer`'s measured children ∩ the dim sprite's
+   * bounds, and its mask filter does NOT clip to the viewport. Two holes let the
+   * whole sprite through — `dim.spanU` is radar × 1.25 per side, ~22,700 u
+   * across at Story 11.2's reach, i.e. a 16,384² / 32,768² target with 4× MSAA:
+   *
+   *  - AN EMPTY LAYER IS NOT AN EMPTY PASS. With no paint the heat sprite is
+   *    hidden, the children measure nothing, and Pixi pushes that EMPTY
+   *    (±Infinity) bounds through its render-group matrix before intersecting
+   *    it with the mask — `0 × Infinity` is NaN, every NaN comparison picks the
+   *    mask's side, and the "intersection" comes out as the whole mask. That is
+   *    the first frame after the mask goes on (the lobby, and a match's first
+   *    paints), and any frame the scope is empty.
+   *  - The Story 9.8 clip (`clipHeat`) cut the heat sprite only when a screen
+   *    rect arrived; the lobby's ambient scene passed none.
+   *
+   * So `passCarrier` — a child that draws nothing — always measures exactly
+   * screen ∩ the dim sprite's frame (`maskPassRect`) while the mask is on: the
+   * layer is never empty, and the heat sprite is clipped to the same screen
+   * (`clipHeat`), so the pass never exceeds the screen on any frame, the first
+   * included. (Not `blipLayer.boundsArea`: Pixi adds a masked container's own
+   * `boundsArea` OUTSIDE the mask intersection, and the NaN above then unions
+   * it with the whole mask.) The screen is the caller's `screen` rect, else its
+   * `view`. Null — no rect to bound it by, or a non-finite pose — keeps the mask
+   * OFF: an undimmed scope beats an unbounded GPU allocation, the same
+   * degradation chosen for a NaN pose (see `updateDimMask`).
+   */
+  private dimPassRect(own: OwnPoint): Rectangle | null {
+    if (!Number.isFinite(own.x + own.y)) return null;
+    const screen = this.passScreen();
+    const halfU = Math.max(this.dim.width, this.dim.height) / 2;
+    return maskPassRect(screen, own.x, own.y, halfU, this.passClip) === null ? null : this.passClip;
+  }
+
+  /** The rect the masked pass and the heat sprite are clipped to: the caller's
+   *  screen rect, else its camera view, else none. */
+  private passScreen(): ScreenWorldRect | null {
+    return usableScreen(this.screen) ? this.screen : viewAsScreen(this.view);
   }
 
   /**
@@ -1321,7 +1388,7 @@ export class Radar {
   private hideHeat(): void {
     // The mask comes off with the surface: there is no own hull to anchor it to
     // on the frames this runs (amendment 181's teardown half).
-    this.blipLayer.mask = null;
+    this.unmask();
     if (this.heat === null) return;
     this.heat.sprite.visible = false;
     clearGrid(this.heat.grid);
@@ -1330,7 +1397,12 @@ export class Radar {
   private windowFor(own: OwnPoint | null): ViewRect | null {
     if (own === null) return null;
     if (this.view !== null) return this.view;
-    return { x: own.x, y: own.y, halfW: this.radarRange, halfH: this.radarRange };
+    // BOUNDED (Story 11.2 follow-up, G2): the camera-less fallback is a
+    // radar-ring square, and a radar upgrade must not grow its texture without
+    // limit — it is capped at HEAT_FALLBACK_MAX_CELLS texels a side (no clip
+    // today: 2 × 9,091 u / 9 u ≈ 2,021 cells).
+    const half = Math.min(this.radarRange, (HEAT_FALLBACK_MAX_CELLS * CLIENT_CONFIG.blip.heatmap.cellU) / 2 - 2 * CLIENT_CONFIG.blip.heatmap.cellU);
+    return { x: own.x, y: own.y, halfW: half, halfH: half };
   }
 
   /**
