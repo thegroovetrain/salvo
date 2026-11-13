@@ -37,6 +37,10 @@ export function viewRingSpacingHm(viewW: number, viewH: number, zoom: number): n
   return ringSpacingHm(uToHm(Math.max(viewW, viewH) / 2 / zoom));
 }
 
+/** Fraction of one ring step inside which a ring counts as ON the reach ring
+ *  (float tolerance only — far below any pixel at any zoom the scope allows). */
+export const RING_COINCIDENT_FRAC = 1e-6;
+
 /**
  * How many range rings to draw: every multiple of the spacing STRICTLY inside
  * the radar reach (the reach itself is its own, distinct ring), and none past
@@ -46,7 +50,10 @@ export function viewRingSpacingHm(viewW: number, viewH: number, zoom: number): n
 export function ringCount(stepHm: number, radarU: number, farU: number): number {
   const stepU = hmToU(stepHm);
   if (!(stepU > 0) || !(radarU > 0) || !Number.isFinite(stepU + radarU)) return 0;
-  const insideRadar = Math.ceil(radarU / stepU) - 1;
+  // A reach that is a whole number of steps up to float error (a Warspite-like
+  // reachFrac lands 3.0000000000000004 steps) must not draw a ring ON the reach
+  // ring: a multiple within RING_COINCIDENT_FRAC of a step of it is the reach.
+  const insideRadar = Math.max(0, Math.ceil(radarU / stepU - RING_COINCIDENT_FRAC) - 1);
   const onScreen = Number.isFinite(farU) ? Math.ceil(Math.max(0, farU) / stepU) : insideRadar;
   return Math.max(0, Math.min(insideRadar, onScreen));
 }

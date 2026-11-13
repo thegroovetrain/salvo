@@ -195,6 +195,18 @@ function weaponsInput(cards: readonly string[], over: Partial<WeaponsInput> = {}
   };
 }
 
+describe('a non-finite distance reads EMPTY, never a bare unit (Story 11.2 gate C5)', () => {
+  it('the secondaries reach and a weapon reach print nothing when the number is not finite', () => {
+    const stats = structuredClone(fold([]));
+    stats.secondaryRangeU = Number.NaN;
+    stats.equipment.mainBattery.rangeU = Number.POSITIVE_INFINITY;
+    const loadout = slotsWithCards(stats, []).map((s) => s.equipmentId);
+    const rs = byKey(consoleReadouts({ stats, loadout, cards: [], cls: CLS }));
+    expect(rs.get(READOUT_KEY.stat('secondaries', 'rangeU'))?.value).toBe('');
+    expect(rs.get(READOUT_KEY.stat('mainBattery', 'rangeU'))?.value).toBe('');
+  });
+});
+
 describe('weaponRowModels — the five rows in the ruled order (R17)', () => {
   it('comes out MAIN BATTERY · SECONDARIES · TORPEDO · MINES · SPECIAL with their own key chips', () => {
     const rows = weaponRowModels(weaponsInput([]));

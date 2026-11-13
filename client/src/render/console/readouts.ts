@@ -55,7 +55,7 @@ import {
   type TurretState,
   type WeaponAmmo,
 } from '@salvo/shared';
-import { HM_UNIT, hmText, isDistanceField } from '../../util/hmText.js';
+import { hmText, hmWithUnit, isDistanceField } from '../../util/hmText.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import { abilityName, boonName, equipmentStatRows, indexWord } from '../../ui/boonCopy.js';
 import { romanTier } from '../../ui/tierRamp.js';
@@ -113,10 +113,9 @@ function secsText(ms: number): string {
   return `${(ms / 1000).toFixed(1)}S`;
 }
 
-/** A distance (u) as console text in hectometers — `380 hm` (Story 11.2). */
-function hmReadout(u: number): string {
-  return `${hmText(u)}${HM_UNIT}`;
-}
+/** A distance (u) as console text in hectometers — `380 hm` (Story 11.2);
+ *  empty (never a bare unit) when the distance is not finite. */
+const hmReadout = hmWithUnit;
 
 /** A plain number: whole when whole, else one decimal (`47.5`, `950`). */
 function numText(v: number): string {

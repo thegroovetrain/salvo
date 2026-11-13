@@ -80,7 +80,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { hullPercent } from '../util/hullPercent.js';
-import { DISTANCE_FIELDS, HM_UNIT, hmText } from '../util/hmText.js';
+import { DISTANCE_FIELDS, HM_UNIT, hmText, withUnit } from '../util/hmText.js';
 
 /**
  * THE CARD NAMES — catalog v3 §1, Eric's own sheet, verbatim (Story 8.1).
@@ -784,7 +784,7 @@ function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): C
   return {
     label: statPathLabel(path),
     cur: fmt(readStatPath(before, path)),
-    next: fmt(readStatPath(after, path)) + statPathUnit(path),
+    next: withUnit(fmt(readStatPath(after, path)), statPathUnit(path)),
   };
 }
 
@@ -1064,7 +1064,10 @@ const ABILITY_ROW_SPECS: Readonly<Record<CooldownAbilityId, readonly AbilityRowS
       // In hectometers since Story 11.2 (the one distance printer, hmText).
       fmt: hmText,
       unit: HM_UNIT,
-      absolute: (s) => `${hmText(s.smoke.r0)} ${TIER_ARROW} ${hmText(s.smoke.r1)}${HM_UNIT}`,
+      absolute: (s) =>
+        hmText(s.smoke.r0) === '' || hmText(s.smoke.r1) === ''
+          ? '' // a non-finite end fails closed to an empty row, never a bare arrow + unit
+          : `${hmText(s.smoke.r0)} ${TIER_ARROW} ${hmText(s.smoke.r1)}${HM_UNIT}`,
     },
     cooldownSpec('smoke'),
   ],
@@ -1072,7 +1075,7 @@ const ABILITY_ROW_SPECS: Readonly<Record<CooldownAbilityId, readonly AbilityRowS
 
 /** One spec as an ABSOLUTE tooltip row. */
 function abilityAbsoluteRow(spec: AbilityRowSpec, stats: EffectiveStats): CardStatRow {
-  const next = spec.absolute?.(stats) ?? spec.fmt(spec.read(stats)) + (spec.unit ?? '');
+  const next = spec.absolute?.(stats) ?? withUnit(spec.fmt(spec.read(stats)), spec.unit ?? '');
   return { label: specLabel(spec, stats), cur: null, next };
 }
 
@@ -1108,7 +1111,7 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
   return ABILITY_ROW_SPECS[id].map((spec) => ({
     label: specLabel(spec, after),
     cur: spec.fmt(spec.read(before)),
-    next: spec.fmt(spec.read(after)) + (spec.unit ?? ''),
+    next: withUnit(spec.fmt(spec.read(after)), spec.unit ?? ''),
   }));
 }
 

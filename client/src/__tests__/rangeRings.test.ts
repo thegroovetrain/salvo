@@ -10,6 +10,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import {
   BEZEL_INSET_PX,
   BEZEL_MIN_PX,
+  RING_COINCIDENT_FRAC,
   RING_SERIES_HM,
   RINGS_TARGET,
   bearingToAngle,
@@ -51,6 +52,18 @@ describe('ringCount — inside the radar reach, and only rings that reach the sc
       const n = ringCount(step, CONFIG.vision.radar, Infinity);
       expect(n * hmToU(step), `${step}`).toBeLessThan(CONFIG.vision.radar);
       expect((n + 1) * hmToU(step), `${step}`).toBeGreaterThanOrEqual(CONFIG.vision.radar - 1e-6);
+    }
+  });
+
+  it('a reach a float error past a whole number of steps never draws a ring on the reach ring', () => {
+    for (const step of RING_SERIES_HM) {
+      const stepU = hmToU(step);
+      for (const k of [1, 2, 3, 7]) {
+        const radarU = k * stepU * (1 + 4 * Number.EPSILON); // the float error a reachFrac product leaves
+        expect(radarU / stepU, `${step}×${k}`).toBeGreaterThan(k);
+        const n = ringCount(step, radarU, Infinity);
+        expect(radarU - n * stepU, `${step}×${k}`).toBeGreaterThan(stepU * RING_COINCIDENT_FRAC);
+      }
     }
   });
 

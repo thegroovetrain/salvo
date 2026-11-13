@@ -41,8 +41,10 @@ export const PLAIN_HULL_BEAM_U =
 /**
  * ms — how long a hull that left one channel stays pairable with a hull that
  * appears in the other: ONE interpolation window (`CONFIG.tick.interpDelayMs`).
- * The server may emit the incoming row a frame after the outgoing one ended;
- * past this window the two are unrelated and each fades on its own.
+ * An INWARD contact may arrive a frame after its plain row ended, and a plain
+ * row that drops out for a frame may return under a new handle (PLAIN
+ * RE-ENTRY); past this window the two are unrelated and each fades on its own.
+ * OUTWARD pairs only within the one frame (the server swaps tiers atomically).
  */
 export const HANDOFF_WINDOW_MS = CONFIG.tick.interpDelayMs;
 
@@ -55,39 +57,66 @@ export interface TierPoint {
 }
 
 /**
- * Pure: pair every APPEARING hull with the nearest DISAPPEARING hull of the
- * other channel inside `PLAIN_HULL_LENGTH_U` and `HANDOFF_WINDOW_MS`; each
- * disappearing hull pairs at most once. Returns [appearingKey, goneKey] pairs.
+ * Pure: pair APPEARING hulls with DISAPPEARING hulls inside
+ * `PLAIN_HULL_LENGTH_U` and `HANDOFF_WINDOW_MS`, ONE-TO-ONE and NEAREST FIRST
+ * over every candidate pair (never in arrival order — two hulls crossing the
+ * reach side by side must not pair crosswise), exact ties broken by the keys so
+ * the result never depends on list order. Returns [appearingKey, goneKey] pairs.
  */
 export function matchHandoff(appearing: readonly TierPoint[], gone: readonly TierPoint[]): Array<[string, string]> {
+  const cands = candidatePairs(appearing, gone).sort(byDistanceThenKeys);
   const out: Array<[string, string]> = [];
-  const taken = new Set<string>();
-  for (const a of appearing) {
-    const best = nearestFree(a, gone, taken);
-    if (best === null) continue;
-    taken.add(best.key);
-    out.push([a.key, best.key]);
+  const usedA = new Set<string>();
+  const usedG = new Set<string>();
+  for (const c of cands) {
+    if (usedA.has(c.a) || usedG.has(c.g)) continue;
+    usedA.add(c.a);
+    usedG.add(c.g);
+    out.push([c.a, c.g]);
   }
   return out;
 }
 
-function nearestFree(a: TierPoint, gone: readonly TierPoint[], taken: ReadonlySet<string>): TierPoint | null {
-  let best: TierPoint | null = null;
-  let bestD = PLAIN_HULL_LENGTH_U;
-  for (const g of gone) {
-    if (taken.has(g.key) || Math.abs(a.t - g.t) > HANDOFF_WINDOW_MS) continue;
-    const d = Math.hypot(a.x - g.x, a.y - g.y);
-    if (d <= bestD) {
-      best = g;
-      bestD = d;
-    }
-  }
-  return best;
+interface Candidate {
+  a: string;
+  g: string;
+  d: number;
 }
 
-/** One handle's first-frame pose (an appearing plain hull). */
-function point(key: string, s: Snapshot): TierPoint {
-  return { key, x: s.x, y: s.y, t: s.t };
+function candidatePairs(appearing: readonly TierPoint[], gone: readonly TierPoint[]): Candidate[] {
+  const out: Candidate[] = [];
+  for (const a of appearing) {
+    for (const g of gone) {
+      if (Math.abs(a.t - g.t) > HANDOFF_WINDOW_MS) continue;
+      const d = Math.hypot(a.x - g.x, a.y - g.y);
+      if (d <= PLAIN_HULL_LENGTH_U) out.push({ a: a.key, g: g.key, d });
+    }
+  }
+  return out;
+}
+
+function byDistanceThenKeys(p: Candidate, q: Candidate): number {
+  if (p.d !== q.d) return p.d - q.d;
+  if (p.a !== q.a) return p.a < q.a ? -1 : 1;
+  if (p.g === q.g) return 0;
+  return p.g < q.g ? -1 : 1;
+}
+
+/** A plain handle that left the channel: its last pose and its history. */
+interface Departed extends TierPoint {
+  heading: number;
+  speed: number;
+  buf: SnapshotBuffer;
+}
+
+function departedFrom(key: string, s: Snapshot, buf: SnapshotBuffer): Departed {
+  return { key, x: s.x, y: s.y, t: s.t, heading: s.heading, speed: s.speed, buf };
+}
+
+/** `d` dead-reckoned along its last heading at its last speed to server time `t`. */
+function reckonTo(d: Departed, t: number): TierPoint {
+  const dt = (t - d.t) / 1000;
+  return { key: d.key, x: d.x + Math.cos(d.heading) * d.speed * dt, y: d.y + Math.sin(d.heading) * d.speed * dt, t };
 }
 
 /**
@@ -121,7 +150,14 @@ export class HandoffMarks {
 export class PlainContactStore {
   private buffers = new Map<string, SnapshotBuffer>();
   /** Handles that left the channel inside the last handoff window (their last pose). */
-  private departed: TierPoint[] = [];
+  private departed: Departed[] = [];
+  /**
+   * PLAIN RE-ENTRY (a one-frame dropout at an island edge / fog wobble): a new
+   * handle that took over a departed handle's history, new → old. One-shot,
+   * read by the view layer to carry the old view over instead of cross-fading
+   * two hulls on one spot; unread entries expire after `RETENTION_MS`.
+   */
+  private readonly carried = new Map<string, { from: string; t: number }>();
   /** Handles whose view must be born at full alpha (an outward handoff). */
   private readonly bornByHandoff = new HandoffMarks();
   /** Handles that became a full contact: their view goes at once, unfaded. */
@@ -136,7 +172,8 @@ export class PlainContactStore {
   pushFrame(t: number, rows: readonly PlainContact[] | undefined): TierPoint[] {
     const seen = new Set<string>();
     const appeared: TierPoint[] = [];
-    for (const r of rows ?? []) {
+    // A malformed `pc` (not a list) is "none" — never a throw that aborts the frame handler.
+    for (const r of Array.isArray(rows) ? (rows as readonly unknown[]) : []) {
       if (!validRow(r)) continue;
       seen.add(r.h);
       let buf = this.buffers.get(r.h);
@@ -150,13 +187,41 @@ export class PlainContactStore {
     this.departed = this.departed.filter((d) => t - d.t <= HANDOFF_WINDOW_MS);
     this.bornByHandoff.expire(t);
     this.retiredByHandoff.expire(t);
+    for (const [h, c] of this.carried) if (t - c.t > RETENTION_MS) this.carried.delete(h);
     for (const [h, buf] of this.buffers) {
       if (seen.has(h)) continue;
       const last = buf.newest;
-      if (last) this.departed.push(point(h, last));
+      if (last) this.departed.push(departedFrom(h, last, buf));
       this.buffers.delete(h);
     }
     return appeared;
+  }
+
+  /**
+   * PLAIN RE-ENTRY: pair each newly appeared handle in `appearing` (the ones
+   * no tier handoff claimed) with a handle that departed inside the handoff
+   * window at a CONSISTENT position — its last pose dead-reckoned by its last
+   * speed and heading to `t`, within one plain-hull length. The new handle
+   * inherits the departed one's history and is marked so its view carries over.
+   */
+  pairReentries(t: number, appearing: readonly TierPoint[]): void {
+    const projected = this.departed.map((d) => reckonTo(d, t));
+    for (const [h, old] of matchHandoff(appearing, projected)) {
+      const d = this.departed.find((x) => x.key === old);
+      const fresh = this.buffers.get(h)?.newest;
+      if (!d || !fresh) continue;
+      d.buf.push(fresh);
+      this.buffers.set(h, d.buf);
+      this.departed = this.departed.filter((x) => x.key !== old);
+      this.carried.set(h, { from: old, t });
+    }
+  }
+
+  /** One-shot: the departed handle whose view handle `h` carries over, if any. */
+  takeCarriedFrom(h: string): string | undefined {
+    const c = this.carried.get(h);
+    this.carried.delete(h);
+    return c?.from;
   }
 
   /** The handles that left inside the last handoff window, with their last pose. */
@@ -198,7 +263,9 @@ export class PlainContactStore {
   }
 }
 
-/** A row the client can draw: a string handle and a finite pose (fail closed). */
-function validRow(r: PlainContact): boolean {
-  return typeof r.h === 'string' && Number.isFinite(r.x + r.y + r.heading + r.speed);
+/** A row the client can draw: an object with a string handle and a finite numeric pose (fail closed). */
+function validRow(r: unknown): r is PlainContact {
+  if (r === null || typeof r !== 'object') return false;
+  const p = r as Partial<Record<keyof PlainContact, unknown>>;
+  return typeof p.h === 'string' && [p.x, p.y, p.heading, p.speed].every((n) => typeof n === 'number' && Number.isFinite(n));
 }

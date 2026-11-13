@@ -1,7 +1,8 @@
 // OTHER SHIPS' ENGINES (Story 10.13; Eric "make it realistic", 2026-11-11 —
 // your own machinery drowns them out): only hulls in the contact store (the
 // true-sight gate, never radar blips), heard only close alongside
-// (`closeAlongside01` over the real sight radius), the nearest
+// (`closeAlongside01` over `CLIENT_CONFIG.audio.remoteEngineHearU`, the
+// pre-11.2 sight size kept as a feel knob — never the 200 hm eye reach), the nearest
 // `remoteEngineVoices` of them.
 //
 // HYSTERESIS (review P15): a hull hovering at the close-alongside cutoff, or
@@ -11,7 +12,7 @@
 // `SWAP_MARGIN`; and a hull whose voice is still fading out is not given a
 // second one until the fade is over.
 
-import { CONFIG, type ShipClassId } from '@salvo/shared';
+import type { ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { hullTopSpeed } from '../sim/hullKinematics.js';
 import { CLOSE_ALONGSIDE_CUTOFF, closeAlongside01, type EngineProfile } from './engine.js';
@@ -116,7 +117,8 @@ export class RemoteEngines {
     if (!bus || !listener) return this.releaseAll(bus?.ctx.currentTime);
     const now = bus.ctx.currentTime;
     for (const [id, until] of this.fading) if (until <= now) this.fading.delete(id);
-    const mix = audibleHulls(listener, hulls, CONFIG.vision.sight, CLIENT_CONFIG.audio.remoteEngineVoices, new Set(this.voices.keys()));
+    const a = CLIENT_CONFIG.audio;
+    const mix = audibleHulls(listener, hulls, a.remoteEngineHearU, a.remoteEngineVoices, new Set(this.voices.keys()));
     const keep = new Set(mix.map((m) => `${m.id}|${m.cls}`));
     for (const [id, v] of this.voices) if (!keep.has(`${id}|${v.cls}`)) this.release(id, now);
     for (const m of mix) this.drive(bus, m);

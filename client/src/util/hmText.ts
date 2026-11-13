@@ -25,6 +25,17 @@ export function hmText(u: number): string {
   return formatHm(u);
 }
 
+/** `text` with its trailing `unit` — or '' when `text` is '' (a non-finite
+ *  value fails closed to an EMPTY readout, never a bare unit). */
+export function withUnit(text: string, unit: string): string {
+  return text === '' ? '' : text + unit;
+}
+
+/** A distance in u as hectometer text WITH the unit (`380 hm`); '' when non-finite. */
+export function hmWithUnit(u: number): string {
+  return withUnit(hmText(u), HM_UNIT);
+}
+
 /**
  * The stat-table fields that ARE distances (u in the sim) and print through
  * `hmText` + `HM_UNIT`: a weapon's reach and a torpedo's run, then every

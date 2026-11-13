@@ -57,7 +57,7 @@ import { relationOf, relationStroke, relationStyle, type Relation } from './rend
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
-import { Projectiles, type OwnFire } from './render/projectiles.js';
+import { Projectiles, ownReachFromStats, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs, type MainBatteryView } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint, type PreviewShip } from './render/aimPreview.js';
 import { batteryClampMark, clickInArc, isTorpedoItem, mainBatteryAim, weaponReachU } from './render/weaponArc.js';
@@ -3004,6 +3004,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shif
     lightTorpedo: stats.equipment.lightTorpedo.homingTurnRate > 0,
     heavyTorpedo: stats.equipment.heavyTorpedo.homingTurnRate > 0,
   });
+  // Story 11.2: an own track's lifetime comes from its own weapon's reach /
+  // its own fish's run (the owner is not always sent his own boom).
+  g.projectiles.setOwnReach(ownReachFromStats(stats));
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);

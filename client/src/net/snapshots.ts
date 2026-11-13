@@ -63,6 +63,10 @@ export class ContactStore {
         this.buffers.set(c.id, buf);
         appeared.push({ key: c.id, x: c.x, y: c.y, t });
         this.retiredByHandoff.forget(c.id); // back on the wire: a stale retire mark must not kill its new view
+      } else if (this.missedPreviousFrame(c.id)) {
+        // A QUICK RE-ENTRY: the id still holds a TTL buffer from an earlier
+        // disappearance, but for the handoff it is appearing on this frame.
+        appeared.push({ key: c.id, x: c.x, y: c.y, t });
       }
       buf.push({ t, x: c.x, y: c.y, heading: c.heading, speed: c.speed });
       this.lastSeen.set(c.id, t);
@@ -76,6 +80,16 @@ export class ContactStore {
     this.retiredByHandoff.expire(t);
     const plainAppeared = this.plain.pushFrame(t, pc);
     this.handoff(t, appeared, plainAppeared);
+    this.prevT = t;
+  }
+
+  /** Server time of the previous frame (undefined before the first). */
+  private prevT: number | undefined;
+
+  /** True when `id` was not on the previous frame (read before this frame's `lastSeen` update). */
+  private missedPreviousFrame(id: string): boolean {
+    const seen = this.lastSeen.get(id);
+    return this.prevT !== undefined && seen !== undefined && seen < this.prevT;
   }
 
   /**
@@ -84,25 +98,35 @@ export class ContactStore {
    * the contact's view is born at full alpha; OUTWARD, a new plain handle near
    * a contact that stopped arriving inside the handoff window → the contact is
    * dropped now (its view goes at once) and the handle's view is born at full
-   * alpha. One hull on screen across the swap, never two.
+   * alpha. One hull on screen across the swap, never two. The server swaps
+   * tiers ATOMICALLY, so outward pairs only with a contact that disappeared on
+   * THIS frame. A new plain handle no handoff claimed then tries a PLAIN
+   * RE-ENTRY (a one-frame dropout under a new handle — the view carries over).
    */
   private handoff(t: number, appeared: readonly TierPoint[], plainAppeared: readonly TierPoint[]): void {
     for (const [id, h] of matchHandoff(appeared, this.plain.recentlyDeparted())) {
       this.plain.retire(h, t);
       this.bornByHandoff.add(id, t);
     }
-    for (const [h, id] of matchHandoff(plainAppeared, this.goneContacts(t))) {
+    const claimed = new Set<string>();
+    for (const [h, id] of matchHandoff(plainAppeared, this.goneThisFrame())) {
       this.drop(id);
       this.retiredByHandoff.add(id, t);
       this.plain.markBornByHandoff(h, t);
+      claimed.add(h);
     }
+    this.plain.pairReentries(
+      t,
+      plainAppeared.filter((p) => !claimed.has(p.key)),
+    );
   }
 
-  /** Contacts that did not arrive on the frame at `t` (newest pose each). */
-  private goneContacts(t: number): TierPoint[] {
+  /** Contacts that were on the previous frame and are missing from this one (newest pose each). */
+  private goneThisFrame(): TierPoint[] {
     const out: TierPoint[] = [];
+    if (this.prevT === undefined) return out;
     for (const [id, seen] of this.lastSeen) {
-      const last = seen < t ? this.buffers.get(id)?.newest : undefined;
+      const last = seen === this.prevT ? this.buffers.get(id)?.newest : undefined;
       if (last) out.push({ key: id, x: last.x, y: last.y, t: seen });
     }
     return out;

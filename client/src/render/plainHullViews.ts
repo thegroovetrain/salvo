@@ -52,12 +52,22 @@ export class PlainHullViews {
   }
 
   private viewFor(h: string, store: PlainContactStore): FadingPlain {
-    let fp = this.views.get(h);
+    let fp = this.views.get(h) ?? this.carryOver(h, store);
     if (!fp) {
       fp = { view: new PlainHullView(), fader: new Fader(store.takeBornByHandoff(h)) };
       this.layer.addChild(fp.view.gfx);
       this.views.set(h, fp);
     }
+    return fp;
+  }
+
+  /** PLAIN RE-ENTRY: re-key the departed handle's view to `h` (one hull, never two). */
+  private carryOver(h: string, store: PlainContactStore): FadingPlain | undefined {
+    const from = store.takeCarriedFrom(h);
+    const fp = from === undefined ? undefined : this.views.get(from);
+    if (from === undefined || !fp) return undefined;
+    this.views.delete(from);
+    this.views.set(h, fp);
     return fp;
   }
 }

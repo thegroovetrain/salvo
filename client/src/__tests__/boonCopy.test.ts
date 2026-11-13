@@ -235,6 +235,12 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   // Eric 2026-11-05: the `C` / `V` tooltip ends on a cooldown row in the Shift
   // tooltip's reload-row grammar (same label, same printer), valued off shared
   // `abilityCooldownMs`.
+  it('a non-finite distance row prints empty, never a bare unit (Story 11.2 gate C5)', () => {
+    const broken = { ...bare, smoke: { ...bare.smoke, r0: Number.NaN, r1: Number.NaN } };
+    const cloud = abilityStatRows('smoke', broken)[1];
+    expect(cloud.next).toBe('');
+  });
+
   it('abilityStatRows ends on the cooldown row, valued off abilityCooldownMs, in the Shift reload grammar', () => {
     const shiftReload = equipmentStatRows('instantReload', effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [])).at(-1)!;
     for (const id of ['repair', 'smoke'] as const) {

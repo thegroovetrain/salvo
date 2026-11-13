@@ -2,9 +2,21 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
-import { CONFIG, FLASH_WINDOW_MS, whiteoutReach, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_CLASS_ID,
+  FLASH_WINDOW_MS,
+  effectiveStats,
+  mapRadius,
+  whiteoutReach,
+  type BallisticEvent,
+  type TorpedoUpdateEvent,
+} from '@salvo/shared';
 import {
   MAX_OWN_CLAIMS,
+  OWN_LIFETIME_SLACK_MS,
+  ownReachFromStats,
+  trackExpiresAt,
   Projectiles,
   cullRadiusSq,
   revealReachU,
@@ -743,5 +755,77 @@ describe('shell looks by the reveal family `w` (Story 8.15)', () => {
     expect(p.lookOf('c1')).toBe('shell');
     p.onShell({ k: 'shell', id: 'f1', x: 0, y: 0, vx: 500, vy: 0, t: 0, w: 'flak' });
     expect(p.lookOf('f1')).toBe('shell');
+  });
+});
+
+// --- STORY 11.2 (gate C1): AN OWN TRACK RETIRES ON THE FIRER'S OWN KNOWLEDGE ---
+//
+// The owner is not always sent his own boom (out of eye reach, behind an
+// island, in fog, flash-blinded), and an own track is never culled by eye
+// reach — so without its own bound it ghosted for the whole map-crossing
+// backstop. Contract: an own track lives exactly as long as its round can
+// travel (`reach / speed` from launch, plus `OWN_LIFETIME_SLACK_MS`), off the
+// own stats row; it is never culled before that; it stops feeding the wake on
+// expiry; a steer never extends it.
+describe('own track lifetime (Story 11.2, C1)', () => {
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
+  const reach = ownReachFromStats(stats);
+  const MAP = mapRadius(CONFIG.map.playerCap);
+  const farOwn = { x: -CONFIG.vision.torpedoSight * 10, y: 0 }; // the firer sailed far away: eye reach never applies
+
+  const ownFish = (): { p: Projectiles; endMs: number } => {
+    const p = new Projectiles(MAP, new Container());
+    p.setOwnReach(reach);
+    const row = stats.equipment.heavyTorpedo;
+    p.onShell({ k: 'torp', id: 'f', x: 0, y: 0, vx: row.speed, vy: 0, t: 0 }, 'heavyTorpedo', 'heavyTorpedo');
+    return { p, endMs: (row.runU / row.speed) * 1000 };
+  };
+
+  it('an own torpedo lives through its run and retires a few ticks after it — not at the map backstop', () => {
+    const { p, endMs } = ownFish();
+    expect(endMs + OWN_LIFETIME_SLACK_MS).toBeLessThan(maxLifetimeMs(MAP, stats.equipment.heavyTorpedo.speed));
+    p.render(endMs, farOwn, []);
+    expect(p.liveCount).toBe(1); // never culled for leaving eye reach
+    expect(p.torpWakeHulls(endMs)).toHaveLength(1);
+    const after = endMs + OWN_LIFETIME_SLACK_MS + 1;
+    expect(p.torpWakeHulls(after)).toHaveLength(0); // the wake pull runs BEFORE render: it must already stop
+    p.render(after, farOwn, []);
+    expect(p.liveCount).toBe(0);
+  });
+
+  it('a steer mid-run never extends an own fish past its launch-time run', () => {
+    const { p, endMs } = ownFish();
+    const mid = endMs / 2;
+    const v = stats.equipment.heavyTorpedo.speed;
+    p.onBallisticUpdate({ k: 'torpU', id: 'f', x: (v * mid) / 1000, y: 0, vx: 0, vy: v, t: mid });
+    p.render(endMs + OWN_LIFETIME_SLACK_MS + 1, farOwn, []);
+    expect(p.liveCount).toBe(0);
+  });
+
+  it('an own shell lives its own weapon reach / speed, then retires without a boom', () => {
+    const p = new Projectiles(MAP, new Container());
+    p.setOwnReach(reach);
+    const speed = CONFIG.mainBattery.shellSpeed;
+    p.onShell({ k: 'shell', id: 's', x: 0, y: 0, vx: speed, vy: 0, t: 0 }, 'mainBattery', 'mainBattery');
+    const endMs = (stats.equipment.mainBattery.rangeU / speed) * 1000;
+    p.render(endMs, farOwn, []);
+    expect(p.liveCount).toBe(1);
+    p.render(endMs + OWN_LIFETIME_SLACK_MS + 1, farOwn, []);
+    expect(p.liveCount).toBe(0);
+  });
+
+  it('an enemy track (and an own one before the first stats) keeps the map backstop', () => {
+    const v = stats.equipment.heavyTorpedo.speed;
+    expect(trackExpiresAt(0, v, null, reach, MAP)).toBe(maxLifetimeMs(MAP, v));
+    expect(trackExpiresAt(0, v, 'heavyTorpedo', {}, MAP)).toBe(maxLifetimeMs(MAP, v));
+  });
+
+  it("ownReachFromStats: each torpedo line's run, and the 'gun' fallback reaches at least every shell mount", () => {
+    expect(reach.heavyTorpedo).toBe(stats.equipment.heavyTorpedo.runU);
+    expect(reach.lightTorpedo).toBe(stats.equipment.lightTorpedo.runU);
+    expect(reach.supercavTorpedo).toBe(stats.equipment.supercavTorpedo.runU);
+    const shellMounts = ['mainBattery', 'broadside', 'flak', 'machineGun', 'starShells', 'phosphorShells', 'foulingShell', 'dazzleShells'] as const;
+    for (const k of shellMounts) expect(reach.gun).toBeGreaterThanOrEqual(reach[k] ?? Infinity);
+    expect(reach.gun).toBeGreaterThanOrEqual(stats.secondaryRangeU);
   });
 });

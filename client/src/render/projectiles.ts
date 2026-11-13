@@ -11,7 +11,11 @@
 //       deriving it from the event's own velocity keeps it correct for free as
 //       gun range / torpedo speed become upgradeable (Stage D). This bounds a
 //       reveal whose boom we never see (fired at us from fog, then it leaves and
-//       detonates unseen);
+//       detonates unseen). A track believed OURS is bounded by the firer's own
+//       knowledge instead (Story 11.2): `t0 + reach / speed` + a few ticks,
+//       the reach being its own weapon's range or its own fish's run off the
+//       own stats row (`trackExpiresAt`) — the owner is not always sent his
+//       own boom, and his track is never culled by eye reach;
 //   (c) reveal-ring cull: an ENEMY track's dead-reckoned position leaves the
 //       eye reach the server reveals it within (+ margin) — `shellSight` for a
 //       shell, the much shorter `torpedoSight` for a torpedo (Story 11.2, R18;
@@ -33,6 +37,7 @@ import {
   type BallisticEvent,
   type BoomEvent,
   type BurstEvent,
+  type EffectiveStats,
   type TorpedoUpdateEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -241,6 +246,61 @@ export function maxLifetimeMs(mapRadius: number, speed: number): number {
   return ((2 * mapRadius + LIFETIME_MARGIN) / speed) * 1000;
 }
 
+/**
+ * u — THE FURTHEST EACH OWN WEAPON'S ROUND CAN TRAVEL, off the own stats row
+ * (main.applyOwnStats → `setOwnReach`; build it with `ownReachFromStats`): a
+ * shell weapon's `rangeU` (its max travel / aim clamp), a torpedo line's
+ * `runU` (its total run). Self-private knowledge — the firer knows his own
+ * gun's reach and his own fish's run. A weapon missing here has no own bound.
+ */
+export type OwnReach = Readonly<Partial<Record<NonNullable<OwnFire>, number>>>;
+
+/** ms — slack on an own track's lifetime: a few sim ticks of server-side
+ *  quantization (launch tick, splash tick) so it never retires early. */
+export const OWN_LIFETIME_SLACK_MS = 3 * CONFIG.tick.simDtMs;
+
+/**
+ * Pure: the own-reach table from an effective stats row. The `'gun'` label is
+ * also roomBindings' FALLBACK for any unclaimed shell surfacing on our hull (a
+ * salvo's sister shells, a secondary round), so it takes the LONGEST reach of
+ * every shell-firing mount — an upper bound, never an early retire.
+ */
+export function ownReachFromStats(stats: EffectiveStats): OwnReach {
+  const eq = stats.equipment;
+  const shells = {
+    mainBattery: eq.mainBattery.rangeU,
+    broadside: eq.broadside.rangeU,
+    flak: eq.flak.rangeU,
+    machineGun: eq.machineGun.rangeU,
+    starShells: eq.starShells.rangeU,
+    phosphorShells: eq.phosphorShells.rangeU,
+    foulingShell: eq.foulingShell.rangeU,
+    dazzleShells: eq.dazzleShells.rangeU,
+  };
+  return {
+    ...shells,
+    gun: Math.max(eq.gun.rangeU, stats.secondaryRangeU, ...Object.values(shells)),
+    lightTorpedo: eq.lightTorpedo.runU,
+    heavyTorpedo: eq.heavyTorpedo.runU,
+    supercavTorpedo: eq.supercavTorpedo.runU,
+  };
+}
+
+/**
+ * Pure: the server time a NEW track retires at. A track believed OURS whose
+ * weapon has an own reach lives exactly as long as its round can travel —
+ * `t0 + reach / speed` plus `OWN_LIFETIME_SLACK_MS` — because the owner is not
+ * always sent the terminal boom (out of eye reach, behind an island, in fog,
+ * flash-blinded) and an own track is never culled by eye reach. Everything else
+ * (an enemy's, or an own track before the first stats land) takes the
+ * map-crossing backstop `maxLifetimeMs`.
+ */
+export function trackExpiresAt(t0: number, speed: number, own: OwnFire, reach: OwnReach, mapRadius: number): number {
+  const travelU = own === null ? undefined : reach[own];
+  if (travelU === undefined || !(speed > 0)) return t0 + maxLifetimeMs(mapRadius, speed);
+  return t0 + (travelU / speed) * 1000 + OWN_LIFETIME_SLACK_MS;
+}
+
 /** Cull a dead-reckoned shell once it is this far outside its reveal ring (u). */
 const SIGHT_CULL_MARGIN = 40; // u
 
@@ -422,7 +482,9 @@ export class Projectiles {
   torpWakeHulls(serverNow: number): WakeHull[] {
     const out: WakeHull[] = [];
     for (const [id, s] of this.live) {
-      if (s.kind !== 'torp') continue;
+      // A retired-by-time fish stops laying water on the frame it expires,
+      // even though `render()` (which removes it) runs after this pull.
+      if (s.kind !== 'torp' || serverNow >= s.expiresAt) continue;
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
       const speed = Math.hypot(s.vx, s.vy);
       out.push({
@@ -444,6 +506,7 @@ export class Projectiles {
   drawnBallistics(serverNow: number): { id: string; kind: string; x: number; y: number }[] {
     const out: { id: string; kind: string; x: number; y: number }[] = [];
     for (const [id, s] of this.live) {
+      if (serverNow >= s.expiresAt) continue; // retired by time (see torpWakeHulls)
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
       out.push({ id, kind: s.kind, x: p.x, y: p.y });
     }
@@ -480,6 +543,15 @@ export class Projectiles {
    *  launched with, which is also what the server's already-fired ordnance does. */
   setOwnModes(modes: OwnModes): void {
     this.ownModes = { ...modes };
+  }
+
+  /** The own weapons' max travel (`ownReachFromStats`), fanned in beside the
+   *  modes. Bounds tracks revealed FROM NOW ON (`trackExpiresAt`); empty until
+   *  the first authoritative `you` lands, which leaves the map backstop. */
+  private ownReach: OwnReach = {};
+
+  setOwnReach(reach: OwnReach): void {
+    this.ownReach = { ...reach };
   }
 
   /** Number of projectiles currently tracked (test/diagnostic observability). */
@@ -591,7 +663,7 @@ export class Projectiles {
       vx: ev.vx,
       vy: ev.vy,
       t0: ev.t,
-      expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
+      expiresAt: trackExpiresAt(ev.t, Math.hypot(ev.vx, ev.vy), attributed, this.ownReach, this.mapRadius),
       own: attributed,
     };
     this.live.set(ev.id, s);
@@ -639,8 +711,19 @@ export class Projectiles {
     s.vx = ev.vx;
     s.vy = ev.vy;
     s.t0 = ev.t;
-    s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
+    s.expiresAt = this.reanchoredExpiry(s, ev);
     aimTracer(s.gfx, s.look, ev);
+  }
+
+  /**
+   * The expiry of a HELD track re-anchored at `ev`: an enemy's re-derives the
+   * map backstop from the new speed; an OWN track keeps the bound it launched
+   * with (its run is counted from launch, so a steer never extends it), capped
+   * by the new backstop.
+   */
+  private reanchoredExpiry(s: LiveShell, ev: { vx: number; vy: number; t: number }): number {
+    const backstop = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
+    return s.own === null ? backstop : Math.min(s.expiresAt, backstop);
   }
 
   /**
@@ -699,13 +782,14 @@ export class Projectiles {
    * a per-track counter that a steer would invalidate.
    */
   onBallisticUpdate(ev: TorpedoUpdateEvent): void {
-    const s = this.live.get(ev.id) ?? this.spawnFromUpdate(ev);
+    const held = this.live.get(ev.id);
+    const s = held ?? this.spawnFromUpdate(ev);
+    if (held) s.expiresAt = this.reanchoredExpiry(held, ev);
     s.x0 = ev.x;
     s.y0 = ev.y;
     s.vx = ev.vx;
     s.vy = ev.vy;
     s.t0 = ev.t;
-    s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
     // STORY 2.9 — a track that STEERS is a homing track, for everyone. This is
     // the enemy-side ACOUSTIC HOMING tell, and it leaks nothing: the steer is
     // already on screen (the fish visibly turns), so styling it only names what
@@ -729,6 +813,7 @@ export class Projectiles {
     const gfx = this.pool.acquire();
     this.paint(gfx, 'torpHoming'); // only a steering fish ever arrives this way
     gfx.visible = true;
+    const own = this.claims.get(ev.id) ?? null; // ours only on a genuine launch claim
     const s: LiveShell = {
       gfx,
       kind: 'torp',
@@ -738,8 +823,8 @@ export class Projectiles {
       vx: ev.vx,
       vy: ev.vy,
       t0: ev.t,
-      expiresAt: ev.t,
-      own: this.claims.get(ev.id) ?? null, // ours only on a genuine launch claim
+      expiresAt: trackExpiresAt(ev.t, Math.hypot(ev.vx, ev.vy), own, this.ownReach, this.mapRadius),
+      own,
     };
     this.live.set(ev.id, s);
     return s;

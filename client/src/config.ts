@@ -801,6 +801,11 @@ export const CLIENT_CONFIG = {
     grindCuePeriodMs: 1000,
     /** Other ships' engines heard at once (the nearest audible hulls). */
     remoteEngineVoices: 3,
+    /** u — the radius other ships' engines are heard over (`closeAlongside01`
+     *  scales by it; heard only inside its close-alongside share). A FEEL knob:
+     *  today's size kept as `FEEL_SIGHT_U` when Story 11.2 moved the eye reach to
+     *  200 hm (R20 reading, 2026-11-12) — never the gameplay sight. */
+    remoteEngineHearU: FEEL_SIGHT_U,
     /** ms — a smoke cloud sounds its deploy hiss only when first seen within
      *  this long of its birth (a cloud first painted later is old news). */
     smokeCueFreshMs: 1000,
