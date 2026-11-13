@@ -218,3 +218,84 @@ export function series(values) {
 }
 
 export const round = (v, d = 2) => (v === null || v === undefined ? null : Number(v.toFixed(d)));
+
+// ---------------------------------------------------------------------------
+// EVERY BROWSER A SCRIPT LAUNCHES IS MUTED (Eric, 2026-11-13: test browsers were
+// playing game sound out loud on his machine). Two layers, both always on:
+//   1. the engine's own switch — Chromium `--mute-audio`, Firefox
+//      `media.volume_scale = 0.0`; WebKit has none, so it is forced headless;
+//   2. `muteAudio`, an init script in every page: each REALTIME AudioContext's
+//      destination is reached through a gain-0 node instead (AudioNode
+//      `connect` / `disconnect` re-routed), so the game's whole audio graph is
+//      still built and runs — only silently. OfflineAudioContext renders (the
+//      sound audition self-test) are untouched: they never reach a speaker.
+//      Media elements are muted on play.
+
+/** Init script: silence every realtime audio context and media element in the page. */
+export function muteAudio() {
+  try {
+    const Rt = window.AudioContext ?? window.webkitAudioContext;
+    const P = window.AudioNode?.prototype;
+    if (Rt && P && !P.__hcMuted) {
+      P.__hcMuted = true;
+      const connect = P.connect;
+      const disconnect = P.disconnect;
+      const sinks = new WeakMap();
+      const sinkFor = (dest) => {
+        let g = sinks.get(dest);
+        if (!g) {
+          g = dest.context.createGain();
+          g.gain.value = 0;
+          connect.call(g, dest);
+          sinks.set(dest, g);
+        }
+        return g;
+      };
+      const isLive = (t) => t instanceof AudioDestinationNode && t.context instanceof Rt;
+      P.connect = function (target, ...rest) {
+        if (!isLive(target)) return connect.call(this, target, ...rest);
+        connect.call(this, sinkFor(target), ...rest);
+        return target; // keep connect()'s chaining contract
+      };
+      P.disconnect = function (target, ...rest) {
+        if (target === undefined) return disconnect.call(this);
+        return disconnect.call(this, isLive(target) ? sinkFor(target) : target, ...rest);
+      };
+    }
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (...a) {
+      this.muted = true;
+      return play.apply(this, a);
+    };
+  } catch {
+    /* muting must never break the page */
+  }
+}
+
+/** `opts` for `pw.mod[engine].launch`, with that engine's mute switch added. */
+export function mutedLaunchOptions(engine, opts = {}) {
+  if (engine === 'chromium') return { ...opts, args: [...(opts.args ?? []), '--mute-audio'] };
+  if (engine === 'firefox') return { ...opts, firefoxUserPrefs: { ...(opts.firefoxUserPrefs ?? {}), 'media.volume_scale': '0.0' } };
+  return { ...opts, headless: true }; // webkit: no mute switch — never headed
+}
+
+/**
+ * Launch `engine` muted: the engine switch, plus `muteAudio` installed in every
+ * context the returned browser makes (`newContext` and `newPage` alike).
+ */
+export async function launchMuted(pw, engine, opts = {}) {
+  const browser = await pw.mod[engine].launch(mutedLaunchOptions(engine, opts));
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (o) => {
+    const ctx = await newContext(o);
+    await ctx.addInitScript(muteAudio);
+    return ctx;
+  };
+  browser.newPage = async (o) => {
+    const ctx = await browser.newContext(o);
+    const page = await ctx.newPage();
+    page.on('close', () => { ctx.close().catch(() => {}); });
+    return page;
+  };
+  return browser;
+}

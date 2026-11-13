@@ -14,8 +14,21 @@
 // freezes. Our listener also runs at the default UPDATE_PRIORITY.NORMAL while
 // Pixi's own renderer sits at LOW, so the throw pre-empts rendering too.
 // Everything below exists to make a frame-path throw cost ONE FRAME.
+//
+// PIXI'S OWN RENDER IS A FRAME PATH TOO (Story 11.2 follow-up 3). The
+// Application's TickerPlugin registers `app.render` on the same ticker at LOW,
+// UNGUARDED — and a throw inside the scene's render (a live alpha mask whose
+// texture source was destroyed: the mask pipe reads a nulled bind group) killed
+// the ticker exactly as above, in play. `containAppRender` swaps that listener
+// for a guarded one at the same priority, so the order is unchanged (our sim +
+// render callbacks at NORMAL, then Pixi draws at LOW) and a render throw costs
+// that frame's picture only: the next frame is still requested, the sim still
+// steps, and `simTick` — which samples and SENDS the input — never waits on a
+// successful draw. It is installed once per app (stage.ts, so the home screen
+// is covered too); while a game loop runs, its failures go through that game's
+// `onError` under the phase 'pixiRender', rate-limited like the others.
 
-import type { Application, Ticker } from 'pixi.js';
+import { UPDATE_PRIORITY, type Application, type Ticker } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 
 const SIM_DT = CONFIG.tick.simDtMs / 1000; // s
@@ -23,7 +36,7 @@ const MAX_FRAME_DT = 0.25; // s — spiral-of-death clamp
 
 /** Which half of the frame threw — passed to the caller's error hook and used
  *  as the log's rate-limit key. */
-export type LoopPhase = 'simTick' | 'render';
+export type LoopPhase = 'simTick' | 'render' | 'pixiRender';
 
 /** Distinct error signatures to report before going quiet. A frame-path throw
  *  usually repeats EVERY frame, so an unbounded log is its own outage; the cap
@@ -49,9 +62,37 @@ export interface LoopCallbacks {
   onError?(err: unknown, phase: LoopPhase): void;
 }
 
+/** The one part of the callbacks the reporter reads. */
+type Reporter = Pick<LoopCallbacks, 'onError'>;
+
+/** Who hears a contained Pixi render failure, and what it already said. */
+interface RenderGuard {
+  cb: Reporter;
+  reported: Set<string>;
+}
+
+const renderGuards = new WeakMap<Application, RenderGuard>();
+
+/**
+ * Replace the Application's own render listener with a GUARDED one at the same
+ * LOW priority (see the header). Idempotent per app; returns the guard's
+ * reporter slot, which `startLoop` points at the running game's `onError`.
+ * With no game running a failure is logged once per distinct message.
+ */
+export function containAppRender(app: Application): RenderGuard {
+  const known = renderGuards.get(app);
+  if (known !== undefined) return known;
+  const g: RenderGuard = { cb: {}, reported: new Set() };
+  const draw = (): void => guard(() => app.render(), 'pixiRender', g.cb, g.reported);
+  app.ticker.remove(app.render, app);
+  app.ticker.add(draw, undefined, UPDATE_PRIORITY.LOW);
+  renderGuards.set(app, g);
+  return g;
+}
+
 /** Run `fn`, containing and reporting any throw. Returns nothing — the frame
  *  simply loses that half of its work. */
-function guard(fn: () => void, phase: LoopPhase, cb: LoopCallbacks, reported: Set<string>): void {
+function guard(fn: () => void, phase: LoopPhase, cb: Reporter, reported: Set<string>): void {
   try {
     fn();
   } catch (err) {
@@ -83,7 +124,7 @@ function reportKey(err: unknown, phase: LoopPhase): string {
  * inside the try too. The last-resort fallback deliberately logs NO part of
  * `err`: at that point we have proven that touching it throws.
  */
-function report(err: unknown, phase: LoopPhase, cb: LoopCallbacks, reported: Set<string>): void {
+function report(err: unknown, phase: LoopPhase, cb: Reporter, reported: Set<string>): void {
   try {
     const key = reportKey(err, phase);
     if (reported.has(key)) return;
@@ -140,5 +181,14 @@ export function startLoop(app: Application, cb: LoopCallbacks): () => void {
     guard(() => cb.render(accumulator / SIM_DT, frameDt), 'render', cb, reported);
   };
   app.ticker.add(tick);
-  return () => app.ticker.remove(tick);
+  // Pixi's own draw reports through THIS game while it runs (same rate limit).
+  const rg = containAppRender(app);
+  rg.cb = cb;
+  rg.reported = reported;
+  return () => {
+    app.ticker.remove(tick);
+    if (rg.cb !== cb) return;
+    rg.cb = {};
+    rg.reported = new Set();
+  };
 }

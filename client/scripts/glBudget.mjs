@@ -43,18 +43,11 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { REPO, serveDir, loadPlaywright } from './perfLib.mjs';
+import { REPO, serveDir, loadPlaywright, launchMuted } from './perfLib.mjs';
+import { BACKING_FACTOR, CONSOLE_BAD, instrument, judgeGlRecord } from './glProbe.mjs';
 
 const DIST = join(REPO, 'client', 'dist-perf');
 
-/**
- * THE NAMED MARGIN. Pixi's `TexturePool` rounds every filter / mask target up
- * to the next power of two per side, so a pass exactly the size of the screen
- * can legitimately be up to (just under) twice the backing's longer side. Twice
- * the longer backing side is therefore the smallest budget a correct client can
- * meet, and anything world-sized blows straight through it.
- */
-const BACKING_FACTOR = 2;
 
 const DPRS = [1, 2];
 const VIEWPORTS = [
@@ -71,92 +64,6 @@ const DEFAULT_ARGS = process.platform === 'darwin'
   ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
   : ['--enable-unsafe-swiftshader'];
 
-/** Injected before any page script: wraps the WebGL2 prototype. */
-function instrument() {
-  const rec = (window.__glb = { allocs: [], incomplete: [], lost: [], limits: null, maxBacking: 0 });
-  const P = WebGL2RenderingContext.prototype;
-  const dirty = new WeakSet();
-  const backing = () => {
-    let m = 0;
-    for (const c of document.querySelectorAll('canvas')) m = Math.max(m, c.width, c.height);
-    rec.maxBacking = Math.max(rec.maxBacking, m);
-    return m;
-  };
-  const note = (gl, kind, w, h, extra) => {
-    if (!rec.limits) {
-      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-      rec.limits = {
-        tex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
-        rb: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
-        renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
-      };
-    }
-    const b = backing();
-    rec.allocs.push({ kind, w, h, extra, backing: b, phase: window.__glbPhase ?? 'boot',
-      stack: Math.max(w, h) > 4096 ? String(new Error().stack).split('\n').slice(2, 12).join(' | ') : undefined });
-  };
-  const wrap = (name, pick, after) => {
-    const orig = P[name];
-    P[name] = function (...a) {
-      try {
-        const s = pick(a);
-        if (s) note(this, name, s[0], s[1], s[2]);
-      } catch { /* the probe must never break the page */ }
-      const r = orig.apply(this, a);
-      if (after) after(this, a);
-      return r;
-    };
-  };
-  const markBound = (gl) => {
-    const fb = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
-    if (fb) dirty.add(fb);
-  };
-  wrap('texImage2D', (a) => (a.length >= 9 ? [a[3], a[4]] : null));
-  wrap('texStorage2D', (a) => [a[3], a[4]]);
-  wrap('renderbufferStorage', (a) => [a[2], a[3]]);
-  wrap('renderbufferStorageMultisample', (a) => [a[3], a[4], `samples=${a[1]}`]);
-  wrap('framebufferTexture2D', () => null, markBound);
-  wrap('framebufferRenderbuffer', () => null, markBound);
-  const check = function (gl) {
-    const fb = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
-    if (!fb || !dirty.has(fb)) return;
-    dirty.delete(fb);
-    const st = gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER);
-    if (st !== gl.FRAMEBUFFER_COMPLETE && rec.incomplete.length < 50) {
-      rec.incomplete.push({ status: `0x${st.toString(16)}`, phase: window.__glbPhase ?? 'boot' });
-    }
-  };
-  for (const name of ['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced', 'clear', 'blitFramebuffer']) {
-    const orig = P[name];
-    P[name] = function (...a) {
-      try { check(this); } catch { /* never break the page */ }
-      return orig.apply(this, a);
-    };
-  }
-  // Any storage change can change an attached framebuffer's completeness.
-  for (const name of ['texImage2D', 'texStorage2D', 'renderbufferStorage', 'renderbufferStorageMultisample']) {
-    const orig = P[name];
-    P[name] = function (...a) {
-      const r = orig.apply(this, a);
-      try { markBound(this); } catch { /* never break the page */ }
-      return r;
-    };
-  }
-  const gc = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function (type, ...r) {
-    const c = gc.call(this, type, ...r);
-    if (c && /webgl/.test(type) && !this.__glb) {
-      this.__glb = true;
-      this.addEventListener('webglcontextlost', () =>
-        rec.lost.push({ ev: 'lost', game: this.isConnected, phase: window.__glbPhase ?? 'boot' }));
-      this.addEventListener('webglcontextrestored', () =>
-        rec.lost.push({ ev: 'restored', game: this.isConnected, phase: window.__glbPhase ?? 'boot' }));
-    }
-    return c;
-  };
-}
-
-const CONSOLE_BAD = /framebuffer is incomplete|GL_OUT_OF_MEMORY|CONTEXT_LOST|context lost/i;
 
 async function phase(page, name, ms = SETTLE_MS) {
   await page.evaluate((n) => { window.__glbPhase = n; }, name);
@@ -222,17 +129,10 @@ function judge(run) {
   let worst = null;
   let renderer = null;
   for (const rec of run.recs) {
-    renderer ??= rec.limits?.renderer ?? null;
-    const budget = BACKING_FACTOR * rec.maxBacking;
-    for (const a of rec.allocs) {
-      const side = Math.max(a.w, a.h);
-      if (worst === null || side > Math.max(worst.w, worst.h)) worst = a;
-      if (side > budget) {
-        failures.push(`${a.kind} ${a.w}x${a.h}${a.extra ? ` ${a.extra}` : ''} in phase "${a.phase}" > ${BACKING_FACTOR} x backing ${rec.maxBacking} = ${budget}${a.stack ? `\n        at ${a.stack.slice(0, 600)}` : ''}`);
-      }
-    }
-    for (const f of rec.incomplete) failures.push(`incomplete framebuffer (status ${f.status}) in phase "${f.phase}"`);
-    for (const l of rec.lost) if (l.game && l.ev === 'lost') failures.push(`WebGL context lost in phase "${l.phase}"`);
+    const r = judgeGlRecord(rec);
+    renderer ??= r.renderer;
+    if (r.worst && (worst === null || Math.max(r.worst.w, r.worst.h) > Math.max(worst.w, worst.h))) worst = r.worst;
+    failures.push(...r.failures);
   }
   for (const b of run.bad) failures.push(`console: ${b}`);
   return { failures: [...new Set(failures)], worst, renderer };
@@ -254,7 +154,7 @@ async function main() {
   if (dump) mkdirSync(dump, { recursive: true });
   const args = process.env.HC_GL_ARGS ? process.env.HC_GL_ARGS.split(' ').filter(Boolean) : DEFAULT_ARGS;
   const { server, port } = await serveDir(DIST);
-  const browser = await pw.mod.chromium.launch({ headless: process.env.HC_GL_HEADFUL !== '1', args });
+  const browser = await launchMuted(pw, 'chromium', { headless: process.env.HC_GL_HEADFUL !== '1', args });
   let failed = 0;
   try {
     for (const dpr of DPRS) {

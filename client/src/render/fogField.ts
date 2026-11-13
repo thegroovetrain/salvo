@@ -22,6 +22,20 @@
 //   sprite placed at the raster origin in world units, scale = cellU. Between
 //   refreshes nothing moves: the fog's own motion is inside the field (its
 //   wind and spin terms), so the next refresh carries it.
+// - ONE SOURCE FOR THE VIEW'S LIFE (Story 11.2 follow-up 3, ruling R1). The
+//   density sprite is a LIVE alpha mask, and Pixi binds a sprite mask's own
+//   TextureSource into the pooled MaskFilter's bind group: destroying or
+//   replacing that source under it nulls the bind group and the next mask push
+//   throws inside Pixi's render (textures.ts `bakeDimMaskTexture` — "the
+//   frozen-client crash"). Story 11.2 sized the alive raster from the screen,
+//   so zooming or speeding up crossed a size step in play and re-allocated it.
+//   So the source is allocated ONCE at `DENSITY_TEXTURE_CELLS` (the largest n
+//   either view can ask for) and an n × n raster is written into its top-left
+//   corner (`packDensityRgba`), with the column / row just past it a copy of
+//   the raster's last one so LINEAR filtering inside the last cell clamps
+//   exactly as the texture edge used to. The sprite keeps the whole texture at
+//   scale = cellU, so cell (i, j) maps to the same world square as before;
+//   the wisps tile never reaches past the n × n corner, so the rest is unseen.
 // - THE WISPS: a TilingSprite of the pre-baked puff tile (render/fogPuffTile.ts,
 //   2 u per texel), alpha `maxAlpha`, world-anchored through `tilePosition`
 //   and scrolled with the field's local velocity at the view centre (wind +
@@ -79,6 +93,12 @@ export const FOG_HALO_MASK_LABEL = 'fogHaloMask';
 
 /** The most cells an ALIVE raster carries on a side (Story 11.2). */
 export const ALIVE_MAX_CELLS = 256;
+/**
+ * The density texture's side in texels: the largest raster n either view can
+ * ask for (`aliveRasterGeometry` keeps side / cell ≤ ALIVE_MAX_CELLS, so
+ * n ≤ ALIVE_MAX_CELLS + 1; a spectator's n is SPECTATOR_CELLS + 1).
+ */
+export const DENSITY_TEXTURE_CELLS = Math.max(ALIVE_MAX_CELLS, SPECTATOR_CELLS) + 1;
 /** u — the alive raster's screen-fit side is rounded UP to a multiple of this,
  *  so a hull moving under a still camera does not re-allocate it every frame. */
 const ALIVE_SIDE_QUANTUM_U = 512;
@@ -156,6 +176,33 @@ export function fillFogRaster(
   return any;
 }
 
+/**
+ * Pure: write the n × n `density` raster (row-major) into the top-left corner
+ * of the `side` × `side` rgba buffer `out` (white, alpha = density × 255),
+ * then — when there is room — copy the raster's last column into column n and
+ * its last row (and corner) into row n. The copy is what keeps LINEAR filtering
+ * inside the raster's last cell equal to the old clamp-to-edge look: the
+ * sampler blends cell n−1 with cell n, which now holds the same value.
+ */
+export function packDensityRgba(density: Float32Array, n: number, out: Uint8Array, side: number): void {
+  for (let j = 0; j < n; j++) {
+    const src = j * n;
+    const dst = j * side;
+    for (let i = 0; i < n; i++) writeTexel(out, (dst + i) * 4, density[src + i]);
+    if (n < side) writeTexel(out, (dst + n) * 4, density[src + n - 1]);
+  }
+  if (n >= side || n === 0) return;
+  const last = (n - 1) * side * 4;
+  out.copyWithin(n * side * 4, last, last + (n + 1) * 4);
+}
+
+function writeTexel(out: Uint8Array, k: number, d: number): void {
+  out[k] = 255;
+  out[k + 1] = 255;
+  out[k + 2] = 255;
+  out[k + 3] = Math.round(d * 255);
+}
+
 /** ((v mod p) + p) mod p — a non-negative remainder. */
 const wrap = (v: number, p: number): number => ((v % p) + p) % p;
 
@@ -195,11 +242,13 @@ export class FogFieldView {
   private cell: number = F.cellU;
   private ox = 0;
   private oy = 0;
+  /** Backing store at DENSITY_TEXTURE_CELLS²; `density` is its first n × n. */
+  private readonly densityStore = new Float32Array(DENSITY_TEXTURE_CELLS * DENSITY_TEXTURE_CELLS);
   private density = new Float32Array(0);
-  private rgba = new Uint8Array(0);
-  private source: BufferImageSource | null = null;
-  /** The live density texture (null before the first allocation — never Texture.EMPTY, which must not be destroyed). */
-  private densityTex: Texture | null = null;
+  /** The texture's pixels, DENSITY_TEXTURE_CELLS² rgba — never re-allocated. */
+  private readonly rgba = new Uint8Array(DENSITY_TEXTURE_CELLS * DENSITY_TEXTURE_CELLS * 4);
+  /** THE density source: built once in the constructor, never replaced or destroyed (R1). */
+  private readonly source: BufferImageSource;
   /** True while any raster cell is above 0 (the bitmap is "lit"). */
   private lit = false;
   private sinceRefresh = Number.POSITIVE_INFINITY;
@@ -226,7 +275,14 @@ export class FogFieldView {
     private readonly layer: Container,
     private readonly densityFn: FogDensityFn = fogDensityAt,
   ) {
-    this.densitySprite = new Sprite(Texture.EMPTY);
+    this.source = new BufferImageSource({
+      resource: this.rgba,
+      width: DENSITY_TEXTURE_CELLS,
+      height: DENSITY_TEXTURE_CELLS,
+      scaleMode: 'linear',
+      alphaMode: 'premultiply-alpha-on-upload',
+    });
+    this.densitySprite = new Sprite(new Texture({ source: this.source }));
     this.densitySprite.label = 'fogDensity';
     this.densitySprite.renderable = false; // a mask: transformed, never painted itself
     this.tile = new TilingSprite({ texture: wispsTexture(), width: 1, height: 1 });
@@ -389,7 +445,7 @@ export class FogFieldView {
     this.lit = false;
     this.density.fill(0);
     this.rgba.fill(0);
-    this.source?.update();
+    this.source.update();
   }
 
   /** The raster's centre: the own hull, else the screen's centre (spectator,
@@ -473,7 +529,8 @@ export class FogFieldView {
 
   /** Re-evaluate the raster around `c` and upload it. */
   private refresh(serverNow: number, c: { x: number; y: number }, n: number, cell: number): void {
-    if (n !== this.n) this.allocate(n);
+    if (n !== this.n) this.resize(n);
+    n = this.n;
     this.cell = cell;
     const lo = Math.floor(n / 2);
     this.ox = (Math.round(c.x / cell) - lo) * cell;
@@ -486,37 +543,20 @@ export class FogFieldView {
     this.refreshes++;
   }
 
-  /** (Re)allocate the raster buffers and texture for an n × n grid (a halo change only). */
-  private allocate(n: number): void {
-    this.n = n;
-    this.density = new Float32Array(n * n);
-    this.rgba = new Uint8Array(n * n * 4);
-    const old = this.source;
-    const oldTex = this.densityTex;
-    this.source = new BufferImageSource({
-      resource: this.rgba,
-      width: n,
-      height: n,
-      scaleMode: 'linear',
-      alphaMode: 'premultiply-alpha-on-upload',
-    });
-    this.densityTex = new Texture({ source: this.source });
-    this.densitySprite.texture = this.densityTex;
-    oldTex?.destroy(false); // the wrapper; its source goes on the next line
-    old?.destroy();
+  /**
+   * Point the raster at an n × n grid inside the one backing store. The
+   * texture source is NOT touched — it is a live mask's (R1); only the CPU-side
+   * view changes, and the next upload writes the new corner.
+   */
+  private resize(n: number): void {
+    this.n = Math.min(n, DENSITY_TEXTURE_CELLS);
+    this.density = this.densityStore.subarray(0, this.n * this.n);
   }
 
-  /** Density → rgba (white, alpha = density) → the GPU. */
+  /** Density → rgba (white, alpha = density) in the texture's corner → the GPU. */
   private upload(): void {
-    const { density, rgba } = this;
-    for (let i = 0; i < density.length; i++) {
-      const k = i * 4;
-      rgba[k] = 255;
-      rgba[k + 1] = 255;
-      rgba[k + 2] = 255;
-      rgba[k + 3] = Math.round(density[i] * 255);
-    }
-    this.source?.update();
+    packDensityRgba(this.density, this.n, this.rgba, DENSITY_TEXTURE_CELLS);
+    this.source.update();
   }
 
   /** Size the wisps to (raster rect ∩ screen) and anchor the tile to the world + scroll. */

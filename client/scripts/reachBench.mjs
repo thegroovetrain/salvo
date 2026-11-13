@@ -20,7 +20,7 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadPlaywright, REPO } from './perfLib.mjs';
+import { loadPlaywright, REPO, launchMuted } from './perfLib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BENCH = join(HERE, 'reachBench');
@@ -103,7 +103,7 @@ async function selftest(html) {
   const pw = await loadPlaywright();
   if (!pw) throw new Error('playwright-core could not be loaded (see perfLib.mjs playwrightCandidates)');
   // --disable-gpu: see dispersionBench.mjs — headless GPU canvases read blank here.
-  const browser = await pw.mod.chromium.launch({ headless: true, args: ['--disable-gpu'] });
+  const browser = await launchMuted(pw, 'chromium', { headless: true, args: ['--disable-gpu'] });
   try {
     const results = [];
     for (const width of [1280, 375]) results.push(await checkWidth(browser, html, width));

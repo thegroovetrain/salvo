@@ -8,10 +8,20 @@
 // unmasked); the `fog` layer sits between `litZone` and `smoke`.
 
 import { describe, it, expect, vi } from 'vitest';
-import { Container, Texture, TextureSource } from 'pixi.js';
+import { Container, MaskFilter, Texture, TextureSource } from 'pixi.js';
 import { CONFIG, FOG_NO_CUT, fogDensityAt, makeFogField } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { ALIVE_MAX_CELLS, FogFieldView, SPECTATOR_CELLS, aliveRasterGeometry, easeFogCut, fillFogRaster, screenReachU } from '../render/fogField.js';
+import {
+  ALIVE_MAX_CELLS,
+  DENSITY_TEXTURE_CELLS,
+  FogFieldView,
+  SPECTATOR_CELLS,
+  aliveRasterGeometry,
+  easeFogCut,
+  fillFogRaster,
+  packDensityRgba,
+  screenReachU,
+} from '../render/fogField.js';
 import { bakePuffTile } from '../render/fogPuffTile.js';
 import { CHART_LAYER_ORDER } from '../render/stage.js';
 
@@ -311,31 +321,116 @@ describe('edge cases (review gate)', () => {
     expect(view.raster.n).not.toBe(SPECTATOR_CELLS + 1);
     expect(layer.mask).toBe(view.haloMask);
   });
+});
 
-  it('a raster size change destroys the old density texture: two changes leave exactly one live texture', () => {
-    const { view } = makeView();
-    const screen = { x: -300, y: -200, w: 600, h: 400 };
-    view.setCut(FULL);
-    const minted: Texture[] = [];
-    const destroyed = new Set<Texture>();
-    const grab = (): void => {
-      const t = view.densityMask.texture;
-      if (minted.includes(t)) return;
-      minted.push(t);
-      const orig = t.destroy.bind(t);
-      vi.spyOn(t, 'destroy').mockImplementation((opts?: unknown) => {
-        destroyed.add(t);
-        orig(opts as boolean);
-      });
+// STORY 11.2 FOLLOW-UP 3 (ruling R1): the density sprite is a LIVE alpha mask.
+// Pixi binds a sprite mask's TextureSource into the pooled MaskFilter's bind
+// group, and a destroyed source destroys that group — the next mask push read
+// `resources` = null inside Pixi's render and froze the client. These drive the
+// real raster geometry across every size the view can take and hold the source
+// to one identity, never destroyed, with a REAL MaskFilter bound to it the way
+// the pooled AlphaMaskEffect is.
+describe('the density mask keeps ONE live source (the frozen-client crash)', () => {
+  /** Every geometry the view can be asked for, in an order that crosses steps both ways. */
+  const walk = (view: FogFieldView, step: (k: number) => void): void => {
+    let t = 0;
+    const frame = (pose: { x: number; y: number } | null, screen: { x: number; y: number; w: number; h: number }, mode: 'alive' | 'spectate'): void => {
+      t += 16;
+      view.update(16, t, false, pose, screen, mode);
+      step(t);
     };
-    view.update(16, 0, false, own, screen, 'alive');
-    grab();
-    view.update(16, 16, false, null, screen, 'spectate'); // size change 1
-    grab();
-    view.update(16, 32, false, own, screen, 'alive'); // size change 2
-    grab();
-    expect(minted).toHaveLength(3);
-    expect(minted.filter((t) => !destroyed.has(t))).toEqual([view.densityMask.texture]);
+    const around = (half: number): { x: number; y: number; w: number; h: number } => ({ x: -half * 1.6, y: -half, w: half * 3.2, h: half * 2 });
+    // zoom out past several 512 u steps, then back in (the alive raster resizes)
+    for (const half of [200, 600, 1100, 1700, 2600, 4000, 9000, 4000, 1700, 600, 200]) frame(own, around(half), 'alive');
+    frame(null, around(3000), 'spectate'); // the spectator size
+    view.setHaloU(750); // a halo change
+    frame(own, around(600), 'alive');
+    view.setHaloU(4000);
+    frame(own, around(2600), 'alive');
+  };
+
+  it('the source is never replaced or destroyed while n changes, and a MaskFilter bound to it stays usable', () => {
+    const { view } = makeView();
+    view.setCut(FULL);
+    view.update(16, 0, false, own, { x: -320, y: -200, w: 640, h: 400 }, 'alive');
+    const source = view.densityMask.texture.source;
+    const filter = new MaskFilter({ sprite: view.densityMask, inverse: false, channel: 'alpha' });
+    const sizes = new Set<number>();
+    walk(view, () => {
+      sizes.add(view.raster.n);
+      // AlphaMaskPipe's pushMaskBegin: the pooled effect's first touch. Throws
+      // "Cannot read properties of null" once the bound source is destroyed.
+      expect(() => {
+        filter.inverse = false;
+        filter.channel = 'alpha';
+      }).not.toThrow();
+      expect(view.densityMask.texture.source).toBe(source);
+      expect(source.destroyed).toBe(false);
+      filter.resources.uMaskTexture = view.densityMask.texture.source; // MaskFilter.apply's rebind
+    });
+    expect(sizes.size).toBeGreaterThanOrEqual(3); // the walk really did change the raster size
+  });
+
+  it('cell (i, j) still maps to the same world square, its alpha is the density, and the padding clamps the last cell', () => {
+    const { view } = makeView();
+    view.setCut(MID);
+    walk(view, () => {
+      const { density, n, cellU, ox, oy } = view.raster;
+      const sp = view.densityMask;
+      const side = sp.texture.source.width;
+      expect(side).toBe(DENSITY_TEXTURE_CELLS);
+      expect(n).toBeLessThanOrEqual(side);
+      // texel i spans [x, x + scale) from the sprite origin: its centre is the raster cell's centre
+      expect(sp.scale.x).toBe(cellU);
+      expect(sp.scale.y).toBe(cellU);
+      expect(sp.anchor.x).toBe(0);
+      expect(sp.position.x + 0.5 * sp.scale.x).toBe(ox);
+      expect(sp.position.y + 0.5 * sp.scale.y).toBe(oy);
+      expect(sp.texture.frame.width).toBe(side); // the whole texture, so orig = source size in the mask matrix
+      const rgba = sp.texture.source.resource as Uint8Array;
+      for (const [i, j] of [[0, 0], [n - 1, 0], [0, n - 1], [n - 1, n - 1], [n >> 1, n >> 2]]) {
+        expect(rgba[(j * side + i) * 4 + 3]).toBe(Math.round(density[j * n + i] * 255));
+      }
+    });
+  });
+});
+
+describe('packDensityRgba — the raster in the texture corner', () => {
+  const raster = (n: number): Float32Array => Float32Array.from({ length: n * n }, (_, k) => ((k * 37) % 101) / 100);
+  const alphaAt = (out: Uint8Array, side: number, i: number, j: number): number => out[(j * side + i) * 4 + 3];
+
+  it('writes white texels with alpha = density in the n × n corner, rows at the texture stride', () => {
+    const n = 5;
+    const side = 8;
+    const d = raster(n);
+    const out = new Uint8Array(side * side * 4);
+    packDensityRgba(d, n, out, side);
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const k = (j * side + i) * 4;
+        expect([out[k], out[k + 1], out[k + 2], out[k + 3]]).toEqual([255, 255, 255, Math.round(d[j * n + i] * 255)]);
+      }
+    }
+  });
+
+  it('column n and row n repeat the last column / row (linear filtering clamps as at a texture edge); nothing past them is written', () => {
+    const n = 5;
+    const side = 8;
+    const d = raster(n);
+    const out = new Uint8Array(side * side * 4);
+    packDensityRgba(d, n, out, side);
+    for (let j = 0; j < n; j++) expect(alphaAt(out, side, n, j)).toBe(alphaAt(out, side, n - 1, j));
+    for (let i = 0; i <= n; i++) expect(alphaAt(out, side, i, n)).toBe(alphaAt(out, side, i, n - 1));
+    for (let j = 0; j < side; j++) for (let i = n + 1; i < side; i++) expect(alphaAt(out, side, i, j)).toBe(0);
+    for (let i = 0; i < side; i++) expect(alphaAt(out, side, i, n + 1)).toBe(0);
+  });
+
+  it('a raster that fills the texture writes exactly side² texels and no padding', () => {
+    const side = 6;
+    const d = raster(side);
+    const out = new Uint8Array(side * side * 4);
+    expect(() => packDensityRgba(d, side, out, side)).not.toThrow();
+    for (let k = 0; k < side * side; k++) expect(out[k * 4 + 3]).toBe(Math.round(d[k] * 255));
   });
 });
 
