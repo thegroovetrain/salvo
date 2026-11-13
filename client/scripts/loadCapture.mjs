@@ -36,7 +36,7 @@
 import { writeFileSync, existsSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { REPO, OUT_DIR, REFERENCE_DEVICE, serveDir, loadPlaywright, ensureOutDir, round } from './perfLib.mjs';
+import { REPO, OUT_DIR, REFERENCE_DEVICE, serveDir, loadPlaywright, ensureOutDir, round, launchMuted } from './perfLib.mjs';
 
 // HC_DIST lets a run measure a SNAPSHOT of a previous build, which is how the
 // before/after pair for a load fix is taken honestly: the same script, the same
@@ -99,7 +99,7 @@ function bundleWeight(dir) {
 }
 
 async function runProfile(pw, base, profile) {
-  const browser = await pw.mod.chromium.launch({ headless: true });
+  const browser = await launchMuted(pw, 'chromium', { headless: true });
   // EVERY EXIT PATH CLOSES THE BROWSER. Without this, any throw between launch
   // and close leaks a headless Chromium for the life of the shell and abandons
   // the remaining profiles with no record written.

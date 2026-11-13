@@ -101,6 +101,7 @@
 // created.
 
 import { Application, Container } from 'pixi.js';
+import { containAppRender } from '../app/loop.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from './camera.js';
 import { watchContextRestore, type RestoreRenderer } from './contextRestore.js';
@@ -511,6 +512,9 @@ export async function createStage(): Promise<Stage> {
   // A lost-and-restored WebGL context brings every layer back except the text,
   // which Pixi never re-draws on its own (Story 11.2 follow-up, G3).
   watchContextRestore(app.canvas, app.renderer as unknown as RestoreRenderer);
+  // Pixi's own per-frame render runs guarded: a throw in it costs one frame,
+  // never the ticker (app/loop.ts header, Story 11.2 follow-up 3).
+  containAppRender(app);
 
   // Order added == z-order, and the order IS `STAGE_ROOT_ORDER` — mounted by
   // iterating it rather than by an argument list, so the pin cannot drift from

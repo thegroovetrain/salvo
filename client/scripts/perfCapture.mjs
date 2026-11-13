@@ -40,10 +40,7 @@
 
 import { writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  REPO, OUT_DIR, REFERENCE_DEVICE, BUDGET, CADENCE,
-  serveDir, loadPlaywright, ensureOutDir, round, isRatifiedReference, envInt,
-} from './perfLib.mjs';
+import { REPO, OUT_DIR, REFERENCE_DEVICE, BUDGET, CADENCE, serveDir, loadPlaywright, ensureOutDir, round, isRatifiedReference, envInt, launchMuted } from './perfLib.mjs';
 
 const DIST = join(REPO, 'client', 'dist-perf');
 
@@ -272,7 +269,7 @@ async function main() {
           // discrete GPU to ask for, which is a large share of laptops.
           ['--force_low_power_gpu']
         : [];
-  const browser = await pw.mod.chromium.launch({
+  const browser = await launchMuted(pw, 'chromium', {
     headless: HEADLESS,
     args: ['--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', ...gpuArgs],
   });

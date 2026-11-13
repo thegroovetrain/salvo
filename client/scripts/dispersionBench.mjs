@@ -19,7 +19,7 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadPlaywright, REPO } from './perfLib.mjs';
+import { loadPlaywright, REPO, launchMuted } from './perfLib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BENCH = join(HERE, 'dispersionBench');
@@ -79,7 +79,7 @@ async function selftest(html) {
   // --disable-gpu: on this machine headless Chromium loses every GPU-backed 2D
   // canvas context within a frame (even a one-canvas page), which reads as a
   // blank canvas; software rendering is what the self-test needs anyway.
-  const browser = await pw.mod.chromium.launch({ headless: true, args: ['--disable-gpu'] });
+  const browser = await launchMuted(pw, 'chromium', { headless: true, args: ['--disable-gpu'] });
   try {
     const results = [];
     for (const width of [1280, 375]) {

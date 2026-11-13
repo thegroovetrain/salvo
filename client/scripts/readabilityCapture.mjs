@@ -28,6 +28,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
+import { launchMuted } from './perfLib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
@@ -279,7 +280,7 @@ async function run() {
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
-  const browser = await pw.mod.chromium.launch({
+  const browser = await launchMuted(pw, 'chromium', {
     // SwiftShader keeps WebGL alive in a headless container; harmless where a
     // real GPU is available. The capture measures the RENDER path, so a browser
     // that silently fell back to canvas would be measuring the wrong thing —
