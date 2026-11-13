@@ -15,7 +15,6 @@ import {
   CONFIG,
   coverageCellCount,
   coverageHas,
-  paintCoverage,
   wrapPositive,
   type BlipEvent,
   type FrameMsg,
@@ -24,6 +23,7 @@ import {
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { wirePaint } from './paintFixture.js';
 
 // ---------- construction helpers (the perception.test idiom) ------------------
 
@@ -81,9 +81,9 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // is `paintCoverage`, never the sharp rasterization) — matched exactly
     // once each, since the wire does not say which is which.
     const expected = [
-      paintCoverage('yamato', 700, 0, 0.9, CELL, w.now),
-      paintCoverage('bismarck', 0, 720, 2.1, CELL, w.now),
-      paintCoverage('warspite', -750, 0, -0.4, CELL, w.now),
+      wirePaint(w, 'yamato', 700, 0, 0.9),
+      wirePaint(w, 'bismarck', 0, 720, 2.1),
+      wirePaint(w, 'warspite', -750, 0, -0.4),
     ];
     for (const ev of blips) {
       // Assert on the object's KEYS, order included (msgpack wire shape) — and
@@ -110,7 +110,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     const seen2 = blipsOf(buildFrame(w, 'a2'));
     // Compare the footprint that matches b's true raster, which must appear
     // for BOTH observers, byte-identical — moving the observer moves nothing.
-    const truth = JSON.stringify(paintCoverage('yamato', 700, 0, 1.1, CELL, w.now));
+    const truth = JSON.stringify(wirePaint(w, 'yamato', 700, 0, 1.1));
     const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
     const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
     expect(of1).toHaveLength(1);
@@ -194,7 +194,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     expect(w.ships.has(f.pc![0].h)).toBe(false);
     // The three footprints are exactly the three swept hulls' rasters, and
     // the unswept ship leaks nowhere.
-    const expected = [at.in, at.mid, at.near].map((p) => paintCoverage('bismarck', p.x, p.y, 0.3, CELL, w.now));
+    const expected = [at.in, at.mid, at.near].map((p) => wirePaint(w, 'bismarck', p.x, p.y, 0.3));
     expect(blips.map(maskOf)).toEqual(expect.arrayContaining(expected));
     const cellOfU = (v: number): number => Math.floor(v / CELL);
     expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(at.out.x) - b.gx, cellOfU(at.out.y) - b.gy))).toBe(false);

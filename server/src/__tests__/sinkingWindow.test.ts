@@ -28,7 +28,6 @@ import {
   isAfloat,
   isSinking,
   isSunk,
-  paintCoverage,
   wrapPositive,
   type GameEvent,
   type InputMsg,
@@ -37,6 +36,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { wirePaint } from './paintFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { Match, type MatchHooks } from '../game/match.js';
@@ -455,7 +455,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick
     const blips = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'blip');
-    const c = paintCoverage('bismarck', b.state.x, b.state.y, 0, CONFIG.vision.radarCellU, w.now);
+    const c = wirePaint(w, 'bismarck', b.state.x, b.state.y, 0);
     expect(blips).toEqual([{ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }]);
   });
 

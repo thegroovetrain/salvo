@@ -182,11 +182,12 @@ import {
   type MineTripRules,
 } from './equipment/index.js';
 import { emptyRackBank, instantReloadMounts, isMountBacked, refitMounts, resetMounts, stepShipLaunchers } from './equipment/mounts.js';
-import type { BurstSubject } from './signals.js';
+import type { BoomSubject, BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
 import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
+import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
 import { plainHandle, plainHandleKey } from './plainHandle.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
@@ -1454,15 +1455,16 @@ const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
 // ---------------------------------------------------------------------------
 
 /** Water the memo lattice extends past the ocean's radius on every side (u):
- *  the LONGEST eye ray that pays a fog toll, so a ray from a hull anywhere on
- *  the ocean is tolled exactly to its end; fog farther out than that is
- *  irrelevant (a ray is clipped to the lattice, see fogTollAlong). Since
- *  Story 11.2 that is the largest of the plain-hull sight, the mz/sm halo and
- *  the splash reach (350 hm each today; was `radar × muzzleFlashFactor`,
- *  750 u). MEMORY: the lattice grows with it — see `World.fogMemo`. */
-const FOG_MEMO_MARGIN_U = Math.ceil(
-  Math.max(CONFIG.vision.hullSight, CONFIG.vision.muzzleFlash, CONFIG.vision.splashSight),
-);
+ *  ONE CELL (Story 11.2 review gate, F2). Fog exists only on the ocean — the
+ *  shared `fogDensityAt` reads 0 at every point beyond the rim (amendment
+ *  179) — so the part of ANY ray outside the ocean's bounding square pays
+ *  nothing wherever its ends lie, and `fogTollAlong` clips the ray to the
+ *  lattice before walking it: no margin is needed for exactness, and the one
+ *  cell only keeps a rim-straddling cell whole. HISTORY: the margin was the
+ *  longest tolled eye ray (750 u; then 350 hm = 7,955 u under Story 11.2's
+ *  first cut, a 2,591² lattice of ~54 MB per World that tolled nothing the
+ *  1,002² one does not). */
+const FOG_MEMO_MARGIN_U = CONFIG.fog.marchStepU;
 
 /** The memo lattice: `side × side` cells of `cell` u from (ox, oy); `dens`
  *  holds a cell's density and `epoch` the fog epoch it was evaluated in
@@ -1818,6 +1820,14 @@ export class World {
   private readonly plainKey: Buffer;
   private plainSeq = 0;
   /**
+   * THE PAINT-SALT KEY (Story 11.2 review gate, F1): every wire-bound radar
+   * mask (`blip`, `wk`) is fuzzed on a seed salted with
+   * `paintSalt(paintKey, kind, the paint's own words)` so the fuzz cannot be
+   * replayed from a pose a contact row discloses (game/paintSalt.ts has the
+   * full argument). Derived from `dispersionKey` under its own label.
+   */
+  private readonly paintKey: Buffer;
+  /**
    * Stable per-ship JOIN ORDINAL counter (Story 2.8): assigned once per
    * addShip, never reused or decremented, so a ship's draw stream is a pure
    * function of (mapSeed, its own ordinal) — join/leave churn elsewhere can
@@ -1881,9 +1891,8 @@ export class World {
    * THE DENSITY MEMO (Eric: "make it performant"; the review gate's EXACT
    * re-cut of the heuristic quick-reject raster). The server's toll IS a
    * cell walk: a fixed world lattice of `marchStepU` (10 u) cells over the
-   * ocean's bounding square (+ FOG_MEMO_MARGIN_U each side — 2,591² ≈ 6.7 M
-   * cells at a 5,000 u radius, ~54 MB of Float32 + Uint32 since Story 11.2
-   * moved the longest tolled eye ray to 350 hm; 1,150² / ~10.6 MB before —
+   * ocean's bounding square (+ FOG_MEMO_MARGIN_U, one cell, each side —
+   * 1,002² ≈ 1.0 M cells at a 5,000 u radius, ~8 MB of Float32 + Uint32;
    * zero pages until a ray first touches them, allocated ONCE
    * in the constructor), and `fogTollAlong` sums `density(cell centre) × length of
    * the ray inside the cell × sightCostPerU` over the cells an
@@ -1912,6 +1921,18 @@ export class World {
   private fogEpoch = 1;
   /** The one-entry own-bank memo (see `fogObserverInSolidFog`): the last observer position asked about, in which epoch, and the answer. */
   private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
+  /**
+   * The one-entry TOLL memo (Story 11.2 review gate, F2): the last ray
+   * tolled, in which epoch, and its toll. For a hull inside the class reach
+   * the ship scan asks about the one observer → target ray twice in a row
+   * (the `contact` row, then the `plain` row's "not a full contact" term) —
+   * the toll is a pure function of (ray, epoch), so the repeat is a compare
+   * instead of a lattice walk (2 walks → 1 per inner-tier pair per pass; an
+   * outer-tier pair was already 1).
+   */
+  private readonly fogTollMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, toll: 0 };
+  /** Lattice walks since construction — the toll memo's accounting (tests). */
+  private fogWalkCount = 0;
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
   /** Cells evaluated since construction (perf accounting — fogField.test.ts's memo-determinism test reads it). */
@@ -2148,6 +2169,7 @@ export class World {
     // seed-derived key is the OFFLINE fallback only (see WorldOptions).
     this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
     this.plainKey = plainHandleKey(this.dispersionKey);
+    this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -2241,6 +2263,31 @@ export class World {
     const fresh = this.mintPlainHandle(observer);
     observer.plainHandles.set(targetId, fresh);
     return fresh;
+  }
+
+  /**
+   * THE SALT of one radar paint (Story 11.2 review gate, F1): a keyed hash
+   * of the paint's own inputs (`words` = paint time + exact pose) under this
+   * room's private paint key — see game/paintSalt.ts. Bound into the signal
+   * context by perception.ts; read by the `blip` and `wk` shapers only.
+   * ONE STABLE FUNCTION per World (an arrow property, never a per-context
+   * closure): signals.ts keys its one-slot mask memos on its identity, so
+   * consecutive observers of one room share a mask and two rooms never do.
+   */
+  readonly paintSaltFor = (kind: PaintKind, words: readonly number[]): number => paintSalt(this.paintKey, kind, words);
+
+  /**
+   * END EVERY PLAIN VISIT of one observer (Story 11.2 review gate, F3): drop
+   * every plain-hull handle `observerId` holds, so each hull in its outer
+   * band is minted a fresh one on the next pass. Perception forgets a handle
+   * only DURING a pass, and a captain in reconnect grace gets no pass (frames
+   * are built for connected clients) — so without this, a hull that left the
+   * band and came back while the socket was down would keep its old handle
+   * and the two visits could be linked across the gap. The room calls it at
+   * the drop and again at the resume. An unknown id is a no-op.
+   */
+  forgetPlainVisits(observerId: string): void {
+    this.ships.get(observerId)?.plainHandles.clear();
   }
 
   /** One fresh handle off the keyed counter (see plainHandleFor). */
@@ -4515,6 +4562,33 @@ export class World {
    */
   fogTollAlong(ax: number, ay: number, bx: number, by: number): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
+    const memo = this.fogTollMemo;
+    if (memo.epoch === this.fogEpoch && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.toll;
+    const toll = this.fogTollWalked(ax, ay, bx, by);
+    memo.ax = ax;
+    memo.ay = ay;
+    memo.bx = bx;
+    memo.by = by;
+    memo.epoch = this.fogEpoch;
+    memo.toll = toll;
+    return toll;
+  }
+
+  /** The side of the density memo lattice in u (cells × cell size) — its
+   *  extent accounting (Story 11.2 review gate, F2: the lattice is the
+   *  ocean's bounding square plus one cell a side, never a sight reach). */
+  get fogMemoSpanU(): number {
+    return this.fogMemo.side * this.fogMemo.cell;
+  }
+
+  /** Lattice walks since construction (Story 11.2 review gate, F2 — the toll
+   *  memo's accounting: a ray re-asked in the same epoch walks nothing). */
+  get fogWalks(): number {
+    return this.fogWalkCount;
+  }
+
+  /** The toll of one ray, walked (see `fogTollAlong`, its only caller). */
+  private fogTollWalked(ax: number, ay: number, bx: number, by: number): number {
     const dx = bx - ax;
     const dy = by - ay;
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -4524,6 +4598,7 @@ export class World {
     const t = { t0: 0, t1: 1 };
     if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return 0;
     const ownBank = this.fogObserverInSolidFog(ax, ay);
+    this.fogWalkCount += 1;
     return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0), ownBank) * CONFIG.fog.sightCostPerU;
   }
 
@@ -6073,6 +6148,20 @@ export class World {
     this.pending.push({ k: 'sp', id: shell.ownerId, x, y });
   }
 
+  /**
+   * The boom of a ballistic that stopped without striking a hull. A TORPEDO
+   * that merely ran out of run (`expired`) is tagged with its owner (`run`,
+   * server-internal — signals.ts BoomSubject) so the boom row gates it at the
+   * torpedo eye reach instead of the splash reach (Story 11.2 review gate,
+   * F4): nothing exploded. Everything else — an island stop, a shell's fall —
+   * is the plain boom.
+   */
+  private missBoom(shell: ShellState, outcome: { kind: string; x: number; y: number }): BoomSubject {
+    const boom: BoomSubject = { k: 'boom', id: shell.id, x: outcome.x, y: outcome.y };
+    if (shell.kind === 'torp' && outcome.kind === 'expired') boom.run = shell.ownerId;
+    return boom;
+  }
+
   /** Turn a spent ballistic's outcome into its events, per the projectile's
    *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
    *  `hitShip` is an early interception OUTSIDE the blast — the interceptor
@@ -6087,7 +6176,7 @@ export class World {
       return;
     }
     if (outcome.kind !== 'hitShip') {
-      this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
+      this.pending.push(this.missBoom(shell, outcome));
       // A DIRECT shell (the machine gun's) that ARRIVED without striking a
       // hull LANDS here: the landing test runs at its final point (amendment
       // 200 — a no-op for any mask without `mine`). An island stop is not a

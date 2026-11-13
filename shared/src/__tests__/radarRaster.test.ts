@@ -26,7 +26,7 @@ import {
   type HullId,
   polygonArea,
 } from '../index.js';
-import { COVERAGE_WORD } from '../sim/radarRaster.js';
+import { COVERAGE_WORD, paintSegmentCoverage, segmentPaintSeed } from '../sim/radarRaster.js';
 
 const CELL = CONFIG.vision.radarCellU;
 
@@ -331,5 +331,71 @@ describe('COVERAGE_WORD — the packing width of a coverage mask', () => {
         expect(coverageCellCount(c)).toBeLessThanOrEqual(c.w * c.h);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 11.2 review gate (F1): THE PAINT SALT. The fuzz seed takes an explicit
+// salt; 0 (the default) is the public seed a keyless caller gets, any other
+// value moves the fuzz off it. The server passes a room-private per-paint
+// salt (server/src/game/paintSalt.ts) so a paint cannot be replayed from the
+// pose a contact row discloses.
+// ---------------------------------------------------------------------------
+describe('the paint salt — the fuzz of a paint is a function of (pose, time, SALT)', () => {
+  const same = (a: HullCoverage, b: HullCoverage): boolean => JSON.stringify(a) === JSON.stringify(b);
+  /** Exact, fractional poses spread over the lattice phases. */
+  const poses = Array.from({ length: 40 }, (_, k) => ({ x: 137.31 + k * 23.7, y: -412.9 + k * 11.3, heading: k * 0.37, t: 5000 + k * 50 }));
+
+  it('salt 0 IS the unsalted pipeline (the default a keyless caller gets): identical seed and identical mask, hull and segment', () => {
+    for (const p of poses) {
+      expect(paintSeed(p.t, p.x, p.y, p.heading, 0)).toBe(paintSeed(p.t, p.x, p.y, p.heading));
+      expect(segmentPaintSeed(p.t, p.x, p.y, p.x + 60, p.y + 25, 0)).toBe(segmentPaintSeed(p.t, p.x, p.y, p.x + 60, p.y + 25));
+      for (const cls of HULL_IDS) {
+        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0)).toEqual(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t));
+      }
+    }
+  });
+
+  it('a salt MOVES the fuzz: for the same hull, pose and tick, two different salts — and a salt against none — give different masks for most poses, and it is deterministic per salt', () => {
+    for (const cls of HULL_IDS) {
+      let twoSalts = 0;
+      let saltedVsPublic = 0;
+      for (const [k, p] of poses.entries()) {
+        const a = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k);
+        const b = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x7654321 + k);
+        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k)).toEqual(a);
+        if (!same(a, b)) twoSalts += 1;
+        if (!same(a, paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t))) saltedVsPublic += 1;
+      }
+      expect(twoSalts, cls).toBeGreaterThan(poses.length / 2);
+      expect(saltedVsPublic, cls).toBeGreaterThan(poses.length / 2);
+    }
+  });
+
+  it('the salt changes the FUZZ only, never the footprint: every salted mask still covers the whole sharp rasterization (the hull\'s own cells are core)', () => {
+    for (const cls of HULL_IDS) {
+      for (const [k, p] of poses.entries()) {
+        const sharp = rasterizeHullCoverage(cls, p.x, p.y, p.heading, CELL);
+        const salted = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0xabcdef + k);
+        const lit = new Set(cellsOf(salted).map((c) => `${c.gx},${c.gy}`));
+        for (const c of cellsOf(sharp)) expect(lit.has(`${c.gx},${c.gy}`), `${cls} pose ${k}`).toBe(true);
+      }
+    }
+  });
+
+  it('a WAKE segment\'s glint moves with the salt too (a wide ribbon: most poses differ), and its spine survives every salt', () => {
+    const WIDE = CELL * 4; // wide enough to carry flank cells to glint
+    let differ = 0;
+    for (const [k, p] of poses.entries()) {
+      const bx = p.x + Math.cos(p.heading) * 80;
+      const by = p.y + Math.sin(p.heading) * 80;
+      const a = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x1111 + k);
+      const b = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x2222 + k);
+      if (!same(a, b)) differ += 1;
+      const spine = new Set(cellsOf(paintSegmentCoverage(p.x, p.y, bx, by, 0, CELL, p.t)).map((c) => `${c.gx},${c.gy}`));
+      const lit = new Set(cellsOf(a).map((c) => `${c.gx},${c.gy}`));
+      for (const cell of spine) expect(lit.has(cell), `pose ${k}`).toBe(true);
+    }
+    expect(differ).toBeGreaterThan(poses.length / 2);
   });
 });

@@ -75,6 +75,8 @@ const radarCtx = (w: World) => ({
   wakes: w.wakeRibbons,
   // Story 11.2: the plain-hull handle resolver; the fh row never reads it.
   plainHandleOf: () => '',
+  // Story 11.2 review gate (F1): the paint salt; the fh row never reads it.
+  paintSaltOf: w.paintSaltFor,
 });
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */

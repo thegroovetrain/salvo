@@ -53,6 +53,16 @@ describe('--tune floors — the class indices', () => {
     expect(() => validateTuneValue('gun.shellSpeed', 0.5)).toThrow(TunableError);
   });
 
+  it('floors every torpedo run at 1 and refuses its Tier V sibling (Story 11.2 review gate, F7): a 0 run expires the torpedo in its tube, and `runUAtV` is read once at module load', () => {
+    for (const kind of ['torpedo', 'lightTorpedo', 'supercavTorpedo'] as const) {
+      expect(() => validateTuneValue(`${kind}.runU`, CONFIG[kind].runU), kind).not.toThrow();
+      for (const bad of [0, -CONFIG[kind].runU, Number.NaN]) {
+        expect(() => validateTuneValue(`${kind}.runU`, bad), `${kind} ${bad}`).toThrow(TunableError);
+      }
+      expect(() => validateTuneKey(`${kind}.runUAtV`), kind).toThrow(TunableError);
+    }
+  });
+
   it('leaves the reload/cooldown suffix rule at 1', () => {
     expect(() => validateTuneValue('broadside.reloadMs', 0.5)).toThrow(TunableError);
     // Matched by SUFFIX, not exact leaf: a reload leaf with a prefix (the

@@ -6,8 +6,9 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintCoverage, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { wirePaint } from './paintFixture.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
@@ -58,6 +59,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
     litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     plainHandleOf: (id) => w.plainHandleFor(me, id), // Story 11.2: the observer's anonymous per-visit handle
+    paintSaltOf: w.paintSaltFor, // Story 11.2 review gate (F1): the room-private paint salt
   };
 }
 
@@ -68,6 +70,7 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
     litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     plainHandleOf: () => '', // Story 11.2: inert on the spectator path
+    paintSaltOf: w.paintSaltFor,
   };
 }
 
@@ -229,7 +232,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
     expect(Object.keys(wire as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
-    const c = paintCoverage(DEFAULT_CLASS_ID, B_X, 0, 1.2, CONFIG.vision.radarCellU, w.now);
+    const c = wirePaint(w, DEFAULT_CLASS_ID, B_X, 0, 1.2);
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 

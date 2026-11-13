@@ -936,3 +936,47 @@ describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a 
     }
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Story 11.2 review gate (F5): ONE HULL, ONE TRACK ACROSS A SIGHT-TIER CHANGE.
+// A hull crossing between the plain band and the class reach changes its
+// track KEY (anonymous handle to roster id and back, or a fresh handle on a
+// new visit); the fold retires the stale twin under the hull it now holds by
+// eye.
+// ---------------------------------------------------------------------------
+describe('foldView — a hull that changes sight tier is ONE track, never a dead-reckoned twin (Story 11.2 review gate, F5)', () => {
+  const TICK = CONFIG.tick.simDtMs;
+  const SPEED = FASTEST_HULL_SPEED;
+  /** A hull steaming east from (2000, 300): its pose `n` ticks on. */
+  const poseAt = (n: number): { x: number; y: number; heading: number; speed: number } => ({ x: 2000 + (SPEED * n * TICK) / 1000, y: 300, heading: 0, speed: SPEED });
+  const eyes = (over: Partial<PerceptionView>): PerceptionView => ({ ...view([]), ...over });
+  const full = (n: number, id = 'e1'): PerceptionView['contacts'][number] => ({ id, cls: SHIP_CLASS_IDS[0], ...poseAt(n) }) as PerceptionView['contacts'][number];
+
+  it('INBOUND (plain to full contact), OUTBOUND (full to plain) and a NEW VISIT (a fresh handle): every time, exactly one track stands where the hull is, and it is live', () => {
+    const crossings: [string, PerceptionView, PerceptionView][] = [
+      ['inbound', eyes({ plain: [{ h: 'H1', ...poseAt(0) }] }), eyes({ contacts: [full(1)] })],
+      ['outbound', eyes({ contacts: [full(0)] }), eyes({ plain: [{ h: 'H1', ...poseAt(1) }] })],
+      ['new visit', eyes({ plain: [{ h: 'H1', ...poseAt(0) }] }), eyes({ plain: [{ h: 'H2', ...poseAt(1) }] })],
+    ];
+    for (const [label, first, second] of crossings) {
+      const m = mkMind();
+      foldView(m, first, NOW);
+      expect(m.contacts.size, label).toBe(1);
+      foldView(m, second, NOW + TICK);
+      const tracks = [...m.contacts.values()];
+      expect(tracks, label).toHaveLength(1);
+      expect(tracks[0].live, label).toBe(true);
+      expect(tracks[0], label).toMatchObject({ x: poseAt(1).x, y: poseAt(1).y });
+    }
+  });
+
+  it('retires ONLY the twin: a plot farther than a hull length from every sighted hull survives, and so does a wreck\'s own track under a live hull', () => {
+    const m = mkMind();
+    const far = { x: poseAt(1).x + 2 * LONGEST_HULL_U, y: poseAt(1).y };
+    m.contacts.set('a:far', anon({ ...far, seenAt: NOW - TICK }));
+    m.contacts.set('wreck', anon({ id: 'wreck', x: poseAt(1).x, y: poseAt(1).y, sunk: true, seenAt: NOW - TICK }));
+    foldView(m, eyes({ contacts: [full(1)] }), NOW);
+    expect([...m.contacts.keys()].sort()).toEqual(['a:far', 'e1', 'wreck']);
+  });
+});

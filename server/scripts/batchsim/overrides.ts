@@ -242,14 +242,16 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
   ],
 ]);
 
-/** `<weapon>.rangeUAtV` — read once at module load (see DERIVED_TUNE_KEYS). */
-const RANGE_AT_V = /\.rangeUAtV$/;
+/** `<weapon>.rangeUAtV` — read once at module load (see DERIVED_TUNE_KEYS) —
+ *  and its torpedo sibling `<kind>.runUAtV` (sim/catalog.ts `runStep`, the
+ *  same read-once law; Story 11.2 review gate, F7). */
+const RANGE_AT_V = /\.(rangeUAtV|runUAtV)$/;
 
 /** Refuse a path the firewall re-derives post-fold (see DERIVED_TUNE_KEYS). */
 function assertNotDerived(key: string): void {
   if (RANGE_AT_V.test(key)) {
     throw new TunableError(
-      `'${key}' is REFUSED: the Tier V reach authors the per-card step at module load; tune rangeU for the base`,
+      `'${key}' is REFUSED: the Tier V reach authors the per-card step at module load; tune ${key.endsWith('runUAtV') ? 'runU' : 'rangeU'} for the base`,
     );
   }
   const advice = DERIVED_TUNE_KEYS.get(key);
@@ -472,6 +474,10 @@ const TUNE_MIN_ONE_LEAVES = new Set([
   // multiplies it (ai/profiles.ts engagementBand) — a 0 reach is a weapon
   // that fires into its own muzzle and a bot band collapsed to a point.
   'rangeU',
+  // runU (Story 11.2 review gate, F7): a torpedo's run is its launch
+  // `distLeft` — at 0 the fish expires in its tube and the arm measures no
+  // torpedo while the report reads normal.
+  'runU',
   'steerageSpeed',
   'reload',
   'engines',

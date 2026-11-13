@@ -332,7 +332,7 @@ describe('deferred teardown (grace window)', () => {
 // and stub allowReconnection with a spy returning a controllable promise.
 
 interface WiringRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void; forgetPlainVisits: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
@@ -344,17 +344,18 @@ function wiringRoom(opts: {
   ship?: { lifecycle: ShipLifecycle };
   lastResults?: ResultsMsg;
   reconnectPromise?: Promise<unknown>;
-}): { room: WiringRoom; allow: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> } {
+}): { room: WiringRoom; allow: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn>; forget: ReturnType<typeof vi.fn> } {
   const release = vi.fn();
+  const forget = vi.fn();
   const allow = vi.fn(() => opts.reconnectPromise ?? new Promise<unknown>(() => undefined));
   const room = new ArenaRoom() as unknown as WiringRoom;
   const ships = new Map<string, { lifecycle: ShipLifecycle }>();
   if (opts.ship) ships.set('a', opts.ship);
-  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'] };
+  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'], forgetPlainVisits: forget as unknown as WiringRoom['world']['forgetPlainVisits'] };
   room.match = { phase: opts.phase };
   room.lastResults = opts.lastResults ?? null;
   room.allowReconnection = allow as unknown as WiringRoom['allowReconnection'];
-  return { room, allow, release };
+  return { room, allow, release, forget };
 }
 
 const RESUMABLE = CloseCode.ABNORMAL_CLOSURE; // 1006, in RECONNECTABLE_CLOSE_CODES
@@ -429,6 +430,19 @@ describe('ArenaRoom.onDrop wiring', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(newClient.send).not.toHaveBeenCalled();
+  });
+
+  it('(e) Story 11.2 review gate, F3: the captain\'s plain-hull visits are ended at the drop and AGAIN at the resume — no perception pass runs for it in between, so no handle may link a sighting before the gap to one after it', async () => {
+    const { room, forget } = wiringRoom({
+      phase: 'active',
+      ship: { lifecycle: LIFECYCLE_ALIVE },
+      reconnectPromise: Promise.resolve({ send: vi.fn() }),
+    });
+    room.onDrop(CLIENT, RESUMABLE);
+    expect(forget.mock.calls).toEqual([['a']]); // at the drop, before the grace
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(forget.mock.calls).toEqual([['a'], ['a']]); // and at the resume
   });
 
   it('(d3) a rejected reconnection promise is swallowed (no unhandled rejection)', async () => {

@@ -18,7 +18,6 @@ import {
   bearing,
   encodeTurretAngles,
   mulberry32,
-  paintCoverage,
   paintDiscCoverage,
   segPolygonHit,
   wrapPositive,
@@ -29,6 +28,7 @@ import {
   type MatchPhase,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { wirePaint } from './paintFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -408,7 +408,7 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
         if (!(isAfloat(target.lifecycle) || isSinking(target.lifecycle))) return false;
         const d = dist(me.state, target.state);
         if (target.id === me.id || d > RADAR) return false;
-        const c = paintCoverage(target.hullId, target.state.x, target.state.y, target.state.heading, CONFIG.vision.radarCellU, w.now);
+        const c = wirePaint(w, target.hullId, target.state.x, target.state.y, target.state.heading);
         return c.gx === b.gx && c.gy === b.gy && c.w === b.w && c.h === b.h
           && c.bits.length === b.bits.length && c.bits.every((v, i) => v === b.bits[i]);
       });

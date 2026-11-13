@@ -669,12 +669,14 @@ async function layOne(a, label) {
   return laid;
 }
 
-/** Pose a victim on a straight line through `mine`, heading at it, its BOW
- *  100 u short of the mine's trip ring (`triggerRadius`) — so it starts
- *  outside the ring and beyond the mine eye reach; the line runs along −y so
- *  it passes the layer (at the origin) wide. */
+/** Pose a victim on a straight line through `mine`, heading at it, 100 u
+ *  short of whichever is FARTHER from the mine: its bow on the trip ring
+ *  (`triggerRadius`), or its centre on the mine eye reach — so it starts
+ *  outside the ring AND beyond the mine eye reach whatever that reach is
+ *  (3 hm when this phase was written, 10 hm since 2026-11-12); the line runs
+ *  along −y so it passes the layer (at the origin) wide. */
 function victimPoseThrough(mine, triggerRadius) {
-  const approach = Math.round(triggerRadius + polygonMaxRadius(hullSilhouette(VICTIM)) + 100);
+  const approach = Math.round(Math.max(triggerRadius + polygonMaxRadius(hullSilhouette(VICTIM)), DETECT) + 100);
   precondition(approach > DETECT, 'victim posed inside the mine eye reach');
   return { pose: { x: mine.x, y: mine.y + approach, heading: -Math.PI / 2 }, approach };
 }

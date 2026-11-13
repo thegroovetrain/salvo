@@ -21,7 +21,6 @@ import {
   launcherDeadRad,
   launcherTrainRad,
   DEFAULT_CLASS_ID,
-  paintCoverage,
   transformPolygon,
   type BlipEvent,
   type DamageEvent,
@@ -31,6 +30,7 @@ import {
   type Target,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { wirePaint } from './paintFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import {
@@ -734,7 +734,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     expect(blips).toHaveLength(1);
     const ship = w.ships.get('b')!;
     expect({ gx: blips[0].gx, gy: blips[0].gy, w: blips[0].w, h: blips[0].h, bits: blips[0].bits }).toEqual(
-      paintCoverage(ship.hullId, ship.state.x, ship.state.y, ship.state.heading, CONFIG.vision.radarCellU, w.now),
+      wirePaint(w, ship.hullId, ship.state.x, ship.state.y, ship.state.heading),
     );
   });
 });

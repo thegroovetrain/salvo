@@ -1006,6 +1006,34 @@ function guardRateMs(rateMs: number): number {
   return Number.isFinite(rateMs) && rateMs > 0 ? rateMs : CONFIG.machineGun.rateMs;
 }
 
+/** u — the shortest run the firewall hands out (the --tune floor of every
+ *  `runU` leaf, server/scripts/batchsim/overrides.ts): plumbing, not balance. */
+const TORPEDO_RUN_FLOOR_U = 1;
+
+/**
+ * THE TORPEDO RUN GUARD (Story 11.2 review gate, F7). `runU` is the launch's
+ * `distLeft` (server torpedoCore): a non-finite run never expires (and NaNs
+ * the bots' run-out read) and a run ≤ 0 expires the torpedo in its tube. The
+ * fold's own sanity gate (sim/boons.ts applyStatEffect) already skips an
+ * EFFECT that would land there, so the open path was the BASE row itself (a
+ * malformed or tuned `CONFIG.<kind>.runU`). A PLUMBING guard on the
+ * firewall's OUTPUT, never a balance floor — every reachable tier passes
+ * through untouched; a bad run falls back to the kind's CONFIG Tier I run,
+ * and when that is bad too, to `TORPEDO_RUN_FLOOR_U` (fail-closed: the
+ * shortest run, never an endless one).
+ */
+function guardRunU(runU: number, baseU: number): number {
+  if (Number.isFinite(runU) && runU > 0) return runU;
+  return Number.isFinite(baseU) && baseU > 0 ? baseU : TORPEDO_RUN_FLOOR_U;
+}
+
+/** Every torpedo row's run through `guardRunU` (see there). */
+function guardTorpedoRuns(eq: EquipmentRows): void {
+  eq.lightTorpedo.runU = guardRunU(eq.lightTorpedo.runU, CONFIG.lightTorpedo.runU);
+  eq.heavyTorpedo.runU = guardRunU(eq.heavyTorpedo.runU, CONFIG.torpedo.runU);
+  eq.supercavTorpedo.runU = guardRunU(eq.supercavTorpedo.runU, CONFIG.supercavTorpedo.runU);
+}
+
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
  *  place. */
 function clampStats(stats: EffectiveStats): void {
@@ -1046,6 +1074,7 @@ function clampStats(stats: EffectiveStats): void {
   // catalog).
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
   eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
+  guardTorpedoRuns(eq);
   // THE SECONDARIES' REACH (Story 10.4, R3): half the hull's FOLDED main
   // reach (the base × the hull's `battery.reachFrac` since Story 11.2) —
   // derived here and nowhere else. Not a stat path: no card addresses it.

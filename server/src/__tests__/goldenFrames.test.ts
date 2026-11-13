@@ -219,8 +219,8 @@
 //     one-tick shrink is the real FLASH mark (`dazzledUntil`) instead of a
 //     `stats.sightRange` write: the torpedo reach is a CONFIG fact, not a
 //     stat, so the stats write no longer moves that gate.
-//   * scnMineKindForAll: enemy `a` 120 u → 94.1 u east (60 + mineSight / 2),
-//     so all three mines sit inside its 68 u mine sight (34–45 u away).
+//   * scnMineKindForAll: enemy `a` 120 u → 60 + mineSight / 2 east, so all
+//     three mines sit inside its mine sight.
 //   * NOT re-seated (every subject already inside the reach its comment
 //     names): scnCombat, scnBurst, scnMineBlast, scnMineBurstDetonation,
 //     scnDenied, scnDebuffs, scnHeal.
@@ -248,6 +248,24 @@
 //   frames gain the mine's owner `o` at (600, 600) as a contact; two `blip`s
 //   joined scnGunnery's burst-tick frames (the beams turn through a 16 s
 //   flight). The perception chokepoint and the six exceptions are unchanged.
+//
+// RE-RECORDED AGAIN 2026-11-12 (Story 11.2 review gate + the mine-sight
+// ruling). VALUES ONLY — no key, row, event or frame was added or removed
+// (the frame count and every row count are identical). Three causes:
+//   (1) THE PAINT SALT (review gate F1): every hull `blip` and every `wk`
+//       mask is fuzzed under the room-private per-paint salt
+//       (game/paintSalt.ts), so their `gx` / `gy` / `w` / `h` / `bits` move
+//       (and with them seven `bits` array lengths, which are w × h packed).
+//       Crate paints (`paintDiscCoverage`, no class to hide) are unsalted and
+//       did not move.
+//   (2) MINE SIGHT 3 hm → 10 hm (Eric, 2026-11-12): the two scenarios that
+//       seat things at `MINE_SIGHT` move with it — the sight-boundary mine's
+//       `y` (68.2 → 227.3 u, two frames) and scnMineKindForAll's observer
+//       `a` (60 + mineSight / 2: 94.1 → 173.6 u; its own `you.x` and the one
+//       contact row that shows it).
+//   (3) The torpedo run-out gate (review gate F4) moved NOTHING here: no
+//       captured torpedo ran out of run beyond the torpedo eye reach of an
+//       observer who was not its owner.
 
 import { describe, it, expect } from 'vitest';
 import {

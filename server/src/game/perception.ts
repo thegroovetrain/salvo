@@ -134,6 +134,8 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 11.2 (R3): this observer's anonymous per-visit handle for a hull
     // in its outer sight band — get-or-mint in the observer's own memory.
     plainHandleOf: (id: string) => world.plainHandleFor(me, id),
+    // Story 11.2 review gate (F1): the room-private salt of one radar paint.
+    paintSaltOf: world.paintSaltFor, // the World's one stable function (the mask memos key on it)
   };
 }
 
@@ -168,6 +170,8 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Story 11.2: INERT on this path (the `plain` row never fires unfogged —
     // a spectator holds every hull as a full contact) and it mints nothing.
     plainHandleOf: () => '',
+    // INERT on this path (spectators have no radar); rides uniformly.
+    paintSaltOf: world.paintSaltFor, // the World's one stable function (the mask memos key on it)
   };
 }
 

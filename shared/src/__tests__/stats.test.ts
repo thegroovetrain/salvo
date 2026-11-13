@@ -956,6 +956,28 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun.rateMs).toBe(CONFIG.machineGun.rateMs + authored);
   });
 
+  it('TORPEDO RUN (Story 11.2 review gate, F7): a malformed Tier I run (≤ 0 or non-finite — the base row, the one path the fold\'s sanity gate does not screen) never leaves the firewall: every torpedo row still carries a finite, positive run; a healthy row passes through untouched', () => {
+    const kinds = [
+      ['lightTorpedo', CONFIG.lightTorpedo],
+      ['heavyTorpedo', CONFIG.torpedo],
+      ['supercavTorpedo', CONFIG.supercavTorpedo],
+    ] as const;
+    for (const [row, cfg] of kinds) {
+      const dial = cfg as { runU: number };
+      const shipped = dial.runU;
+      expect(effectiveStats(BASE).equipment[row].runU, row).toBe(shipped);
+      try {
+        for (const bad of [0, -shipped, Number.NaN, Number.POSITIVE_INFINITY]) {
+          dial.runU = bad;
+          const run = effectiveStats(BASE).equipment[row].runU;
+          expect(Number.isFinite(run) && run > 0, `${row} base ${bad} -> ${run}`).toBe(true);
+        }
+      } finally {
+        dial.runU = shipped;
+      }
+    }
+  });
+
   it('MACHINE GUN: RELOAD shortens the reload but never the shot delay (the reload law reaches reloadMs only)', () => {
     const plain = effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun;
     const s = effectiveStats(BASE, [...stack('machineGun', 4), ...stack('reload', 5)]);

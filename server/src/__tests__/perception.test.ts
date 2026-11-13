@@ -1184,7 +1184,7 @@ describe('perception — radar paint window (exact)', () => {
     const blips = blipsOf(buildFrame(w, 'a'));
     expect(blips).toHaveLength(1);
     expect(blips[0].t).toBe(w.now);
-    expect(maskEquals(maskOracle(DEFAULT_CLASS_ID, b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, DEFAULT_CLASS_ID, b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
   });
 
   it('does not paint outside the beam window', () => {
@@ -1215,7 +1215,7 @@ describe('perception — radar paint window (exact)', () => {
     expect(f.contacts.map((c) => c.id)).toEqual(['b']);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
     // ...and only when swept: the beam elsewhere leaves the contact alone.
     windowAround(a, Math.PI);
     const g = buildFrame(w, 'a');
@@ -2118,7 +2118,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     expect(f.contacts.map((c) => c.id)).toEqual(['b']);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1); // the zone no longer withholds the paint
-    expect(maskEquals(maskOracle(b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('the firer watches a zone-revealed ship die: boom (victim id KEPT) + sunk arrive', () => {
@@ -3417,7 +3417,7 @@ function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
     if (!blipPredicate(w, me, target.state)) continue;
     if (fogTollOracle(w, me.state, target.state).touched > 0) RADAR_THROUGH_FOG.n += 1; // Story 9.10: painted through fog
     const s = target.state;
-    out.push({ mask: maskOracle(target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
+    out.push({ mask: maskOracle(w, target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
   }
   return out;
 }
@@ -3837,9 +3837,12 @@ function bridgeOracle(out: Uint8Array, w: number, h: number): void {
 /** Test-local paint-pipeline oracle: sharp → fuzz(paintSeed(t, pose)) →
  *  tight-crop → LSB-first packing. `t` is the paint tick (the server stamps
  *  `t = now` and seeds the glint from it). */
-function maskOracle(cls: HullId, x: number, y: number, heading: number, t: number): MaskOracle {
+function maskOracle(w: World, cls: HullId, x: number, y: number, heading: number, t: number): MaskOracle {
   const s = sharpOracle(cls, x, y, heading);
-  const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, heading));
+  // THE SALT (Story 11.2 review gate, F1): the wire mask is fuzzed on the
+  // room-private per-paint salt — the oracle asks the World for it, which a
+  // client cannot.
+  const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, heading, w.paintSaltFor('hull', [t, x, y, heading])));
   return packOracle(grid, s.w, s.h, s.gx0, s.gy0);
 }
 
@@ -3936,7 +3939,7 @@ function blipPoseMatches(
   p: { x: number; y: number },
   heading: number,
 ): boolean {
-  return maskEquals(maskOracle(cls, p.x, p.y, heading, w.now), ev);
+  return maskEquals(maskOracle(w, cls, p.x, p.y, heading, w.now), ev);
 }
 
 /** True iff `ev` is a legitimate GENUINE ship paint. The payload carries NO
@@ -4263,7 +4266,7 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle): boolean {
  *  primitives, the paintSeed precedent), the fixed-point diagonal bridge
  *  pass, LSB-first packing, and the tight CROP of what survived. NO dilation
  *  and NO stretch. */
-function wakeMaskOracle(ax: number, ay: number, bx: number, by: number, widthU: number, t: number): MaskOracle {
+function wakeMaskOracle(w: World, ax: number, ay: number, bx: number, by: number, widthU: number, t: number): MaskOracle {
   const dx = bx - ax;
   const dy = by - ay;
   // sqrt(dx²+dy²), NOT Math.hypot: the documented axis derivation — a
@@ -4311,7 +4314,7 @@ function wakeMaskOracle(ax: number, ay: number, bx: number, by: number, widthU: 
   }
   for (let i = 0; i < cw * ch; i++) if (spine[i] === 1) grid[i] = 1; // spine ∪ fill
   // THE PER-PAINT FLANK GLINT (P3): row-major, covered non-spine cells only.
-  const rng = mulberry32(segmentPaintSeed(t, ax, ay, bx, by));
+  const rng = mulberry32(segmentPaintSeed(t, ax, ay, bx, by, w.paintSaltFor('wake', [t, ax, ay, bx, by]))); // F1: the room-private salt
   const glintP = CONFIG.vision.radarFuzz.glintP;
   for (let i = 0; i < cw * ch; i++) {
     if (grid[i] === 1 && spine[i] !== 1 && rng.next() < glintP) grid[i] = 0;
@@ -4352,7 +4355,7 @@ function wakeMatchesSegment(w: World, me: ShipRecord, ev: WakeBlipEvent): boolea
   for (const ribbon of w.wakeRibbons) {
     for (const seg of wakeSegmentsOracle(ribbon, w.now)) {
       if (seg.bucket !== ev.a || !wakeDisclosed(w, me, seg)) continue;
-      if (maskEquals(wakeMaskOracle(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now), ev as unknown as ReturnBlipEvent)) return true;
+      if (maskEquals(wakeMaskOracle(w, seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now), ev as unknown as ReturnBlipEvent)) return true;
     }
   }
   return false;
@@ -4392,7 +4395,7 @@ function verifyWakeCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
     for (const seg of wakeSegmentsOracle(ribbon, w.now)) {
       if (!wakeDisclosed(w, me, seg)) continue;
       gated++;
-      const expected = wakeMaskOracle(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now);
+      const expected = wakeMaskOracle(w, seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now);
       expect(
         wks.some((b) => b.a === seg.bucket && maskEquals(expected, b as unknown as ReturnBlipEvent)),
         `gated wake segment (${seg.ax},${seg.ay})→(${seg.bx},${seg.by}) accounted for`,
@@ -5393,7 +5396,7 @@ describe('perception — the invariant still catches a genuine leak (Story 8.16)
     // Forge the exact payload a leaking blip path would emit for `h` — its
     // true pose rasterized+fuzzed for this tick — and assert the oracle
     // REFUSES it: it matches no gated ship.
-    const forged = maskOracle(h.hullId, h.state.x, h.state.y, h.state.heading, w.now);
+    const forged = maskOracle(w, h.hullId, h.state.x, h.state.y, h.state.heading, w.now);
     const forgedFrame = buildFrame(w, 'a');
     forgedFrame.events.push({ k: 'blip', t: w.now, gx: forged.gx, gy: forged.gy, w: forged.w, h: forged.h, bits: forged.bits });
     expect(() => verifyFrame(w, 'a', forgedFrame)).toThrow();
@@ -5434,7 +5437,7 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
     verifyFrame(w, 'a', legit); // the honest frame passes: two twin paints + one
     const blips = legit.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
     expect(blips).toHaveLength(3);
-    const twinMask = maskOracle(DEFAULT_CLASS_ID, ANNULUS_D, 0, 0, w.now);
+    const twinMask = maskOracle(w, DEFAULT_CLASS_ID, ANNULUS_D, 0, 0, w.now);
     const twinBlips = blips.filter((b) => maskEquals(twinMask, b));
     const other = blips.find((b) => !maskEquals(twinMask, b))!;
     expect(twinBlips).toHaveLength(2);
@@ -5531,7 +5534,7 @@ describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendme
     const blips = blipsOf(f);
     expect(blips).toHaveLength(3);
     for (const ship of [b, p, c]) {
-      expect(blips.some((e) => maskEquals(maskOracle(ship.hullId, ship.state.x, ship.state.y, ship.state.heading, w.now), e))).toBe(true);
+      expect(blips.some((e) => maskEquals(maskOracle(w, ship.hullId, ship.state.x, ship.state.y, ship.state.heading, w.now), e))).toBe(true);
     }
     // Neither the blip nor the plain row carries an identity.
     const wire = JSON.stringify(f.contacts) + JSON.stringify(f.events) + JSON.stringify(f.pc);
@@ -5829,7 +5832,7 @@ describe('perception — amendment 210: the server returns the entire sweep', ()
     expect(f.contacts.map((c) => c.id)).toEqual(['b']);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('observer in SOLID fog, hull in clear water inside sight whose ray pays its way out: no contact, yet a blip', () => {
@@ -5845,7 +5848,7 @@ describe('perception — amendment 210: the server returns the entire sweep', ()
     expect(f.contacts).toEqual([]);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('a hull behind a LOW island inside sight: no contact (eye: binary island LOS), a PARTIAL blip (radar: the shadow march)', () => {
@@ -5866,7 +5869,7 @@ describe('perception — amendment 210: the server returns the entire sweep', ()
     expect(f.contacts).toEqual([]);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('a hull behind HARD cover (at or above mast height) inside sight: nothing on either channel', () => {

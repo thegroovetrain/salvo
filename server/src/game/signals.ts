@@ -125,6 +125,7 @@ import {
 } from '@salvo/shared';
 import type { BurnZone, FoulZone, LitZone, ShipRecord, StoredCloud } from './world.js';
 import { isParticipant } from './participants.js';
+import type { PaintKind } from './paintSalt.js';
 import type { MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
@@ -195,6 +196,16 @@ interface SignalContextBase {
    * never fires.
    */
   plainHandleOf(targetId: string): string;
+  /**
+   * THE PAINT SALT (Story 11.2 review gate, F1): the room-private salt of
+   * one radar paint — a keyed hash of the paint's own inputs (`words` = paint
+   * time + exact pose), bound by perception.ts to `World.paintSaltFor`. The
+   * `blip` and `wk` shapers pass it to the shared paint pipeline so the
+   * mask's fuzz cannot be replayed from a pose a contact row discloses (see
+   * game/paintSalt.ts). Observer-free: the same paint salts the same for
+   * every observer.
+   */
+  paintSaltOf(kind: PaintKind, words: readonly number[]): number;
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -595,6 +606,7 @@ function radarOriginPaints(ctx: FoggedSignalContext, o: RadarOrigin, p: Vec2): b
  *  cache is not warranted — expected hulls-in-wedge per observer per tick is
  *  well under one, amendment 153). */
 interface MaskMemo {
+  salts: SignalContext['paintSaltOf'];
   cls: HullId;
   x: number;
   y: number;
@@ -605,13 +617,18 @@ interface MaskMemo {
 let lastMask: MaskMemo | null = null;
 
 /** The memoized paint pipeline: (pose, tick) → wire mask. Pure per key. */
-function paintMask(cls: HullId, p: Vec2, heading: number, t: number): HullCoverage {
+function paintMask(ctx: SignalContext, cls: HullId, p: Vec2, heading: number): HullCoverage {
+  const t = ctx.now;
   const m = lastMask;
-  if (m !== null && m.cls === cls && m.x === p.x && m.y === p.y && m.heading === heading && m.t === t) {
+  // `salts` is in the key: the memo is module-level, and two Worlds (two
+  // rooms in one process) salt the same pose differently.
+  if (m !== null && m.salts === ctx.paintSaltOf && m.cls === cls && m.x === p.x && m.y === p.y && m.heading === heading && m.t === t) {
     return m.mask;
   }
-  const mask = paintCoverage(cls, p.x, p.y, heading, CONFIG.vision.radarCellU, t);
-  lastMask = { cls, x: p.x, y: p.y, heading, t, mask };
+  // THE SALT (Story 11.2 review gate, F1): room-private, per paint.
+  const salt = ctx.paintSaltOf('hull', [t, p.x, p.y, heading]);
+  const mask = paintCoverage(cls, p.x, p.y, heading, CONFIG.vision.radarCellU, t, salt);
+  lastMask = { salts: ctx.paintSaltOf, cls, x: p.x, y: p.y, heading, t, mask };
   return mask;
 }
 
@@ -623,7 +640,7 @@ function blipShape(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): B
  *  cycle 162), in the SAME key order the blip carries it (gx,gy,w,h,bits).
  *  One caller since CHAFF's retirement (Story 9.2): blipShape. */
 function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): GhostPaint {
-  const c = paintMask(cls, p, heading, ctx.now);
+  const c = paintMask(ctx, cls, p, heading);
   return { gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
 
@@ -1364,6 +1381,7 @@ export function sweepMayCrossWake(me: ShipRecord, r: WakeRibbon): boolean {
  *  the SAME tick still reuse the mask (the seed is observer-free); a later
  *  revolution re-draws it, which is the scintillation working. */
 interface WakeMaskMemo {
+  salts: SignalContext['paintSaltOf'];
   ax: number;
   ay: number;
   bx: number;
@@ -1374,13 +1392,22 @@ interface WakeMaskMemo {
 }
 let lastWakeMask: WakeMaskMemo | null = null;
 
-function wakeMask(s: WakeSubject, t: number): HullCoverage {
+function sameWakeKey(m: WakeMaskMemo, ctx: SignalContext, s: WakeSubject): boolean {
+  if (m.salts !== ctx.paintSaltOf || m.t !== ctx.now || m.widthU !== s.widthU) return false;
+  return m.ax === s.ax && m.ay === s.ay && m.bx === s.bx && m.by === s.by;
+}
+
+function wakeMask(ctx: SignalContext, s: WakeSubject): HullCoverage {
+  const t = ctx.now;
   const m = lastWakeMask;
-  if (m !== null && m.ax === s.ax && m.ay === s.ay && m.bx === s.bx && m.by === s.by && m.widthU === s.widthU && m.t === t) {
-    return m.mask;
-  }
-  const mask = paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, s.widthU, CONFIG.vision.radarCellU, t);
-  lastWakeMask = { ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, widthU: s.widthU, t, mask };
+  if (m !== null && sameWakeKey(m, ctx, s)) return m.mask;
+  // THE SALT (Story 11.2 review gate, F1): a ship's wake samples are its own
+  // past positions, which a contact row discloses exactly — so the unsalted
+  // glint seed was replayable and the ribbon's sharp width (the source's
+  // beam, a class table) readable. Room-private, per paint, like the hull's.
+  const salt = ctx.paintSaltOf('wake', [t, s.ax, s.ay, s.bx, s.by]);
+  const mask = paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, s.widthU, CONFIG.vision.radarCellU, t, salt);
+  lastWakeMask = { salts: ctx.paintSaltOf, ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, widthU: s.widthU, t, mask };
   return mask;
 }
 
@@ -1446,7 +1473,7 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
   materialize(ctx, seg) {
     // KEY ORDER IS LOAD-BEARING (msgpack): k,t,a,gx,gy,w,h,bits — the
     // ReturnBlipEvent order with the age bucket after `t`.
-    const c = wakeMask(seg, ctx.now);
+    const c = wakeMask(ctx, seg);
     return { k: 'wk', t: ctx.now, a: seg.bucket, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
   },
 };
@@ -1624,15 +1651,48 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  * outer tier) is an anonymous impact, and no roster id is ever attached to a
  * hull the observer holds only by its anonymous handle.
  */
-const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
+/**
+ * Server-INTERNAL boom subject (Story 11.2 review gate, F4): the wire
+ * BoomEvent plus `run` — set, to the torpedo's OWNER id, only on the boom of
+ * a torpedo that merely RAN OUT of run (World.resolveShell, `expired`).
+ * `run` NEVER reaches the wire: materialize() rebuilds the bare {k,id,x,y}
+ * shape for such a boom on BOTH paths (the BurstSubject `own` precedent).
+ */
+export interface BoomSubject extends BoomEvent {
+  run?: string;
+}
+
+/**
+ * A TORPEDO RUN-OUT is seen ending only where a torpedo is seen (Story 11.2
+ * review gate, F4 — orchestrator ruling): the torpedo eye reach
+ * (`CONFIG.vision.torpedoSight`, whiteout-scaled, fog-tolled, island LOS), an
+ * owned lit zone, or the OWNER — whose ballistic gate never closes on its
+ * own torpedo (`ballisticGateOpen`), so the end of the track tells it
+ * nothing it did not hold, and its client needs the boom to retire the
+ * track. Without this the run-out rode the splash reach (350 hm) and
+ * announced a torpedo nobody within 15 hm of it could have seen — and with
+ * it a bearing line back to a hidden launcher. Impacts (hull, island, mine)
+ * are explosions and keep the splash reach.
+ */
+function runOutSeen(ctx: FoggedSignalContext, e: BoomSubject): boolean {
+  const me = ctx.me;
+  if (e.run === me.id) return true;
+  return pointSeenWithin(me, e, ctx, eyeReach(me, CONFIG.vision.torpedoSight, ctx.now)) || ownZoneCovers(ctx, e);
+}
+
+const boomSignal: SignalSpec<BoomSubject, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
+    if (e.run !== undefined) return runOutSeen(ctx, e);
     // THE POSITION rides the splash reach (Story 11.2, R4 / R18); the victim
     // id below still gates at the CLASS reach (`pointSighted`).
     return e.hit === ctx.me.id || splashSeen(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
+    // A run-out boom is ALWAYS rebuilt bare — never `e` verbatim, which
+    // would put the server-internal `run` (an owner id) on the wire.
+    if (e.run !== undefined) return { k: 'boom', id: e.id, x: e.x, y: e.y };
     if (ctx.mode === 'spectator') return e;
     const me = ctx.me;
     if (!e.hit || e.hit === me.id) return e;
