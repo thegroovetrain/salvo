@@ -17,7 +17,7 @@
 import { CONFIG, type IndexId } from '../constants.js';
 import type { Rng } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
-import { pointPolygonDistance } from './silhouette.js';
+import { pointPolygonDistance, segClearOfPolyBox } from './silhouette.js';
 import { bonusCount } from './stats.js';
 
 /** The drop dials (`CONFIG.drops`), widened to plain numbers so the harness's
@@ -143,6 +143,11 @@ export function rollPickup(rng: Rng, kind: DropKind, cfg: DropConfig = CONFIG.dr
  * is inside the hull. Concave-safe (`pointPolygonDistance`).
  */
 export function dropTouches(drop: Vec2, poly: readonly Vec2[], rU: number): boolean {
+  // The box reject first (Story 11.2 follow-up): a hull whose bounding box is
+  // more than `rU` from the centre cannot touch — one pass of compares instead
+  // of the edge scan for every crate x hull pair, every tick. Exact: it only
+  // skips pairs whose distance is provably past `rU`.
+  if (poly.length > 0 && segClearOfPolyBox(drop, drop, poly, rU)) return false;
   return pointPolygonDistance(drop, poly) <= rU;
 }
 

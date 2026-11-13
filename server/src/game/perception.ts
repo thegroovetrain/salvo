@@ -123,9 +123,14 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // subjects and nothing else (a cloud occludes no sensor).
     clouds: world.cloudRecords,
     // Story 9.10: THE FOG TOLL — the World's `fogTollAlong` (the shared
-    // field under the live cut), read by every withinSight site. A thunk,
+    // field under the live cut), read by every eyeHolds site. A thunk,
     // so the field itself never rides the context.
     fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
+    // Story 11.2 follow-up: the island broadphase index (validated ONCE here,
+    // for this whole pass) and the bounded fog gate — the same answers as
+    // `islands` + `fogToll`, without the work that cannot change them.
+    los: world.islandIndex,
+    fogAdmits: (ax, ay, bx, by, d, range) => world.fogSightAdmits(ax, ay, bx, by, d, range),
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,

@@ -252,6 +252,236 @@ export function segPolygonDistance(a0: Vec2, a1: Vec2, poly: readonly Vec2[]): n
 }
 
 /**
+ * Slack (u) every conservative box reject below keeps between "the boxes are
+ * disjoint" and "no edge can be within reach": six orders of magnitude over
+ * EPS and over any float dust `segSegClosest` or the ray-cast of
+ * `pointInPolygon` can produce at board coordinates, and far below anything a
+ * player could observe. A reject is therefore EXACT — it only skips work whose
+ * answer is already "no hit".
+ */
+const BOX_PAD = 1e-3;
+
+/**
+ * THE BOX REJECT (Story 11.2 follow-up): is segment a0->a1 provably farther
+ * than `radius` from every edge of `poly` AND a0 provably outside it — because
+ * the segment's bounding box, grown by `radius` + BOX_PAD, misses the
+ * polygon's? True means `segPolygonHit` is null without visiting an edge;
+ * false means "unknown — run the exact test". Any NaN compares false and falls
+ * through to the exact test, so the degenerate cases keep their old answers.
+ * One pass of compares over the vertices against ~one `segSegClosest` per
+ * edge: a 20 Hz shell step is a short segment and almost never near a hull.
+ */
+export function segClearOfPolyBox(a0: Vec2, a1: Vec2, poly: readonly Vec2[], radius: number): boolean {
+  const reach = Math.max(radius, 0) + BOX_PAD; // a negative radius never shrinks the box (a0 inside the polygon still hits)
+  const lo = Math.min(a0.x, a1.x) - reach;
+  const hi = Math.max(a0.x, a1.x) + reach;
+  const below = Math.min(a0.y, a1.y) - reach;
+  const above = Math.max(a0.y, a1.y) + reach;
+  let left = true;
+  let right = true;
+  let under = true;
+  let over = true;
+  for (const v of poly) {
+    left = left && v.x < lo;
+    right = right && v.x > hi;
+    under = under && v.y < below;
+    over = over && v.y > above;
+  }
+  return left || right || under || over;
+}
+
+/** A polygon's bounding box as [minX, minY, maxX, maxY] (unpadded). */
+export type PolyBox = readonly [number, number, number, number];
+
+/** The bounding box of `poly` AS IT IS NOW (see `segClearOfBox`). */
+export function polyBox(poly: readonly Vec2[]): PolyBox {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const v of poly) {
+    minX = Math.min(minX, v.x);
+    minY = Math.min(minY, v.y);
+    maxX = Math.max(maxX, v.x);
+    maxY = Math.max(maxY, v.y);
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+/**
+ * `segClearOfPolyBox` against a box the caller already holds: true when the
+ * segment's box, grown by `radius` + BOX_PAD, misses it — then
+ * `segPolygonHit` at that radius is null. The box MUST be `polyBox` of the
+ * polygon as it is at the time of the test (a hull polygon is rewritten in
+ * place, so a box is only good while the pose it was taken at stands). A box
+ * holding a NaN (a polygon with one) never rejects.
+ */
+export function segClearOfBox(a0: Vec2, a1: Vec2, box: PolyBox, radius: number): boolean {
+  const reach = Math.max(radius, 0) + BOX_PAD;
+  return (
+    box[2] < Math.min(a0.x, a1.x) - reach ||
+    box[0] > Math.max(a0.x, a1.x) + reach ||
+    box[3] < Math.min(a0.y, a1.y) - reach ||
+    box[1] > Math.max(a0.y, a1.y) + reach
+  );
+}
+
+/** Edges per chunk of a `PolyChunks` index — a handful, so a chunk's box is tight. */
+const CHUNK_EDGES = 6;
+
+/**
+ * A STATIC polygon's edge boxes (Story 11.2 follow-up): the boundary cut into
+ * runs of `CHUNK_EDGES` consecutive edges, each with its bounding box grown by
+ * BOX_PAD (`box` holds minX, minY, maxX, maxY per chunk), plus the whole
+ * polygon's padded box. Built once for a polygon that never moves (an island
+ * coastline); `segPolygonBlocked` reads it. NEVER build one for a hull — hull
+ * polygons are rewritten in place every tick.
+ */
+export interface PolyChunks {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly box: Float64Array;
+  readonly count: number;
+}
+
+/** Build the edge boxes of a static polygon (see `PolyChunks`). */
+export function buildPolyChunks(poly: readonly Vec2[]): PolyChunks {
+  const n = poly.length;
+  const count = Math.ceil(n / CHUNK_EDGES);
+  const box = new Float64Array(count * 4);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let c = 0; c < count; c++) {
+    const b = chunkBox(poly, c);
+    box.set(b, c * 4);
+    minX = Math.min(minX, b[0]);
+    minY = Math.min(minY, b[1]);
+    maxX = Math.max(maxX, b[2]);
+    maxY = Math.max(maxY, b[3]);
+  }
+  return { minX, minY, maxX, maxY, box, count };
+}
+
+/** The padded bounding box of chunk `c`'s edges: edge `i` runs poly[i-1] -> poly[i] (wrapping). */
+function chunkBox(poly: readonly Vec2[], c: number): [number, number, number, number] {
+  const n = poly.length;
+  const b: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  const end = Math.min(n, (c + 1) * CHUNK_EDGES);
+  for (let i = c * CHUNK_EDGES; i < end; i++) {
+    for (const v of [poly[i], poly[(i + n - 1) % n]]) {
+      b[0] = Math.min(b[0], v.x - BOX_PAD);
+      b[1] = Math.min(b[1], v.y - BOX_PAD);
+      b[2] = Math.max(b[2], v.x + BOX_PAD);
+      b[3] = Math.max(b[3], v.y + BOX_PAD);
+    }
+  }
+  return b;
+}
+
+/** Could segment a0->a1 come within EPS of an edge in chunk `c`? (`boxMayTouch` on the chunk's padded box.) */
+function chunkMayTouch(k: PolyChunks, c: number, a0: Vec2, a1: Vec2): boolean {
+  return boxMayTouch(k.box[c * 4], k.box[c * 4 + 1], k.box[c * 4 + 2], k.box[c * 4 + 3], a0, a1);
+}
+
+/** Could segment a0->a1 come within EPS of anything inside the PADDED box
+ *  (x0, y0)-(x1, y1)? False only when the box is disjoint from the segment's
+ *  box or lies wholly on one side of the segment's line — then everything
+ *  the box was padded around is at least ~BOX_PAD away. Conservative: any
+ *  doubt (NaN included) answers true. */
+export function boxMayTouch(x0: number, y0: number, x1: number, y1: number, a0: Vec2, a1: Vec2): boolean {
+  if (Math.max(a0.x, a1.x) < x0 || Math.min(a0.x, a1.x) > x1) return false;
+  if (Math.max(a0.y, a1.y) < y0 || Math.min(a0.y, a1.y) > y1) return false;
+  return !boxOffLine(x0, y0, x1, y1, a0, a1);
+}
+
+/** Are the box's four corners all strictly on ONE side of the line through
+ *  a0->a1 (the sign of each corner's cross product with the direction)? */
+function boxOffLine(x0: number, y0: number, x1: number, y1: number, a0: Vec2, a1: Vec2): boolean {
+  const dx = a1.x - a0.x;
+  const dy = a1.y - a0.y;
+  const c00 = dx * (y0 - a0.y) - dy * (x0 - a0.x);
+  const c10 = dx * (y0 - a0.y) - dy * (x1 - a0.x);
+  const c01 = dx * (y1 - a0.y) - dy * (x0 - a0.x);
+  const c11 = dx * (y1 - a0.y) - dy * (x1 - a0.x);
+  return Math.min(c00, c10, c01, c11) > 0 || Math.max(c00, c10, c01, c11) < 0;
+}
+
+/**
+ * Does any edge of chunk `c` lie within EPS of segment a0->a1? The exact test
+ * is the reference's `segSegClosest(...).dist <= EPS`; an edge whose two ends
+ * sit on the same side of the segment's LINE, both more than BOX_PAD off it,
+ * is skipped first (two cross products: `cross = |d| × distance`, and
+ * `|dx| + |dy| >= |d|`, so the margin `m` is at least BOX_PAD of true
+ * distance) — such an edge is at least BOX_PAD from the segment. A point
+ * segment has `m = 0` and both crosses 0, so nothing is skipped; a NaN never
+ * skips.
+ */
+function chunkBlocks(poly: readonly Vec2[], c: number, a0: Vec2, a1: Vec2): boolean {
+  const n = poly.length;
+  const end = Math.min(n, (c + 1) * CHUNK_EDGES);
+  const dx = a1.x - a0.x;
+  const dy = a1.y - a0.y;
+  const m = BOX_PAD * (Math.abs(dx) + Math.abs(dy));
+  for (let i = c * CHUNK_EDGES; i < end; i++) {
+    const p = poly[(i + n - 1) % n];
+    const q = poly[i];
+    const cp = dx * (p.y - a0.y) - dy * (p.x - a0.x);
+    const cq = dx * (q.y - a0.y) - dy * (q.x - a0.x);
+    if (sameSideBeyond(cp, cq, m)) continue;
+    if (segSegClosest(a0, a1, p, q).dist <= EPS) return true;
+  }
+  return false;
+}
+
+/** Are both crosses past the margin on the same side (see `chunkBlocks`)? */
+function sameSideBeyond(cp: number, cq: number, m: number): boolean {
+  return (cp > m && cq > m) || (cp < -m && cq < -m);
+}
+
+/**
+ * Can `p` be inside the polygon these chunks index? False when `p` is outside
+ * the polygon's padded box — there `pointInPolygon` is provably false (no
+ * edge straddles its row, or every straddling edge is on one side of it and
+ * a closed boundary straddles a row an even number of times).
+ */
+export function pointMayBeInside(chunks: PolyChunks, p: Vec2): boolean {
+  return !(p.x < chunks.minX || p.x > chunks.maxX || p.y < chunks.minY || p.y > chunks.maxY);
+}
+
+/**
+ * The EDGE half of `segPolygonBlocked`: is some edge of the static polygon
+ * within EPS of segment a0->a1? (No inside test — the caller answers "is a0
+ * inside" itself, e.g. once per origin.)
+ */
+export function segPolygonEdgeBlocked(a0: Vec2, a1: Vec2, poly: readonly Vec2[], chunks: PolyChunks): boolean {
+  if (!boxMayTouch(chunks.minX, chunks.minY, chunks.maxX, chunks.maxY, a0, a1)) return false; // the whole (padded) polygon is out of reach
+  for (let c = 0; c < chunks.count; c++) {
+    if (chunkMayTouch(chunks, c, a0, a1) && chunkBlocks(poly, c, a0, a1)) return true;
+  }
+  return false;
+}
+
+/**
+ * THE LINE-OF-SIGHT form of `segPolygonHit` for a STATIC polygon: exactly
+ * `segPolygonHit(a0, a1, poly, 0) !== null` — a0 inside the polygon, or some
+ * edge within EPS of the segment — answered through the polygon's prebuilt
+ * edge boxes (`chunks`, from `buildPolyChunks(poly)` of this same polygon).
+ * The boxes only skip edges that are provably ~BOX_PAD away and the inside
+ * test when a0 is outside the polygon's padded box (where the ray-cast is
+ * provably false), so the answer is the reference's, bit for bit; the exact
+ * edge test is the reference's own `segSegClosest(...).dist <= EPS`
+ * (`silhouette.test.ts` holds the two equal on generated coastlines).
+ */
+export function segPolygonBlocked(a0: Vec2, a1: Vec2, poly: readonly Vec2[], chunks: PolyChunks): boolean {
+  if (pointMayBeInside(chunks, a0) && pointInPolygon(a0, poly)) return true;
+  return segPolygonEdgeBlocked(a0, a1, poly, chunks);
+}
+
+/**
  * Swept-projectile hit test: earliest fraction along a0->a1 at which the
  * segment comes within `radius` of the polygon (edge closest-approach, the
  * same rule the old capsule test used), or 0 when a0 starts inside, or null
@@ -264,6 +494,7 @@ export function segPolygonHit(
   poly: readonly Vec2[],
   radius: number,
 ): number | null {
+  if (segClearOfPolyBox(a0, a1, poly, radius)) return null;
   if (pointInPolygon(a0, poly)) return 0;
   let best: number | null = null;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

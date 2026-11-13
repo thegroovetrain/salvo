@@ -637,10 +637,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /** Raw "i" input → World's input store (fail-closed validation lives there).
-   * Counted at the top: even a malformed message is transport pressure. */
+   * Counted at the top: even a malformed message is transport pressure.
+   * The input rate cap counts ARRIVALS, so it gets this room's wall clock
+   * (monotonic), never the sim clock: a sim that falls behind real time must
+   * not turn an honest 20 Hz stream into a flood (game/inputs.ts header). */
   private onInputMessage(client: Client, raw: unknown): void {
     this.metrics?.recordMessage();
-    this.world.submitInput(client.sessionId, raw);
+    this.world.submitInput(client.sessionId, raw, performance.now());
   }
 
   /**

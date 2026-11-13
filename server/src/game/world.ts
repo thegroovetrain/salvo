@@ -110,6 +110,12 @@ import {
   makeFogField,
   FOG_SOLID_DENSITY,
   fogDensityAt as fieldDensityAt,
+  islandIndexFor,
+  newLosHints,
+  polyBox,
+  type PolyBox,
+  type IslandIndex,
+  type LosHints,
   fogNoiseAt,
   fogCutForTarget,
   fogLattice,
@@ -1138,6 +1144,14 @@ export interface ShipRecord {
    */
   seenBallistics: Set<string>;
   /**
+   * This hull's own LINE-OF-SIGHT HINTS (Story 11.2 follow-up — shared
+   * `LosHints`): the islands that most recently blocked ITS eye rays, asked
+   * first by the next ray (`signals.fieldClear`). An order of asking only —
+   * it can change the cost of a sight test and never its answer — so it is
+   * never reset and rides no wire.
+   */
+  losHints: LosHints;
+  /**
    * Per-observer HOMING-torpedo track memory (Story 2.8): torpedo id → the
    * velocity DIRECTION (rad) this observer last received for that track (set
    * at the ballistic reveal, updated on every 'torpU' emission). The torpU row
@@ -1495,11 +1509,95 @@ interface DdaAxis {
   tMax: number;
 }
 
-function ddaAxis(origin: number, cell: number, idx: number, a: number, d: number): DdaAxis {
-  if (d === 0) return { step: 0, tDelta: Infinity, tMax: Infinity };
-  const step = d > 0 ? 1 : -1;
-  const edge = origin + (idx + (step > 0 ? 1 : 0)) * cell;
-  return { step, tDelta: cell / Math.abs(d), tMax: (edge - a) / d };
+/** The bounding boxes of `list`'s polygons, taken once per list per pass
+ *  (`cache` lives for one `stepShells` call — see there). */
+function targetBoxesOf(cache: Map<readonly Target[], readonly PolyBox[]>, list: readonly Target[]): readonly PolyBox[] {
+  let boxes = cache.get(list);
+  if (boxes === undefined) {
+    boxes = list.map((t) => polyBox(t.poly));
+    cache.set(list, boxes);
+  }
+  return boxes;
+}
+
+function ddaAxis(origin: number, cell: number, idx: number, a: number, d: number, out: DdaAxis): DdaAxis {
+  if (d === 0) {
+    out.step = 0;
+    out.tDelta = Infinity;
+    out.tMax = Infinity;
+    return out;
+  }
+  out.step = d > 0 ? 1 : -1;
+  const edge = origin + (idx + (out.step > 0 ? 1 : 0)) * cell;
+  out.tDelta = cell / Math.abs(d);
+  out.tMax = (edge - a) / d;
+  return out;
+}
+
+// The fog walk's scratch (one walk at a time, never re-entrant): reused so a
+// tick's walks allocate nothing.
+const FOG_DDA_X: DdaAxis = { step: 0, tDelta: 0, tMax: 0 };
+const FOG_DDA_Y: DdaAxis = { step: 0, tDelta: 0, tMax: 0 };
+const FOG_CLIP = { t0: 0, t1: 1 };
+const FOG_SPAN = { sx: 0, sy: 0, dx: 0, dy: 0 };
+const FOG_RUN = { free: false, first: true };
+
+/**
+ * The sight gate's early exits for one fog walk (`World.fogSightAdmits`).
+ * `acceptBelow`: the gate holds whenever the walk's FINAL sum (Σ density ×
+ * fraction of the span) is at most this — already less FOG_DECIDE_SLACK.
+ * `d` / `range`: the final comparison's own operands, for the reject.
+ * `verdict` is the walk's answer when it stopped early: +1 seen, −1 not,
+ * 0 undecided (the walk ran to its end).
+ */
+interface FogBounds {
+  acceptBelow: number;
+  d: number;
+  range: number;
+  verdict: number;
+}
+
+/** The toll's bounds: nothing ever decides early. */
+const FOG_NO_BOUNDS: FogBounds = { acceptBelow: -Infinity, d: 0, range: Infinity, verdict: 0 };
+/** The gate's bounds scratch (one walk at a time). */
+const FOG_BOUNDS: FogBounds = { acceptBelow: 0, d: 0, range: 0, verdict: 0 };
+
+/**
+ * Slack (u) the sight gate's "seen whatever the rest of the fog" bound keeps
+ * under `range`: the walk's float dust is ~1e-9 u at board scale (a few
+ * hundred additions of terms ≤ 1e4 u), so 1e-6 u makes the early "seen"
+ * strictly safe — a ray that close to the edge simply walks to the end and
+ * takes the reference comparison.
+ */
+const FOG_DECIDE_SLACK = 1e-6;
+
+/**
+ * Has the gate's answer been decided after the cells up to span fraction
+ * `tDone`, with `sum` so far? Seen: even at density 1 over the whole
+ * remainder the final sum stays under `acceptBelow`. Not seen: the running
+ * toll alone (`sum × len × cost`, the final comparison's own expression in
+ * its own operation order — and the sum only grows) already puts the ray
+ * past `range`; `scale` (= len × cost) is only the cheap pre-test that
+ * guards it. Sets `bounds.verdict`.
+ */
+function fogDecided(bounds: FogBounds, sum: number, tDone: number, len: number, scale: number): boolean {
+  if (sum + (1 - tDone) <= bounds.acceptBelow) {
+    bounds.verdict = 1;
+    return true;
+  }
+  if (sum > 0 && bounds.d + sum * scale > bounds.range && bounds.d + sum * len * CONFIG.fog.sightCostPerU > bounds.range) {
+    bounds.verdict = -1;
+    return true;
+  }
+  return false;
+}
+
+/** Is (ax, ay, bx, by, d, range) the question the gate memo holds? */
+function sameGateQuestion(
+  memo: { ax: number; ay: number; bx: number; by: number; d: number; range: number },
+  ax: number, ay: number, bx: number, by: number, d: number, range: number,
+): boolean {
+  return memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by && memo.d === d && memo.range === range;
 }
 
 /** Liang–Barsky on one axis: narrow [t0, t1] to where `a + d·t` lies in [lo, hi]. */
@@ -1590,7 +1688,7 @@ export class World {
    * is, never where hulls are. Nothing per-observer about fog is ever on the
    * wire (the declared perception exceptions are SIX — amendment 162 is
    * MOOT); fog reaches a client only as the TOLL inside every sight predicate
-   * (`fogTollAlong` below, through signals.ts `withinSight`): a ray pays
+   * (`fogTollAlong` below, through signals.ts `eyeHolds`): a ray pays
    * `sightCostPerU × density` extra sight distance per unit crossed, so a
    * hull inside the geometric bubble that fog hides is no contact — but radar
    * has no inner edge (amendment 210, superseding 163's "dark to both"), so
@@ -1931,8 +2029,23 @@ export class World {
    * outer-tier pair was already 1).
    */
   private readonly fogTollMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, toll: 0 };
+  /**
+   * The one-entry GATE memo (Story 11.2 follow-up): `fogSightAdmits`' last
+   * question and its answer — the toll memo's job on the sight path, where
+   * the `plain` row re-asks the `contact` row's question for the same pair.
+   */
+  private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, d: NaN, range: NaN, epoch: 0, seen: false };
   /** Lattice walks since construction — the toll memo's accounting (tests). */
   private fogWalkCount = 0;
+  /**
+   * THE ISLAND BROADPHASE INDEX (Story 11.2 follow-up — shared
+   * sim/islandIndex.ts): derived from `map.islands`, built on first use and
+   * rebuilt if the list is ever rewritten (tests do; a production map never
+   * changes). Read through `islandIndex`, once per pass.
+   */
+  private islandIdx: IslandIndex | undefined;
+  /** Island narrow-phase tests of indexes this World has since replaced (see `losTests`). */
+  private losTestsRetired = 0;
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
   /** Cells evaluated since construction (perf accounting — fogField.test.ts's memo-determinism test reads it). */
@@ -2468,9 +2581,20 @@ export class World {
     return this.tickDenials.get(id);
   }
 
-  /** Wire entry point: validate/store a raw input message for `id`. */
-  submitInput(id: string, raw: unknown): boolean {
-    return this.inputs.submit(id, raw, this.now);
+  /**
+   * Wire entry point: validate/store a raw input message for `id`.
+   *
+   * `arrivedAt` is the ARRIVAL time the rate cap counts on (ms, monotonic —
+   * Story 11.2 follow-up; game/inputs.ts header): the ROOM passes its own
+   * wall clock for every socket message, so a sim that steps slower than real
+   * time cannot stretch one rate window over many wall seconds and shed an
+   * honest 20 Hz client's inputs. Omitted — a bot (one submission per step)
+   * and every directed test — the sim clock IS the arrival clock. The World
+   * itself still reads no wall clock: the sim keeps its single clock, and
+   * this number only feeds the transport's rate limiter.
+   */
+  submitInput(id: string, raw: unknown, arrivedAt: number = this.now): boolean {
+    return this.inputs.submit(id, raw, arrivedAt);
   }
 
   /** The seat's transport dropped: stop its held-fire level for the whole
@@ -2597,7 +2721,7 @@ export class World {
       nextSmokeAt: 0,
       cloudUntil: 0, // Story 9.3: a fresh hull has no cloud of its own up
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
-      seenBallistics: new Set(),
+      seenBallistics: new Set(), losHints: newLosHints(),
       torpDirs: new Map(),
       plainHandles: new Map(),
       loadout,
@@ -4554,7 +4678,7 @@ export class World {
    * to see out of it normally … like grass patches in League" — clear water
    * between you and a second bank makes that bank pay). Directional: the
    * reverse ray may cost more or less. THE one entry of the fog cost into
-   * perception: signals.ts `withinSight` adds it to the ray's length through
+   * perception: signals.ts `eyeHolds` adds it to the ray's length through
    * the `SightField.fogToll` thunk the contexts bind to this method. 0 with no fog (no walk). The segment is CLIPPED to the lattice
    * square first (fog beyond the ocean's rim + margin is irrelevant — and
    * since amendment 179 the shared density is 0 past the rim anyway); a ray
@@ -4574,6 +4698,66 @@ export class World {
     return toll;
   }
 
+  /**
+   * THE SIGHT GATE'S FOG QUESTION, ANSWERED WITHOUT THE WHOLE WALK WHEN THE
+   * ANSWER IS ALREADY DECIDED (Story 11.2 follow-up): does the ray A → B
+   * (A the observer), `d` long, stay inside `range` once its toll is added —
+   * exactly `toll <= 0 || d + toll <= range` for `toll = fogTollAlong(ax, ay,
+   * bx, by)`, the comparison signals.ts ran on the full toll. The caller has
+   * already established `d <= range` (the plain squared test).
+   *
+   * The toll is a sum of non-negative terms over the same cell walk, so two
+   * bounds decide early and EXACTLY:
+   *   - a density is at most 1, so the toll is at most `sightCostPerU` × the
+   *     ray's length on the lattice: when `d` + that bound is inside `range`
+   *     (less FOG_DECIDE_SLACK, which swallows the walk's float dust many
+   *     times over) the ray is seen with no walk at all — every point inside
+   *     `range / (1 + sightCostPerU)` of the eye — and the same bound over
+   *     the cells still ahead ends a walk the moment the rest cannot matter;
+   *   - the running sum never decreases, so the moment `d + tollSoFar` is
+   *     past `range` the answer is "no" (checked with the final comparison's
+   *     own expression, so it cannot disagree with it).
+   * A walk that neither bound ends runs to the end and takes the reference
+   * comparison. Never an approximation: `fogGate.test.ts` holds it equal to
+   * the full toll's answer.
+   */
+  fogSightAdmits(ax: number, ay: number, bx: number, by: number, d: number, range: number): boolean {
+    if (this.fogCutValue >= FOG_NO_CUT) return true;
+    const memo = this.fogGateMemo;
+    if (memo.epoch === this.fogEpoch && sameGateQuestion(memo, ax, ay, bx, by, d, range)) return memo.seen;
+    const seen = this.fogSightWalked(ax, ay, bx, by, d, range);
+    memo.ax = ax;
+    memo.ay = ay;
+    memo.bx = bx;
+    memo.by = by;
+    memo.d = d;
+    memo.range = range;
+    memo.epoch = this.fogEpoch;
+    memo.seen = seen;
+    return seen;
+  }
+
+  /**
+   * The CURRENT island index (see `islandIdx`): validated against
+   * `map.islands` on every read — one identity pass over the list — so a
+   * caller takes it ONCE per pass (one observe(), one shell step) and hands
+   * it to that pass's queries.
+   */
+  get islandIndex(): IslandIndex {
+    const cur = islandIndexFor(this.islandIdx, this.map.islands);
+    if (cur !== this.islandIdx && this.islandIdx !== undefined) this.losTestsRetired += this.islandIdx.narrowTests;
+    this.islandIdx = cur;
+    return cur;
+  }
+
+  /** Island narrow-phase tests since construction — how many islands a
+   *  segment query took past the bounding circle to the core / coastline
+   *  test (work accounting for the perception guard test and the tick-cost
+   *  probe; never a gameplay input). */
+  get losTests(): number {
+    return this.losTestsRetired + (this.islandIdx?.narrowTests ?? 0);
+  }
+
   /** The side of the density memo lattice in u (cells × cell size) — its
    *  extent accounting (Story 11.2 review gate, F2: the lattice is the
    *  ocean's bounding square plus one cell a side, never a sight reach). */
@@ -4582,24 +4766,65 @@ export class World {
   }
 
   /** Lattice walks since construction (Story 11.2 review gate, F2 — the toll
-   *  memo's accounting: a ray re-asked in the same epoch walks nothing). */
+   *  memo's accounting: a ray re-asked in the same epoch walks nothing; since
+   *  the follow-up, neither does a ray the length bound decides). */
   get fogWalks(): number {
     return this.fogWalkCount;
   }
 
-  /** The toll of one ray, walked (see `fogTollAlong`, its only caller). */
-  private fogTollWalked(ax: number, ay: number, bx: number, by: number): number {
+  /** The clipped lattice span of the ray A → B as `FOG_SPAN` (start point and
+   *  delta), or false when the ray is degenerate or misses the lattice — then
+   *  it pays nothing. Shared by the toll and the gate, so both walk the very
+   *  same segment. */
+  private fogSpan(ax: number, ay: number, bx: number, by: number): boolean {
     const dx = bx - ax;
     const dy = by - ay;
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (!(len > 0) || !Number.isFinite(len) || !Number.isFinite(ax) || !Number.isFinite(ay)) return 0;
+    if (!(len > 0) || !Number.isFinite(len) || !Number.isFinite(ax) || !Number.isFinite(ay)) return false;
     const m = this.fogMemo;
     const extent = m.cell * m.side;
-    const t = { t0: 0, t1: 1 };
-    if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return 0;
+    const t = FOG_CLIP;
+    t.t0 = 0;
+    t.t1 = 1;
+    if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return false;
+    const span = FOG_SPAN;
+    span.sx = ax + dx * t.t0;
+    span.sy = ay + dy * t.t0;
+    span.dx = dx * (t.t1 - t.t0);
+    span.dy = dy * (t.t1 - t.t0);
+    return true;
+  }
+
+  /** The toll of one ray, walked (see `fogTollAlong`, its only caller). */
+  private fogTollWalked(ax: number, ay: number, bx: number, by: number): number {
+    if (!this.fogSpan(ax, ay, bx, by)) return 0;
     const ownBank = this.fogObserverInSolidFog(ax, ay);
     this.fogWalkCount += 1;
-    return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0), ownBank) * CONFIG.fog.sightCostPerU;
+    const span = FOG_SPAN;
+    return this.fogWalk(span.sx, span.sy, span.dx, span.dy, ownBank, FOG_NO_BOUNDS) * CONFIG.fog.sightCostPerU;
+  }
+
+  /** `fogSightAdmits`, computed (its only caller holds the one-entry memo). */
+  private fogSightWalked(ax: number, ay: number, bx: number, by: number, d: number, range: number): boolean {
+    if (!this.fogSpan(ax, ay, bx, by)) return true; // toll 0
+    const span = FOG_SPAN;
+    const cost = CONFIG.fog.sightCostPerU;
+    const len = Math.sqrt(span.dx * span.dx + span.dy * span.dy);
+    // In the walk's own units (Σ density × fraction of the span, at most 1)
+    // the gate reads `d + sum × len × cost <= range`: `room` is the sum the
+    // gate can absorb, less the slack.
+    const room = (range - FOG_DECIDE_SLACK - d) / (len * cost);
+    if (room >= 1) return true; // seen whatever the fog: no walk
+    const ownBank = this.fogObserverInSolidFog(ax, ay);
+    this.fogWalkCount += 1;
+    const bounds = FOG_BOUNDS;
+    bounds.acceptBelow = room;
+    bounds.d = d;
+    bounds.range = range;
+    bounds.verdict = 0;
+    const toll = this.fogWalk(span.sx, span.sy, span.dx, span.dy, ownBank, bounds) * cost;
+    if (bounds.verdict !== 0) return bounds.verdict > 0;
+    return toll <= 0 || d + toll <= range;
   }
 
   /** Does the observer at (x, y) stand in solid fog (the exact shared density
@@ -4623,21 +4848,28 @@ export class World {
    *  the lattice): Σ density × length inside each visited cell — skipping the
    *  observer's own bank when `ownBank`: the leading run of solid cells
    *  (density ≥ FOG_SOLID_DENSITY) is free, and the first thinner cell ends
-   *  the run for good (amendment 179). */
-  private fogWalk(sx: number, sy: number, dx: number, dy: number, ownBank: boolean): number {
+   *  the run for good (amendment 179). `bounds` is the sight gate's early
+   *  exit (`fogSightAdmits`): when it sets `bounds.verdict` the walk stopped
+   *  early and the returned sum is partial; the toll passes FOG_NO_BOUNDS,
+   *  which never fires, so toll and gate read the very same sum. */
+  private fogWalk(sx: number, sy: number, dx: number, dy: number, ownBank: boolean, bounds: FogBounds): number {
     const m = this.fogMemo;
     const len = Math.sqrt(dx * dx + dy * dy);
     let i = memoIndex(m.ox, m.cell, m.side, sx);
     let j = memoIndex(m.oy, m.cell, m.side, sy);
-    const X = ddaAxis(m.ox, m.cell, i, sx, dx);
-    const Y = ddaAxis(m.oy, m.cell, j, sy, dy);
+    const X = ddaAxis(m.ox, m.cell, i, sx, dx, FOG_DDA_X);
+    const Y = ddaAxis(m.oy, m.cell, j, sy, dy, FOG_DDA_Y);
+    const scale = len * CONFIG.fog.sightCostPerU;
     let sum = 0;
     let tCur = 0;
-    const run = { free: ownBank, first: true };
+    const run = FOG_RUN;
+    run.free = ownBank;
+    run.first = true;
     for (let n = 2 * m.side + 2; n > 0; n--) {
       const tNext = Math.min(X.tMax, Y.tMax, 1);
       if (tNext > tCur) sum += this.fogPayCell(i, j, run) * (tNext - tCur);
       if (tNext >= 1) break;
+      if (fogDecided(bounds, sum, tNext, len, scale)) break;
       tCur = tNext;
       if (X.tMax < Y.tMax) {
         X.tMax += X.tDelta;
@@ -5408,6 +5640,15 @@ export class World {
    *  every projectile funnels through here, one tick after spawn at the
    *  earliest, so all shell damage resolves in exactly one place. */
   private stepShells(dt: number, hitTargets: HitTargets): void {
+    const islandIndex = this.islandIndex; // validated once for the whole step
+    // THE SWEEP'S TARGET BOXES (Story 11.2 follow-up): one bounding box per
+    // target of each list this step flies against, taken HERE — inside the
+    // pass, from the polygons as they stand — and dropped with the pass, so a
+    // box can never outlive the pose it was taken at (no hull moves inside
+    // this row; a sink mid-loop hands out a NEW list, which gets new boxes).
+    // A shell step is a short segment: with the boxes it asks only the hulls
+    // it can reach instead of edge-testing every hull on the water.
+    const boxes = new Map<readonly Target[], readonly PolyBox[]>();
     for (const [id, shell] of this.shells) {
       // EVERY PROJECTILE ASKS THE COLLECTOR FOR ITS OWN MASK (Story 8.4,
       // AR44): a deck-gun shell sees hulls and mines; a torpedo sees hulls;
@@ -5428,7 +5669,9 @@ export class World {
       const sweepSet = hitTargets(sweepMask(shell.hits));
       const outcome = stepShell(shell, {
         islands: this.map.islands,
+        islandIndex,
         targets: sweepSet,
+        targetBoxes: targetBoxesOf(boxes, sweepSet),
         now: this.now,
         dt,
         mapRadius: this.map.radius,
@@ -7458,12 +7701,14 @@ export class World {
     // live-stepped one does. It still resolves no outcomes: a terminal result
     // defers to next tick's sweep.
     const hulls = this.hitTargets(sweepMask(shell.hits));
+    const islandIndex = this.islandIndex;
     let remainingMs = this.now - shell.bornAt;
     while (remainingMs > 0) {
       const dtMs = Math.min(remainingMs, CONFIG.tick.simDtMs);
       remainingMs -= dtMs;
       const outcome = stepShell(shell, {
         islands: this.map.islands,
+        islandIndex,
         targets: hulls,
         now: this.now,
         dt: dtMs / 1000,
