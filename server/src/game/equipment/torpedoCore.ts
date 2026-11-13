@@ -51,8 +51,11 @@ import { makeBallistic } from './ballistics.js';
 export interface TorpedoRow {
   speed: number; // u/s
   damage: number; // hp per contact hit
-  /** rad/s — 0 = a straight-runner: no steering, no torpU, no die-distance. */
+  /** rad/s — 0 = a straight-runner: no steering, no torpU. */
   homingTurnRate: number;
+  /** u — the fish's TOTAL travel, homing or straight (Story 11.2, R5): the
+   *  row's folded `runU`, the launch's `distLeft`. */
+  runU: number;
   /** ms — the FOLDED reload a fired tube starts. */
   reloadMs: number;
 }
@@ -86,13 +89,15 @@ export function launchTorpedo(
   const pick = pickTube(ship.launchers, ship.hullId, pose, aim);
   if (pick.verdict === 'out-of-arc') return { torp: null, denial: 'out-of-arc' };
   if (pick.verdict === 'cooling') return { torp: null, denial: 'no-ammo' };
-  const { speed, damage, homingTurnRate, reloadMs } = opts.row;
+  const { speed, damage, homingTurnRate, reloadMs, runU } = opts.row;
   const homes = homingTurnRate > 0;
   const torp = makeBallistic(ctx.mkId(), ship, pick.bearing, ctx.fireT, {
     speed,
-    // A straight-runner runs until impact or the map edge; only a STEERING
-    // torpedo carries the family's finite travel budget (amendment 84f).
-    range: homes ? CONFIG.torpedo.homingMaxRangeU : Number.POSITIVE_INFINITY,
+    // EVERY fish runs its row's folded `runU` and then expires — homing or
+    // straight (Story 11.2, Eric 2026-11-12, R5 / R18). The homing-only
+    // budget `CONFIG.torpedo.homingMaxRangeU` (amendment 84f) and the
+    // straight-runner's "until impact or the map edge" retired with it.
+    range: runU,
     damage,
     hitRadius: CONFIG.torpedo.hitRadius, // the FAMILY's collision radius
     kind: 'torp',

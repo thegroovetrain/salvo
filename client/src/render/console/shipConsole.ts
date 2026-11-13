@@ -6,7 +6,7 @@
 //   HULL    the percent numeral in its band colour over a 10-segment bar
 //           (filled segments in the band colour, the pooled HULL REPAIR climb
 //           lighter above them), breathing below 50 % exactly as the globe did
-//   INDICES ARMOR · POWER · RELOAD · ENGINES · INTEL · RANGE — label, value,
+//   INDICES ARMOR · POWER · RELOAD · ENGINES · INTEL (RANGE retired, Story 11.2) — label, value,
 //           and the five-bar TIER LADDER (R20) filled per card held
 //   HELM    `HDG 045°` / `18.0 KTS`, the nine-detent telegraph laid flat
 //           (hollow phosphor rung = ordered, solid amber needle = actual), the
@@ -275,7 +275,7 @@ class IndexRows {
     this.paintBars(l, v.preview, relaid);
   }
 
-  /** Pick the six values and held counts out of the readouts (on change only). */
+  /** Pick the index values and held counts out of the readouts (on change only). */
   private read(readouts: readonly Readout[]): void {
     this.readouts = readouts;
     for (const r of readouts) {

@@ -6,6 +6,7 @@ import {
   isOutside,
   rollZoneRings,
   zoneStateAt,
+  zoneTerminalRadius,
   type ZoneRing,
   type ZoneTimeline,
   pointPolygonDistance,
@@ -216,7 +217,9 @@ describe('zone phases — beat boundaries are tick-exact', () => {
       expect(w.zoneRevealedNextRing).toEqual(s.next);
     }
     expect(w.zonePhase).toBe('closed');
-    expect(w.zoneLiveRing.r).toBeCloseTo(2 * CONFIG.vision.sight, 5);
+    // The terminal ring is the timeline's own (the shared generating function;
+    // decoupled from truesight by Story 11.2).
+    expect(w.zoneLiveRing.r).toBeCloseTo(zoneTerminalRadius(paced()), 5);
   });
 });
 
@@ -243,7 +246,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
     const w = started();
     stepTo(w, 3 * GROUP + 1); // the collapse group's clear beat
     expect(w.zonePhase).toBe('clear');
-    expect(w.zoneCurrentRing.r).toBeCloseTo(2 * CONFIG.vision.sight, 6); // 660u endgame ring
+    expect(w.zoneCurrentRing.r).toBeCloseTo(zoneTerminalRadius(collapsing()), 6); // the timeline's endgame ring
     expect(w.zoneRevealedNextRing).toBeNull();
     stepTo(w, 3 * GROUP + TICKS_PER_BEAT);
     expect(w.zonePhase).toBe('supply');
@@ -272,7 +275,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
   });
 
   it('the endgame-reached fact fires at the COLLAPSE GROUP’s start, not at full closure', () => {
-    // The batch-sim endgame pilot hangs off this: the terminal 660u ring is
+    // The batch-sim endgame pilot hangs off this: the terminal ring is
     // reached when the collapse group opens (12:00 at production CONFIG), four
     // beats before the timeline is closed.
     const w = started();
@@ -292,7 +295,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
     // Parked inside the terminal ring at three different radii — including one
     // ON the collapse point (offsetCap 0 makes the rings concentric with the
     // origin, so distance 0 IS the point the ring closes onto).
-    const terminal = 2 * CONFIG.vision.sight;
+    const terminal = zoneTerminalRadius(collapsing());
     placeClear(w, 'a', 0);
     placeClear(w, 'b', terminal * 0.5);
     placeClear(w, 'c', terminal * 0.9);
@@ -415,15 +418,13 @@ describe('storm damage', () => {
   });
 
   it('deals NO damage to a ship inside the safe radius', () => {
-    const w = new World(4, CONFIG.match.fillTo, instant(4)); // terminal 4 × sight > test position
+    const w = new World(4, CONFIG.match.fillTo, instant(4)); // a wide terminal ring > the test position
     const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
-    // Comfortably inside the terminal ring (4 × sight, concentric — offsetCap
-    // 0). DERIVED from truesight, never from the map: since Story 5.6 grew
-    // baseRadius to 2800 the old `radius * 0.5` sat OUTSIDE the terminal ring,
-    // which the terminal radius never tracks (it derives from truesight, not
-    // from R). Was a literal 1200 u inside 1320 u (sight 330); sight is 500
-    // since Story 9.8 (amendment 103).
-    placeClear(w, 'a', 0.9 * 4 * CONFIG.vision.sight);
+    // Comfortably inside the terminal ring (concentric — offsetCap 0). DERIVED
+    // from the timeline's own terminal radius (the shared generating function),
+    // never from the map and no longer from truesight: the formula path was
+    // decoupled from `CONFIG.vision.sight` by Story 11.2.
+    placeClear(w, 'a', 0.9 * zoneTerminalRadius(instant(4)));
     w.startZone();
     for (let i = 0; i < 20; i++) w.step();
     const ring = w.zoneLiveRing;

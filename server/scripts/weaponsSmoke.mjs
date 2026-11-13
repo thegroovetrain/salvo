@@ -28,20 +28,21 @@
 //      lives in server/src/__tests__/perception.test.ts, not here.
 //   2. MINE VISIBILITY + NO EVICTION — a stationary layer (Warspite) clicks naval
 //      mines astern (inside `placeRange`, spread over the rear sector) while a
-//      stationary observer sits at a FIXED point inside detect. Fit: naval
+//      stationary observer sits at a FIXED point abeam of one drop point, just
+//      inside the mine eye reach of it (3 hm — Story 11.2). Fit: naval
 //      mines + SECOND MINE RACK (Story 10.6, R7) — the own block's two racks
 //      are checked full at spawn and one-short-each after two drops (R17
 //      alternation). Asserts SIX own
 //      mines live at once (Story 8.4 deleted every mine cap) and that the
-//      observer DOES see enemy mines inside detect. (The fog crossing itself
-//      is proven by phase 3, the AMBUSH: the observer here is posed inside
-//      detect of every possible drop, so a "never beyond detect" claim could
-//      not fail.)
+//      observer DOES see an enemy mine inside the mine eye reach and lists
+//      none from beyond it (the other drops of the fan lie outside its reach,
+//      so the "never beyond" claim can fail).
 //   3. MINE AMBUSH — the layer lays ONE mine; after it arms, the victim joins
-//      posed beyond detect on a straight line THROUGH the mine and sails it at
-//      `throttle 1, rudder 0`. Asserts the mine's gated damage, a boom, and that the
-//      mine was first sighted inside detect (the victim starts at detect + 100u,
-//      so this IS the fog-crossing pin).
+//      posed beyond the trip ring on a straight line THROUGH the mine and sails it at
+//      `throttle 1, rudder 0`. Asserts the mine's gated damage and a boom. (Story
+//      11.2: a mine is seen at 3 hm, less than a trip ring plus half a hull, so a
+//      bow-on victim need not see the mine it strikes; the fog-crossing pin —
+//      no mine listed from beyond the mine eye reach — is phase 2's side-on observer.)
 //   4. LIGHT TORPEDO — the target posed on the shooter's PORT BEAM (heading +
 //      π/2), inside the fore launcher's firing band (R28); the shooter AIMS the
 //      launcher at the beam (no click) and checks it points there before
@@ -124,12 +125,15 @@ import {
   equipmentMaxAmmo,
   familySlotFor,
   generateMap,
+  hullSilhouette,
   initialSecondaries,
   islandBlocksSegment,
   islandDistance,
   launcherAimPoint,
   launcherArcHolds,
   launcherStationWorld,
+  pointPolygonDistance,
+  polygonMaxRadius,
   regenGain,
   settleBlow,
   slotsWithCards,
@@ -140,7 +144,12 @@ import {
 } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
-const DETECT = CONFIG.vision.detect; // Story 4.9: the mine/torpedo detect rung (= sight since Story 9.8)
+// u — A MINE'S OWN EYE REACH (Story 11.2, R4 / R18: 3 hm). It replaced the
+// detect rung (`CONFIG.vision.detect`, = sight) this smoke was posed on. It
+// is SHORTER than a trip ring plus half a hull, so a hull steaming bow-on at
+// a mine trips it before its centre ever comes inside the reach — the phases
+// below watch a mine from ABEAM, never from dead ahead.
+const DETECT = CONFIG.vision.mineSight;
 const DT = CONFIG.tick.simDtMs;
 
 /** The pinned map (fogSmoke's seed). */
@@ -164,11 +173,14 @@ const TORP_AIM_U = 300;
  *  (no traverse since Story 11.1, R16; `CONFIG.mainBattery.traverseDegPerS`
  *  retired 2026-11-12). */
 const LAUNCHER_TRAIN_MS = 4 * DT;
-/** The gunnery distance as a share of the folded reach: a mid-range shot
- *  well inside reach and sight (it was 80 % of the retired attenuation's
- *  full-damage band, 0.8 × 0.5 — kept so the scenarios stand where they
- *  stood). Dispersion at this range is a few units along the shot. */
-const GUN_RANGE_FRAC = 0.4;
+/** The gunnery distance as a share of the folded reach. RE-POSED for Story
+ *  11.2 (2026-11-12): the main battery reaches 380 hm now and every pose
+ *  lives in the 750 u island-free centre disc, so the share is the one that
+ *  keeps the longest shot (the main battery's, shooter one shot-length off
+ *  the origin) inside that disc on EVERY hull's reach ratio — a mid-range
+ *  shot of several hundred u, inside reach and sight. (It was 0.4 on the
+ *  1,000 u reach.) Dispersion at this range is a few units along the shot. */
+const GUN_RANGE_FRAC = 0.065;
 
 /** THE HULLS PER ROLE (Story 10.4: the four battleships replaced the three
  *  placeholder classes, which had no 1:1 successor — a reading, by intent).
@@ -509,15 +521,15 @@ function torpedoFit(line, shooterCls, target, rangeU) {
 
 /** PHASE 1 — heavy torpedo kill. */
 async function torpedoPhase(log) {
-  // u — inside the heavy fish's run: a tier-I straight-runner has NO max range
-  // (torpedoCore: range = Infinity); a homing tier carries
-  // CONFIG.torpedo.homingMaxRangeU. Inside sight, so the target sees the fish.
+  // u — inside the heavy fish's run (every torpedo runs its row's folded
+  // `runU` and then expires — Story 11.2, R5) and inside the torpedo eye
+  // reach, so the target sees the fish.
   const D = 300;
   const target = { cls: TORP_TARGET, fit: [] };
   const fit = torpedoFit('heavyTorpedo', TORP_SHOOTER, target, D);
   log.push(`torpedo: ${fit.text}`);
   const row = fit.pick.row;
-  const runU = row.homingTurnRate > 0 ? CONFIG.torpedo.homingMaxRangeU : Infinity;
+  const runU = row.runU;
   // R28: the launchers fire across the beam, never dead ahead — the shooter
   // heads −π/2 so B (bearing 0) sits on its STARBOARD beam.
   const aPose = { x: -D, y: 0, heading: -Math.PI / 2 };
@@ -525,7 +537,7 @@ async function torpedoPhase(log) {
   checkPoseWater('torpedo A', aPose);
   checkPoseWater('torpedo B', bPose);
   checkLane('torpedo', aPose, bPose);
-  precondition(D < runU && D < CONFIG.vision.sight, `torpedo: range ${D}u outside the run (${runU}) or sight`);
+  precondition(D < runU && D < CONFIG.vision.torpedoSight, `torpedo: range ${D}u outside the run (${runU}) or the torpedo eye reach`);
   const a = await joinClient('WPN-A', TORP_SHOOTER, { fit: fit.pick.cards, pose: aPose });
   const b = await joinClient('WPN-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'torpedo');
@@ -562,22 +574,51 @@ function astern(heading, k) {
 }
 const DROP_U = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
 
+/** u — how far inside the mine eye reach a watcher is posed from the mine it
+ *  must see (a margin against the drop landing a unit off its aim). */
+const WATCH_INSIDE_U = 8;
+
+/** The k-th drop's point for a layer at `pose` (see `astern`). */
+function dropPoint(pose, k) {
+  const brg = astern(pose.heading, k);
+  return { x: pose.x + Math.cos(brg) * DROP_U, y: pose.y + Math.sin(brg) * DROP_U };
+}
+
+/** u — the gap between the point `p` and the hull of `cls` at `pose`: the
+ *  distance from `p` to the hull's outline (a mine trips on the silhouette,
+ *  not on the centre). */
+function hullGap(cls, pose, p) {
+  const dx = p.x - pose.x;
+  const dy = p.y - pose.y;
+  const c = Math.cos(-pose.heading);
+  const sn = Math.sin(-pose.heading);
+  return pointPolygonDistance({ x: dx * c - dy * sn, y: dx * sn + dy * c }, hullSilhouette(cls));
+}
+
 /** PHASE 2 — mine visibility + no eviction. */
 async function minePhase(log) {
   const layerPose = { x: 0, y: 0, heading: 0 };
-  // FIXED observer: every legal drop lies within placeRange of the layer, so
-  // an observer within (detect − placeRange) of the layer has the whole field
-  // inside detect; and far outside any trigger ring.
-  const obsPose = { x: 0, y: 300, heading: 0 };
+  // FIXED observer, ABEAM of the fan's FIRST drop (k = 0 — the one click the
+  // script always makes with no mine of its own yet, so that point is mined
+  // on every run; later clicks read a mine count that lags the frames) and
+  // just inside the mine eye reach of it, on the fan's outer side (Story
+  // 11.2: a mine is seen at 3 hm, far less than the drop fan is wide, so the
+  // observer watches ONE drop point, side on, with its outline clear of every
+  // trip ring of the fan).
+  const watched = dropPoint(layerPose, 0);
+  const outward = watched.y >= layerPose.y ? 1 : -1;
+  const obsPose = { x: watched.x, y: watched.y + outward * (DETECT - WATCH_INSIDE_U), heading: 0 };
   checkPoseWater('mine layer', layerPose);
   checkPoseWater('mine observer', obsPose);
-  precondition(dist(layerPose, obsPose) + CONFIG.mine.placeRange < DETECT, 'mine: observer cannot see the whole drop zone inside detect');
+  precondition(dist(obsPose, watched) < DETECT, 'mine: the observer cannot see the drop point it watches');
   // TWO RACKS (Story 10.6, R7): the naval line plus SECOND MINE RACK — each
   // rack holds the row's per-rack base and has its own clock.
   const MINE_FIT = ['navalMines', 'secondMineRack'];
   const layerStats = statsOf(LAYER, MINE_FIT);
   const rack = layerStats.equipment.navalMines;
-  precondition(dist(layerPose, obsPose) - CONFIG.mine.placeRange > rack.triggerRadius + 50, 'mine: observer inside a trip ring');
+  for (let k = 0; k < 5; k += 1) {
+    precondition(hullGap(VICTIM, obsPose, dropPoint(layerPose, k)) > rack.triggerRadius + WATCH_INSIDE_U, `mine: the observer's hull is inside drop ${k}'s trip ring`);
+  }
   const a = await joinClient('MINE-A', LAYER, { fit: MINE_FIT, pose: layerPose });
   const b = await joinClient('MINE-B', VICTIM, { fit: [], pose: obsPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'mine');
@@ -601,7 +642,11 @@ async function minePhase(log) {
     `mines: A held ${a.maxConcurrentOwn} own mines live at once (${a.distinctOwn.size} laid) in ${secs(took)} (budget ${secs(budget)}, rack ${rack.maxAmmo} / ${secs(rack.reloadMs)}); ` +
       `B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once`,
   );
-  assert(b.distinctEnemy.size > 0, 'B never saw an enemy mine inside detect (disclosure inside detect broke)');
+  assert(b.distinctEnemy.size > 0, 'B never saw an enemy mine inside the mine eye reach (disclosure inside it broke)');
+  // THE FOG PIN (it lived on the ambush until Story 11.2): no enemy mine is
+  // ever first listed from beyond the mine eye reach.
+  for (const [id, d] of b.firstSeenDist) assert(d <= DETECT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> the mine eye reach ${DETECT.toFixed(0)}u)`);
+  log.push(`mines: every enemy mine B listed was first seen inside the mine eye reach (${DETECT.toFixed(0)}u)`);
   // NO EVICTION (Story 8.4, FR57/AR48): SIX LAID, SIX LIVE — under the retired
   // per-player cap of 5 this high-water mark could never pass 5.
   assert(a.maxConcurrentOwn >= NO_EVICTION_MINES, `A never held ${NO_EVICTION_MINES} of its own mines at once (max ${a.maxConcurrentOwn}) — eviction may be back`);
@@ -624,10 +669,13 @@ async function layOne(a, label) {
   return laid;
 }
 
-/** Pose a victim beyond detect on a straight line through `mine`, heading at
- *  it; the line runs along −y so it passes the layer (at the origin) wide. */
-function victimPoseThrough(mine) {
-  const approach = DETECT + 100; // u — starts OUTSIDE detect: the first sighting is a real fog crossing
+/** Pose a victim on a straight line through `mine`, heading at it, its BOW
+ *  100 u short of the mine's trip ring (`triggerRadius`) — so it starts
+ *  outside the ring and beyond the mine eye reach; the line runs along −y so
+ *  it passes the layer (at the origin) wide. */
+function victimPoseThrough(mine, triggerRadius) {
+  const approach = Math.round(triggerRadius + polygonMaxRadius(hullSilhouette(VICTIM)) + 100);
+  precondition(approach > DETECT, 'victim posed inside the mine eye reach');
   return { pose: { x: mine.x, y: mine.y + approach, heading: -Math.PI / 2 }, approach };
 }
 
@@ -648,7 +696,7 @@ async function ambushPhase(log) {
   await awaitPosed([a], 'ambush');
   const laid = await layOne(a, 'ambush');
   // The victim is posed AFTER the mine exists, from the mine's own position.
-  const { pose, approach } = victimPoseThrough(laid);
+  const { pose, approach } = victimPoseThrough(laid, statsOf(LAYER, ['navalMines']).equipment.navalMines.triggerRadius);
   checkPoseWater('ambush victim', pose);
   checkLane('ambush', pose, laid);
   const b = await joinClient('AMB-B', VICTIM, { fit: [], pose, roomId: a.room.roomId });
@@ -669,9 +717,11 @@ async function ambushPhase(log) {
   assert(b.dmg.some((d) => d.amount === blast.damage), `no ${blast.damage}-damage mine hit on the victim`);
   assert(b.you.hp <= hp0 - blast.damage + 1, `victim hp ${hp0}->${b.you.hp}: the mine's ${blast.damage} did not land`);
   assert(boomed, 'no boom on mine detonation');
-  assert(b.firstSeenDist.has(laid.id), 'the victim never saw the mine it struck (the fog pin would be vacuous)');
-  for (const [id, d] of b.firstSeenDist) assert(d <= DETECT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> detect)`);
-  log.push('ambush: all enemy mines first seen within detect range');
+  // Story 11.2: a hull steaming bow-on trips the mine before its centre is
+  // inside the 3 hm mine eye reach, so the victim may never list the mine it
+  // struck — that is the rule now, not a leak (the non-vacuous fog pin is
+  // PHASE 2's side-on observer). Whatever it did list was inside the reach.
+  for (const [id, d] of b.firstSeenDist) assert(d <= DETECT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> the mine eye reach)`);
   await leaveAll([a, b]);
 }
 
@@ -730,7 +780,7 @@ async function captiveMinePhase(log) {
   const row = statsOf(LAYER, ['captiveMines']).equipment.captiveMines;
   // The captive's torpedo through the damage gate: victim ARMOR − the layer's POWER.
   const blow = gatedBlow(row.damage, statsOf(VICTIM), statsOf(LAYER, ['captiveMines']));
-  const { pose, approach } = victimPoseThrough(laid);
+  const { pose, approach } = victimPoseThrough(laid, row.triggerRadius);
   checkPoseWater('captive victim', pose);
   checkLane('captive', pose, laid);
   precondition(approach > row.triggerRadius, 'captive: victim posed inside the trip ring');
@@ -993,15 +1043,18 @@ async function secondariesMinePhase(log) {
   await awaitPosed([a], 'sec-mine');
   const laid = await layOne(a, 'sec-mine');
   const st = statsOf(GUNNER);
-  const D = Math.round(GUN_RANGE_FRAC * st.secondaryRangeU);
-  // The shooter due north of the mine, the round flying straight down onto
-  // the marker (the layer sits east of the line).
+  // Story 11.2: the shooter must SEE the mine it pops (its own frames time
+  // the pop), and a mine is seen at 3 hm — so it lies close ABEAM, just
+  // inside the mine eye reach, its outline clear of the trip ring and the
+  // blast. Due north of the mine, heading 0, the round flying straight down
+  // onto the marker (the layer sits east of the line).
+  const D = Math.round(DETECT - WATCH_INSIDE_U);
   const sPose = { x: laid.x, y: laid.y + D, heading: 0 };
   checkPoseWater('sec-mine shooter', sPose);
   checkLane('sec-mine', sPose, laid);
   const rack = statsOf(LAYER, ['navalMines']).equipment.navalMines;
-  precondition(D > rack.triggerRadius + 60 && D > CONFIG.mine.blastRadius + 60, 'sec-mine: shooter inside the trip ring / blast');
-  precondition(D < DETECT, 'sec-mine: the shooter cannot see the mine it shoots');
+  precondition(hullGap(GUNNER, sPose, laid) > Math.max(rack.triggerRadius, CONFIG.mine.blastRadius), 'sec-mine: shooter inside the trip ring / blast');
+  precondition(D < DETECT && D <= st.secondaryRangeU, 'sec-mine: the shooter cannot see or cannot reach the mine it shoots');
   const s = await joinClient('SM-S', GUNNER, { fit: [], pose: sPose, roomId: a.room.roomId });
   await awaitPosed([a, s], 'sec-mine shooter');
   // CONFIG's landings: the round's damage settled once (flat with range), against
@@ -1054,7 +1107,10 @@ async function mainBatteryMinePhase(log) {
   const sPose = { x: laid.x, y: laid.y + D, heading: 0 };
   checkPoseWater('main-mine shooter', sPose);
   checkLane('main-mine', sPose, laid);
-  precondition(D < DETECT, 'main-mine: the shooter cannot see the mine it shoots');
+  // Story 11.2: at gunnery distance a mine is far beyond its 3 hm eye reach,
+  // so the shooter fires at a marker it cannot see — the LAYER, which always
+  // lists its own mines, is the witness that it stayed on the water.
+  precondition(D > DETECT, 'main-mine: the shooter is inside the mine eye reach (pose it by the sec-mine rule instead)');
   const aim = bearing(sPose, laid);
   const aimPt = aimPointOf(sPose, aim, D);
   precondition(turretMounts(GUNNER).every((_, i) => turretBears(GUNNER, i, sPose, aimPt)), 'main-mine: a turret cannot bear on the mine');
@@ -1067,10 +1123,9 @@ async function mainBatteryMinePhase(log) {
   const reach = row.burstRadius + CONFIG.mine.hitRadiusU;
   const onMarker = eventsAt(s, laid, reach, ['burst', 'boom'], laid.id).length;
   const stillOwn = a.mines.some((m) => m.id === laid.id);
-  const stillSeen = s.mines.some((m) => m.id === laid.id);
-  log.push(`main-mine: ${fired.guns}-gun broadside at ${laid.id} from ${D}u: ${fired.text}; ${onMarker} detonations within ${reach}u of the marker; mine still on the water (layer ${stillOwn}, shooter ${stillSeen})`);
+  log.push(`main-mine: ${fired.guns}-gun broadside at ${laid.id} from ${D}u: ${fired.text}; ${onMarker} detonations within ${reach}u of the marker; mine still on the water (its layer's own list: ${stillOwn})`);
   assert(onMarker >= 1, 'main-mine: no shell detonated on the marker (vacuous)');
-  assert(stillOwn && stillSeen, 'main-mine: the main battery took the mine off the water — its mask must not hurt a mine (R3)');
+  assert(stillOwn, 'main-mine: the main battery took the mine off the water — its mask must not hurt a mine (R3)');
   await leaveAll([a, s]);
 }
 
@@ -1238,7 +1293,9 @@ async function familySlotsPhase(log) {
   // FLASH SHELLS from their slot, at open water inside sight and beyond the disc.
   const row = st.equipment.dazzleShells;
   const shellSlot = want.dazzleShells;
-  const aimDist = Math.round((CONFIG.vision.sight + row.radius) / 2);
+  // (Story 11.2: sight is 200 hm now — the aim stays a couple of hundred u
+  // past the disc, on the island-free centre water, not halfway to sight.)
+  const aimDist = Math.round(Math.min((CONFIG.vision.sight + row.radius) / 2, row.radius + 200));
   precondition(aimDist > row.radius + 60 && aimDist < CONFIG.vision.sight && aimDist <= row.rangeU, `flash: aim ${aimDist} u outside (radius + 60, sight) or the reach ${row.rangeU}`);
   const aim = Math.PI / 2;
   const aimPt = aimPointOf(pose, aim, aimDist);

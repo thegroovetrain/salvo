@@ -184,7 +184,9 @@ describe('buildAmbientWorld — one seed, one picture', () => {
       .slice(1)
       .filter((h) => rangeTo(w, h) > w.stats.sightRange && rangeTo(w, h) <= w.stats.radarRange);
     expect(near.length, 'a truesighted hull').toBeGreaterThanOrEqual(1);
-    expect(annulus.length, 'hulls that exist only as returns').toBeGreaterThanOrEqual(1);
+    // ("hulls that exist only as returns" — DELETED 2026-11-12, Story 11.2: the
+    // scene keeps TODAY'S absolute bands (R20 reading) while sight grew to
+    // 200 hm, so every rival now sits inside the bubble; a composition pin.)
     expect(near.length + annulus.length, 'and nothing is off the scope').toBe(w.hulls.length - 1);
   });
 
@@ -380,7 +382,7 @@ describe('ambientContacts — the truesight source, with the shipped LOS rule', 
     ]);
     expect(sighted(w, w.hulls[1], [])).toBe(true);
     expect(sighted(w, w.hulls[1], [blocker])).toBe(false);
-    expect(ambientContacts(w, [blocker])).toEqual([]);
+    expect(ambientContacts(w, [blocker]).map((c) => c.id)).not.toContain(w.hulls[1].id);
   });
 });
 
@@ -395,21 +397,9 @@ describe('ambientCameraTarget — the observer is seated OFF-CENTRE', () => {
     expect(A.observerOffset.x, 'negative: the camera sits to port of the hull').toBeLessThan(0);
   });
 
-  it('holds a WORLD-SPACE offset floor of one full sight radius (not a legibility proof)', () => {
-    // WHAT THIS PINS AND WHAT IT DOES NOT. It pins one number: the camera is
-    // displaced from the observer by more than a whole base-truesight radius, so
-    // the observer — and with it the one genuinely bright region of the picture,
-    // its sight bubble — is seated a full bubble's width off screen centre and
-    // the config cannot be trimmed back toward zero unnoticed.
-    //
-    // It is NOT evidence that the ~480px home column is legible. That is a
-    // SCREEN-space claim about a world-to-pixel conversion this file never
-    // performs (it depends on zoom, viewport and the three darkening layers),
-    // and the only verification of it is the by-eye pass on the 1366x768 and
-    // 1920x1080 captures. Named for what it measures, so it stops being cited
-    // as the legibility gate it was never able to check.
-    expect(Math.abs(A.observerOffset.x)).toBeGreaterThan(CONFIG.vision.sight);
-  });
+  // ("holds a WORLD-SPACE offset floor of one full sight radius" — DELETED
+  // 2026-11-12, Story 11.2: the offset keeps its absolute size (R20 reading)
+  // while base sight grew to 200 hm, so the pin no longer names a relation.)
 
   it('carries the hull own heading and speed, so the follow smoother behaves', () => {
     const w = buildAmbientWorld(OPEN);

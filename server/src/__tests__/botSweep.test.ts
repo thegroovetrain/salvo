@@ -266,7 +266,12 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
       const rig = rigFor(hullId, 1318);
       const { rec, port, mind } = rig;
       rec.state.speed = rec.stats.kinematics.maxSpeed;
-      const m = hostile(0, rec.stats.secondaryRangeU / 2);
+      // A sweepable mine on the bow quarter, so one tick of way changes its
+      // DISTANCE at first order (Story 11.2: abeam at half the secondaries'
+      // hectometer reach, one tick of way moves the distance by less than
+      // the margin below).
+      const s = sweepU(rig) * Math.SQRT1_2;
+      const m = hostile(s, s);
       sightMines(mind, [m]);
       const d = COMBAT_BRAIN.decide(rec, mind, port, false);
       expect(mind.lastTactic).toBe('sweep');

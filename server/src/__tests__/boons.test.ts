@@ -89,10 +89,10 @@ const FILL_CARD = line('bolterRack', [{ kind: 'slotFill', equipmentId: 'navalMin
  *  shape): a stat, a slot fill and a behavior hook (the consumable `stock`
  *  kind left with the kit, Story 10.5). */
 const OMNI_CARD = line('omni', [
-  // `radarRange`, not `sightRange`: truesight became DERIVED at the Intel
-  // Range merge and left BOON_STAT_PATHS, so a sight-addressing line no longer
-  // type-checks. Widening radar here still exercises a stat effect AND now
-  // proves the derivation reaches sightRange through applyCard (asserted below).
+  // `radarRange`, not `sightRange`: truesight left BOON_STAT_PATHS at the
+  // Intel Range merge, so a sight-addressing line no longer type-checks.
+  // Widening radar here exercises a stat effect through applyCard. (Sight no
+  // longer derives from radar — it is its own pinned fact since Story 11.2.)
   { kind: 'stat', path: 'radarRange', mult: 1.25 },
   { kind: 'slotFill', equipmentId: 'starShells' },
   { kind: 'behavior', hookId: 'surge', params: { bonus: 20 } },
@@ -299,10 +299,9 @@ describe('World.applyCard — two homes, nothing else', () => {
     // Home 1 — stats: exactly the effectiveStats fold (sight boon included).
     expect(a.stats).toEqual(effectiveStats(a.cls, ['omni'], TEST_CATALOG));
     expect(a.stats.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.25, 9);
-    // The whole point of the merge: truesight is the 4/12 rung (radar / 3 since
-    // Story 9.8, amendment 103), so it MOVED with radar through the one
-    // derivation rather than needing its own card.
-    expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 3, 9);
+    // (ASSERTION RETIRED 2026-11-12 — Story 11.2, a ruling recorded in the
+    // epic-11 amendments: "sightRange = radar / 3" pinned the twelfths ladder;
+    // sight is its own hectometer fact now and no longer moves with radar.)
     // Home 2 — slots: the `slotFill` took its FAMILY's slot (the special
     // shell slot, Story 10.5) in the one structure.
     const expected: (string | null)[] = new Array<null>(SLOT_COUNT).fill(null);

@@ -75,59 +75,41 @@ export function bakeFogTexture(viewW: number, viewH: number, sightPx: number, ma
   return Texture.from(canvas);
 }
 
-// --- 2. sweep wedge ----------------------------------------------------------
+// --- 2. sweep afterglow ------------------------------------------------------
 
-/** Radius (px) the wedge is baked at; scaled to radarRange world units. */
+/** Radius (px) the afterglow is baked at; scaled to radarRange world units. */
 export const SWEEP_TEXTURE_RADIUS = 512;
-/** Angular width (rad) of the trailing fade behind the leading edge. */
-const TAIL_RAD = (40 * Math.PI) / 180;
 const TAU = Math.PI * 2;
 
-function paintWedgeTail(ctx: BakeCtx, c: number, r: number): void {
-  // Conic gradient runs clockwise from the tail start (−40°) up to the
-  // leading edge at 0 rad (+x): transparent → phosphor wedge, then cut off.
-  const grad = ctx.createConicGradient(-TAIL_RAD, c, c);
-  const edge = TAIL_RAD / TAU;
-  grad.addColorStop(0, cssRgba(C.phosphor, 0));
-  grad.addColorStop(edge, cssRgba(C.phosphor, 0.26));
-  grad.addColorStop(Math.min(1, edge + 0.002), cssRgba(C.phosphor, 0));
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.moveTo(c, c);
-  ctx.arc(c, c, r, -TAIL_RAD, 0);
-  ctx.closePath();
-  ctx.fill();
-}
-
-function paintLeadingEdge(ctx: BakeCtx, c: number, r: number): void {
-  // Cheap glow: three layered strokes along +x, wide/dim to thin/bright.
-  const layers: Array<[number, number]> = [
-    [7, 0.1],
-    [3.5, 0.25],
-    [1.5, 0.9],
-  ];
-  ctx.lineCap = 'round';
-  for (const [width, alpha] of layers) {
-    ctx.strokeStyle = cssRgba(C.phosphor, alpha);
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    ctx.moveTo(c, c);
-    ctx.lineTo(c + r, c);
-    ctx.stroke();
-  }
-}
-
 /**
- * Bake the sweep wedge once: leading edge along +x (so sprite rotation ==
- * server sweep angle), ~40° tail fading behind it. Rendered additive.
+ * THE SWEEP, "STYLE 3" (Story 11.2, Eric 2026-11-12, R16 / R19): a short
+ * AFTERGLOW of `afterglowDeg` behind the beam, fading from nothing up to
+ * `afterglowPeak` at the leading edge (+x), then cut off — the bench's
+ * `wedge(…, 5°, 0.45)`. It REPLACES the ~40° wedge at 0.26 and the three
+ * layered leading-edge strokes. The thin crisp line itself is NOT baked: a
+ * texture scaled to a 400 hm radius is ~18 u a texel, so the line is drawn as
+ * screen-px geometry by render/radarDisplay.ts on the same rotation.
  */
 export function bakeSweepTexture(): Texture {
   const size = SWEEP_TEXTURE_RADIUS * 2;
   const { canvas, ctx } = makeCanvas(size, size);
   const c = SWEEP_TEXTURE_RADIUS;
   const r = SWEEP_TEXTURE_RADIUS - 2;
-  paintWedgeTail(ctx, c, r);
-  paintLeadingEdge(ctx, c, r);
+  const { afterglowDeg, afterglowPeak } = CLIENT_CONFIG.radarDisplay;
+  const tail = (afterglowDeg * Math.PI) / 180;
+  // Conic gradient runs clockwise from the tail start up to the leading edge
+  // at 0 rad (+x): transparent -> phosphor at the peak, then cut off.
+  const grad = ctx.createConicGradient(-tail, c, c);
+  const edge = tail / TAU;
+  grad.addColorStop(0, cssRgba(C.phosphor, 0));
+  grad.addColorStop(edge, cssRgba(C.phosphor, afterglowPeak));
+  grad.addColorStop(Math.min(1, edge + 0.002), cssRgba(C.phosphor, 0));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(c, c);
+  ctx.arc(c, c, r, -tail, 0);
+  ctx.closePath();
+  ctx.fill();
   return Texture.from(canvas);
 }
 

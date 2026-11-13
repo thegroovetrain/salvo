@@ -246,7 +246,8 @@ function weaponsLayout(screenW: number, screenH: number): { weapons: WeaponsCons
 
 // --- the ship console ----------------------------------------------------------
 
-/** One row per index — the shared `INDEX_IDS` (ARMOR … RANGE). */
+/** One row per index — the shared `INDEX_IDS` (ARMOR … INTEL: five since
+ *  Story 11.2 retired RANGE; the console closes up by this count). */
 const INDEX_COUNT = INDEX_IDS.length;
 
 const HULL_BLOCK = SHIP.hullLine + SHIP.hullBarGap + SHIP.hullBarH;

@@ -8,6 +8,7 @@
 // same `effectiveStats` fold the surface reads, compared as `[cur, next]`.
 
 import { describe, expect, it } from 'vitest';
+import { hmText } from '../util/hmText.js';
 import {
   CATALOG,
   CONFIG,
@@ -100,16 +101,16 @@ const repairVals = (s: EffectiveStats): string[] => [
   `+${hullPercent(s.repair.regenHp, s.maxHp)}%`,
   `${(s.repair.cooldownMs / 1000).toFixed(1)} s`,
 ];
-/** SMOKE SCREEN's three values: life (whole s), end size (whole u), cooldown s. */
+/** SMOKE SCREEN's three values: life (whole s), end size (hm, Story 11.2), cooldown s. */
 const smokeVals = (s: EffectiveStats): string[] => [
   `${Math.round(s.smoke.lifeMs / 1000)}`,
-  `${Math.round(s.smoke.r1)}`,
+  hmText(s.smoke.r1), // in hectometers since Story 11.2
   `${(s.smoke.cooldownMs / 1000).toFixed(1)} s`,
 ];
 
 describe('the HULL REPAIR and SMOKE SCREEN ladders (R8 / R9)', () => {
   it('climb a five-rung ladder', () => {
-    for (const id of ['range', 'hullRepair', 'smokeScreen'] as const) {
+    for (const id of ['hullRepair', 'smokeScreen'] as const) {
       expect(CATALOG[id].cap, id).toBe(5);
       expect(cardTierLabel(CATALOG[id], 0), id).not.toBeNull();
     }
@@ -158,6 +159,6 @@ describe('the C / V tooltip reads the ship\'s own stats (R8 / R9)', () => {
       expect(b.at(-1)!.next).toContain((abilityCooldownMs(five[id], id) / 1000).toFixed(1));
     }
     expect(abilityStatRows('repair', five.repair)[0].next).toContain(String(hullPercent(five.repair.repair.instantHp, five.repair.maxHp)));
-    expect(abilityStatRows('smoke', five.smoke)[1].next).toContain(String(Math.round(five.smoke.smoke.r1)));
+    expect(abilityStatRows('smoke', five.smoke)[1].next).toContain(hmText(five.smoke.smoke.r1));
   });
 });

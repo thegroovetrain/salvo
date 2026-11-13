@@ -77,6 +77,24 @@ function armed(seed = 5, hullId: HullId = 'bismarck'): { w: World; a: ShipRecord
 }
 
 /**
+ * THE RIM SEAT (Story 11.2). Every gun reach is longer than the board's
+ * radius on the hectometer ruler, so a shot from the origin at full reach
+ * leaves the water and the aim clamp (inside the map disk) bites before the
+ * range clamp does. A RANGE case seats its gunner one hull length inside the
+ * SOUTH rim and fires NORTH (aim HALF_PI) across the whole board. Returns
+ * the seat's y.
+ */
+function seatSouth(w: World, a: ShipRecord): number {
+  const y = -(w.map.radius - a.cls.hull.length);
+  a.state = { x: 0, y, heading: 0, speed: 0 };
+  return y;
+}
+
+/** Ticks a shell needs to fly `distU`, plus a few to resolve the burst. */
+const flightTicks = (distU: number): number =>
+  Math.ceil((distU / CONFIG.gun.shellSpeed) * (1000 / CONFIG.tick.simDtMs)) + 5;
+
+/**
  * THE DECK GUN ON THE BENCH (Story 10.4). A captain's slot 0 is the MAIN
  * BATTERY now; the cannon row (`'gun'`) survives as the PvE drones' gun. This
  * suite guards that ROW's mechanics — 360°, the burst hit rule, the parallel
@@ -169,27 +187,31 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
 
   it('gunTarget clamps the click to the effective range, measured from the CENTER', () => {
     const { w, a } = armedOne();
-    a.input = gunInput(0, 5000);
-    // The clamp is the EFFECTIVE folded reach (the hull's RANGE index scales
-    // the row once, Story 10.3) — read off stats, never CONFIG.
+    const y0 = seatSouth(w, a);
+    // The clamp is the EFFECTIVE folded reach — read off stats, never CONFIG.
     const reach = a.stats.equipment.gun.rangeU;
-    expect(gunTarget(a, w.map.radius).x).toBeCloseTo(reach, 9);
+    a.input = gunInput(HALF_PI, 2 * w.map.radius); // a click past every reach
+    expect(gunTarget(a, w.map.radius).y).toBeCloseTo(y0 + reach, 6);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
-    expect(shell.targetX).toBeCloseTo(reach, 9); // center-measured — the muzzle never extends reach
-    expect(shell.targetY).toBeCloseTo(0, 9);
+    expect(shell.targetY).toBeCloseTo(y0 + reach, 6); // center-measured — the muzzle never extends reach
+    expect(shell.targetX).toBeCloseTo(0, 6);
   });
 
   it('the beyond-max clamp uses the EFFECTIVE range (ship.stats.equipment.gun.rangeU), not CONFIG', () => {
     // The legacy gunRange upgrade died in the 2.8 strip; the clamp still reads
     // the cached effective stats, so a stats-side range change moves it.
     const { w, a } = armed();
-    const widened = CONFIG.gun.rangeU * 1.3;
+    const y0 = seatSouth(w, a);
+    // Widened, but still short of the far rim, so the RANGE clamp is the one
+    // that bites (the aim is also clamped inside the map disk).
+    const widened = CONFIG.gun.rangeU * 1.1;
+    expect(y0 + widened).toBeLessThan(w.map.radius);
     a.stats = { ...a.stats, equipment: { ...a.stats.equipment, gun: { ...a.stats.equipment.gun, rangeU: widened } } };
-    a.input = gunInput(0, 50000);
+    a.input = gunInput(HALF_PI, 50000);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
-    expect(shell.targetX).toBeCloseTo(widened, 9);
+    expect(shell.targetY).toBeCloseTo(y0 + widened, 6);
     expect(widened).toBeGreaterThan(CONFIG.gun.rangeU);
   });
 });
@@ -287,12 +309,11 @@ describe('World combat — burst at the clicked point', () => {
     const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull straddles the click point itself
-    // Inside the gun's full-damage radius (Story 9.12 attenuation): the click
-    // sits well under half the folded reach, so the burst lands unattenuated.
+    // A long shot, well inside the folded reach and on the water.
     const click = 0.4 * a.stats.equipment.gun.rangeU;
     b.state = { x: 0, y: click - 5, heading: HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, click));
-    const events = stepCollect(w, 90);
+    const events = stepCollect(w, flightTicks(click));
     const bursts = burstsOf(events);
     expect(bursts).toHaveLength(1);
     expect(bursts[0].y).toBeCloseTo(click, 4); // burst ALWAYS centers on the target xy
@@ -605,68 +626,84 @@ describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
 // ---------- R2.15: the STAR-SHELL GUN REACH ----------------------------------
 
 describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun', () => {
-  // Past every reach in play: the radar rim is the ruler's top rung, and no
-  // gun or star shell reaches beyond it at any tier (Story 9.8, ruling 125).
-  const REACH = CONFIG.vision.radar + 100;
+  // Reaches are longer than the board's radius (Story 11.2), so the gunner
+  // sits at the south rim and fires NORTH (`seatSouth`); every expectation is
+  // a distance up the aim line from the seat.
+  const ZONE_R = 120;
+  const FAR_FUTURE = 10 * 60 * 1000;
 
-  /** A world with one gunner and a live lit zone at (0, REACH) owned by `by`. */
+  /** A click distance past the gunner's CURRENT gun reach, still on the water. */
+  function pastReach(w: World, a: ShipRecord): number {
+    const dist = a.stats.equipment.gun.rangeU + 2 * ZONE_R;
+    expect(a.state.y + dist + ZONE_R).toBeLessThan(w.map.radius);
+    return dist;
+  }
+
+  /** A live lit zone owned by `by`, `dist` up the aim line from the gunner. */
+  function light(w: World, a: ShipRecord, by: string, dist: number, r = ZONE_R): void {
+    w.litZones.set('z1', { id: 'z1', ownerId: by, x: a.state.x, y: a.state.y + dist, r, until: FAR_FUTURE });
+  }
+
+  /** A world with one rim-seated gunner, a click distance past its reach, and
+   *  a live lit zone on that click owned by `by`. */
   function litBoard(by: string, seed = 31) {
     const { w, a } = armed(seed);
-    w.litZones.set('z1', {
-      id: 'z1',
-      ownerId: by,
-      x: 0,
-      y: REACH,
-      r: 120,
-      until: 10 * 60 * 1000,
-    });
-    return { w, a };
+    const y0 = seatSouth(w, a);
+    const dist = pastReach(w, a);
+    light(w, a, by, dist);
+    return { w, a, y0, dist };
   }
 
   it('a click BEYOND gun range but inside your OWN live zone flies the whole way', () => {
-    const { w, a } = litBoard('a');
-    expect(a.stats.equipment.gun.rangeU).toBeLessThan(REACH);
-    w.submitInput('a', gunInput(HALF_PI, REACH));
+    const { w, y0, dist } = litBoard('a');
+    w.submitInput('a', gunInput(HALF_PI, dist));
     w.step();
     const shell = [...w.shells.values()][0];
-    expect(shell.targetY).toBeCloseTo(REACH, 6);
+    expect(shell.targetY).toBeCloseTo(y0 + dist, 6);
   });
 
   it('THE SAME CLICK inside an ENEMY’s zone is clamped to gun range (own flares only)', () => {
-    const { w, a } = litBoard('b'); // the zone belongs to someone else
-    w.submitInput('a', gunInput(HALF_PI, REACH));
+    const { w, a, y0, dist } = litBoard('b'); // the zone belongs to someone else
+    w.submitInput('a', gunInput(HALF_PI, dist));
     w.step();
     const shell = [...w.shells.values()][0];
-    expect(shell.targetY).toBeCloseTo(a.stats.equipment.gun.rangeU, 6);
+    expect(shell.targetY).toBeCloseTo(y0 + a.stats.equipment.gun.rangeU, 6);
   });
 
   it('an out-of-range click with NO zone at all is clamped exactly as before', () => {
     const { w, a } = armed(32);
-    w.submitInput('a', gunInput(HALF_PI, REACH));
+    const y0 = seatSouth(w, a);
+    w.submitInput('a', gunInput(HALF_PI, pastReach(w, a)));
     w.step();
-    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.equipment.gun.rangeU, 6);
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(y0 + a.stats.equipment.gun.rangeU, 6);
   });
 
   it('an EXPIRED own zone licenses nothing (live means live)', () => {
-    const { w, a } = litBoard('a', 33);
+    const { w, a, y0, dist } = litBoard('a', 33);
     w.litZones.get('z1')!.until = 0; // already dead when the click resolves
-    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.submitInput('a', gunInput(HALF_PI, dist));
     w.step();
-    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.equipment.gun.rangeU, 6);
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(y0 + a.stats.equipment.gun.rangeU, 6);
   });
 
   it('the zone extends the GUN ONLY — a beyond-range STAR SHELL still clamps to its own range', () => {
     const { w, a } = armed(34, 'yamato');
+    const y0 = seatSouth(w, a);
     const slot = a.loadout.findIndex((s) => s.equipmentId === 'starShells');
     expect(slot).toBeGreaterThan(0);
-    w.litZones.set('z1', {
-      id: 'z1', ownerId: 'a', x: 0, y: REACH, r: 120, until: 10 * 60 * 1000,
-    });
-    w.submitInput('a', { ...gunInput(HALF_PI, REACH), slot: slot as 0 });
+    // THE FLARE'S REAL REACH IS LONGER THAN THE BOARD IS WIDE (Story 11.2), so
+    // its range clamp can never bite on the water. Same stats-side override
+    // the effective-range case uses: the flare is cut to the gun row's reach,
+    // so the clamp under test lands on the board.
+    const flareReach = a.stats.equipment.gun.rangeU;
+    a.stats = { ...a.stats, equipment: { ...a.stats.equipment, starShells: { ...a.stats.equipment.starShells, rangeU: flareReach } } };
+    const dist = pastReach(w, a);
+    light(w, a, 'a', dist);
+    w.submitInput('a', { ...gunInput(HALF_PI, dist), slot: slot as 0 });
     w.step();
     const shell = [...w.shells.values()][0];
-    expect(a.stats.equipment.starShells.rangeU).toBeLessThan(REACH);
-    expect(shell.targetY).toBeCloseTo(a.stats.equipment.starShells.rangeU, 6);
+    expect(flareReach).toBeLessThan(dist);
+    expect(shell.targetY).toBeCloseTo(y0 + flareReach, 6);
   });
 
   // THE PROMOTION IS REAL, NOT A MIRROR (Story 7-5 wave 2 cleanup). R2.15
@@ -680,29 +717,27 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
   // TRANSITIVELY through one function rather than by discipline. It fails the
   // moment the server re-grows a private copy of the rule.
   it('the fired reach IS the shared gunReachU, over every branch of the rule', () => {
-    const zone = { x: 0, y: REACH, r: 120 };
-    const cases: [number, { x: number; y: number; r: number }[]][] = [
-      [300, [zone]], // in range — the zone is irrelevant
-      [REACH, [zone]], // lifted
-      [REACH, []], // clamped: no own zone at all
-      [REACH, [{ x: 0, y: REACH, r: 5 }]], // clamped: the click misses the zone
+    type Case = { inRange: boolean; zoneR: number | null; offLine: boolean };
+    const cases: Case[] = [
+      { inRange: true, zoneR: ZONE_R, offLine: false }, // in range — the zone is irrelevant
+      { inRange: false, zoneR: ZONE_R, offLine: false }, // lifted
+      { inRange: false, zoneR: null, offLine: false }, // clamped: no own zone at all
+      { inRange: false, zoneR: 5, offLine: true }, // clamped: the click misses the zone
     ];
-    for (const [aimDist, zones] of cases) {
-      const { w, a } = armed(40 + aimDist + zones.length);
-      for (const [i, z] of zones.entries()) {
-        w.litZones.set(`z${i}`, {
-          id: `z${i}`, ownerId: 'a', x: z.x, y: z.y, r: z.r,
-          until: 10 * 60 * 1000,
-        });
-      }
+    for (const [i, c] of cases.entries()) {
+      const { w, a } = armed(40 + i);
+      const y0 = seatSouth(w, a);
+      const far = pastReach(w, a);
+      const aimDist = c.inRange ? 300 : far;
+      if (c.zoneR !== null) light(w, a, 'a', far, c.zoneR);
       // The zone that misses is offset off the aim line so the burst point
-      // falls outside it (same centre distance, wrong bearing).
-      if (zones.length === 1 && zones[0].r === 5) w.litZones.get('z0')!.x = 400;
+      // falls outside it (same distance up the line, wrong bearing).
+      if (c.offLine) w.litZones.get('z1')!.x = 400;
       w.submitInput('a', gunInput(HALF_PI, aimDist));
       w.step();
       const shell = [...w.shells.values()][0];
       const want = sharedGunReachU(
-        { x: 0, y: 0 },
+        { x: 0, y: y0 },
         HALF_PI,
         aimDist,
         a.stats.equipment.gun.rangeU,
@@ -712,19 +747,21 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
       // The shell flies to min(click, reach) — the reach is the CLAMP, so an
       // in-range click still bursts at the click. Comparing against the shared
       // reach is what makes this a parity pin rather than a range restatement.
-      expect(shell.targetY, `aimDist=${aimDist} zones=${zones.length}`)
-        .toBeCloseTo(Math.min(aimDist, want), 6);
+      expect(shell.targetY, `case ${i}`).toBeCloseTo(y0 + Math.min(aimDist, want), 6);
     }
   });
 
   it('BARREL still straddles at the extended reach (the two features compose)', () => {
-    const { w, a } = litBoard('a', 35);
+    const { w, a } = armed(35);
+    const y0 = seatSouth(w, a);
     w.applyCard(a, 'deckGun'); // tier II: the twin barrel (Eric 2026-10-02, amendment 232)
-    w.submitInput('a', gunInput(HALF_PI, REACH));
+    const dist = pastReach(w, a); // past the tier II reach the card just granted
+    light(w, a, 'a', dist);
+    w.submitInput('a', gunInput(HALF_PI, dist));
     w.step();
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(2);
-    for (const s of shells) expect(s.targetY).toBeCloseTo(REACH, 6);
+    for (const s of shells) expect(s.targetY).toBeCloseTo(y0 + dist, 6);
     const xs = shells.map((s) => s.targetX!).sort((p, q) => p - q);
     expect(xs[1] - xs[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
   });

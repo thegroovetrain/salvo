@@ -50,7 +50,7 @@ function fireLine(
 ): { torp: ShellState | null; denial: ActivationDenial | null } {
   const row = ship.stats.equipment[id];
   const out = launchTorpedo(ctx, ship, {
-    row: { speed: row.speed, damage: row.damage, homingTurnRate: row.homingTurnRate, reloadMs: row.reloadMs },
+    row: { speed: row.speed, damage: row.damage, homingTurnRate: row.homingTurnRate, reloadMs: row.reloadMs, runU: row.runU },
     hits: hitsFor(id),
   });
   syncTorpedoSlot(ship);

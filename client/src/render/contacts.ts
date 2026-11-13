@@ -39,6 +39,7 @@ import { ShipView } from './ships.js';
 import { relationStroke, relationStyle, type Relation } from './relationColor.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
 import { Fader } from './fade.js';
+import { PlainHullViews } from './plainHullViews.js';
 
 /** Start a contact's fade-out once unseen for this much FRAME time (ms) — read
  *  against `ServerClock.frameNow()`, never `serverNow()` (see `render`). */
@@ -101,6 +102,9 @@ const NO_ANGLES: readonly number[] = [];
 
 export class ContactViews {
   private views = new Map<string, FadingView>();
+  /** THE PLAIN HULLS (Story 11.2, R3) — the outer sight tier's generic hulls,
+   *  drawn into the same layer from the store's `plain` channel. */
+  private readonly plainViews: PlainHullViews;
 
   constructor(
     private readonly layer: Container,
@@ -109,7 +113,14 @@ export class ContactViews {
      *  countermeasure.ts `coverAt`, Story 9.3). A plate under paint at least
      *  `plateHideAlpha` thick is hidden — never the hull. Defaults to no cover. */
     private readonly coverAt: (x: number, y: number) => number = () => 0,
-  ) {}
+  ) {
+    this.plainViews = new PlainHullViews(layer);
+  }
+
+  /** How many plain-hull views are live, including fading ones (tests/debug). */
+  get plainCount(): number {
+    return this.plainViews.count;
+  }
 
   /** How many contact views are live, including fading ones (tests/debug). */
   get count(): number {
@@ -187,12 +198,17 @@ export class ContactViews {
       if (buf && buf.size > 0) this.viewFor(id, store, relationOf).fader.show();
     }
     for (const [id, fv] of this.views) {
-      if (this.updateView(id, fv, store, renderTime, dtMs, relationOf, plates, softness)) {
+      // An OUTWARD tier handoff (Story 11.2) takes the hull off at once: its
+      // plain view is born at full alpha on this same frame, so a fade here
+      // would draw the one hull twice.
+      const handedOff = store.takeRetiredByHandoff(id);
+      if (handedOff || this.updateView(id, fv, store, renderTime, dtMs, relationOf, plates, softness)) {
         this.nameplates.remove(id);
         fv.view.destroy();
         this.views.delete(id);
       }
     }
+    this.plainViews.render(store.plain, renderTime, dtMs);
   }
 
   /** Advance one view (recolor probe, pose, fade, nameplate); returns true once
@@ -296,7 +312,10 @@ export class ContactViews {
       const hullId = store.classOf(id) ?? DEFAULT_CLASS_ID;
       const relation = relationOf(id);
       const style = relationStyle(relation);
-      fv = { view: new ShipView(style, hullId), fader: new Fader(false), hull: hullId, relation, plated: false };
+      // An INWARD tier handoff (Story 11.2) is born at full alpha: its plain
+      // view went at once on this frame, so a fade-in would blink the hull.
+      const fader = new Fader(store.takeBornByHandoff(id));
+      fv = { view: new ShipView(style, hullId), fader, hull: hullId, relation, plated: false };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

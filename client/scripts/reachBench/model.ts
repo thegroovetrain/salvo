@@ -48,7 +48,7 @@ export const DIALS: ReachDial[] = [
   { key: 'phosphor', label: 'Phosphor shells', color: '#fb923c', hm: scaledHm(CONFIG.phosphorShells.rangeU), max: 600, on: false, group: 'Shells', note: 'Default: today’s tier I reach scaled to the 380 hm main battery.' },
   { key: 'fouling', label: 'Fouling shell', color: '#a3e635', hm: scaledHm(CONFIG.foulingShell.rangeU), max: 600, on: false, group: 'Shells', note: 'Default: today’s reach scaled to the 380 hm main battery.' },
   { key: 'flash', label: 'Flash shells', color: '#e9d5ff', hm: scaledHm(CONFIG.foulingShell.rangeU), max: 600, on: false, group: 'Shells', note: 'Today flash shells take the fouling shell’s reach; scaled the same way.' },
-  { key: 'muzzle', label: 'Muzzle flash and wounded smoke seen from', color: '#ff6666', hm: HULL_SIGHT_HM, max: 480, on: false, group: 'Seen by eye', note: `Today this is ${CONFIG.vision.muzzleFlashFactor * 100} % of radar and sits ABOVE sight; the default here equals whole-hull sight.` },
+  { key: 'muzzle', label: 'Muzzle flash and wounded smoke seen from', color: '#ff6666', hm: HULL_SIGHT_HM, max: 480, on: false, group: 'Seen by eye', note: `Ruled at ${Math.round(uToHm(CONFIG.vision.muzzleFlash))} hm (R18); the default here equals whole-hull sight.` },
   { key: 'shellsSeen', label: 'Shells in flight seen from', color: '#38bdf8', hm: CLASS_SIGHT_HM, max: 400, on: false, group: 'Seen by eye', note: 'Default: class-and-name sight.' },
   { key: 'splashSeen', label: 'Splashes, bursts and sinkings seen from', color: '#66ffaa', hm: HULL_SIGHT_HM, max: 400, on: false, group: 'Seen by eye', note: 'Default: whole-hull sight.' },
   { key: 'torpSeen', label: 'Torpedoes seen from', color: '#fff04d', hm: 15, max: 100, on: false, group: 'Seen by eye' },
@@ -80,9 +80,9 @@ export function tierRunHm(t: { tierI: number; tierV: number }, tier: number): nu
   return t.tierI + ((t.tierV - t.tierI) * tier) / (TIERS.length - 1);
 }
 
-/** The hull's main-battery reach ratio: today's RANGE index over the base index. */
+/** The hull's main-battery reach ratio — its battery's `reachFrac` (Story 11.2, R2; was the RANGE index over the base index). */
 export function hullRatio(id: HullId): number {
-  return CONFIG.shipClasses[id].index.range / CONFIG.index.base;
+  return CONFIG.shipClasses[id].battery.reachFrac;
 }
 
 export interface BenchState {

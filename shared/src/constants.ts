@@ -889,7 +889,7 @@ export const CONFIG = {
    *   shellSight           200    shells in flight seen by eye
    *   torpedoSight          15    a running torpedo seen by eye
    *   crateKindSight        15    an airdrop crate's KIND seen by eye
-   *   mineSight              3    a laid mine seen by eye
+   *   mineSight             10    a laid mine seen by eye
    *
    * The weapon reaches are their own facts on their own blocks (main battery
    * 380 hm × the hull's `battery.reachFrac`; star shells, phosphor, fouling
@@ -956,7 +956,7 @@ export const CONFIG = {
     torpedoSight: hmToU(15),
     // u — A LAID MINE SEEN BY EYE (Story 11.2, R4 / R18: 3 hm) — it sits in
     // the water.
-    mineSight: hmToU(3),
+    mineSight: hmToU(10),
     // u — AN AIRDROP CRATE'S KIND SEEN BY EYE (Story 11.2, R4 / R18: 15 hm):
     // the crate is visible far (on radar an anonymous blip), its kind only
     // close. The amount is still rolled at pickup and never shown.

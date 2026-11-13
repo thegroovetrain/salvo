@@ -259,7 +259,7 @@ describe('P6 (Codex + Blind Hunter): the hit ledger is released with the life', 
 
 describe('P7 (Codex + Blind Hunter): hits are credited per VOLLEY window, not keyed on the current fireSeq', () => {
   const pv = (events: PerceptionView['events'] = [], contacts: PerceptionView['contacts'] = []): PerceptionView => ({
-    contacts, events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [],
+    contacts, events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [],
   });
   const seed = (): BotMind => {
     const m = mkMind();
@@ -391,7 +391,7 @@ describe('P16 (Blind Hunter): the departure rule is evaluated once per bot per t
     const m = mkMind('bulwark');
     for (let t = 0; t < 3; t += 1) {
       port.now = NOW + t * 50;
-      m.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
+      m.view = { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
       m.viewAt = port.now;
       fieldReads = 0;
       COMBAT_BRAIN.decide(rec, m, port, t === 0);

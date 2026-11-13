@@ -194,8 +194,9 @@ function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
   // The universal stat ladders (Story 10.3, Eric 2026-11-04, epic-10 amendment 8:
   // HULL POINTS and PASSIVE HEALING deleted; four ids renamed; Story 10.6, Eric
-  // 2026-11-05: RUDDER deleted (R2), RANGE added (R1)).
-  const universal = ['armor', 'power', 'engines', 'reload', 'intel', 'range'];
+  // 2026-11-05: RUDDER deleted (R2), RANGE added (R1); Story 11.2, Eric
+  // 2026-11-12: RANGE deleted (R9) — five rows).
+  const universal = ['armor', 'power', 'engines', 'reload', 'intel'];
   const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
@@ -206,8 +207,9 @@ function statsBlock(): void {
   }
   console.log(`stack: ${universal.map((id) => `${id}x${CATALOG[id].cap}`).join(' ')}`);
   // THE INDEX READOUT (Story 10.3, Eric 2026-11-04, epic-10 amendment 8): the
-  // seven authored indices, then what the fold DERIVES from them (speed u/s,
-  // sweep RPM, the cooldown scale, the main battery's reach — Story 10.4), then the two gate
+  // five authored indices, then what the fold DERIVES from them (speed u/s,
+  // sweep RPM, the cooldown scale), the main battery's reach (the hull's own
+  // `battery.reachFrac` fact since Story 11.2 — no card moves it), then the two gate
   // reads — `dmgMult` is the hull's published multiplier against an AVERAGE
   // attacker (publishedDamageMultiplier), `pierceMult` what its POWER does to
   // an AVERAGE victim (E = base ARMOR − POWER). Hull hp is never printed: it is
@@ -245,10 +247,10 @@ const REACH_LINES = [
 /** Each gun's Tier I and Tier V reach, through the real fold (Story 9.8,
  *  ruling 125): Tier I is the bare row (`CONFIG.<w>.rangeU`), Tier V the line
  *  stacked to its copy cap — the four upgrade cards (for an equipment line,
- *  copy 1 is the fit itself). Then the radar dropout's flat band and knee
- *  (rulings 121–123), the dials `--tune vision.dropout.*` moves. */
+ *  copy 1 is the fit itself). Then the radar and the two eye reaches (the
+ *  radar dropout's readout left with the dropout — Story 11.2, R8). */
 function reachBlock(): void {
-  console.log('== WEAPON REACH (Tier I -> Tier V, u) + RADAR DROPOUT ==');
+  console.log('== WEAPON REACH (Tier I -> Tier V, u) + RADAR AND EYE REACH ==');
   const cls = hullEnvelope(SHIP_CLASS_IDS[0]);
   for (const [line, row] of REACH_LINES) {
     if (!Object.hasOwn(CATALOG, line)) throw new Error(`balanceProbe: '${line}' is not in CATALOG (deleted line?)`);
@@ -257,9 +259,8 @@ function reachBlock(): void {
     console.log(`  ${line.padEnd(15)} Tier I ${fmt(tierI).padStart(7)}  Tier V ${fmt(tierV).padStart(7)}`);
   }
   console.log(`  fouling shell   fixed  ${fmt(CONFIG.foulingShell.rangeU).padStart(7)}`);
-  const dr = CONFIG.vision.dropout;
   console.log(
-    `  dropout: p=1 to ${fmt(dr.startU)}u, knee ${fmt(dr.kneeU)}u (p=${fmt(dr.kneeP, 2)}), rim ${fmt(CONFIG.vision.radar)}u (p=${fmt(dr.rimP, 2)})`,
+    `  radar ${fmt(CONFIG.vision.radar)}u | class-and-name sight ${fmt(CONFIG.vision.sight)}u | plain-hull sight ${fmt(CONFIG.vision.hullSight)}u`,
   );
   console.log('');
 }

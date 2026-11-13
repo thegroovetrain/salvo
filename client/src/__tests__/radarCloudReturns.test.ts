@@ -8,6 +8,11 @@
 // Contracts only: no literal intensity, no band pins.
 
 import { describe, it, expect, vi } from 'vitest';
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 import { Container, Texture, TextureSource } from 'pixi.js';
 import { CONFIG, baseSmokeStats, buildHeightRaster, cloudOutlineRadius, mulberry32, wrapPositive, type HeightField, type HeightRaster } from '@salvo/shared';
 
@@ -32,6 +37,8 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 
 const PERIOD = 60000 / CONFIG.vision.sweepRpm;
 const RANGE = CONFIG.vision.radar;
+/** A synthetic observer sight between the two fixture clouds (see `setup`). */
+const SYN_SIGHT = 800;
 const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
 const MIN = CLIENT_CONFIG.countermeasure.radarPaintMin;
 const OWN = { x: 0, y: 0 };
@@ -108,7 +115,7 @@ describe('the cloud paints the HEAT grid where the beam sweeps hazy cells, and n
       if (a > b) gained++;
     }
     expect(gained, 'the cloud returns').toBeGreaterThan(0);
-  });
+  }, 60_000); // revolutions marched to the 400 hm reach (Story 11.2)
 
   it('a cloud on bearings the beam has not reached yet paints nothing', () => {
     const { radar } = radarWith(source(sector(0.9, 150, 300, Math.PI, Math.PI + 0.5)));
@@ -201,7 +208,7 @@ describe('the radar rules apply to the cloud as to every return', () => {
       prev = now;
     }
     expect(mean(prev)).toBeLessThan(mean(first));
-  });
+  }, 60_000); // revolutions marched to the 400 hm reach (Story 11.2)
 
   it('terrain shadows the cloud like a hull: a tall island between the antenna and the cloud darkens the cloud behind it', () => {
     const cloud = sector(0.9, 250, 330, 0.2, 0.5);
@@ -252,7 +259,10 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
     cm.sync([{ ...cloud, deliveredAt: T0 }]); // first delivery: paints at once
     cm.render(T0); // a built body, frozen for the test
     const { radar } = radarWith(cm);
-    radar.setRanges(CONFIG.vision.sight, CONFIG.vision.radar, PERIOD);
+    // A SYNTHETIC sight (Story 11.2): the roll is a rule about clouds BEYOND
+    // the observer's sight, and the 200 hm base sight now outreaches every
+    // fixture distance here, so the mechanism is driven with a narrower one.
+    radar.setRanges(SYN_SIGHT, CONFIG.vision.radar, PERIOD);
     const cells = cellCentres().filter((c) => cm.coverAt(c.x, c.y) >= MIN && Math.hypot(c.x, c.y) <= RANGE - CELL);
     return { cm, radar, cells, cloud };
   }
@@ -297,7 +307,7 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
     expect(r.painted, 'rev 3: delivered again — back on the scope').toBe(true);
     // The held set (the haze, the wake mirror) never lost it.
     expect(cm.size).toBe(1);
-  });
+  }, 60_000);
 
   it('a cloud INSIDE sight (delivered by eye, no roll) never stops returning', () => {
     const { radar, cells, cloud } = setup(300);
@@ -309,5 +319,5 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
       expect(r.painted, `rev ${k}`).toBe(true);
       to = r.to;
     }
-  });
+  }, 60_000); // four revolutions marched to the 400 hm reach (Story 11.2)
 });

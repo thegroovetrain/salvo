@@ -298,13 +298,14 @@ export class AmbientScene {
     this.radar = new Radar(stage.layers.blip, stage.layers.sweep);
     this.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
     this.radar.setHeightRaster(this.map.heightRaster);
+    this.radar.setMapRadius(this.map.radius);
     // One layer for all three of Effects' sinks: the scene spawns wake and
     // NOTHING else, so the one-shot and burst layers are never reached. That is
     // the "no combat on the menu" rule expressed as wiring rather than as a
     // check somebody has to remember.
     this.effects = new Effects(stage.layers.wake);
     this.fog = new Fog(stage.fogSprite);
-    this.fog.setSightRange(stats.sightRange, stats.radarRange);
+    this.fog.setSightRange(stats.sightRange, stats.radarRange, stats.hullSightRange);
     for (const h of this.world.hulls) {
       const style = relationStyle(h.relation);
       this.styles.set(h.id, style);

@@ -39,8 +39,8 @@ const DT = CONFIG.tick.simDtMs;
 const SLOT_BROADSIDE = 2;
 /** The one weapon slot the fixture leaves empty. */
 const SLOT_EMPTY = familySlotFor('navalMines')!; // the MINE slot — empty on the Yamato fixture (Story 10.5)
-/** The broadside's base (Tier I) reach — its own dial on the twelfths ruler
- *  since Story 9.8 (ruling 125: 5/12), read from CONFIG, never a literal. */
+/** The broadside's base (Tier I) reach — its own dial since Story 9.8 (ruling
+ *  125), a hectometer fact since Story 11.2; read from CONFIG, never a literal. */
 const TIER_I_REACH = CONFIG.broadside.rangeU;
 /** A bearing squarely inside the port beam sector (heading 0 + 90°). */
 const ABEAM = Math.PI / 2;
@@ -145,7 +145,13 @@ describe('broadside — server loadout + barrage construction', () => {
 
   it('RANGE IS ITS OWN DIAL: a click beyond reach clamps to the Tier I reach, NOT the radar horizon (Story 9.8, ruling 125)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'yamato', 0, 0);
+    // THE RIM SEAT (Story 11.2): the reach is longer than the board's radius,
+    // so a barrage from the origin would be clamped by the map disk first. The
+    // hull sits one hull length inside the SOUTH rim and fires its port beam
+    // NORTH across the board, where the RANGE clamp is the one that bites.
+    const seat = { x: 0, y: -(w.map.radius - CONFIG.shipClasses.yamato.hull.length) };
+    const bb = place(w, 'a', 'yamato', seat.x, seat.y);
+    expect(seat.y + TIER_I_REACH).toBeLessThan(w.map.radius);
     expect(bb.stats.equipment.broadside.rangeU).toBeCloseTo(TIER_I_REACH, 9);
     expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.radarRange);
     expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.equipment.gun.rangeU); // the FIRST short-reach weapon
@@ -157,7 +163,7 @@ describe('broadside — server loadout + barrage construction', () => {
     for (let i = 0; i < 4; i += 1) w.applyCard(bb, 'broadsideSpread');
     setInput(bb, { aim: ABEAM, aimDist: CONFIG.vision.radar + 200, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
-    for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeCloseTo(TIER_I_REACH, 6);
+    for (const p of polar(w, seat)) expect(p.range).toBeCloseTo(TIER_I_REACH, 6);
   });
 
   // RETIRED 2026-08-20 with the INTEL RANGE card. This test's subject was the

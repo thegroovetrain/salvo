@@ -1,7 +1,7 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 18 GameEvent kinds plus the six contact-like frame channels
-// (`contact`, `mine`, `litzone`, `burnzone`, `foulzone` and `cloud` — pseudo
+// row here: the 18 GameEvent kinds plus the contact-like frame channels
+// (`contact`, `plain` — the outer sight tier, Story 11.2 — `mine`, `litzone`, `burnzone`, `foulzone` and `cloud` — pseudo
 // event types: not GameEvents, but the invariant suite iterates them like
 // everything else; the RADAR BUOY's `buoy` channel was deleted with the buoy
 // in Story 8.16, and the DECOY BUOY's `decoy` channel that took its seat was
@@ -102,7 +102,10 @@ import {
   type LitZoneView,
   type BurnZoneView,
   type FoulZoneView,
+  effectiveHullSight,
   effectiveSight,
+  whiteoutReach,
+  type PlainContact,
   type MineView,
   type MuzzleEvent,
   type BoonFitEvent,
@@ -116,7 +119,6 @@ import {
   type Vec2,
   paintSegmentCoverage,
   cloudOutlineRadius,
-  dropoutPaints,
   type CloudView,
   type WakeBlipEvent,
   type WakeRibbon,
@@ -179,24 +181,20 @@ interface SignalContextBase {
    *  wake scan's subject list, riding the context the way the height raster
    *  does. Inert on the spectator path (spectators get no radar). */
   readonly wakes: readonly WakeRibbon[];
+  // (`dropoutSeed` and `wakeKeyOf`, the radar dropout roll's seed and its
+  // wake target key — Story 9.8 — were REMOVED 2026-11-12, Story 11.2, R8:
+  // the dropout is gone; Story 11.4's strength model replaces it.)
   /**
-   * THE RADAR DROPOUT ROLL'S SEED (Story 9.8, rulings 121–123 —
-   * `World.dropoutSeed`): the world-level term of the stateless per-
-   * revolution hash `dropoutPaints(d, seed, observer, target, rev)`.
-   * SERVER-PRIVATE — derived from the per-room pseudonym entropy, never the
-   * client-known map seed: a client that could replay the roll could test
-   * which known hull a missed or delivered anonymous paint could have been.
-   * Read by the radar gates (blipGate — ship blips —
-   * wakeGate's radar half and the cloud's radar clause) and nothing else.
+   * THE PLAIN-HULL HANDLE (Story 11.2, R3): this observer's anonymous handle
+   * for the hull `targetId` while it stays in the observer's outer sight band
+   * — get-or-mint, bound by perception.ts to `World.plainHandleFor(me, id)`.
+   * Per OBSERVER and per VISIT, minted from a room-private keyed source that
+   * takes neither id as input (see game/plainHandle.ts), so it can never be
+   * linked to the roster id or the class. Read by the `plain` row's
+   * materialize and by NOTHING else; '' on the spectator path, where the row
+   * never fires.
    */
-  readonly dropoutSeed: number;
-  /**
-   * The dropout roll's TARGET KEY for a wake ribbon (Story 9.8 —
-   * `World.wakeKeyOf`): the id of the water's SOURCE (the ship's id for a
-   * hull's ribbon, active or detached; the torpedo's shell id for fish
-   * water). Server-private; never on the wire.
-   */
-  wakeKeyOf(r: WakeRibbon): string;
+  plainHandleOf(targetId: string): string;
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -273,7 +271,7 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
  * THE sight predicate: may observer `me` see point `b` optically? Iff no
  * island coastline lies on the segment (losClear from the observer's own
  * state). Every sight-tier gate calls this — the contact row, pointSighted,
- * pointDetected, shipSees, the mz/sm halos and the foghorn muffle. No cloud term (Story 9.3 session
+ * the named point reaches, shipSees, the mz/sm halos and the foghorn muffle. No cloud term (Story 9.3 session
  * 2, Eric 2026-10-12: the countermeasure is a client overlay — cycle 174's
  * pixel occlusion and Story 8.18's smoke clamp are retired). No fog term
  * EITHER: fog is a RANGE cost, not an occluder — it lives in `withinSight`
@@ -317,7 +315,7 @@ function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
  * and a ZERO range rejects even `d = 0` (gate fix F4: blind is blind).
  * With no fog the toll thunk answers 0 without a march (the World's cut
  * gate), so the pre-fog gates are byte-identical. Every sight-tier range
- * site calls this — the contact row, pointSighted, pointDetected, shipSees,
+ * site calls this — the contact and plain rows, every point reach, shipSees,
  * discSighted (to the nearest rim point) and the mz/sm halos. Radar has NO
  * inner edge (amendment 210, Eric 2026-10-21, superseding amendment 163's
  * "dark to both"): a hull fog hides inside the bubble is no contact, yet the
@@ -351,7 +349,7 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
  * honest fog hole agree by construction. (Story 9.3 removed the 8.18
  * in-smoke argument — a cloud never scales sight.) THE one place the
  * sight RADIUS enters perception — every sight-tier predicate below and
- * every derived rung (detect) calls this, so a future sight modifier lands
+ * every reach derived from it calls this, so a future sight modifier lands
  * in the shared function and nowhere else. FOG (Story 9.10) does NOT scale
  * this radius: it is a toll on the RAY, added in `withinSight`. No radar
  * gate reads this radius at all since amendment 210 (the radar paints from
@@ -362,70 +360,85 @@ export function sightOf(me: ShipRecord, now: number): number {
   return effectiveSight(me.stats, me.dazzledUntil, now);
 }
 
-/** Sight-tier test for a point: within the OBSERVER'S effective sight range
- *  (inclusive — sightOf, fog-tolled through withinSight) + SIGHT-clear
- *  (island LOS). Takes the ShipRecord so the sightRange boons apply to every
- *  point-sighted gate (ballistics, mines, booms, wrecks, spawns) uniformly. */
+/**
+ * The observer's EFFECTIVE PLAIN-HULL sight this tick (Story 11.2, R3): the
+ * shared `effectiveHullSight` — `stats.hullSightRange` under the SAME
+ * whiteout factor as `sightOf`, so the two tiers clear together and the outer
+ * one is never under the inner one. Read by the `plain` row alone.
+ */
+export function hullSightOf(me: ShipRecord, now: number): number {
+  return effectiveHullSight(me.stats, me.dazzledUntil, now);
+}
+
+/**
+ * A NAMED EYE REACH for this observer this tick (Story 11.2, R4 / R18): one
+ * of the `CONFIG.vision` eye facts (`splashSight`, `shellSight`,
+ * `torpedoSight`, `mineSight`, `crateKindSight`) under THE whiteout law — the
+ * shared `whiteoutReach`, the one curve `sightOf` and `hullSightOf` run, so a
+ * flashed hull is blinded at every eye reach together. The facts are the same
+ * for every observer (no stat writes them), so nothing about a build rides a
+ * gate that uses one.
+ */
+function eyeReach(me: ShipRecord, reachU: number, now: number): number {
+  return whiteoutReach(reachU, me.dazzledUntil, now);
+}
+
+/**
+ * THE one point-by-eye test (Story 11.2): `p` within `reach` of the observer
+ * once the ray's fog toll is added (`withinSight`) + SIGHT-clear (island
+ * LOS). Every point gate below is this at its own reach.
+ */
+function pointSeenWithin(me: ShipRecord, p: Vec2, field: SightField, reach: number): boolean {
+  return withinSight(field, me, p, reach) && sightClear(me, p, field.islands);
+}
+
+/**
+ * CLASS-REACH test for a point: within the observer's effective CLASS-AND-NAME
+ * sight (`sightOf`, inclusive, fog-tolled) + SIGHT-clear. Since Story 11.2
+ * this is THE IDENTITY GATE — the reach at which a roster id or a class may
+ * be attached to a point: the boom's victim id, the sunk row's `seen` stamp
+ * and the spawn row (whose payload IS a roster id). Positions without an
+ * identity ride their own named reach (the helpers below).
+ */
 function pointSighted(me: ShipRecord, p: Vec2, field: SightField, now: number): boolean {
-  return withinSight(field, me, p, sightOf(me, now)) && sightClear(me, p, field.islands);
+  return pointSeenWithin(me, p, field, sightOf(me, now));
 }
 
 /**
- * DETECT-tier test for a point (Story 4.9, amendments 119/121): the 4/12 rung
- * since Story 9.8 (`detectFactor` 1, so detect = sight on the twelfths ruler) —
- * within `sightOf(me) * CONFIG.vision.detectFactor` (inclusive) +
- * LOS-clear. pointSighted's SIBLING, never a narrowing of it: exactly THREE
- * rows ride this gate — mines (mineSignal), torpedoes (ballisticSignal's
- * `torp` branch), and homing-torpedo updates (torpedoUpdateSignal). Everything
- * else pointSighted serves — shells, booms, bursts, sunk-witness,
- * spawns — stays on truesight, byte-identical (SHELLS DO NOT MOVE: a shell is
- * in the air; a torpedo is a wake just under the surface and a mine sits in
- * the water). Observer-scaled exactly as sight is (amendment 121 — while the
- * FLASH SHELLS dazzle existed, Story 8.17 – 9.4, it shrank this rung with
- * sight) and island LOS applies unchanged. The rung is
- * resolved through `sightOf`, never a literal, so it keeps ONE derivation
- * path: no card writes `stats.radarRange` today (the INTEL RANGE line was
- * deleted 2026-08-20), so every observer resolves the same base sight rung — but a
- * future radar card would move this rung for free. Fog-tolled through
- * withinSight exactly as sight is (Story 9.10): a mine or a fish inside a
- * bank is spotted late by the same ray cost.
+ * SPLASH-REACH test for a point (Story 11.2, R4 / R18 —
+ * `CONFIG.vision.splashSight`): where an explosion — a boom or a burst — is
+ * seen by eye. POSITION ONLY: no row may attach an identity on this gate (see
+ * `pointSighted`). Whiteout-scaled, fog-tolled, island LOS.
  */
-function pointDetected(me: ShipRecord, p: Vec2, field: SightField, now: number): boolean {
-  return withinSight(field, me, p, sightOf(me, now) * CONFIG.vision.detectFactor) && sightClear(me, p, field.islands);
+function splashSeen(me: ShipRecord, p: Vec2, field: SightField, now: number): boolean {
+  return pointSeenWithin(me, p, field, eyeReach(me, CONFIG.vision.splashSight, now));
 }
 
 /**
- * THE 6/12 RUNG (the 5/8 rung before Story 9.8), OBSERVER-SCALED (Eric ruling 2026-08-16: *"It scales. Intel
- * range means your detection range on all levels gets further."*). THE one
- * resolver — both the `mz` and `sm` rows call it, because a second hand-rolled
- * copy of a sight tier is exactly the desync class this file exists to prevent.
- *
- * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. No card writes that
- * field today — the INTEL RANGE line was deleted 2026-08-20, so the rung
- * resolves to the same 6/12 rung for every observer — but the anchor STAYS,
- * because it keeps ONE derivation path and a future radar card would scale
- * the rung with no change here. That is also what kept the
- * ratified reading — *a flash is a light source, not an illuminated object, so
- * dazzle does not change how far it carries* — true BY CONSTRUCTION while the
- * FLASH SHELLS dazzle existed (Story 8.17 – 9.4): `sightOf` was the sole
- * dazzle entry point in perception, so a radar-anchored rung could not
- * acquire dazzle scaling through a later refactor. The anchor outlives the
- * dazzle for the same reason. Same argument amendment 122
- * made when the foghorn moved onto intel range.
- *
- * THIS SUPERSEDES the flat-halo clause on both rows below, and with it epic-4
- * amendments 15/42/119. The anti-leak rationale that clause carried holds for
- * SUBJECT-scaling (a plume whose radius encoded the SMOKING ship's build would
- * broadcast it) and not for OBSERVER-scaling: the watcher already knows their
- * own build, and neither row carries any identity (`mz` is a bare {k,x,y}, `sm`
- * a bare {k,x,y,tier}).
- *
- * Fail-closed on a degenerate range, mirroring `hornBandFor`'s guard.
+ * The eye reach of a live PROJECTILE by kind (Story 11.2, R4 / R18): a shell
+ * in the air at `CONFIG.vision.shellSight`, a torpedo — a wake just under the
+ * surface — at `CONFIG.vision.torpedoSight`. (HISTORY: Story 4.9's `detect`
+ * rung carried the torpedo and the mine at `sight × detectFactor`; retired
+ * 2026-11-12 with the ladder.) Whiteout-scaled like every eye reach.
  */
-function muzzleFlashReach(me: ShipRecord): number {
-  const intel = me.stats.radarRange;
-  if (!Number.isFinite(intel) || intel <= 0) return 0;
-  return intel * CONFIG.vision.muzzleFlashFactor;
+function projectileSeen(me: ShipRecord, shell: ShellState, field: SightField, now: number): boolean {
+  const reachU = shell.kind === 'torp' ? CONFIG.vision.torpedoSight : CONFIG.vision.shellSight;
+  return pointSeenWithin(me, shell, field, eyeReach(me, reachU, now));
+}
+
+/**
+ * THE MUZZLE-FLASH / WOUNDED-SMOKE REACH (Story 11.2, R18):
+ * `CONFIG.vision.muzzleFlash`, its own fact — THE one resolver, both the `mz`
+ * and `sm` rows call it. The same for EVERY observer and NOT whiteout-scaled:
+ * a flash is a light source, not an illuminated object, so a dazzle does not
+ * change how far it carries (the ratified reading; it never went through
+ * `sightOf`). HISTORY (superseded 2026-11-12): the reach was `radarRange ×
+ * muzzleFlashFactor`, the ladder's 6/12 rung, "observer-scaled" (Eric
+ * 2026-08-16) through a radar stat no card writes. Neither row carries any
+ * identity (`mz` is a bare {k,x,y}, `sm` a bare {k,x,y,tier}).
+ */
+function muzzleFlashReach(): number {
+  return CONFIG.vision.muzzleFlash;
 }
 
 /**
@@ -487,36 +500,6 @@ function sweptDiscThisTick(me: ShipRecord, c: Vec2, r: number): boolean {
   return wrapPositive(spanStart - me.prevSweepAngle) < window || wrapPositive(me.prevSweepAngle - spanStart) <= 2 * half;
 }
 
-/** The bearing (wrapped to [0, 2π)) at which the beam ENTERS the disc (centre
- *  `c`, radius `r`): bearing(observer, c) − asin(min(1, r/d)); null when the
- *  observer stands inside the disc (no span — it surrounds them). */
-function discSpanStart(me: ShipRecord, c: Vec2, r: number): number | null {
-  const d = Math.hypot(c.x - me.state.x, c.y - me.state.y);
-  if (d <= r) return null;
-  return wrapPositive(bearing(me.state, c) - Math.asin(Math.min(1, r / d)));
-}
-
-/**
- * THE REVOLUTION A DISC'S PASS BELONGS TO (Story 9.8 review, F1). A point
- * target is swept on exactly one tick, so `sweepRev` names its pass. A DISC
- * spans an arc the beam can take several ticks to cross — and when that arc
- * straddles bearing 0, `advanceSweeps` bumps `sweepRev` mid-pass, so rolling
- * on the live `sweepRev` would split one physical pass into two draws (paint
- * on the pre-wrap tick, miss on the post-wrap one, or the reverse). So a disc
- * rolls on the revolution of its span START: the beam (now at `sweepAngle`)
- * reached `spanStart` in this revolution iff spanStart ≤ sweepAngle; a span
- * start AHEAD of the beam was crossed before the last wrap — `sweepRev − 1`.
- * (Sound because a swept span is < π wide, so its start was crossed less
- * than one revolution ago.) An observer inside the disc (null start) rolls
- * on `sweepRev` — inside `startU`, where p(paint) is 1 anyway.
- */
-function discRollRev(me: ShipRecord, spanStart: number | null): number {
-  if (spanStart === null || spanStart <= me.sweepAngle) return me.sweepRev;
-  return me.sweepRev - 1;
-}
-
-
-
 /**
  * THE ship-blip gate (one function, three callers — FR10's temporal
  * indistinguishability by construction): dist ≤ radar (no inner edge —
@@ -537,34 +520,27 @@ function discRollRev(me: ShipRecord, spanStart: number | null): number {
  * give a non-ship subject its own height: observer and target are both at
  * mast height (amendment 101), which is what makes the model symmetric.
  */
-function blipGate(ctx: FoggedSignalContext, p: Vec2, targetKey: string): boolean {
+function blipGate(ctx: FoggedSignalContext, p: Vec2): boolean {
   const me = ctx.me;
-  return radarOriginPaints(
-    ctx,
-    { at: me.state, window: me, rangeU: me.stats.radarRange, key: me.id, rev: me.sweepRev },
-    p,
-    targetKey,
-  );
+  return radarOriginPaints(ctx, { at: me.state, window: me, rangeU: me.stats.radarRange }, p);
 }
 
 /**
  * ONE RADAR ANTENNA's view of a point — the four terms every paint gate
  * shares, from an explicit ORIGIN (Story 10.9; the RADAR BUOY's second
  * antenna left with Story 10.5, so the observer's own hull is the one
- * origin). `key` is the antenna's term of the dropout roll (the observer's
- * ship id) and `rev` its revolution counter.
+ * origin).
  */
 interface RadarOrigin {
   readonly at: Vec2;
   readonly window: SweepWindow;
   readonly rangeU: number;
-  readonly key: string;
-  readonly rev: number;
 }
 
-/** The four paint terms from `o`, in blipGate's cost order: range → this
- *  tick's beam window → the height-aware shadow march → the dropout roll at
- *  the centre distance. THE RANGE TERM: within the antenna's radar range
+/** The three paint terms from `o`, in blipGate's cost order: range → this
+ *  tick's beam window → the height-aware shadow march. (The fourth, the
+ *  DROPOUT roll of Story 9.8, was REMOVED 2026-11-12 — Story 11.2, R8: every
+ *  in-range, swept, unshadowed subject paints every sweep.) THE RANGE TERM: within the antenna's radar range
  *  (`o.rangeU` — the hull's `stats.radarRange`; inclusive `<=`) — and nothing
  *  else. THERE IS NO
  *  INNER EDGE (amendment 210, Eric 2026-10-21: "The server needs to return
@@ -580,38 +556,12 @@ interface RadarOrigin {
  *  Zero distance (or NaN): nothing to bear on — atan2(0, 0) is an arbitrary
  *  0 and visibilityTo fails open at length 0 — so a subject on the antenna's
  *  own point is never a return; a non-finite range fails closed. */
-function radarOriginPaints(ctx: FoggedSignalContext, o: RadarOrigin, p: Vec2, targetKey: string): boolean {
+function radarOriginPaints(ctx: FoggedSignalContext, o: RadarOrigin, p: Vec2): boolean {
   const dx = p.x - o.at.x;
   const dy = p.y - o.at.y;
   const d2 = dx * dx + dy * dy;
   if (!(d2 > 0 && d2 <= o.rangeU * o.rangeU)) return false;
-  return (
-    sweptThisTick(o.window, bearing(o.at, p)) &&
-    visibilityTo(ctx.heightRaster, o.at.x, o.at.y, p.x, p.y) > 0 &&
-    dropoutPaints(Math.hypot(dx, dy), ctx.dropoutSeed, o.key, targetKey, o.rev)
-  );
-}
-
-/**
- * THE RADAR DROPOUT TERM (Story 9.8, epic-9 amendment 104, rulings 121–123):
- * does THIS sweep revolution paint a return at centre distance `d`? The
- * shared pure `dropoutPaints` over (the server-private `ctx.dropoutSeed`, the
- * OBSERVER's ship id, the TARGET's key, the observer's `sweepRev`) — a
- * STATELESS hash, never a consumed stream, so every `observe()` caller (each
- * client's frame, each bot thunk) and the test oracle get the identical
- * answer. p(paint) is 1 to `CONFIG.vision.dropout.startU` (the 8/12 rung), so
- * nothing inside it ever misses; beyond it the far returns come and go.
- *
- * EVERYTHING RADAR DELIVERS ROLLS (ruling 123): ship blips (via blipGate), the wake's radar half (wakeGate) and the countermeasure
- * cloud's radar clause (discRadarDetected). No size weighting (ruling 122):
- * one curve for every return. Never consulted by a sight predicate (the roll
- * lives in the RADAR gates only — inside the sight radius too since amendment
- * 210, where p(paint) is 1 anyway), and never by the lit / burn / foul zone circles —
- * those are drawn hazards, not returns (`zoneCircleVisible`). A miss is the
- * gate answering false: nothing about the target is emitted.
- */
-function radarPaints(ctx: FoggedSignalContext, d: number, targetKey: string): boolean {
-  return dropoutPaints(d, ctx.dropoutSeed, ctx.me.id, targetKey, ctx.me.sweepRev);
+  return sweptThisTick(o.window, bearing(o.at, p)) && visibilityTo(ctx.heightRaster, o.at.x, o.at.y, p.x, p.y) > 0;
 }
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
@@ -690,7 +640,22 @@ function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): G
  * speed straight from the sim.
  * Spectators (unfogged) see every such hull — including, in the finished
  * phase, their own.
+ *
+ * THE INNER TIER (Story 11.2, R3): "sight range" here is the CLASS-AND-NAME
+ * reach (`sightOf` — `CONFIG.vision.sight`). A hull the eye has beyond it,
+ * out to the plain-hull reach, is the `plain` row's — never this one's.
  */
+/** THE FOGGED FULL-CONTACT PREDICATE — one boolean, two callers (the
+ *  `contact` row and the `plain` row's "not already a full contact" term), so
+ *  the two tiers can never both claim a hull in one frame. The observer's
+ *  own effective CLASS reach (the one derivation), fog-tolled (Story 9.10:
+ *  withinSight adds the ray's bank cost before comparing); the owned-zone OR
+ *  is untouched (a flare lights from above). */
+function fullContactSeen(ctx: FoggedSignalContext, ship: ShipRecord): boolean {
+  const me = ctx.me;
+  return pointSeenWithin(me, ship.state, ctx, sightOf(me, ctx.now)) || ownZoneCovers(ctx, ship.state);
+}
+
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
   eventType: 'contact',
   visible(ctx, ship) {
@@ -702,15 +667,8 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // reads only the visible deceleration — no enemy-facing sinking channel.
     if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return false;
     if (ctx.mode === 'spectator') return true;
-    const me = ctx.me;
-    if (ship.id === me.id) return false;
-    // The observer's own effective sight (the one derivation), fog-tolled
-    // (Story 9.10: withinSight adds the ray's bank cost before comparing);
-    // the owned-zone OR is untouched (a flare lights from above).
-    return (
-      (withinSight(ctx, me, ship.state, sightOf(me, ctx.now)) && sightClear(me, ship.state, ctx.islands)) ||
-      ownZoneCovers(ctx, ship.state)
-    );
+    if (ship.id === ctx.me.id) return false;
+    return fullContactSeen(ctx, ship);
   },
   materialize(ctx, ship) {
     const s = ship.state;
@@ -740,11 +698,56 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
 };
 
 /**
+ * `plain` — A PLAIN HULL, THE OUTER SIGHT TIER (Story 11.2, Eric 2026-11-12,
+ * R3 / R14 / R18): another hull still on the water (afloat OR sinking — the
+ * contact row's rule) that is NOT a full contact for this observer
+ * (`fullContactSeen` is false — beyond the class-and-name reach and outside
+ * every lit zone the observer owns) and IS within the observer's effective
+ * PLAIN-HULL sight (`hullSightOf` — `CONFIG.vision.hullSight` under the same
+ * whiteout factor; boundary INCLUSIVE; the same fog toll through
+ * `withinSight`) on an island-clear ray (`sightClear`). The two tiers are
+ * DISJOINT by construction: this row's first term is the negation of the
+ * contact row's predicate, so no frame carries one hull in both lists, and a
+ * hull crossing inward is a `pc` row in one frame and a contact in the next.
+ *
+ * materialize() emits `{h,x,y,heading,speed}` and NOTHING ELSE — a fresh
+ * object every call (KEY ORDER IS LOAD-BEARING, msgpack). NO roster id, NO
+ * class, NO turret or launcher angles, no hp, no sinking tell. `h` is the
+ * observer's anonymous per-visit handle (`ctx.plainHandleOf` — see
+ * game/plainHandle.ts for why it cannot be linked to an id or a class);
+ * perception's ship scan owns the handle memory (it forgets a hull the pass
+ * did not materialize), the seenBallistics precedent.
+ *
+ * NOT A SEVENTH EXCEPTION: a channel with its own oracle (the cloud / zone
+ * precedent) — it reaches nothing beyond the eye's own outer reach, and the
+ * invariant suite re-derives the band independently. WHAT AN OBSERVER CAN
+ * STILL INFER (accepted, recorded): a class guess from the speed and turn
+ * envelope of a hull it watches for a while, and the trajectory re-link the
+ * `World.trackIds` note already owns (a hull that walks out of the inner
+ * tier is the same hull one frame later). Spectators get none — they hold
+ * every hull as a full contact. Fail-closed on a world-dispatched subject.
+ */
+const plainSignal: SignalSpec<ShipRecord, PlainContact> = {
+  eventType: 'plain',
+  visible(ctx, ship) {
+    if (ctx.mode !== 'fogged' || !('state' in ship)) return false;
+    const me = ctx.me;
+    if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || ship.id === me.id) return false;
+    if (fullContactSeen(ctx, ship)) return false;
+    return pointSeenWithin(me, ship.state, ctx, hullSightOf(me, ctx.now));
+  },
+  materialize(ctx, ship) {
+    const s = ship.state;
+    return { h: ctx.plainHandleOf(ship.id), x: s.x, y: s.y, heading: s.heading, speed: s.speed };
+  },
+};
+
+/**
  * `mine` — contact-like state (NOT events), recomputed every tick exactly like
  * contacts. The owner sees ALL its own mines always (own field awareness, even
- * under fog); everyone else sees a mine only when it is within DETECT range
- * (Story 4.9; the 4/12 rung = sight since Story 9.8, pointDetected — a mine
- * sits low in the water, its own rung, today coincident with sight) + island-LOS — OR inside a lit zone the
+ * under fog); everyone else sees a mine only when it is within the MINE eye
+ * reach (`CONFIG.vision.mineSight`, Story 11.2 R4 / R18 — a mine sits low in
+ * the water; whiteout-scaled, fog-tolled; Story 4.9's detect rung before) + island-LOS — OR inside a lit zone the
  * observer OWNS (Story 1.7 truesight parity, no LOS on the zone path). Mines
  * NEVER radar-paint, and arm state makes no difference to visibility. A
  * static persistent entity synced this way cannot suffer event-lifecycle
@@ -757,7 +760,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       mine.ownerId === ctx.me.id ||
-      pointDetected(ctx.me, mine, ctx, ctx.now) ||
+      pointSeenWithin(ctx.me, mine, ctx, eyeReach(ctx.me, CONFIG.vision.mineSight, ctx.now)) ||
       ownZoneCovers(ctx, mine)
     );
   },
@@ -773,7 +776,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     // kind's own glyph in the dropper's hue for whoever sees it (owner,
     // enemy, spectator alike), so every materialized row carries it, LAST.
     // ANTI-CHEAT: this row is already sight-gated (visible() above — owner
-    // always, else detect + island LOS, else an owned flare), so the kind is
+    // always, else the mine eye reach + island LOS, else an owned flare), so the kind is
     // a field on a delivered row, not a new delivery: it discloses nothing
     // beyond the mine's presence, and the perception exception count stays
     // at SIX.
@@ -785,8 +788,9 @@ const mineSignal: SignalSpec<MineState, MineView> = {
  * `drop` — THE AIRDROP's sight channel (Story 10.9, epic-10 amendment 18,
  * Eric's R3: "stat glyph at SIGHT ONLY"). Contact-like state (NOT events),
  * recomputed every tick like mines: a fogged observer sees a crate — its
- * position AND its kind `c` — iff the crate's centre is DETECTED
- * (`pointDetected`: detectFactor × sight + island LOS, fog-tolled) OR sits
+ * position AND its kind `c` — iff the crate's centre is within the CRATE-KIND
+ * eye reach (`CONFIG.vision.crateKindSight`, Story 11.2 R4 / R18 — the kind
+ * is read only close; whiteout-scaled, island LOS, fog-tolled) OR sits
  * inside a lit zone the observer OWNS (`ownZoneCovers`, lit from above).
  * That is the mine gate MINUS the owner clause: a drop has no owner, so
  * nobody is "always" told. Spectators see every crate. The crate's radar
@@ -801,7 +805,9 @@ const dropSignal: SignalSpec<DropState, DropView> = {
   eventType: 'drop',
   visible(ctx, drop) {
     if (ctx.mode === 'spectator') return true;
-    return pointDetected(ctx.me, drop, ctx, ctx.now) || ownZoneCovers(ctx, drop);
+    return (
+      pointSeenWithin(ctx.me, drop, ctx, eyeReach(ctx.me, CONFIG.vision.crateKindSight, ctx.now)) || ownZoneCovers(ctx, drop)
+    );
   },
   materialize(_ctx, drop) {
     // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,c (the mine row's `c`).
@@ -992,12 +998,9 @@ function discRadarDetected(ctx: FoggedSignalContext, cloud: StoredCloud, d: numb
   const me = ctx.me;
   if (d - r > me.stats.radarRange) return false;
   if (!sweptDiscThisTick(me, cloud, r)) return false;
-  if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, cloud.x, cloud.y) <= 0) return false;
-  // Story 9.8 (ruling 123): the radar delivery rolls the dropout at the
-  // CENTRE distance, like every other return — on the revolution of the
-  // disc's span start, so one pass straddling bearing 0 is ONE draw (F1).
-  const rev = discRollRev(me, discSpanStart(me, cloud, r));
-  return dropoutPaints(d, ctx.dropoutSeed, me.id, cloud.id, rev);
+  // (Story 9.8's dropout roll at the centre distance was REMOVED 2026-11-12 —
+  // Story 11.2, R8.)
+  return visibilityTo(ctx.heightRaster, me.state.x, me.state.y, cloud.x, cloud.y) > 0;
 }
 
 /** The fogged half of the cloud gate: the disc sighted or radar-detected. */
@@ -1067,7 +1070,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     if ((!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) || target.id === me.id) return false;
     // The observer's OWN radar, and nothing else (the radar buoy's relay and
     // its own-scope `src` tag were deleted with the buoy in Story 8.16).
-    return blipGate(ctx, target.state, target.id);
+    return blipGate(ctx, target.state);
   },
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
@@ -1082,9 +1085,8 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
  * THE AIRDROP'S RADAR PAINT (Story 10.9, epic-10 amendment 18, R3 — "on
  * radar it is an anonymous small blip"). The `blip` row's SECOND SUBJECT
  * TYPE, not a new event kind and not a seventh exception: the crate's centre
- * runs the IDENTICAL four-term gate a hull runs (`blipGate` — range → swept
- * this tick → height-aware shadow march → the dropout roll, keyed on the
- * drop's id), and what leaves is a `BlipEvent` carrying NOTHING but the fuzzed
+ * runs the IDENTICAL gate a hull runs (`blipGate` — range → swept
+ * this tick → height-aware shadow march), and what leaves is a `BlipEvent` carrying NOTHING but the fuzzed
  * coverage rect of its DISC (`paintDiscCoverage` — the hull mask's fuzz law
  * over a disc of `CONFIG.drops.radiusU`, seeded from (tick, centre) with no
  * identity term). No id, no rolls, no "crate" flag: a client reads a small
@@ -1099,7 +1101,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
  * radar gate, and this row comment can state its terms.
  */
 export function dropPaint(ctx: FoggedSignalContext, drop: DropState): BlipEvent | null {
-  if (!blipGate(ctx, drop, drop.id)) return null;
+  if (!blipGate(ctx, drop)) return null;
   const c = paintDiscCoverage(drop.x, drop.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, ctx.now);
   // The one blip key order (k,t,gx,gy,w,h,bits) — byte-for-byte blipShape's.
   return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
@@ -1136,9 +1138,6 @@ export interface WakeSubject {
   bucket: number;
   /** Turbulent-core width (u), derived from the source. */
   widthU: number;
-  /** The dropout roll's TARGET KEY — the water's source id
-   *  (`World.wakeKeyOf`, copied by the scan; Story 9.8). NEVER on the wire. */
-  key: string;
 }
 
 /** Cached per-ribbon bounding circle (see wakeBounds): the bound depends only
@@ -1301,8 +1300,8 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
 /**
  * THE PER-SEGMENT WAKE GATE (the blipGate mirror — see the wk row's doc for
  * the full rationale): dist ≤ radar ∧ swept this tick ∧ the amendment-179
- * shadow march ∧ the dropout roll keyed on the water's source (Story 9.8,
- * ruling 123) — exactly as a hull, at EVERY distance, for ship and torpedo
+ * shadow march (Story 9.8's dropout roll REMOVED 2026-11-12, Story 11.2,
+ * R8) — exactly as a hull, at EVERY distance, for ship and torpedo
  * water alike. NO INNER BOUND (amendment 210, Eric 2026-10-21: the server
  * returns the entire sweep). HISTORY (superseded): the per-source inner
  * bound (`wakeInnerBound` — sight for ship water, detect for torpedo water,
@@ -1319,8 +1318,7 @@ function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   if (!(d2 > 0)) return false; // nothing to bear on (see radarOriginPaints)
   if (d2 > me.stats.radarRange * me.stats.radarRange) return false;
   if (!sweptThisTick(me, bearing(me.state, seg))) return false;
-  if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) <= 0) return false;
-  return radarPaints(ctx, Math.sqrt(d2), seg.key);
+  return visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) > 0;
 }
 
 /**
@@ -1391,7 +1389,7 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
  * 4.12): disturbed water as a weak surface return. NOT a declared exception
  * to the master perception invariant — the gate mirrors the three `blipGate`
  * clauses per SEGMENT in the same cost order (range → swept-this-tick →
- * shadow march → dropout), evaluated at the segment MIDPOINT; segments are ~one sample
+ * shadow march), evaluated at the segment MIDPOINT; segments are ~one sample
  * cadence (12u) long, so the midpoint predicate is about as tight as the
  * hull's centre predicate already is (a ledgered cycle-68 imprecision,
  * inherited knowingly). What is new is only that the subject is water rather
@@ -1399,7 +1397,7 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
  *
  * NO INNER BOUND (amendment 210, Eric 2026-10-21 — the server returns the
  * entire sweep): ship and torpedo water disclose at every distance up to
- * radar range, through the same shadow march and dropout as a hull. This is
+ * radar range, through the same shadow march as a hull. This is
  * leak-free by construction because the HULL now paints at every distance
  * too: water behind a low island inside sight discloses exactly when the
  * hull's own blip would (both ride the radar's shadow rule), and water
@@ -1465,9 +1463,9 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
  *   - a spectator WITH a record: always open (unfogged);
  *   - the OWNER: always open — own projectiles are revealed once at launch
  *     and, since the gate never closes on them, never cleared, never re-sent;
- *   - everyone else: first-sight (`shell` — SHELLS DO NOT MOVE: a shell is in
- *     the air, truesight) / first-detect (`torp` — a wake just under the
- *     surface, the detect rung; Story 4.9, amendments 119/121; 4/12 since 9.8) OR inside a lit
+ *   - everyone else: within the projectile's own eye reach by kind
+ *     (`projectileSeen` — a shell in the air at `CONFIG.vision.shellSight`, a
+ *     torpedo at `CONFIG.vision.torpedoSight`; Story 11.2, R4 / R18) OR inside a lit
  *     zone the observer OWNS (Story 1.7 truesight parity).
  *
  * Callers guard the subject shape (`'ownerId' in shell`) before asking; the
@@ -1479,9 +1477,7 @@ export function ballisticGateOpen(ctx: SignalContext, shell: ShellState): boolea
   if (ctx.mode === 'spectator') return true;
   return (
     shell.ownerId === me.id ||
-    (shell.kind === 'torp'
-      ? pointDetected(me, shell, ctx, ctx.now)
-      : pointSighted(me, shell, ctx, ctx.now)) ||
+    projectileSeen(me, shell, ctx, ctx.now) || // shellSight / torpedoSight by kind (Story 11.2, R4)
     ownZoneCovers(ctx, shell)
   );
 }
@@ -1507,9 +1503,9 @@ export function ballisticGateOpen(ctx: SignalContext, shell: ShellState): boolea
  *
  * Two registry rows (two wire kinds), one shared implementation — with ONE
  * deliberate fork (Story 4.9, amendments 119/121): the GATE branches on kind.
- * A shell first reveals at the truesight boundary (pointSighted — SHELLS DO
- * NOT MOVE: a shell is in the air); a torpedo first reveals at the DETECT
- * boundary (pointDetected, the detect rung — a wake just under the surface).
+ * A shell first reveals at the `shellSight` boundary (a shell is in the air);
+ * a torpedo first reveals at the `torpedoSight` boundary (a wake just under
+ * the surface) — `projectileSeen`, Story 11.2.
  * Everything else — the owner-always path, the owned-zone OR, the
  * exactly-once seenBallistics memory, the wire shape — is identical for both.
  */
@@ -1571,7 +1567,7 @@ function homingTrackDrifted(me: ShipRecord, shell: ShellState): boolean {
  * observer for whom the track is ALREADY revealed (seenBallistics — the
  * exactly-once convention relaxes to allow UPDATES keyed by the same id, for
  * this row alone) AND who can currently see it via the torpedo reveal
- * predicate (owner / DETECT+LOS — Story 4.9's pointDetected, matching the
+ * predicate (owner / torpedoSight+LOS — `projectileSeen`, matching the
  * `torp` reveal gate so corrections stop exactly where first reveal starts /
  * owned lit zone; spectators skip the gate, mirroring the reveal row). NOT
  * self-private: torpU is an OBSERVED-projectile event, gated like the
@@ -1621,12 +1617,20 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  * sight edge with its center in fog, and emitting the id there would leak the
  * victim's identity. A hit-less boom just plays a generic impact/splash on
  * the client. Spectators get the raw event.
+ *
+ * TWO REACHES SINCE STORY 11.2 (R4 / R18): the boom's POSITION is seen at the
+ * splash reach (`splashSeen` — `CONFIG.vision.splashSight`), while the victim
+ * id keeps the CLASS reach (`pointSighted`) — so a boom on a PLAIN hull (the
+ * outer tier) is an anonymous impact, and no roster id is ever attached to a
+ * hull the observer holds only by its anonymous handle.
  */
 const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
+    // THE POSITION rides the splash reach (Story 11.2, R4 / R18); the victim
+    // id below still gates at the CLASS reach (`pointSighted`).
+    return e.hit === ctx.me.id || splashSeen(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     if (ctx.mode === 'spectator') return e;
@@ -1691,7 +1695,9 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e) || insideFlash(ctx.me, e);
+    // The burst POINT rides the splash reach (Story 11.2, R4 / R18) — the
+    // payload carries no identity at all.
+    return e.own === ctx.me.id || splashSeen(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e) || insideFlash(ctx.me, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
@@ -1717,6 +1723,13 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
  * BOTH a visibility clause and the per-observer `seen` stamp (materialize
  * below), so today's gate keeps its exact meaning and simply becomes a flag
  * instead of a filter.
+ *
+ * `seen` IS AN IDENTITY FIELD, SO IT STAYS ON THE CLASS REACH (Story 11.2,
+ * R3): it says "the hull named `id` went down where you were looking". At
+ * the splash reach it would name a PLAIN hull — the roster id of a contact
+ * the observer holds only by its anonymous handle. A sinking in the outer
+ * band is therefore watched as what it is: the plain contact slows and
+ * leaves the list; the public register line arrives without `seen`.
  */
 function sunkWitnessed(ctx: SignalContext, e: SunkEvent): boolean {
   if (ctx.mode === 'spectator' || e.id === ctx.me.id) return true;
@@ -1798,6 +1811,13 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
  * `spawn` — visible to the spawner itself, and to anyone who can see the spawn
  * point (sight + LOS, or inside a lit zone the observer OWNS — Story 1.7).
  * Spectators get the raw event.
+ *
+ * THE CLASS REACH, NOT THE SPLASH REACH (Story 11.2): the payload IS a roster
+ * id (`SpawnEvent.id` is required on the wire type), so the whole row stays
+ * on `pointSighted`. [reading — Story 11.2, confirm with Eric: a hull that
+ * spawns in the outer band simply appears as a plain contact; an ANONYMOUS
+ * spawn event at the splash reach needs `SpawnEvent.id` to become optional
+ * in shared/src/types.ts, a wire change this wave does not own.]
  */
 const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
@@ -1900,8 +1920,8 @@ const hitCallSignal = shooterPrivateSignal<HitCallEvent>('hc');
  * `mz` — MUZZLE FLASH (Story 4.3, amendments 15/19/20): a gun-family weapon
  * fired at this point. A DECLARED exception to the master perception
  * invariant with its own NEW spatial rule: visible iff
- * dist(observer, flash) ≤ the muzzle-flash halo (`muzzleFlashReach` — the
- * ladder's 6/12 rung since Story 9.8, radarRange × muzzleFlashFactor; the
+ * dist(observer, flash) ≤ the muzzle-flash halo (`muzzleFlashReach` —
+ * `CONFIG.vision.muzzleFlash`, its own fact since Story 11.2, R18; the
  * CONSTANT, deliberately NOT the observer's own sightOf: a flash is a light
  * source, not an illuminated object, so no sight reduction — the FLASH SHELLS
  * dazzle, while it existed (Story 8.17 – 9.4) — changes how far it carries,
@@ -1919,10 +1939,10 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
     const me = ctx.me;
-    // The observer-scaled 6/12 halo (Eric ruling 2026-08-16; Story 9.8),
+    // The muzzle-flash halo (its own fact since Story 11.2),
     // fog-tolled (Story 9.10, amendment 167: the flash PAYS the toll — the
     // halo is a sight reach, not a radar one).
-    return withinSight(ctx, me, e, muzzleFlashReach(me)) && sightClear(me, e, ctx.islands);
+    return withinSight(ctx, me, e, muzzleFlashReach()) && sightClear(me, e, ctx.islands);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object (the burst-row discipline): the wire shape is
@@ -1956,10 +1976,10 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
     const me = ctx.me;
-    // The observer-scaled 6/12 halo (Eric ruling 2026-08-16; Story 9.8),
+    // The muzzle-flash halo, reused verbatim (its own fact since Story 11.2),
     // fog-tolled (Story 9.10, amendment 167: smoke PAYS the toll like the
     // flash; zone circles, the foghorn and the storm never do).
-    return withinSight(ctx, me, e, muzzleFlashReach(me)) && sightClear(me, e, ctx.islands);
+    return withinSight(ctx, me, e, muzzleFlashReach()) && sightClear(me, e, ctx.islands);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object (the mz/burst-row discipline): the wire shape
@@ -1978,12 +1998,15 @@ type FoghornSubject = FoghornEvent & { x: number; y: number; id: string };
  *  eight bands since Story 4.9 before it). */
 type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
-/** The band count — one band per rung of the twelfths ruler (amendment 103). */
+/** The band count: twelve equal bands of the LISTENER'S radar reach (Story
+ *  9.8, ruling 129). The foghorn keeps the radar reach in Story 11.2 (R18:
+ *  "foghorn = radar reach, today's rule"), so the bands simply got longer. */
 const HORN_BANDS = 12;
-/** The plateau floor: the sight rung (4/12) — bands 1..4 share one gain. */
+/** The plateau floor: bands 1..4 share one gain (the client's lookup). The
+ *  first third of the radar reach — it was also the sight radius on the
+ *  ladder retired 2026-11-12 (Story 11.2); the horn never read sight. */
 const HORN_PLATEAU = 4;
-/** The island muffle's demotion, in bands (ruling 129: +3 — the eighths'
- *  +2 re-read proportionally onto the twelfths). */
+/** The island muffle's demotion, in bands (ruling 129: +3). */
 const HORN_MUFFLE = 3;
 
 /**
@@ -1991,12 +2014,13 @@ const HORN_MUFFLE = 3;
  * 9.8, ruling 129 — twelve bands, the proportional re-read of Story 4.9's
  * eight / amendment 122) — THE one band resolver: visible() and materialize()
  * both call this, so the gate and the wire can never drift. The band is which
- * TWELFTH of the LISTENER'S own INTEL RANGE (`stats.radarRange` — the one
- * ruler, never sight-scaled) the honker sits in: `band = ceil(12 × d / intel
- * range)`, d == 0 resolving to band 1, boundaries inclusive (at base stats
- * band 4 ends exactly at truesight — full volume — and band 12 at the radar
- * rim, 50%; gain is a CLIENT-side lookup, never on the wire). Beyond band 12:
- * inaudible, no event at all.
+ * of twelve equal bands of the LISTENER'S own INTEL RANGE (`stats.radarRange`
+ * — never sight-scaled) the honker sits in: `band = ceil(12 × d / intel
+ * range)`, d == 0 resolving to band 1, boundaries inclusive (bands 1-4 are
+ * full volume and band 12 ends at the radar rim, 50%; gain is a CLIENT-side
+ * lookup, never on the wire). Beyond band 12: inaudible, no event at all.
+ * (Until Story 11.2 band 4 also ended at the sight radius; sight is its own
+ * fact now and the horn, which never read it, is unchanged.)
  *
  * Every band is anchored on intel range, which no sight reduction touches, so
  * "a dazzle cannot deafen" holds BY CONSTRUCTION (amendment 53's clamps are
@@ -2006,7 +2030,7 @@ const HORN_MUFFLE = 3;
  * (review fix, anti-cheat). Bands 1-4 are INDISTINGUISHABLE in every honest
  * surface (the same client gain and the same chevron weight), so sending
  * WHICH of them a honker sits in would hand a MODIFIED client extra range
- * resolution inside the sight plateau with NO honest consumer — precisely the
+ * resolution inside the full-volume plateau with NO honest consumer — precisely the
  * disclosure amendment 51 bounds (BEARING AND VOLUME TIER ONLY). The wire
  * carries the band floor-clamped to the COARSEST value that reproduces the
  * ratified gain curve exactly.
@@ -2015,7 +2039,7 @@ const HORN_MUFFLE = 3;
  * is the sightClear predicate, so the horn is neither more nor less blind than
  * every other optical sensor): after the FLOORED band resolves, a failed
  * sightClear() demotes ONCE to `max(5, floored + 3)` (ruling 129 — the old +2
- * of eight bands re-read onto twelve), so a blocked honk at the sight edge
+ * of eight bands re-read onto twelve), so a blocked honk at the plateau's edge
  * lands at band 7 and bands 10-12 lose the honk entirely. Exactly ONE losClear
  * call and ONE set of bounds. `max(5, …)` keeps "a rock ALWAYS costs the
  * honker reach" true at the floor itself.
@@ -2102,7 +2126,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 19 GameEvent kinds plus
- * the `contact`/`mine`/`drop`/`litzone`/`burnzone`/`foulzone`/`cloud`
+ * the `contact`/`plain`/`mine`/`drop`/`litzone`/`burnzone`/`foulzone`/`cloud`
  * pseudo-types.
  * perception.ts dispatches world events by `e.k` (an emitted kind with no row
  * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/drop/
@@ -2112,6 +2136,11 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
  */
 export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
+  // Story 11.2 (R3): the OUTER sight tier — a plain hull under an anonymous
+  // per-observer handle, `{h,x,y,heading,speed}`, the frame's `pc` channel.
+  // Disjoint from `contact` by construction; a channel with its own oracle,
+  // not a seventh exception.
+  plain: plainSignal,
   mine: mineSignal,
   // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner
   // clause (a crate has no owner), `{id,x,y,c}`; its radar paint rides the
@@ -2167,7 +2196,7 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   sm: woundedSmokeSignal,
   // Story 4.5 (amendments 51-58): the foghorn — the sixth declared fog
   // exception and the first partial LOS carve-out (islands muffle one step —
-  // max(5, band + 2) on the Story 4.9 eight-band ladder).
+  // max(5, floored band + 3) over the twelve bands, Story 9.8 ruling 129).
   fh: foghornSignal,
   // Story 4.12 (amendments 194-196/200): radar wakes — disturbed water gated
   // per SEGMENT on the blipGate clause order with no inner bound (amendment
@@ -2200,7 +2229,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
  * the caller drops the event (nothing spatial leaves the server outside a
  * registry row).
  */
-const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud']);
+const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'plain', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud']);
 
 export function signalFor(kind: string): SignalSpec | undefined {
   // Pseudo-rows never dispatch from world events ('burnzone' joined in

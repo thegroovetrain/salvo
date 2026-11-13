@@ -58,7 +58,7 @@ describe('radio beacons — placement at each ring cycle (R2, R10)', () => {
         // The whole paying circle lies inside the ring (R10).
         expect(dist(p, { x: ring.cx, y: ring.cy })).toBeLessThanOrEqual(ring.r - B.edgeMarginU + 1e-6);
         expect(islandClearance(p, w.map.islands)).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
-        for (const hull of [a, b]) expect(dist(p, hull.state)).toBeGreaterThan(CONFIG.vision.dropout.startU);
+        for (const hull of [a, b]) expect(dist(p, hull.state)).toBeGreaterThan(CONFIG.beacons.keepOutU);
         expect(p.sinkT).toBe(0);
       }
     }

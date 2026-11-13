@@ -129,6 +129,7 @@ export function sightMines(mind: BotMind, mines: readonly { x: number; y: number
     foulZones: [],
     clouds: [],
     drops: [],
+    plain: [],
   };
 }
 

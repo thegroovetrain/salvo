@@ -15,7 +15,8 @@
 // each value is the fold's number in the face's printer.
 
 import { describe, expect, it } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
+import { HM_UNIT, hmText } from '../util/hmText.js';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
 import { CARD_STAT_ROWS, cardHoverRows, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 import { hullPercent } from '../util/hullPercent.js';
 
@@ -24,7 +25,9 @@ import { hullPercent } from '../util/hullPercent.js';
 const TB = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
 
 /** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
-const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+/** A distance as a card prints it (Story 11.2): the one client printer, hm. */
+const rangeTxt = (u: number): string => hmText(u);
+const hm = (u: number): string => `${hmText(u)}${HM_UNIT}`;
 /** A reload in the face's printer: seconds, one decimal, unit on both sides. */
 const secs = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
@@ -47,7 +50,7 @@ function rangePair(
   k: number,
 ): [string, string] {
   const at = (n: number): number => foldOf(line, n).equipment[w].rangeU;
-  return [rangeTxt(at(k)), `${rangeTxt(at(k + 1))} u`];
+  return [rangeTxt(at(k)), hm(at(k + 1))];
 }
 /**
  * A gun's DAMAGE before and after the card at `k` copies held, read off the
@@ -105,7 +108,7 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('prints ONE row for each ship ladder, and the CANNON\'s damage step plus its reach', () => {
-    for (const id of ['engines', 'intel', 'reload', 'range'] as const) {
+    for (const id of ['engines', 'intel', 'reload'] as const) {
       expect(cardStatRows(CATALOG[id], 0, TB), id).toHaveLength(1);
     }
     // rung to II: the damage step (the barrels are FIXED since Story 9.12) and
@@ -113,13 +116,13 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(pairs(cardStatRows(CATALOG.deckGun, 0, TB))).toEqual([dmgPair('deckGun', 'gun', 0), rangePair('deckGun', 'gun', 0)]);
   });
 
-  // Story 10.3 (Eric's ruling 4): the six index ladders (RANGE in for RUDDER
-  // since Story 10.6) are index cards — each
+  // Story 10.3 (Eric's ruling 4): the index ladders (five since Story 11.2
+  // retired RANGE) are index cards — each
   // prints its OWN INDEX bare, before → after (`ARMOR 100 → 120`), every rung
   // moves the number, and the row reads the line's own index path (never a
   // derived speed / turn / RPM / cooldown).
   it('every ship ladder prints its own index, before → after, at every rung', () => {
-    for (const id of ['armor', 'power', 'reload', 'engines', 'intel', 'range'] as const) {
+    for (const id of INDEX_IDS) {
       const at = (n: number): string => String(foldOf(id, n)[id]);
       for (let k = 0; k < 4; k += 1) {
         expect(pairs(cardStatRows(CATALOG[id], k, held(id, k))), `${id}@${k}`).toEqual([[at(k), at(k + 1)]]);
@@ -147,7 +150,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   /** A torpedo's whole first-copy table, off its tier-I fold. */
   const torpTable = (id: 'heavyTorpedo' | 'lightTorpedo'): (string | null)[][] => {
     const t = foldOf(id, 1).equipment[id];
-    return [[null, secs(t.reloadMs)], [null, String(t.maxAmmo)], [null, String(t.speed)], [null, String(t.damage)], [null, `${t.homingTurnRate} rad/s`]];
+    return [[null, secs(t.reloadMs)], [null, String(t.maxAmmo)], [null, String(t.speed)], [null, String(t.damage)], [null, `${t.homingTurnRate} rad/s`], [null, hm(t.runU)]];
   };
 
   it('prints HEAVY TORPEDO absolutely, in EQUIPMENT_STAT_FIELDS order', () => {
@@ -176,7 +179,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       [null, secs(m.reloadMs)],
       [null, String(m.maxAmmo)],
       [null, String(m.damage)],
-      [null, String(m.triggerRadius)],
+      [null, hm(m.triggerRadius)],
       [null, `${m.homingTurnRate} rad/s`],
     ]);
   });
@@ -190,8 +193,8 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(pairs(cardStatRows(CATALOG.foulingMines, 0, TB))).toEqual([
       [null, String(m.maxAmmo)],
       [null, String(m.damage)],
-      [null, String(m.blastRadius)],
-      [null, String(m.triggerRadius)],
+      [null, hm(m.blastRadius)],
+      [null, hm(m.triggerRadius)],
       [null, `${Math.round(m.slowFactor * 100)}%`],
     ]);
   });
@@ -204,8 +207,8 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       [null, secs(m.reloadMs)],
       [null, String(m.maxAmmo)],
       [null, String(m.damage)],
-      [null, String(m.blastRadius)],
-      [null, String(m.triggerRadius)],
+      [null, hm(m.blastRadius)],
+      [null, hm(m.triggerRadius)],
     ]);
   });
 
@@ -249,7 +252,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // RANGE row is absolute (no `before` on a first copy), LAST, whole units.
   it('prints RANGE last, absolute, once, on every gun fit face', () => {
     for (const id of ['broadside', 'starShells', 'phosphorShells'] as const) {
-      const fit = `${rangeTxt(foldOf(id, 1).equipment[id].rangeU)} u`;
+      const fit = hm(foldOf(id, 1).equipment[id].rangeU);
       const rows = cardStatRows(CATALOG[id], 0, TB);
       expect(rows.at(-1)?.cur, id).toBeNull();
       expect(rows.at(-1)?.next, id).toBe(fit);
@@ -371,7 +374,7 @@ describe('cardStatRows — the three slot weapons Story 10.5 moved off the kit',
       for (const r of rows) expect(r.cur, `${id} ${r.label}`).toBeNull();
     }
     const radius = (id: 'dazzleShells' | 'foulingShell') =>
-      cardStatRows(CATALOG[id], 0, TB).map((r) => r.next).includes(String(fold(id, 1).equipment[id].radius));
+      cardStatRows(CATALOG[id], 0, TB).map((r) => r.next).includes(hm(fold(id, 1).equipment[id].radius));
     expect(radius('dazzleShells')).toBe(true);
     expect(radius('foulingShell')).toBe(true);
     const supercav = cardStatRows(CATALOG.supercavTorpedo, 0, TB).map((r) => r.next);
@@ -387,7 +390,7 @@ describe('cardStatRows — the three slot weapons Story 10.5 moved off the kit',
       const after = fold(id, 2).equipment[id].radius;
       expect(after - before, id).toBe(step);
       const rows = cardStatRows(CATALOG[id], 1, { ...TB, cards: [id] });
-      expect(rows.some((r) => r.cur === String(before) && r.next === String(after)), id).toBe(true);
+      expect(rows.some((r) => r.cur === hmText(before) && r.next === `${hmText(after)}${HM_UNIT}`), id).toBe(true);
     }
   });
 

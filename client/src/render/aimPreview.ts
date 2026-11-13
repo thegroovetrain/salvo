@@ -597,9 +597,10 @@ function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpe
  * The die-distance and the acquire band are the FAMILY's shared fields
  * (`CONFIG.torpedo`, amendment 84e) and apply to whichever line is steering.
  *
- * AT TURN RATE ZERO there is no band and no budget, because a straight-runner
- * has neither: it runs until it hits something or leaves the map (no torpedo
- * line has a max range — amendment 84f).
+ * AT TURN RATE ZERO there is no band, because a straight-runner has none. THE
+ * RUN is the row's own `runU` for every kind (Story 11.2, R5 — the fish
+ * expires at its tiered run; "straight-runners run to the map edge" and the
+ * family's `homingMaxRangeU` are retired).
  */
 function torpedoPreview(inp: AimPreviewInput, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): AimPreviewModel {
   const launch = torpedoLaunch(inp);
@@ -610,7 +611,9 @@ function torpedoPreview(inp: AimPreviewInput, id: 'lightTorpedo' | 'heavyTorpedo
   // phantom track out of the ship's nose. Preview nothing instead.
   if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
   const homing = torpedoTurnRate(inp.stats, id) > 0;
-  const run = homing ? CONFIG.torpedo.homingMaxRangeU : inp.mapRadius * 2;
+  // Every fish runs its row's tiered `runU` and then expires (Story 11.2, R5):
+  // homing or straight, the preview draws exactly that run.
+  const run = inp.stats.equipment[id].runU;
   const far = { x: origin.x + Math.cos(dir) * run, y: origin.y + Math.sin(dir) * run };
   const clip = clipAtIslands(origin, clampInsideMap(origin, far, inp.mapRadius), inp.islands);
   const line = { x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y };

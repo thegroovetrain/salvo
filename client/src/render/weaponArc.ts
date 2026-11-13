@@ -191,7 +191,7 @@ export { twinSectorSide };
 /**
  * The effective range (u) at which an AIMED weapon's shot lands / clamps. Since
  * Story 9.8 (ruling 125) EVERY weapon's reach is its own TIERED dial on the
- * twelfths ruler — `CONFIG.<weapon>.rangeU` is the Tier I value and each of the
+ * twelfths ruler [retired 2026-11-12, Story 11.2] — `CONFIG.<weapon>.rangeU` is the Tier I value and each of the
  * line's four cards adds its step through `effectiveStats()` — so each gun row
  * reads its OWN folded `stats.equipment.<w>.rangeU`, never radar and never the
  * cannon's by assumption. FLASH SHELLS and the FOULING SHELL read their own

@@ -507,17 +507,10 @@ const reload: GlyphPaths = [
 // --- STORY 10.6 (Eric 2026-11-05) — IMPLEMENTER DRAFTS for Eric's eye on the
 // rendered candidate page (the amendment 110 precedent). HULL REPAIR and
 // SMOKE SCREEN's ladders reuse their abilities' drawings (below, in
-// `LINE_GLYPHS`); the other five are new.
+// `LINE_GLYPHS`); the others were new (RANGE's left in Story 11.2).
 
-/** Range (Story 10.6 DRAFT, R1): a MEASURED SPAN — a double-headed arrow
- *  between two end bars. Not ENGINES' one-way arrowhead. */
-const range: GlyphPaths = [
-  path([-0.95, -0.5], [-0.95, 0.5]),
-  path([0.95, -0.5], [0.95, 0.5]),
-  path([-0.75, 0], [0.75, 0]),
-  path([-0.45, -0.28], [-0.75, 0], [-0.45, 0.28]),
-  path([0.45, -0.28], [0.75, 0], [0.45, 0.28]),
-];
+// The RANGE glyph (Story 10.6, a measured span) left with the RANGE line
+// (Story 11.2, 2026-11-12, R9).
 
 /** A launcher's deck mount (a ring) with tubes — boxes along ±x from its
  *  centre `cx`, each `[yTop, yBottom]`, running to `x1`. */
@@ -573,8 +566,7 @@ const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
   deckGun: gun,
   // Story 10.6 (Eric 2026-11-05): the three new SHIP ladders — the two
   // ability ladders wear their ability's drawing (the `C` / `V` square's) —
-  // and the four one-off WEAPON cards.
-  range,
+  // and the four one-off WEAPON cards. (RANGE's left with it, Story 11.2.)
   hullRepair,
   smokeScreen: countermeasure,
   aftTorpedoLauncher,

@@ -28,6 +28,11 @@
 //     face, far face, and whatever stands behind it (amendment 140).
 
 import { describe, it, expect, vi } from 'vitest';
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 import { Container, Graphics, Texture } from 'pixi.js';
 import {
   DEFAULT_CLASS_ID,
@@ -47,7 +52,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Radar } from '../render/radar.js';
-import { fogHoleRadiusU } from '../render/fog.js';
+import { eyeHoleRadiusU } from '../render/fog.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { wakeLitFloor } from '../render/radarSources.js';
 
@@ -296,7 +301,7 @@ describe('the slice list is the history and the buffer is derived (ruling R1)', 
     const perRev = Math.ceil((Math.PI * 2) / CLIENT_CONFIG.blip.heatmap.march.sliceRad);
     expect(peak, 'about three revolutions of slices').toBeLessThan(perRev * 4);
     expect(peak, 'and genuinely more than one').toBeGreaterThan(perRev);
-  });
+  }, 60_000); // whole revolutions marched to the 400 hm reach (Story 11.2)
 
   it('clearBlips drops every paint (entering spectate)', () => {
     const { radar } = makeRadar();
@@ -335,9 +340,9 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
     const { radar } = makeRadar();
     radar.setHeightRaster(ISLE);
     revolution(radar);
-    // 500 ± 140 in y is well clear of the 100 × 90 slab, inside radar range, and
-    // comfortably beyond the sight bubble — so nothing but the raster answers.
-    expect(Math.hypot(500, 140)).toBeGreaterThan(CONFIG.vision.sight);
+    // 500 ± 140 in y is well clear of the 100 × 90 slab and inside radar range.
+    // (The premise "beyond the sight bubble" — DELETED 2026-11-12, Story 11.2:
+    // sight is 200 hm now; nothing in the beam march reads sight.)
     expect(radar.bandAt(500, 140)).toBe(-1);
     expect(radar.bandAt(500, -140)).toBe(-1);
   });
@@ -719,20 +724,20 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
   const BASE = { sightRange: SIGHT, radarRange: CONFIG.vision.radar };
   /** A SYNTHETIC narrower observer truesight (nothing shrinks sight at runtime
    *  since Story 9.4 retired the FLASH SHELLS dazzle, but `sightHoleU` must
-   *  follow whatever radius `fogHoleRadiusU` answers). */
+   *  follow whatever radius `eyeHoleRadiusU` answers). */
   const NARROW = SIGHT * 0.375;
   const SWEEP_MS = 60000 / CONFIG.vision.sweepRpm;
   /** Well inside the base sight bubble. */
   const MID = (SIGHT + NARROW) / 2;
 
-  it('sightHoleU IS fogHoleRadiusU, at base stats and narrowed', () => {
+  it('sightHoleU IS eyeHoleRadiusU, at base stats and narrowed', () => {
     const { radar } = makeRadar();
     // Called, not re-derived: it is also, by construction, the server's own
     // `sightOf` — and the dim mask, the cloud gate and the hull feather all
     // anchor on it.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU(BASE));
     radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU({ ...BASE, sightRange: NARROW }));
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
   });
 
@@ -747,10 +752,10 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     expect(radar.sightHoleU).toBe(0);
     expect(radar.setDazzle(mid.until, mid.now)).toBe(true);
     // the hole grows back with the shared curve: half the sight at mid-clear
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, mid));
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU(BASE, mid));
     expect(radar.sightHoleU).toBeCloseTo(SIGHT / 2, 6);
     expect(radar.setDazzle(FLASH_WINDOW_MS, FLASH_WINDOW_MS)).toBe(true);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU(BASE));
   });
 
   it('THE WIRE PATH IS RANGE-BLIND: a blip rect inside the sight circle and the same rect '

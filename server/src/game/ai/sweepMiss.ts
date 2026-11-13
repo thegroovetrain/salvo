@@ -17,12 +17,12 @@
 //   * THE WHOLE BAND (E1). The age-grown association radius says how far off
 //     its prediction the hull may be; the beam must have swept past that
 //     whole disc before an empty sweep is evidence of absence.
-//   * THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124, Eric 2026-10-13: bots
-//     trust a missed sweep only inside `dropout.startU`). Beyond the 8/12
-//     rung a real hull fails to paint on some revolutions (the radar
-//     DROPOUT, rulings 121–123), so an empty sweep there is no evidence of
-//     absence: the miss is IGNORED — the plot is not marked and ages on its
-//     normal clock.
+//   * NO DROPOUT LIMIT (Story 11.2, Eric 2026-11-12, R8): the radar DROPOUT
+//     is removed — every in-range, swept, unshadowed hull paints every sweep
+//     — so an empty sweep is evidence of absence at EVERY range inside the
+//     radar reach. (HISTORY: Story 9.8, ruling 124 trusted a miss only
+//     inside `dropout.startU`, because beyond it a real hull failed to paint
+//     on some revolutions.)
 //   * NO FOG TERM (amendment 210, superseding amendment 169's fog limit):
 //     radar paints through fog at every range (amendment 149) and since
 //     amendment 210 inside the sight bubble too, so an empty sweep over a
@@ -35,7 +35,6 @@
 // rng, no clock read.
 
 import {
-  CONFIG,
   visibilityTo,
   wrapPositive,
   type EffectiveStats,
@@ -103,10 +102,8 @@ function wouldPaint(site: SweepSite, px: number, py: number): boolean {
  * is inside the bot's radar range where a hull would have answered
  * (wouldPaint), and the bearing to it lies in this tick's paint window.
  *
- * ONLY INSIDE THE DROPOUT START (ruling 124): a plot whose association band
- * (predicted distance + `predictedAssocRadius`) reaches beyond
- * `CONFIG.vision.dropout.startU` never counts as a miss — the hull may simply
- * have dropped out of this revolution's paint. Fog is no exemption
+ * AT EVERY RANGE inside the radar reach (Story 11.2, R8 — ruling 124's
+ * dropout-start limit retired with the dropout). Fog is no exemption
  * (amendment 210 retired amendment 169's fog limit): radar sees through it.
  */
 export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedContact, now: number): boolean {
@@ -116,10 +113,6 @@ export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedCo
   const dy = p.y - site.y;
   const d = Math.hypot(dx, dy);
   if (d > site.stats.radarRange) return false;
-  // ruling 124: a far miss is no evidence — and "far" is the plot's whole
-  // association band, not its centre: the hull may honestly be anywhere in
-  // that disc, and past startU the dropout may have suppressed it (F2).
-  if (d + predictedAssocRadius(t, now) > CONFIG.vision.dropout.startU) return false;
   if (!wouldPaint(site, p.x, p.y)) return false;
   return beamCrossed(beam, Math.atan2(dy, dx));
 }

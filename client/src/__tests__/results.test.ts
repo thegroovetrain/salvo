@@ -70,7 +70,7 @@ import { boonName } from '../ui/boonCopy.js';
 // The eight ship ladders in Eric's sheet order (Story 10.6, 2026-11-05, R1:
 // ARMOR · POWER · INTEL · RELOAD over ENGINES · RANGE · HULL REPAIR · SMOKE
 // SCREEN; RUDDER gone, R2).
-const LADDER_IDS = ['armor', 'power', 'intel', 'reload', 'engines', 'range', 'hullRepair', 'smokeScreen'] as const;
+const LADDER_IDS = ['armor', 'power', 'intel', 'reload', 'engines', 'hullRepair', 'smokeScreen'] as const;
 
 /** Occurrences of `needle` in `hay`. */
 function count(hay: string, needle: string): number {
@@ -138,7 +138,6 @@ function mockOwn(
     'starShells',
     ...rep('armor', over.armor ?? 1), // I (Story 9.7) — every ship ladder starts from nothing
     ...rep('engines', over.engines ?? 3), // III
-    'range', // I (Story 10.6: RANGE took RUDDER's seat in the fixture)
     ...rep('intel', over.intel ?? 2), // II
     ...rep('reload', 3), // III
   ];
@@ -526,20 +525,23 @@ describe('showResults — the elimination modal', () => {
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
       expect(numerals.map((n) => n.textContent)).toEqual(LADDER_IDS.map((id) => ladderValue(id, o.stats)));
       // POWER, HULL REPAIR and SMOKE SCREEN hold no copies: muted.
-      for (const k of [1, 6, 7]) expect(numerals[k].style.color).toBe('var(--hc-text-muted)');
+      for (const k of [1, 5, 6]) expect(numerals[k].style.color).toBe('var(--hc-text-muted)');
       // TWO EQUAL ROWS (Story 10.6 — amendment 160's four over four returns
       // with the eight ladders): no separator crosses the row break.
       const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
       expect(rows).toHaveLength(2);
-      rows.forEach((r) => {
+      // Seven ladders since Story 11.2 retired RANGE: the strip's own rule
+      // (four a row) closes up to four over three.
+      const perRow = [4, LADDER_IDS.length - 4];
+      rows.forEach((r, ri) => {
         const kids = [...r.children];
-        expect(kids.filter((k) => k.children.length > 0)).toHaveLength(LADDER_IDS.length / 2); // an entry carries its numeral
+        expect(kids.filter((k) => k.children.length > 0)).toHaveLength(perRow[ri]); // an entry carries its numeral
         expect(kids[0].children.length, 'no separator leads a row').toBeGreaterThan(0);
         expect(kids.at(-1)!.children.length, 'no separator trails a row').toBeGreaterThan(0);
       });
-      // ARMOR, (POWER dashes), INTEL, RELOAD, ENGINES, RANGE.
-      expect([0, 2, 3, 4, 5].map((k) => numerals[k].style.color)).toEqual(
-        [0, 1, 2, 2, 0].map((i) => LINEAGE_TIERS[i]),
+      // ARMOR, (POWER dashes), INTEL, RELOAD, ENGINES.
+      expect([0, 2, 3, 4].map((k) => numerals[k].style.color)).toEqual(
+        [0, 1, 2, 2].map((i) => LINEAGE_TIERS[i]),
       );
     });
 
@@ -873,7 +875,7 @@ describe('updateResultsScore — an open elimination modal re-renders in place',
 describe('ladderValue — the ship\'s final number on a ladder', () => {
   const fold = (cards: string[]) => effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cards);
   it('an index ladder prints the folded index — cards raise it', () => {
-    for (const id of ['armor', 'power', 'intel', 'reload', 'engines', 'range'] as const) {
+    for (const id of ['armor', 'power', 'intel', 'reload', 'engines'] as const) {
       expect(Number(ladderValue(id, fold(rep(id, 2)))), id).toBeGreaterThan(Number(ladderValue(id, fold([]))));
       expect(ladderValue(id, fold([])), id).toBe(String(Math.round(fold([])[id])));
     }

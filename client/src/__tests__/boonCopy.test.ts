@@ -22,6 +22,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
+import { HM_UNIT, hmText } from '../util/hmText.js';
 import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, abilityCooldownMs, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
 import {
   boonEffectLine,
@@ -53,7 +54,8 @@ const NEUTRAL_HULL: ShipClass = {
 };
 
 /** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
-const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+/** A distance as the stat tables print it (Story 11.2): the one client printer. */
+const hm = (u: number): string => `${hmText(u)}${HM_UNIT}`;
 
 describe('coverage — every catalog line has a name and a kind word', () => {
   it('names every line (never the humanized fallback)', () => {
@@ -140,6 +142,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `${s.equipment.heavyTorpedo.speed}`,
       `${s.equipment.heavyTorpedo.damage}`,
       `${s.equipment.heavyTorpedo.homingTurnRate} rad/s`,
+      hm(s.equipment.heavyTorpedo.runU), // Story 11.2: the fish's RUN, last
     ]);
   });
 
@@ -158,34 +161,27 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     const naval = text(equipmentStatRows('navalMines', s));
     // After the blast radius, the table's last row.
     expect(naval).toHaveLength(5);
-    expect(naval[3]).toBe(String(s.equipment.navalMines.blastRadius));
-    expect(naval[4]).toBe(String(s.equipment.navalMines.triggerRadius));
+    expect(naval[3]).toBe(hm(s.equipment.navalMines.blastRadius));
+    expect(naval[4]).toBe(hm(s.equipment.navalMines.triggerRadius));
     // The CAPTIVE mine has no blast field: the ring follows DAMAGE.
     const captive = text(equipmentStatRows('captiveMines', s));
     expect(captive).toHaveLength(5);
     expect(captive[2]).toBe(String(s.equipment.captiveMines.damage));
-    expect(captive[3]).toBe(String(s.equipment.captiveMines.triggerRadius));
+    expect(captive[3]).toBe(hm(s.equipment.captiveMines.triggerRadius));
   });
 
-  it('prints RANGE (the derived rangeU) LAST, in lowercase world units', () => {
-    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`${rangeTxt(bare.equipment.gun.rangeU)} u`);
-    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`${rangeTxt(bare.equipment.flak.rangeU)} u`);
-    // A torpedo's row carries no rangeU, so it prints none.
-    expect(text(equipmentStatRows('heavyTorpedo', bare)).filter((v) => v.endsWith(' u'))).toEqual([]);
+  it('prints RANGE (the derived rangeU) LAST, in hectometers (Story 11.2)', () => {
+    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(hm(bare.equipment.gun.rangeU));
+    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(hm(bare.equipment.flak.rangeU));
     // ...and ONCE: since Story 9.8 `rangeU` is also a stat-table field (ruling
     // 125), and the table must not print it mid-row as well as last.
-    expect(text(equipmentStatRows('gun', bare)).filter((v) => v.endsWith(' u'))).toHaveLength(1);
+    const reach = hm(bare.equipment.gun.rangeU);
+    expect(text(equipmentStatRows('gun', bare)).filter((v) => v === reach)).toHaveLength(1);
   });
 
-  it('prints RANGE to ONE DECIMAL ONLY WHEN NEEDED — whole values whole, a +31.25 u card step to one decimal (Eric 2026-10-13)', () => {
-    // One flak card: Tier I + one (V − I) / 4 step, a quarter-unit value.
-    const one = effectiveStats(NEUTRAL_HULL, ['flak']);
-    expect(Number.isInteger(one.equipment.flak.rangeU), 'the premise: a fractional reach').toBe(false);
-    expect(text(equipmentStatRows('flak', one)).at(-1)).toBe(`${one.equipment.flak.rangeU.toFixed(1)} u`);
-    // A whole reach prints whole — no trailing ".0".
-    expect(Number.isInteger(bare.equipment.flak.rangeU), 'the premise: a whole reach').toBe(true);
-    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`${bare.equipment.flak.rangeU} u`);
-  });
+  // The "one decimal only when needed" RANGE rule (Story 9.8) retired with
+  // world units (Story 11.2): every distance prints through util/hmText.ts,
+  // whose own contract (hmText.test.ts) holds the whole / one-decimal rule.
 
   it('the MACHINE GUN: its shells, and the fire rate to two decimals with the trailing zero kept', () => {
     expect(text(equipmentStatRows('machineGun', bare))).toEqual([
@@ -193,7 +189,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `${CONFIG.machineGun.maxAmmo}`,
       `${CONFIG.machineGun.damage}`,
       `${(CONFIG.machineGun.rateMs / 1000).toFixed(2)} s`,
-      `${rangeTxt(bare.equipment.machineGun.rangeU)} u`,
+      hm(bare.equipment.machineGun.rangeU),
     ]);
     const top = effectiveStats(NEUTRAL_HULL, Array<string>(4).fill('machineGun'));
     expect(text(equipmentStatRows('machineGun', top))).toContain(`${(top.equipment.machineGun.rateMs / 1000).toFixed(2)} s`);
@@ -231,7 +227,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     const k = bare.smoke;
     expect(text(abilityStatRows('smoke', bare)).slice(0, 2)).toEqual([
       `${k.lifeMs / 1000} S`,
-      `${Math.round(k.r0)} → ${Math.round(k.r1)} U`,
+      `${hmText(k.r0)} → ${hmText(k.r1)}${HM_UNIT}`,
     ]);
     expect(abilityName('repair')).not.toBe(abilityName('smoke'));
   });
@@ -328,7 +324,7 @@ describe('cardTierLabel — the step, not the position', () => {
     // amendment 94): five cards each, 0 → V, like PASSIVE HEALING — and ARMOR
     // (Story 9.7, epic-9 amendments 110–117) and ARMOR PIERCING (Story 9.9,
     // epic-9 amendment 159: out of the base-tier set, Tier 0 → V like ARMOR).
-    for (const id of ['armor', 'power', 'engines', 'range', 'hullRepair', 'smokeScreen']) {
+    for (const id of ['armor', 'power', 'engines', 'hullRepair', 'smokeScreen']) {
       expect(cardTierLabel(CATALOG[id], 0), id).toBe('I');
       expect(cardTierLabel(CATALOG[id], 1), id).toBe('I → II');
       expect(cardTierLabel(CATALOG[id], 4), id).toBe('IV → V'); // the fifth card
@@ -377,7 +373,6 @@ describe('cardTierLabel — the step, not the position', () => {
     // (epic-9 amendment 94), so they top out at the cap, as RADAR SWEEP does.
     expect(cardTierLabel(CATALOG.armor, 5)).toBe('V');
     expect(cardTierLabel(CATALOG.engines, 5)).toBe('V');
-    expect(cardTierLabel(CATALOG.range, 5)).toBe('V');
     expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
     expect(cardTierLabel(CATALOG.intel, 5)).toBe('V');
     // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
@@ -459,7 +454,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('armor', bare)).toContain(`${bare.armor}`);
     expect(boonEffectLine('armor', bare)).not.toContain('→');
     // Story 10.3: every ship ladder reports its bare INDEX.
-    for (const id of ['power', 'reload', 'engines', 'intel', 'range'] as const) {
+    for (const id of ['power', 'reload', 'engines', 'intel'] as const) {
       expect(boonEffectLine(id, bare), id).toContain(`${bare[id]}`);
     }
   });

@@ -130,7 +130,7 @@ describe('torpedoes — one tube, its own reload (Story 10.6, R6)', () => {
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
-    expect(t1!.distLeft).toBe(Number.POSITIVE_INFINITY); // A3: runs until impact
+    expect(t1!.distLeft).toBe(ship.stats.equipment.heavyTorpedo.runU); // Story 11.2, R5: every torpedo launches on its row's run
     // It leaves the fore launcher at torpedo speed along the run (+x).
     expect(t1!.vx).toBeCloseTo(CONFIG.torpedo.speed, 6);
   });
@@ -705,7 +705,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Enemy ship in the annulus (proves the beam window is right).
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
-    b.state = { x: 700, y: 0, heading: 0, speed: 0 }; // (sight, dropout start] on the twelfths ladder (Story 9.8)
+    b.state = { x: 700, y: 0, heading: 0, speed: 0 }; // well inside the radar reach (the sweep paints at every distance)
     // A torpedo flying through the same annulus.
     w.shells.set('trp', {
       id: 'trp',
@@ -714,7 +714,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
       y: 8,
       vx: 0,
       vy: CONFIG.torpedo.speed,
-      distLeft: Number.POSITIVE_INFINITY,
+      distLeft: CONFIG.torpedo.runU,
       bornAt: w.now,
       kind: 'torp',
       damage: CONFIG.torpedo.damage,
@@ -729,7 +729,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));
     // The ship, and ONLY the ship: one footprint, and it is b's own raster
-    // (the torpedo entity never paints — its detect gate is a different
+    // (the torpedo entity never paints — its eye reach, `torpedoSight`, is a different
     // channel entirely).
     expect(blips).toHaveLength(1);
     const ship = w.ships.get('b')!;
@@ -786,19 +786,19 @@ describe('LIGHT TORPEDO — the launcher, not a sector (Story 10.6, R6)', () => 
   // The structural half matters more than the number: at rate 0 the fish
   // carries NO `homing` tag at all, so sim/shell.ts never steers it, perception
   // never emits a `torpU` for it, and it carries no die-distance.
-  it('tier I gets NO homing and infinite range; tier II DOES home, at the row\'s rate, with the family die-distance', () => {
+  it('tier I gets NO homing; tier II DOES home, at the row\'s rate; each launches on its own row\'s run (Story 11.2, R5)', () => {
     const w = bareWorld(32);
     const one = carrier(w, 'a', 'lightTorpedo', 1, Math.PI / 2, SLOT_WEAPON_1);
     const t1 = fireTorpedo(one, 0, mkId, 'lightTorpedo')!;
     expect(t1.homing).toBeUndefined();
-    expect(t1.distLeft).toBe(Number.POSITIVE_INFINITY);
+    expect(t1.distLeft).toBe(one.stats.equipment.lightTorpedo.runU);
 
     const two = carrier(w, 'b', 'lightTorpedo', 2, Math.PI / 2, SLOT_WEAPON_1);
     const rate = two.stats.equipment.lightTorpedo.homingTurnRate;
     expect(rate).toBeGreaterThan(0); // tier II homes (amendment 80)
     const t2 = fireTorpedo(two, 0, mkId, 'lightTorpedo')!;
     expect(t2.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
-    expect(t2.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);
+    expect(t2.distLeft).toBe(two.stats.equipment.lightTorpedo.runU);
   });
 
   it('tier copies never add a tube (Story 10.6, R4: capacity left the tiers)', () => {
@@ -841,7 +841,7 @@ describe('SUPERCAV TORPEDO — a torpedo-slot weapon on the reload pool (Story 1
     expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(row.speed, 6);
     // IT NEVER HOMES, at any tier (amendment 74).
     expect(fish.homing).toBeUndefined();
-    expect(fish.distLeft).toBe(Number.POSITIVE_INFINITY);
+    expect(fish.distLeft).toBe(row.runU); // ...and runs its row's run like every torpedo (Story 11.2, R5)
     expect(ship.loadout[SLOT_SUPERCAV].state).toEqual({ n: row.maxAmmo - 1, reloadMsLeft: row.reloadMs });
     expect(ship.cards).toEqual(['supercavTorpedo']);
   });

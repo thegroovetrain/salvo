@@ -79,6 +79,7 @@ import { Fog, fogZoomStale, hullSightSoftness, type FogHole } from './render/fog
 import { FlashBursts } from './render/flashBurst.js';
 import { FlashWhiteout, whiteoutModel, type WhiteoutScreen } from './ui/flashWhiteout.js';
 import { Radar } from './render/radar.js';
+import { RadarDisplay } from './render/radarDisplay.js';
 import { Zone } from './render/zone.js';
 import { amberPulseWinner, freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
 import { consoleAbilityKey, consoleRowKey, createFlashBudget, FLASH_ELEMENTS, type FlashBudget } from './render/flashBudget.js';
@@ -328,6 +329,10 @@ interface Game {
   whiteout: FlashWhiteout;
   fog: Fog;
   radar: Radar;
+  /** THE RADAR DISPLAY (Story 11.2, R19): own-ship range rings in hm, the
+   *  compass scale, the heading line and the sweep's crisp line — driven per
+   *  frame off the radar's anchor and beam (`renderRadarDisplay`). */
+  radarDisplay: RadarDisplay;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
    *  disclosed out to 412.5u and the plume must read past the sight bubble. */
@@ -756,6 +761,24 @@ function toggleMode(g: Game): void {
 }
 
 /** Own-ship pose for this render frame, per the active mode. */
+/**
+ * THE RADAR DISPLAY's frame (Story 11.2, R19): anchored on the radar's own
+ * anchor — the own render pose — and hidden whenever the radar's beam is
+ * (no pose, the start line, a spectator: `Radar.beamAngle` is null).
+ */
+function renderRadarDisplay(g: Game, pose: RenderPose | null): void {
+  const screen = g.stage.app.screen;
+  g.radarDisplay.update({
+    own: pose,
+    beam: g.radar.beamAngle,
+    ownScreen: pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter,
+    zoom: g.camera.zoom,
+    viewW: screen.width,
+    viewH: screen.height,
+    radarU: g.radar.radarRangeU,
+  });
+}
+
 function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   if (g.state.mode === 'predict') {
     if (!g.predictor.isInitialized) return null;
@@ -2796,6 +2819,7 @@ function buildGame(
     flashBursts: new FlashBursts(stage.layers.burstFx), // fog-immune, under the HUD
     whiteout: new FlashWhiteout(document.body),
     radar,
+    radarDisplay: new RadarDisplay(stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     shipConsole: new ShipConsole(stage.layers.hud),
@@ -2846,6 +2870,7 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
+  g.radar.setMapRadius(map.radius); // the beam stops at the board's edge (Story 11.2)
   // NO WAKE SEAM INTO THE RADAR (epic-9 amendment 210): the server discloses
   // every wake segment its beam crosses, sight bubble included, so the scope
   // paints wire `wk` rows only and never reads the emitter's ribbons.
@@ -2904,6 +2929,7 @@ function sameKinematics(a: EffectiveStats['kinematics'], b: EffectiveStats['kine
 function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
   return (
     a.sightRange !== b.sightRange ||
+    a.hullSightRange !== b.hullSightRange ||
     a.radarRange !== b.radarRange ||
     a.sweepPeriodMs !== b.sweepPeriodMs
   );
@@ -2992,16 +3018,13 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shif
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
-  // the haze halo is the wounded-smoke flash rung (6/12) off the same live intel range
-  g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
-  g.fogField.setHaloU(hazeHaloU(stats.radarRange)); // the fog haze ends at the same rung
-  g.fog.setSightRange(stats.sightRange, stats.radarRange);
-  // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
-  // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
-  // reveals and corrects it within (Story 4.9). Projectiles derives the second
-  // from this same number — adding a `setDetectRange` here would be a second
-  // source of truth.
-  g.projectiles.setSightRange(stats.sightRange, stats.radarRange);
+  // the haze halo is the wounded-smoke / muzzle-flash reach (its own fact, Story 11.2)
+  g.countermeasure.setHaloU(hazeHaloU());
+  g.fogField.setHaloU(hazeHaloU()); // the fog haze ends at the same reach
+  // The fog-of-war hole is the PLAIN-HULL reach (Story 11.2, R20).
+  g.fog.setSightRange(stats.sightRange, stats.radarRange, stats.hullSightRange);
+  // The projectile culls read the named eye reaches (shells / torpedoes,
+  // Story 11.2) under the whiteout law, never a stat — nothing to plumb here.
   // The hole radius may have moved: rebake the fog against the current viewport
   // at the current zoom (exactly what the resize handler does). The camera no
   // longer follows radar (Story 9.8 ruling 127: framings are absolute spans).
@@ -4470,6 +4493,7 @@ function renderAlive(
   // instead of replaying a whole revolution of crossings at once.
   if (atStartLine(g)) g.radar.render(null, now, null);
   else g.radar.render(pose, now, g.camera.worldView, g.camera.screenWorldRect);
+  renderRadarDisplay(g, pose);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -4750,6 +4774,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // alive path, and paints nothing either way: with no own pose there is no
   // observer to freeze a paint against, so no source opens (Story 4.10).
   g.radar.render(null, now, null);
+  renderRadarDisplay(g, null);
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
   g.fire.render(now); // ...and the flames on every tier-2 one
   // Spectator origin is the camera centre — honkBearing (roomBindings.ts)

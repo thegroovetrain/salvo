@@ -34,14 +34,11 @@ const C = CLIENT_CONFIG.colors;
 const T = CLIENT_CONFIG.terrain;
 const OCEAN_FILL = C.void; // black void ocean (surfaces role: page/canvas base)
 const BOUNDARY = C.silver; // silver-white CIC boundary
-const RING = C.silver; // faint silver range rings
 
 /** The hypsometric ramp, index = band level (0 shore .. 3 summit). */
 const RAMP = C.terrain;
 /** Highest band level the ramp can colour — 4 bands is the ratified ceiling. */
 export const MAX_BAND_LEVEL = RAMP.length - 1;
-
-const RANGE_RINGS = 4; // concentric range rings inside the boundary
 
 /** One drawable elevation band: every polygon that paints at `level`. */
 export interface Band {
@@ -103,12 +100,10 @@ function drawOcean(layer: Graphics, radius: number): void {
   layer.circle(0, 0, radius).fill({ color: OCEAN_FILL, alpha: 1 });
 }
 
-/** Draw the boundary circle + faint concentric range rings into the chart. */
-function drawBoundaryAndRings(g: Graphics, radius: number): void {
-  for (let i = 1; i < RANGE_RINGS; i++) {
-    const r = (radius * i) / RANGE_RINGS;
-    g.circle(0, 0, r).stroke({ width: 1.5, color: RING, alpha: 0.06 });
-  }
+/** Draw the boundary circle into the chart. The three faint map-centered range
+ *  rings inside it are GONE (Story 11.2, Eric 2026-11-12, R20): the own-ship
+ *  range rings of the radar display (render/radarDisplay.ts) replace them. */
+function drawBoundary(g: Graphics, radius: number): void {
   g.circle(0, 0, radius).stroke({ width: 2.5, color: BOUNDARY, alpha: 0.35 });
 }
 
@@ -173,7 +168,7 @@ export class MapChart {
     drawOcean(ocean, map.radius);
     layers.ocean.addChild(ocean);
 
-    drawBoundaryAndRings(this.chart, map.radius);
+    drawBoundary(this.chart, map.radius);
     // Added in this order so terrain paints OVER the range rings, exactly as it
     // did when both shared one Graphics.
     layers.map.addChild(this.chart);

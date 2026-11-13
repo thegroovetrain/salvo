@@ -106,7 +106,7 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
     expect(a.stats.equipment.flak).toMatchObject({
       maxAmmo: FLAK.maxAmmo, reloadMs: FLAK.reloadMs, damage: FLAK.damage, burstRadius: FLAK.burstRadius, contactDamage: FLAK.contactDamage,
     });
-    expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
+    expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial (Story 9.8, ruling 125; a hectometer fact since Story 11.2)
     expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']); // the decoy kind left with Story 10.5; the beacon joined with Story 10.8
   });
 
@@ -168,34 +168,40 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
 describe('the lit-zone reach — the flak gun fires into its own flare (amendment 114)', () => {
   /** u — a click past the gun's Tier I reach (Story 9.8: derived, never a literal). */
   const FAR = CONFIG.flak.rangeU + 140;
-  function litClick(owner: string | null): { w: World; a: ShipRecord } {
+  // THE RIM SEAT (Story 11.2): the reach is longer than the board's radius, so
+  // a shot from the origin would be clamped by the map disk first. The gunner
+  // sits one hull length inside the WEST rim and fires EAST across the board;
+  // `x0` is the seat, and every expectation is a distance from it.
+  function litClick(owner: string | null): { w: World; a: ShipRecord; x0: number } {
     const w = bareWorld();
-    const a = flakker(w, 'a');
+    const x0 = -(w.map.radius - CONFIG.shipClasses.bismarck.hull.length);
+    const a = flakker(w, 'a', x0);
+    expect(x0 + FAR).toBeLessThan(w.map.radius); // the far click is on the water
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: FAR, y: 0, r: 120, until: 10 * 60 * 1000,
+        id: 'z1', ownerId: owner, x: x0 + FAR, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
     w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, aimDist: FAR }));
     w.step();
-    return { w, a };
+    return { w, a, x0 };
   }
 
   it('a click past reach into an OWN live lit zone lands the shell at the click', () => {
-    const { w, a } = litClick('a');
+    const { w, a, x0 } = litClick('a');
     expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU);
     expect(FAR).toBeGreaterThan(CONFIG.flak.rangeU);
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(1);
-    expect(shells[0].targetX).toBeCloseTo(FAR, 6);
+    expect(shells[0].targetX).toBeCloseTo(x0 + FAR, 6);
   });
 
   it('the same click into an ENEMY zone, or with no zone, clamps to the gun reach', () => {
     for (const owner of ['b', null]) {
-      const { w } = litClick(owner);
+      const { w, x0 } = litClick(owner);
       const shells = [...w.shells.values()];
       expect(shells, `owner=${owner}`).toHaveLength(1);
-      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(CONFIG.flak.rangeU, 6);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(x0 + CONFIG.flak.rangeU, 6);
     }
   });
 });

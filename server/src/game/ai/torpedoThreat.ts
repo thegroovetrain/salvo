@@ -51,12 +51,17 @@ function reckon(f: SeenTorpedo, now: number): { x: number; y: number } {
   return { x: f.x + f.vx * dt, y: f.y + f.vy * dt };
 }
 
-/** Has the fish run past its longest possible course (the homing range at
+/** u — the LONGEST run any torpedo can have (Story 11.2, R5): the Tier V
+ *  run of the longest-legged kind. A reveal names no owner, kind or tier, so
+ *  the bot ages a seen torpedo out on the public upper bound. */
+const LONGEST_RUN_U = Math.max(CONFIG.torpedo.runUAtV, CONFIG.lightTorpedo.runUAtV, CONFIG.supercavTorpedo.runUAtV);
+
+/** Has the fish run past its longest possible course (the longest run at
  *  its own speed)? Then it is spent, whether or not its boom was seen. */
 function expired(f: SeenTorpedo, now: number): boolean {
   const speed = Math.hypot(f.vx, f.vy);
   if (speed <= 0) return true;
-  return now - f.t > (CONFIG.torpedo.homingMaxRangeU / speed) * 1000;
+  return now - f.t > (LONGEST_RUN_U / speed) * 1000;
 }
 
 /** Is a fish at `p` moving with (vx, vy) running AWAY from the hull? */

@@ -437,11 +437,13 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
     // THE INDICES the fold derives from (Story 10.3; RUDDER left in Story
-    // 10.6): clampStats floors reload / engines / intel / range at 1 — so a 0
-    // arm would print as moved while the sim ran 1.
-    for (const id of ['reload', 'engines', 'intel', 'range']) {
+    // 10.6, RANGE in Story 11.2): clampStats floors reload / engines / intel
+    // at 1 — so a 0 arm would print as moved while the sim ran 1.
+    for (const id of ['reload', 'engines', 'intel']) {
       expect(() => parseArgs(['--tune', `shipClasses.bismarck.index.${id}=0`])).toThrow(/>= 1/);
     }
+    // The retired RANGE index is no CONFIG entry at all (Story 11.2, R9).
+    expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.range=100'])).toThrow(/not a numeric CONFIG entry/);
     // ...while ARMOR / POWER keep floor 0 (the fold floors them at 0).
     expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.armor=0'])).not.toThrow();
     expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.power=0'])).not.toThrow();
@@ -1579,8 +1581,8 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
     }
     const before = CONFIG.gun.rangeU;
     // The fold's reach at the shipped base, then at the tuned base: the dial
-    // moves the folded reach in proportion (RANGE scales it once, whatever the
-    // hull's index — Story 10.4's hulls are not all RANGE 100).
+    // moves the folded reach in proportion (whatever the fold multiplies the
+    // base by — the RANGE index that once scaled it left in Story 11.2).
     const folded = effectiveStats(hullEnvelope(DEFAULT_CLASS_ID)).equipment.gun.rangeU;
     const restore = applyOverrides({}, { 'gun.rangeU': before - 100 });
     try {
@@ -1598,63 +1600,25 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
     }
   });
 
-  it('--tune vision.dropout.* is reachable (distances floored at 1, probabilities in [0, 1]); the rest of vision.* is not', () => {
-    for (const key of ['vision.dropout.startU=900', 'vision.dropout.kneeU=1200', 'vision.dropout.kneeP=0', 'vision.dropout.rimP=1']) {
-      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
-    }
-    for (const key of ['vision.dropout.startU=0', 'vision.dropout.kneeU=0.5']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
-    }
-    for (const key of ['vision.dropout.kneeP=1.1', 'vision.dropout.rimP=-0.1']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/probability in \[0, 1\]/);
-    }
-    for (const key of ['vision.radar=2000', 'vision.sight=600']) {
+  // RE-CUT 2026-11-12 (Story 11.2, R8 — the radar dropout is removed): this
+  // was "--tune vision.dropout.* is reachable (distances floored at 1,
+  // probabilities in [0, 1]); the rest of vision.* is not". The dropout
+  // family, its two floors and its probability clamp left the --tune surface;
+  // what stands is the second half, now the whole of it.
+  it('--tune reaches NO vision.* leaf: the sensor reaches are facts the shared fold and the client both read, and the retired dropout block is no dial', () => {
+    const numeric = Object.entries(CONFIG.vision).filter(([, v]) => typeof v === 'number');
+    expect(numeric.length).toBeGreaterThan(0);
+    for (const [leaf, v] of numeric) {
+      const key = `vision.${leaf}=${String(v)}`;
+      expect(() => parseArgs(['--tune', key]), key).toThrow(TunableError);
       expect(() => parseArgs(['--tune', key]), key).toThrow(/not an equipment dial/);
     }
-    const before = CONFIG.vision.dropout.rimP;
-    const restore = applyOverrides({}, { 'vision.dropout.rimP': 0.5 });
-    try {
-      expect(CONFIG.vision.dropout.rimP).toBe(0.5);
-    } finally {
-      restore();
+    for (const key of ['vision.dropout.startU=900', 'vision.dropout.kneeU=1200', 'vision.dropout.kneeP=0.5', 'vision.dropout.rimP=0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/not an equipment dial/);
     }
-    expect(CONFIG.vision.dropout.rimP).toBe(before);
   });
 
-  it('--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values', () => {
-    const START = CONFIG.vision.dropout.startU;
-    const KNEE = CONFIG.vision.dropout.kneeU;
-    const RADAR = CONFIG.vision.radar;
-    const snapshot = JSON.stringify(CONFIG.vision.dropout);
-    const refused: Array<[Record<string, number>, RegExp]> = [
-      [{ 'vision.dropout.kneeU': RADAR }, /kneeU.*must stay < 'vision\.radar'/],
-      [{ 'vision.dropout.kneeU': RADAR + 500 }, /kneeU.*must stay < 'vision\.radar'/],
-      [{ 'vision.dropout.startU': KNEE }, /startU.*must stay < 'vision\.dropout\.kneeU'/],
-      [{ 'vision.dropout.startU': 1200, 'vision.dropout.kneeU': 1100 }, /startU.*must stay </],
-      [{ 'vision.dropout.rimP': 0.95 }, /rimP.*must stay <= 'vision\.dropout\.kneeP'/],
-      [{ 'vision.dropout.kneeP': 0.05, 'vision.dropout.rimP': 0.1 }, /rimP.*must stay <=/],
-    ];
-    for (const [tune, re] of refused) {
-      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
-      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
-      expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot); // rolled back
-    }
-    const accepted: Record<string, number>[] = [
-      {},
-      { 'vision.dropout.startU': START - 100 },
-      { 'vision.dropout.kneeU': RADAR - 1 },
-      // Several leaves at once: each would be refused against the shipped
-      // others, but the FINAL curve is legal.
-      { 'vision.dropout.startU': KNEE + 50, 'vision.dropout.kneeU': KNEE + 100 },
-      { 'vision.dropout.kneeP': 0.3, 'vision.dropout.rimP': 0.3 },
-      { 'vision.dropout.kneeP': 1, 'vision.dropout.rimP': 0.95 },
-    ];
-    for (const tune of accepted) {
-      const restore = applyOverrides({}, tune);
-      restore();
-    }
-    expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
-  });
+  // (DELETED 2026-11-12 — Story 11.2, a ruling recorded in the epic-11 amendments: "--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values" — it pinned `validateDropoutCurve`, which left overrides.ts with the dropout; the generic mechanism (cross-key validation on the final values, rolled back) stays pinned by the boost and fog cases.)
 
   it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
     for (const key of [

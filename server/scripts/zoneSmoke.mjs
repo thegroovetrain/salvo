@@ -35,7 +35,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, bearing, angleDiff, effectiveStats, isOutside, zoneLiveState } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, ZONE_FORMULA_UNIT_U, bearing, angleDiff, effectiveStats, isOutside, zoneLiveState } from '@salvo/shared';
 
 /** Both clients join with no class option -> DEFAULT_CLASS_ID (Story 10.4:
  *  Bismarck); its full hull from the same fold the server runs. */
@@ -49,7 +49,8 @@ const endpoint = `ws://localhost:${PORT}`;
 // genuinely OFFSET (the containment + follow-the-center assertions bite) while
 // bounding the first ring's center within ~250u of the origin so B's sail-in
 // from the spawn ring comfortably beats close 1. Terminal stays the production
-// 2 x truesight (1000u on the twelfths ladder, Story 9.8).
+// 2 x the formula unit (`ZONE_FORMULA_UNIT_U`, 500 u — it was truesight until
+// Story 11.2 moved sight to 200 hm; the terminal ring stays 1000 u).
 //
 // suddenDeath is ON so the smoke covers the SHIPPED shape: a fourth ring group
 // runs 96-128s (reveal at 112s, collapse close 120-128s, full closure at 128s).
@@ -350,7 +351,7 @@ async function main() {
     // holding since 11:00 — and it adds no FIELD, which is what "no new schema
     // field" means. The radius is the channel that would have collided with the
     // sentinel, and it is the one asserted here.
-    let terminal = null; // the terminal ring (terminalSightFactor × sight) the collapse group opens on
+    let terminal = null; // the terminal ring (terminalSightFactor × the formula unit) the collapse group opens on
     // RAW schema read, deliberately NOT through nextRing(): that decoder maps
     // any r <= 0 to null, so asserting it stayed null would be vacuous for a
     // ring whose radius is 0 by construction — it would test the decoder, not
@@ -390,10 +391,11 @@ async function main() {
       () => closedCurR !== null, 140000, 'the final collapse');
 
     assert(terminal !== null, 'never observed the collapse group opening on the terminal ring');
-    // The override's own terminal (terminalSightFactor × sight — the ringSteps
-    // path the dev override still drives), never a literal: it moves with
-    // the twelfths ladder (Story 9.8, amendment 103).
-    const expectedTerminalR = ZONE_OVERRIDE.terminalSightFactor * CONFIG.vision.sight;
+    // The override's own terminal (terminalSightFactor × the shared formula
+    // unit — the ringSteps path the dev override still drives), never a
+    // literal. (It read `CONFIG.vision.sight` until Story 11.2: sight is a
+    // hectometer fact now and no longer sizes the ring.)
+    const expectedTerminalR = ZONE_OVERRIDE.terminalSightFactor * ZONE_FORMULA_UNIT_U;
     assert(Math.abs(terminal.r - expectedTerminalR) < 1e-3,
       `the collapse group opened on r=${terminal.r} (expected the ${expectedTerminalR}u terminal ring)`);
     assert(zeroedReveals > 0,

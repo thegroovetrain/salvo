@@ -369,9 +369,12 @@ export function captiveTorpedo(
     y: mine.y,
     vx: Math.cos(dir) * CONFIG.torpedo.speed,
     vy: Math.sin(dir) * CONFIG.torpedo.speed,
-    // A straight-runner runs until impact; only a STEERING fish carries the
-    // family's finite travel budget (an orbiting fish must die).
-    distLeft: homes ? CONFIG.torpedo.homingMaxRangeU : Number.POSITIVE_INFINITY,
+    // The captive's torpedo runs the HEAVY torpedo's Tier I run and then
+    // expires, steering or straight (Story 11.2, R5 — every torpedo has a
+    // run; the homing-only budget `homingMaxRangeU` retired). The CAPTIVE
+    // MINES row has no run of its own to fold, so the heavy line's base is
+    // used — Story 11.2, R21 (Eric 2026-11-12).
+    distLeft: CONFIG.torpedo.runU,
     bornAt: now,
     kind: 'torp',
     damage: p.damage,

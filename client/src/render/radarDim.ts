@@ -14,12 +14,12 @@
 // radar paint were fighting each other. The floor now holds across the WHOLE
 // bubble and climbs only outside it.
 //
-// BOTH RADII STILL COME OFF THE LADDER (amendment 113; twelfths of intel range
+// BOTH RADII STILL COME OFF THE LADDER (amendment 113; twelfths of intel range [retired 2026-11-12, Story 11.2]
 // since Story 9.8, epic-9 amendment 103), never off literals:
 //   • INNER = 4/12, `CONFIG.vision.sight` — the bubble itself. Anywhere inside
 //     it the eye is the primary sensor and the scope is a second opinion.
 //   • OUTER = 6/12, `CONFIG.vision.muzzleFlash` — the flash rung. On the eighths
-//     ladder this was 5/8, the very next rung out; the twelfths ladder keeps the
+//     ladder this was 5/8, the very next rung out; the twelfths ladder [retired 2026-11-12, Story 11.2] keeps the
 //     same NAMED rung (the flash/smoke reach), now two twelfths past the bubble,
 //     rather than inventing a 5/12 anchor nobody ruled on.
 // The ratio between them (1.5; 1.25 on the eighths ladder) is what this module actually carries, because the

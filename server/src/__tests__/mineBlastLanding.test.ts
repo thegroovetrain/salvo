@@ -26,12 +26,22 @@ function bareWorld(seed = 1912): World {
   return w;
 }
 
-function captain(w: World, id: string, gun: 'gun' | 'machineGun' | 'flak' = 'gun'): ShipRecord {
+function captain(w: World, id: string, gun: 'gun' | 'machineGun' | 'flak' = 'gun', x = 0): ShipRecord {
   // NEUTRAL index + the deck-gun row under test (deckGunFixture; the cannon by default).
   const rec = mountDeckGun(neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, { x: 0, y: 0 })), gun);
-  rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
+  rec.state = { x, y: 0, heading: 0, speed: 0 };
   return rec;
 }
+
+/** THE RIM SEAT (Story 11.2): a gun's reach is longer than the board's radius,
+ *  so a MAX-RANGE case seats its gunner one hull length inside the WEST rim,
+ *  firing EAST across the board. The seat's x. */
+const rimX = (w: World): number => -(w.map.radius - CONFIG.shipClasses.bismarck.hull.length);
+
+/** The step cap of a shot: the ticks a gun-family shell needs to cross the
+ *  WHOLE board (the aim is clamped inside the map disk), plus a few to resolve. */
+const shotTicks = (w: World): number =>
+  Math.ceil(((2 * w.map.radius) / CONFIG.gun.shellSpeed) * (1000 / CONFIG.tick.simDtMs)) + 10;
 
 function lay(w: World, id: string, x: number, y: number, hp: number = CONFIG.mine.hp): void {
   w.mines.set(id, { id, ownerId: 'x', x, y, armedAt: 0, kind: 'naval', hp });
@@ -48,7 +58,8 @@ function fire(w: World, id: string, dist: number): { log: GameEvent[]; shells: S
   w.submitInput(id, input({ fireSeq: 2, aimDist: dist, held: stream }));
   const log: GameEvent[] = [];
   const seen = new Map<string, ShellState>();
-  for (let i = 0; i < 120; i += 1) {
+  const cap = shotTicks(w);
+  for (let i = 0; i < cap; i += 1) {
     w.step();
     log.push(...w.tickEvents);
     for (const s of w.shells.values()) if (s.ownerId === id && !seen.has(s.id)) seen.set(s.id, { ...s });
@@ -101,10 +112,12 @@ describe('the cannon — every barrel, one blow each', () => {
 
   it('a max-range landing deals the FULL blow per shell (flat with range, Story 11.1)', () => {
     const w = bareWorld();
-    const a = captain(w, 'a');
+    const x0 = rimX(w);
+    const a = captain(w, 'a', 'gun', x0);
     const R = a.stats.equipment.gun.rangeU;
+    expect(x0 + R).toBeLessThan(w.map.radius); // the max-range landing is on the water
     const tough = 100; // a mine that survives, so the hp spent can be read
-    lay(w, 'm1', R, 0, tough);
+    lay(w, 'm1', x0 + R, 0, tough);
     const { shells } = fire(w, 'a', R);
     expect(tough - w.mines.get('m1')!.hp).toBe(shells.length * settleBlow(CONFIG.gun.damage));
   });
@@ -134,10 +147,12 @@ describe('the machine gun — no blast, within 10 u of where it arrived', () => 
 
   it('at max range the mine takes the FULL blow (flat with range, Story 11.1)', () => {
     const w = bareWorld();
-    const a = captain(w, 'a', 'machineGun');
+    const x0 = rimX(w);
+    const a = captain(w, 'a', 'machineGun', x0);
     const R = a.stats.equipment.machineGun.rangeU;
+    expect(x0 + R).toBeLessThan(w.map.radius); // the max-range landing is on the water
     const tough = 100; // a mine that survives, so the hp spent can be read
-    lay(w, 'm1', R, 0, tough);
+    lay(w, 'm1', x0 + R, 0, tough);
     fire(w, 'a', R);
     expect(w.mines.get('m1')!.hp).toBe(tough - settleBlow(CONFIG.machineGun.damage));
   });

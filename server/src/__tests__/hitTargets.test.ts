@@ -255,23 +255,24 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   /** The shooter alone at the origin, gun pointing +x. Story 10.4: the
    *  shooter mounts the CANNON row (the drones' gun, which keeps its mine bit —
    *  a captain's main battery never touches a mine; mineHp.test.ts pins that). */
-  function board(seed = 21): World {
+  function board(seed = 21, heading = 0): World {
     const w = bareWorld(seed);
-    mountDeckGun(place(w, 'a', 0, 0, 0, 'warspite'), 'gun');
+    mountDeckGun(place(w, 'a', 0, 0, heading, 'warspite'), 'gun');
     return w;
   }
 
   /** Fire the gun at (dist, 0) over a board carrying `mines`, and record the
    *  SHOOTER'S OWN FRAME EVENTS for every tick of the shot's life. Events, not
-   *  contacts: a mine inside the detect ring legitimately paints as a contact,
+   *  contacts: a mine inside its eye reach legitimately paints as a contact,
    *  and amendment 20 is about what the SHOT tells you, not about what you can
    *  already see. */
   function fireAndRecord(
     dist: number,
     mines: readonly (readonly [string, string, number, number])[],
     seed = 21,
+    heading = 0,
   ): { frames: GameEvent[][]; w: World } {
-    const w = board(seed);
+    const w = board(seed, heading);
     for (const [id, owner, x, y] of mines) mine(w, id, owner, x, y);
     w.submitInput('a', {
       seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist,
@@ -286,20 +287,28 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   }
 
   const flat = (frames: GameEvent[][]): GameEvent[] => frames.flat();
-  /** u — a mine beyond sight on the shot line, and the click past it. */
-  const FAR_MINE = CONFIG.vision.sight + 100;
-  const FAR_AIM = CONFIG.vision.sight + 300;
+  /** u — a mine beyond the MINE eye reach on the shot line (Story 11.2: a
+   *  mine has its own reach, `CONFIG.vision.mineSight`), and the click past it. */
+  const FAR_MINE = CONFIG.vision.mineSight + 100;
+  const FAR_AIM = CONFIG.vision.mineSight + 300;
+  /** The shooter lying BEAM-ON to the +x shot line. The mine eye reach (3 hm,
+   *  measured from the hull's centre) is shorter than a bow plus the mine's
+   *  trip ring, so a mine dead ahead trips before it can be seen; off the
+   *  FLANK there is water that is inside the eye reach yet clear of the ring. */
+  const BEAM_ON = Math.PI / 2;
+  /** u — off the flank, where the trip ring (measured from the hull) ends. */
+  const TRIP_CLEAR = CONFIG.shipClasses.warspite.hull.beam / 2 + CONFIG.mine.triggerRadius;
+  /** u — a mine INSIDE the mine eye reach on the shot line, clear of the trip
+   *  ring of a BEAM_ON shooter: midway between the two. */
+  const NEAR_MINE = (TRIP_CLEAR + CONFIG.vision.mineSight) / 2;
 
   // -------------------------------------------------------------------------
   // AMENDMENT 20 — a shell in flight never touches a mine (Eric 2026-09-16)
   // -------------------------------------------------------------------------
 
   it('(a) an armed ENEMY mine squarely on the path, OUTSIDE sight: the shell flies on and bursts at the clicked point', () => {
-    // FAR_MINE is past both the detect rung and the true-sight bubble, so the
-    // shooter has no sanctioned knowledge of this mine at all (placements off
-    // the live ladder since Story 9.8, amendment 103).
-    expect(CONFIG.vision.detect).toBeLessThan(FAR_MINE);
-    expect(CONFIG.vision.sight).toBeLessThan(FAR_MINE);
+    // FAR_MINE is past the mine eye reach, so the shooter has no sanctioned
+    // knowledge of this mine at all (placements derived, never literals).
     expect(FAR_AIM).toBeLessThanOrEqual(CONFIG.gun.rangeU); // an in-reach click
     const shot = fireAndRecord(FAR_AIM, [['m1', 'x', FAR_MINE, 0]]);
     expect(shot.w.mines.has('m1')).toBe(true); // never detonated
@@ -325,10 +334,11 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   });
 
   it('(b) the same holds with the mine INSIDE the shooter\'s sight — seeing it changes nothing about the shot', () => {
-    expect(CONFIG.vision.detect).toBeGreaterThan(200);
-    const withMine = fireAndRecord(600, [['m1', 'x', 200, 0]]);
-    const cleanWater = fireAndRecord(600, []);
+    expect(TRIP_CLEAR).toBeLessThan(CONFIG.vision.mineSight); // premise: there IS seen, untripped water off the flank
+    const withMine = fireAndRecord(600, [['m1', 'x', NEAR_MINE, 0]], 21, BEAM_ON);
+    const cleanWater = fireAndRecord(600, [], 21, BEAM_ON);
     expect(withMine.w.mines.has('m1')).toBe(true);
+    expect(buildFrame(withMine.w, 'a').mines.map((m) => m.id)).toContain('m1'); // the shooter SEES it
     expect(withMine.frames).toEqual(cleanWater.frames);
   });
 

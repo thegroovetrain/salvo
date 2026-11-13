@@ -56,7 +56,12 @@
 //     compare false against every later paint while one Infinity would win
 //     everything it touched. Every degenerate input answers null instead.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 import {
   CONFIG,
   DEFAULT_CLASS_ID,
@@ -105,10 +110,13 @@ import { buildShipStamp, type EchoHull } from './shipStampFixture.js';
 import {
   MAX_SLICES_PER_FRAME,
   catchUpArc,
+  diskExitU,
   echoArc,
+  lateralCells,
   marchSlice,
   planMarch,
   rayStep,
+  returnStrength,
   sliceCount,
   terrainIllumination,
   type MarchSlice,
@@ -529,7 +537,7 @@ describe('terrain casts a height-derived shadow', () => {
     // shadowed cell is simply absent from the record (cycle 69).
     const s = marchAll(obs, hullOver(obs, covered, PAST), CFG, R);
     expect(at(s, 0, PAST, CFG), 'gone').toBe(0);
-  });
+  }, 60_000); // a 10,000 u pyramid raster: the fixture scaled to the 400 hm rim (Story 11.2)
 
 
   // THE WIRE-ECHO PATH: ATTENUATED, NEVER SUPPRESSED (review gate).
@@ -573,7 +581,10 @@ describe('terrain casts a height-derived shadow', () => {
     // the same half-mast cover moves the whole mark RED → BLUE, exactly as it
     // does for a hull in the world field one test above.
     expect(new Set(lit.map((w) => bandIndex(w, BANDS))), 'unshadowed: RED').toEqual(new Set([2]));
-    expect(new Set(dim.map((w) => bandIndex(w, BANDS))), 'shadowed: BLUE').toEqual(new Set([1]));
+    // ("shadowed: BLUE" — the exact band the half-mast cover lands the mark in —
+    // DELETED 2026-11-12, Story 11.2: the shadow constant K follows the radar
+    // reach (R15), so the depth at these fixed distances is a K-pinned number,
+    // not the rule; "every cell weaker" above is the contract.)
   });
 
   it('...AND A FULLY SHADOWED ONE STILL PAINTS, AT THE FLOOR (amendment 127): a '
@@ -750,8 +761,10 @@ describe('terrain is masked by its OWN height, not by the mast', () => {
     const S = SHADOW_SCALE;
     const R = CONFIG.vision.radar;
     const wall = box(0, 100 * S, 400, 7, 70);
-    const tall = rasterWithPyramid(760, both(wall, box(0, 300 * S, 40, 20, 200)));
-    const low = rasterWithPyramid(760, both(wall, box(0, 300 * S, 40, 20, 100)));
+    // The raster reaches the scaled fixture (Story 11.2: at the 400 hm rim the
+    // scaled peaks sit far past the unscaled 760 u raster).
+    const tall = rasterWithPyramid(320 * S, both(wall, box(0, 300 * S, 40, 20, 200)));
+    const low = rasterWithPyramid(320 * S, both(wall, box(0, 300 * S, 40, 20, 100)));
 
     const walk = beginShadowWalk(tall, OBS.x, OBS.y, 0, 1);
     for (let d = 4; d <= 120 * S; d += 4) walk.advanceTo(walk.cellEntryAt(d));
@@ -1377,21 +1390,31 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
 
   it('and the stronger material wins in BOTH directions — a steep headland is '
     + 'not out-read by a needle sitting on it', () => {
+    // Story 11.2 re-cut: the attenuation references follow the radar reach
+    // (400 hm), so WHICH material is stronger at a fixed 400 u moved; the rule
+    // is asked directly of the field across ranges instead — at every range
+    // the composed cell answers with the stronger of the two returns.
     const raster = rasterFrom(700, box(0, 400, 90, 90, 255));
     const needle: ShipStamp = new Map();
-    // A sub-cell echo: one covered cell — `minPeak`-floored, and genuinely
-    // weaker than rock at 400u.
     stampCoverage(needle, {
       gx: Math.floor(HULL.x / CLEAN.cellU), gy: Math.floor(HULL.y / CLEAN.cellU), w: 1, h: 1, bits: [1],
     }, hullSample(CLEAN.model));
-    const field = buildField({
-      obs: OBS, raster, ships: needle, cellU: CLEAN.cellU, model: CLEAN.model,
-    });
-    const both = at(marchAll(OBS, field), HULL.x, HULL.y);
-    const rock = at(marchAll(OBS, terrainField(raster, OBS)), HULL.x, HULL.y);
-    expect(both, 'the headland keeps the cell').toBeCloseTo(rock, 9);
-    expect(rock, 'and it is genuinely the stronger of the two')
-      .toBeGreaterThan(CLEAN.model.minPeak);
+    const both = buildField({ obs: OBS, raster, ships: needle, cellU: CLEAN.cellU, model: CLEAN.model });
+    const rockOnly = terrainField(raster, OBS);
+    const steelOnly = shipOnlyField(needle, CLEAN.cellU, null);
+    let rockWon = 0;
+    let steelWon = 0;
+    for (let d = 50; d <= 1e7; d *= 1.5) {
+      const rock = rockOnly.sampleAt(HULL.x, HULL.y, d)!;
+      const steel = steelOnly.sampleAt(HULL.x, HULL.y, d)!;
+      const got = both.sampleAt(HULL.x, HULL.y, d)!;
+      const want = returnStrength(steel, d) >= returnStrength(rock, d) ? steel : rock;
+      if (want === rock) rockWon += 1;
+      else steelWon += 1;
+      expect(returnStrength(got, d), `${d.toFixed(0)}u`).toBeCloseTo(returnStrength(want, d), 12);
+    }
+    expect(rockWon, 'the headland out-reads the needle somewhere').toBeGreaterThan(0);
+    expect(steelWon, 'and the needle the headland somewhere').toBeGreaterThan(0);
   });
 
   it('two hulls sharing cells resolve max-wins PER CELL, whatever order they arrive in', () => {
@@ -1448,5 +1471,91 @@ describe('the ray step is clamped to half a cell, whatever `cellU` is retuned to
       const dy = Math.abs(s!.cells[k * 2 + 1] - s!.cells[(k - 1) * 2 + 1]);
       expect(Math.max(dx, dy), `step ${k} skipped a cell`).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+
+// --- Story 11.2: the 400 hm scope — rays stop at the board, and no rim gaps ----
+//
+// The ray angle is floored at `minRayRad` to bound the ray COUNT, so on the
+// 400 hm scope adjacent rays are several cells apart near the rim. What the
+// beam march paints is the AREA materials — terrain, surf, sea clutter, cloud
+// (hull and wake returns arrive on the wire as their own stamps) — so a far
+// island would paint in radial stripes. Each painted sample now also paints the
+// half-gap to its neighbours (`lateralCells`), reusing its one field query.
+
+describe('lateralCells — the widening covers the gap between rays, no more', () => {
+  const { cellU } = CFG;
+  const { minRayRad } = CFG.march;
+
+  it('is 0 wherever adjacent rays are within a cell, and grows with range past that', () => {
+    expect(lateralCells(cellU / minRayRad - 1, minRayRad, cellU)).toBe(0);
+    let last = 0;
+    for (let d = 0; d <= CONFIG.vision.radar; d += 250) {
+      const k = lateralCells(d, minRayRad, cellU);
+      expect(k).toBeGreaterThanOrEqual(last);
+      // k cells each side cover the half-gap to the next ray, never a cell more.
+      expect((k + 0.5) * cellU, `${d}u`).toBeGreaterThanOrEqual((d * minRayRad) / 2 - 1e-9);
+      expect(Math.max(0, k - 0.5) * cellU, `${d}u`).toBeLessThan((d * minRayRad) / 2 + 1e-9);
+      last = k;
+    }
+  });
+
+  it('degenerate inputs widen nothing', () => {
+    expect(lateralCells(Number.NaN, minRayRad, cellU)).toBe(0);
+    expect(lateralCells(1000, 0, cellU)).toBe(0);
+    expect(lateralCells(1000, minRayRad, 0)).toBe(0);
+  });
+});
+
+describe('diskExitU — every ray stops where it leaves the board', () => {
+  it('from the centre it is the radius on every bearing; from off-centre it solves the chord', () => {
+    for (let a = 0; a < TAU; a += 0.7) expect(diskExitU({ x: 0, y: 0 }, Math.cos(a), Math.sin(a), 5000)).toBeCloseTo(5000, 9);
+    expect(diskExitU({ x: 4000, y: 0 }, 1, 0, 5000)).toBeCloseTo(1000, 9);
+    expect(diskExitU({ x: 4000, y: 0 }, -1, 0, 5000)).toBeCloseTo(9000, 9);
+  });
+
+  it('no usable disk = no clip; an observer outside the disk marches nothing', () => {
+    expect(diskExitU({ x: 0, y: 0 }, 1, 0, Number.NaN)).toBe(Infinity);
+    expect(diskExitU({ x: 6000, y: 0 }, 1, 0, 5000)).toBe(0);
+  });
+
+  it('terrain past the board edge is never painted; the same terrain inside it is', () => {
+    const obs = { x: 0, y: 0 };
+    const raster = rasterFrom(1400, box(1000, 0, 60, 60, 200));
+    const field = terrainField(raster, obs);
+    const unclipped = marchSlice(obs, -0.1, 0.1, field, 1400, 0, CLEAN);
+    const clipped = marchSlice(obs, -0.1, 0.1, field, 1400, 0, CLEAN, { diskR: 900 });
+    expect(unclipped?.n ?? 0).toBeGreaterThan(0);
+    expect(clipped?.n ?? 0).toBe(0);
+  });
+});
+
+describe('a far island paints solid at the 400 hm rim (no radial stripes)', () => {
+  it('every terrain cell of an island near the radar reach is painted by the beam', () => {
+    const obs = { x: 0, y: 0 };
+    const R = CONFIG.vision.radar;
+    const cx = R * 0.9;
+    const HALF = 120;
+    const raster = rasterFrom(cx + HALF + RCELL * 2, box(cx, 0, HALF, HALF, 200));
+    const field = terrainField(raster, obs);
+    const half = Math.atan2(HALF, cx - HALF);
+    const slice = marchSlice(obs, -half, half, field, R, 0, CLEAN);
+    expect(slice).not.toBeNull();
+    const painted = new Set<number>();
+    for (let k = 0; k < slice!.n; k++) painted.add(cellKey(slice!.cells[k * 2], slice!.cells[k * 2 + 1]));
+    // The island's interior cells (a cell's margin inside every face — its
+    // own edge is the raster's business): each one is painted.
+    const { cellU } = CLEAN;
+    let missing = 0;
+    let total = 0;
+    for (let gx = cellOf(cx - HALF, cellU) + 2; gx <= cellOf(cx + HALF, cellU) - 2; gx++) {
+      for (let gy = cellOf(-HALF, cellU) + 2; gy <= cellOf(HALF, cellU) - 2; gy++) {
+        total += 1;
+        if (!painted.has(cellKey(gx, gy))) missing += 1;
+      }
+    }
+    expect(total).toBeGreaterThan(100);
+    expect(missing).toBe(0);
   });
 });

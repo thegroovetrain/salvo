@@ -33,8 +33,12 @@ import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
-const SIGHT = CONFIG.vision.sight;
+// The named reaches (Story 11.2 — each its own hectometer fact in CONFIG).
+const SIGHT = CONFIG.vision.sight; // class and name by eye — the IDENTITY reach
+const HULL_SIGHT = CONFIG.vision.hullSight; // a plain hull by eye — the outer tier (`pc`)
 const RADAR = CONFIG.vision.radar;
+/** Beyond EVERY eye tier of a fogged observer: no contact, no plain hull. */
+const UNSEEN = HULL_SIGHT + 500;
 
 // ---------- test-local visibility reimplementation ---------------------------
 
@@ -50,8 +54,17 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** The eye's NECESSARY condition at a named reach: inside it on an
+ *  island-clear ray. (Fog only ever shortens a reach — Story 9.10 — so a
+ *  delivered row must satisfy this whatever the weather; these worlds never
+ *  flash anybody, so no whiteout shrinks it either.) */
+function seenWithin(w: World, me: ShipRecord, p: { x: number; y: number }, reach: number): boolean {
+  return dist(me.state, p) <= reach && clearLos(me.state, p, w.map.islands);
+}
+
+/** Inside the CLASS-AND-NAME reach — the only reach an identity may ride. */
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return dist(me.state, p) <= SIGHT && clearLos(me.state, p, w.map.islands);
+  return seenWithin(w, me, p, SIGHT);
 }
 
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
@@ -100,11 +113,15 @@ function injectShell(w: World, id: string, ownerId: string, x: number, y: number
 describe('spectator frames — dead observer in the active phase', () => {
   function deadObserverWorld(): World {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    place(w, 'b', 2 * SIGHT, 0); // far outside a fogged observer's sight
-    // Inside the water disk (r=900) — projectiles outside it splash instantly —
-    // but still far outside a fogged observer's sight bubble.
-    place(w, 'c', -600, 400, 1.2);
+    // MIND THE BOARD (Story 11.2): the eye reaches are wider than the map
+    // radius, and the step below pushes a hull seated past the rim back onto
+    // the water — so the wreck-to-be sits on one side of the origin and the
+    // two survivors on the other, UNSEEN apart: beyond every eye tier of a
+    // fogged observer at a's seat.
+    expect(UNSEEN / 2 + 600).toBeLessThan(w.map.radius); // premise: every seat is on the water
+    place(w, 'a', -UNSEEN / 2, 0);
+    place(w, 'b', UNSEEN / 2, 0);
+    place(w, 'c', UNSEEN / 2, 600, 1.2); // abeam of b, as far from a
     w.respawnEnabled = false; // active-phase policy
     w.sinkShip('a', 'b');
     // Story 5.2: spectate begins at FOUNDER (a sinking captain stays fogged
@@ -121,7 +138,12 @@ describe('spectator frames — dead observer in the active phase', () => {
     expect(f.spec).toBe(true);
     expect(f.you).toBeUndefined();
     const ids = f.contacts.map((c) => c.id).sort();
-    expect(ids).toEqual(['b', 'c']); // unfogged: both far beyond sight
+    expect(ids).toEqual(['b', 'c']); // unfogged: both beyond every eye tier of the wreck
+    const wreck = w.ships.get('a')!;
+    for (const id of ids) expect(dist(wreck.state, w.ships.get(id)!.state)).toBeGreaterThan(HULL_SIGHT); // premise survived the step
+    // A spectator holds every hull as a FULL contact — the outer tier's `pc`
+    // channel never rides a spec frame (Story 11.2).
+    expect('pc' in f).toBe(false);
     // Even unfogged, spectator contacts never carry upgrade data (anti-cheat) —
     // nor, as of Story 2.6, level or XP progress. And with `you` omitted, a
     // spectator frame carries no economy field at all.
@@ -241,7 +263,8 @@ describe('spectator frames — dead observer in the active phase', () => {
 
   it('adopts in-flight ballistics exactly once, with CURRENT params', () => {
     const w = deadObserverWorld();
-    injectShell(w, 's1', 'b', 500, 300); // in-disk, launched before death, never sighted by a
+    const b = w.ships.get('b')!;
+    injectShell(w, 's1', 'b', b.state.x - 400, b.state.y + 300); // on the water beside b, launched before death, never sighted by a
     w.step();
     const sh = w.shells.get('s1')!;
     const f1 = buildFrame(w, 'a', 'active');
@@ -258,12 +281,13 @@ describe('spectator frames — dead observer in the active phase', () => {
 describe('spectator frames — phase gating', () => {
   it('an ALIVE observer in active gets a fogged, non-spec frame', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    place(w, 'b', 2 * SIGHT, 0);
+    place(w, 'a', -UNSEEN / 2, 0);
+    place(w, 'b', UNSEEN / 2, 0);
     const f = buildFrame(w, 'a', 'active');
     expect(f.spec).toBeUndefined();
     expect(f.you).toBeDefined();
     expect(f.contacts).toEqual([]); // b is beyond sight — still fogged
+    expect('pc' in f).toBe(false); // ...and beyond the plain-hull reach too
   });
 
   it('finished phase: EVERYONE spectates, the alive winner included', () => {
@@ -289,15 +313,17 @@ describe('spectator frames — phase gating', () => {
 
   it('a dead observer in WAITING stays fogged (lobby keeps one code path)', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    place(w, 'b', 2 * SIGHT, 0);
+    const a = place(w, 'a', -UNSEEN / 2, 0);
+    const b = place(w, 'b', UNSEEN / 2, 0);
     w.sinkShip('a');
     w.step();
+    expect(dist(a.state, b.state)).toBeGreaterThan(HULL_SIGHT); // premise survived the step
     const f = buildFrame(w, 'a', 'waiting');
     expect(f.spec).toBeUndefined();
     expect(f.you).toBeDefined();
     expect(f.you!.alive).toBe(false);
     expect(f.contacts).toEqual([]); // b beyond sight: fog still applies
+    expect('pc' in f).toBe(false); // ...at both eye tiers
   });
 
   it('a viewer with no ship never gets a spec frame in active (fail-closed)', () => {
@@ -336,10 +362,35 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     expect(c.id).not.toBe(me.id);
     expect(sighted(w, me, target.state)).toBe(true);
   }
+  verifyPlainRows(w, me, f);
   for (const e of f.events) verifyFoggedEvent(w, me, e);
   for (const m of f.mines) {
     const mine = w.mines.get(m.id)!;
-    if (mine.ownerId !== me.id) expect(sighted(w, me, mine)).toBe(true);
+    if (mine.ownerId !== me.id) expect(seenWithin(w, me, mine, CONFIG.vision.mineSight)).toBe(true);
+  }
+}
+
+/** THE OUTER EYE TIER (Story 11.2): every `pc` row is EXACTLY
+ *  {h,x,y,heading,speed} — no id, no class, no turret angles — under a handle
+ *  that is no roster id, and is the live pose of some OTHER hull still on the
+ *  water, inside the plain-hull reach on an island-clear ray, that this frame
+ *  does not also carry as a full contact (the two tiers are disjoint). */
+function verifyPlainRows(w: World, me: ShipRecord, f: FrameMsg): void {
+  const named = new Set(f.contacts.map((c) => c.id));
+  const handles = new Set<string>();
+  for (const p of f.pc ?? []) {
+    expect(Object.keys(p)).toEqual(['h', 'x', 'y', 'heading', 'speed']);
+    expect(w.ships.has(p.h)).toBe(false);
+    expect(handles.has(p.h)).toBe(false); // one row per hull, one handle per row
+    handles.add(p.h);
+    const match = [...w.ships.values()].some((target) => {
+      if (target.id === me.id || named.has(target.id)) return false;
+      if (!(isAfloat(target.lifecycle) || isSinking(target.lifecycle))) return false;
+      const s = target.state;
+      if (s.x !== p.x || s.y !== p.y || s.heading !== p.heading || s.speed !== p.speed) return false;
+      return seenWithin(w, me, s, HULL_SIGHT);
+    });
+    expect(match).toBe(true);
   }
 }
 
@@ -347,15 +398,16 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
   switch (e.k) {
     case 'blip': {
       // The identity-free coverage footprint: with no id on the wire, the
-      // audit is that SOME afloat-or-sinking hull in this observer's radar
-      // annulus rasterizes to exactly this mask (paintCoverage at the live
+      // audit is that SOME afloat-or-sinking hull within this observer's radar
+      // range (no inner edge — amendment 210: a sighted hull paints too)
+      // rasterizes to exactly this mask (paintCoverage at the live
       // pose and this tick's clock — the production shaper, re-run here).
       const b = e as BlipEvent;
       const match = [...w.ships.values()].some((target) => {
         // Story 5.2: a sinking hull still paints (amendment 15 seam 3).
         if (!(isAfloat(target.lifecycle) || isSinking(target.lifecycle))) return false;
         const d = dist(me.state, target.state);
-        if (d <= SIGHT || d > RADAR) return false;
+        if (target.id === me.id || d > RADAR) return false;
         const c = paintCoverage(target.hullId, target.state.x, target.state.y, target.state.heading, CONFIG.vision.radarCellU, w.now);
         return c.gx === b.gx && c.gy === b.gy && c.w === b.w && c.h === b.h
           && c.bits.length === b.bits.length && c.bits.every((v, i) => v === b.bits[i]);
@@ -375,12 +427,24 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
     }
     case 'shell':
     case 'torp': {
+      // Each projectile rides its OWN eye reach by kind (Story 11.2).
       const sh = w.shells.get(e.id)!;
-      if (sh.ownerId !== me.id) expect(sighted(w, me, e)).toBe(true);
+      const reach = e.k === 'torp' ? CONFIG.vision.torpedoSight : CONFIG.vision.shellSight;
+      if (sh.ownerId !== me.id) expect(seenWithin(w, me, e, reach)).toBe(true);
       return;
     }
-    case 'boom':
-      if (e.hit !== me.id) expect(sighted(w, me, e)).toBe(true);
+    case 'boom': {
+      if (e.hit === me.id) return;
+      // The POSITION rides the splash reach; the victim id rides the CLASS
+      // reach — stripped unless the victim's centre is inside it (Story 11.2).
+      expect(seenWithin(w, me, e, CONFIG.vision.splashSight)).toBe(true);
+      if (e.hit !== undefined) expect(sighted(w, me, w.ships.get(e.hit)!.state)).toBe(true);
+      return;
+    }
+    case 'burst':
+      // A burst row is a bare point — the audit here is its key set: nothing
+      // that names a hull may ride it (perception.test.ts owns the reach).
+      expect(Object.keys(e).every((k) => ['k', 'id', 'x', 'y', 'f', 'r'].includes(k))).toBe(true);
       return;
     case 'dmg':
       expect(e.id).toBe(me.id);
@@ -468,6 +532,7 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
           if (phase === 'finished' || (phase === 'active' && isSunk(me.lifecycle))) {
             expect(f.spec).toBe(true);
             expect(f.you).toBeUndefined();
+            expect('pc' in f).toBe(false); // the outer eye tier never rides a spec frame
           } else {
             verifyFoggedFrame(w, me, f); // fogged rules stay airtight
           }

@@ -89,7 +89,8 @@ export interface BotTargetWeights {
  * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The ship
  * ladders (ARMOR, POWER, ENGINES, INTEL, RELOAD) are named by their line id —
  * RUDDER left the catalog in Story 10.6 (Eric 2026-11-05, R2) and its favorite
- * with it; the three Story 10.6 ladders (RANGE, HULL REPAIR, SMOKE SCREEN) are
+ * with it; the Story 10.6 ladders (HULL REPAIR, SMOKE SCREEN — RANGE, the
+ * third, left the catalog in Story 11.2, Eric 2026-11-12, R9) are
  * ship ladders too but no taste favors them (no new dial, I8). Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) DELETED
  * `hullPoints` and `passiveHealing` and RENAMED `armorPiercing` -> `power`
  * (joined in 9.9, epic-9 amendment 157), `speed` -> `engines`, `turning` ->

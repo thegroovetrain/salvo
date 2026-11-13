@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, TextureSource } from 'pixi.js';
 import { CONFIG, FOG_NO_CUT, fogDensityAt, makeFogField } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { FogFieldView, SPECTATOR_CELLS, easeFogCut, fillFogRaster } from '../render/fogField.js';
+import { ALIVE_MAX_CELLS, FogFieldView, SPECTATOR_CELLS, aliveRasterGeometry, easeFogCut, fillFogRaster, screenReachU } from '../render/fogField.js';
 import { bakePuffTile } from '../render/fogPuffTile.js';
 import { CHART_LAYER_ORDER } from '../render/stage.js';
 
@@ -192,6 +192,9 @@ describe('no fog → a dark bitmap, nothing drawn, nothing evaluated', () => {
 
   it('fog → none zeroes the bitmap; clear() (the match-start edge) does too and resets the cut', () => {
     const { view } = makeView();
+    // A halo whose raster stays on the fixture's field (Story 11.2: the shipped
+    // halo rides the 350 hm muzzle-flash reach, far past it).
+    view.setHaloU(750);
     view.setCut(FULL);
     view.update(16, 0, false, own);
     expect(view.drawn).toBe(true);
@@ -344,5 +347,37 @@ describe('the declared seat', () => {
     for (const above of ['mineChart', 'ship', 'plate', 'cloud', 'blip', 'ownShip']) {
       expect(at(above)).toBeGreaterThan(at('fog'));
     }
+  });
+});
+
+
+// STORY 11.2: the halo rides the 350 hm muzzle-flash reach, so the alive raster
+// is capped at what the screen shows from the hull and at ALIVE_MAX_CELLS a side.
+describe('aliveRasterGeometry — the alive raster is bounded at every halo and zoom', () => {
+  const F = CLIENT_CONFIG.fogField;
+  const geo = (halo: number, reach: number): { n: number; cell: number } => {
+    const out = { n: 0, cell: 0 };
+    aliveRasterGeometry(halo, reach, out);
+    return out;
+  };
+
+  it('never carries more than ALIVE_MAX_CELLS (+1) a side, and covers min(halo, screen fit)', () => {
+    for (const halo of [500, 2000, 2 * CONFIG.vision.muzzleFlash, 40000]) {
+      for (const reach of [300, 1400, 6000, 12000, Number.NaN]) {
+        const g = geo(halo, reach);
+        expect(g.n - 1, `${halo}/${reach}`).toBeLessThanOrEqual(ALIVE_MAX_CELLS);
+        const want = Number.isFinite(reach) ? Math.min(halo, 2 * (reach + F.recenterU)) : halo;
+        expect((g.n - 1) * g.cell, `${halo}/${reach}`).toBeGreaterThanOrEqual(want - 1e-9);
+      }
+    }
+  });
+
+  it('a small halo keeps the shipped cell (the old raster, untouched)', () => {
+    expect(geo(2 * (750 + F.recenterU), Number.NaN).cell).toBe(F.cellU);
+  });
+
+  it('screenReachU is the farthest screen corner from the centre', () => {
+    expect(screenReachU({ x: -30, y: -40, w: 60, h: 80 }, { x: 0, y: 0 })).toBeCloseTo(50, 9);
+    expect(screenReachU({ x: 0, y: 0, w: 60, h: 80 }, { x: 0, y: 0 })).toBeCloseTo(100, 9);
   });
 });

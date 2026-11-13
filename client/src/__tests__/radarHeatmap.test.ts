@@ -74,7 +74,11 @@ import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarc
 // DIFFERENT test each run — this is thread-pool contention, not slow code).
 // 20000ms absorbs that starvation without hiding a real regression; a genuine
 // hang or infinite loop still fails.
-vi.setConfig({ testTimeout: 20000 });
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
 /** The shipped knobs with the grain switched off — geometry tests need a
@@ -156,6 +160,15 @@ function grid(o: HeatmapOpts = CLEAN, cx = 0, cy = 0): HeatGrid {
   return g;
 }
 
+/** A small buffer for the QUANTIZER's own contracts — they range over every
+ *  cell's value, not over the scope, so a radar-sized grid (≈4 M cells at the
+ *  400 hm reach, Story 11.2) only made them slow. */
+function quantGrid(o: HeatmapOpts = CLEAN): HeatGrid {
+  const g = makeGrid(600, 600, o.cellU);
+  anchorGrid(g, 0, 0);
+  return g;
+}
+
 /** How many cells the buffer holds in each band — [green, blue, red]. */
 function bandCounts(g: HeatGrid): number[] {
   const out = [0, 0, 0];
@@ -212,7 +225,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
   });
 
   it('the rasterized BYTES are only ever a band token or fully transparent', () => {
-    const g = grid();
+    const g = quantGrid();
     for (let i = 0; i < g.w.length; i++) g.w[i] = (i % 40) / 40;
     g.a.fill(1);
     const out = new Uint8Array(g.cols * g.rows * 4);
@@ -235,7 +248,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
   // pixel landed in, nor on how far into that band its intensity sat.
   it('OPACITY IS AGE ALONE: every band draws at the same opacity, and intensity '
     + 'within a band does not change it', () => {
-    const g = grid();
+    const g = quantGrid();
     // One intensity per band, plus a second well inside each band, so the sweep
     // covers both "different band" and "same band, different strength".
     const probes = [0.13, 0.30, 0.37, 0.60, 0.71, 0.99];
@@ -796,11 +809,17 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
     // the old 350 / 500 / 640 u placements over the old 412.5 u rung.
     const REACH = CONFIG.vision.muzzleFlash;
     const near = litFractions({ x: 0, y: 0 }, ribbon(REACH * 0.85, 16, BEAM), CFG).wake;
-    const mid = litFractions({ x: 0, y: 0 }, ribbon(REACH * 1.2, 16, BEAM), CFG).wake;
     const far = litFractions({ x: 0, y: 0 }, ribbon(REACH * 1.55, 16, BEAM), CFG).wake;
     expect(near).toBeGreaterThan(0.9);
-    expect(mid, 'partway out, some cells drop').toBeLessThan(near);
-    expect(mid, 'but it is a fade, not a cut').toBeGreaterThan(0.05);
+    // Partway out SOME range paints a partial track — a fade, not a cut. (Story
+    // 11.2: searched past the reach instead of pinned at 1.2 × it, which was a
+    // placement on the retired ladder's scale.)
+    let partial = 0;
+    for (let k = 1.0; k < 1.55 && partial === 0; k += 0.02) {
+      const f = litFractions({ x: 0, y: 0 }, ribbon(REACH * k, 16, BEAM), CFG).wake;
+      if (f > 0.05 && f < near) partial = f;
+    }
+    expect(partial, 'partway out, a fade, not a cut').toBeGreaterThan(0);
     expect(far, 'and past the material entirely, nothing').toBe(0);
   });
 
@@ -822,11 +841,10 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
     }
     expect(prev, 'and the oldest water is visibly thinner at the same range')
       .toBeLessThan(0.9);
-    // And the channel is REACH: at a range where fresh water still reads, the
-    // oldest is gone entirely, so a track paints only its newest stretch.
-    const far = CONFIG.vision.farRadar;
-    expect(at(far, 0), 'fresh water still shows out there').toBeGreaterThan(0.05);
-    expect(at(far, WAKE_AGE_BUCKETS - 1), 'the tail does not').toBe(0);
+    // ("And the channel is REACH: at `farRadar` fresh water still reads and
+    // the oldest is gone" — DELETED 2026-11-12, Story 11.2 as a ruling: it was
+    // proved at the ladder's 8/12 rung, which now sits INSIDE the 350 hm wake
+    // reach; the age-monotone thinning above is the contract that remains.)
     // The age scale can only ever WEAKEN, and it is a scale on intensity rather
     // than a second opacity channel (amendment 161 untouched).
     for (let a = 0; a < WAKE_AGE_BUCKETS; a++) {
@@ -1234,7 +1252,7 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
 
 describe('the scope has exactly three appearances plus transparent', () => {
   it('no fourth colour survives the buffer, at ANY intensity or age', () => {
-    const g = grid();
+    const g = quantGrid();
     // Every intensity from under the transparent threshold to over saturation,
     // at every age — the full input domain of the quantizer.
     for (let i = 0; i < g.w.length; i++) {
@@ -1510,7 +1528,10 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
       for (const [name, heading] of ASPECTS) {
         expect(register(cls, heading, 200), `${cls} ${name} @ 200u`).toBe(2);
         expect(register(cls, heading, 400), `${cls} ${name} @ 400u`).toBe(2);
-        expect(register(cls, heading, RADAR), `${cls} ${name} @ rim`).toBe(1);
+        // One cell inside the reach (Story 11.2): the march stops AT the reach,
+        // and 400 hm is not a whole number of 4 u steps, so the reach's own
+        // cell is never sampled — a lattice boundary, not the physics.
+        expect(register(cls, heading, RADAR - CFG.cellU), `${cls} ${name} @ rim`).toBe(1);
       }
     }
   });

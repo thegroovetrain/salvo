@@ -47,6 +47,11 @@
 // max zoom is on the scope the moment the camera zooms out.
 
 import { describe, it, expect, vi } from 'vitest';
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 import { Container, Sprite, Texture } from 'pixi.js';
 import { CONFIG, DEFAULT_CLASS_ID, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -495,7 +500,10 @@ describe('a paint at the radar rim is not clipped as the observer sails away', (
     // Withdraw well past a ring-sized box: at 900u away the OLD buffer (half
     // extent = radarRange, centred on the ship) no longer contained this cell at
     // all, and the mark blinked out — the "box around the radar ring" Eric saw.
-    for (const x of [-200, -500, -900]) {
+    // Story 11.2: at the 400 hm rim the paint sits near the screen's own edge
+    // at the zoom-out limit, so the withdrawals stay inside what that screen
+    // still shows (any step past `RADAR − rim` is already outside the box).
+    for (const x of [-20, -100, -200]) {
       frame(radar, cam, { x, y: 0 }, 1000);
       expect(Math.abs(rim.x - x), 'genuinely outside a ring-sized box').toBeGreaterThan(RADAR);
       expect(radar.bandAt(rim.x, rim.y), `withdrawn to x=${x}`).toBeGreaterThanOrEqual(0);
@@ -1051,18 +1059,13 @@ describe('anything the server blips paints (amendment 127), at any range', () =>
 describe('the near-range dim mask', () => {
   const DIM = CLIENT_CONFIG.blip.heatmap.dim;
 
-  it('BOTH RADII COME OFF THE LADDER, never off a literal — and they are '
-    + 'ANCHORED TO TRUESIGHT, so they scale with the observer', () => {
-    // The factors are multiples of the observer's EFFECTIVE sight, not fixed
-    // radii: at the base hull they land on the 4/12 (sight) and 6/12 (flash)
-    // rungs of the twelfths ladder (epic-9 amendment 103).
-    const base = dimRadii(CONFIG.vision.sight);
-    expect(base.innerU, 'inner = the sight bubble itself (4/12)').toBeCloseTo((RADAR * 4) / 12, 9);
-    expect(base.outerU, 'outer = the flash rung (6/12)').toBeCloseTo((RADAR * 6) / 12, 9);
-    expect(DIM.outerFactor, 'and the ratio is a ladder derivation')
-      .toBeCloseTo(CONFIG.vision.muzzleFlash / CONFIG.vision.sight, 12);
-    expect(DIM.minScale, 'the dim is a floor, never a suppression').toBeGreaterThan(0);
-    expect(DIM.minScale, 'and it does dim').toBeLessThan(1);
+  // "BOTH RADII COME OFF THE LADDER" (the 4/12 and 6/12 rungs) — DELETED
+  // 2026-11-12, Story 11.2 as a ruling: the twelfths ladder retired and the
+  // ramp keeps today's absolute radii (R20 reading). The factor relation is
+  // hullOverRadar.test.ts's; what survives here is the floor's own contract.
+  it('the dim is a floor, never a suppression', () => {
+    expect(DIM.minScale).toBeGreaterThan(0);
+    expect(DIM.minScale).toBeLessThan(1);
   });
 
   it('hangs on the LAYER, not on the heat sprite — and survives the resize that '
@@ -1125,8 +1128,9 @@ describe('the near-range dim mask', () => {
   it('COVERS EVERY CELL THE RADAR CAN DRAW: a sprite mask clips to its own '
     + 'frame, so the span has to outreach a boon-widened scope plus a whole '
     + "phosphor life of own-ship travel", () => {
-    // ~2.01× base radar (the boon ceiling) plus a fast hull's 12s of travel.
-    const boonScope = RADAR * 2.01;
+    // The radar reach (no card widens it any more — the 2.01× boon ceiling this
+    // used retired; Story 11.2 re-cut) plus a fast hull's 12s of travel.
+    const boonScope = RADAR;
     const travel = 60 * (blipLifeMs(60_000 / CONFIG.vision.sweepRpm) / 1000);
     expect(DIM.spanU, 'the mask reaches past the furthest possible paint')
       .toBeGreaterThan(boonScope + travel);

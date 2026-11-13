@@ -150,7 +150,7 @@ describe('hoverPreview — the incoming values ARE effectiveStats with the card 
   });
 
   it('every marked value equals the readout of the real fold with the card', () => {
-    for (const line of ['armor', 'reload', 'range', 'lightTorpedo', 'hullRepair']) {
+    for (const line of ['armor', 'reload', 'lightTorpedo', 'hullRepair']) {
       const marks = hoverPreview(SHIP, line)!;
       const next = byKey(shipReadouts(SHIP, line)!);
       expect(marks.size, line).toBeGreaterThan(0);

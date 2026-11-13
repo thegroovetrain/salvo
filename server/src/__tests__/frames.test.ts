@@ -167,7 +167,35 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     const w = makeWorld();
     place(w, 'far', CONFIG.vision.sight + 50, 0);
     w.step();
-    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+    const f = buildFrame(w, 'a');
+    expect(f.contacts.map((c) => c.id)).toEqual(['b']);
+    // THE OUTER EYE TIER (Story 11.2): past the class-and-name reach and
+    // inside the plain-hull reach, `far` is a PLAIN contact in `pc` — its pose
+    // under an anonymous handle, and nothing that names it.
+    const far = w.ships.get('far')!;
+    expect(Math.hypot(far.state.x, far.state.y)).toBeLessThan(CONFIG.vision.hullSight); // premise: in the plain band
+    expect(f.pc).toHaveLength(1);
+    const row = f.pc![0];
+    expect(Object.keys(row)).toEqual(['h', 'x', 'y', 'heading', 'speed']);
+    expect(row).toEqual({ h: row.h, x: far.state.x, y: far.state.y, heading: far.state.heading, speed: far.state.speed });
+    expect([...w.ships.keys()]).not.toContain(row.h); // the handle is never a roster id
+  });
+
+  it('carries NEITHER a contact NOR a `pc` row for a hull beyond the plain-hull reach, and omits `pc` (not []) when it is empty', () => {
+    const w = new World(42);
+    w.map.islands.length = 0;
+    // MIND THE BOARD: the plain-hull reach is wider than the map radius, so
+    // the two hulls sit on opposite sides of the origin (the first step would
+    // push a hull seated past the rim back onto the water).
+    const apart = CONFIG.vision.hullSight + 500;
+    expect(apart / 2).toBeLessThan(w.map.radius); // premise: both seats are on the water
+    const a = place(w, 'a', -apart / 2, 0);
+    const z = place(w, 'z', apart / 2, 0);
+    w.step();
+    expect(Math.hypot(z.state.x - a.state.x, z.state.y - a.state.y)).toBeGreaterThan(CONFIG.vision.hullSight); // premise survived the step
+    const f = buildFrame(w, 'a');
+    expect(f.contacts).toEqual([]);
+    expect('pc' in f).toBe(false);
   });
 
   it('excludes dead ships; a respawned ship reappears once back in sight', () => {
@@ -180,7 +208,11 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']); // still sinking
     for (let i = 0; i < 2; i++) w.step();
     const b = w.ships.get('b')!;
-    expect(isAfloat(b.lifecycle)).toBe(true); // respawned on the ring, far outside a's sight
+    expect(isAfloat(b.lifecycle)).toBe(true); // respawned
+    // The respawn seat is wherever the layout put it (inside the 200 hm class
+    // reach or not — Story 11.2), so seat b past a's class reach explicitly.
+    b.state.x = CONFIG.vision.sight + 50;
+    b.state.y = 0;
     expect(buildFrame(w, 'a').contacts).toEqual([]);
     b.state.x = 100; // steam back into a's bubble
     b.state.y = 0;
@@ -201,7 +233,11 @@ describe('buildFrame — events (fogged via perception)', () => {
 
   it('emits sunk to every client (PV 23), stamping seen only for witnesses', () => {
     const w = makeWorld();
-    place(w, 'c', 2000, 0); // a distant third party, far beyond sight and radar
+    // A distant third party, past its CLASS-AND-NAME reach of b (Story 11.2:
+    // identity rides the class reach — `seen` is stamped only inside it). It
+    // holds b only as a plain hull, which is no witness.
+    const victim = w.ships.get('b')!;
+    place(w, 'c', victim.state.x, victim.state.y + CONFIG.vision.sight + 200);
     w.step(); // flush join spawns
     w.sinkShip('b', 'a');
     w.step();
@@ -215,9 +251,14 @@ describe('buildFrame — events (fogged via perception)', () => {
     expect(buildFrame(w, 'b').events).toEqual([seen]); // victim always told (own hull ⇒ seen), never the killer's point
     // The public register: c never saw the wreck — the feed line's identity
     // arrives, the spatial license does not.
-    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([
+    const fc = buildFrame(w, 'c');
+    expect(fc.events.filter((e) => e.k === 'sunk')).toEqual([
       { k: 'sunk', id: 'b', by: 'a' },
     ]);
+    // ...and nothing in c's frame ties that id to the plain hulls it holds.
+    expect(fc.contacts).toEqual([]);
+    expect(fc.pc!.length).toBeGreaterThan(0); // non-vacuous: c does hold plain hulls
+    for (const row of fc.pc!) expect(Object.keys(row)).toEqual(['h', 'x', 'y', 'heading', 'speed']);
   });
 
   it('spawn events carry the spawn position', () => {

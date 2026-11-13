@@ -60,10 +60,11 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   const CELL = CONFIG.vision.radarCellU;
   const RETURN_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'] as const satisfies readonly (keyof BlipEvent)[];
   const FORBIDDEN = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
-  // Placements sit 700-750 u out: past sight and inside the radar
-  // dropout's flat band, so every swept paint lands (Story 9.8, amendment
-  // 103 and ruling 121 — they were 400-450 u, which the twelfths ladder put
-  // inside sight).
+  // Placements sit 700-750 u out — any distance inside radar range serves:
+  // the radar paints at EVERY distance (amendment 210 — no inner edge) and
+  // every swept, unshadowed paint lands (the dropout roll is gone, Story
+  // 11.2). Which EYE tier a target also sits in is the gate test's business,
+  // below, and it derives its placements from CONFIG.
 
   it('a frame carries EXACTLY {k,t,gx,gy,w,h,bits} on every blip — no id, no position, no ext, no pose (amendment 152)', () => {
     const w = bareWorld(52);
@@ -163,21 +164,40 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
 
   it('the gate: a ship paints only when swept, at any range — a swept sighted ship is a contact AND a blip (amendment 210)', () => {
     const w = bareWorld(56);
-    const a = place(w, 'a', 0, 0);
-    place(w, 'in', 700, 0, 0.3); // beyond sight, swept — paints
-    place(w, 'out', 0, -700, 0.3); // beyond sight, unswept — silent
-    place(w, 'near', 100, 0, 0.3); // inside sight, swept — contact AND blip
+    // The placements, off the named reaches (Story 11.2): RADAR_ONLY is past
+    // both eye tiers and inside radar; PLAIN is the outer eye tier (a plain
+    // hull); NEAR is deep inside the class-and-name reach. The observer sits
+    // half of RADAR_ONLY west of the origin so every seat is on the board.
+    const V = CONFIG.vision;
+    const RADAR_ONLY = (V.hullSight + V.radar) / 2;
+    const PLAIN = (V.sight + V.hullSight) / 2;
+    const NEAR = V.sight / 4;
+    const OFF = 0.3; // rad — a bearing well outside the paint window
+    expect(RADAR_ONLY / 2).toBeLessThan(w.map.radius); // premise: on the water
+    const ax = -RADAR_ONLY / 2;
+    const a = place(w, 'a', ax, 0);
+    const at = { in: { x: ax + RADAR_ONLY, y: 0 }, out: { x: ax + RADAR_ONLY * Math.cos(OFF), y: RADAR_ONLY * Math.sin(OFF) }, mid: { x: ax + PLAIN, y: 0 }, near: { x: ax + NEAR, y: 0 } };
+    place(w, 'in', at.in.x, at.in.y, 0.3); // beyond both eye tiers, swept — paints
+    place(w, 'out', at.out.x, at.out.y, 0.3); // beyond both eye tiers, unswept — silent
+    place(w, 'mid', at.mid.x, at.mid.y, 0.3); // the plain-hull tier, swept — a `pc` row AND a blip
+    place(w, 'near', at.near.x, at.near.y, 0.3); // inside the class reach, swept — contact AND blip
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     const blips = blipsOf(f);
-    expect(blips).toHaveLength(2);
+    expect(blips).toHaveLength(3);
     expect(f.contacts.map((c) => c.id)).toEqual(['near']);
-    // The two footprints are exactly the two swept hulls' rasters, and the
-    // unswept ship leaks nowhere.
-    const expected = [paintCoverage('bismarck', 700, 0, 0.3, CELL, w.now), paintCoverage('bismarck', 100, 0, 0.3, CELL, w.now)];
+    // The eye's outer tier holds exactly the one plain hull — pose under an
+    // anonymous handle, nothing that names it — and never the radar-only two.
+    expect(f.pc).toHaveLength(1);
+    expect(Object.keys(f.pc![0])).toEqual(['h', 'x', 'y', 'heading', 'speed']);
+    expect(f.pc![0]).toMatchObject({ x: at.mid.x, y: at.mid.y });
+    expect(w.ships.has(f.pc![0].h)).toBe(false);
+    // The three footprints are exactly the three swept hulls' rasters, and
+    // the unswept ship leaks nowhere.
+    const expected = [at.in, at.mid, at.near].map((p) => paintCoverage('bismarck', p.x, p.y, 0.3, CELL, w.now));
     expect(blips.map(maskOf)).toEqual(expect.arrayContaining(expected));
     const cellOfU = (v: number): number => Math.floor(v / CELL);
-    expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(0) - b.gx, cellOfU(-700) - b.gy))).toBe(false);
+    expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(at.out.x) - b.gx, cellOfU(at.out.y) - b.gy))).toBe(false);
   });
 });
 

@@ -77,12 +77,24 @@ function input(patch: Partial<InputMsg>): InputMsg {
 
 const gunShellsInFlight = (w: World): boolean => [...w.shells.values()].some((s) => s.kind === 'shell');
 
+/** The step cap of a shot: the ticks a gun-family shell needs to cross the
+ *  WHOLE board (no shot is longer — the aim is clamped inside the map disk),
+ *  plus a few to resolve. Every gun row flies at the family muzzle velocity. */
+const shotTicks = (w: World): number =>
+  Math.ceil(((2 * w.map.radius) / CONFIG.gun.shellSpeed) * (1000 / CONFIG.tick.simDtMs)) + 10;
+
+/** THE RIM SEAT (Story 11.2): a gun's reach is longer than the board's radius,
+ *  so a max-range case seats its gunner one hull length inside the WEST rim,
+ *  firing EAST across the board. The seat's x. */
+const rimX = (w: World): number => -(w.map.radius - CONFIG.shipClasses.bismarck.hull.length);
+
 /** Click `slot` at (aim, dist) and step until every gun-family shell has
  *  resolved; returns every event of the shot's life. */
 function click(w: World, id: string, dist: number, opts: { aim?: number; slot?: number } = {}): GameEvent[] {
   w.submitInput(id, input({ seq: 2, fireSeq: 2, aimDist: dist, aim: opts.aim ?? 0, slot: opts.slot ?? SLOT_GUN }));
   const log: GameEvent[] = [];
-  for (let i = 0; i < 80; i += 1) {
+  const cap = shotTicks(w);
+  for (let i = 0; i < cap; i += 1) {
     w.step();
     log.push(...w.tickEvents);
     if (i > 0 && !gunShellsInFlight(w)) return log;
@@ -128,24 +140,29 @@ describe('the CANNON — one click on the mine pops it (the twin volley sums pas
 
   it('a click past the gun reach is clamped short: the shells land 40 u off a mine 40 u past reach (beyond burst + marker), which is untouched', () => {
     const w = bareWorld();
-    const a = captain(w, 'a', 0, 0);
+    const x0 = rimX(w);
+    const a = captain(w, 'a', x0, 0);
     expect(a.stats.equipment.gun.rangeU).toBe(G); // its own Tier I dial (Story 9.8, ruling 125)
-    lay(w, 'm1', 'x', G + 40, 0);
+    expect(x0 + G + 40).toBeLessThan(w.map.radius); // the mine past reach is on the water
+    lay(w, 'm1', 'x', x0 + G + 40, 0);
     const log = click(w, 'a', G + 40);
     const burst = log.find((e): e is BurstEvent => e.k === 'burst')!;
-    expect(burst.x).toBeCloseTo(G, 3);
+    expect(burst.x).toBeCloseTo(x0 + G, 3);
     expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
     expect(mineBooms(log, 'm1')).toEqual([]);
   });
 
   it('NO CURSOR TERM (Story 9.12, epic-9 amendment 184(i)): a click 40 u past reach clamps to the reach and lands on a mine there — it takes the blows', () => {
     const w = bareWorld();
-    const a = captain(w, 'a', 0, 0);
-    lay(w, 'm1', 'x', G, 0, 'naval');
+    const x0 = rimX(w);
+    const a = captain(w, 'a', x0, 0);
+    expect(x0 + G + 40).toBeLessThan(w.map.radius); // the range clamp bites, not the map's
+    lay(w, 'm1', 'x', x0 + G, 0, 'naval');
     w.mines.get('m1')!.hp = 100; // tough, so the hp spent can be read
     const seen: ShellState[] = [];
     w.submitInput('a', input({ seq: 2, fireSeq: 2, aimDist: G + 40 }));
-    for (let i = 0; i < 80; i += 1) {
+    const cap = shotTicks(w);
+    for (let i = 0; i < cap; i += 1) {
       w.step();
       for (const sh of w.shells.values()) if (!seen.some((x) => x.id === sh.id)) seen.push({ ...sh });
       if (i > 0 && !gunShellsInFlight(w)) break;
@@ -331,15 +348,18 @@ describe('the MACHINE GUN — ceil(mine hp / D) near shells to pop one', () => {
 
   it('NO CURSOR TERM, PER SHELL (Story 9.12): a shell aimed 40 u past reach lands at the reach clamp ON the mine and takes the same blow as the shells aimed on it', () => {
     const w = bareWorld();
-    const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
+    const x0 = rimX(w);
+    const a = captain(w, 'a', x0, 0, { gun: 'machineGun' });
     const M = CONFIG.machineGun.rangeU; // its own Tier I dial (Story 9.8, ruling 125)
     expect(a.stats.equipment.machineGun.rangeU).toBe(M);
-    lay(w, 'm1', 'x', M, 0);
+    expect(x0 + M + 40).toBeLessThan(w.map.radius); // the range clamp bites, not the map's
+    lay(w, 'm1', 'x', x0 + M, 0);
     w.mines.get('m1')!.hp = 100; // tough, so every blow can be read
     const fired = new Map<string, ShellState>();
     const hpAfter: number[] = [];
     let seq = 1;
-    for (let i = 0; i < 200 && hpAfter.length < 3; i += 1) {
+    const cap = 2 * shotTicks(w);
+    for (let i = 0; i < cap && hpAfter.length < 3; i += 1) {
       seq += 1;
       // Shell 1 on the mine; shell 2 with the cursor 40 u past reach; shell 3 back on it.
       w.submitInput('a', input({ seq, held: true, aimDist: fired.size === 1 ? M + 40 : M }));

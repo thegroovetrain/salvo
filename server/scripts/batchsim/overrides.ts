@@ -161,13 +161,12 @@ const TUNE_FAMILIES = [
   // `offer.weighting.` rather than `offer.` so `offer.size` keeps its --set
   // home and its floor of 1.
   'offer.weighting.',
-  // THE RADAR DROPOUT (Story 9.8, epic-9 amendment 104, rulings 121–123):
-  // `startU` / `kneeU` (floor 1 — TUNE_MIN_ONE_KEYS) and the two paint
-  // probabilities `kneeP` / `rimP` (clamped to [0, 1] — PROBABILITY_KEYS).
-  // ONLY the dropout sub-block: the rest of `vision.*` is the sensor ladder
-  // itself, which the shared fold and the client both derive from, so it is
-  // not a harness dial.
-  'vision.dropout.',
+  // THE RADAR DROPOUT (`vision.dropout.*`, Story 9.8) — RETIRED 2026-11-12,
+  // Story 11.2, R8: the dropout is removed (Story 11.4's strength model
+  // replaces it), so the family, its two floors, its probability clamp and
+  // its curve validation left the --tune surface. No `vision.*` leaf is a
+  // harness dial: the reaches are hectometer facts the shared fold and the
+  // client both read.
   // THE FOG FIELD (Story 9.10, Eric 2026-10-15 — "no discs", a rolling
   // fractal-noise field; every leaf of CONFIG.fog is a harness dial).
   // Floors: `sightCostPerU`, `windU`, `edgeBand` and `cutRatePerS` at 0 (each
@@ -477,7 +476,7 @@ const TUNE_MIN_ONE_LEAVES = new Set([
   'reload',
   'engines',
   'intel',
-  'range',
+  // (`range` — the RANGE index's floor — left with the index, Story 11.2, R9.)
   'shellSpeed',
   'speed',
   'hp',
@@ -500,19 +499,16 @@ const TUNE_MIN_ONE_LEAVES = new Set([
 // turn rate is DERIVED from the RUDDER index (whole numbers around 100, floor
 // 1 in TUNE_MIN_ONE_LEAVES above), so no tunable leaf lives below 1 any more.
 
-/** Exact --tune keys floored at 1 (Story 9.8): the dropout curve's two
- *  distances. Not leaf names — `startU` / `kneeU` are generic words, and the
- *  hazard is specific to this block (a 0 start makes every return a coin
- *  flip from the hull outward). The pair relations (start < knee < radar, rim ≤ knee
- *  probability) are refused on the finished CONFIG in validateDropoutCurve. */
+/** Exact --tune keys floored at 1 — full keys, not leaf names, where the leaf
+ *  is a generic word and the hazard is specific to its block. (The dropout
+ *  curve's `startU` / `kneeU`, Story 9.8, left with the dropout — Story 11.2,
+ *  R8.) */
 const TUNE_MIN_ONE_KEYS = new Set([
   // Story 10.4: the secondaries' heat clocks and cadence (sim/secondaries.ts
   // divides by the two heat clocks; a 0 rate is a round every step).
   'secondaries.rateMs',
   'secondaries.overheatMs',
   'secondaries.coolMs',
-  'vision.dropout.startU',
-  'vision.dropout.kneeU',
   // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
   'fog.targetPeriodMs',
   'fog.wavelengthU',
@@ -592,10 +588,10 @@ export function validateTuneValue(key: string, value: number): void {
  */
 const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.floor']);
 
-/** The dropout curve's paint probabilities (Story 9.8, ruling 121): CLOSED
- *  [0, 1] — 0 (never paints at that rung) and 1 (always paints) are both real
- *  arms; outside it is not a probability. */
-const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
+/** --tune keys that are probabilities: CLOSED [0, 1]. EMPTY since Story 11.2
+ *  (R8) removed the radar dropout's `kneeP` / `rimP`; the clamp stays so the
+ *  next probability dial inherits it by being listed here. */
+const PROBABILITY_KEYS = new Set<string>();
 
 /** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat
  *  lines since Story 10.4; the weighted Shift roll's fitting share since Story
@@ -774,7 +770,6 @@ function validateUnitInterval(key: string, value: number): void {
 function validateCrossKeyInvariants(): void {
   validateWeightingPair();
   validateCoverBand();
-  validateDropoutCurve();
   validateFogDials();
   validateBotDials();
   const { durationMs, maxAmmo } = CONFIG.boost;
@@ -806,34 +801,6 @@ function validateCoverBand(): void {
   if (!(coverMin <= coverTarget && coverTarget <= coverMax)) {
     throw new TunableError(
       `terrain cover band must satisfy coverMin <= coverTarget <= coverMax (got ${coverMin} <= ${coverTarget} <= ${coverMax})`,
-    );
-  }
-}
-
-/**
- * THE DROPOUT CURVE MUST BE A CURVE (Story 9.8 review, F3): `startU < kneeU <
- * vision.radar` and `rimP <= kneeP`, on the FINAL resolved values (an arm may
- * set several leaves at once). Anything else is what shared `dropoutPaintP`
- * calls DEGENERATE and fails closed on — a STEP at startU (full paint inside,
- * none beyond) — so a sim would silently read a mis-set dial as "the dropout
- * got harsher". A harness may not produce false evidence; refused up front.
- */
-function validateDropoutCurve(): void {
-  const { startU, kneeU, kneeP, rimP } = CONFIG.vision.dropout;
-  const radar = CONFIG.vision.radar;
-  if (!(startU < kneeU)) {
-    throw new TunableError(
-      `'vision.dropout.startU' (${startU}) must stay < 'vision.dropout.kneeU' (${kneeU}): otherwise the curve collapses to a step at startU`,
-    );
-  }
-  if (!(kneeU < radar)) {
-    throw new TunableError(
-      `'vision.dropout.kneeU' (${kneeU}) must stay < 'vision.radar' (${radar}): otherwise the curve collapses to a step at startU`,
-    );
-  }
-  if (!(rimP <= kneeP)) {
-    throw new TunableError(
-      `'vision.dropout.rimP' (${rimP}) must stay <= 'vision.dropout.kneeP' (${kneeP}): a rim more reliable than the knee collapses the curve to a step at startU`,
     );
   }
 }

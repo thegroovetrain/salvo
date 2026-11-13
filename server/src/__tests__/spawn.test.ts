@@ -99,33 +99,20 @@ describe('pickSpawn — placement constraints across seeds', () => {
 //   its own moved essentially nothing.
 //
 // With both, the same 60-seed measurement landed on exactly the lattice pitch
-// every time, 0/60 seeds with any pair inside radar. The empirical test below is that
-// measurement; the constraint pin guards the geometry it rests on.
-
-/** The even spacing a FULL lobby gets: the chord between adjacent slots of the
- *  one shared lattice, when every slot is occupied. */
-function evenSpacing(spawnRing: number, slots: number): number {
-  return 2 * spawnRing * Math.sin(Math.PI / slots);
-}
+// every time. (HISTORY: the outcome "no pair inside radar" and its two tests
+// retired 2026-11-12 with Story 11.2's 400 hm radar — at real reach neighbors
+// start on each other's scopes by design. The lattice mechanism below stands.)
 
 describe('spawn ring candidate count — derived from the player cap', () => {
   it('is CONFIG.map.playerCap, not a literal', () => {
     expect(SPAWN_CANDIDATES).toBe(CONFIG.map.playerCap);
   });
 
-  it('CONSTRAINT: the candidate lattice out-spaces radar range at a full lobby', () => {
-    // THE PIN. Every term is live CONFIG, so retuning the player cap, the map
-    // radius, the spawn fraction OR radar range fails the build here rather
-    // than silently shrinking the lattice back under radar. Eric's ruling
-    // (2026-10-13, Story 9.8): *"16 captains on a 10,000 u ocean, rings 10000 →
-    // 7000 → 4000 → 2000 → 0"* — one evenly spaced spawn ring at the spawn
-    // fraction of R, whose neighbor chord now clears the twelfths-ladder radar
-    // (amendment 103). It was red between wave 1 (radar 1500) and that ruling
-    // (cap 20 on the 5500 u ocean). The contract is the inequality, never the
-    // numbers.
-    const spawnRing = CONFIG.map.baseRadius * CONFIG.map.spawnFraction;
-    expect(evenSpacing(spawnRing, CONFIG.map.playerCap)).toBeGreaterThan(CONFIG.vision.radar);
-  });
+  // (DELETED 2026-11-12 — Story 11.2, a ruling recorded in the epic-11
+  // amendments: "CONSTRAINT: the candidate lattice out-spaces radar range at
+  // a full lobby". At a 400 hm radar on the same 10,000 u board the spawn
+  // lattice's neighbor chord is far inside radar BY DESIGN — neighbors start
+  // on each other's scopes — so the inequality is retired, never patched.)
 
   it('a full lobby still lands every hull on the ring, island-clear', () => {
     for (const seed of SEEDS.slice(0, 5)) {
@@ -167,25 +154,9 @@ describe('spawn ring candidate count — derived from the player cap', () => {
 });
 
 describe('the shared spawn lattice — the phase is per-MATCH, not per-hull', () => {
-  it('a full lobby leaves no pair inside radar range of each other', () => {
-    // THE OUTCOME TEST, through the real World.addShip path (island clearance
-    // and the fallback ladder included). The minimum pair lands on exactly the
-    // lattice pitch, which the constraint above holds clear of radar (Eric
-    // 2026-10-13, Story 9.8: 16 captains on a 10,000 u ocean).
-    for (const seed of SEEDS.slice(0, 8)) {
-      const w = new World(seed);
-      const placed: Array<{ x: number; y: number }> = [];
-      for (let i = 0; i < CONFIG.map.playerCap; i++) {
-        const rec = w.addShip(`p${i}`, `P${i}`, undefined, undefined, undefined, undefined);
-        placed.push({ x: rec.state.x, y: rec.state.y });
-      }
-      let min = Infinity;
-      for (let i = 0; i < placed.length; i++) {
-        for (let j = i + 1; j < placed.length; j++) min = Math.min(min, dist(placed[i], placed[j]));
-      }
-      expect(min).toBeGreaterThan(CONFIG.vision.radar);
-    }
-  });
+  // (DELETED 2026-11-12 — Story 11.2, the same ruling: "a full lobby leaves
+  // no pair inside radar range of each other", the 8-seed empirical block of
+  // the retired constraint above.)
 
   it('hulls placed at DIFFERENT times share one lattice', () => {
     // The phase must not drift with elapsed ticks or with how much rng other

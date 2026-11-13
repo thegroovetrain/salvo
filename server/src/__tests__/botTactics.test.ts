@@ -220,6 +220,7 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
    
     clouds: [],
     drops: [],
+    plain: [],
   };
 }
 
@@ -306,10 +307,29 @@ function openWorld(seed: number, cap = 8): World {
  * are the right tool for arcs, pools, ranges and abilities — and these run
  * alongside them.
  */
-/** u — a lost plot past the bot's own truesight and inside flare reach:
- *  one sight plus 200 u (the flare never lights a plot inside sight — the
- *  twelfths ladder moved sight to the old 500 u placement, Story 9.8). */
-const LOST_X = CONFIG.vision.sight + 200;
+/** u — how far off a LOST plot stands: past the bot's own truesight and
+ *  inside flare reach — one sight plus 200 u (the flare never lights a plot
+ *  inside sight). */
+const LOST_U = CONFIG.vision.sight + 200;
+/** The lost-plot fixture's two stations, ASTRIDE the map centre on the x
+ *  axis (Story 11.2: sight is longer than a small board's radius, and a plot
+ *  placed off the board is read at the rim — so the bot stands at
+ *  `LOST_FROM_X` and its lost plot at `LOST_X`, `LOST_U` apart, both on the
+ *  water). */
+const LOST_X = LOST_U / 2;
+const LOST_FROM_X = -LOST_U / 2;
+
+/** The player cap of the board the BEYOND-REACH scenarios run on (Story
+ *  11.2): gun reach is longer than a small board is wide, so "a plot beyond
+ *  the weapon's reach" exists only where the board is wider than the reach. */
+const WIDE_CAP = 32;
+
+/** Two stations ASTRIDE the map centre on the x axis, `dist` u apart — the
+ *  bot's (west) and its plot's (east) — asserted on the water of `w`. */
+function astride(w: World, dist: number): { botX: number; plotX: number } {
+  expect(dist / 2).toBeLessThan(w.map.radius);
+  return { botX: -dist / 2, plotX: dist / 2 };
+}
 
 function islandWorld(seed: number, isle: Island): World {
   const w = openWorld(seed);
@@ -319,16 +339,18 @@ function islandWorld(seed: number, isle: Island): World {
 
 describe('steering — the priority order is the policy', () => {
   it('RING ESCAPE outranks target pursuit: outside the ring, the helm turns for its centre', () => {
-    const w = openWorld(101);
+    const w = openWorld(101, WIDE_CAP);
     // The ring sits to the WEST; the target sits to the EAST. A bot pointed
     // north must choose one of two opposite rudders, so the assertion cannot
     // be satisfied by accident.
-    const port = fakePort(w, { cx: -600, cy: 0, r: 200 });
     const rec = mkBot(w, 'yamato', 0, 0, Math.PI / 2); // bow due north
-    const mind = mkMind('bulwark');
     // Beyond bulwark's band (a fraction of its gun reach since Story 9.8,
     // ruling 126), so the target alone would PURSUE east.
-    plot(mind, track(port.now, { x: gunBand(profileOf('bulwark'), rec.stats).max + 200, y: 0 }));
+    const { botX, plotX } = astride(w, gunBand(profileOf('bulwark'), rec.stats).max + 200);
+    rec.state.x = botX;
+    const port = fakePort(w, { cx: botX - 600, cy: 0, r: 200 });
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: plotX, y: 0 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.throttle).toBe(1); // full ahead: the storm does not miss
     // Port rudder (positive = counter-clockwise) swings a north-facing bow to
@@ -748,7 +770,7 @@ describe('steering — the priority order is the policy', () => {
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const view = (own: boolean | null): BotMind['view'] => ({
       contacts: [], events: [], mines: own === null ? [] : [{ id: 'm1', x: 60, y: 20, by: 'enemy', own }],
-      litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [],
+      litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [],
     });
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     // RE-STATED (Story 9.13, amendment 202): the idle bearing is a patrol
@@ -896,14 +918,20 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
   });
 
   it('OPEN WATER IS UNTOUCHED: the constraint engages only within one reversal run of the rim', () => {
-    const w = openWorld(304);
+    const w = openWorld(304, WIDE_CAP);
     const rec = mkBot(w, 'bismarck', 0, 0, 0);
+    // The tight ring's centre is the hull's berth; it and the seaward plot of
+    // the control below stand ASTRIDE the map centre (Story 11.2: a plot
+    // beyond the battery's reach must still be on the board).
+    const seawardU = 560 + rec.stats.equipment.mainBattery.rangeU + 200;
+    const { botX: cx, plotX: seaward } = astride(w, seawardU);
+    rec.state.x = cx;
     const plotAt = (p: FakePort, m: BotMind): void => {
-      plot(m, track(p.now, { x: 200, y: 100, speed: 0 }));
+      plot(m, track(p.now, { x: cx + 200, y: 100, speed: 0 }));
     };
     // A ring whose rim is 600u away against a Torpedo Boat's 176.7u reversal
     // run, and a ring four map radii wide: the same helm, to the bit.
-    const tight = fakePort(w, { cx: 0, cy: 0, r: 600 });
+    const tight = fakePort(w, { cx, cy: 0, r: 600 });
     const wide = fakePort(w);
     const m1 = mkMind('duelist');
     const m2 = mkMind('duelist');
@@ -920,8 +948,7 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     // it is no target at all (never chased past the rim), while in the wide
     // port the peer passes the odds gate and is pursued. (Inside own reach it
     // would be engaged from where the bot is in both ports.)
-    rec.state.x = 560;
-    const seaward = rec.state.x + rec.stats.equipment.mainBattery.rangeU + 200;
+    rec.state.x = cx + 560;
     const m3 = mkMind('duelist');
     const m4 = mkMind('duelist');
     plot(m3, track(tight.now, { x: seaward, y: 0, speed: 0 }));
@@ -987,7 +1014,7 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     // 71% of the bot's remaining into-terrain ordnance after the first pass.
     const blocked = islandWorld(305, circleIsland(250, 0, 120)); // squarely on the line
     const p1 = fakePort(blocked);
-    const rec = mkBot(blocked, 'yamato', 0, 0, 0);
+    const rec = mkBot(blocked, 'yamato', LOST_FROM_X, 0, 0);
     const m1 = mkMind('siege');
     plot(m1, track(p1.now, { x: LOST_X, y: 0, live: false, seenAt: p1.now - 3000 }));
     expect(COMBAT_BRAIN.decide(rec, m1, p1).fireSlot).not.toBe(slotOf(rec, 'starShells'));
@@ -998,7 +1025,7 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     // it just holds the round when the round cannot arrive.
     const clear = islandWorld(305, circleIsland(250, 600, 120));
     const p2 = fakePort(clear);
-    const rec2 = mkBot(clear, 'yamato', 0, 0, 0);
+    const rec2 = mkBot(clear, 'yamato', LOST_FROM_X, 0, 0);
     const m2 = mkMind('siege');
     plot(m2, track(p2.now, { x: LOST_X, y: 0, live: false, seenAt: p2.now - 3000 }));
     expect(COMBAT_BRAIN.decide(rec2, m2, p2).fireSlot).toBe(slotOf(rec2, 'starShells'));
@@ -1070,14 +1097,14 @@ describe('weapons — every shot is a LEGAL shot', () => {
   it('STAR SHELLS AS A SENSOR (C2): siege lights a stale plot it has lost', () => {
     const w = openWorld(204);
     const port = fakePort(w);
-    const rec = mkBot(w, 'yamato', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', LOST_FROM_X, 0, 0);
     const flares = slotOf(rec, 'starShells');
     const mind = mkMind('siege');
     // Lost 3s ago, out past our own truesight bubble, inside flare reach.
     plot(mind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3000 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(flares);
-    expect(d.aimDist).toBeCloseTo(LOST_X, 0); // aimed at the LAST KNOWN position
+    expect(d.aimDist).toBeCloseTo(LOST_U, 0); // aimed at the LAST KNOWN position
     // A LIVE contact needs no flare — that one gets shot at instead.
     const live = mkMind('siege');
     plot(live, track(port.now, { x: LOST_X, y: 0, live: true }));
@@ -1091,7 +1118,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     // waits for a plot to go properly cold (2x the eager staleness floor).
     const w = openWorld(214);
     const port = fakePort(w);
-    const rec = mkBot(w, 'yamato', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', LOST_FROM_X, 0, 0);
     const flares = slotOf(rec, 'starShells');
 
     // Stale 2s: past siege's eager 1.5s floor, short of bulwark's 3s one.
@@ -1176,17 +1203,21 @@ describe('weapons — every shot is a LEGAL shot', () => {
   });
 
   it('a target beyond the weapon\'s reach is not shot at — unless the aim point lies in an OWN live lit zone (amendment 198)', () => {
-    const w = openWorld(207);
+    const w = openWorld(207, WIDE_CAP);
     const port = fakePort(w);
     const rec = mkBot(w, 'yamato', 0, 0, 0);
-    const far = rec.stats.equipment.mainBattery.rangeU + 100;
+    // Bot and plot astride the map centre, so the plot past the battery's
+    // reach is on the board (an off-board aim point is clamped to the rim and
+    // could lie in no zone).
+    const { botX, plotX: far } = astride(w, rec.stats.equipment.mainBattery.rangeU + 100);
+    rec.state.x = botX;
     const litView = (by: string): BotMind['view'] => ({
-      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], clouds: [], drops: [],
+      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [],
       litZones: [{ id: 'z', x: far, y: 0, r: CONFIG.starShells.litRadius, until: port.now + 5000, by }],
     });
     const mind = mkMind('bulwark');
-    // Inside the scoring horizon (1.25R) but outside gun range (R) — and the
-    // broadside's 5/8 reach is shorter still.
+    // Inside the scoring horizon (a multiple of the radar reach) but outside
+    // the battery's reach — and the broadside's reach is shorter still.
     plot(mind, track(port.now, { x: far, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
     // The bot's OWN live flare over the plot lifts the reach (the server's
@@ -1484,7 +1515,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('NON-NATIVE PAIRING: a Torpedo Boat that acquired star shells fires the sensor flare', () => {
     const w = openWorld(402);
     const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0);
+    const rec = mkBot(w, 'bismarck', LOST_FROM_X, 0, 0);
     const flares = fitExtra(rec, 'starShells');
     const mind = mkMind('raider'); // neutral flare appetite: 2x staleness floor
     plot(mind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3500 }));
@@ -1596,38 +1627,51 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('torpedo homingTurnRate: the credible-range gate widens — bounded by budget minus turn room', () => {
     const w = openWorld(406);
     const port = fakePort(w);
-    const at600 = { x: 600, y: 0, heading: 0, speed: 0 };
-    // A STRAIGHT-RUNNING fish (tier I, rate 0): 600u is fiction (credible
-    // 250u) — the gun takes it instead.
+    const reachOf = (rec: ShipRecord): number => EQUIPMENT_TACTICS.heavyTorpedo.reachU(rec.stats);
     // Every shooter lies with the target on its starboard beam (R28).
+    const shooter = (homingTurnRate: number): ShipRecord => {
+      const rec = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
+      rec.stats.equipment.heavyTorpedo.homingTurnRate = homingTurnRate;
+      return rec;
+    };
+    // A STRAIGHT-RUNNING torpedo (tier I, rate 0) is credible at knife range
+    // only. A TOP-RUNG one (the rate written straight onto the row, exactly
+    // where the fold puts it at tier V: the SUBJECT here is the gate, not the
+    // ladder) reaches the row's own run (`runU`, Story 11.2, R5) less a
+    // half-turn of correction room.
     const base = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
-    trainOn(base, at600.x, at600.y); // the turrets on the beam too, so the gun's own on-target gate passes
     expect(base.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
+    const homing = shooter(CONFIG.torpedo.homingTurnRate);
+    const row = homing.stats.equipment.heavyTorpedo;
+    const straightU = reachOf(base);
+    const homingU = reachOf(homing);
+    expect(homingU).toBeGreaterThan(straightU);
+    expect(homingU).toBeCloseTo(row.runU - (Math.PI * row.speed) / row.homingTurnRate, 9);
+    // A plot BETWEEN the two gates: fiction for the straight-runner — the gun
+    // takes it instead...
+    const between = { x: (straightU + homingU) / 2, y: 0, heading: 0, speed: 0 };
+    trainOn(base, between.x, between.y); // the turrets on the beam too, so the gun's own on-target gate passes
     const baseMind = mkMind('raider');
-    plot(baseMind, track(port.now, at600));
+    plot(baseMind, track(port.now, between));
     expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).toBe(slotOf(base, 'mainBattery'));
-    // A TOP-RUNG fish (0.5 rad/s): 600u is inside homingMaxRangeU minus a
-    // half-turn of correction room (1300 − π·130 ≈ 892u) — the tube fires.
-    // The rate is written straight onto the row, exactly where the fold puts
-    // it at tier V: the SUBJECT here is the gate, not the ladder.
-    const homing = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
-    homing.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
+    // ...and inside the steering torpedo's gate: the tube fires.
     const homingMind = mkMind('raider');
-    plot(homingMind, track(port.now, at600));
-    trainLaunchersOn(homing, at600.x, at600.y); // the launcher ON the target (review gate)
+    plot(homingMind, track(port.now, between));
+    trainLaunchersOn(homing, between.x, between.y); // the launcher ON the target (review gate)
     expect(COMBAT_BRAIN.decide(homing, homingMind, port).fireSlot).toBe(slotOf(homing, 'heavyTorpedo'));
     // Still bounded: past the budget-minus-turn-room line the tube holds.
-    const far = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
-    far.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
+    const far = shooter(CONFIG.torpedo.homingTurnRate);
     const farMind = mkMind('raider');
-    plot(farMind, track(port.now, { x: 950, y: 0, heading: 0, speed: 0 }));
+    plot(farMind, track(port.now, { ...between, x: homingU + (homingU - straightU) / 2 }));
     expect(COMBAT_BRAIN.decide(far, farMind, port).fireSlot).not.toBe(slotOf(far, 'heavyTorpedo'));
-    // A LOW rung barely widens it at all — a slow turn needs a long run-up, so
-    // the same 600u plot is still fiction at tier II (1300 − π·540 < 250).
-    const early = mkBot(w, 'bismarck', 0, 0, 0);
-    early.stats.equipment.heavyTorpedo.homingTurnRate = 0.125;
+    // A LOW rung barely widens it at all — a slow turn needs a long run-up:
+    // at a rate whose half-turn eats the whole run the gate is the
+    // straight-runner's, and the same plot is still fiction.
+    const early = shooter((Math.PI * row.speed) / row.runU);
+    expect(reachOf(early)).toBe(straightU);
+    trainOn(early, between.x, between.y);
     const earlyMind = mkMind('raider');
-    plot(earlyMind, track(port.now, at600));
+    plot(earlyMind, track(port.now, between));
     expect(COMBAT_BRAIN.decide(early, earlyMind, port).fireSlot).toBe(slotOf(early, 'mainBattery'));
   });
 
@@ -1652,10 +1696,10 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(d.fireSlot).toBe(slot);
     expect(d.aimDist).toBeCloseTo(150, 6); // the nearest, whatever its speed
     // A live contact OUTSIDE our own sight bubble draws no phosphor.
-    const blind = mkBot(w, 'bismarck', 0, 0, 0);
+    const blind = mkBot(w, 'bismarck', LOST_FROM_X, 0, 0);
     w.applyCard(blind, 'phosphorShells');
     const blindMind = mkMind('siege');
-    plot(blindMind, track(port.now, { x: LOST_X, y: 0, live: true, speed: 10 })); // beyond sight (Story 9.8)
+    plot(blindMind, track(port.now, { x: LOST_X, y: 0, live: true, speed: 10 })); // beyond sight
     expect(COMBAT_BRAIN.decide(blind, blindMind, port).fireSlot).not.toBe(slotOf(blind, 'phosphorShells'));
     // Without the row, a live contact never draws a FLARE (it gets shot at).
     const base = mkBot(w, 'yamato', 0, 0, 0);
@@ -1668,11 +1712,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const w = openWorld(414);
     const port = fakePort(w);
     // bulwark (appetite 1.2 — reluctant) waits 2× FLARE_STALE_MS = 3000 ms.
-    const fresh = mkBot(w, 'yamato', 0, 0, 0);
+    const fresh = mkBot(w, 'yamato', LOST_FROM_X, 0, 0);
     const freshMind = mkMind('bulwark');
     plot(freshMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 2000 }));
     expect(COMBAT_BRAIN.decide(fresh, freshMind, port).fireSlot).not.toBe(slotOf(fresh, 'starShells'));
-    const stale = mkBot(w, 'yamato', 0, 0, 0);
+    const stale = mkBot(w, 'yamato', LOST_FROM_X, 0, 0);
     const staleMind = mkMind('bulwark');
     plot(staleMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3400 }));
     expect(COMBAT_BRAIN.decide(stale, staleMind, port).fireSlot).toBe(slotOf(stale, 'starShells'));
@@ -2339,7 +2383,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
     mind.viewAt = now;
   }
 
@@ -2425,14 +2469,18 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
   });
 
   it('INSTANT RELOAD: pressed ONLY with a target in reach AND a weapon reloading', () => {
-    const w = openWorld(8155);
+    const w = openWorld(8155, WIDE_CAP);
     const port = fakePort(w);
     const ml = mkBot(w, 'warspite', 0, 0, 0);
+    // The hull and its out-of-reach plot stand astride the map centre (the
+    // Warspite's battery outreaches a small board).
+    const { botX, plotX: farX } = astride(w, ml.stats.equipment.mainBattery.rangeU + 100);
+    ml.state.x = botX;
     const shift = slotOf(ml, 'instantReload');
     expect(shift).toBe(1);
     const inReach = (): BotMind => {
       const m = mkMind('trapper');
-      plot(m, track(port.now, { x: 300, y: 0, speed: 0 }));
+      plot(m, track(port.now, { x: botX + 300, y: 0, speed: 0 }));
       return m;
     };
     // Nothing reloading: held.
@@ -2442,7 +2490,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     expect(COMBAT_BRAIN.decide(ml, inReach(), port).act).toBe(abilityCode('shift'));
     // Same reload, target OUT of the gun's reach: held.
     const far = mkMind('trapper');
-    plot(far, track(port.now, { x: ml.stats.equipment.mainBattery.rangeU + 100, y: 0, speed: 0 }));
+    plot(far, track(port.now, { x: farX, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(ml, far, port).act).not.toBe(abilityCode('shift'));
     // No target at all: held.
     expect(COMBAT_BRAIN.decide(ml, mkMind('trapper'), port).act).not.toBe(abilityCode('shift'));
@@ -2489,8 +2537,8 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
     /** A bulwark Battleship at the origin, bow east; `hurt` drops it under its
      *  disengage fraction so the posture is `disengage`. */
-    function setup(seed: number, hurt: boolean): { bs: ShipRecord; port: FakePort; shift: number } {
-      const w = openWorld(seed);
+    function setup(seed: number, hurt: boolean, cap?: number): { bs: ShipRecord; port: FakePort; shift: number; w: World } {
+      const w = openWorld(seed, cap);
       const port = fakePort(w);
       const bs = mkBot(w, 'yamato', 0, 0, 0);
       if (hurt) {
@@ -2501,7 +2549,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       }
       const shift = slotOf(bs, 'hunker');
       expect(shift).toBe(1);
-      return { bs, port, shift };
+      return { bs, port, shift, w };
     }
 
     /** A `torp` reveal at (x, y) running at FISH_SPEED along `dir`. */
@@ -2524,10 +2572,13 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       expect(engaged.posture).toBe('engage');
       // The same hull hurt below its break-off: disengaging, the chaser past
       // the gun's reach (amendment 199 presses only with a hostile IN reach),
-      // nothing inbound.
-      const hurt = setup(8156, true);
+      // nothing inbound. Hull and chaser stand astride the centre of a board
+      // wide enough to hold a plot past the battery's reach.
+      const hurt = setup(8156, true, WIDE_CAP);
+      const { botX, plotX } = astride(hurt.w, hurt.bs.stats.equipment.mainBattery.rangeU + 100);
+      hurt.bs.state.x = botX;
       const away = mkMind('bulwark');
-      plot(away, track(hurt.port.now, { x: hurt.bs.stats.equipment.mainBattery.rangeU + 100, y: 0, speed: 0 }));
+      plot(away, track(hurt.port.now, { x: plotX, y: 0, speed: 0 }));
       viewOf(away, hurt.port.now, []);
       expect(COMBAT_BRAIN.decide(hurt.bs, away, hurt.port).act).not.toBe(abilityCode('shift'));
       expect(away.posture).toBe('disengage');
@@ -2804,19 +2855,31 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
 describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)', () => {
   /** A healthy raider Torpedo Boat and its mounted gun's doctrine band
    *  (amendment 198 — the band the boost closes to). */
+  /** u — the farthest past the band's far edge any case below plots its target. */
+  const PAST_BAND_U = 200;
+
+  /** The hull's station: west of the map centre, so a target `PAST_BAND_U`
+   *  past the band's far edge is still on the board (Story 11.2 — the band is
+   *  a fraction of a reach longer than a small board's radius). */
+  let stationX = 0;
+
   function setup(seed: number): { port: FakePort; tb: ShipRecord; boost: number; bandMax: number } {
-    const w = openWorld(seed);
+    const w = openWorld(seed, WIDE_CAP);
     const port = fakePort(w);
     const tb = mkBot(w, 'bismarck', 0, 0, 0);
     const boost = slotOf(tb, 'boost');
     expect(boost).toBe(SLOT_BOOST);
-    return { port, tb, boost, bandMax: gunBand(profileOf('raider'), tb.stats).max };
+    const bandMax = gunBand(profileOf('raider'), tb.stats).max;
+    stationX = astride(w, bandMax + PAST_BAND_U).botX;
+    tb.state.x = stationX;
+    return { port, tb, boost, bandMax };
   }
 
-  /** A raider holding `posture` (cached, a non-deliberation tick) on a target at `x`. */
+  /** A raider holding `posture` (cached, a non-deliberation tick) on a target
+   *  `x` u due east of the hull's station. */
   function heldOn(port: FakePort, x: number, posture: BotMind['posture']): BotMind {
     const mind = mkMind('raider');
-    plot(mind, track(port.now, { x, y: 0, speed: 0 }));
+    plot(mind, track(port.now, { x: stationX + x, y: 0, speed: 0 }));
     mind.targetKey = 'tgt';
     mind.posture = posture;
     return mind;
@@ -2865,10 +2928,10 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     // beacon farm now (botBeacons.test.ts). The posture's no-boost rule is
     // pinned on a held posture, the amendment-194 idiom above.
     const { port, tb, bandMax } = setup(8206);
-    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + 200, 'farm'), port, false).act).not.toBe(abilityCode('shift'));
+    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + PAST_BAND_U, 'farm'), port, false).act).not.toBe(abilityCode('shift'));
     // Control: the same captain, the same far target, in a real-fight posture
     // boosts — so the hold above is the posture, not the appetite.
-    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + 200, 'pursue'), port, false).act).toBe(abilityCode('shift'));
+    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + PAST_BAND_U, 'pursue'), port, false).act).toBe(abilityCode('shift'));
   });
 });
 

@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { CONFIG, SHIFT_IDS, SHIP_CLASS_IDS, abilityCode, effectiveStats, isAfloat, type Rng, type ShiftId } from '@salvo/shared';
 import { World } from '../game/world.js';
+import { flatRaster } from './islandFixture.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
 import { profileOf } from '../game/ai/profiles.js';
 import type { BotWorldPort } from '../game/ai/types.js';
@@ -282,9 +283,11 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
 
   // THE RESONANCE REGRESSION (review-gate FIX 1) — fails on the wave-1
   // observe cadence, passes on per-tick perception. A stationary hull sits in
-  // the bot's radar annulus (sight + 200: past truesight, inside the radar
-  // dropout's flat band so every sweep paints — Story 9.8, amendment 103) on
-  // open water; at the base 15 rpm the sweep paints its bearing once per 80
+  // the bot's radar annulus (midway between the plain-hull sight and the
+  // radar reach — past BOTH eye tiers, so radar alone can hold it; every
+  // in-range, swept, unshadowed hull paints every sweep, Story 11.2, R8) on
+  // open water, the two hulls astride the map centre of the real board (the
+  // annulus is wider than a small board); at the base 15 rpm the sweep paints its bearing once per 80
   // ticks, always on the same tick-phase (80 ≡ 0 mod 5). bot-1's hashed slot
   // is 2 and — measured before the fix — NO bearing's paint phase lands on
   // it at this seed (successive 45° bearings are 10 ticks of sweep apart,
@@ -293,11 +296,15 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
   // essentially continuously (contactMemoryMs 8000 far exceeds the 4s
   // revolution).
   it('a stationary hull in the radar annulus is TRACKED despite sweep aliasing', () => {
-    const w = new World(61, 8);
+    const w = new World(61, CONFIG.map.playerCap);
     w.map.islands.length = 0; // open water: LOS/shadow can never gate the paint
+    w.map.heightRaster = flatRaster(); // ...and no retained elevation shadows the long ray across the board
     const bot = w.addBot(undefined, undefined);
     expect(bot.id).toBe('bot-1');
-    const tx = CONFIG.vision.sight + 200;
+    const apart = (bot.stats.hullSightRange + bot.stats.radarRange) / 2;
+    expect(apart / 2).toBeLessThan(w.map.radius); // both stations are on the board
+    const bx = -apart / 2;
+    const tx = apart / 2;
     const ty = 0;
     const tgt = w.addShip('victim', 'TARGET', 'captain', 'yamato', undefined, { x: tx, y: ty });
     let measured = 0;
@@ -308,7 +315,7 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
       // are re-pinned after each step.
       for (const s of bot.loadout) if (s.state) s.state.n = 0;
       w.step();
-      bot.state.x = 0;
+      bot.state.x = bx;
       bot.state.y = 0;
       bot.state.heading = 0;
       bot.state.speed = 0;
