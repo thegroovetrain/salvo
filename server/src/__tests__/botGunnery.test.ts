@@ -376,16 +376,10 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
     expect(r.hitRate).toBeGreaterThanOrEqual(0.95);
   });
 
-  it('S4: a radar-only target on a racetrack with tight U-turns is still hit most of the time, with few ghost ticks', () => {
-    const r = run({ x: 500, y: -300 }, straight(), 'S4 radar straight x=500');
-    // The racetrack reverses the target twice a minute through 60 u-radius U-turns
-    // that complete inside one sweep, which no dead-reckoning can follow. Measured
-    // 73-80 % across the review-gate variants; the third plot is the post-turn
-    // re-acquisition.
-    expect(r.hitRate).toBeGreaterThanOrEqual(0.65);
-    expect(r.ghostFrac).toBeLessThan(0.25);
-    expect(r.maxTracks).toBeLessThanOrEqual(3);
-  });
+  // S4 (the racetrack drill) DELETED — Story 11.2, 2026-11-12, Eric's ruling: its
+  // 65 % hit-rate bar was a number produced by one room key (48-83 % across six
+  // keys once the radar fuzz took a server-private salt). Bot gunnery at range is
+  // Story 11.9's to tune and test.
 
   it('S5 SWEEP-MISS: a vanished target\'s plot is gone within 4 ticks', () => {
     const lag = sweepMissLag();
