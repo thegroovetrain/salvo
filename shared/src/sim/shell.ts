@@ -54,8 +54,9 @@
 
 import { segCircleExit } from '../math/geom.js';
 import { wrapAngle } from '../math/angle.js';
-import { islandDistance, islandSegHit } from './island.js';
-import { pointPolygonDistance, segPolygonHit } from './silhouette.js';
+import { islandDistance } from './island.js';
+import { earliestHitReference, type IslandIndex } from './islandIndex.js';
+import { pointPolygonDistance, segClearOfBox, segPolygonHit, type PolyBox } from './silhouette.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island, ShellFamily } from '../types.js';
 
@@ -249,9 +250,20 @@ export interface Target {
 /** Everything stepShell needs about the world this tick. */
 export interface ShellContext {
   islands: readonly Island[];
+  /** OPTIONAL broadphase index of `islands` (Story 11.2 follow-up —
+   *  sim/islandIndex.ts): when present it MUST be the current index of that
+   *  same list, and the island scan asks it instead of every island. The
+   *  outcome is identical with or without it; the server passes one. */
+  islandIndex?: IslandIndex;
   /** This tick's collision subjects for THIS projectile — already filtered to
    *  the projectile's own `hits` mask by the caller (World.hitTargets). */
   targets: readonly Target[];
+  /** OPTIONAL, parallel to `targets` (Story 11.2 follow-up): `polyBox` of
+   *  each target's polygon AS IT IS DURING THIS STEP. When present the sweep
+   *  drops a target whose box the step cannot reach before any edge test —
+   *  the outcome is identical with or without it. The caller owns freshness:
+   *  take the boxes in the same pass that steps the shells. */
+  targetBoxes?: readonly PolyBox[];
   now: number; // ms — server time this tick
   dt: number; // s — fixed step
   mapRadius: number; // u — water disk radius; a projectile splashes at this edge
@@ -287,13 +299,12 @@ interface Hit {
  * interior) returns null here — concave cavities are genuinely missable.
  * Scans every island: the EARLIEST hit wins, so there is no early-out.
  */
-function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | null {
-  let best: Hit | null = null;
-  for (const isle of islands) {
-    const t = islandSegHit(p0, p1, isle);
-    if (t !== null && (best === null || t < best.frac)) best = { frac: t, island: isle };
-  }
-  return best;
+function earliestIsland(p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
+  // The index (when the caller holds one) answers exactly the reference scan
+  // — smallest fraction, earliest island on a tie — over only the islands the
+  // step can touch.
+  const hit = ctx.islandIndex !== undefined ? ctx.islandIndex.earliestHit(p0, p1) : earliestHitReference(p0, p1, ctx.islands);
+  return hit === null ? null : { frac: hit.t, island: hit.island };
 }
 
 /**
@@ -312,9 +323,12 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
  */
 function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
   let best: Hit | null = null;
-  for (const t of ctx.targets) {
+  const boxes = ctx.targetBoxes;
+  for (let i = 0; i < ctx.targets.length; i++) {
+    const t = ctx.targets[i];
     if (t.kind === 'mine') continue; // never in flight — landing-only (amendments 20, 200)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
+    if (boxes !== undefined && segClearOfBox(p0, p1, boxes[i], shell.hitRadius)) continue; // provably out of reach: the edge test would say null
     // A beacon is NOT skipped: a shell stops on a surfaced beacon like a hull (R8).
     // Target polygon dilated by this projectile's own radius.
     const frac = segPolygonHit(p0, p1, t.poly, shell.hitRadius);
@@ -510,7 +524,7 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
 
   const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
 
-  const obstacle = earlier(earliestIsland(p0, p1, ctx.islands), earliestTarget(shell, p0, p1, ctx));
+  const obstacle = earlier(earliestIsland(p0, p1, ctx), earliestTarget(shell, p0, p1, ctx));
   const hit = earlier(obstacle, earliestEdge(p0, p1, ctx.mapRadius));
   if (hit) {
     const ix = p0.x + ux * moveDist * hit.frac;

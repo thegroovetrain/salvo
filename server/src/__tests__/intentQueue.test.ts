@@ -96,7 +96,10 @@ describe('InputStore.drainIntents — every accepted input queues once, in seq o
     expect(drained.map((m) => m.seq)).toEqual(
       Array.from({ length: INPUT_RATE_CAP }, (_, i) => i + 1),
     );
-    expect(store.get('a')?.seq).toBe(INPUT_RATE_CAP);
+    // Story 11.2 follow-up: the shed message's helm still lands and the ack
+    // advances to it — but its click does not (the last ACCEPTED click stays).
+    expect(store.get('a')?.seq).toBe(INPUT_RATE_CAP + 1);
+    expect(store.get('a')?.fireSeq).toBe(INPUT_RATE_CAP);
   });
 
   it('remove() forgets the queue with the client', () => {

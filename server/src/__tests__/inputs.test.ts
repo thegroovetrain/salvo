@@ -3,6 +3,7 @@ import { ABILITY_IDS, CONFIG, SLOT_COUNT, abilityCode } from '@salvo/shared';
 import {
   InputStore,
   clampFireTime,
+  foldKinematics,
   sanitizeInput,
   neutralInput,
   AIM_DIST_MAX,
@@ -10,6 +11,7 @@ import {
   INPUT_RATE_WINDOW_MS,
   type FireTimeClaim,
 } from '../game/inputs.js';
+import { World } from '../game/world.js';
 
 const valid = (seq = 1) => ({
   seq,
@@ -315,6 +317,46 @@ describe('InputStore', () => {
     expect(store.submit('a', valid(1), 0)).toBe(false);
   });
 
+  it('an input past the cap still lands its helm and aim, latest-wins, and advances the ack — its activations are shed and nothing is queued', () => {
+    const store = new InputStore();
+    for (let i = 1; i <= INPUT_RATE_CAP; i++) store.submit('a', valid(i), 0);
+    const held = store.get('a')!;
+    store.drainIntents('a');
+    // Past the cap: a released rudder, a new aim point, a click, an ability
+    // press, a horn, a new slot and both levels let go.
+    const over = { ...valid(INPUT_RATE_CAP + 1), rudder: 0, throttle: -1, aim: 1.5, aimDist: 90, fireSeq: 9, actSeq: 9, hornSeq: 9, slot: 1, fireT: 990, held: false, sec: false };
+    expect(store.submit('a', over, 0)).toBe(false);
+    const now = store.get('a')!;
+    expect(now).toEqual(foldKinematics(held, sanitizeInput(over, INPUT_RATE_CAP)!));
+    expect([now.rudder, now.throttle, now.aim, now.aimDist]).toEqual([0, -1, 1.5, 90]); // the helm and the aim point are the newest
+    expect([now.fireSeq, now.actSeq, now.hornSeq, now.slot, now.fireT]).toEqual([held.fireSeq, held.actSeq, held.hornSeq, held.slot, held.fireT]); // every activation field is the last accepted one
+    expect([now.held, now.sec]).toEqual([false, false]); // a release is honoured
+    expect(store.ackFor('a')).toBe(INPUT_RATE_CAP + 1);
+    expect(store.drainIntents('a')).toEqual([]); // nothing to evaluate: no press rides a shed input
+    expect(now).not.toBe(held); // replaced, never mutated (ship.input shares the reference)
+  });
+
+  it('a shed input can release a held level but never start one', () => {
+    const store = new InputStore();
+    for (let i = 1; i <= INPUT_RATE_CAP; i++) store.submit('a', { ...valid(i), held: false, sec: false }, 0);
+    store.submit('a', { ...valid(INPUT_RATE_CAP + 1), held: true, sec: true }, 0);
+    expect([store.get('a')!.held, store.get('a')!.sec]).toEqual([false, false]);
+  });
+
+  it('a flood is still capped: however many messages one window carries, at most INPUT_RATE_CAP are queued for intent evaluation and no click past the cap is in force', () => {
+    const store = new InputStore();
+    const FLOOD = INPUT_RATE_CAP * 25;
+    let accepted = 0;
+    for (let i = 1; i <= FLOOD; i++) {
+      // every message is a new click, spread over one window of arrival time
+      if (store.submit('a', { ...valid(i), fireSeq: i }, ((i - 1) / FLOOD) * (INPUT_RATE_WINDOW_MS - 1))) accepted += 1;
+    }
+    expect(accepted).toBe(INPUT_RATE_CAP);
+    expect(store.drainIntents('a')).toHaveLength(INPUT_RATE_CAP);
+    expect(store.get('a')!.fireSeq).toBe(INPUT_RATE_CAP); // the last ACCEPTED click, not the flood's last
+    expect(store.ackFor('a')).toBe(FLOOD);
+  });
+
   it('remove() forgets the client', () => {
     const store = new InputStore();
     store.submit('a', valid(9), 0);
@@ -346,5 +388,59 @@ describe('InputStore', () => {
     s2.submit('b', { ...valid(1), held: false, sec: true }, 0);
     s2.releaseHeld('b');
     expect(s2.get('b')!.sec).toBe(false);
+  });
+});
+
+describe('the input rate cap counts ARRIVALS, not sim time (Story 11.2 follow-up)', () => {
+  // A sim that steps slower than real time: 10 s of arrivals at 20 inputs a
+  // second while the World advances ONE second. On the sim clock that is 200
+  // messages in one rate window — the cap sheds all but the first
+  // INPUT_RATE_CAP; on the arrival clock it is an honest 20 Hz stream.
+  const HZ = 20;
+  const SECONDS = 10;
+  const SIM_STEPS = Math.round(1000 / CONFIG.tick.simDtMs);
+
+  function slowSim(): { w: World; id: string; sent: number } {
+    const w = new World(11, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    const id = 'cap';
+    w.addShip(id, 'CAP', 'captain', undefined, undefined, undefined);
+    const total = HZ * SECONDS;
+    for (let n = 1; n <= total; n++) {
+      const arrivedAt = (n * 1000) / HZ; // the room's clock: real time
+      const input = {
+        ...neutralInput(),
+        seq: n,
+        throttle: 1,
+        rudder: arrivedAt >= 5000 ? 0 : 1, // the rudder is released at 5 s
+        fireSeq: arrivedAt >= 6000 ? 1 : 0, // one click at 6 s
+      };
+      w.submitInput(id, input, arrivedAt);
+      // the sim crawls: one step for every (total / SIM_STEPS) arrivals
+      if (n % (total / SIM_STEPS) === 0) w.step();
+    }
+    return { w, id, sent: total };
+  }
+
+  it('a 20 Hz client is never shed while the sim crawls: the released rudder is in force, the click is in force, and the ack is the last input sent', () => {
+    const { w, id, sent } = slowSim();
+    expect(sent).toBeGreaterThan(INPUT_RATE_CAP); // the old sim-time window would have capped this run
+    expect(w.now).toBe(SIM_STEPS * CONFIG.tick.simDtMs); // one second of sim time under ten of arrivals
+    const stored = w.inputs.get(id)!;
+    expect(stored.rudder).toBe(0);
+    expect(stored.fireSeq).toBe(1);
+    expect(w.inputs.ackFor(id)).toBe(sent);
+    expect(w.ships.get(id)!.input.rudder).toBe(0); // and the hull is steering it
+    expect(w.ships.get(id)!.lastFireSeq).toBe(1); // the click was evaluated the step it arrived in, not shed
+  });
+
+  it('with no arrival clock given the sim clock is the arrival clock (a bot submits once per step)', () => {
+    const w = new World(12, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('bot', 'BOT', 'captain', undefined, undefined, undefined);
+    for (let n = 1; n <= INPUT_RATE_CAP * 3; n++) {
+      expect(w.submitInput('bot', { ...neutralInput(), seq: n })).toBe(true); // one per step: 20 a sim second, under the cap
+      w.step();
+    }
   });
 });

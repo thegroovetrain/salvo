@@ -37,7 +37,7 @@ import {
   WAKE_AGE_BUCKETS,
   effectiveStats,
   hullEnvelope,
-  islandBlocksSegment,
+  sharedIslandIndex,
   type GameEvent,
   type GhostPaint,
   type Island,
@@ -117,10 +117,10 @@ export const ANON_ASSOC_U = CONFIG.vision.radarCellU * 6;
  * every tick for coastline avoidance.
  */
 export function lineBlocked(a: Vec2, b: Vec2, islands: readonly Island[]): boolean {
-  for (const isle of islands) {
-    if (islandBlocksSegment(a, b, isle)) return true;
-  }
-  return false;
+  // Through the shared broadphase index of this island list (Story 11.2
+  // follow-up): the same answer as asking every island in turn — the index
+  // only skips islands and edges the line provably cannot touch.
+  return !sharedIslandIndex(islands).losClear(a, b);
 }
 
 /** Centroid of a lattice rect's LIT cells in world units, or null for an

@@ -6,12 +6,24 @@
 // accepted-or-not messages per second. fireSeq monotonicity is deliberately
 // NOT enforced here — the World's consumption (lastFireSeq = max(...)) makes
 // a stale or replayed counter value simply read as "no new click".
+//
+// THE RATE CAP COUNTS ARRIVALS, ON THE ARRIVAL CLOCK (Story 11.2 follow-up).
+// `submit`'s `now` is the time the message ARRIVED — the room's own monotonic
+// clock for a socket, the sim clock for an in-process caller (a bot submits
+// once per step, so the sim clock is its arrival clock) — never the sim clock
+// for a socket: when a host steps the sim slower than real time, one sim
+// second is many wall seconds, a 20 Hz client overruns a sim-time window and
+// most of its inputs were silently dropped (the 2026-11-13 slow-tick
+// regression). And an input past the cap is no longer dropped whole: its
+// HELM AND AIM still land, latest-wins (`foldKinematics`), so a released
+// rudder is honoured and the ack keeps advancing; only its ACTIVATIONS are
+// shed.
 
 import { CONFIG, SLOT_COUNT, abilityFromCode, wrapAngle, type InputMsg } from '@salvo/shared';
 
 /** Max input messages per client per rolling window. */
 export const INPUT_RATE_CAP = 40;
-/** Rate-cap window length (ms of server time). */
+/** Rate-cap window length (ms on the ARRIVAL clock — see the header). */
 export const INPUT_RATE_WINDOW_MS = 1000;
 /**
  * Hard cap on the accepted-intent queue per client (Story 2.1 — the
@@ -199,8 +211,36 @@ export function clampFireTime(c: FireTimeClaim): number {
 }
 
 interface RateWindow {
-  start: number; // ms — window open time (server clock)
+  start: number; // ms — window open time (the arrival clock)
   count: number;
+}
+
+/**
+ * THE OVER-CAP FOLD: the message a client's `over` input leaves in force when
+ * it arrives past the rate cap. Kinematics are latest-wins — `seq` (so the
+ * ack advances and the client's prediction replays from the right input),
+ * `throttle`, `rudder`, and the aim point (`aim` + `aimDist`, one point) come
+ * from the NEW message, so a stale helm is never left steering while newer
+ * inputs are shed. Every ACTIVATION field (`fireSeq`, `slot`, `fireT`,
+ * `actSeq`, `act`, `hornSeq`) stays at the last fully accepted message's
+ * value: nothing fires, activates or honks off a shed input (the counters are
+ * cumulative, so the next accepted message carries the press). The two HELD
+ * LEVELS (`held`, `sec`) can only be RELEASED by a shed input, never started
+ * — a release is not an activation (the `releaseHeld` posture). A new object,
+ * never a mutation (the stored message is shared by reference with
+ * `ship.input`).
+ */
+export function foldKinematics(prev: InputMsg, over: InputMsg): InputMsg {
+  return {
+    ...prev,
+    seq: over.seq,
+    throttle: over.throttle,
+    rudder: over.rudder,
+    aim: over.aim,
+    aimDist: over.aimDist,
+    held: prev.held === true && over.held === true,
+    sec: prev.sec === true && over.sec === true,
+  };
 }
 
 /**
@@ -221,13 +261,21 @@ export class InputStore {
   private intents = new Map<string, InputMsg[]>();
 
   /**
-   * Submit a raw wire message for `id` at server time `now` (ms).
-   * Returns true iff the message was accepted and stored.
+   * Submit a raw wire message for `id` that ARRIVED at `now` (ms on the
+   * caller's arrival clock — see the header; one clock per id).
+   * Returns true iff the message was accepted WHOLE (stored and queued for
+   * intent evaluation). A well-formed message past the rate cap returns
+   * false, but its helm and aim are still folded into the stored input
+   * (`foldKinematics`) — its activations are shed.
    */
   submit(id: string, raw: unknown, now: number): boolean {
-    if (!this.allowRate(id, now)) return false;
+    const within = this.allowRate(id, now);
     const msg = sanitizeInput(raw, this.ackFor(id));
     if (!msg) return false;
+    if (!within) {
+      this.latest.set(id, foldKinematics(this.latest.get(id) ?? neutralInput(), msg));
+      return false;
+    }
     this.latest.set(id, msg);
     this.queueIntent(id, msg);
     return true;
@@ -289,7 +337,9 @@ export class InputStore {
     this.intents.set(id, queue);
   }
 
-  /** Fixed-window rate cap: at most INPUT_RATE_CAP messages per window. */
+  /** Fixed-window rate cap: at most INPUT_RATE_CAP messages per window of
+   *  ARRIVAL time (`now` — see the header). Every message counts, well-formed
+   *  or not. */
   private allowRate(id: string, now: number): boolean {
     const w = this.windows.get(id);
     if (!w || now - w.start >= INPUT_RATE_WINDOW_MS) {

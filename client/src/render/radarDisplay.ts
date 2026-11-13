@@ -102,6 +102,16 @@ class TextPool {
   }
 }
 
+/**
+ * WHAT IS DRAWN THIS FRAME (pure). The display — rings, compass scale, heading
+ * line — shows whenever the own ship is on the water, from the start line on;
+ * the sweep's line shows only while the beam is on (Eric 2026-11-13).
+ */
+export function radarDisplayShows(f: RadarDisplayFrame): { display: boolean; beam: boolean } {
+  const display = f.own !== null && f.zoom > 0 && Number.isFinite(f.zoom + f.radarU);
+  return { display, beam: display && f.beam !== null };
+}
+
 export class RadarDisplay {
   readonly root = new Container();
   private readonly rings = new Graphics();
@@ -143,15 +153,20 @@ export class RadarDisplay {
   }
 
   update(f: RadarDisplayFrame): void {
-    const shown = f.own !== null && f.beam !== null && f.zoom > 0 && Number.isFinite(f.zoom + f.radarU);
-    this.root.visible = shown;
-    if (!shown || f.own === null || f.beam === null) return;
+    // THE DISPLAY SHOWS WHENEVER THE OWN SHIP IS ON THE WATER (Eric 2026-11-13:
+    // the rings, the compass scale and the heading line are there from the
+    // start line on — only the SWEEP waits for the buzzer). A null beam hides
+    // the beam line alone, never the display.
+    const shows = radarDisplayShows(f);
+    this.root.visible = shows.display;
+    this.beamLine.visible = shows.beam;
+    if (!shows.display || f.own === null) return;
     this.root.position.set(f.own.x, f.own.y);
     this.syncRings(f);
     this.syncCompass(f);
     this.syncLines(f);
     this.heading.rotation = f.own.heading;
-    this.beamLine.rotation = f.beam;
+    if (f.beam !== null) this.beamLine.rotation = f.beam;
   }
 
   /** Rebuild the rings + their numerals when zoom, reach, spacing or count moved. */
