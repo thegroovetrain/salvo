@@ -415,14 +415,15 @@ describe("the captain's guns (Story 10.4) — the secondaries hurt a mine, the m
     expect(CONFIG.secondaries.hits).toContain('mine');
   });
 
-  it('a main-battery salvo landing ON a mine leaves it untouched (the salvo still bursts)', () => {
+  it('a main-battery salvo landing ON a mine leaves it untouched (the salvo still lands — a direct-hit impact since epic-11 amendment 8)', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'mainBattery' });
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
     const d = a.stats.equipment.mainBattery.rangeU / 4; // well inside reach; a forward turret at rest bears dead ahead
     lay(w, 'm1', 'x', d, 0);
     const log = click(w, 'a', d);
-    expect(count(log, 'burst')).toBeGreaterThan(0);
+    expect(count(log, 'boom')).toBeGreaterThan(0);
+    expect(count(log, 'burst')).toBe(0);
     expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
     expect(mineBooms(log, 'm1')).toEqual([]);
   });

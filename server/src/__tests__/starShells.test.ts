@@ -145,21 +145,16 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     expect(seen).not.toContain('dmg');
   });
 
-  it('an early interceptor takes the TIER DAMAGE as contact damage, stops the flare — and the zone spawns AT THE STOP POINT', () => {
+  it('ARCS (Eric 2026-11-13, epic-11 amendment 8 — RE-CUT; the interception it pinned is retired): a hull on the path is flown over untouched and the zone spawns AT THE CLICK', () => {
     const w = bareWorld();
     place(w, 'a', 'yamato', 0, 0);
-    const mid = place(w, 'mid', 'yamato', 300, 0); // bodyblocks the 650u click (an arbitrary long-range distance), 350u short
+    const mid = place(w, 'mid', 'yamato', 300, 0); // on the line of the 650 u click, 350 u short
     const { seen } = fireAndResolve(w, 'a', { aim: 0, aimDist: 650 });
-    expect(seen).toContain('boom');
-    expect(seen).not.toContain('burst');
-    // Story 8.17: the interceptor takes the row's 20 (the broadside precedent)
-    // and the flare STILL lights where it stopped.
-    expect(mid.hp).toBe(mid.stats.maxHp - CONFIG.starShells.damage);
-    expect(seen).toContain('dmg');
+    expect(seen).toContain('burst');
+    expect(seen).not.toContain('boom');
+    expect(mid.hp).toBe(mid.stats.maxHp);
     expect(w.litZones.size).toBe(1);
-    const zone = [...w.litZones.values()][0];
-    // The zone sits at the interception stop point (short of the 650u click, an arbitrary long-range distance).
-    expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400);
+    expect([...w.litZones.values()][0].x).toBeCloseTo(650, 6);
   });
 
   it('the lit zone is stamped from the shell’s OWN `lit` tag — a card fitted while the flare flies never changes the landing zone', () => {

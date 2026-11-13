@@ -33,8 +33,9 @@ import { burstPoint, muzzleOrTarget } from './guns.js';
 /**
  * Phosphor fire control against one slot pool: 0 or 1 shell. The ONLY denial
  * is an empty pool ('no-ammo' — the cooldown); there is no arc. The burst
- * radius IS the zone radius, so an interceptor already inside the would-be
- * zone still bursts the shell at its target (zone where aimed).
+ * radius IS the zone radius. It ARCS over every ship and island (Eric
+ * 2026-11-13, epic-11 amendment 8), so it always bursts at its target (zone
+ * where aimed).
  */
 function firePhosphorShell(
   ship: ShipRecord,
@@ -58,7 +59,9 @@ function firePhosphorShell(
     targetX: target.x,
     targetY: target.y,
     burstRadius: row.zoneRadius, // the burst IS the zone
-    contactDamage: row.damage, // an interceptor takes the tier damage (the broadside precedent) — and it still burns there
+    contactDamage: row.damage, // unreachable since the shell arcs (below): nothing intercepts it
+    overShips: true,
+    overLand: true, // ARCING (Eric 2026-11-13, epic-11 amendment 8): over ships AND islands, straight to the click
     hits: CONFIG.phosphorShells.hits, // AR44 target mask — hull, never a mine (amendment 200, superseding 135(c))
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
     burn: { radius: row.zoneRadius, durationMs: row.zoneDurationMs, dps: row.dps }, // stamped at launch (135(e))

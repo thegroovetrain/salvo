@@ -74,13 +74,13 @@ function rawSources(): { label: string; amount: number }[] {
   return [
     // THE MAIN BATTERY (Story 10.4): one row per distinct per-hull shell
     // damage (R2 — every row a `mainBattery` label, so a 24 and a 27 both
-    // classify), its bodyblock, and the secondaries' round. These are the
+    // classify) and the secondaries' round. (Its 18 hp bodyblock row retired
+    // with the blast, 2026-11-13, epic-11 amendment 8: direct hits only.) These are the
     // captain's guns; the deck-gun `gun` rows are kept for reference (amendment 6).
     ...[...new Set(SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].battery.shellDamage))].map((amount) => ({
       label: 'mainBattery',
       amount,
     })),
-    { label: 'mainBatteryBodyblock', amount: CONFIG.mainBattery.contactDamage },
     { label: 'secondaries', amount: CONFIG.secondaries.damage },
     { label: 'gun', amount: CONFIG.gun.damage },
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },

@@ -1752,19 +1752,34 @@ describe('perception — burst visibility (owner always, else burst point sighte
     expect(widened).toBeGreaterThan(0); // ...and a blind in-radius observer got the flagged one alone
   });
 
-  it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
+  it('END-TO-END: a real main-battery landing reaches the owner as a bare impact {k,id,x,y} — no blast ring, no owner tag (epic-11 amendment 8)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
-    let burst: GameEvent | undefined;
-    for (let i = 0; i < 120 && !burst; i++) {
+    let landing: GameEvent | undefined;
+    for (let i = 0; i < 120 && !landing; i++) {
       w.step();
-      burst = buildFrame(w, 'a').events.find((e) => e.k === 'burst');
+      const ev = buildFrame(w, 'a').events;
+      expect(ev.some((e) => e.k === 'burst')).toBe(false); // the blast is retired
+      landing = ev.find((e) => e.k === 'boom');
     }
-    expect(burst).toBeDefined(); // the owner's own click
-    expect(Object.keys(burst!).sort()).toEqual(['id', 'k', 'x', 'y']); // no own/radius/range field
-    // Bursts AT ITS LANDING — the dispersed point around the click (Story 11.1).
-    expect(Math.hypot((burst as BurstEvent).x - 600, (burst as BurstEvent).y)).toBeLessThanOrEqual(dispersionAxes(1200).alongU);
+    expect(landing).toBeDefined(); // the owner's own shell
+    expect(Object.keys(landing!).sort()).toEqual(['id', 'k', 'x', 'y']); // no `land` / radius / range field
+    // Lands AT ITS LANDING — the dispersed point around the click (Story 11.1).
+    expect(Math.hypot((landing as BoomEvent).x - 600, (landing as BoomEvent).y)).toBeLessThanOrEqual(dispersionAxes(1200).alongU);
+  });
+
+  it('a main-battery landing beyond the owner\'s splash reach still reaches the OWNER (the retired burst\'s owner arm), and no one else there', () => {
+    interface Pendable { pending: GameEvent[] }
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const c = place(w, 'c', 0, -FAR_HALF); // a bystander beside the shooter
+    // A landing subject routed through the real pending-events choke, the
+    // way World.announceLanding emits it (wire BoomEvent + internal `land`).
+    (w as unknown as Pendable).pending.push({ k: 'boom', id: 's9', x: ANNULUS_D, y: 0, land: a.id } as GameEvent);
+    w.step();
+    expect(buildFrame(w, 'a').events.filter((e) => e.k === 'boom')).toEqual([{ k: 'boom', id: 's9', x: ANNULUS_D, y: 0 }]);
+    expect(buildFrame(w, c.id).events.some((e) => e.k === 'boom')).toBe(false);
   });
 });
 
@@ -3010,6 +3025,11 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // fall of shot predictable; the ballistic reveal is built field by field.
   // (The amendment-202 cursor point these lines used to guard is deleted.)
   expect(hasForbiddenKey(f, ['originX', 'originY', 'attenRangeU', 'cursor', 'targetX', 'targetY', 'origin', 'landing', 'seed', 'dispersionSeed', 'dispersionKey', 'batteryShell'])).toBe(false);
+  // THE ARCING-FLIGHT TAGS and the high-ground stop (epic-11 amendment 8) are
+  // server-internal: `terrainStop` would tell an observer a shell's track ends
+  // short on a hillside before it gets there; the landing boom's owner tag
+  // `land` names the shooter.
+  expect(hasForbiddenKey(f, ['overShips', 'overLand', 'terrainStop', 'land', 'run'])).toBe(false);
   verifyParallelSalvoTracks(w, f);
   verifyNoLandingPoint(w, f);
   // ...and the hand is never bigger than the dial that sizes it (a pool with
@@ -4013,9 +4033,17 @@ function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
 
 function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BoomEvent;
+  // The wire shape never carries a server-internal owner tag (`run`, `land`).
+  for (const k of Object.keys(ev)) expect(['k', 'id', 'hit', 'x', 'y']).toContain(k);
+  // A MAIN-BATTERY LANDING boom (epic-11 amendment 8 — the retired burst's
+  // owner arm) reaches its shell's OWNER anywhere: the point is his own
+  // shell's landing, sent to him anyway as `sp` / `hc`. The owner is
+  // recovered INDEPENDENTLY from the world's internal tick-event buffer.
+  const src = w.tickEvents.find((t) => t.k === 'boom' && t.id === ev.id) as (BoomEvent & { land?: string }) | undefined;
+  const ownLanding = src?.land === me.id;
   // Boom POINT: inside the SPLASH reach (Story 11.2, R4) OR inside a zone the
   // observer OWNS (Story 1.7 parity).
-  if (ev.hit !== me.id) expect(splashSeen(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+  if (ev.hit !== me.id && !ownLanding) expect(splashSeen(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
   // `hit` is an IDENTITY: it may name a victim only when that victim's CENTER
   // is inside the CLASS reach (`sighted`) or zone-covered (or the observer is
   // the victim) — a straddling hull, or a PLAIN hull of the outer tier, must

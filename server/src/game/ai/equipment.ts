@@ -610,9 +610,8 @@ function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
 function flareSolve(ctx: TacticContext): Shot | null {
   const t = sensorFlareTarget(ctx);
   if (t === null) return null;
-  // THE TERRAIN GATE IS ON THE SHOT, never on the selector: the bot still
-  // wants the nearest plot; it holds the round when the round cannot arrive.
-  if (!shotReaches(ctx.self, ctx.sit, plotAt(ctx.sit, t))) return null;
+  // NO TERRAIN GATE: the flare ARCS over islands (Eric 2026-11-13, epic-11
+  // amendment 8), so every flare shot arrives.
   const d = Math.min(distTo(ctx.sit, t), ctx.sit.stats.equipment.starShells.rangeU);
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
@@ -639,12 +638,12 @@ function flareToShootWant(ctx: TacticContext): boolean {
 }
 
 /** The flare at the plot's PREDICTED point, led at the star shell's own
- *  speed (the lead solve every round uses), terrain-gated, clamped to reach. */
+ *  speed (the lead solve every round uses), clamped to reach. No terrain gate:
+ *  the flare arcs over islands (epic-11 amendment 8). */
 function flareToShootSolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
   if (t === null) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG.starShells.shellSpeed);
-  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
   const d = Math.min(Math.hypot(p.x - ctx.sit.x, p.y - ctx.sit.y), ctx.sit.stats.equipment.starShells.rangeU);
   return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot };
 }

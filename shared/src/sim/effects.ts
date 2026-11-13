@@ -112,7 +112,9 @@ export const EQUIPMENT_STAT_FIELDS = {
   // it today; `reloadMs` is a row field so RELOAD reaches it through the one
   // multiply. `rangeU` is the hull's reach fact (Story 11.2: base ×
   // `battery.reachFrac` — the RANGE multiply that also reached it retired).
-  mainBattery: ['reloadMs', 'rangeU', 'damage', 'contactDamage', 'burstRadius'],
+  // `contactDamage` / `burstRadius` left with the blast (2026-11-13, Eric;
+  // epic-11 amendment 8: direct hits only).
+  mainBattery: ['reloadMs', 'rangeU', 'damage'],
   // THE THREE MOVED WEAPONS (2026-11-05, Story 10.5, epic-10 amendment 11).
   // SUPERCAV steps `damage` (+100 a rung, amendment 8(e)); `homingTurnRate` is
   // deliberately ABSENT — it never homes (amendment 74), so no card may ever

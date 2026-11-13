@@ -70,7 +70,7 @@ import type { BotMind, BotPosture, BotSelf } from './types.js';
 import { ownReachU, type BotSituation, type BotTrack } from './utility.js';
 import { reachOf } from './doctrine.js';
 import { hullLengthU } from './navigate.js';
-import { distTo, leadPoint, scatterOffset, shotReaches, stamped, type EquipmentTactic, type Shot, type TacticContext } from './tacticKit.js';
+import { distTo, leadPoint, overLandReaches, scatterOffset, stamped, type EquipmentTactic, type Shot, type TacticContext } from './tacticKit.js';
 
 /** The bot's held aim for the main battery: bearing + distance from the hull
  *  centre to the led, scattered point. */
@@ -133,8 +133,8 @@ export function readyOnTarget(self: BotSelf, aim: BatteryAim, pose: AimPose = se
 }
 
 /** The main battery's shot: a click on the held aim when it is legal (reach,
- *  coastline) and a ready turret bears on it; else null (the brain keeps writing
- *  the held aim regardless — tactics.ts triggerOf). */
+ *  high ground) and a ready turret bears on it; else null (the brain keeps
+ *  writing the held aim regardless — tactics.ts triggerOf). */
 function batterySolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
   if (t === null || sweepingNow(ctx.mind, ctx.sit.now)) return null; // the aim is the mine's this tick
@@ -142,7 +142,7 @@ function batterySolve(ctx: TacticContext): Shot | null {
   if (a === null) return null;
   const reach = reachOf(ctx, 'mainBattery');
   if (a.aimDist > reach.maxU && !reach.litExempt(a.point)) return null;
-  if (!shotReaches(ctx.self, ctx.sit, a.point)) return null;
+  if (!overLandReaches(ctx.self, ctx.sit, a.point)) return null; // high ground, not the coastline (epic-11 amendment 8)
   if (!readyOnTarget(ctx.self, a, turretPoseOf(ctx.self, ctx.mind, ctx.sit.now))) return null;
   ctx.mind.batteryScatter = null; // a fresh scatter for the next salvo
   return stamped(ctx, 'mainBattery', { aim: a.aim, aimDist: a.aimDist, slot: ctx.slot });
@@ -234,12 +234,12 @@ export function targetInBatteryReach(sit: BotSituation, t: BotTrack | null): boo
 
 /** May this mine be swept at all: hostile, its centre inside the
  *  secondaries' reach of the hull centre and OUTSIDE the stand-off (the
- *  sweeper clear of its blast), the line to it clear of land? */
+ *  sweeper clear of its blast), the line to it clear of high ground? */
 function sweepable(self: BotSelf, sit: BotSituation, m: SweepMine, standOff: number): boolean {
   if (m.own) return false;
   const d = Math.hypot(m.x - sit.x, m.y - sit.y);
   if (d > sit.stats.secondaryRangeU || d < standOff) return false;
-  return shotReaches(self, sit, m);
+  return overLandReaches(self, sit, m); // the secondaries' terrain rule (epic-11 amendment 8)
 }
 
 /** Is the mine IN THE WAY: ahead of the beam (within ±90° of the bow) and

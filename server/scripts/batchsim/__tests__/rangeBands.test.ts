@@ -45,10 +45,16 @@ describe('shellDamagedHull — one tick\'s events', () => {
     expect(shellDamagedHull([{ k: 'boom', id: 's1', x: 0, y: 0 }], 's1', 'own')).toBe(false);
     expect(shellDamagedHull([{ k: 'boom', id: 's2', hit: 'b', x: 0, y: 0 }], 's1', 'own')).toBe(false);
   });
+
+  it('a hit-less landing `boom` (a main-battery shell on a beacon) is a hit only with its owner\'s `hc` at the same point', () => {
+    const boom = { k: 'boom', id: 's1', x: 10, y: 20 } as const;
+    expect(shellDamagedHull([boom, { k: 'hc', id: 'own', x: 10, y: 20 }], 's1', 'own')).toBe(true);
+    expect(shellDamagedHull([boom, { k: 'hc', id: 'other', x: 10, y: 20 }], 's1', 'own')).toBe(false);
+  });
 });
 
 describe('isMainBatteryShell — keyed on the server-private main-battery marker', () => {
-  const unmarked = { kind: 'shell', family: 'cannon', hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage, contactDamage: CONFIG.mainBattery.contactDamage } as unknown as ShellState;
+  const unmarked = { kind: 'shell', family: 'cannon', hits: CONFIG.mainBattery.hits, damage: CONFIG.shipClasses.bismarck.battery.shellDamage, contactDamage: CONFIG.shipClasses.bismarck.battery.shellDamage } as unknown as ShellState;
   const marked = { ...unmarked, batteryShell: true } as ShellState;
   it('a marked shell is one EVEN WHEN its damage equals its contact damage (a hull or --tune arm like that); an unmarked cannon shell on the same mask (the broadside) is not', () => {
     expect(marked.damage).toBe(marked.contactDamage); // the premise the old inference misfiled

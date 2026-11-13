@@ -9,7 +9,7 @@
 //   [B] fireT: 0     — the explicit no-claim sentinel on every input: zero
 //       compensation (the pre-D1 world).
 //
-// Per pass it reports: shots, predicted hits (click point within burstRadius
+// Per pass it reports: shots, predicted hits (click point inside the silhouette
 // of the target's client-rendered hull at click time — by construction every
 // shot, since the shooter clicks ON the rendered hull), registered hits (the
 // TARGET client receives a victim-private `dmg` event within shell flight time
@@ -27,9 +27,10 @@
 // shell spawns at the hull-silhouette edge along the aim bearing, so gating
 // the relative bearing keeps per-shot flight distance nearly identical) at
 // ~constant range: every shot is the same physics problem, and the only
-// variable between pass A and pass B is the D1 back-dating. The gun bursts at
-// the CLICKED point, so a hit requires the target hull to still be within
-// burstRadius of the click when the shell lands — exactly the staleness the
+// variable between pass A and pass B is the D1 back-dating. The shell lands at
+// the CLICKED point (± dispersion) with no blast since 2026-11-13 (epic-11
+// amendment 8), so a hit requires the target hull to still cover the landing
+// when the shell arrives — exactly the staleness the
 // compensation is meant to pay back.
 //
 // Operator script: real time (performance.now) is fine here, but ALL latency-
@@ -109,8 +110,8 @@ const TARGET_SHIM_SEED = 0xb0b1e;
 // 3 migrated this harness so it parses and joins; it was not run). The
 // original note: the fast, slender target is
 // the discriminating case — at 0.8 throttle (~40 u/s) the hull moves roughly
-// its own half-length + burstRadius during (staleness + flight), so the ~135ms
-// of latency D1 pays back is the difference between a burst that still clips
+// its own half-length during (staleness + flight), so the ~135ms
+// of latency D1 pays back is the difference between a landing that still hits
 // the hull and one that lands astern of it.
 const SHOOTER_CLS = 'iowa';
 const TARGET_CLS = 'iowa';
@@ -499,13 +500,14 @@ function maybeFire(shooter, pass, now) {
   // Click the target's RENDERED position: aim/aimDist describe that point,
   // fireSeq requests the shot, fireT (pass A only) claims the click instant on
   // the server-clock estimate. PREDICTED HIT: the click point is ON the
-  // rendered hull center, trivially within burstRadius — asserted literally.
+  // rendered hull center, trivially inside its silhouette (direct hits only
+  // since 2026-11-13, epic-11 amendment 8) — asserted literally.
   shooter.fireSeq += 1;
   shooter.aim = Math.atan2(dy, dx);
   shooter.aimDist = range;
   shooter.lastClickT = shooter.clock.serverNow();
   shooter.lastClickWall = now;
-  const predicted = dist2(p, p) <= SHOOTER_BATTERY.burstRadius; // click point == rendered hull pos
+  const predicted = dist2(p, p) === 0; // click point == rendered hull pos
   pass.shots.push({
     wall: now,
     deadline: now + (range / CONFIG.mainBattery.shellSpeed) * 1000 + HIT_SLACK_MS,

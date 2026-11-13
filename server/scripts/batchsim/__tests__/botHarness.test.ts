@@ -695,27 +695,27 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
     world.shells.set('f', stagedShell('f', bot.id, { family: 'flak' })); // flak
     world.shells.set('g', stagedShell('g', bot.id, { kind: 'torp', family: null, targetX: null, targetY: null }));
     // main battery — its server-private marker, with damage EQUAL to its contact damage (the case the old inference misfiled)
-    world.shells.set('h', stagedShell('h', bot.id, { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage, contactDamage: CONFIG.mainBattery.contactDamage, batteryShell: true }));
+    world.shells.set('h', stagedShell('h', bot.id, { hits: CONFIG.mainBattery.hits, damage: CONFIG.shipClasses.bismarck.battery.shellDamage, contactDamage: CONFIG.shipClasses.bismarck.battery.shellDamage, batteryShell: true }));
     col.observe(world, 1);
     const row = col.samples(world)[0];
     expect(row.gunShells).toBe(4);
     expect(row.starShellsFired).toBe(1);
   });
 
-  it('MAIN-BATTERY HIT SHARE BY RANGE BAND (Story 11.1): a shell is filed by muzzle → target over the owner\'s reach, and counted a hit when its burst came with the owner\'s `hc`', () => {
+  it('MAIN-BATTERY HIT SHARE BY RANGE BAND (Story 11.1): a shell is filed by muzzle → target over the owner\'s reach, and counted a hit when its landing boom came with the owner\'s `hc` (direct hits only, epic-11 amendment 8)', () => {
     const world = new World(44, 20);
     const bot = world.addBot(undefined, undefined);
     const col = new BotCollector([bot.id]);
     const reach = bot.stats.equipment.mainBattery.rangeU;
-    const mb = { hits: CONFIG.mainBattery.hits, damage: CONFIG.mainBattery.contactDamage + 1, contactDamage: CONFIG.mainBattery.contactDamage, batteryShell: true as const };
+    const mb = { hits: CONFIG.mainBattery.hits, damage: CONFIG.shipClasses.bismarck.battery.shellDamage, contactDamage: 0, burstRadius: 0, arcs: 'ships' as const, batteryShell: true as const };
     world.shells.set('near', stagedShell('near', bot.id, { ...mb, targetX: reach * 0.1 })); // band 0
     world.shells.set('far', stagedShell('far', bot.id, { ...mb, targetX: reach * 0.9 })); // the last band
     col.observe(world, 1);
     world.shells.clear();
     stageEvents(world, [
-      { k: 'burst', id: 'near', x: reach * 0.1, y: 0 },
+      { k: 'boom', id: 'near', x: reach * 0.1, y: 0 }, // a hit-less landing boom WITH the owner's `hc` (a beacon struck)
       { k: 'hc', id: bot.id, x: reach * 0.1, y: 0 },
-      { k: 'burst', id: 'far', x: reach * 0.9, y: 0 }, // no `hc` there: a miss
+      { k: 'boom', id: 'far', x: reach * 0.9, y: 0 }, // no `hc` there: a miss
     ]);
     col.observe(world, 2);
     const row = col.samples(world)[0];

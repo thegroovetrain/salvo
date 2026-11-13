@@ -12,12 +12,14 @@
 // the owner — so clearance is only about clean spawn geometry, not self-hits.
 
 import {
+  batteryTerrainStop,
   clampInsideMap,
   dispersedLanding,
   dispersedPoint,
   hullClearOffset as sharedHullClearOffset,
   segCircleHit,
   muzzleSpawn as sharedMuzzleSpawn,
+  type HeightRaster,
   type ShellFamily,
   type ShellState,
   type TargetKind,
@@ -84,6 +86,15 @@ export interface BallisticParams {
   /** Server-internal MAIN-BATTERY marker (see ShellState.batteryShell). Only
    *  the main battery's salvo sets it; never on the wire. */
   batteryShell?: true;
+  /** ARCING FLIGHT (epic-11 amendment 8; see ShellState.overShips /
+   *  overLand): no hull or beacon interrupts it (the main battery and the
+   *  star / phosphor / flash / fouling shells) / no coastline does (those five
+   *  and the secondaries). */
+  overShips?: true;
+  overLand?: true;
+  /** The target point is the high ground that stops a main-battery shell
+   *  (see ShellState.terrainStop). */
+  terrainStop?: true;
   // `attenRangeU` (the deck-gun range-attenuation reference, Story 9.12) —
   // RETIRED 2026-11-12, Story 11.1: damage is flat with range.
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
@@ -132,6 +143,23 @@ export function dispersedFlight(origin: Vec2, aim: Vec2, seed: number, mapRadius
   const dy = landing.y - origin.y;
   const distU = Math.hypot(dx, dy);
   return { landing, dir: distU > 0 ? Math.atan2(dy, dx) : fallbackDir, distU };
+}
+
+/**
+ * WHERE A MAIN-BATTERY SHELL'S OR SECONDARY ROUND'S FLIGHT ENDS (Eric
+ * 2026-11-13, epic-11 amendment 8), decided ONCE AT LAUNCH — the path is a
+ * fixed straight line and islands are static: the first HIGH GROUND on
+ * `spawn → landing` (the chart's first inner contour and above — shared
+ * `batteryTerrainStop`), where it splashes on the hillside (`tag` carries
+ * `terrainStop`), or its landing. The lowest land band is passed over.
+ */
+export function terrainFlightEnd(
+  raster: HeightRaster,
+  spawn: Vec2,
+  landing: Vec2,
+): { point: Vec2; tag: Pick<BallisticParams, 'terrainStop'> } {
+  const stop = batteryTerrainStop(raster, spawn, landing);
+  return stop === null ? { point: landing, tag: {} } : { point: stop, tag: { terrainStop: true } };
 }
 
 /** One main-battery shell's flight: where it spawns, where it lands, how far it flies. */
@@ -241,7 +269,15 @@ export function makeBallistic(
     family: p.family,
   };
   copyOptionalTags(shell, p);
+  copyFlightTags(shell, p);
   return shell;
+}
+
+/** The ARCING-FLIGHT tags (epic-11 amendment 8), set only when carried. */
+function copyFlightTags(shell: ShellState, p: BallisticParams): void {
+  if (p.overShips === true) shell.overShips = true;
+  if (p.overLand === true) shell.overLand = true;
+  if (p.terrainStop === true) shell.terrainStop = true;
 }
 
 /** The optional tags are set only when the caller carries one (never an

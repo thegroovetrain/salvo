@@ -516,7 +516,7 @@ describe('a hull sunk THIS tick (amendment 19, :594)', () => {
 // mines" above, which allows no emission of ANY kind, not just no `hc`/`sp`.
 
 describe('P2 — the interception dispatches by KIND, not by store membership', () => {
-  it('a HULL whose id equals a live mine id takes contact damage; the mine is untouched', () => {
+  it('a HULL whose id equals a live mine id takes the hit; the mine is untouched', () => {
     // Ids live in different namespaces but NOTHING enforces that. Under the old
     // `this.mines.get(id)` dispatch the collision resolved as the MINE. The
     // in-flight half of that defect is now structurally impossible (amendment
@@ -527,7 +527,9 @@ describe('P2 — the interception dispatches by KIND, not by store membership', 
     const b = place(w, 'collide', 200, 0);
     mine(w, 'collide', 'x', 4000, 4000); // same id, parked far away
     const hp0 = b.hp;
-    shootAt(w, 'a', 600);
+    // Aimed AT the hull: a main-battery shell no longer meets a hull in flight
+    // (epic-11 amendment 8 — it lands, and the landing dispatches by KIND).
+    shootAt(w, 'a', 200);
     expect(b.hp).toBeLessThan(hp0); // the HULL took the hit
     expect(w.mines.has('collide')).toBe(true); // the mine never detonated
   });

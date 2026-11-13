@@ -266,6 +266,33 @@
 //   (3) The torpedo run-out gate (review gate F4) moved NOTHING here: no
 //       captured torpedo ran out of run beyond the torpedo eye reach of an
 //       observer who was not its owner.
+//
+// RE-RECORDED 2026-11-13 (hull-scale dispersion + DIRECT HITS ONLY + arcing
+// shells + the high-ground rule; Eric, epic-11 amendment 8; PV 105). Diffed
+// frame by frame: 175 → 179 frames, no key added or removed, the perception
+// exceptions unchanged. What moved:
+//   (1) THE DISPERSION DIALS (alongFrac 0.01 → 0.02, acrossFrac 1/3 → 0.2):
+//       every secondaries round's `shell` reveal vx / vy and every landing's
+//       `boom` / `sp` point moved by the new along / across offsets; the
+//       main-battery `mz` / `shell` spawns on the muzzle line moved likewise.
+//   (2) THE MAIN BATTERY LANDS AS AN IMPACT: every main-battery `burst` is
+//       now a `boom` (with `hit` when the landing point is inside a hull —
+//       stripped by the existing rule when the victim is not sighted).
+//       scnBurst: the two shells used to stop on b's near side one tick out
+//       (the in-blast interception) and burst at t 100; they now fly over
+//       that side and land INSIDE b at t 200 — two more ticks of capture per
+//       observer (the +4 frames), the same two blows (b 100 → 58 hp).
+//       scnDenied's salvo terminates the same way, one tick later (t 150 →
+//       200). scnGunnery: shot 1's two misses land on two ticks (16 200 /
+//       16 250 — the doubled along spread) as `boom` + `sp` (the owner sees
+//       its own landing past the splash reach through the landing boom's
+//       owner arm — the retired burst's); shot 2 now connects with ONE of its
+//       two shells (direct hits only; b re-posed bow-on to the line of fire so
+//       the long axis of the fall of shot lies along it) — one `boom` + `hc`.
+//   (3) THE STAR SHELL ARCS: scnStarShell's flare used to burst one tick
+//       early (an in-blast interception snapped it to the click); it now
+//       flies the whole way, so its burst and expiry frames are 50 ms later
+//       (t 9 150 → 9 200, 19 200 → 19 250) — same point, same zone.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -847,11 +874,12 @@ function scnSpectatorBallistic(g: Golden): void {
 }
 
 /**
- * burst channel (Story 1.4) — a REAL gun click: the shell spawns at a's hull
- * silhouette edge, flies to the clicked point (b's position, 120u out), and
- * bursts there via the proximity rule (b's hull contains the target point).
- * b takes the full burst damage as a victim-private dmg; both observers see
- * the burst event as the bare {k,id,x,y} shape.
+ * The main-battery LANDING (Story 1.4's burst channel until the blast retired —
+ * Eric 2026-11-13, epic-11 amendment 8: direct hits only) — a REAL click: the
+ * shell spawns at a's hull silhouette edge, flies to the clicked point (b's
+ * position, 120u out) and lands INSIDE b's silhouette. b takes the full blow
+ * as a victim-private dmg; both observers see the landing as a `boom` naming
+ * b, never a `burst`. (The `burst` channel is carried by the star shell.)
  */
 function scnBurst(g: Golden): void {
   const w = bareWorld(1010);
@@ -864,9 +892,9 @@ function scnBurst(g: Golden): void {
     w.step();
     const fa = cap(g, w, 'a');
     cap(g, w, 'b');
-    burst = fa.events.some((e) => e.k === 'burst');
+    burst = fa.events.some((e) => e.k === 'boom' && e.hit === 'b');
   }
-  expect(burst).toBe(true); // the burst actually landed in the fixture
+  expect(burst).toBe(true); // the shell actually landed on b in the fixture
 }
 
 /**
@@ -1106,12 +1134,13 @@ function scnDenied(g: Golden): void {
   const fa3 = cap(g, w, 'a');
   prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === deniedSeq);
   prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 1);
-  // The tick-2 salvo terminates on b: the burst + hc terminal frame this
+  // The tick-2 salvo terminates on b: the landing + hc terminal frame this
   // scenario always pinned (Story 9.12 review gate), on whichever captured
-  // tick it lands now that the turrets were spent one click per tick.
+  // tick it lands now that the turrets were spent one click per tick. The
+  // landing is a `boom` since the blast retired (epic-11 amendment 8).
   salvoFrames.push(fa3);
   const terminated = (): boolean =>
-    salvoFrames.some((f) => f.events.some((e) => e.k === 'burst') && f.events.some((e) => e.k === 'hc' && e.id === 'a'));
+    salvoFrames.some((f) => f.events.some((e) => e.k === 'boom') && f.events.some((e) => e.k === 'hc' && e.id === 'a'));
   for (let i = 0; i < 20 && !terminated(); i++) {
     w.step();
     salvoFrames.push(cap(g, w, 'a'));
@@ -1239,7 +1268,10 @@ function scnGunnery(g: Golden): void {
   place(w, 'o1', WEST - 300, 0); // unambiguously inside the muzzle halo, behind the line of fire
   place(w, 'o2', WEST + (FLASH + 150) * Math.cos(FAN), (FLASH + 150) * Math.sin(FAN)); // beyond the halo
   place(w, 'o3', WEST, -300); // inside the halo but behind the island
-  place(w, 'b', WEST + SHOT * Math.cos(-FAN), SHOT * Math.sin(-FAN)); // the fogged victim of the second shot
+  // The fogged victim of the second shot, BOW-ON to the line of fire: with
+  // direct hits only (epic-11 amendment 8) the long axis of the fall of shot
+  // lies along its length.
+  place(w, 'b', WEST + SHOT * Math.cos(-FAN), SHOT * Math.sin(-FAN), -FAN);
   // Shot 1 — a miss into empty water due east (45° off the bow, clear of the
   // island), bursting beyond o1's splash reach.
   holdAim(w, 'a', 1, 0, SHOT);
@@ -1252,11 +1284,12 @@ function scnGunnery(g: Golden): void {
   prove(g, 'muzzle-flash-inside-halo', fo1.events.some((e) => e.k === 'mz'));
   prove(g, 'muzzle-flash-beyond-halo-silent', !fo2.events.some((e) => e.k === 'mz'));
   prove(g, 'muzzle-flash-island-blocked', !fo3.events.some((e) => e.k === 'mz'));
-  // Flight to the burst (no frame builds), then the burst/splash tick.
+  // Flight to the landing (no frame builds), then the landing/splash tick.
+  // The landing is a `boom` since the blast retired (epic-11 amendment 8).
   let burst = false;
   for (let i = 0; i < flightTicks(SHOT, speed) && !burst; i++) {
     w.step();
-    burst = w.tickEvents.some((e) => e.k === 'burst');
+    burst = w.tickEvents.some((e) => e.k === 'boom');
   }
   expect(burst).toBe(true);
   const faMiss = cap(g, w, 'a');
@@ -1265,7 +1298,7 @@ function scnGunnery(g: Golden): void {
     g,
     'gunnery-miss-own-splash',
     faMiss.events.some((e) => e.k === 'sp' && e.id === 'a') &&
-      !fo1Miss.events.some((e) => e.k === 'sp' || e.k === 'burst'),
+      !fo1Miss.events.some((e) => e.k === 'sp' || e.k === 'boom'),
   );
   // The torpedo launch — the ratified quiet weapon: no mz for anyone. R28: it
   // fires along shot 1's bearing (45° off the bow, inside the fore launcher's

@@ -35,6 +35,16 @@
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
 //   (Eric rulings 2026-07-21; the broadside barrage reuses the
 //   burst rule with different numbers.)
+//   - ARCING SHELLS (Eric 2026-11-13, epic-11 amendment 8; `overShips` /
+//     `overLand`): the STAR, PHOSPHOR, FLASH and FOULING shells are
+//     interrupted by nothing en route and burst at their destination with
+//     their own radii. The MAIN BATTERY's shell passes over every ship and
+//     lands at its point with NO blast (`burstRadius` 0: the landing point
+//     itself is the only test, so only a hull whose silhouette holds the
+//     point is a victim). The main battery and the SECONDARIES clear the
+//     chart's lowest land band and are stopped by higher ground — resolved
+//     once at launch by shortening the flight to the first high ground
+//     (`terrainStop`); a secondary still strikes the first hull on its path.
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
 // a segment p0->p1. Against islands it is seg-vs-COASTLINE (islandSegHit — the
@@ -125,6 +135,31 @@ export interface ShellState {
    * forbidden-key scan pins it).
    */
   batteryShell?: true;
+  /**
+   * ARCING FLIGHT (per-projectile hit rules, the Story 1.4 seam; never on the
+   * wire; Eric 2026-11-13, epic-11 amendment 8). Each flag SKIPS one half of
+   * the in-flight sweep — skipped, not run and discarded; the map edge still
+   * ends every shell:
+   *   - `overShips` — no hull or radio beacon interrupts it ("Only the landing
+   *     point counts"): the MAIN BATTERY and the STAR, PHOSPHOR, FLASH and
+   *     FOULING shells.
+   *   - `overLand` — no COASTLINE interrupts it: the same five plus the
+   *     SECONDARIES ("the same rule with firing over islands"). The four
+   *     special shells clear all land; the main battery and the secondaries
+   *     clear only the chart's lowest land band — their high-ground stop is
+   *     decided ONCE AT LAUNCH (`terrainStop`, sim/terrainBlock.ts).
+   * Absent = today's sweep against islands and targets.
+   */
+  overShips?: true;
+  overLand?: true;
+  /**
+   * SERVER-INTERNAL (epic-11 amendment 8): the target point is NOT a landing
+   * but the first HIGH GROUND on a main-battery shell's or secondary round's
+   * path (`batteryTerrainStop`, resolved at launch). Arriving there is an
+   * island stop (`hitIsland`): the round splashes on the hillside and damages
+   * nothing. Never on the wire.
+   */
+  terrainStop?: true;
   // `originX` / `originY` / `attenRangeU` (the deck-gun range-attenuation
   // launch point and reference, Story 9.12) — RETIRED 2026-11-12, Story 11.1:
   // damage is flat with range.
@@ -344,6 +379,16 @@ function earliestEdge(p0: Vec2, p1: Vec2, mapRadius: number): Hit | null {
   return t === null ? null : { frac: t, edge: true };
 }
 
+/** The earliest island or target this step meets, honouring the shell's
+ *  ARCING FLIGHT (`overLand` / `overShips`, epic-11 amendment 8): a skipped
+ *  half of the sweep never runs — a real skip, not a test whose answer is
+ *  dropped. */
+function earliestObstacle(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
+  const island = shell.overLand === true ? null : earliestIsland(p0, p1, ctx);
+  const target = shell.overShips === true ? null : earliestTarget(shell, p0, p1, ctx);
+  return earlier(island, target);
+}
+
 /** Pick the earlier of two candidate hits (null = no hit). */
 function earlier(a: Hit | null, b: Hit | null): Hit | null {
   if (a === null) return b;
@@ -486,9 +531,12 @@ function targetDistance(shell: ShellState, p0: Vec2): number {
     : Math.hypot(shell.targetX - p0.x, shell.targetY - p0.y);
 }
 
-/** The arrival outcome at the (already snapped) target point: a burst, or an
- *  expiry for a DIRECT shell, which has no burst (Story 8.15). */
+/** The arrival outcome at the (already snapped) target point: a burst, an
+ *  expiry for a DIRECT shell, which has no burst (Story 8.15), or an island
+ *  stop for a main-battery shell whose target is the high ground that stops
+ *  it (`terrainStop`, epic-11 amendment 8). */
 function arrive(shell: ShellState): ShellOutcome {
+  if (shell.terrainStop === true) return { kind: 'hitIsland', x: shell.x, y: shell.y };
   return shell.direct === true
     ? { kind: 'expired', x: shell.x, y: shell.y }
     : { kind: 'burst', x: shell.x, y: shell.y };
@@ -524,7 +572,7 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
 
   const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
 
-  const obstacle = earlier(earliestIsland(p0, p1, ctx), earliestTarget(shell, p0, p1, ctx));
+  const obstacle = earliestObstacle(shell, p0, p1, ctx);
   const hit = earlier(obstacle, earliestEdge(p0, p1, ctx.mapRadius));
   if (hit) {
     const ix = p0.x + ux * moveDist * hit.frac;

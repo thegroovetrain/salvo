@@ -1723,6 +1723,25 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  */
 export interface BoomSubject extends BoomEvent {
   run?: string;
+  /**
+   * Set, to the shell's OWNER id, only on a MAIN-BATTERY LANDING boom
+   * (World.resolveBurst for a zero-radius shell — epic-11 amendment 8, the
+   * blast retired 2026-11-13). Its landing used to be a `burst`, which the
+   * burst row always shows its owner; the landing boom keeps exactly that
+   * owner arm (`landSeen`), so the shooter sees every landing he saw before.
+   * It adds nothing the owner did not already hold: the point is his own
+   * shell's landing, sent to him anyway as `sp` / `hc`, and the `hit` id is
+   * still stripped by the class-reach rule below. NEVER on the wire.
+   */
+  land?: string;
+}
+
+/** The boom subject rebuilt for the wire: the bare {k,id,x,y}, plus `hit`
+ *  (in its wire position) when `keepHit` and the subject carries one. Never
+ *  the subject verbatim — `run` / `land` are server-internal. */
+function boomWire(e: BoomSubject, keepHit: boolean): BoomEvent {
+  if (keepHit && e.hit !== undefined) return { k: 'boom', id: e.id, hit: e.hit, x: e.x, y: e.y };
+  return { k: 'boom', id: e.id, x: e.x, y: e.y };
 }
 
 /**
@@ -1748,22 +1767,22 @@ const boomSignal: SignalSpec<BoomSubject, BoomEvent> = {
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
     if (e.run !== undefined) return runOutSeen(ctx, e);
+    // A MAIN-BATTERY LANDING keeps the retired burst's owner arm (`land`).
+    if (e.land === ctx.me.id) return true;
     // THE POSITION rides the splash reach (Story 11.2, R4 / R18); the victim
     // id below still gates at the CLASS reach (`pointSighted`).
     return e.hit === ctx.me.id || splashSeen(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
-    // A run-out boom is ALWAYS rebuilt bare — never `e` verbatim, which
-    // would put the server-internal `run` (an owner id) on the wire.
-    if (e.run !== undefined) return { k: 'boom', id: e.id, x: e.x, y: e.y };
-    if (ctx.mode === 'spectator') return e;
+    // ALWAYS rebuilt — never `e` verbatim, which would put a server-internal
+    // `run` / `land` (an owner id) on the wire. A run-out boom is bare.
+    if (e.run !== undefined) return boomWire(e, false);
+    if (ctx.mode === 'spectator') return boomWire(e, true);
     const me = ctx.me;
-    if (!e.hit || e.hit === me.id) return e;
+    if (!e.hit || e.hit === me.id) return boomWire(e, true);
     const victim = ctx.ships.get(e.hit);
-    if (victim && (pointSighted(me, victim.state, ctx, ctx.now) || ownZoneCovers(ctx, victim.state))) {
-      return e;
-    }
-    return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
+    const sighted = victim !== undefined && (pointSighted(me, victim.state, ctx, ctx.now) || ownZoneCovers(ctx, victim.state));
+    return boomWire(e, sighted); // impact visible; victim id stripped unless sighted
   },
 };
 

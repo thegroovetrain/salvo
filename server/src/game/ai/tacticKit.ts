@@ -24,6 +24,7 @@
 
 import {
   CONFIG,
+  batteryTerrainStop,
   bearing,
   blockedWater,
   wrapAngle,
@@ -240,6 +241,18 @@ export function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean 
   return !lineBlocked(self.state, p, sit.islands);
 }
 
+/**
+ * THE MAIN BATTERY'S AND SECONDARIES' TERRAIN CHECK (Eric 2026-11-13, epic-11
+ * amendment 8): the server's own launch rule (shared `batteryTerrainStop`)
+ * over the public height raster — the round passes over the chart's lowest
+ * land band and is stopped by higher ground; the coastline alone no longer
+ * stops it. From the hull centre, like `shotReaches`. No raster on the
+ * situation (a hand-built one) = no terrain.
+ */
+export function overLandReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
+  return sit.raster === undefined || batteryTerrainStop(sit.raster, self.state, p) === null;
+}
+
 /** u — the distance to a plot's PREDICTED point (utility.ts plotAt — cycle
  *  165 review, B4): every range, band and placement check reads the same
  *  point the lead solve starts from. Identical to the raw distance for a live
@@ -331,14 +344,16 @@ function isAstern(ctx: TacticContext, t: BotTrack): boolean {
 }
 
 /** A burst placed ON a live contact (no lead — the zone is an area), clamped
- *  to `rangeU`, coastline-gated on the shot. The target defaults to the
- *  nearest live contact in sight; a row with its own pick passes it. */
+ *  to `rangeU`. Its callers are the ARCING shells (phosphor, flash, fouling —
+ *  Eric 2026-11-13, epic-11 amendment 8: nothing interrupts them en route),
+ *  so there is NO coastline gate: a shot over an island now arrives. The
+ *  target defaults to the nearest live contact in sight; a row with its own
+ *  pick passes it. */
 export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: BotTrack | null = nearestLiveInSight(ctx)): Shot | null {
   const t = target;
   if (t === null) return null;
   const d = distTo(ctx.sit, t);
   if (d > rangeU) return null;
-  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 

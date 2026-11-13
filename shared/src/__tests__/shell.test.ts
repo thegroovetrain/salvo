@@ -916,3 +916,56 @@ describe('stepShell / burstVictims — the beacon kind (Story 10.8)', () => {
     expect(t.vy).toBeGreaterThan(0);
   });
 });
+
+// ARCING FLIGHT (Eric 2026-11-13, epic-11 amendment 8): `overShips` skips the
+// hull / beacon sweep, `overLand` the coastline sweep, `terrainStop` makes the
+// target point an island stop. Each would have stopped the shell on today's
+// sweep; with the flag it arrives.
+describe('stepShell — arcing flight (overShips / overLand / terrainStop)', () => {
+  const onPath = (): Target[] => [hullAt(150, 0, Math.PI / 2, 'mid'), { id: 'bcn', kind: 'beacon', poly: beaconPolygon(250, 0) }];
+
+  it('overShips: a hull and a beacon on the path do not stop it — it arrives at its target point (a zero-radius landing)', () => {
+    const s = gunShell(400, { burstRadius: 0, contactDamage: 0, overShips: true });
+    const out = stepToOutcome(s, ctx({ targets: onPath() }));
+    expect(out).toEqual({ kind: 'burst', x: 400, y: 0 });
+  });
+
+  it('without overShips the same shell is stopped by the first of them (the control)', () => {
+    const s = gunShell(400, { burstRadius: 0, contactDamage: 0 });
+    expect(stepToOutcome(s, ctx({ targets: onPath() })).kind).toBe('hitShip');
+  });
+
+  it('overLand: a coastline on the path does not stop it; a hull still does when overShips is absent (the secondaries)', () => {
+    const land = ctx({ islands: [rock(200, 0, 30)] });
+    expect(stepToOutcome(gunShell(400, { overLand: true }), land)).toEqual({ kind: 'burst', x: 400, y: 0 });
+    expect(stepToOutcome(gunShell(400), land).kind).toBe('hitIsland'); // the control
+    const both = ctx({ islands: [rock(200, 0, 30)], targets: [hullAt(300, 0, Math.PI / 2, 'mid')] });
+    const direct = stepToOutcome(gunShell(400, { overLand: true, direct: true, burstRadius: 0 }), both);
+    expect(direct.kind).toBe('hitShip');
+  });
+
+  it('overShips + overLand (the star / phosphor / flash / fouling shells): neither stops it', () => {
+    const s = gunShell(400, { overShips: true, overLand: true });
+    const out = stepToOutcome(s, ctx({ islands: [rock(200, 0, 30)], targets: onPath() }));
+    expect(out).toEqual({ kind: 'burst', x: 400, y: 0 });
+  });
+
+  it('terrainStop: arriving at the target point is an island stop, never a landing — for a blast shell and a direct round alike', () => {
+    expect(stepToOutcome(gunShell(400, { overShips: true, overLand: true, burstRadius: 0, terrainStop: true }), ctx())).toEqual({
+      kind: 'hitIsland',
+      x: 400,
+      y: 0,
+    });
+    expect(stepToOutcome(gunShell(400, { overLand: true, direct: true, burstRadius: 0, terrainStop: true }), ctx()).kind).toBe('hitIsland');
+  });
+});
+
+describe('burstVictims at radius 0 — the main battery\'s landing-point test', () => {
+  const poly = transformPolygon(CHEVRON_100X30, 0, 0, 0);
+  it('a point inside the silhouette is a victim; a point 1 u outside the outline is not', () => {
+    const t: Target = { id: 'v', kind: 'hull', poly };
+    expect(burstVictims({ x: 0, y: 0 }, 0, [t], 'owner')).toEqual([t]);
+    expect(burstVictims({ x: 51, y: 0 }, 0, [t], 'owner')).toEqual([]); // the bow tip is at x = 50
+    expect(burstVictims({ x: 0, y: 0 }, 0, [t], 'v')).toEqual([]); // own hull: never
+  });
+});

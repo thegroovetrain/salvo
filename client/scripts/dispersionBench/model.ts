@@ -8,7 +8,6 @@
 // shooter sits at x = -range), so "along the shot" is x and "across" is y.
 
 import {
-  CONFIG,
   dispersedPoint,
   dispersionAxes,
   hullSilhouette,
@@ -47,7 +46,9 @@ export const STAT_SHELLS = 2000;
 /** The readouts' fixed sample starts here, so a reroll never moves them. */
 const STAT_SALVO_BASE = 1_000_000;
 
-export const BLAST_U = CONFIG.mainBattery.burstRadius;
+// The main battery's blast RETIRED 2026-11-13 (Eric; epic-11 amendment 8:
+// direct hits only): a zero radius makes `polyInBlast` the landing-point test.
+export const BLAST_U = 0;
 // Every shell of a salvo aims at the ONE point (Eric 2026-11-12, R13) and the
 // game's `CONFIG.mainBattery.barrelSpacingU` retired with the parallel landing
 // tracks, so the bench's tracks are all on the aim point.
