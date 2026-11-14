@@ -63,7 +63,7 @@ function ability(kind: AbilityModel['kind'], over: Partial<AbilityModel> = {}): 
 }
 
 function baseRows(): WeaponRowModel[] {
-  return WEAPON_ROW_KINDS.map((k) => (k === 'secondaries' ? row(k, { clocks: [], heat: { heat: 0.3, locked: false }, tier: 0, tierNumeral: '' }) : row(k)));
+  return WEAPON_ROW_KINDS.map((k) => (k === 'secondaries' ? row(k, { clocks: [], heat: { heat: 0.3 }, tier: 0, tierNumeral: '' }) : row(k)));
 }
 
 function view(over: Partial<WeaponsConsoleView> = {}): WeaponsConsoleView {
@@ -151,12 +151,12 @@ function ringsIn(ops: Op[], i: number): number[][] {
 }
 
 describe('NO STATE WORD (Eric 2026-11-10, round 3) — line 1 is NAME · tier · key chip', () => {
-  it('no cell prints READY / ARMED / LOCKED, whatever its state; the ability buttons keep READY', () => {
+  it('no cell prints READY / ARMED, whatever its state; the ability buttons keep READY', () => {
     const rows = baseRows();
-    rows[1] = row('secondaries', { clocks: [], state: 'locked', heat: { heat: 0.9, locked: true }, tier: 0, tierNumeral: '' });
+    rows[1] = row('secondaries', { clocks: [], heat: { heat: 0.9 }, tier: 0, tierNumeral: '' });
     rows[2] = row('torpedo', { state: 'readied', readied: true });
     const p = paint(view({ rows }));
-    for (let i = 0; i < 5; i++) for (const w of ['READY', 'ARMED', 'LOCKED']) expect(p.inRow(i).map((t) => t.text), `${i} ${w}`).not.toContain(w);
+    for (let i = 0; i < 5; i++) for (const w of ['READY', 'ARMED']) expect(p.inRow(i).map((t) => t.text), `${i} ${w}`).not.toContain(w);
     expect(p.words.filter((w) => w === 'READY')).toHaveLength(3); // C · V · Shift
   });
 
@@ -260,16 +260,13 @@ describe('the mines row: one ring per rack + its held-mine pips in a column besi
 });
 
 describe('the secondaries row', () => {
-  it('LOCKED draws the red outline and hatches the heat fill in denied red — no word', () => {
-    const sec = row('secondaries', { clocks: [], state: 'locked', heat: { heat: 0.8, locked: true }, tier: 0, tierNumeral: '' });
+  it('FULL HEAT draws the same phosphor heat bar as any other heat — no denied red (the lock is gone)', () => {
+    const sec = row('secondaries', { clocks: [], heat: { heat: 1 }, tier: 0, tierNumeral: '' });
     const p = paint(view({ rows: withRow(1, sec) }));
-    expect(p.inRow(1).some((t) => t.text === 'LOCKED')).toBe(false);
-    const r = LAYOUT.rows[1];
-    const redOutline = p.ops.filter((o) => o.action === 'stroke' && o.color === C.denied).flatMap((o) => o.rects);
-    expect(redOutline).toContainEqual([r.x, r.y, r.w, r.h]);
-    const deniedStrokes = p.ops.filter((o) => o.action === 'stroke' && o.color === C.denied);
-    // the row outline, the bar outline and the hatch run
-    expect(deniedStrokes.length).toBeGreaterThanOrEqual(3);
+    expect(p.ops.some((o) => o.color === C.denied)).toBe(false);
+    const m = LAYOUT.rows[1].mounts;
+    const fills = p.ops.filter((o) => o.action === 'fill' && o.color === C.phosphor).flatMap((o) => o.rects);
+    expect(fills.some((r) => r[0] === m.x && r[2] === m.w)).toBe(true); // filled the whole width
   });
 
   it('cool secondaries fill the heat bar in phosphor, no hatch', () => {
@@ -394,7 +391,7 @@ function fittedAlone(): { id: EquipmentId; readouts: Readout[]; rows: WeaponRowM
     const readouts = consoleReadouts({ stats, loadout, cards: [], cls: DEFAULT_CLASS_ID });
     const rows = weaponRowModels({
       stats, cards: [], cls: DEFAULT_CLASS_ID, loadout, ammo: [], turrets: [], launchers: [], racks: [],
-      sec: { heat: 0, locked: false }, primedSlot: -1, readouts,
+      sec: { heat: 0 }, primedSlot: -1, readouts,
     });
     return { id, readouts, rows };
   }));
@@ -404,7 +401,7 @@ const SLOTLESS_INPUT = ((): Parameters<typeof weaponRowModels>[0] => {
   const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [], CATALOG);
   return {
     stats, cards: [], cls: DEFAULT_CLASS_ID, loadout: [], ammo: [], turrets: [], launchers: [], racks: [],
-    sec: { heat: 0, locked: false }, primedSlot: -1, readouts: [],
+    sec: { heat: 0 }, primedSlot: -1, readouts: [],
   };
 })();
 

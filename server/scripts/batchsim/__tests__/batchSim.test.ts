@@ -1546,8 +1546,8 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
     restore();
     expect(CONFIG.mainBattery.reloadMs).toBe(before);
     // The divide-or-spin floors: a turret reload, the main reach, the round's
-    // speed and the three secondaries clocks are floored at 1.
-    for (const key of ['mainBattery.reloadMs', 'mainBattery.rangeU', 'mainBattery.shellSpeed', 'secondaries.rateMs', 'secondaries.overheatMs', 'secondaries.coolMs']) {
+    // speed, the two secondaries rates and its two heat clocks are floored at 1.
+    for (const key of ['mainBattery.reloadMs', 'mainBattery.rangeU', 'mainBattery.shellSpeed', 'secondaries.coldRatePerS', 'secondaries.hotRatePerS', 'secondaries.overheatMs', 'secondaries.coolMs']) {
       expect(() => parseArgs(['--tune', `${key}=0`]), key).toThrow(/>= 1/);
       expect(() => parseArgs(['--tune', `${key}=1`]), key).not.toThrow();
     }

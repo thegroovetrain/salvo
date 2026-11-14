@@ -189,7 +189,7 @@ function weaponsInput(cards: readonly string[], over: Partial<WeaponsInput> = {}
   const loadout = slotsWithCards(stats, cards).map((s) => s.equipmentId);
   return {
     stats, cards, cls: CLS, loadout, ammo: loadout.map(() => null), turrets: [], launchers: [], racks: [],
-    sec: { heat: 0, locked: false }, primedSlot: 0,
+    sec: { heat: 0 }, primedSlot: 0,
     readouts: consoleReadouts({ stats, loadout, cards, cls: CLS }),
     ...over,
   };
@@ -235,8 +235,8 @@ describe('weaponRowModels — the five rows in the ruled order (R17)', () => {
     expect(weaponRowModels(weaponsInput(cards, { primedSlot: 0 }))[0].readied).toBe(false);
   });
 
-  it('overheated secondaries read LOCKED and carry the heat; cold ones read ready', () => {
-    expect(weaponRowModels(weaponsInput([], { sec: { heat: 1, locked: true } }))[1]).toMatchObject({ state: 'locked', heat: { heat: 1, locked: true } });
+  it('the secondaries read ready at every heat (full heat slows, never locks) and carry the heat', () => {
+    expect(weaponRowModels(weaponsInput([], { sec: { heat: 1 } }))[1]).toMatchObject({ state: 'ready', heat: { heat: 1 } });
     expect(weaponRowModels(weaponsInput([]))[1].state).toBe('ready');
   });
 

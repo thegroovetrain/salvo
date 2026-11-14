@@ -3845,3 +3845,11 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - tooling outside the repo - 2026-11-11 (review gate)
   summary: THE AUDITION PAGE'S `--selftest` DEPENDS ON A PLAYWRIGHT INSTALL OUTSIDE THE REPO (`~/.claude/skills/gstack/node_modules/playwright-core`); without it the self-test cannot run.
   evidence: `client/scripts/perfLib.mjs` `playwrightCandidates()`.
+
+
+## 2026-11-13 - Gun cadence retune (cycle 232, 0.19.26, PV 106; epic-11 amendment 9) - review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-gun-cadence-retune.md`
+  status: open - low - cosmetic - 2026-11-13 (review gate)
+  summary: THE OWN HEAT BAR CAN STEP BACK AND FORTH BY ONE ROUND'S HEAT UNDER LATENCY, and one round's heat is now up to about 9 % of the bar (it was a fixed 3 %): `OwnBattery.correct` overwrites the predicted heat from every own frame with no unacked-input guard (the turrets have one).
+  evidence: `client/src/sim/ownBattery.ts` (`correct`); the mechanism predates this change, the step size is new (a round fired near full heat adds its ~900 ms interval / 10 s).

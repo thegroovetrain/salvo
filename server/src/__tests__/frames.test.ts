@@ -79,8 +79,8 @@ describe('buildFrame — shape and clock', () => {
       // THE TURRETS (Story 10.4) — angle + remaining reload per turret, the
       // record's own (one step of traverse toward the input's aim has landed).
       turrets: ship.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })),
-      // THE SECONDARIES' HEAT — `{heat, locked}` only; cold and unlocked.
-      sec: { heat: 0, locked: false },
+      // THE SECONDARIES' HEAT — `{heat}` only; cold.
+      sec: { heat: 0 },
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
       // / fouledUntil are OMITTED, not 0, while inactive.)
       pts: 0, // no points banked

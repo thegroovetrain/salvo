@@ -678,8 +678,9 @@ export const CONFIG = {
      * SECONDARIES HEAT DISCIPLINE (Story 10.4 review gate) — a bot holding
      * its secondaries (sim/secondaries.ts) RELEASES them once heat reaches
      * `secReleaseHeat` and does not press again until heat is at or below
-     * `secRepressHeat` (and any lock has cleared), so it fires in bursts and
-     * never rides the gun into a lock. Fractions of full heat, release above
+     * `secRepressHeat`, so it fires in bursts and keeps the gun on the faster
+     * side of its heat slide (full heat no longer locks since epic-11
+     * amendment 9). Fractions of full heat, release above
      * re-press. An ORCHESTRATOR READING for Story 10.4, not an Eric number;
      * tuned at Story 10.12.
      */
@@ -1492,7 +1493,8 @@ export const CONFIG = {
    * flying PARALLEL to the line of fire off the muzzle line (sim/turrets.ts
    * `turretSalvo`), each `shipClasses.<id>.battery.shellDamage`.
    *
-   * R2 "Equal broadside, 10 s": `reloadMs` per turret before RELOAD. REACH
+   * R2 "Equal broadside": `reloadMs` per turret before RELOAD (15 s since
+   * Eric 2026-11-13, epic-11 amendment 9; R2's figure was 10 s). REACH
    * (Story 11.2, Eric 2026-11-12, R2 / R18): `rangeU` is the base 380 hm and
    * a hull's main-battery reach is `rangeU × shipClasses.<id>.battery
    * .reachFrac`, seeded once in the fold (sim/stats.ts). The RANGE index that
@@ -1522,7 +1524,7 @@ export const CONFIG = {
     arc: 'full', // every bearing is inside SOME turret's arc on every hull (which turrets may fire: sim/turrets.ts pickTurret)
     hits: HITS_HULL_BEACON, // hulls (+ radio beacons, Story 10.8 R8); NO mine bit (R3)
     rangeU: hmToU(380), // u — the BASE main-battery reach, × each hull's `battery.reachFrac` (Story 11.2, R2 / R18; was 1,000 u, the 8/12 rung)
-    reloadMs: 10000, // ms per turret, before RELOAD (R2)
+    reloadMs: 15000, // ms per turret, before RELOAD (Eric 2026-11-13, epic-11 amendment 9: "15 seconds at 100 RELOAD"; was 10000, R2)
     // `traverseDegPerS` (90 °/s, turrets AND torpedo launchers) and
     // `onTargetDeg` (0.5°) — RETIRED 2026-11-12, Story 11.1 (Eric R11 / R16:
     // no traverse, point and shoot inside the arc).
@@ -1539,16 +1541,19 @@ export const CONFIG = {
   /**
    * THE SECONDARIES (Story 10.4, R3, Eric 2026-11-04, epic-10 amendment 9) —
    * a uniform, slotless, 360° stream on RIGHT MOUSE HELD, identical on every
-   * hull, and the ONLY weapon that damages a mine. HEAT, NOT AMMO (Eric: "it
-   * can be used reliably in bursts, and as long as it hasn't overheated it
-   * will cool down when not being fired, but sustained fire might take it out
-   * of commission until it fully cools"): one round of `damage` every
-   * `rateMs` while held; `overheatMs` of continuous fire reaches full heat;
-   * full heat LOCKS the guns until heat is back to zero; full → zero takes
-   * `coolMs`. The heat law is PER ROUND (review-gate patch): each round adds
-   * `rateMs / overheatMs`, and heat drains only for time outside a fired
-   * round's own `rateMs` window — so tapping the button buys no extra rounds
-   * (sim/secondaries.ts).
+   * hull, and the ONLY weapon that damages a mine. HEAT, NOT AMMO — and heat
+   * SLOWS the gun, it never stops it (Eric 2026-11-13, epic-11 amendment
+   * 9: "The secondary gun will fire 3 shots per second, which will
+   * fall down to 1 shot per second as it overheats. It takes 10 seconds to
+   * overheat now. Overheating does not stop the gun from firing, but it cannot
+   * fire as quickly when its just held down."): one round of `damage` while
+   * held at `coldRatePerS` rounds a second cold, sliding linearly with heat to
+   * `hotRatePerS` at full heat; `overheatMs` of continuous fire reaches full
+   * heat; full heat NEVER locks; full → zero takes `coolMs` of not firing. The
+   * heat law is PER ROUND: each round adds its own interval / `overheatMs`, and
+   * heat drains only for time outside a fired round's own interval — so
+   * tapping the button never fires a round early or for less heat; only
+   * resting the gun, so it cools, buys the faster rate back (sim/secondaries.ts).
    *
    * Reach is `rangeFrac` of the hull's FOLDED main-battery reach (so the
    * hull's `battery.reachFrac` moves both). The round is today's machine-gun round, READING OF RECORD:
@@ -1559,9 +1564,10 @@ export const CONFIG = {
     arc: 'full', // 360°
     hits: HITS_HULL_MINE_BEACON, // the machine gun's mask: hulls + mines
     damage: 3, // hp per round (R3: Eric's "3 per round" after the DPS math)
-    rateMs: 120, // ms — one round per 0.12 s while held (R3)
-    overheatMs: 4000, // ms of continuous fire from cold to full heat (R3)
-    coolMs: 6000, // ms from full heat to zero (R3)
+    coldRatePerS: 3, // rounds a second while held at zero heat (Eric 2026-11-13, epic-11 amendment 9; was one per 120 ms)
+    hotRatePerS: 1, // rounds a second while held at full heat — linear in heat between (Eric 2026-11-13; full heat no longer locks)
+    overheatMs: 10000, // ms of continuous fire from cold to full heat (Eric 2026-11-13; was 4000)
+    coolMs: 10000, // ms of not firing from full heat to zero (Eric 2026-11-13; was 6000)
     rangeFrac: 0.5, // of the hull's folded main-battery reach (R3)
     shellSpeed: 500, // u/s — today's machine-gun round, reading of record
     shellRadius: 2, // u — today's machine-gun round, reading of record
@@ -1992,7 +1998,7 @@ export const CONFIG = {
    * charge on a 60 s cooldown (Eric 2026-10-02, amendment 232; was 45 s,
    * amendment 97) — longer than the longest weapon reload, so it never acts
    * as a permanent second tube. Since Story 10.5 (R10) it also VENTS the
-   * secondaries (heat 0, lock cleared — shared `ventSecondaries`), and its
+   * secondaries (heat 0 and free at once — shared `ventSecondaries`), and its
    * `reloadMs` is NOT scaled by RELOAD.
    */
   instantReload: {

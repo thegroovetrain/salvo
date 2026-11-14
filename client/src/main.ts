@@ -3496,7 +3496,7 @@ function weaponsInput(g: Game, f: ConsoleFrame): Parameters<typeof weaponRowMode
   return {
     stats: status.stats, cards: you?.cards ?? NO_CARDS, cls: status.cls, loadout: status.loadout, ammo: status.ammo,
     turrets: g.ownBattery.turrets, launchers: g.ownLaunchers.states, racks: you?.racks ?? [],
-    sec: { heat: g.ownBattery.heat, locked: g.ownBattery.locked }, primedSlot: status.primedSlot, readouts: f.readouts,
+    sec: { heat: g.ownBattery.heat }, primedSlot: status.primedSlot, readouts: f.readouts,
   };
 }
 

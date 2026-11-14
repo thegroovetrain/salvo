@@ -535,7 +535,7 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     cls: OWN_CLASS,
     shift: DEFAULT_SHIFT,
     turrets: initialTurrets(OWN_CLASS),
-    sec: { heat: 0, locked: false },
+    sec: { heat: 0 },
     pts: bankedPointsAt(tick, world.profile),
     offer: ['intel', 'heavyTorpedo', 'broadside'],
     boostUntil: 0,

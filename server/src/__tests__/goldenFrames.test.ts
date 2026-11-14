@@ -293,6 +293,21 @@
 //       early (an in-blast interception snapped it to the click); it now
 //       flies the whole way, so its burst and expiry frames are 50 ms later
 //       (t 9 150 → 9 200, 19 200 → 19 250) — same point, same zone.
+//
+// RE-RECORDED 2026-11-13 (gun cadence retune; Eric, epic-11 amendment
+// 9; PV 106). Diffed frame by frame: 13 more frames, all in
+// scnMineBurstDetonation; no event kind added or removed, the perception
+// exceptions unchanged. What moved:
+//   (1) `you.sec` LOSES `locked` on every own frame (full heat never locks).
+//   (2) THE MAIN BATTERY RELOAD (10 s → 15 s at RELOAD 100): every running
+//       turret / `ammo[0]` reload is the 1.5× longer clock (Bismarck 9 520 →
+//       14 280 on the first tick). scnGunnery's second shot waits for the
+//       longer reload: captured at t 47 400 (was 42 400), same events.
+//   (3) THE SECONDARIES' CADENCE (one per 120 ms → 3 a second cold, slowing
+//       with heat): every `you.sec.heat` value moved; scnMineBurstDetonation's
+//       `mg` reveals come at t 50 / 350 / 700 / 1 050 / 1 400 (were eight,
+//       about 100 ms apart, to t 850), so the mine pops at t 1 600 (was 950)
+//       — the 13 extra frames — with the same victimless boom.
 
 import { describe, it, expect } from 'vitest';
 import {

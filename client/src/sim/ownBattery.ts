@@ -5,7 +5,7 @@
 // once per 50 ms predicted sim tick with the SAME aim the outgoing InputMsg
 // carries (`stepTurrets` / `stepSecondaries` — the shared steppers the server
 // runs, no per-side fork), and corrected on every own frame: the turrets copy
-// the server's `you.turrets` RELOADS, the heat and lock copy `you.sec` while the
+// the server's `you.turrets` RELOADS, the heat copies `you.sec` while the
 // local round phase is kept. The turret ANGLES are never taken from the frame
 // (Story 11.1 review F-B): the turrets SNAP to the aim (no traverse — R16:
 // `stepTurrets` sets each angle to the shared `turretAngle`), so the angle is a
@@ -23,7 +23,7 @@
 // input too — the server's value is taken anyway, so nothing strands a turret.
 //
 // SIM LAYER (net → sim → render): the frame correction and the sim tick write
-// it; render reads `angles` / `heat` / `locked` and never writes.
+// it; render reads `angles` / `heat` and never writes.
 
 import {
   batteryAimPoint,
@@ -129,7 +129,6 @@ export class OwnBattery {
     for (let i = 0; i < Math.min(kept, this.turrets.length); i++) this.turrets[i].a = angles[i];
     this.keepUnackedReloads(ackSeq);
     this.sec.heat = you.sec.heat;
-    this.sec.locked = you.sec.locked;
   }
 
   /** Re-apply the local reload of every turret whose predicted fire the frame
@@ -183,10 +182,5 @@ export class OwnBattery {
   /** Secondaries heat in [0, 1]. */
   get heat(): number {
     return this.sec.heat;
-  }
-
-  /** True while the secondaries are overheated and dark. */
-  get locked(): boolean {
-    return this.sec.locked;
   }
 }

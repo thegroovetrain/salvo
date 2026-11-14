@@ -9,9 +9,9 @@
 //   * nothing ready, or no READY turret whose arc holds the aim → the `cooling`
 //     denial, nothing fires and no reload starts, however long the click is held;
 //   * INSTANT RELOAD finishes every turret (angles untouched) and vents the
-//     secondaries (heat 0, unlocked — Story 10.5, R10);
+//     secondaries (heat 0 — Story 10.5, R10);
 //   * a sinking hull's turrets keep their angles while reloads still run;
-//   * secondaries: burst, overheat lock, release / cool, refused once dead;
+//   * secondaries: burst, release / cool, full heat never locks, refused once dead;
 //   * a secondaries round on a mine's marker damages it and pops it when its
 //     hp is spent; a main-battery shell on the marker leaves it untouched;
 //   * bots of all four hulls fire main guns and secondaries; no bot mounts a deck gun.
@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  secondariesIntervalMs,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
   SLOT_BOOST,
@@ -177,13 +178,11 @@ describe('main battery — the arc-only click on the authoritative world', () =>
     });
     a.turrets[0].a = 0.25;
     a.sec.heat = 1;
-    a.sec.locked = true;
     const angles = a.turrets.map((t) => t.a);
     expect(w.sinkingActivationGate(a, SLOT_BOOST).ok).toBe(true);
     expect(reloading(a)).toEqual([]);
     expect(a.turrets.map((t) => t.a)).toEqual(angles);
     expect(a.sec.heat).toBe(0);
-    expect(a.sec.locked).toBe(false);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length, reloadMsLeft: 0 });
   });
 
@@ -256,40 +255,38 @@ describe('secondaries — the heat-limited stream on the authoritative world', (
     expect(first[0].direct).toBe(true);
     for (let i = 0; i < 10; i++) w.step();
     expect(a.sec.heat).toBeGreaterThan(0);
-    expect(a.sec.locked).toBe(false);
     const heat = a.sec.heat;
     const ids = new Set([...w.shells.keys()]);
     w.submitInput('a', inp(2, { aim: 0, aimDist: a.stats.secondaryRangeU, sec: false }));
-    // The last round's own `rateMs` window does not cool (heat per ROUND,
-    // Story 10.4 gate): step past it before the drain shows.
-    for (let i = 0; i < Math.ceil(CONFIG.secondaries.rateMs / DT) + 1; i++) w.step();
+    // The last round's own interval does not cool (heat per ROUND, Story
+    // 10.4 gate): step past it before the drain shows.
+    for (let i = 0; i < Math.ceil(secondariesIntervalMs(heat) / DT) + 1; i++) w.step();
     expect(a.sec.heat).toBeLessThan(heat);
     expect([...w.shells.values()].some((s) => !ids.has(s.id) && s.family === 'mg')).toBe(false);
-    // ...and the own frame carries {heat, locked} only.
-    expect(buildFrame(w, 'a').you!.sec).toEqual({ heat: a.sec.heat, locked: false });
+    // ...and the own frame carries {heat} only.
+    expect(buildFrame(w, 'a').you!.sec).toEqual({ heat: a.sec.heat });
   });
 
-  it('OVERHEAT: continuous fire locks the guns; no round while locked even if held; they fire again once cooled', () => {
+  it('FULL HEAT NEVER LOCKS: continuous fire reaches full heat and the held guns keep streaming at the hot interval', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.submitInput('a', inp(1, { aim: 0, aimDist: a.stats.secondaryRangeU, sec: true }));
     const cap = Math.ceil(CONFIG.secondaries.overheatMs / DT) + 2;
-    for (let i = 0; i < cap && !a.sec.locked; i++) w.step();
-    expect(a.sec.locked).toBe(true);
-    let count = shellsOf(w, 'a', 'mg').length + 0;
+    for (let i = 0; i < cap && a.sec.heat < 1; i++) w.step();
+    expect(a.sec.heat).toBe(1);
     const seen = new Set([...w.shells.keys()]);
-    // The dark time is coolMs PLUS the locking round's own rateMs window.
-    const coolCap = Math.ceil((CONFIG.secondaries.coolMs + CONFIG.secondaries.rateMs) / DT) + 2;
-    let firedWhileLocked = false;
-    for (let i = 0; i < coolCap && a.sec.locked; i++) {
+    let fired = 0;
+    const hotTicks = Math.ceil(secondariesIntervalMs(1) / DT);
+    for (let i = 0; i < hotTicks * 3 + 1; i++) {
       w.step();
-      if (a.sec.locked && [...w.shells.values()].some((s) => !seen.has(s.id) && s.family === 'mg')) firedWhileLocked = true;
+      for (const s of w.shells.values()) {
+        if (seen.has(s.id) || s.family !== 'mg') continue;
+        seen.add(s.id);
+        fired += 1;
+      }
+      expect(a.sec.heat).toBe(1);
     }
-    expect(firedWhileLocked).toBe(false);
-    expect(a.sec.locked).toBe(false);
-    count = [...w.shells.values()].filter((s) => !seen.has(s.id) && s.family === 'mg').length;
-    w.step(); // still held: the guns are back
-    expect([...w.shells.values()].filter((s) => !seen.has(s.id) && s.family === 'mg').length).toBeGreaterThan(count);
+    expect(fired).toBeGreaterThanOrEqual(3); // still held at full heat: the guns never stop
   });
 
   it('a DEAD hull streams nothing; a SINKING one still fires (weapons stay live in the window)', () => {

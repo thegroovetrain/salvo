@@ -8,7 +8,7 @@
 // capability: every main-battery turret and every fitted Q/E/R weapon whose
 // reload is RUNNING completes that ONE reload now (one round tops up, timer
 // to zero; the machine gun's magazine fills), and the secondaries vent — heat
-// zero, lock cleared (Story 10.5, R10, shared `ventSecondaries`). It does not
+// zero (Story 10.5, R10, shared `ventSecondaries`). It does not
 // refill a pool, never touches the HULL REPAIR / SMOKE cooldowns (Story 10.5,
 // R3 / R10), and never touches itself (amendment 98).
 

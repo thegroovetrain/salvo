@@ -125,8 +125,9 @@ function buildRig(start: { x: number; y: number }): Rig {
   // battery); these pins measure the bot's PLOT ESTIMATOR and LEAD through the
   // machine gun's stream, so the rig fits the retired deck-gun MG module into slot 0
   // by hand (a fixture, not a fit any production path makes). The
-  // secondaries are held locked every tick (reseat) so no second 'mg'
-  // stream confounds the count.
+  // secondaries are held at full heat every tick (reseat) — past the bot's
+  // release line, so it never presses them — so no second 'mg' stream
+  // confounds the count.
   bot.loadout.forEach((_slot, i) => {
     bot.loadout[i] = i === 0
       ? { equipmentId: 'machineGun', state: { n: bot.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 } }
@@ -145,8 +146,7 @@ function buildRig(start: { x: number; y: number }): Rig {
 /** Pin the bot in place (heading stays free) and re-seat the target. */
 function reseat(rig: Rig, pose: Pose): void {
   const { bot, tgt } = rig;
-  bot.sec.heat = 1; // the secondaries stay dark (see buildRig)
-  bot.sec.locked = true;
+  bot.sec.heat = 1; // the secondaries stay dark: the bot rests past its release line (see buildRig)
   bot.state.x = 0;
   bot.state.y = 0;
   bot.state.speed = 0;

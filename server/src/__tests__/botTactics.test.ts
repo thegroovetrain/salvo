@@ -3058,9 +3058,6 @@ describe('THE SECONDARIES — held on a live hull in reach, with a burst discipl
     expect(decide()).toBe(false);
     rec.sec.heat = CONFIG.bots.secRepressHeat / 2; // cooled below it
     expect(decide()).toBe(true);
-    rec.sec.heat = 0;
-    rec.sec.locked = true;
-    expect(decide()).toBe(false);
   });
 });
 

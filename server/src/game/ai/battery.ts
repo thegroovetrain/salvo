@@ -21,7 +21,7 @@
 // SECONDARIES. Held (`InputMsg.sec`) while the bot has a LIVE hull target
 // inside `stats.secondaryRangeU`, with a burst discipline: released once heat
 // reaches CONFIG.bots.secReleaseHeat, not pressed again until it has cooled to
-// CONFIG.bots.secRepressHeat (or a lock has cleared). They fire along the same aim.
+// CONFIG.bots.secRepressHeat. They fire along the same aim.
 //
 // THE NEXT-TICK POSE (Story 10.12). The server steps the hull BEFORE it steps
 // the turrets and picks one (STEP_ORDER: stepShips ... stepTurrets,
@@ -165,8 +165,8 @@ export function secTarget(sit: BotSituation, t: BotTrack | null): boolean {
 
 /**
  * THE BURST DISCIPLINE, one step: may the secondaries be held this tick? A
- * resting bot waits for heat ≤ CONFIG.bots.secRepressHeat with the lock
- * cleared; a firing bot rests once heat ≥ CONFIG.bots.secReleaseHeat. No
+ * resting bot waits for heat ≤ CONFIG.bots.secRepressHeat; a firing bot
+ * rests once heat ≥ CONFIG.bots.secReleaseHeat. No
  * secondaries (absent `sec`) → false. Writes `mind.secResting`: call it ONCE
  * a tick.
  */
@@ -174,10 +174,10 @@ export function secondariesReady(self: BotSelf, mind: BotMind): boolean {
   const sec = self.sec;
   if (sec === undefined) return false;
   if (mind.secResting === true) {
-    if (sec.locked || sec.heat > CONFIG.bots.secRepressHeat) return false;
+    if (sec.heat > CONFIG.bots.secRepressHeat) return false;
     mind.secResting = false;
   }
-  if (sec.locked || sec.heat >= CONFIG.bots.secReleaseHeat) {
+  if (sec.heat >= CONFIG.bots.secReleaseHeat) {
     mind.secResting = true;
     return false;
   }
@@ -302,7 +302,7 @@ const QUIET_POSTURES: readonly BotPosture[] = ['hold', 'hide', 'disengage'];
 
 /**
  * PLAN THE SECONDARIES for this tick — the burst discipline (stepped here,
- * once) and the sweep pick. A resting or locked battery sweeps nothing (the
+ * once) and the sweep pick. A resting battery sweeps nothing (the
  * aim stays the main battery's), nor does a bot in a QUIET posture. A pick is
  * stamped on `mind.sweep` so the main battery holds its click this tick; no
  * pick clears the seat.

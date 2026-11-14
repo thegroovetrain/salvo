@@ -16,8 +16,9 @@
 //           └──────────────────────────┘
 //
 // NO STATE WORD (Eric 2026-11-10, round 3): ready = the solid phosphor rings,
-// ARMED = the amber outline + inset wash + filled amber key chip, LOCKED = the
-// red outline + the denied hatched heat bar.
+// ARMED = the amber outline + inset wash + filled amber key chip. (The
+// secondaries' LOCKED look — red outline, hatched heat bar — retired with the
+// overheat lock, epic-11 amendment 9.)
 //
 // THE PREVIEW (R18): a key in `view.preview` turns its number AMBER with an
 // arrow (`new▲` / `new▼`), a marked tier reads `II→III`, and a marked count
@@ -96,7 +97,6 @@ const ROW_SKINS: Readonly<Record<RowState, ConsoleSkin>> = {
   ready: SKIN(C.phosphor, 0.65, 1, 10, 0.15),
   cooling: SKIN(C.silver, 0.45),
   readied: SKIN(C.amber, 1, 1.5, 16, 0.4, 0.16),
-  locked: SKIN(C.denied, 1),
 };
 
 /** O5's button outline per ability state; ACTIVE is today's breathing outline. */
@@ -252,10 +252,8 @@ const EMPTY_ALPHA = 0.5;
 /** A cooling clock's elapsed wedge alpha; a ready disc's fill. */
 const WEDGE_ALPHA = 0.35;
 const DISC_ALPHA = 0.9;
-/** The heat bar's fill alphas; hatch pitch. */
+/** The heat bar's fill alpha. */
 const HEAT_FILL_ALPHA = 0.85;
-const LOCK_WASH_ALPHA = 0.16;
-const HATCH_PITCH = 4;
 /** An empty cell's family glyph size (px), dim, where the first ring would be. */
 const EMPTY_GLYPH_PX = 24;
 /** The most pips a rack's column holds before the next column starts. */
@@ -482,7 +480,7 @@ export class WeaponsConsole {
   /** The MOUNT line (R27): rings, racks or the heat bar — and nothing else. */
   private drawMounts(row: WeaponRowModel, l: Rect, rt: RowTexts): void {
     let end: MountsEnd = { x: l.x, n: 0 };
-    if (row.heat !== null) this.drawHeat(row.heat.heat, row.heat.locked, l);
+    if (row.heat !== null) this.drawHeat(row.heat.heat, l);
     else if (row.state === 'empty') end = this.drawEmptyGlyph(row, l);
     else if (row.kind === 'mines') end = this.drawRacks(row, l, rt);
     else end = this.drawClocks(row.clocks, l, rt);
@@ -569,35 +567,16 @@ export class WeaponsConsole {
     return x + cols * (P.w + P.gap) - (cols > 0 ? P.gap : 0);
   }
 
-  /** The secondaries' heat bar: phosphor fill to the heat; LOCKED = the
-   *  denied outline, a denied wash and the hatch over the fill. */
-  private drawHeat(heat: number, locked: boolean, l: Rect): void {
+  /** The secondaries' heat bar: phosphor fill to the heat (full heat slows
+   *  the gun and never locks it — one look at every heat). */
+  private drawHeat(heat: number, l: Rect): void {
     const h = CELL.heatH;
     const y = l.y + (l.h - h) / 2;
     const frac = heat > 0 ? Math.min(1, heat) : 0;
     const g = this.gfx;
-    const color = locked ? C.denied : C.phosphor;
-    g.rect(l.x, y, l.w, h).stroke({ width: BAR.lineW, color: locked ? C.denied : C.silver, alpha: locked ? 1 : 0.45 });
+    g.rect(l.x, y, l.w, h).stroke({ width: BAR.lineW, color: C.silver, alpha: 0.45 });
     if (frac <= 0) return;
-    if (!locked) {
-      g.rect(l.x, y, l.w * frac, h).fill({ color, alpha: HEAT_FILL_ALPHA });
-      return;
-    }
-    g.rect(l.x, y, l.w * frac, h).fill({ color, alpha: LOCK_WASH_ALPHA });
-    this.hatch({ x: l.x, y, w: l.w * frac, h }, color);
-  }
-
-  /** 45° hatch lines clipped to a rect (the sitting's locked fill). */
-  private hatch(r: Rect, color: number): void {
-    const g = this.gfx;
-    for (let d = HATCH_PITCH; d < r.w + r.h; d += HATCH_PITCH) {
-      const x0 = r.x + Math.max(0, d - r.h);
-      const y0 = r.y + Math.min(d, r.h);
-      const x1 = r.x + Math.min(d, r.w);
-      const y1 = r.y + Math.max(0, d - r.w);
-      g.moveTo(x0, y0).lineTo(x1, y1);
-    }
-    g.stroke({ width: BAR.lineW, color, alpha: 1 });
+    g.rect(l.x, y, l.w * frac, h).fill({ color: C.phosphor, alpha: HEAT_FILL_ALPHA });
   }
 
   /** An empty cell: the family glyph, dim, where the first clock would be. */
