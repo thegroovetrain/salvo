@@ -244,7 +244,7 @@ describe('main battery — the arc-only click on the authoritative world', () =>
 });
 
 describe('secondaries — the heat-limited stream on the authoritative world', () => {
-  it('BURST then RELEASE: rounds stream while held (family mg, direct), heat rises, then drains with no rounds', () => {
+  it('BURST then RELEASE: rounds stream while held (family mg, flying over ships — epic-11 amendment <AMENDMENT>), heat rises, then drains with no rounds', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.submitInput('a', inp(1, { aim: 0, aimDist: a.stats.secondaryRangeU, sec: true }));
@@ -252,7 +252,7 @@ describe('secondaries — the heat-limited stream on the authoritative world', (
     const first = shellsOf(w, 'a', 'mg');
     expect(first).toHaveLength(1); // the press tick fires its round
     expect(first[0].damage).toBe(CONFIG.secondaries.damage);
-    expect(first[0].direct).toBe(true);
+    expect(first[0].overShips).toBe(true); // the main battery's flight: only the landing point counts
     for (let i = 0; i < 10; i++) w.step();
     expect(a.sec.heat).toBeGreaterThan(0);
     const heat = a.sec.heat;

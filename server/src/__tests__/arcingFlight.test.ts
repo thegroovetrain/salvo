@@ -5,13 +5,15 @@
 //     silhouette holds the landing point takes the full blow; it passes over
 //     the chart's lowest land band and is stopped by higher ground; a landing
 //     on land is spent and does nothing;
-//   - the SECONDARIES: the same island rule; against ships unchanged;
+//   - the SECONDARIES: the same island rule — and, since epic-11 amendment
+//     <AMENDMENT> (Eric 2026-11-13: "Secondaries should also require aim like
+//     main guns"), the main battery's landing rule against ships too;
 //   - the STAR, PHOSPHOR, FLASH and FOULING shells: "not interrupted by
 //     hitting other ships or even islands en-route to their destination".
 // Every case here would fail on the code before the ruling (a blast, a
 // graze, a coastline stop, an interception).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   BATTERY_BLOCK_HEIGHT,
   CONFIG,
@@ -85,6 +87,17 @@ function flyOut(w: World, owner: string, cap = 400): GameEvent[] {
   }
   expect(ownShells(w, owner)).toHaveLength(0);
   return log;
+}
+
+/** One step of held secondaries along (BEAM, dist), then the level released:
+ *  the rounds as launched. */
+function fireSecondaries(w: World, a: ShipRecord, dist: number): ShellState[] {
+  w.submitInput(a.id, inp(1, { aim: BEAM, aimDist: dist, sec: true }));
+  w.step();
+  const rounds = ownShells(w, a.id).filter((s) => s.family === 'mg');
+  expect(rounds.length).toBeGreaterThan(0);
+  w.submitInput(a.id, inp(2, { aim: BEAM, aimDist: dist, sec: false }));
+  return rounds;
 }
 
 /** The blow the damage gate deals `victim` for a raw `amount` from `by`. */
@@ -195,15 +208,8 @@ describe('the main battery and the secondaries — the lowest land band is passe
     expect(log.some((e) => e.k === 'dmg')).toBe(false);
   });
 
-  it('SECONDARIES: over the lowest band a round reaches its point; into high ground it stops at the ridge; a hull on its path is still struck first', () => {
-    const fire = (w: World, a: ShipRecord, dist: number): ShellState[] => {
-      w.submitInput(a.id, inp(1, { aim: BEAM, aimDist: dist, sec: true }));
-      w.step();
-      const rounds = ownShells(w, a.id).filter((s) => s.family === 'mg');
-      expect(rounds.length).toBeGreaterThan(0);
-      w.submitInput(a.id, inp(2, { aim: BEAM, aimDist: dist, sec: false }));
-      return rounds;
-    };
+  it('SECONDARIES: over the lowest band a round reaches its point; into high ground it stops at the ridge', () => {
+    const fire = fireSecondaries;
     const low = ridgeWorld(BATTERY_BLOCK_HEIGHT - 1);
     low.map.islands.push(circleIsland(300, 0, 30));
     const la = place(low, 'a', 0, 0);
@@ -217,13 +223,77 @@ describe('the main battery and the secondaries — the lowest land band is passe
     for (const r of rounds) expect(r.terrainStop).toBe(true);
     const highLog = flyOut(high, 'a');
     expect(highLog.some((e) => e.k === 'boom' && e.x > 330)).toBe(false);
+  });
+});
 
-    const ship = bareWorld();
-    const sa = place(ship, 'a', 0, 0);
-    const mid = place(ship, 'mid', 200, 0, Math.PI / 2);
-    fire(ship, sa, 500);
-    flyOut(ship, 'a');
-    expect(mid.hp).toBeLessThan(mid.stats.maxHp); // unchanged against ships
+describe('the secondaries — the main battery\'s landing rule: a round hits only where it lands', () => {
+  it('a hull standing on the line of fire SHORT of the landing point is passed over: no damage, no stop — the round still lands', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const mid = place(w, 'mid', 200, 0, Math.PI / 2); // broadside across the line of fire
+    const rounds = fireSecondaries(w, a, 500);
+    const log = flyOut(w, 'a');
+    expect(mid.hp).toBe(mid.stats.maxHp);
+    expect(log.some((e) => e.k === 'dmg')).toBe(false);
+    const landed = log.filter((e) => e.k === 'boom' && rounds.some((r) => r.id === e.id));
+    expect(landed).toHaveLength(rounds.length);
+    for (const e of landed) {
+      expect(e.k === 'boom' && e.hit).toBeUndefined();
+      expect(e.k === 'boom' && e.x > 200 + mid.cls.hull.length).toBe(true); // beyond the hull it flew over
+    }
+  });
+
+  it('a landing point inside a hull: that hull takes the round\'s full blow through the damage gate, and the landing names it', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 400, 0, Math.PI / 2);
+    const rounds = fireSecondaries(w, a, 400);
+    for (const r of rounds) retarget(r, { x: 400, y: 0 });
+    const log = flyOut(w, 'a');
+    expect(log.filter((e) => e.k === 'dmg' && e.id === 'b')).toHaveLength(rounds.length);
+    expect(b.hp).toBe(b.stats.maxHp - rounds.length * gated(CONFIG.secondaries.damage, b, a));
+    expect(log.filter((e) => e.k === 'boom' && e.hit === 'b')).toHaveLength(rounds.length);
+    expect(log.filter((e) => e.k === 'hc' && e.id === 'a')).toHaveLength(rounds.length); // a Hit Call, not a splash
+  });
+
+  it('a landing point 1 u outside the hull\'s outline does nothing: fall of shot, no blow', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 400, 0, Math.PI / 2);
+    const poly = worldPoly(b);
+    let x = 400;
+    while (pointPolygonDistance({ x, y: 0 }, poly) < 1) x -= 0.05;
+    const rounds = fireSecondaries(w, a, 400);
+    for (const r of rounds) retarget(r, { x, y: 0 });
+    const log = flyOut(w, 'a');
+    expect(b.hp).toBe(b.stats.maxHp);
+    expect(log.some((e) => e.k === 'dmg')).toBe(false);
+    expect(log.filter((e) => e.k === 'sp' && e.id === 'a')).toHaveLength(rounds.length);
+  });
+
+  it('the firer\'s own hull holding the landing point takes nothing (no friendly fire)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    for (const r of fireSecondaries(w, a, 400)) retarget(r, { x: 0, y: 0 });
+    flyOut(w, 'a');
+    expect(a.hp).toBe(a.stats.maxHp);
+  });
+
+  // The harness's kill-by-source readout tells the two guns apart by the
+  // recorded source: the secondaries keep their own label on the shared path.
+  it('a secondary landing blow is recorded under the secondaries\' source, a main-battery landing under its own', () => {
+    const sources = (shoot: (w: World, a: ShipRecord) => ShellState[]): unknown[] => {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      place(w, 'b', 400, 0, Math.PI / 2);
+      const hit = vi.spyOn(w as unknown as { hitShip: (...args: unknown[]) => void }, 'hitShip');
+      for (const s of shoot(w, a)) retarget(s, { x: 400, y: 0 });
+      flyOut(w, 'a');
+      expect(hit).toHaveBeenCalled();
+      return [...new Set(hit.mock.calls.map((c) => c[3]))];
+    };
+    expect(sources((w, a) => fireSecondaries(w, a, 400))).toEqual(['shell']);
+    expect(sources((w, a) => salvo(w, a, 400))).toEqual(['burst']);
   });
 });
 

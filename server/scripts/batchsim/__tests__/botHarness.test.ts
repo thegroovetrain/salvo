@@ -917,6 +917,7 @@ describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine mark
     shellStays?: boolean;
     event?: 'sp' | 'hc';
     burstRadius?: number;
+    direct?: boolean;
   }): number {
     const world = new World(63, 20);
     const bot = world.addBot(undefined, undefined);
@@ -924,7 +925,7 @@ describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine mark
     const col = new BotCollector([bot.id, layer.id]);
     const ownerId = o.mineOwner === 'self' ? bot.id : layer.id;
     world.mines.set('m1', { id: 'm1', x: 500, y: 0, ownerId } as never);
-    world.shells.set('s1', stagedShell('s1', bot.id, { hits: ['ship', 'mine'], burstRadius: o.burstRadius ?? 0 }));
+    world.shells.set('s1', stagedShell('s1', bot.id, { hits: ['ship', 'mine'], burstRadius: o.burstRadius ?? 0, ...(o.direct === true ? { direct: true } : {}) }));
     col.observe(world, 1);
     if (o.mineStays !== true) world.mines.delete('m1');
     if (o.shellStays !== true) world.shells.delete('s1');
@@ -939,6 +940,9 @@ describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine mark
     // A BURST shell's landing that also caught a hull reports `hc`, and its
     // blast widens the marker by its own radius.
     expect(sweepScenario({ event: 'hc', burstRadius: 15, landAt: 15 + CONFIG.mine.hitRadiusU })).toBe(1);
+    // A blast-less round that LANDS (a secondary round, epic-11 amendment
+    // <AMENDMENT>) inside a hull reports `hc` at its landing point — a landing.
+    expect(sweepScenario({ event: 'hc' })).toBe(1);
   });
 
   it('credits nothing for its own mine, a landing off the marker, a mine still afloat, or no shell landed', () => {
@@ -947,7 +951,7 @@ describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine mark
     expect(sweepScenario({ mineStays: true })).toBe(0);
     expect(sweepScenario({ shellStays: true })).toBe(0);
     // A DIRECT shell that struck a hull (its `hc`) never landed on anything.
-    expect(sweepScenario({ event: 'hc' })).toBe(0);
+    expect(sweepScenario({ event: 'hc', direct: true })).toBe(0);
   });
 });
 

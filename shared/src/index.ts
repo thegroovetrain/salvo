@@ -3,6 +3,14 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  <PV> — OWN SHELLS ALWAYS END ON SCREEN; SECONDARIES HIT WHERE THEY LAND
+ *  (2026-11-13, Eric; epic-11 amendment <AMENDMENT>; cycle <CYCLE>,
+ *  <VERSION>): no wire shape change — the SET of events a client is sent
+ *  changed, and the client relies on it: the firer is now sent the terminal
+ *  `boom` of every gun shell he fired, however it ended (his track is retired
+ *  by it), and a secondaries round ends in a landing `boom` (`hit` = the hull
+ *  whose silhouette holds the landing point) instead of an interception boom
+ *  on the first hull along its path.
  *  106 — GUN CADENCE RETUNE (2026-11-13, Eric; epic-11 amendment
  *  9; cycle 232, 0.19.26): wire shape — `OwnShip.sec` loses
  *  `locked` (full heat never locks any more; it carries `heat` only). The
@@ -1090,7 +1098,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 106;
+export const PROTOCOL_VERSION = 107;
 
 // Tunables
 export * from './constants.js';

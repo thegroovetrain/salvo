@@ -13,9 +13,14 @@
 //       reveal whose boom we never see (fired at us from fog, then it leaves and
 //       detonates unseen). A track believed OURS is bounded by the firer's own
 //       knowledge instead (Story 11.2): `t0 + reach / speed` + a few ticks,
-//       the reach being its own weapon's range or its own fish's run off the
-//       own stats row (`trackExpiresAt`) — the owner is not always sent his
-//       own boom, and his track is never culled by eye reach;
+//       the reach being its own weapon's range or its own torpedo's run off
+//       the own stats row (`trackExpiresAt`). For an own GUN SHELL this is a
+//       leak guard only: the server sends the firer the terminal `boom` (or
+//       `burst`) of every shell he fired, however it ended — a landing, a
+//       high-ground stop, an interception, the map edge (epic-11 amendment
+//       <AMENDMENT>, PV <PV>) — so (a) ends it at its true point. An own
+//       TORPEDO is still not always sent its impact boom, and no own track
+//       is ever culled by eye reach;
 //   (c) reveal-ring cull: an ENEMY track's dead-reckoned position leaves the
 //       eye reach the server reveals it within (+ margin) — `shellSight` for a
 //       shell, the much shorter `torpedoSight` for a torpedo (Story 11.2, R18;
@@ -288,10 +293,13 @@ export function ownReachFromStats(stats: EffectiveStats): OwnReach {
 
 /**
  * Pure: the server time a NEW track retires at. A track believed OURS whose
- * weapon has an own reach lives exactly as long as its round can travel —
- * `t0 + reach / speed` plus `OWN_LIFETIME_SLACK_MS` — because the owner is not
- * always sent the terminal boom (out of eye reach, behind an island, in fog,
- * flash-blinded) and an own track is never culled by eye reach. Everything else
+ * weapon has an own reach lives at most as long as its round can travel —
+ * `t0 + reach / speed` plus `OWN_LIFETIME_SLACK_MS` — because an own track is
+ * never culled by eye reach. It is a LEAK GUARD for an own gun shell (the
+ * server always sends the firer its terminal boom / burst — epic-11 amendment
+ * <AMENDMENT>; a dropped frame or a missed ownership latch is what this still
+ * covers) and the real bound for an own torpedo, whose impact boom the owner
+ * is not always sent (out of eye reach, behind an island, in fog). Everything else
  * (an enemy's, or an own track before the first stats land) takes the
  * map-crossing backstop `maxLifetimeMs`.
  */

@@ -41,10 +41,11 @@
 //     their own radii. The MAIN BATTERY's shell passes over every ship and
 //     lands at its point with NO blast (`burstRadius` 0: the landing point
 //     itself is the only test, so only a hull whose silhouette holds the
-//     point is a victim). The main battery and the SECONDARIES clear the
-//     chart's lowest land band and are stopped by higher ground — resolved
-//     once at launch by shortening the flight to the first high ground
-//     (`terrainStop`); a secondary still strikes the first hull on its path.
+//     point is a victim), and so does the SECONDARIES' round (Eric
+//     2026-11-13, epic-11 amendment <AMENDMENT> — it struck the first hull on
+//     its path until then). Both clear the chart's lowest land band and are
+//     stopped by higher ground — resolved once at launch by shortening the
+//     flight to the first high ground (`terrainStop`).
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
 // a segment p0->p1. Against islands it is seg-vs-COASTLINE (islandSegHit — the
@@ -141,10 +142,9 @@ export interface ShellState {
    * the in-flight sweep — skipped, not run and discarded; the map edge still
    * ends every shell:
    *   - `overShips` — no hull or radio beacon interrupts it ("Only the landing
-   *     point counts"): the MAIN BATTERY and the STAR, PHOSPHOR, FLASH and
-   *     FOULING shells.
-   *   - `overLand` — no COASTLINE interrupts it: the same five plus the
-   *     SECONDARIES ("the same rule with firing over islands"). The four
+   *     point counts"): the MAIN BATTERY, the SECONDARIES (epic-11 amendment
+   *     <AMENDMENT>) and the STAR, PHOSPHOR, FLASH and FOULING shells.
+   *   - `overLand` — no COASTLINE interrupts it: the same six. The four
    *     special shells clear all land; the main battery and the secondaries
    *     clear only the chart's lowest land band — their high-ground stop is
    *     decided ONCE AT LAUNCH (`terrainStop`, sim/terrainBlock.ts).

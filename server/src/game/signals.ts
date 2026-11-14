@@ -1691,17 +1691,18 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  * `boom` — visible iff the boom location is within sight + LOS, inside a lit
  * zone the observer OWNS (Story 1.7 truesight parity — everything a firer's
  * zone reveals can also visibly explode), OR the boom struck the observer
- * (`hit === me`). The shell's owner does NOT get an out-of-sight boom on THIS
- * row — but the original rationale ("hit confirmation beyond sight would leak
- * contact presence") is SUPERSEDED for the owner-hit case by Story 4.3,
- * amendment 17: out-of-sight hit confirmation is now the deliberate,
- * narrowly-scoped job of the SELF-PRIVATE Hit Call row (`hc`, hitCallSignal
- * below) — position only, never a victim id or severity — because the
- * ratified decoy disambiguation oracle depended on it (that oracle is moot
- * since Story 7-5 wave 2 deleted the decoy — the RULING stands on its own:
- * a shooter learns that something of theirs connected). Bystanders and victims
- * keep today's boom rules exactly; the owner's dead-reckoned shell still just
- * expires by client lifetime on this row. Even when the boom IS visible, its
+ * (`hit === me`). A GUN SHELL'S OWNER ALWAYS GETS ITS OWN SHELL'S TERMINAL
+ * BOOM (the owner arm, `BoomSubject.own` — Eric 2026-11-13, epic-11 amendment
+ * <AMENDMENT>; it supersedes this row's old "the owner's dead-reckoned shell
+ * just expires by client lifetime", which left a shell stopped by high ground
+ * flying on to full reach on its firer's screen). The arm is the POSITION of
+ * a point the owner is sent anyway the same tick — the self-private fall of
+ * shot (`sp`) or Hit Call (`hc`, Story 4.3, amendment 17: a shooter learns
+ * that something of theirs connected; position only, never a victim id or
+ * severity) — so it confirms nothing those two rows did not. A TORPEDO's
+ * owner keeps the old rule (no out-of-sight impact boom; the run-out arm
+ * below is its own). Bystanders and victims keep their boom rules exactly.
+ * Even when the boom IS visible — to its owner too — its
  * `hit` (victim id) is stripped unless the victim's CENTER is itself sighted
  * or zone-covered (or the observer IS the victim): a hull can straddle the
  * sight edge with its center in fog, and emitting the id there would leak the
@@ -1724,21 +1725,32 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
 export interface BoomSubject extends BoomEvent {
   run?: string;
   /**
-   * Set, to the shell's OWNER id, only on a MAIN-BATTERY LANDING boom
-   * (World.resolveBurst for a zero-radius shell — epic-11 amendment 8, the
-   * blast retired 2026-11-13). Its landing used to be a `burst`, which the
-   * burst row always shows its owner; the landing boom keeps exactly that
-   * owner arm (`landSeen`), so the shooter sees every landing he saw before.
-   * It adds nothing the owner did not already hold: the point is his own
-   * shell's landing, sent to him anyway as `sp` / `hc`, and the `hit` id is
-   * still stripped by the class-reach rule below. NEVER on the wire.
+   * THE OWNER ARM (server-internal; NEVER on the wire). Set, to the shell's
+   * OWNER id, on the terminal boom of EVERY gun shell (`kind === 'shell'` —
+   * the main battery, the secondaries, a deck gun, a star / phosphor / flash /
+   * fouling shell), however it ended: a landing (World.announceLanding), a
+   * high-ground or coastline stop, a map-edge end (World.missBoom) or an
+   * interception (World.resolveShell). The boom row shows such a boom to that
+   * owner at any range, behind any island and in any fog (Eric 2026-11-13,
+   * epic-11 amendment <AMENDMENT>: "go with fix 1" — a firer's own shell
+   * whose end he was not sent dead-reckoned on to full reach on his screen).
+   * A torpedo's boom never carries it (the run-out rule above is its own).
+   *
+   * NOT A SEVENTH EXCEPTION — the declared count stays SIX. The arm hands the
+   * owner nothing he does not already hold: the same tick sends him the very
+   * same point as his self-private fall of shot (`sp`, every miss) or Hit
+   * Call (`hc`, every resolved victim), the shell is his own and its track is
+   * already on his screen (his ballistic gate never closes on it), and the
+   * `hit` id is still stripped by the class-reach rule in `materialize`. It
+   * generalizes the main-battery landing tag (`land`, epic-11 amendment 8),
+   * which itself kept the retired burst's owner arm (BurstSubject `own`).
    */
-  land?: string;
+  own?: string;
 }
 
 /** The boom subject rebuilt for the wire: the bare {k,id,x,y}, plus `hit`
  *  (in its wire position) when `keepHit` and the subject carries one. Never
- *  the subject verbatim — `run` / `land` are server-internal. */
+ *  the subject verbatim — `run` / `own` are server-internal. */
 function boomWire(e: BoomSubject, keepHit: boolean): BoomEvent {
   if (keepHit && e.hit !== undefined) return { k: 'boom', id: e.id, hit: e.hit, x: e.x, y: e.y };
   return { k: 'boom', id: e.id, x: e.x, y: e.y };
@@ -1767,15 +1779,16 @@ const boomSignal: SignalSpec<BoomSubject, BoomEvent> = {
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
     if (e.run !== undefined) return runOutSeen(ctx, e);
-    // A MAIN-BATTERY LANDING keeps the retired burst's owner arm (`land`).
-    if (e.land === ctx.me.id) return true;
+    // THE OWNER ARM: a gun shell's own terminal boom, however it ended (`own`
+    // — see BoomSubject; nothing here the owner's `sp` / `hc` did not carry).
+    if (e.own === ctx.me.id) return true;
     // THE POSITION rides the splash reach (Story 11.2, R4 / R18); the victim
     // id below still gates at the CLASS reach (`pointSighted`).
     return e.hit === ctx.me.id || splashSeen(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     // ALWAYS rebuilt — never `e` verbatim, which would put a server-internal
-    // `run` / `land` (an owner id) on the wire. A run-out boom is bare.
+    // `run` / `own` (an owner id) on the wire. A run-out boom is bare.
     if (e.run !== undefined) return boomWire(e, false);
     if (ctx.mode === 'spectator') return boomWire(e, true);
     const me = ctx.me;

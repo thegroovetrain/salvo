@@ -212,10 +212,19 @@ interface MineSeen {
   ownerId: string;
 }
 
-/** Last tick's view of a mine-hitting shell (its owner and blast). */
+/** Last tick's view of a mine-hitting shell (its owner, its blast, and
+ *  whether it is a DIRECT shell — one whose hull strike is no landing). */
 interface ShellSeen {
   ownerId: string;
   burstRadius: number;
+  direct: boolean;
+}
+
+/** One bot's mine-hitting shells that left the water this tick: the widest
+ *  blast, and whether ANY of them lands by its point (not a direct shell). */
+interface Landed {
+  blast: number;
+  lands: boolean;
 }
 
 const bump = (rec: Record<string, number>, key: string, by = 1): void => {
@@ -447,9 +456,10 @@ export class BotReadoutCollector {
    * landOnMines) — on the four hulls that is the SECONDARIES alone
    * (`CONFIG.mainBattery.hits` carries no mine bit, R3), so this IS "mines
    * swept by a bot's secondaries". A landing is published the same tick as
-   * the owner's `sp` (a landing that touched no hull) or, for a BURST shell
-   * only, `hc` (its blast also caught a hull; a direct shell that strikes a
-   * hull never lands, so its `hc` is ignored) — at the point landOnMines
+   * the owner's `sp` (a landing that touched no hull) or `hc` (a landing that
+   * also caught a hull — a burst's blast, or a secondary round landing inside
+   * a hull, epic-11 amendment <AMENDMENT>; a DIRECT shell that strikes a hull
+   * never lands, so its `hc` is ignored) — at the point landOnMines
    * tests against. So a mine LAST SEEN last tick and GONE now is credited to
    * the first bot (in event order) that, this tick, both lost a mine-hitting
    * shell and published a landing within that shell's
@@ -484,17 +494,18 @@ export class BotReadoutCollector {
     this.minesSeen = new Map([...world.mines.values()].map((m) => [m.id, { x: m.x, y: m.y, ownerId: m.ownerId }]));
   }
 
-  /** Bot id → the widest blast among its mine-hitting shells that left the
-   *  water this tick (last tick's snapshot vs the live store); re-snapshots. */
-  private mineShellsLanded(world: World): Map<string, number> {
-    const landed = new Map<string, number>();
+  /** Bot id → its mine-hitting shells that left the water this tick (last
+   *  tick's snapshot vs the live store); re-snapshots. */
+  private mineShellsLanded(world: World): Map<string, Landed> {
+    const landed = new Map<string, Landed>();
     for (const [id, s] of this.mineShellsSeen) {
       if (world.shells.has(id) || !this.tracks.has(s.ownerId)) continue;
-      landed.set(s.ownerId, Math.max(landed.get(s.ownerId) ?? 0, s.burstRadius));
+      const was = landed.get(s.ownerId) ?? { blast: 0, lands: false };
+      landed.set(s.ownerId, { blast: Math.max(was.blast, s.burstRadius), lands: was.lands || !s.direct });
     }
     const next = new Map<string, ShellSeen>();
     for (const s of world.shells.values()) {
-      if (s.hits.includes('mine')) next.set(s.id, { ownerId: s.ownerId, burstRadius: s.burstRadius });
+      if (s.hits.includes('mine')) next.set(s.id, { ownerId: s.ownerId, burstRadius: s.burstRadius, direct: s.direct === true });
     }
     this.mineShellsSeen = next;
     return landed;
@@ -522,13 +533,13 @@ const hullFracOf = (ship: ShipRecord): number => (ship.stats.maxHp > 0 ? ship.hp
 
 /** The bot whose landing (`sp` / `hc` this tick) touched a gone mine's
  *  marker, or null (see noteSwept). */
-function sweeperOf(world: World, m: MineSeen, landedBy: ReadonlyMap<string, number>): string | null {
+function sweeperOf(world: World, m: MineSeen, landedBy: ReadonlyMap<string, Landed>): string | null {
   for (const e of world.tickEvents) {
     if (e.k !== 'sp' && e.k !== 'hc') continue;
-    const blast = landedBy.get(e.id);
-    if (blast === undefined || e.id === m.ownerId) continue;
-    if (e.k === 'hc' && blast === 0) continue; // a direct shell's hull strike is no landing
-    if (Math.hypot(e.x - m.x, e.y - m.y) <= blast + CONFIG.mine.hitRadiusU) return e.id;
+    const landed = landedBy.get(e.id);
+    if (landed === undefined || e.id === m.ownerId) continue;
+    if (e.k === 'hc' && !landed.lands) continue; // a direct shell's hull strike is no landing
+    if (Math.hypot(e.x - m.x, e.y - m.y) <= landed.blast + CONFIG.mine.hitRadiusU) return e.id;
   }
   return null;
 }

@@ -87,9 +87,9 @@ export interface BallisticParams {
    *  the main battery's salvo sets it; never on the wire. */
   batteryShell?: true;
   /** ARCING FLIGHT (epic-11 amendment 8; see ShellState.overShips /
-   *  overLand): no hull or beacon interrupts it (the main battery and the
-   *  star / phosphor / flash / fouling shells) / no coastline does (those five
-   *  and the secondaries). */
+   *  overLand): no hull or beacon interrupts it / no coastline does (the
+   *  main battery, the secondaries and the star / phosphor / flash / fouling
+   *  shells carry both). */
   overShips?: true;
   overLand?: true;
   /** The target point is the high ground that stops a main-battery shell

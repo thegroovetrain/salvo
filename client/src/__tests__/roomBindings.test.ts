@@ -443,7 +443,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     ...(over.flashBursts ? { flashBursts: over.flashBursts } : {}),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, onBurst, spawnEffect, onBallisticUpdate, play };
+  return { sink, onBurst, onBoom, spawnEffect, onBallisticUpdate, play };
 }
 
 describe('bindRoom burst events', () => {
@@ -532,6 +532,34 @@ describe('bindRoom burst events', () => {
     expect(isFlashBurst({}, 'dazzleShells')).toBe(true);
     expect(isFlashBurst({ f: true }, 'gun')).toBe(true);
     for (const own of [null, 'gun', 'starShells', 'foulingShell', 'phosphorShells'] as const) expect(isFlashBurst({}, own)).toBe(false);
+  });
+});
+
+// --- own shell endings: a hit never draws or sounds as a miss ---------------
+
+describe('bindRoom own boom + Hit Call', () => {
+  const framed = (events: unknown[]): unknown => ({ t: 200, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events });
+  const cueIds = (play: ReturnType<typeof vi.fn>): unknown[] => play.mock.calls.map(([id]) => id);
+
+  // The firer's own shell hit a hull he cannot name: the boom comes without
+  // `hit`, ahead of his `hc` for the same point. That point is a HIT.
+  it('a hit-less boom with a same-point hc draws one spark, no splash, sounds no splash, and retires the track', () => {
+    const { sink, onBoom, spawnEffect, play } = setupEvents();
+    const boom = { k: 'boom', id: 'shell-3', x: 410, y: -95 };
+    sink.handler(framed([boom, { k: 'hc', id: 'me', x: 410, y: -95 }]));
+    expect(onBoom).toHaveBeenCalledWith(boom);
+    expect(spawnEffect.mock.calls.filter(([fx]) => fx === 'spark')).toEqual([['spark', 410, -95]]);
+    expect(spawnEffect).not.toHaveBeenCalledWith('splash', expect.anything(), expect.anything());
+    expect(cueIds(play)).not.toContain('splash');
+    expect(cueIds(play)).toContain('hitCall');
+  });
+
+  it('a hit-less boom with no hc at its point is still the miss splash', () => {
+    const { sink, onBoom, spawnEffect, play } = setupEvents();
+    sink.handler(framed([{ k: 'boom', id: 'shell-4', x: 410, y: -95 }, { k: 'hc', id: 'me', x: 900, y: 900 }]));
+    expect(onBoom).toHaveBeenCalledTimes(1);
+    expect(spawnEffect).toHaveBeenCalledWith('splash', 410, -95);
+    expect(cueIds(play)).toContain('splash');
   });
 });
 

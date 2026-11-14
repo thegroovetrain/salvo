@@ -1436,9 +1436,18 @@ function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
   return settleBlow(shell.damage * rim);
 }
 
+/** The damage SOURCE a landing blow is recorded under (the harness's
+ *  kill-by-source readout): a secondary round (family `'mg'`) keeps its
+ *  `'shell'` label though it lands by the main battery's rule (epic-11
+ *  amendment <AMENDMENT>, review gate); every other landing is a `'burst'`. */
+function landingSource(shell: ShellState): DamageSource {
+  return shell.family === 'mg' ? 'shell' : 'burst';
+}
+
 /** The hp an EARLY INTERCEPTION deals (Story 9.12, ruling 184(c)): a DIRECT
- *  shell's contact hit — the machine gun's / the secondaries', whose
- *  `contactDamage` IS their damage — is settled once (flat with range since
+ *  shell's contact hit — the machine gun's, whose `contactDamage` IS its
+ *  damage (the secondaries' round left this path for the landing rule,
+ *  epic-11 amendment <AMENDMENT>) — is settled once (flat with range since
  *  Story 11.1); every other interception (the cannon / flak bodyblock,
  *  torpedoes, the broadside, star / phosphor / fouling shells) deals its
  *  `contactDamage` untouched. */
@@ -6392,15 +6401,32 @@ export class World {
   }
 
   /**
+   * THE TERMINAL BOOM OF ONE BALLISTIC — the ONE constructor of a shell's or
+   * torpedo's own boom subject, so no ending can forget the owner arm. A GUN
+   * SHELL's (`kind === 'shell'`) carries the server-internal owner tag `own`
+   * (signals.ts BoomSubject — Eric 2026-11-13, epic-11 amendment <AMENDMENT>:
+   * the firer is always shown how his own shell ended, so his screen ends the
+   * track there instead of flying it on to full reach). A TORPEDO's never
+   * does. `hit` names the struck SHIP when there is one to name; the boom
+   * row still strips it per observer (the owner included) by class reach.
+   */
+  private ballisticBoom(shell: ShellState, at: { x: number; y: number }, hit?: string): BoomSubject {
+    const boom: BoomSubject =
+      hit === undefined ? { k: 'boom', id: shell.id, x: at.x, y: at.y } : { k: 'boom', id: shell.id, hit, x: at.x, y: at.y };
+    if (shell.kind === 'shell') boom.own = shell.ownerId;
+    return boom;
+  }
+
+  /**
    * The boom of a ballistic that stopped without striking a hull. A TORPEDO
    * that merely ran out of run (`expired`) is tagged with its owner (`run`,
    * server-internal — signals.ts BoomSubject) so the boom row gates it at the
    * torpedo eye reach instead of the splash reach (Story 11.2 review gate,
    * F4): nothing exploded. Everything else — an island stop, a shell's fall —
-   * is the plain boom.
+   * is the plain boom (a gun shell's with its owner arm, `ballisticBoom`).
    */
   private missBoom(shell: ShellState, outcome: { kind: string; x: number; y: number }): BoomSubject {
-    const boom: BoomSubject = { k: 'boom', id: shell.id, x: outcome.x, y: outcome.y };
+    const boom = this.ballisticBoom(shell, outcome);
     if (shell.kind === 'torp' && outcome.kind === 'expired') boom.run = shell.ownerId;
     return boom;
   }
@@ -6441,11 +6467,7 @@ export class World {
     // A RADIO BEACON'S ID NEVER LEAVES THE SERVER (Story 10.8): the boom of a
     // shell that stopped on one is the plain hit-less boom — `hit` names a
     // SHIP, and the boom row forwards it raw to a spectator.
-    this.pending.push(
-      kind === 'beacon'
-        ? { k: 'boom', id: shell.id, x: outcome.x, y: outcome.y }
-        : { k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y },
-    );
+    this.pending.push(this.ballisticBoom(shell, outcome, kind === 'beacon' ? undefined : outcome.victimId));
     // A MINE CAN NEVER BE THE VICTIM HERE (amendment 20, Eric 2026-09-16):
     // the sweep list stepShell resolved against had no `mine` in it at all, so
     // there is no mine case to special-case and no mine-consumed shell to emit
@@ -6688,11 +6710,11 @@ export class World {
     if (amount <= 0) return 0;
     // A RADIO BEACON caught by the burst (Story 10.8, R8): the same settled
     // amount through its own door; it RESOLVED iff it was still afloat.
-    if (t.kind === 'beacon') return this.damageBeacon(t.id, amount, 'burst', shell.ownerId) ? 1 : 0;
+    if (t.kind === 'beacon') return this.damageBeacon(t.id, amount, landingSource(shell), shell.ownerId) ? 1 : 0;
     if (t.kind !== 'hull') return 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
-    this.hitShip(victim, amount, shell.ownerId, 'burst');
+    this.hitShip(victim, amount, shell.ownerId, landingSource(shell));
     return 1;
   }
 
@@ -6795,22 +6817,19 @@ export class World {
    * 2026-11-13, epic-11 amendment 8: "Only direct hits count") — has no blast
    * to draw, so it lands as an IMPACT: a `boom` at the landing point, naming
    * the hull whose silhouette holds the point (the first, in target order)
-   * as `hit`, or none on a miss — the secondary round's own impact shape. It
-   * carries the server-internal `land` owner tag so the boom row keeps the
-   * retired burst's owner arm (signals.ts BoomSubject). A beacon struck this
-   * way is never named (its id never leaves the server, Story 10.8).
+   * as `hit`, or none on a miss. The SECONDARIES' round lands the same way
+   * (epic-11 amendment <AMENDMENT>). Like every gun shell's terminal boom it
+   * carries the server-internal owner tag (`ballisticBoom`; it was the
+   * main-battery-only `land` tag until then), which keeps the retired burst's
+   * owner arm. A beacon struck this way is never named (its id never leaves
+   * the server, Story 10.8).
    */
   private announceLanding(shell: ShellState, at: Vec2, victims: readonly Target[]): void {
     if (shell.burstRadius > 0) {
       this.pushBurst(shell, at);
       return;
     }
-    const struck = victims.find((t) => t.kind === 'hull');
-    const boom: BoomSubject =
-      struck === undefined
-        ? { k: 'boom', id: shell.id, x: at.x, y: at.y, land: shell.ownerId }
-        : { k: 'boom', id: shell.id, hit: struck.id, x: at.x, y: at.y, land: shell.ownerId };
-    this.pending.push(boom);
+    this.pending.push(this.ballisticBoom(shell, at, victims.find((t) => t.kind === 'hull')?.id));
   }
 
   /** An INTERCEPTED FLASH round's burst at the stop point (gate fix F1): the

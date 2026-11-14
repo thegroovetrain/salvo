@@ -308,6 +308,15 @@
 //       `mg` reveals come at t 50 / 350 / 700 / 1 050 / 1 400 (were eight,
 //       about 100 ms apart, to t 850), so the mine pops at t 1 600 (was 950)
 //       — the 13 extra frames — with the same victimless boom.
+//
+// RE-RECORDED 2026-11-13 (own shells always end on screen; secondaries hit
+// where they land — Eric, epic-11 amendment <AMENDMENT>; PV <PV>). ONE frame
+// moved, by event ORDER only: scnMineBurstDetonation's pop frame (t 1 600).
+// The secondaries round now lands through the main battery's landing path
+// (World.resolveBurst), which decides the firer's `sp` BEFORE the mine landing
+// test, so the frame reads round boom, `sp`, mine boom (was round boom, mine
+// boom, `sp`). The same three events with the same values; no key, kind,
+// position or recipient moved anywhere else.
 
 import { describe, it, expect } from 'vitest';
 import {

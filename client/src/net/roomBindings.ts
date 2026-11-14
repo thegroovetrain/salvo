@@ -75,7 +75,7 @@ import type { CueId } from '../audio/synth/cues.js';
 import type { CueOptions } from '../audio/context.js';
 import { freshCloudCueState, newClouds, ownHitGain, unseedClouds, type CloudCueState } from '../audio/cueEdges.js';
 import type { OwnFire } from '../render/projectiles.js';
-import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
+import { ImpactDedup, ToneFloor, hitCallToneFloor, impactKey } from '../render/gunneryFeed.js';
 
 /**
  * "Close enough to be OUR hull": the squared threshold (one full hull length,
@@ -468,6 +468,10 @@ interface BindState {
   /** Story 10.13: this frame's seen secondary (`w: 'mg'`) shell reveals — the
    *  only weapon hint an `mz` flash can be paired with (handleMuzzle). */
   mgReveals: { x: number; y: number }[];
+  /** This frame's Hit Call (`hc`) impact keys — a hit-less `boom` at one of
+   *  them was a HIT whose victim the server kept unnamed, so it draws no splash
+   *  and sounds no splash cue (handleBoom). */
+  hitCallPoints: Set<string>;
   /** Story 10.13 review P5: false after a drop — the next frame only SEEDS the
    *  victim-tell edges (slowed / dazzled) instead of sounding them. */
   statusSeeded: boolean;
@@ -638,6 +642,7 @@ function freshBindState(): BindState {
     ownGun: new ToneFloor(CLIENT_CONFIG.audio.ownGunFloorMs),
     smokeCues: freshCloudCueState(),
     mgReveals: [],
+    hitCallPoints: new Set(),
     statusSeeded: true,
   };
 }
@@ -1043,6 +1048,7 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   s.impacts.beginFrame();
   s.splashCues.beginFrame(); // ...and the splash CUE's own same-frame point claim
   s.mgReveals = mgRevealsOf(f.events); // the `mz` weapon hint (handleMuzzle)
+  s.hitCallPoints = hitCallPointsOf(f.events); // a hit never draws as a miss (handleBoom)
   flushDamage(f, deps, s);
   for (const e of f.events) handleEvent(e, f, deps, s);
 }
@@ -1059,6 +1065,13 @@ function reseedAudioEdges(s: BindState): void {
 export function mgRevealsOf(events: readonly GameEvent[]): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   for (const e of events) if (e.k === 'shell' && e.w === 'mg') out.push({ x: e.x, y: e.y });
+  return out;
+}
+
+/** Pure: this frame's Hit Call (`hc`) impact keys (`impactKey`). */
+export function hitCallPointsOf(events: readonly GameEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const e of events) if (e.k === 'hc') out.add(impactKey(e.x, e.y));
   return out;
 }
 
@@ -1837,6 +1850,13 @@ function near2(x: number, y: number, cx: number, cy: number): boolean {
 function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.projectiles.onBoom(e);
   if (!e.hit) {
+    // A HIT NEVER DRAWS OR SOUNDS AS A MISS (review gate, <AMENDMENT>). The
+    // firer is sent his own shell's end at any range, but the struck hull's id
+    // only inside his class reach — so a hit on an unsighted hull arrives here
+    // with no `hit`, AHEAD of the same point's self-private `hc`. That `hc`
+    // owns the point: no splash mark, no splash cue; its handler draws the
+    // spark and sounds the Hit Call. The track was retired above either way.
+    if (s.hitCallPoints.has(impactKey(e.x, e.y))) return;
     if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
     // STORY 4.7 — a hit and a miss are the two facts bracket-and-walk is built
     // on, so they are the two cues placed at opposite ends of the catalog: the

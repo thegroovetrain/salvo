@@ -489,6 +489,9 @@ const OWN_MOUNTS_SEEN = { n: 0 };
 /** Story 11.1 non-vacuity: in-flight DISPERSED shells (main battery /
  *  secondaries) whose landing point the fuzz proved absent from a frame. */
 const LANDING_GUARDED = { n: 0 };
+/** Own gun-shell terminal booms delivered by the OWNER ARM alone (outside the
+ *  observer's splash reach and zones) — the arm ran, not only the eye. */
+const OWN_END_BY_ARM = { n: 0 };
 /** Story 11.1 review fix: pairs of one salvo's shell reveals checked parallel (verifyParallelSalvoTracks). */
 const PARALLEL_PAIRS = { n: 0 };
 const CLOUD_DELIVERED_BY_RADAR = { n: 0 };
@@ -1467,31 +1470,43 @@ describe('perception — world-emitted ballistics never forward (fail-closed)', 
 });
 
 describe('perception — boom / dmg / sunk / spawn visibility', () => {
-  it('an out-of-sight boom is hidden from everyone but the struck ship', () => {
-    const w = bareWorld();
-    // The world STEPS: both hulls on the board, ANNULUS_D apart — beyond
-    // every eye reach (the splash reach included).
-    place(w, 'a', -FAR_HALF, 0);
-    const b = place(w, 'b', FAR_HALF, 0);
-    b.hp = 1; // any landed blow sinks it (a blow settles to at least 1 — Story 10.3 armor folds the nominal number)
-    // a's shell, one tick from striking b — b is far outside a's every eye reach.
-    injectShell(w, 's1', 'a', FAR_HALF - 20, 0, 0, 100);
-    w.step();
-    const fa = buildFrame(w, 'a');
-    const fb = buildFrame(w, 'b');
-    // b (victim) sees the boom, its dmg, and its own sinking (seen: own hull).
-    expect(fb.events.filter((e) => e.k === 'boom')).toHaveLength(1);
-    expect(fb.events.filter((e) => e.k === 'dmg')).toEqual([
-      { k: 'dmg', id: 'b', amount: expect.any(Number), hp: 0 },
-    ]);
-    expect(fb.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
-    // a (owner, out of sight) gets no boom / dmg — no impact-location leak —
-    // but the sinking itself arrives (PV 23: credited killer + public
-    // register), WITHOUT the spatial license: no `seen`.
-    expect(fa.events.filter((e) => e.k === 'boom')).toEqual([]);
-    expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
-  });
+  for (const kind of ['shell', 'torp'] as const) {
+    const ownerGets = kind === 'shell' ? 'its firer gets it bare, with no victim id (the owner arm, epic-11 amendment <AMENDMENT>)' : 'its firer gets no boom (a torpedo has no owner arm)';
+    it(`an out-of-sight ${kind} boom is hidden from every bystander and shown to the struck ship; ${ownerGets}`, () => {
+      const w = bareWorld();
+      // The world STEPS: both hulls on the board, ANNULUS_D apart — beyond
+      // every eye reach (the splash reach included).
+      place(w, 'a', -FAR_HALF, 0);
+      const b = place(w, 'b', FAR_HALF, 0);
+      place(w, 'c', -FAR_HALF, FAR_HALF); // a bystander beside the firer
+      b.hp = 1; // any landed blow sinks it (a blow settles to at least 1 — Story 10.3 armor folds the nominal number)
+      // a's projectile, one tick from striking b — b is far outside a's every eye reach.
+      injectShell(w, 's1', 'a', FAR_HALF - 20, 0, 0, 100, false, kind);
+      w.step();
+      const fa = buildFrame(w, 'a');
+      const fb = buildFrame(w, 'b');
+      // b (victim) sees the boom, its dmg, and its own sinking (seen: own hull).
+      const struck = boomsOf(fb);
+      expect(struck).toHaveLength(1);
+      expect(struck[0].hit).toBe('b');
+      expect(fb.events.filter((e) => e.k === 'dmg')).toEqual([
+        { k: 'dmg', id: 'b', amount: expect.any(Number), hp: 0 },
+      ]);
+      expect(fb.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
+      // a (owner, out of sight): a GUN SHELL's end is his — the point his Hit
+      // Call carries anyway, and never the victim's id; a TORPEDO's is not.
+      // No dmg either way, and the sinking arrives (PV 23: credited killer +
+      // public register) WITHOUT the spatial license: no `seen`.
+      const hc = fa.events.filter((e) => e.k === 'hc');
+      expect(hc).toHaveLength(1);
+      expect(boomsOf(fa)).toEqual(kind === 'shell' ? [{ k: 'boom', id: 's1', x: struck[0].x, y: struck[0].y }] : []);
+      if (kind === 'shell') expect(hc[0]).toMatchObject({ x: struck[0].x, y: struck[0].y }); // nothing the Hit Call did not say
+      expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
+      expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
+      // c (a bystander out of every reach) gets nothing spatial.
+      expect(boomsOf(buildFrame(w, 'c'))).toEqual([]);
+    });
+  }
 
   it('a boom within sight is visible; a witnessed sinking carries seen: true', () => {
     const w = bareWorld();
@@ -1764,22 +1779,128 @@ describe('perception — burst visibility (owner always, else burst point sighte
       landing = ev.find((e) => e.k === 'boom');
     }
     expect(landing).toBeDefined(); // the owner's own shell
-    expect(Object.keys(landing!).sort()).toEqual(['id', 'k', 'x', 'y']); // no `land` / radius / range field
+    expect(Object.keys(landing!).sort()).toEqual(['id', 'k', 'x', 'y']); // no owner tag / radius / range field
     // Lands AT ITS LANDING — the dispersed point around the click (Story 11.1).
     expect(Math.hypot((landing as BoomEvent).x - 600, (landing as BoomEvent).y)).toBeLessThanOrEqual(dispersionAxes(1200).alongU);
   });
 
-  it('a main-battery landing beyond the owner\'s splash reach still reaches the OWNER (the retired burst\'s owner arm), and no one else there', () => {
-    interface Pendable { pending: GameEvent[] }
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    const c = place(w, 'c', 0, -FAR_HALF); // a bystander beside the shooter
-    // A landing subject routed through the real pending-events choke, the
-    // way World.announceLanding emits it (wire BoomEvent + internal `land`).
-    (w as unknown as Pendable).pending.push({ k: 'boom', id: 's9', x: ANNULUS_D, y: 0, land: a.id } as GameEvent);
+});
+
+describe('perception — the owner arm: the firer is always sent the terminal boom of his own gun shell (epic-11 amendment <AMENDMENT>)', () => {
+  interface Pendable { pending: GameEvent[] }
+  /** Route one boom subject through the real pending-events choke, the way
+   *  World.ballisticBoom emits it (wire BoomEvent + the internal `own`). */
+  function emitBoom(w: World, subject: Record<string, unknown>): void {
+    (w as unknown as Pendable).pending.push(subject as unknown as GameEvent);
     w.step();
-    expect(buildFrame(w, 'a').events.filter((e) => e.k === 'boom')).toEqual([{ k: 'boom', id: 's9', x: ANNULUS_D, y: 0 }]);
-    expect(buildFrame(w, c.id).events.some((e) => e.k === 'boom')).toBe(false);
+  }
+
+  it('END-TO-END: a main-battery salvo stopped by high ground the firer cannot see ends in HIS frames — one hit-less boom per shell — and in nobody else\'s out of reach', () => {
+    const w = bareWorld();
+    // A hill across the line of fire, inside an island whose coastline hides
+    // the hillside from the firer (as every real hill is: the stop point of a
+    // real shell lies inside its island's coast).
+    w.map.heightRaster = rasterFrom(2000, ridgeField(300, 0, 30, 400, 255));
+    w.map.islands.push(circleIsland(300, 0, 90));
+    const a = place(w, 'a', 0, 0);
+    const bystander = { x: -40, y: 200 }; // beside the firer, the same side of the island
+    place(w, 'c', bystander.x, bystander.y);
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+    w.step();
+    const fired = [...w.shells.values()].filter((sh) => sh.ownerId === 'a');
+    expect(fired.length).toBeGreaterThan(0);
+    for (const sh of fired) expect(sh.terrainStop).toBe(true); // every shell meets the hill
+    const ownBooms: BoomEvent[] = [];
+    let bystanderBooms = 0;
+    for (let i = 0; i < 80 && w.shells.size > 0; i++) {
+      w.step();
+      ownBooms.push(...boomsOf(buildFrame(w, 'a')));
+      bystanderBooms += boomsOf(buildFrame(w, 'c')).length;
+    }
+    expect(w.shells.size).toBe(0);
+    expect(ownBooms.map((b) => b.id).sort()).toEqual(fired.map((sh) => sh.id).sort());
+    for (const b of ownBooms) {
+      expect(Object.keys(b).sort()).toEqual(['id', 'k', 'x', 'y']); // bare: no hit, no owner tag
+      // Discriminating: the hillside is hidden from both hulls by the coast.
+      expect(clearLos(a.state, b, w.map.islands)).toBe(false);
+      expect(clearLos(bystander, b, w.map.islands)).toBe(false);
+    }
+    expect(bystanderBooms).toBe(0);
+  });
+
+  it('PROPERTY (random boards): an owner-tagged boom reaches its owner always and anyone else only by the splash reach; `hit` names a victim only inside the class reach, for the owner too; the same boom untagged (a torpedo\'s) keeps the old rule for its owner', () => {
+    const rng = mulberry32(0x0e11d).next;
+    const span = (k: number): number => (rng() * 2 - 1) * k;
+    let byArmAlone = 0; // the owner got it where the untagged twin did not reach him
+    let ownerHitKept = 0;
+    let ownerHitStripped = 0;
+    let bystanderGot = 0;
+    let bystanderDenied = 0;
+    for (let trial = 0; trial < 60; trial++) {
+      const withHit = rng() < 0.6;
+      const island = rng() < 0.5 ? circleIsland(span(400), span(400), 60 + rng() * 80) : null;
+      const poses = { o: { x: span(300), y: span(300) }, v: { x: span(1.4 * ANNULUS_D), y: span(1.4 * ANNULUS_D) }, c: { x: span(ANNULUS_D), y: span(ANNULUS_D) } };
+      const point = withHit ? poses.v : { x: span(1.4 * ANNULUS_D), y: span(1.4 * ANNULUS_D) };
+      const blindOwner = rng() < 0.2;
+      const build = (): World => {
+        const w = bareWorld();
+        if (island !== null) w.map.islands.push(island);
+        const o = place(w, 'o', poses.o.x, poses.o.y);
+        place(w, 'v', poses.v.x, poses.v.y);
+        place(w, 'c', poses.c.x, poses.c.y);
+        if (blindOwner) o.dazzledUntil = w.now + FLASH_WINDOW_MS; // white at the frame: every eye reach 0
+        return w;
+      };
+      const subject = withHit ? { k: 'boom', id: 's1', hit: 'v', x: point.x, y: point.y } : { k: 'boom', id: 's1', x: point.x, y: point.y };
+      const tagged = build();
+      const plain = build();
+      emitBoom(tagged, { ...subject, own: 'o' });
+      emitBoom(plain, subject);
+      const oRec = tagged.ships.get('o')!;
+      const cRec = tagged.ships.get('c')!;
+      const vState = tagged.ships.get('v')!.state;
+
+      // THE OWNER: exactly one, bare, always.
+      const own = boomsOf(buildFrame(tagged, 'o'));
+      expect(own).toHaveLength(1);
+      expect(own[0]).toMatchObject({ k: 'boom', id: 's1', x: point.x, y: point.y });
+      for (const k of Object.keys(own[0])) expect(['k', 'id', 'hit', 'x', 'y']).toContain(k);
+      // ...`hit` only inside the class reach — the arm never relaxes it.
+      if (own[0].hit !== undefined) {
+        expect(withHit && sighted(tagged, oRec, vState)).toBe(true);
+        ownerHitKept += 1;
+      } else if (withHit) {
+        expect(sighted(tagged, oRec, vState, 'strict')).toBe(false);
+        ownerHitStripped += 1;
+      }
+      // The untagged twin (a torpedo's impact): its owner keeps the old rule.
+      const twin = boomsOf(buildFrame(plain, 'o'));
+      if (twin.length === 0) {
+        expect(splashSeen(plain, plain.ships.get('o')!, point, 'strict')).toBe(false);
+        byArmAlone += 1;
+      } else {
+        expect(splashSeen(plain, plain.ships.get('o')!, point)).toBe(true);
+      }
+
+      // A BYSTANDER: the tag changes nothing — frame-for-frame the twin's.
+      const seen = boomsOf(buildFrame(tagged, 'c'));
+      expect(seen).toEqual(boomsOf(buildFrame(plain, 'c')));
+      if (seen.length > 0) {
+        expect(splashSeen(tagged, cRec, point)).toBe(true);
+        bystanderGot += 1;
+      } else {
+        expect(splashSeen(tagged, cRec, point, 'strict')).toBe(false);
+        bystanderDenied += 1;
+      }
+      // THE VICTIM's frame is the twin's too.
+      expect(boomsOf(buildFrame(tagged, 'v'))).toEqual(boomsOf(buildFrame(plain, 'v')));
+    }
+    // Non-vacuous: every arm of the claim ran.
+    expect(byArmAlone).toBeGreaterThan(0);
+    expect(ownerHitKept).toBeGreaterThan(0);
+    expect(ownerHitStripped).toBeGreaterThan(0);
+    expect(bystanderGot).toBeGreaterThan(0);
+    expect(bystanderDenied).toBeGreaterThan(0);
   });
 });
 
@@ -2987,6 +3108,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   expect(JSON.stringify(f)).not.toContain('"held"');
   if (f.you !== undefined) expect(f.you.shift).toBe(me.shift);
   verifyBatteryPrivacy(w, me, f, withoutYou);
+  verifyOwnShellEnds(w, me, f);
   // (The seat's KIT left with Story 10.5: no frame carries a `kit` key.)
   expect(JSON.stringify(f)).not.toContain('"kit"');
   // And when it IS on `you`, it is this observer's own record's factor and
@@ -3027,8 +3149,10 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   expect(hasForbiddenKey(f, ['originX', 'originY', 'attenRangeU', 'cursor', 'targetX', 'targetY', 'origin', 'landing', 'seed', 'dispersionSeed', 'dispersionKey', 'batteryShell'])).toBe(false);
   // THE ARCING-FLIGHT TAGS and the high-ground stop (epic-11 amendment 8) are
   // server-internal: `terrainStop` would tell an observer a shell's track ends
-  // short on a hillside before it gets there; the landing boom's owner tag
-  // `land` names the shooter.
+  // short on a hillside before it gets there. A boom's owner tags (`run`, and
+  // `own` — `land` until epic-11 amendment <AMENDMENT>) would name the
+  // shooter: `own` is a legal key elsewhere on a frame (a mine row), so a
+  // boom's exact wire keys are pinned in verifyBoom instead.
   expect(hasForbiddenKey(f, ['overShips', 'overLand', 'terrainStop', 'land', 'run'])).toBe(false);
   verifyParallelSalvoTracks(w, f);
   verifyNoLandingPoint(w, f);
@@ -4031,26 +4155,58 @@ function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
   }
 }
 
+/** The server-internal owner tag of the boom `id` this tick (`own` — a gun
+ *  shell's terminal boom, signals.ts BoomSubject), recovered INDEPENDENTLY
+ *  from the world's internal tick-event buffer, never from the registry row. */
+function boomOwnerOf(w: World, id: string | undefined): string | undefined {
+  if (id === undefined) return undefined;
+  const src = w.tickEvents.find((t) => t.k === 'boom' && t.id === id) as (BoomEvent & { own?: string }) | undefined;
+  return src?.own;
+}
+
+/** THE OWNER ARM'S JUSTIFICATION (epic-11 amendment <AMENDMENT>): the point
+ *  of an own shell's terminal boom is one this observer is ACTUALLY SENT, in
+ *  this very frame, as a self-private fall of shot (`sp`) or Hit Call (`hc`) —
+ *  so the arm discloses nothing those rows do not. Read off the observer's OWN
+ *  frame, never the world's tick buffer: if `sp` / `hc` delivery were ever
+ *  gated, the arm would stop being justified and this must fail. */
+function ownEndAlreadyHeld(f: FrameMsg, me: ShipRecord, p: { x: number; y: number }): boolean {
+  return f.events.some((t) => (t.k === 'sp' || t.k === 'hc') && t.id === me.id && t.x === p.x && t.y === p.y);
+}
+
 function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BoomEvent;
-  // The wire shape never carries a server-internal owner tag (`run`, `land`).
+  // The wire shape never carries a server-internal owner tag (`run`, `own`).
   for (const k of Object.keys(ev)) expect(['k', 'id', 'hit', 'x', 'y']).toContain(k);
-  // A MAIN-BATTERY LANDING boom (epic-11 amendment 8 — the retired burst's
-  // owner arm) reaches its shell's OWNER anywhere: the point is his own
-  // shell's landing, sent to him anyway as `sp` / `hc`. The owner is
-  // recovered INDEPENDENTLY from the world's internal tick-event buffer.
-  const src = w.tickEvents.find((t) => t.k === 'boom' && t.id === ev.id) as (BoomEvent & { land?: string }) | undefined;
-  const ownLanding = src?.land === me.id;
+  // A GUN SHELL'S TERMINAL boom reaches its shell's OWNER anywhere (the owner
+  // arm — epic-11 amendments 8 and <AMENDMENT>), and ONLY because the same
+  // point is already his by `sp` / `hc` (asserted against the frame itself in
+  // verifyOwnShellEnds).
+  const ownEnd = boomOwnerOf(w, ev.id) === me.id;
+  if (ownEnd && !(splashSeen(w, me, ev) || zoneCovers(w, me, ev))) OWN_END_BY_ARM.n += 1;
   // Boom POINT: inside the SPLASH reach (Story 11.2, R4) OR inside a zone the
   // observer OWNS (Story 1.7 parity).
-  if (ev.hit !== me.id && !ownLanding) expect(splashSeen(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+  if (ev.hit !== me.id && !ownEnd) expect(splashSeen(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
   // `hit` is an IDENTITY: it may name a victim only when that victim's CENTER
   // is inside the CLASS reach (`sighted`) or zone-covered (or the observer is
   // the victim) — a straddling hull, or a PLAIN hull of the outer tier, must
-  // not leak its id.
+  // not leak its id. THE OWNER ARM DOES NOT RELAX IT.
   if (ev.hit !== undefined && ev.hit !== me.id) {
     const victim = w.ships.get(ev.hit)!.state;
     expect(sighted(w, me, victim) || zoneCovers(w, me, victim)).toBe(true);
+  }
+}
+
+/** COMPLETENESS of the owner arm: every gun shell of this observer that ended
+ *  this tick is in its frame as a `boom` with that shell's id — and that
+ *  boom's point is one the SAME frame already sends him by `sp` / `hc`. */
+function verifyOwnShellEnds(w: World, me: ShipRecord, f: FrameMsg): void {
+  for (const t of w.tickEvents) {
+    if (t.k !== 'boom' || (t as BoomEvent & { own?: string }).own !== me.id) continue;
+    expect(f.events.filter((e) => e.k === 'boom' && e.id === t.id)).toHaveLength(1);
+  }
+  for (const e of f.events) {
+    if (e.k === 'boom' && boomOwnerOf(w, e.id) === me.id) expect(ownEndAlreadyHeld(f, me, e)).toBe(true);
   }
 }
 
@@ -4762,6 +4918,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     LU_SEEN.n = 0;
     OWN_MOUNTS_SEEN.n = 0;
     LANDING_GUARDED.n = 0;
+    OWN_END_BY_ARM.n = 0;
     PARALLEL_PAIRS.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
     DRAFT_SEEN.n = 0;
@@ -5324,6 +5481,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(LU_SEEN.n).toBeGreaterThan(0); // Story 10.6: the `lu` pin was exercised
     expect(OWN_MOUNTS_SEEN.n).toBeGreaterThan(0); // ...and the own launchers / racks pin
     expect(LANDING_GUARDED.n).toBeGreaterThan(0); // Story 11.1: in-flight dispersed landings were checked absent
+    expect(OWN_END_BY_ARM.n).toBeGreaterThan(0); // epic-11 amendment <AMENDMENT>: an own shell's end reached its owner past his eye
     expect(PARALLEL_PAIRS.n).toBeGreaterThan(0); // Story 11.1 review fix: salvo reveals were checked parallel
     expect(CLOUD_DELIVERED_BY_RADAR.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once

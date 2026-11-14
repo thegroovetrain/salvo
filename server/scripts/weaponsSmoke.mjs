@@ -61,12 +61,15 @@
 //      lands on the broadside hull. Asserts every
 //      shell reveal is `cannon`, the target took one gated blow per gun, and on
 //      every own frame `ammo[0]` is the turrets' summary.
-//   7. SECONDARIES (R3) — `sec: true` on a target inside half the main reach:
-//      a short burst (heat rises, then drains after release with no further
-//      rounds), then a continuous hold from cold to FULL HEAT (the rounds
-//      landed equal the shared stepper's count to full heat), then a hold AT
-//      full heat: heat stays 1 and rounds keep landing — full heat never locks
-//      (epic-11 amendment 9).
+//   7. SECONDARIES (R3) — `sec: true` AIMED ON a target inside half the main
+//      reach (a round hits only where it lands — epic-11 amendment
+//      <AMENDMENT>): a short burst (heat rises, then drains after release with
+//      no further rounds), then a continuous hold from cold to FULL HEAT (the
+//      rounds landed equal the shared stepper's count to full heat), then a
+//      hold AT full heat: heat stays 1 and rounds keep landing — full heat
+//      never locks (epic-11 amendment 9); then the aim moved to open water
+//      BEYOND the hull, which still stands on the line of fire: the rounds
+//      pass over it (no blow) and the shooter sees them land out there.
 //      Asserts `mg` reveals and the gated per-round blow.
 //   8. SECONDARIES POP A MINE — a captain within secondary reach of an enemy
 //      mine holds `sec` on its marker; the mine vanishes on the landing CONFIG
@@ -811,10 +814,6 @@ async function captiveMinePhase(log) {
 
 // --- the main battery and the secondaries (Story 10.4) ----------------------
 
-/** u — the secondaries aim a little PAST the target so the direct round
- *  crosses the hull before it expires at its aim point (the old machine gun's
- *  rule; the secondaries round IS that round, contract §5). */
-const SEC_OVERSHOOT_U = 30;
 /** rad — "on the aim" for an own-frame turret angle: half a degree of display
  *  slack (the derived angle is exact on the server; `onTargetDeg` retired
  *  2026-11-12, Story 11.1). */
@@ -947,8 +946,8 @@ async function mainBatteryDirectHitPhase(log) {
   const aimPt = { x: D, y: 0 };
   const pPose = { x: 0, y: 0, heading: Math.PI / 2 }; // across the line of fire, mid-path
   // Q along the line of fire, beside the aim point: its nearest outline
-  // `GAP` u off the aim, the across spread (half its full width) inside that.
-  const across = dispersionAxes(2 * D).acrossU / 2;
+  // `GAP` u off the aim, the across spread (its semi-axis) inside that.
+  const across = dispersionAxes(2 * D).acrossU;
   const GAP = Math.ceil(across) + 3;
   precondition(GAP < CONFIG.gun.burstRadius, `main-direct: a ${GAP} u gap is outside the retired 15 u blast (the case would not discriminate)`);
   const halfBeam = Math.max(...hullSilhouette(GUN_TARGET).map((v) => Math.abs(v.y)));
@@ -969,7 +968,7 @@ async function mainBatteryDirectHitPhase(log) {
   const hpQ = qc.you.hp;
   const fired = await trainAndFireBroadside(a, [pc, qc], aim, 2 * D, aimPt, 'main-direct');
   await holdFor([a, pc, qc], ((2 * D) / CONFIG.mainBattery.shellSpeed) * 1000 + 20 * DT);
-  const reachAlong = dispersionAxes(2 * D).alongU / 2 + 1;
+  const reachAlong = dispersionAxes(2 * D).alongU + 1;
   const landed = eventsAt(a, aimPt, reachAlong, ['boom']).filter((e) => e.hit === undefined).length;
   log.push(
     `main-direct: ${fired.guns} guns at open water ${2 * D}u out; P across the path at ${D}u hp ${hpP}->${pc.you.hp} (${pc.dmg.length} dmg); ` +
@@ -1002,12 +1001,24 @@ async function secondariesPhase(log) {
   checkPoseWater('sec A', aPose);
   checkPoseWater('sec B', bPose);
   checkLane('sec', aPose, bPose);
-  precondition(D + SEC_OVERSHOOT_U <= reach, `sec: ${D}u (+${SEC_OVERSHOOT_U}) outside the reach ${reach}`);
+  // THE AIM IS THE HULL (epic-11 amendment <AMENDMENT>): a round hits only
+  // where it lands, so the aim point is the target's centre; the dispersed
+  // landings at this range stay inside its outline (checked below).
+  const FAR = 2 * D; // open water beyond the hull, the hull still on the line of fire
+  precondition(FAR <= reach, `sec: the far aim ${FAR}u is outside the reach ${reach}`);
+  checkPoseWater('sec far aim', { x: D, y: 0 });
+  const axes = dispersionAxes(D);
+  const bPoly = transformPolygon(hullSilhouette(GUN_TARGET), bPose.x, bPose.y, bPose.heading);
+  for (const [dx, dy] of [[axes.alongU, 0], [-axes.alongU, 0], [0, axes.acrossU], [0, -axes.acrossU]]) {
+    precondition(pointPolygonDistance({ x: bPose.x + dx, y: bPose.y + dy }, bPoly) === 0, 'sec: the dispersion pattern at this range is not inside the target outline');
+  }
+  const farAxes = dispersionAxes(FAR);
+  precondition(pointPolygonDistance({ x: D - farAxes.alongU - 1, y: 0 }, bPoly) > 0, 'sec: a far landing could fall inside the target (the pass-over case would not discriminate)');
   const cfg = CONFIG.secondaries;
   const blow = gatedBlow(cfg.damage, statsOf(GUN_TARGET), st);
   const toFull = roundsToFull();
   const hotMs = secondariesIntervalMs(1);
-  const flightMs = ((D + SEC_OVERSHOOT_U) / cfg.shellSpeed) * 1000;
+  const flightMs = (FAR / cfg.shellSpeed) * 1000;
   const a = await joinClient('SEC-A', GUNNER, { fit: [], pose: aPose });
   const b = await joinClient('SEC-B', GUN_TARGET, { fit: [], pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'sec');
@@ -1015,9 +1026,10 @@ async function secondariesPhase(log) {
   const brg = bearing(a.you, b.you);
   let held = false;
   let heldTicks = 0;
+  let aimDist = D; // on the hull
   a.script = (_ctx, inp) => {
     inp.aim = brg;
-    inp.aimDist = D + SEC_OVERSHOOT_U;
+    inp.aimDist = aimDist;
     inp.sec = held;
     if (held) heldTicks += 1;
   };
@@ -1075,6 +1087,19 @@ async function secondariesPhase(log) {
   await holdFor([a, b], flightMs + 4 * DT);
   const hpEnd = b.you.hp;
   const hotRounds = (hpHot0 - hpEnd) / blow;
+  // (d) AIMED BEYOND THE HULL: the same bearing, the aim point in open water
+  // past it. The hull stands on the line of fire and every round passes over
+  // it; the shooter sees them land out there (hit-less landing booms).
+  const farPt = aimPointOf(a.you, brg, FAR);
+  const farBooms0 = eventsAt(a, farPt, farAxes.alongU + 1, ['boom']).length;
+  const dmgBeforeFar = b.dmg.length;
+  aimDist = FAR;
+  held = true;
+  await holdFor([a, b], 3 * hotMs);
+  held = false;
+  await holdFor([a, b], flightMs + 4 * DT);
+  const farLandings = eventsAt(a, farPt, farAxes.alongU + 1, ['boom']).slice(farBooms0);
+  const hpAfterFar = b.you.hp;
   const hits = b.dmg;
   const ws = b.shellW;
   log.push(
@@ -1082,8 +1107,12 @@ async function secondariesPhase(log) {
       `burst ${secs(cfg.overheatMs / 4)}: heat max ${burstMax.toFixed(3)} -> ${heatAfterRelease.toFixed(3)} after release, ${burstRounds} rounds, drained in ${secs(drainedIn)}; ` +
       `hold from cold reached full heat in ${secs(fullIn)} after ${fullRounds} rounds (stepper says ${toFull}); ` +
       `held ${secs(3 * hotMs)} at full heat: ${hotFrames} frames at heat 1, ${coolerFrames} cooler, ${hotRounds} rounds landed; hp ${hp0}->${hpEnd}; ` +
-      `${hits.length} dmg events, reveals w=[${[...new Set(ws)].join(',')}]`,
+      `${hits.length} dmg events, reveals w=[${[...new Set(ws)].join(',')}]; ` +
+      `aimed ${FAR}u (beyond the hull, on the line of fire): ${farLandings.length} landings out there, hull hp ${hpEnd}->${hpAfterFar}`,
   );
+  assert(farLandings.length >= 2, `sec: only ${farLandings.length} rounds landed at the far aim point (the pass-over case would be vacuous)`);
+  assert(farLandings.every((e) => e.hit === undefined), 'sec: a round aimed beyond the hull named a hull at its landing');
+  assert(hpAfterFar === hpEnd && b.dmg.length === dmgBeforeFar, `sec: the hull on the line of fire lost ${hpEnd - hpAfterFar} hp to rounds aimed beyond it — a round must pass over it`);
   assert(fullRounds === toFull, `sec: ${fullRounds} rounds landed from cold to full heat, the shared stepper fires ${toFull}`);
   assert(coolerFrames === 0 && hotFrames > 0, `sec: held at full heat, ${coolerFrames} own frames showed heat below 1`);
   assert(hotRounds >= 2, `sec: only ${hotRounds} rounds landed in ${secs(3 * hotMs)} held at full heat — full heat must never stop the gun`);
