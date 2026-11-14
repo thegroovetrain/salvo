@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rain Sight Bench</title>
+<style>
+  :root { --bg: #050807; --panel: #0a0f0d; --line: #1b2621; --text: #e2e8f0; --muted: #8b95a5; --accent: #00e8ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100vh; }
+  #side { width: 300px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 12px 14px; overflow-y: auto; }
+  #stage { position: relative; flex: 1; min-width: 0; }
+  #stage canvas { display: block; }
+  h1 { font-size: 16px; margin: 0 0 10px; font-weight: 600; }
+  .row { margin: 0 0 10px; }
+  .row label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .row label b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+  button { font: 13px system-ui, sans-serif; background: #0f1714; color: var(--text); border: 1px solid #2a3a33; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 2px 3px; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+  .lbl { position: absolute; font-size: 14px; font-weight: 600; color: var(--text); background: rgba(5,8,7,.75); padding: 3px 8px; border-radius: 3px; pointer-events: auto; cursor: pointer; }
+  .lbl span { color: var(--muted); font-weight: 400; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side"></div>
+  <div id="stage"></div>
+</div>
+<script>/*BUNDLE*/</script>
+</body>
+</html>
