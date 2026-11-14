@@ -2,7 +2,8 @@
 title: 'Story 11.3: The Arc'
 type: 'feature'
 created: '2026-11-13'
-status: 'in-progress'
+status: 'in-review'
+baseline_revision: 'b1f02565'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -65,13 +66,13 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/radarArc.ts` (new) + `constants.ts` -- pure `smearArc(sharp, ox, oy, cellU, beamRad, pulseU)`: each lit cell contributes the annular sector [r ± pulse/2] × [θ ± beam/2] about the observer; union; finite-guarded; no transcendental-dependence on the wire beyond what `paintCoverage` already has -- the arc law, one function.
-- [ ] `client/scripts/arcBench.mjs` + `arcBench/` -- the bench page (R5, R6) with `--selftest` -- Eric's gate.
-- [ ] `shared/src/sim/radarRaster.ts` -- the three paint functions take the observer and apply `smearArc` before fuzz; crate path takes the salt -- one pipeline.
-- [ ] `server/src/game/signals.ts` -- pass `ctx.me` pose; memo keys gain the observer -- per-observer paints.
-- [ ] `client/src/render/radar.ts` + the three client callers -- validators re-derived from beam, pulse and radar reach; ambient scenes pass their observer -- far paints are not dropped.
-- [ ] `server/src/game/ai/plot.ts` -- crate test reads radial depth, not `max(w,h)` -- bots stay functional.
-- [ ] Tests: arc unit tests (width ≥ beam at range, depth bound, wrap, near-range shape); per-observer invariant line in the perception suite; oracles/fixtures take the observer; golden frames re-recorded with a dated header paragraph; `shared/src/index.ts` PV bump.
+- [x] `shared/src/sim/radarArc.ts` (new) + `constants.ts` -- pure `smearArc(sharp, ox, oy, cellU, beamRad, pulseU)`: each lit cell contributes the annular sector [r ± pulse/2] × [θ ± beam/2] about the observer; union; finite-guarded; no transcendental-dependence on the wire beyond what `paintCoverage` already has -- the arc law, one function.
+- [x] `client/scripts/arcBench.mjs` + `arcBench/` -- the bench page (R5, R6) with `--selftest` -- Eric's gate.
+- [x] `shared/src/sim/radarRaster.ts` -- the three paint functions take the observer and apply `smearArc` before fuzz; crate path takes the salt -- one pipeline.
+- [x] `server/src/game/signals.ts` -- pass `ctx.me` pose; memo keys gain the observer -- per-observer paints.
+- [x] `client/src/render/radar.ts` + the three client callers -- validators re-derived from beam, pulse and radar reach; ambient scenes pass their observer -- far paints are not dropped.
+- [x] `server/src/game/ai/plot.ts` -- crate test reads radial depth, not `max(w,h)` -- bots stay functional.
+- [x] Tests: arc unit tests (width ≥ beam at range, depth bound, wrap, near-range shape); per-observer invariant line in the perception suite; oracles/fixtures take the observer; golden frames re-recorded with a dated header paragraph; `shared/src/index.ts` PV bump.
 
 **Acceptance Criteria:**
 - Given any radar paint in any frame, when the invariant suite runs, then its bearing span about the observer is ≥ the beam at its range and its depth ≤ extent + pulse + fuzz bound, and the six exceptions stay six.
