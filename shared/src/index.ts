@@ -1136,6 +1136,7 @@ export * from './sim/collision.js';
 export * from './sim/contact.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
+export * from './sim/radarArc.js';
 export * from './sim/island.js';
 export * from './sim/islandIndex.js';
 export * from './sim/aim.js';

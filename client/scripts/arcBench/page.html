@@ -1,0 +1,39 @@
+<title>Arc Bench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*__BENCH_CSS__*/</style>
+<div class="wrap">
+  <header class="top">
+    <h1>Arc Bench</h1>
+    <p class="sub">Story 11.3 — the arc: a far radar contact is sharp in range and wide in bearing</p>
+    <p class="intro">A real radar beam has a width, so a far ship does not paint as its own shape: it paints as an arc, wide across the line from you to it and thin along it. Each lit cell of a ship's sharp radar paint is spread sideways by the beam width (centered on the ship's true direction from you) and along the line of sight by a short pulse. Then today's fuzz runs on top, unchanged.</p>
+    <p class="note">The map, the hull shapes, the arc and the fuzz on this page are the game's own shared code, run live in your browser. No island shadows are drawn here: this page shows only the arc. Nothing here is wired into the game yet.</p>
+  </header>
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section class="card">
+    <h2>1 · The chart</h2>
+    <p class="note">A real map. Your ship is the cyan circle near the west edge. Gray rings: every 100 hm from your ship. Four battleships sit on four lines at 50, 100, 200, 300 and 400 hm, some side-on to you, some end-on. Also one wake segment behind the Iowa at 300 hm and one airdrop crate at 350 hm. Red: what your radar paints. Thin white: the real ship (tiny at this scale).</p>
+    <div class="row" id="seeds"><span class="mono" id="seedText"></span></div>
+    <canvas id="chart" class="canvas" aria-label="The chart with every radar paint"></canvas>
+    <h3 class="group">Dials</h3>
+    <p class="note">Ruled values today: beam <span id="beamToday"></span>, pulse <span id="pulseToday"></span>.</p>
+    <div class="sliders" id="dials"></div>
+    <div class="row" id="rollRow">
+      <label class="check"><input type="checkbox" id="fuzz"> Fuzz on (today's per-paint fuzz on top of the arc)</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Close-ups</h2>
+    <p class="note">Every paint drawn large so its cells show. Red: the paint. Thin white: the real target. The cyan arrow points toward your ship. Arc width is measured across the line of sight at the target's range; depth along it.</p>
+    <div class="closeups" id="closeups"></div>
+  </section>
+
+  <section class="card">
+    <h2>3 · How big a radar cell is drawn far away</h2>
+    <p class="note">Three ways to draw cells at long range. A bigger cell lights when any 9 u cell inside it is lit. Pick one; the chart and the close-ups above switch to it.</p>
+    <div class="cands" id="candidates"></div>
+  </section>
+  <p id="build" class="build"></p>
+</div>
+<script>/*__BENCH_JS__*/</script>
