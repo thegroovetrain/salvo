@@ -18,7 +18,7 @@
 //       leak guard only: the server sends the firer the terminal `boom` (or
 //       `burst`) of every shell he fired, however it ended — a landing, a
 //       high-ground stop, an interception, the map edge (epic-11 amendment
-//       <AMENDMENT>, PV <PV>) — so (a) ends it at its true point. An own
+//       11, PV 107) — so (a) ends it at its true point. An own
 //       TORPEDO is still not always sent its impact boom, and no own track
 //       is ever culled by eye reach;
 //   (c) reveal-ring cull: an ENEMY track's dead-reckoned position leaves the
@@ -297,7 +297,7 @@ export function ownReachFromStats(stats: EffectiveStats): OwnReach {
  * `t0 + reach / speed` plus `OWN_LIFETIME_SLACK_MS` — because an own track is
  * never culled by eye reach. It is a LEAK GUARD for an own gun shell (the
  * server always sends the firer its terminal boom / burst — epic-11 amendment
- * <AMENDMENT>; a dropped frame or a missed ownership latch is what this still
+ * 11; a dropped frame or a missed ownership latch is what this still
  * covers) and the real bound for an own torpedo, whose impact boom the owner
  * is not always sent (out of eye reach, behind an island, in fog). Everything else
  * (an enemy's, or an own track before the first stats land) takes the

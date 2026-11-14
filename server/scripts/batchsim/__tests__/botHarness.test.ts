@@ -941,7 +941,7 @@ describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine mark
     // blast widens the marker by its own radius.
     expect(sweepScenario({ event: 'hc', burstRadius: 15, landAt: 15 + CONFIG.mine.hitRadiusU })).toBe(1);
     // A blast-less round that LANDS (a secondary round, epic-11 amendment
-    // <AMENDMENT>) inside a hull reports `hc` at its landing point — a landing.
+    // 11) inside a hull reports `hc` at its landing point — a landing.
     expect(sweepScenario({ event: 'hc' })).toBe(1);
   });
 

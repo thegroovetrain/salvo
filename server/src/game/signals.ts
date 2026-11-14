@@ -1693,7 +1693,7 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  * zone reveals can also visibly explode), OR the boom struck the observer
  * (`hit === me`). A GUN SHELL'S OWNER ALWAYS GETS ITS OWN SHELL'S TERMINAL
  * BOOM (the owner arm, `BoomSubject.own` — Eric 2026-11-13, epic-11 amendment
- * <AMENDMENT>; it supersedes this row's old "the owner's dead-reckoned shell
+ * 11; it supersedes this row's old "the owner's dead-reckoned shell
  * just expires by client lifetime", which left a shell stopped by high ground
  * flying on to full reach on its firer's screen). The arm is the POSITION of
  * a point the owner is sent anyway the same tick — the self-private fall of
@@ -1732,7 +1732,7 @@ export interface BoomSubject extends BoomEvent {
    * high-ground or coastline stop, a map-edge end (World.missBoom) or an
    * interception (World.resolveShell). The boom row shows such a boom to that
    * owner at any range, behind any island and in any fog (Eric 2026-11-13,
-   * epic-11 amendment <AMENDMENT>: "go with fix 1" — a firer's own shell
+   * epic-11 amendment 11: "go with fix 1" — a firer's own shell
    * whose end he was not sent dead-reckoned on to full reach on his screen).
    * A torpedo's boom never carries it (the run-out rule above is its own).
    *

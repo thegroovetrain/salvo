@@ -6,7 +6,7 @@
 // sinking captain hull and fires whatever rounds it returns through here.
 //
 // A ROUND HITS ONLY WHERE IT LANDS (Eric 2026-11-13, epic-11 amendment
-// <AMENDMENT>: "Secondaries should also require aim like main guns") — the
+// 11: "Secondaries should also require aim like main guns") — the
 // MAIN BATTERY's landing rule on the main battery's own code path. The round
 // ARCS OVER every ship and radio beacon between muzzle and landing
 // (`overShips` — the sweep never runs against them), and at its landing point
@@ -66,7 +66,7 @@ export function fireSecondaryRound(ctx: ActivationContext): void {
     origin,
     targetX: target.x,
     targetY: target.y,
-    // THE MAIN BATTERY'S LANDING RULE (epic-11 amendment <AMENDMENT>): no
+    // THE MAIN BATTERY'S LANDING RULE (epic-11 amendment 11): no
     // blast — the landing POINT is the whole test (a 0 radius admits exactly
     // the hulls whose silhouette holds it) — and no contact damage, because
     // the round ARCS OVER every ship and beacon on the way.

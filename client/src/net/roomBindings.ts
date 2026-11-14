@@ -1850,7 +1850,7 @@ function near2(x: number, y: number, cx: number, cy: number): boolean {
 function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.projectiles.onBoom(e);
   if (!e.hit) {
-    // A HIT NEVER DRAWS OR SOUNDS AS A MISS (review gate, <AMENDMENT>). The
+    // A HIT NEVER DRAWS OR SOUNDS AS A MISS (review gate, 11). The
     // firer is sent his own shell's end at any range, but the struck hull's id
     // only inside his class reach — so a hit on an unsighted hull arrives here
     // with no `hit`, AHEAD of the same point's self-private `hc`. That `hc`

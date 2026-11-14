@@ -244,7 +244,7 @@ describe('main battery — the arc-only click on the authoritative world', () =>
 });
 
 describe('secondaries — the heat-limited stream on the authoritative world', () => {
-  it('BURST then RELEASE: rounds stream while held (family mg, flying over ships — epic-11 amendment <AMENDMENT>), heat rises, then drains with no rounds', () => {
+  it('BURST then RELEASE: rounds stream while held (family mg, flying over ships — epic-11 amendment 11), heat rises, then drains with no rounds', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.submitInput('a', inp(1, { aim: 0, aimDist: a.stats.secondaryRangeU, sec: true }));

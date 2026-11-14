@@ -458,7 +458,7 @@ export class BotReadoutCollector {
    * swept by a bot's secondaries". A landing is published the same tick as
    * the owner's `sp` (a landing that touched no hull) or `hc` (a landing that
    * also caught a hull — a burst's blast, or a secondary round landing inside
-   * a hull, epic-11 amendment <AMENDMENT>; a DIRECT shell that strikes a hull
+   * a hull, epic-11 amendment 11; a DIRECT shell that strikes a hull
    * never lands, so its `hc` is ignored) — at the point landOnMines
    * tests against. So a mine LAST SEEN last tick and GONE now is credited to
    * the first bot (in event order) that, this tick, both lost a mine-hitting

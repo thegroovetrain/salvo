@@ -3,9 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  <PV> — OWN SHELLS ALWAYS END ON SCREEN; SECONDARIES HIT WHERE THEY LAND
- *  (2026-11-13, Eric; epic-11 amendment <AMENDMENT>; cycle <CYCLE>,
- *  <VERSION>): no wire shape change — the SET of events a client is sent
+ *  107 — OWN SHELLS ALWAYS END ON SCREEN; SECONDARIES HIT WHERE THEY LAND
+ *  (2026-11-13, Eric; epic-11 amendment 11; cycle 233,
+ *  0.19.27): no wire shape change — the SET of events a client is sent
  *  changed, and the client relies on it: the firer is now sent the terminal
  *  `boom` of every gun shell he fired, however it ended (his track is retired
  *  by it), and a secondaries round ends in a landing `boom` (`hit` = the hull

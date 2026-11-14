@@ -310,7 +310,7 @@
 //       — the 13 extra frames — with the same victimless boom.
 //
 // RE-RECORDED 2026-11-13 (own shells always end on screen; secondaries hit
-// where they land — Eric, epic-11 amendment <AMENDMENT>; PV <PV>). ONE frame
+// where they land — Eric, epic-11 amendment 11; PV 107). ONE frame
 // moved, by event ORDER only: scnMineBurstDetonation's pop frame (t 1 600).
 // The secondaries round now lands through the main battery's landing path
 // (World.resolveBurst), which decides the firer's `sp` BEFORE the mine landing

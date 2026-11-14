@@ -4,7 +4,7 @@
 // MAIN BATTERY. The bot aims with its existing lead solver (tacticKit
 // `leadPoint` at the main-battery shell speed) plus the competence scatter
 // (`CONFIG.bots.gunAimScatterU` — the guns' own disc since epic-11 amendment
-// <AMENDMENT>; untouched by Story 11.1's real dispersion — R8)
+// 11; untouched by Story 11.1's real dispersion — R8)
 // — the scatter offset HELD (`BotMind.batteryScatter`) rather than re-drawn
 // every tick, so the aim it writes into `InputMsg.aim` / `aimDist` stays one
 // point between clicks. The offset is re-drawn after each click, and

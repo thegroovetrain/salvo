@@ -1471,7 +1471,7 @@ describe('perception — world-emitted ballistics never forward (fail-closed)', 
 
 describe('perception — boom / dmg / sunk / spawn visibility', () => {
   for (const kind of ['shell', 'torp'] as const) {
-    const ownerGets = kind === 'shell' ? 'its firer gets it bare, with no victim id (the owner arm, epic-11 amendment <AMENDMENT>)' : 'its firer gets no boom (a torpedo has no owner arm)';
+    const ownerGets = kind === 'shell' ? 'its firer gets it bare, with no victim id (the owner arm, epic-11 amendment 11)' : 'its firer gets no boom (a torpedo has no owner arm)';
     it(`an out-of-sight ${kind} boom is hidden from every bystander and shown to the struck ship; ${ownerGets}`, () => {
       const w = bareWorld();
       // The world STEPS: both hulls on the board, ANNULUS_D apart — beyond
@@ -1786,7 +1786,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
 
 });
 
-describe('perception — the owner arm: the firer is always sent the terminal boom of his own gun shell (epic-11 amendment <AMENDMENT>)', () => {
+describe('perception — the owner arm: the firer is always sent the terminal boom of his own gun shell (epic-11 amendment 11)', () => {
   interface Pendable { pending: GameEvent[] }
   /** Route one boom subject through the real pending-events choke, the way
    *  World.ballisticBoom emits it (wire BoomEvent + the internal `own`). */
@@ -3150,7 +3150,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // THE ARCING-FLIGHT TAGS and the high-ground stop (epic-11 amendment 8) are
   // server-internal: `terrainStop` would tell an observer a shell's track ends
   // short on a hillside before it gets there. A boom's owner tags (`run`, and
-  // `own` — `land` until epic-11 amendment <AMENDMENT>) would name the
+  // `own` — `land` until epic-11 amendment 11) would name the
   // shooter: `own` is a legal key elsewhere on a frame (a mine row), so a
   // boom's exact wire keys are pinned in verifyBoom instead.
   expect(hasForbiddenKey(f, ['overShips', 'overLand', 'terrainStop', 'land', 'run'])).toBe(false);
@@ -4164,7 +4164,7 @@ function boomOwnerOf(w: World, id: string | undefined): string | undefined {
   return src?.own;
 }
 
-/** THE OWNER ARM'S JUSTIFICATION (epic-11 amendment <AMENDMENT>): the point
+/** THE OWNER ARM'S JUSTIFICATION (epic-11 amendment 11): the point
  *  of an own shell's terminal boom is one this observer is ACTUALLY SENT, in
  *  this very frame, as a self-private fall of shot (`sp`) or Hit Call (`hc`) —
  *  so the arm discloses nothing those rows do not. Read off the observer's OWN
@@ -4179,7 +4179,7 @@ function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
   // The wire shape never carries a server-internal owner tag (`run`, `own`).
   for (const k of Object.keys(ev)) expect(['k', 'id', 'hit', 'x', 'y']).toContain(k);
   // A GUN SHELL'S TERMINAL boom reaches its shell's OWNER anywhere (the owner
-  // arm — epic-11 amendments 8 and <AMENDMENT>), and ONLY because the same
+  // arm — epic-11 amendments 8 and 11), and ONLY because the same
   // point is already his by `sp` / `hc` (asserted against the frame itself in
   // verifyOwnShellEnds).
   const ownEnd = boomOwnerOf(w, ev.id) === me.id;
@@ -5481,7 +5481,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(LU_SEEN.n).toBeGreaterThan(0); // Story 10.6: the `lu` pin was exercised
     expect(OWN_MOUNTS_SEEN.n).toBeGreaterThan(0); // ...and the own launchers / racks pin
     expect(LANDING_GUARDED.n).toBeGreaterThan(0); // Story 11.1: in-flight dispersed landings were checked absent
-    expect(OWN_END_BY_ARM.n).toBeGreaterThan(0); // epic-11 amendment <AMENDMENT>: an own shell's end reached its owner past his eye
+    expect(OWN_END_BY_ARM.n).toBeGreaterThan(0); // epic-11 amendment 11: an own shell's end reached its owner past his eye
     expect(PARALLEL_PAIRS.n).toBeGreaterThan(0); // Story 11.1 review fix: salvo reveals were checked parallel
     expect(CLOUD_DELIVERED_BY_RADAR.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once

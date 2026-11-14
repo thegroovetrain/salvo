@@ -1439,7 +1439,7 @@ function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
 /** The damage SOURCE a landing blow is recorded under (the harness's
  *  kill-by-source readout): a secondary round (family `'mg'`) keeps its
  *  `'shell'` label though it lands by the main battery's rule (epic-11
- *  amendment <AMENDMENT>, review gate); every other landing is a `'burst'`. */
+ *  amendment 11, review gate); every other landing is a `'burst'`. */
 function landingSource(shell: ShellState): DamageSource {
   return shell.family === 'mg' ? 'shell' : 'burst';
 }
@@ -1447,7 +1447,7 @@ function landingSource(shell: ShellState): DamageSource {
 /** The hp an EARLY INTERCEPTION deals (Story 9.12, ruling 184(c)): a DIRECT
  *  shell's contact hit — the machine gun's, whose `contactDamage` IS its
  *  damage (the secondaries' round left this path for the landing rule,
- *  epic-11 amendment <AMENDMENT>) — is settled once (flat with range since
+ *  epic-11 amendment 11) — is settled once (flat with range since
  *  Story 11.1); every other interception (the cannon / flak bodyblock,
  *  torpedoes, the broadside, star / phosphor / fouling shells) deals its
  *  `contactDamage` untouched. */
@@ -6404,7 +6404,7 @@ export class World {
    * THE TERMINAL BOOM OF ONE BALLISTIC — the ONE constructor of a shell's or
    * torpedo's own boom subject, so no ending can forget the owner arm. A GUN
    * SHELL's (`kind === 'shell'`) carries the server-internal owner tag `own`
-   * (signals.ts BoomSubject — Eric 2026-11-13, epic-11 amendment <AMENDMENT>:
+   * (signals.ts BoomSubject — Eric 2026-11-13, epic-11 amendment 11:
    * the firer is always shown how his own shell ended, so his screen ends the
    * track there instead of flying it on to full reach). A TORPEDO's never
    * does. `hit` names the struck SHIP when there is one to name; the boom
@@ -6818,7 +6818,7 @@ export class World {
    * to draw, so it lands as an IMPACT: a `boom` at the landing point, naming
    * the hull whose silhouette holds the point (the first, in target order)
    * as `hit`, or none on a miss. The SECONDARIES' round lands the same way
-   * (epic-11 amendment <AMENDMENT>). Like every gun shell's terminal boom it
+   * (epic-11 amendment 11). Like every gun shell's terminal boom it
    * carries the server-internal owner tag (`ballisticBoom`; it was the
    * main-battery-only `land` tag until then), which keeps the retired burst's
    * owner arm. A beacon struck this way is never named (its id never leaves

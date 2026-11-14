@@ -6,7 +6,7 @@
 //     the chart's lowest land band and is stopped by higher ground; a landing
 //     on land is spent and does nothing;
 //   - the SECONDARIES: the same island rule — and, since epic-11 amendment
-//     <AMENDMENT> (Eric 2026-11-13: "Secondaries should also require aim like
+//     11 (Eric 2026-11-13: "Secondaries should also require aim like
 //     main guns"), the main battery's landing rule against ships too;
 //   - the STAR, PHOSPHOR, FLASH and FOULING shells: "not interrupted by
 //     hitting other ships or even islands en-route to their destination".

@@ -63,7 +63,7 @@
 //      every own frame `ammo[0]` is the turrets' summary.
 //   7. SECONDARIES (R3) — `sec: true` AIMED ON a target inside half the main
 //      reach (a round hits only where it lands — epic-11 amendment
-//      <AMENDMENT>): a short burst (heat rises, then drains after release with
+//      11): a short burst (heat rises, then drains after release with
 //      no further rounds), then a continuous hold from cold to FULL HEAT (the
 //      rounds landed equal the shared stepper's count to full heat), then a
 //      hold AT full heat: heat stays 1 and rounds keep landing — full heat
@@ -1001,7 +1001,7 @@ async function secondariesPhase(log) {
   checkPoseWater('sec A', aPose);
   checkPoseWater('sec B', bPose);
   checkLane('sec', aPose, bPose);
-  // THE AIM IS THE HULL (epic-11 amendment <AMENDMENT>): a round hits only
+  // THE AIM IS THE HULL (epic-11 amendment 11): a round hits only
   // where it lands, so the aim point is the target's centre; the dispersed
   // landings at this range stay inside its outline (checked below).
   const FAR = 2 * D; // open water beyond the hull, the hull still on the line of fire
