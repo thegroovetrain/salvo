@@ -31,7 +31,7 @@
 // • DENSITY by ρ through a coverage → cut map: coverage is the share of area at
 //   solid rain (density ≥ ½, fog.ts's amendment-178 semantics). 0 inside the
 //   eye (ρ ≤ eyeFrac: a TRUE clear eye), thin → thick on a smoothstep to
-//   `coverageEdge` at the ring edge, then a smoothstep over `edgeSoftW` (in ρ)
+//   the live edge coverage (`coverageEdgeByRing`, stepped by ring, linear through each closing beat) at the ring edge, then a smoothstep over `edgeSoftW` (in ρ)
 //   to `coverageOutside` (heavy rain with gaps). The cut for a coverage comes
 //   from the noise's value distribution, measured ONCE per seed (a quantile
 //   table); the layer blend is variance-normalized so one table holds at every
@@ -58,7 +58,7 @@ export interface StormFieldConfig {
   centerTurnFrac: number; // turn rate at the center as a fraction of the edge's (linear speed at the center is 0 regardless)
   windRad: number; // rad — trailing spiral pre-wind at the ring edge, laid down at each layer's invisible instant
   eyeFrac: number; // ρ — radius of the clear eye as a fraction of the live ring
-  coverageEdge: number; // share at solid rain just inside the ring edge
+  coverageEdgeByRing: number[]; // share at solid rain just inside the ring edge, per ring (index = group; held at the last entry past it)
   coverageOutside: number; // share at solid rain out in the storm
   edgeSoftW: number; // ρ — width of the ring-edge → outside coverage blend
   minRadiusU: number; // u — floor on R for the spin (the collapse drives R to 0)
@@ -81,6 +81,7 @@ export interface StormFrame {
   cx: number; // u — the live ring (eye) center
   cy: number;
   R: number; // u — the live ring radius (0 once collapsed)
+  edgeCov: number; // share at solid rain at the live ring edge (stepped by ring, linear through each closing beat)
   w: number; // layer B's cross-fade weight
   norm: number; // variance normalizer of the blend
   binU: number; // u per twist-table bin
@@ -196,13 +197,14 @@ export function stormFrame(field: StormField, tMs: number, out?: StormFrame): St
   const w = morphWeight(tMs, P);
   const binU = (2 * field.mapRadiusU + 200) / (TWIST_BINS - 1);
   const f: StormFrame = out ?? {
-    tMs, cx: 0, cy: 0, R: 0, w: 0, norm: 1, binU,
+    tMs, cx: 0, cy: 0, R: 0, edgeCov: 0, w: 0, norm: 1, binU,
     twistA: new Float64Array(TWIST_BINS), twistB: new Float64Array(TWIST_BINS),
   };
   f.tMs = tMs;
   f.cx = ring.cx;
   f.cy = ring.cy;
   f.R = ring.r;
+  f.edgeCov = stormEdgeCoverageAt(field, tMs);
   f.w = w;
   f.norm = 1 / Math.sqrt((1 - w) * (1 - w) + w * w);
   f.binU = binU;
@@ -214,12 +216,32 @@ export function stormFrame(field: StormField, tMs: number, out?: StormFrame): St
 const smooth = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
 /** The share at solid rain at ρ = distance / live ring radius. */
-export function stormCoverageAt(cfg: StormFieldConfig, rho: number): number {
+export function stormCoverageAt(cfg: StormFieldConfig, edgeCov: number, rho: number): number {
   const e = cfg.eyeFrac;
   if (rho <= e) return 0;
-  if (rho <= 1) return cfg.coverageEdge * smooth(e < 1 ? (rho - e) / (1 - e) : 1);
+  if (rho <= 1) return edgeCov * smooth(e < 1 ? (rho - e) / (1 - e) : 1);
   const u = cfg.edgeSoftW > 0 ? (rho - 1) / cfg.edgeSoftW : 1;
-  return cfg.coverageEdge + (cfg.coverageOutside - cfg.coverageEdge) * smooth(u);
+  return edgeCov + (cfg.coverageOutside - edgeCov) * smooth(u);
+}
+
+/**
+ * The live edge coverage at `tMs`: ring g's entry of `coverageEdgeByRing`
+ * (clamped to the last), and during a closing beat a linear blend toward ring
+ * g+1's entry by the SAME progress fraction zoneStateAt uses for the ring's
+ * radius (1 − closesInMs / beatMs). Holds the last entry through the collapse
+ * (the collapse group's index is past the table) and after it.
+ */
+export function stormEdgeCoverageAt(field: StormField, tMs: number): number {
+  const tab = field.cfg.coverageEdgeByRing;
+  const last = tab.length - 1;
+  if (last < 0) return 0;
+  const st = zoneStateAt(tMs, 0, field.rings, field.timeline);
+  const g = Math.min(st.groupIndex, last);
+  const a = tab[g];
+  if (st.phase !== 'closing' || !(field.timeline.beatMs > 0)) return a;
+  const f = 1 - st.closesInMs / field.timeline.beatMs;
+  const b = tab[Math.min(st.groupIndex + 1, last)];
+  return a + (b - a) * (f < 0 ? 0 : f > 1 ? 1 : f);
 }
 
 /** The cut whose solid share is `cov` (quantile of 1 − cov, less half the edge band). */
@@ -249,7 +271,7 @@ export function stormDensityAt(field: StormField, frame: StormFrame, x: number, 
   const qy = y - frame.cy;
   const r = Math.sqrt(qx * qx + qy * qy);
   const rho = frame.R > 0 ? r / frame.R : Infinity;
-  const cov = stormCoverageAt(cfg, rho);
+  const cov = stormCoverageAt(cfg, frame.edgeCov, rho);
   if (!(cov > 0)) return 0;
   const cut = stormCutFor(field, cov);
   const g = r / frame.binU;

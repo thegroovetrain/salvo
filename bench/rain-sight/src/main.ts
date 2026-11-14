@@ -34,7 +34,7 @@ import { PUFF_TILE_SEED, bakePuffTile, puffTileRgba } from '../../../client/src/
 import { RainField } from './field.js';
 import { bakeHull, buildHullArt, fillNoise, type HullBake } from './hull.js';
 import { LookHull, VIS_COLS_MAX, VIS_ROWS_MAX, makeVisTexture, type LookId } from './look.js';
-import { makeStormField, stormRingAt, type StormField, type StormFieldConfig } from './stormField.js';
+import { makeStormField, stormEdgeCoverageAt, stormRingAt, type StormField, type StormFieldConfig } from './stormField.js';
 
 const C = CLIENT_CONFIG.colors;
 const FF = CLIENT_CONFIG.fogField;
@@ -79,9 +79,9 @@ const SF: StormFieldConfig = {
   edgeSpeedU: 10,
   centerTurnFrac: 0.5,
   windRad: 4,
-  eyeFrac: 0.3,
-  coverageEdge: 0.75,
-  coverageOutside: 0.55,
+  eyeFrac: 0.4,
+  coverageEdgeByRing: [0.45, 0.5, 0.55, 0.6],
+  coverageOutside: 0.7,
   edgeSoftW: 0.25,
   minRadiusU: 250,
 };
@@ -452,7 +452,7 @@ async function boot(): Promise<void> {
     if (st.current.r > 0) rings.circle(st.current.cx, st.current.cy, st.current.r).stroke({ width: 2 * px, color: C.stormReadout });
     rings.circle(st.current.cx, st.current.cy, 4 * px).fill(C.stormReadout);
     if (!observerStale) rings.circle(OWN.x, OWN.y, 5 * px).fill(C.relationOwn);
-    clockLbl.innerHTML = `${mmss(matchT)} <span>${st.phase} · ring ${st.groupIndex + 1} · R ${Math.round(st.current.r)} u · spin ${storm.spinSign > 0 ? 'clockwise' : 'counter-clockwise'} on screen</span>`;
+    clockLbl.innerHTML = `${mmss(matchT)} <span>${st.phase} · ring ${st.groupIndex + 1} · R ${Math.round(st.current.r)} u · edge ${Math.round(stormEdgeCoverageAt(storm, matchT) * 100)}% · spin ${storm.spinSign > 0 ? 'clockwise' : 'counter-clockwise'} on screen</span>`;
   };
 
   let readoutAcc = 0;
@@ -638,7 +638,9 @@ async function boot(): Promise<void> {
   slider('Center turn rate (× edge)', 0, 1, 0.05, () => SF.centerTurnFrac, (v) => (SF.centerTurnFrac = v), (v) => v.toFixed(2));
   slider('Spiral wind at edge', 0, 10, 0.25, () => SF.windRad, (v) => (SF.windRad = v), (v) => `${v.toFixed(2)} rad`);
   slider('Eye radius (× ring)', 0, 0.8, 0.01, () => SF.eyeFrac, (v) => (SF.eyeFrac = v), (v) => v.toFixed(2));
-  slider('Coverage at ring edge', 0, 1, 0.01, () => SF.coverageEdge, (v) => (SF.coverageEdge = v), (v) => `${Math.round(v * 100)} %`);
+  for (let k = 0; k < SF.coverageEdgeByRing.length; k++) {
+    slider(`Edge coverage ring ${k}`, 0, 1, 0.01, () => SF.coverageEdgeByRing[k], (v) => (SF.coverageEdgeByRing[k] = v), (v) => `${Math.round(v * 100)} %`);
+  }
   slider('Coverage outside', 0, 1, 0.01, () => SF.coverageOutside, (v) => (SF.coverageOutside = v), (v) => `${Math.round(v * 100)} %`);
   slider('Edge soft width (× ring)', 0, 1, 0.01, () => SF.edgeSoftW, (v) => (SF.edgeSoftW = v), (v) => v.toFixed(2));
   slider('Morph period', 20, 600, 5, () => SF.morphMs / 1000, (v) => (SF.morphMs = v * 1000), (v) => `${v} s`);
