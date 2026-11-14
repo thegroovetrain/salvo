@@ -2,7 +2,8 @@
 title: 'Story 11.3: The Arc'
 type: 'feature'
 created: '2026-11-13'
-status: 'in-review'
+status: 'done'
+final_revision: 'f95a32a4'
 baseline_revision: 'b1f02565'
 review_loop_iteration: 0
 context:
@@ -90,3 +91,34 @@ Two observers painting one hull in one tick now receive different masks (each ce
 - `node client/scripts/arcBench.mjs --selftest` -- PASS.
 - `node server/scripts/tickCost.mjs`, `node client/scripts/glBudget.mjs`, `node client/scripts/playCheck.mjs` -- run, numbers recorded.
 - matchSmoke + weaponsSmoke (booted server, `HC_DEV_OPTIONS=1`) -- first try.
+
+## Spec Change Log
+
+- 2026-11-13 — R1 / R3 / R6 amended on the bench page (Eric's yes): beam 3° → 5.6°, pulse 1.5 → 2 hm ("I want what would be realistic" — the US SG set, true to the hm ruler); far cell A (fixed 9 u), the client far-cell task dropped. No code re-derived (phase 2 had not started). KEEP: the arc law, centered, all three paint sources.
+
+## Review Triage Log
+
+### 2026-11-14 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8 (high 2, medium 4, low 2)
+- defer: 0
+- reject: 1 (low 1 — the one-slot paint memos rarely hit now; harmless)
+- addressed_findings:
+  - `[high]` `[patch]` bot crate filter misread near crates as hulls (55–89 % at 20–60 u; both hunters) → per-cell de-smeared extent (`desmearedExtents`); crates 0 / 99,000 misreads.
+  - `[high]` `[patch]` client wake chop halo sized from the smeared mask (up to 301k Map writes per segment; torpedo ≈ battleship) → halo from the de-smeared ribbon, pre-arc size kept; writes < 2k.
+  - `[medium]` `[patch]` oblique Warspite read crate-sized 0.5–3 % (both hunters) → 0.03–0.5 % far; `cratePaintMaxU` 85 unchanged.
+  - `[medium]` `[patch]` own-echo test used the arc's bbox (both hunters) → lit cells near the sighted hull.
+  - `[medium]` `[patch]` wake paint smeared twice → one smear (`smearArcWithCore`); fuzz loops sped up; masks byte-identical (13,200 poses); far wake −40 %.
+  - `[medium]` `[patch]` map-wide wake segment (Codex + Edge Case; golden frame 929 cells, test teleport only) → segments over 21.75 u (derived) not painted.
+  - `[low]` `[patch]` smearArc: zero beam keeps the pulse smear; non-finite / absurd inputs degrade, never throw; area cap.
+  - `[low]` `[patch]` `verifyArc` ledger could pass on a hull wider than the beam → counts only narrower targets; upper-bound arm added.
+
+## Auto Run Result
+
+Status: done (PR open to `development`; Eric merges).
+- **Change:** every radar paint (hull, wake, crate) is an arc about its observer — 5.6° beam centered on the true bearing, 2 hm pulse — server-side before the fuzz; client validators and the wake halo follow; bots de-smear; PV 106 → 107.
+- **Files:** `shared/src/sim/radarArc.ts` (the law + inverse), `radarRaster.ts` (pipelines, fuzz speedups), `constants.ts` (dials), `index.ts` (PV), `types.ts` (docs); `server/src/game/signals.ts` (observer, memos, wake guard), `paintSalt.ts` (crate salt), `ai/plot.ts` + `ai/utility.ts` (crate filter, own-echo); `client/src/render/radar.ts` (validators), `radarField.ts` (halo), ambient scenes; `client/scripts/arcBench*` (bench page); tests across all three workspaces; golden frames.
+- **Review:** 8 patches applied, 0 deferred, 1 rejected (Codex verdict ship; both Fable hunters fix-first, all their findings patched).
+- **Verification:** `npm run check` green (shared 1468 / server 2956 / client 4469 / hooks 266); `arcBench --selftest` PASS; 16-hull `tickCost` 3.03 → 3.89 ms mean (p95 4.48 → 6.35); `glBudget` PASS; `playCheck` PASS (Chromium + Firefox, 2x); matchSmoke + weaponsSmoke first try.
+- **Residual risks:** the frame cost at full reach is unmeasured on staging (the 9 u cell is unchanged, so the client's paint bill should match 11.2's); oblique Warspite occasionally skipped by bots; a ram shove could leave one wake segment unpainted.
