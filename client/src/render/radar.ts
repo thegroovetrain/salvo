@@ -939,9 +939,9 @@ export class Radar {
   private marchWake(own: OwnPoint, e: PendingWake): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const segs: WakeSegmentCover[] = [{ cov: e.cov, a: e.a }];
-    const stamp: CellStamp = buildWakeStamp(segs, cfg.model, wakeLitFloor(cfg.model));
+    const stamp: CellStamp = buildWakeStamp(segs, cfg.model, wakeLitFloor(cfg.model), own);
     const c = coverageCentre(e.cov, cfg.cellU);
-    const halo = chopHaloCells(e.cov, e.a) * cfg.cellU;
+    const halo = chopHaloCells(e.cov, e.a, own) * cfg.cellU;
     const arc = echoArc(own, c.x, c.y, Math.hypot(e.cov.w, e.cov.h) * cfg.cellU + 2 * halo);
     const pad = arc.reach + 2 * cfg.cellU;
     const reach = Math.max(this.radarRange, arc.dist + pad);
@@ -1584,7 +1584,10 @@ function validWakeRect(e: WakeBlipEvent): boolean {
  * sample cadence of track, plus the widest turbulent core in the registry (a
  * hull's beam), PLUS THE ARC (Story 11.3: the segment is smeared about its
  * observer like a hull — `arcGrowthU`), plus a cell of lattice phase, doubled
- * as structural slack. Still far below `MAX_COVERAGE_SPAN`'s hull term.
+ * as structural slack. The arc dominates both this and `MAX_COVERAGE_SPAN`
+ * (its beam chord at full radar reach is many times any hull or ribbon), so
+ * this bound is no longer far below the hull one: the two differ only by the
+ * hull-vs-ribbon term and the hull's fuzz cells.
  */
 const MAX_WAKE_SPAN = ((): number => {
   let beam: number = CONFIG.vision.radarCellU; // a torpedo's core is exactly one cell

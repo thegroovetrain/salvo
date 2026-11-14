@@ -35,7 +35,7 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
-  angleDiff,
+  desmearedExtents,
   effectiveStats,
   hmToU,
   hullEnvelope,
@@ -157,73 +157,76 @@ export function paintLongestSideU(e: GhostPaint): number {
   return Math.max(e.w, e.h) * CONFIG.vision.radarCellU;
 }
 
-/** The radar beam (rad) and pulse (u) every paint is smeared by (Story 11.3,
- *  R1 + R3) — public dials, so a bot may subtract them as a human would. */
+/** The radar beam (rad) and the pulse (u) every paint is smeared by (Story
+ *  11.3, R1 + R3) — public dials, so a bot may take them off as a human
+ *  would. The pulse carries the smear's mean range-bin slop too: `smearArc`
+ *  lights a cell when its quarter-cell range BIN holds a smeared range,
+ *  over-reaching by up to a quarter cell a side (half that on average). */
 const BEAM_RAD = (CONFIG.vision.beamDeg * Math.PI) / 180;
-const PULSE_U = hmToU(CONFIG.vision.pulseHm);
-/** u — the smear's range-bin slop: `smearArc` lights a cell when its range
- *  BIN (a quarter cell wide) holds a smeared range, so the lit depth can
- *  exceed target + pulse by up to a quarter cell per side. Subtracted with
- *  the pulse so a far crate's radial reading is the crate, not the binning. */
-const RANGE_BIN_SLOP_U = CONFIG.vision.radarCellU / 2;
+const PULSE_U = hmToU(CONFIG.vision.pulseHm) + CONFIG.vision.radarCellU / 4;
+/** How many lattice-anchored directions the de-smeared extent is read in
+ *  (every 22.5°): a hull at any aspect shows its length along one of them. */
+const EXTENT_DIRECTIONS = 8;
 
-/** The lit cells' extent about an observer: radial [rLo, rHi] (u) and the
- *  bearing span [aLo, aHi] (rad, relative to `bearing`). */
-interface PolarExtent {
-  rLo: number;
-  rHi: number;
-  aLo: number;
-  aHi: number;
-}
-
-/** Walk the lit cells once, measuring range and bearing about (ox, oy). */
-function polarExtent(e: GhostPaint, ox: number, oy: number, bearing: number): PolarExtent {
+/** The lit cells' raw extent (no de-smear) along the world direction `w`. */
+function rawAlong(e: GhostPaint, w: number): number {
   const cell = CONFIG.vision.radarCellU;
-  const out: PolarExtent = { rLo: Infinity, rHi: -Infinity, aLo: Infinity, aHi: -Infinity };
+  const cw = Math.cos(w);
+  const sw = Math.sin(w);
+  let hi = -Infinity;
+  let lo = Infinity;
   for (let row = 0; row < e.h; row += 1) {
-    const dy = (e.gy + row + 0.5) * cell - oy;
     for (let col = 0; col < e.w; col += 1) {
       const bit = row * e.w + col;
       if (((e.bits[bit >> 5] ?? 0) & (1 << (bit & 31))) === 0) continue;
-      const dx = (e.gx + col + 0.5) * cell - ox;
-      const r = Math.hypot(dx, dy);
-      const a = angleDiff(bearing, Math.atan2(dy, dx));
-      out.rLo = Math.min(out.rLo, r);
-      out.rHi = Math.max(out.rHi, r);
-      out.aLo = Math.min(out.aLo, a);
-      out.aHi = Math.max(out.aHi, a);
+      const p = ((e.gx + col + 0.5) * cw + (e.gy + row + 0.5) * sw) * cell;
+      hi = Math.max(hi, p);
+      lo = Math.min(lo, p);
     }
   }
-  return out;
+  return Math.max(0, hi - lo);
+}
+
+/** True when the bot stands within one cell of the paint's rect: the arc
+ *  degrades to the SHARP raster when its observer is within a cell of the
+ *  target (sim/radarArc.ts), and the sharp rect lies inside the paint's. */
+function maybeUnsmeared(e: GhostPaint, ox: number, oy: number): boolean {
+  const cell = CONFIG.vision.radarCellU;
+  const x0 = e.gx * cell;
+  const y0 = e.gy * cell;
+  const dx = Math.max(x0 - ox, 0, ox - (x0 + e.w * cell));
+  const dy = Math.max(y0 - oy, 0, oy - (y0 + e.h * cell));
+  return Math.hypot(dx, dy) < cell;
 }
 
 /**
  * THE PAINT'S DE-SMEARED EXTENT in world units (Story 11.3 — the crate-paint
  * filter's measure; see `CONFIG.bots.cratePaintMaxU`). Since the arc a
- * paint's raw rect is mostly BEAM (~890 u wide at 400 hm), so the old
- * `max(w, h)` measure grew with range and called every far crate a hull. The
- * bot knows its own position, the beam and the pulse, so it reads the paint
- * in the polar frame about itself and takes off what the radar added:
+ * paint's raw rect is mostly BEAM (~890 u wide at 400 hm) and, near the bot,
+ * mostly PULSE (a crate 30 u off paints a wedge reaching back to the bot), so
+ * the old `max(w, h)` measure called far and near crates hulls. The bot knows
+ * its own position, the beam and the pulse, so it takes off what the radar
+ * added, cell by cell at each cell's own range (shared `desmearedExtents`),
+ * and reads the target's LONGEST extent over `EXTENT_DIRECTIONS`
+ * lattice-anchored directions (lattice-anchored because the fuzz's dilation
+ * and stretch run along the lattice: bearing-anchored directions caught a
+ * crate's fuzzed corners).
  *
- *   radial = the lit cells' RADIAL DEPTH along the line of sight − the pulse
- *            (and the smear's quarter-cell range-bin slop per side);
- *   cross  = the lit cells' BEARING SPAN − the beam, × the range.
- *
- * The larger of the two is the target's own longest extent (plus fuzz and
- * lattice slop): a hull end-on shows it radially, side-on across. Cell
- * centres are measured (no +1 cell). An empty mask, or one the bot sits
- * inside, reads 0 → crate-sized (never a track — a hull that close is
- * sighted and carried by the contact fold).
+ * When the bot stands within a cell of the paint (`maybeUnsmeared`) the arc
+ * may have left the paint sharp, and taking a pulse off a sharp hull halves
+ * it; there the raw extent less ONE pulse also counts (a smeared near crate
+ * stays under the dial after that, a sharp hull mostly does not). Cell
+ * centres are measured (no +1 cell). An empty mask reads 0 → crate-sized.
  */
 export function paintExtentU(e: GhostPaint, ox: number, oy: number): number {
-  const c = paintCenter(e);
-  if (c === null) return 0;
-  const range = Math.hypot(c.x - ox, c.y - oy);
-  if (!(range > 0)) return 0;
-  const p = polarExtent(e, ox, oy, Math.atan2(c.y - oy, c.x - ox));
-  const radial = p.rHi - p.rLo - PULSE_U - RANGE_BIN_SLOP_U;
-  const cross = (p.aHi - p.aLo - BEAM_RAD) * range;
-  return Math.max(0, radial, cross);
+  const cell = CONFIG.vision.radarCellU;
+  const ext = desmearedExtents(e, ox, oy, cell, BEAM_RAD, PULSE_U, EXTENT_DIRECTIONS);
+  let best = Math.max(0, ...ext);
+  if (best === 0 || !maybeUnsmeared(e, ox, oy)) return best;
+  for (let k = 0; k < EXTENT_DIRECTIONS; k += 1) {
+    best = Math.max(best, rawAlong(e, (k * Math.PI) / EXTENT_DIRECTIONS) - PULSE_U);
+  }
+  return best;
 }
 
 /** Is this radar return too small to be a hull — an airdrop crate's disc

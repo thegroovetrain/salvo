@@ -11,6 +11,7 @@ import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { wireCratePaint, wirePaint } from './paintFixture.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
+  MAX_WAKE_SEGMENT_U,
   SIGNAL_REGISTRY,
   ballisticGateOpen,
   dropPaint,
@@ -939,6 +940,23 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // paints without a zone
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 700, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // ...and inside the observer's own light too
+  });
+
+  it('wk row (Story 11.3 review, P6): a segment longer than one sample cadence plus one tick of the fastest water-layer is never painted — a teleport across a ring, not water', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.prevSweepAngle = wrapPositive(-0.02);
+    a.sweepAngle = wrapPositive(0.02);
+    const row = SIGNAL_REGISTRY.wk;
+    const seg = (len: number) => ({ x: 700, y: 0, ax: 700 - len / 2, ay: 0, bx: 700 + len / 2, by: 0, bucket: 0, widthU: 9, key: 'b' });
+    // The bound admits every legal segment: the cadence plus one tick of the
+    // shipped torpedo (a water-layer) at least.
+    expect(MAX_WAKE_SEGMENT_U).toBeGreaterThanOrEqual(CONFIG.vision.wakeSampleU + (CONFIG.torpedo.speed * CONFIG.tick.simDtMs) / 1000);
+    expect(row.visible(foggedCtx(w, a), seg(CONFIG.vision.wakeSampleU))).toBe(true);
+    expect(row.visible(foggedCtx(w, a), seg(MAX_WAKE_SEGMENT_U))).toBe(true);
+    expect(row.visible(foggedCtx(w, a), seg(MAX_WAKE_SEGMENT_U + 1))).toBe(false);
+    // A ring injected with a gap (the golden fixture's 212 u → annulus run): never a paint.
+    expect(row.visible(foggedCtx(w, a), seg(1000))).toBe(false);
   });
 
   it("a wake subject at EXACTLY the observer's position is no return (zero distance: nothing to bear on)", () => {

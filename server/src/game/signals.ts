@@ -78,8 +78,14 @@
 // stays byte-stable.
 
 import {
+  CATALOG,
   CONFIG,
+  SHIP_CLASS_IDS,
   bearing,
+  boostedKinematics,
+  draftedKinematics,
+  effectiveStats,
+  hullEnvelope,
   encodeTurretAngles,
   encodeLauncherAngles,
   isAfloat,
@@ -1463,6 +1469,36 @@ export function sweepMayCrossWake(me: ShipRecord, r: WakeRibbon): boolean {
   return offset < window || offset > 2 * Math.PI - 2 * half;
 }
 
+/**
+ * u — THE LONGEST LEGAL WAKE SEGMENT (Story 11.3 review, P6). A ribbon stores
+ * a sample once its source has run `wakeSampleU` past the last one, so two
+ * consecutive samples are at most one cadence plus ONE TICK of travel apart.
+ * DERIVED from the fastest thing that lays water: every hull with every card
+ * line at its cap (ENGINES included), boosted and drafted (the same fold
+ * world.ts provisions its rings on), and every torpedo row at its cap — so a
+ * retune moves it. A longer segment is not water but a teleport chained
+ * across a ring (production detaches the ribbon at every teleport —
+ * world.ts `detachWake`; a dev / test pose placed into a live ring does
+ * not), and it is never painted: since the arc an 8,000 u segment smears
+ * into a ~900-cell mask.
+ */
+export const MAX_WAKE_SEGMENT_U = ((): number => {
+  const everyCard = Object.values(CATALOG).flatMap((line) => Array<string>(line.cap).fill(line.id));
+  let fastest: number = CONFIG.torpedo.speed;
+  for (const id of SHIP_CLASS_IDS) {
+    const st = effectiveStats(hullEnvelope(id), everyCard);
+    const hull = draftedKinematics(boostedKinematics(st.kinematics, CONFIG.boost.factor, true), CONFIG.wake.draft.lift, true);
+    const eq = st.equipment;
+    fastest = Math.max(fastest, hull.maxSpeed, eq.lightTorpedo.speed, eq.heavyTorpedo.speed, eq.supercavTorpedo.speed);
+  }
+  return CONFIG.vision.wakeSampleU + (fastest * CONFIG.tick.simDtMs) / 1000;
+})();
+
+/** Is the segment no longer than a legal one (`MAX_WAKE_SEGMENT_U`)? */
+function legalWakeSegment(seg: WakeSubject): boolean {
+  return Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) <= MAX_WAKE_SEGMENT_U;
+}
+
 /** The memoized segment-mask pipeline (the paintMask precedent): a wake mask
  *  is a pure function of (segment geometry, PAINT TICK, OBSERVER POSITION) —
  *  since the cycle-69 review gate (P3) the flanks glint per paint through
@@ -1557,6 +1593,7 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
     // dispatched 'wk' WIRE event (no `ax` on the wire shape) fails closed.
     if (!('ax' in seg)) return false;
     if (ctx.mode !== 'fogged') return false;
+    if (!legalWakeSegment(seg)) return false; // a teleport across a ring, not water (P6)
     // Conservative swept PREFILTER (mayBeSwept — a cost device that can only
     // over-accept, so it decides nothing): in wake geometry the ~4.5° wedge
     // is by far the most selective spatial clause, and this keeps the atan2

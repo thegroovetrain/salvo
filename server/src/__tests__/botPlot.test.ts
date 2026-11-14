@@ -15,6 +15,7 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
+  coverageHas,
   hmToU,
   hullEnvelope,
   mulberry32,
@@ -367,6 +368,35 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     foldView(m2, { ...both, events: [blipAt(200, 0, NOW), blipAt(200, off, NOW)] }, NOW);
     expect(m2.contacts.size).toBe(2);
     expect(m2.contacts.get('s1')!.paintAt).toBe(-1);
+  });
+
+  it("AN ARC'S RECT IS NOT ITS ECHO (Story 11.3 review, P3): a hidden hull's far paint whose rect — not its lit cells — spans a sighted hull folds as its own plot", () => {
+    // The bot at the origin; hidden hull C at 300 hm on a 45° bearing; plain-sighted hull B 250 u
+    // farther out on the same bearing. C's arc is ~670 u wide and leans 45° on the lattice, so its
+    // bounding rect reaches B — but no lit cell of it comes near B.
+    const site: SweepSite = { x: 0, y: 0, stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 }, islands: [] };
+    const brg = Math.PI / 4;
+    const rC = hmToU(300);
+    const C = { x: Math.cos(brg) * rC, y: Math.sin(brg) * rC };
+    const B = { x: Math.cos(brg) * (rC + 250), y: Math.sin(brg) * (rC + 250) };
+    const paint = paintCoverage('bismarck', C.x, C.y, brg + Math.PI / 2, CELL, NOW, 0x5eed, 0, 0);
+    const bx = Math.floor(B.x / CELL);
+    const by = Math.floor(B.y / CELL);
+    // Premise: the rect (grown a cell) holds B's cell; no lit cell lies within a cell of it.
+    expect(bx >= paint.gx - 1 && bx <= paint.gx + paint.w && by >= paint.gy - 1 && by <= paint.gy + paint.h).toBe(true);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) expect(coverageHas(paint, bx - paint.gx + dx, by - paint.gy + dy)).toBe(false);
+    }
+    const m = mkMind();
+    const v: PerceptionView = {
+      ...view([{ k: 'blip', t: NOW, gx: paint.gx, gy: paint.gy, w: paint.w, h: paint.h, bits: paint.bits }]),
+      plain: [{ h: 'B1', x: B.x, y: B.y, heading: 0, speed: 0 }] as PerceptionView['plain'],
+    };
+    foldView(m, v, NOW, { beam: { lastSweep: -1, sweepAngle: 0 }, site });
+    expect(m.contacts.size).toBe(2);
+    const anonPlot = [...m.contacts.values()].find((t) => t.paintAt === NOW);
+    expect(anonPlot, 'C folded as its own plot').toBeDefined();
+    expect(Math.hypot(anonPlot!.x - C.x, anonPlot!.y - C.y)).toBeLessThan(Math.hypot(anonPlot!.x - B.x, anonPlot!.y - B.y));
   });
 
   it('A MEASUREMENT OVERRIDES A GUESS (B3): a stopped hull with a stale wake course takes its next paint via rule (b) and reads stationary', () => {
@@ -967,6 +997,46 @@ describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a 
             const tag = `${cls} ${aspect} ${hm} hm #${k} (${paintExtentU(hull, BOT.x, BOT.y).toFixed(1)} u)`;
             expect(isCrateSizedPaint(hull, BOT.x, BOT.y), tag).toBe(false);
             expect(foldAt(asBlip(hull)).contacts.size, tag).toBe(1);
+          }
+        }
+      }
+    }
+  });
+
+  // Story 11.3 review (P1/P2): BELOW 50 hm the pulse is as long as the range
+  // itself (a crate 30 u off paints a wedge reaching back to the bot), and a
+  // hull presented OBLIQUELY shows its length neither along the line of sight
+  // nor across it. The measure must hold there too. Near ranges are counted
+  // in crate radii from the bot's centre (2, 4 and 8 radii), then 25 hm.
+  const R = CONFIG.drops.radiusU;
+  const NEAR_U = [2 * R, 4 * R, 8 * R, hmToU(25)];
+  const placedU = (u: number, k: number): { x: number; y: number; brg: number } => {
+    const brg = 0.37 + k * 0.83;
+    return { x: BOT.x + Math.cos(brg) * u, y: BOT.y + Math.sin(brg) * u, brg };
+  };
+
+  it('a crate 2–8 radii from the bot, or 25 hm off, is crate-sized at every bearing (the near-range wedge is de-smeared at each cell\'s own range)', () => {
+    for (const u of NEAR_U) {
+      for (let k = 0; k < 8; k++) {
+        const at = placedU(u, k);
+        const crate = paintDiscCoverage(at.x, at.y, R, CELL, T + k * 50, 0xa00 + k, BOT.x, BOT.y);
+        const tag = `${u.toFixed(0)} u #${k} (${paintExtentU(crate, BOT.x, BOT.y).toFixed(1)} u)`;
+        expect(isCrateSizedPaint(crate, BOT.x, BOT.y), tag).toBe(true);
+        expect(foldAt(asBlip(crate)).contacts.size, tag).toBe(0);
+      }
+    }
+  });
+
+  it('a hull of every class presented OBLIQUELY (45° and 135° off the line of sight) from 8 crate radii to 400 hm is not crate-sized', () => {
+    const ranges = [8 * R, hmToU(25), ...RANGES_HM.map((hm) => hmToU(hm))];
+    for (const u of ranges) {
+      for (const cls of SHIP_CLASS_IDS) {
+        for (const off of [Math.PI / 4, (3 * Math.PI) / 4]) {
+          for (let k = 0; k < 8; k++) {
+            const at = placedU(u, k);
+            const hull = paintCoverage(cls, at.x, at.y, at.brg + off, CELL, T + k * 50, 0xb00 + k, BOT.x, BOT.y);
+            const tag = `${cls} ${((off * 180) / Math.PI).toFixed(0)}° ${u.toFixed(0)} u #${k} (${paintExtentU(hull, BOT.x, BOT.y).toFixed(1)} u)`;
+            expect(isCrateSizedPaint(hull, BOT.x, BOT.y), tag).toBe(false);
           }
         }
       }

@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, paintSegmentCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -56,6 +56,7 @@ import {
   buildField,
   buildWakeStamp,
   cellKey,
+  chopCellKeys,
   chopHaloCells,
   hullSample,
   shipOnlyField,
@@ -1041,6 +1042,76 @@ describe('SHIP-DISPLACEMENT CHOP inherits sea clutter\'s three bounds (amendment
     expect(chopHaloCells(cov, WAKE_AGE_BUCKETS - 1)).toBe(0);
     expect(chopHaloCells({ gx: 0, gy: 0, w: 0, h: 0, bits: [] }, 0), 'a degenerate mask pushes none')
       .toBe(0);
+  });
+  // Story 11.3 review (P4): since the arc a far wake segment arrives as a
+  // pulse-deep, beam-wide band, so the mask's own thickness is the RADAR's,
+  // not the source's. The halo takes the beam and pulse off about the
+  // observer (the client's own ship), so the look is today's at every range.
+  const ARC_RANGES = [300, 2000, 9000];
+  /** One wire wake paint: a `wakeSampleU` segment `widthU` wide heading
+   *  `th`, painted by an observer `range` off on bearing `brg` (0 range = the
+   *  observer alongside, inside a cell — the arc leaves that paint sharp). */
+  function wakePaint(widthU: number, th: number, range: number, brg: number, salt: number) {
+    const step = CONFIG.vision.wakeSampleU;
+    const ax = 1000.3;
+    const ay = 2000.7;
+    const bx = ax + Math.cos(th) * step;
+    const by = ay + Math.sin(th) * step;
+    const from = { x: (ax + bx) / 2 - Math.cos(brg) * range, y: (ay + by) / 2 - Math.sin(brg) * range };
+    return { cov: paintSegmentCoverage(ax, ay, bx, by, widthU, CFG.cellU, 4321, salt, from.x, from.y), from };
+  }
+
+  it('UNDER THE ARC the same ribbon pushes the same chop (±1 cell) at 300 u, '
+    + '2,000 u and 9,000 u as alongside, and alongside it is exactly the pre-arc formula', () => {
+    const widths = [CONFIG.vision.radarCellU, ...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].hull.beam)];
+    for (const widthU of widths) {
+      for (let k = 0; k < 4; k++) {
+        const th = 0.3 + k * 0.71;
+        const near = wakePaint(widthU, th, 0, 0, 0x100 + k);
+        const nearHalo = chopHaloCells(near.cov, 0, near.from);
+        expect(nearHalo, `${widthU} u alongside #${k}`).toBe(chopHaloCells(near.cov, 0));
+        for (const range of ARC_RANGES) {
+          const far = wakePaint(widthU, th, range, 1.1 + k * 1.37, 0x100 + k);
+          const halo = chopHaloCells(far.cov, 0, far.from);
+          expect(Math.abs(halo - nearHalo), `${widthU} u at ${range} u #${k}: ${halo} vs ${nearHalo}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('UNDER THE ARC a torpedo\'s ribbon still stays essentially naked and the widest hull\'s '
+    + 'still pushes more, at 9,000 u', () => {
+    let torp = 0;
+    let bb = 0;
+    for (let k = 0; k < 4; k++) {
+      const t = wakePaint(CONFIG.vision.radarCellU, 0.2 + k, 9000, 0.9 + k, 0x200 + k);
+      const b = wakePaint(32, 0.2 + k, 9000, 0.9 + k, 0x200 + k);
+      torp = Math.max(torp, chopHaloCells(t.cov, 0, t.from));
+      bb = Math.max(bb, chopHaloCells(b.cov, 0, b.from));
+    }
+    expect(torp).toBeLessThanOrEqual(1);
+    expect(bb).toBeGreaterThan(torp);
+  });
+
+  it('THE CHOP IS LAID ONCE PER CELL: a far segment\'s halo cells are the covered '
+    + 'cells grown by the halo, each listed once — never cells × (2·halo + 1)² writes', () => {
+    for (const range of ARC_RANGES) {
+      const { cov, from } = wakePaint(WIDEST_BEAM, 0.4, range, 2.2, 0x300);
+      const halo = chopHaloCells(cov, 0, from);
+      const keys = chopCellKeys(cov, halo);
+      expect(new Set(keys).size, 'each chop cell once').toBe(keys.length);
+      expect(keys.length).toBeLessThanOrEqual((cov.w + 2 * halo) * (cov.h + 2 * halo));
+      const brute = new Set<number>();
+      for (let row = 0; row < cov.h; row++) {
+        for (let col = 0; col < cov.w; col++) {
+          if (!coverageHas(cov, col, row)) continue;
+          for (let dy = -halo; dy <= halo; dy++) {
+            for (let dx = -halo; dx <= halo; dx++) brute.add(cellKey(cov.gx + col + dx, cov.gy + row + dy));
+          }
+        }
+      }
+      expect(new Set(keys)).toEqual(brute);
+    }
   });
 });
 

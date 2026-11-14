@@ -319,7 +319,14 @@
 // glint, so their `gx` / `gy` / `w` / `h` / `bits` moved (17 `blip` and 30
 // `wk` rows across 23 frames; e.g. a 17 × 6 hull paint became 48 × 95, a
 // 3 × 2 wake segment 8 × 94). Crate paints now also take the per-paint salt
-// (kind 'crate').
+// (kind 'crate'). Story 11.3 review (P6), same day: scnWake's injected ring
+// chains its in-sight pair (212 u east of a) straight onto the annulus run —
+// one ~8,000 u "segment" no real ribbon can lay (production detaches a ring
+// at every teleport), which the arc had smeared into a 929 × 94 mask. A wake
+// segment longer than `MAX_WAKE_SEGMENT_U` (one sample cadence plus one tick
+// of the fastest water-layer, signals.ts) is no longer painted, so that one
+// `wk` row left the two frames that carried it (10 → 9 `wk` each); every
+// other byte of all 185 frames is unchanged.
 
 import { describe, it, expect } from 'vitest';
 import {

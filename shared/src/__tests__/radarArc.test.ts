@@ -16,6 +16,7 @@ import {
   rasterizeHullCoverage,
   rasterizeSegmentCoverage,
   smearArc,
+  smearArcWithCore,
   type HullCoverage,
 } from '../index.js';
 
@@ -211,6 +212,74 @@ describe('smearArc — the arc law (Story 11.3)', () => {
     const pulseOnly = polar(smearArc(sharp, OX, OY, CELL, 0, PULSE), OX, OY, phi);
     expect(span(beamOnly.r)).toBeLessThanOrEqual(span(s.r) + CELL);
     expect(span(pulseOnly.t)).toBeLessThanOrEqual(span(s.t) + (2 * CELL) / hmToU(290));
+  });
+
+  // Story 11.3 review (P7a): a zero beam still smears in RANGE — every sharp
+  // cell's own ray, the pulse deep — never only the cells a ray hits exactly.
+  it('a zero beam with a pulse smears each cell along its own ray, the pulse deep, and nowhere sideways', () => {
+    for (const [d, brg] of [[300, 0.3], [hmToU(200), 2.2], [hmToU(400), -1.9]] as const) {
+      const tx = OX + Math.cos(brg) * d;
+      const ty = OY + Math.sin(brg) * d;
+      const sharp = rasterizeDiscCoverage(tx, ty, 1, CELL); // one cell
+      const out = smearArc(sharp, OX, OY, CELL, 0, PULSE);
+      const phi = rectBearing(sharp, OX, OY);
+      const p = polar(out, OX, OY, phi);
+      expect(span(p.r), `${d.toFixed(0)} u`).toBeGreaterThanOrEqual(PULSE - CELL);
+      expect(span(p.r)).toBeLessThanOrEqual(PULSE + 2 * CELL);
+      // sideways: no cell farther off the ray than a cell's diagonal
+      for (let i = 0; i < p.r.length; i++) expect(Math.abs(p.r[i] * Math.sin(p.t[i]))).toBeLessThanOrEqual(CELL * Math.SQRT2);
+    }
+  });
+
+  // Story 11.3 review (P7b): degrade, never throw — a mask whose rect is not
+  // finite integers, or an observer so far that the arc's box would dwarf any
+  // legal paint (past the radar's reach × beam + pulse, generously), returns
+  // the sharp mask unchanged.
+  it('degrades, never throws: a non-finite rect or an absurdly far observer returns sharp unchanged', () => {
+    const sharp = hullAt('iowa', OX, OY, 100, 0.5, 1);
+    for (const bad of [{ gx: NaN }, { gy: Infinity }, { gx: 0.5 }, { w: NaN }, { h: -Infinity }]) {
+      const m = { ...sharp, ...bad };
+      expect(() => smearArc(m, OX, OY, CELL, BEAM, PULSE)).not.toThrow();
+      expect(smearArc(m, OX, OY, CELL, BEAM, PULSE)).toBe(m);
+    }
+    for (const far of [1e7, 1e9, 1e300]) {
+      expect(() => smearArc(sharp, OX - far, OY, CELL, BEAM, PULSE)).not.toThrow();
+      expect(smearArc(sharp, OX - far, OY, CELL, BEAM, PULSE), `${far} u`).toBe(sharp);
+    }
+    // ...while every legal range still smears.
+    const edge = hullAt('yamato', OX, OY, 400, 0.7, 0.2);
+    expect(smearArc(edge, OX, OY, CELL, BEAM, PULSE)).not.toBe(edge);
+  });
+
+  // Story 11.3 review (P5): the wake paint smears its ribbon ONCE; the
+  // spine's own arc (the glint's core) is tested only on the arc's lit cells.
+  it('smearArcWithCore: the arc is smearArc\'s, and on its lit cells the core is exactly the core mask\'s own arc', () => {
+    const lit = (c: HullCoverage, x: number, y: number): boolean => coverageHas(c, x - c.gx, y - c.gy);
+    for (let k = 0; k < 24; k++) {
+      const d = [40, 300, hmToU(50), hmToU(200), hmToU(400)][k % 5];
+      const brg = 0.4 + k * 1.13;
+      const tx = OX + Math.cos(brg) * d;
+      const ty = OY + Math.sin(brg) * d;
+      const cover = rasterizeSegmentCoverage(tx, ty, tx + Math.cos(k) * 12, ty + Math.sin(k) * 12, 32, CELL);
+      // a core on the cover's rect: every other covered cell (the spine stands in)
+      const core = { ...cover, bits: cover.bits.map((wd, i) => wd & (i % 2 === 0 ? 0x55555555 : 0xaaaaaaaa)) };
+      const out = smearArcWithCore(cover, core, OX, OY, CELL, BEAM, PULSE);
+      expect(out.arc, `#${k}`).toEqual(smearArc(cover, OX, OY, CELL, BEAM, PULSE));
+      const ref = smearArc(core, OX, OY, CELL, BEAM, PULSE);
+      expect([out.core.gx, out.core.gy, out.core.w, out.core.h]).toEqual([out.arc.gx, out.arc.gy, out.arc.w, out.arc.h]);
+      for (let row = 0; row < out.arc.h; row++) {
+        for (let col = 0; col < out.arc.w; col++) {
+          const x = out.arc.gx + col;
+          const y = out.arc.gy + row;
+          const want = lit(out.arc, x, y) && lit(ref, x, y);
+          expect(coverageHas(out.core, col, row), `#${k} (${x}, ${y})`).toBe(want);
+        }
+      }
+    }
+    const sharp = rasterizeSegmentCoverage(OX + 3, OY + 2, OX + 9, OY + 2, 32, CELL);
+    const atIt = smearArcWithCore(sharp, sharp, OX, OY, CELL, BEAM, PULSE);
+    expect(atIt.arc).toBe(sharp);
+    expect(atIt.core).toBe(sharp);
   });
 
   it('is deterministic and leaves its input untouched', () => {

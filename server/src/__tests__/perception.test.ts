@@ -171,6 +171,9 @@ import {
   FLASH_WINDOW_MS,
   effectiveSight,
   effectiveStats,
+  hullEnvelope,
+  boostedKinematics,
+  draftedKinematics,
   hmToU,
   hullSilhouette,
   mulberry32,
@@ -477,7 +480,9 @@ const RADAR_THROUGH_FOG = { n: 0 };
 
 /** Non-vacuity ledgers for THE ARC INVARIANT LINE (Story 11.3 — verifyArc):
  *  hull, crate and wake paints checked at a range where the beam is many
- *  cells wide (≥ ARC_FAR_U), so the bearing-span arm is a real claim. */
+ *  cells wide (≥ ARC_FAR_U) AND the target's own angular width is under the
+ *  beam (less the arm's slack), so the bearing-span arm (a) is a claim the
+ *  target alone could not satisfy (Story 11.3 review, P8). */
 const ARC_HULL_FAR = { n: 0 };
 const ARC_CRATE_FAR = { n: 0 };
 const ARC_WAKE_FAR = { n: 0 };
@@ -4097,7 +4102,22 @@ const ARC_DEPTH_FUZZ_U = 8 * RCELL_U;
 
 /** The measured truth a paint's arc is checked against: the target's centre
  *  and its radial extent [rMin, rMax] about the observer. */
-interface ArcTruth { cx: number; cy: number; rMin: number; rMax: number; kind: 'hull' | 'crate' | 'wake' }
+interface ArcTruth { cx: number; cy: number; rMin: number; rMax: number; aWidth: number; kind: 'hull' | 'crate' | 'wake' }
+
+/** The angular width (rad) of a point set about `o`, bearings relative to the
+ *  bearing of (cx, cy) and wrapped to ±π. */
+function angularWidth(o: { x: number; y: number }, pts: readonly { x: number; y: number }[], cx: number, cy: number): number {
+  const brg = Math.atan2(cy - o.y, cx - o.x);
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of pts) {
+    const a = Math.atan2(p.y - o.y, p.x - o.x) - brg;
+    const rel = Math.atan2(Math.sin(a), Math.cos(a));
+    lo = Math.min(lo, rel);
+    hi = Math.max(hi, rel);
+  }
+  return hi - lo;
+}
 
 /** Distance from (px, py) to the segment a→b. */
 function pointSegDist(px: number, py: number, a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -4118,7 +4138,7 @@ function polyArcTruth(o: { x: number; y: number }, poly: readonly { x: number; y
     rMin = Math.min(rMin, pointSegDist(o.x, o.y, poly[i], poly[(i + 1) % poly.length]));
   }
   if (inPolyOracle(o.x, o.y, poly)) rMin = 0;
-  return { cx, cy, rMin, rMax, kind };
+  return { cx, cy, rMin, rMax, aWidth: angularWidth(o, poly, cx, cy), kind };
 }
 
 /** The subject a justified blip was matched to (the blipMatchesShip /
@@ -4139,7 +4159,7 @@ function blipArcTruth(w: World, me: ShipRecord, ev: BlipEvent): ArcTruth | null 
     if (!maskEquals(discMaskOracle(w, me.state, drop.x, drop.y, w.now), ev)) continue;
     const d = Math.hypot(drop.x - me.state.x, drop.y - me.state.y);
     const r = CONFIG.drops.radiusU;
-    return { cx: drop.x, cy: drop.y, rMin: Math.max(0, d - r), rMax: d + r, kind: 'crate' };
+    return { cx: drop.x, cy: drop.y, rMin: Math.max(0, d - r), rMax: d + r, aWidth: d > r ? 2 * Math.asin(r / d) : 2 * Math.PI, kind: 'crate' };
   }
   return null;
 }
@@ -4202,6 +4222,13 @@ function verifyArc(me: ShipRecord, m: GhostPaint, t: ArcTruth, tag: string): voi
   // (c) no deeper than the target's own extent + the pulse + the fuzz bound.
   expect(p.rHi - p.rLo, `${label}: depth bound`).toBeLessThanOrEqual(t.rMax - t.rMin + ARC_PULSE + ARC_DEPTH_FUZZ_U);
   if (range < ARC_FAR_U) return;
+  // (d) far: no WIDER than the target's own angular width plus the beam, plus
+  // the lattice and fuzz (a sharp cell centre within a cell diagonal of the
+  // target, then two fuzz cells — dilation + stretch — a side).
+  expect(p.hi - p.lo, `${label}: bearing span ≤ target + beam`).toBeLessThanOrEqual(t.aWidth + ARC_BEAM + (5 * Math.SQRT2 * RCELL_U) / range);
+  // The ledger counts a paint only where arm (a) is a real claim: the target
+  // alone is narrower than the beam less the arm's slack.
+  if (!(t.aWidth < ARC_BEAM - (2 * RCELL_U) / range)) return;
   if (t.kind === 'hull') ARC_HULL_FAR.n += 1;
   else if (t.kind === 'crate') ARC_CRATE_FAR.n += 1;
   else ARC_WAKE_FAR.n += 1;
@@ -4473,11 +4500,28 @@ function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
 function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle): boolean {
   const mid = { x: seg.mx, y: seg.my };
   if (mid.x === me.state.x && mid.y === me.state.y) return false;
+  if (Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) > LEGAL_WAKE_SEGMENT_U) return false;
   const d = dist(me.state, mid);
   if (d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
   return shadowVisible(w, me, mid);
 }
+
+/** u — the longest segment real water makes (Story 11.3 review, P6),
+ *  re-derived here: one sample cadence plus one tick of the fastest water-
+ *  layer (every hull with every card line at its cap, boosted and drafted;
+ *  every torpedo row at its cap). Longer is a pose teleported across a live
+ *  ring (these fixtures place hulls by fiat) and is never painted. */
+const LEGAL_WAKE_SEGMENT_U = ((): number => {
+  const every = Object.values(CATALOG).flatMap((l) => Array<string>(l.cap).fill(l.id));
+  let v: number = CONFIG.torpedo.speed;
+  for (const id of SHIP_CLASS_IDS) {
+    const st = effectiveStats(hullEnvelope(id), every);
+    v = Math.max(v, draftedKinematics(boostedKinematics(st.kinematics, CONFIG.boost.factor, true), CONFIG.wake.draft.lift, true).maxSpeed);
+    v = Math.max(v, st.equipment.lightTorpedo.speed, st.equipment.heavyTorpedo.speed, st.equipment.supercavTorpedo.speed);
+  }
+  return CONFIG.vision.wakeSampleU + (v * CONFIG.tick.simDtMs) / 1000;
+})();
 
 /** Test-local SEGMENT mask oracle (the maskOracle sibling, re-derived from
  *  the documented paintSegmentCoverage contract): capsule quad with square
