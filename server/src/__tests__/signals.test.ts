@@ -6,11 +6,12 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
-import { wirePaint } from './paintFixture.js';
+import { wireCratePaint, wirePaint } from './paintFixture.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
+  MAX_WAKE_SEGMENT_U,
   SIGNAL_REGISTRY,
   ballisticGateOpen,
   dropPaint,
@@ -232,7 +233,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
     expect(Object.keys(wire as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
-    const c = wirePaint(w, DEFAULT_CLASS_ID, B_X, 0, 1.2);
+    const c = wirePaint(w, a.state, DEFAULT_CLASS_ID, B_X, 0, 1.2);
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
@@ -423,7 +424,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(paint)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']); // the one blip key order (blipShape's)
     expect(paint.k).toBe('blip');
     expect(paint.t).toBe(w.now);
-    const disc = paintDiscCoverage(swept.x, swept.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, w.now);
+    const disc = wireCratePaint(w, me.state, swept.x, swept.y);
     expect({ gx: paint.gx, gy: paint.gy, w: paint.w, h: paint.h, bits: paint.bits }).toEqual(disc);
     for (const forbidden of ['id', 'x', 'y', 'c', 'g', 'kind', 'rolls', 'cls', 'heading', 'src']) expect(forbidden in paint).toBe(false);
     // The same crate off the swept bearing, beyond radar range, or behind hard cover: no paint.
@@ -939,6 +940,23 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // paints without a zone
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 700, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // ...and inside the observer's own light too
+  });
+
+  it('wk row (Story 11.3 review, P6): a segment longer than one sample cadence plus one tick of the fastest water-layer is never painted — a teleport across a ring, not water', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.prevSweepAngle = wrapPositive(-0.02);
+    a.sweepAngle = wrapPositive(0.02);
+    const row = SIGNAL_REGISTRY.wk;
+    const seg = (len: number) => ({ x: 700, y: 0, ax: 700 - len / 2, ay: 0, bx: 700 + len / 2, by: 0, bucket: 0, widthU: 9, key: 'b' });
+    // The bound admits every legal segment: the cadence plus one tick of the
+    // shipped torpedo (a water-layer) at least.
+    expect(MAX_WAKE_SEGMENT_U).toBeGreaterThanOrEqual(CONFIG.vision.wakeSampleU + (CONFIG.torpedo.speed * CONFIG.tick.simDtMs) / 1000);
+    expect(row.visible(foggedCtx(w, a), seg(CONFIG.vision.wakeSampleU))).toBe(true);
+    expect(row.visible(foggedCtx(w, a), seg(MAX_WAKE_SEGMENT_U))).toBe(true);
+    expect(row.visible(foggedCtx(w, a), seg(MAX_WAKE_SEGMENT_U + 1))).toBe(false);
+    // A ring injected with a gap (the golden fixture's 212 u → annulus run): never a paint.
+    expect(row.visible(foggedCtx(w, a), seg(1000))).toBe(false);
   });
 
   it("a wake subject at EXACTLY the observer's position is no return (zero distance: nothing to bear on)", () => {

@@ -1,0 +1,124 @@
+---
+title: 'Story 11.3: The Arc'
+type: 'feature'
+created: '2026-11-13'
+status: 'done'
+final_revision: 'f95a32a4'
+baseline_revision: 'b1f02565'
+review_loop_iteration: 0
+context:
+  - '{project-root}/_bmad-output/project-context.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-11-context-amendments.md'
+warnings: ['oversized']
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** A radar paint today is the target's silhouette with a one-cell fuzz, so at 400 hm a scope shows a ship's exact position as sharply as a sighted contact. Epic 11's pillar (lock 1) is that clear-day dark is RESOLUTION, not range: a far contact must be an ARC — sharp in range, wide in bearing.
+
+**Approach:** One pure shared function smears any sharp radar coverage in bearing about the observer by `CONFIG.vision.beamDeg` and in range by a pulse term, and every radar paint source (hull, wake segment, crate disc) runs through it server-side before today's fuzz. The wire keeps its cell-mask shape; the client's size validators and the bots' crate test are re-derived for wide masks. A live arc bench page built from the real function (with the client far-cell candidates) goes to Eric BEFORE any game wiring is committed.
+
+## Boundaries & Constraints
+
+**Always (Eric's rulings, AskUserQuestion x2, 2026-11-13, R1–R6):**
+- R1 Beam width 5.6° — `CONFIG.vision.beamDeg: 5.6`, a dial, not a player knob. Eric first took 3°, then on the bench page (https://claude.ai/artifact/KgMPniof62TQ4V8VFCCsDa): "I want what would be realistic" → the US SG set's 5.6° beam, true to the hectometer ruler (NOT doubled for the 2× hull drawing; ~890 u wide at 400 hm). Bench: yes.
+- R2 The arc is CENTERED on the true bearing, like a real set. Eric accepts that a modified client can read the exact bearing from an arc's middle. The story AC's "never leaks the bearing more tightly than the beam allows" is superseded by: a paint is never NARROWER in bearing than the beam at its range.
+- R3 Depth = the target's own extent along the line of sight + a pulse term of 2 hm (`CONFIG.vision.pulseHm: 2`, written via `hmToU`; the SG's 1.3 µs pulse ≈ 195 m; Eric's realistic pick). Heading still shows in a paint's depth.
+- R4 Everything the radar paints smears by the same beam: hulls, wake segments, crate discs.
+- R5 Bench page FIRST (amendment 1(q)): built from the real shared arc function on real `generateMap` seeds, dials for beam and pulse, targets at several hm ranges incl. 400; Eric's yes before game wiring is committed.
+- R6 Client far-cell look: Eric picked A — today's fixed 9 u cell at every range. No client cell change; zoom lattices (#30) only if a staging capture demands them.
+- The smear is per OBSERVER: observer → target bearing/range is an input; the paint memos key on it. Per-paint salt (`paintSalt.ts`) stays; the crate path gains the salt the hull path has.
+- Still exactly SIX perception exceptions; the arc gets its own invariant line (every radar paint, at any range, spans at least the beam's bearing width at its range and is no deeper than target extent + pulse + fuzz).
+- `PROTOCOL_VERSION` bumps (the client reads `beamDeg` for its validators).
+- Numbers (amendment, cycle, version, PV) taken at PR time after `git fetch`.
+
+**Block If:** Eric does not give his yes on the bench page or rules something R1–R6 do not cover; a 16-hull `tickCost.mjs` regresses past half the 50 ms tick; the arc cannot ship without a seventh exception.
+
+**Never:** player radar knobs, ghosts, the strength model (11.4); splashes on radar (11.5); bot tuning beyond keeping them functional (11.9 — bots read the arc's centroid as today); in-game copy; touching dispersion, reaches, sight tiers, shadows; a local perf verdict; editing `CLAUDE.md`; merging.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Far hull | hull at 400 hm | arc ≈ 890 u + hull's angular width wide, ≈ hull depth + 45 u deep | none |
+| Near hull | hull at 5 hm | beam adds < 1 cell; silhouette shape survives | none |
+| Wake | segment at 300 hm | smeared like a hull | none |
+| Crate | crate at 350 hm | smeared; bots still classify it a crate | none |
+| Observer at target | distance 0 | no smear (sharp + fuzz) | finite guard |
+| Two observers | same hull, same tick | different masks; each centered on its own bearing | none |
+| Arc across 0° / 360° | target due east of observer | continuous arc, no wrap gap | none |
+| Stale client | old PV | join refused | existing gate |
+
+</intent-contract>
+
+## Code Map
+
+- `shared/src/sim/radarRaster.ts` -- `paintCoverage` / `paintSegmentCoverage` / `paintDiscCoverage` / `fuzzCoverage`; arc smear goes between sharp raster and fuzz.
+- `shared/src/constants.ts` -- `CONFIG.vision` (`radarCellU` 9, `radarFuzz`, `radar`), `CONFIG.bots.cratePaintMaxU`.
+- `server/src/game/signals.ts` -- `paintMask` (:683), `wakeMask` (:1463), `dropPaint` (:1183), memos `lastMask` / `lastWakeMask`.
+- `client/src/render/radar.ts` -- `MAX_COVERAGE_SPAN` (:1477), `MAX_WAKE_SPAN` (:1564) validators.
+- `client/src/render/ambient.ts:446`, `ambientScene.ts:577`, `client/src/stage/worstCaseScene.ts:655` -- client callers of the paint functions.
+- `server/src/game/ai/plot.ts:158` `isCrateSizedPaint`, `utility.ts:453` `foldBlip`.
+- Tests: `server/src/__tests__/radarWire.test.ts`, `paintFixture.ts`, `perception.test.ts` oracles (:3762–4297), `goldenFrames.test.ts`; `shared/src/__tests__/radarRaster.test.ts`, `wake.test.ts`, `drops.test.ts`; `botPlot.test.ts:921`.
+- `client/scripts/reachBench.mjs` + `reachBench/` -- bench recipe to copy.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [x] `shared/src/sim/radarArc.ts` (new) + `constants.ts` -- pure `smearArc(sharp, ox, oy, cellU, beamRad, pulseU)`: each lit cell contributes the annular sector [r ± pulse/2] × [θ ± beam/2] about the observer; union; finite-guarded; no transcendental-dependence on the wire beyond what `paintCoverage` already has -- the arc law, one function.
+- [x] `client/scripts/arcBench.mjs` + `arcBench/` -- the bench page (R5, R6) with `--selftest` -- Eric's gate.
+- [x] `shared/src/sim/radarRaster.ts` -- the three paint functions take the observer and apply `smearArc` before fuzz; crate path takes the salt -- one pipeline.
+- [x] `server/src/game/signals.ts` -- pass `ctx.me` pose; memo keys gain the observer -- per-observer paints.
+- [x] `client/src/render/radar.ts` + the three client callers -- validators re-derived from beam, pulse and radar reach; ambient scenes pass their observer -- far paints are not dropped.
+- [x] `server/src/game/ai/plot.ts` -- crate test reads radial depth, not `max(w,h)` -- bots stay functional.
+- [x] Tests: arc unit tests (width ≥ beam at range, depth bound, wrap, near-range shape); per-observer invariant line in the perception suite; oracles/fixtures take the observer; golden frames re-recorded with a dated header paragraph; `shared/src/index.ts` PV bump.
+
+**Acceptance Criteria:**
+- Given any radar paint in any frame, when the invariant suite runs, then its bearing span about the observer is ≥ the beam at its range and its depth ≤ extent + pulse + fuzz bound, and the six exceptions stay six.
+- Given a 16-hull match, when `tickCost.mjs` runs old vs new, then both numbers are in the PR.
+- Given the built client, when `glBudget.mjs` and `playCheck.mjs` run, then both pass.
+
+## Design Notes
+
+Two observers painting one hull in one tick now receive different masks (each centered on its own bearing): the old "observer-independent mask" claim and its tests are retired as a ruling, not patched. Arc size at 400 hm with 3°: ~53 × ~5 cells; a 45°-bearing bbox ≤ ~55² cells ≈ 95 words — bounded.
+
+## Verification
+
+**Commands:**
+- `npm run check` -- green.
+- `node client/scripts/arcBench.mjs --selftest` -- PASS.
+- `node server/scripts/tickCost.mjs`, `node client/scripts/glBudget.mjs`, `node client/scripts/playCheck.mjs` -- run, numbers recorded.
+- matchSmoke + weaponsSmoke (booted server, `HC_DEV_OPTIONS=1`) -- first try.
+
+## Spec Change Log
+
+- 2026-11-13 — R1 / R3 / R6 amended on the bench page (Eric's yes): beam 3° → 5.6°, pulse 1.5 → 2 hm ("I want what would be realistic" — the US SG set, true to the hm ruler); far cell A (fixed 9 u), the client far-cell task dropped. No code re-derived (phase 2 had not started). KEEP: the arc law, centered, all three paint sources.
+
+## Review Triage Log
+
+### 2026-11-14 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8 (high 2, medium 4, low 2)
+- defer: 0
+- reject: 1 (low 1 — the one-slot paint memos rarely hit now; harmless)
+- addressed_findings:
+  - `[high]` `[patch]` bot crate filter misread near crates as hulls (55–89 % at 20–60 u; both hunters) → per-cell de-smeared extent (`desmearedExtents`); crates 0 / 99,000 misreads.
+  - `[high]` `[patch]` client wake chop halo sized from the smeared mask (up to 301k Map writes per segment; torpedo ≈ battleship) → halo from the de-smeared ribbon, pre-arc size kept; writes < 2k.
+  - `[medium]` `[patch]` oblique Warspite read crate-sized 0.5–3 % (both hunters) → 0.03–0.5 % far; `cratePaintMaxU` 85 unchanged.
+  - `[medium]` `[patch]` own-echo test used the arc's bbox (both hunters) → lit cells near the sighted hull.
+  - `[medium]` `[patch]` wake paint smeared twice → one smear (`smearArcWithCore`); fuzz loops sped up; masks byte-identical (13,200 poses); far wake −40 %.
+  - `[medium]` `[patch]` map-wide wake segment (Codex + Edge Case; golden frame 929 cells, test teleport only) → segments over 21.75 u (derived) not painted.
+  - `[low]` `[patch]` smearArc: zero beam keeps the pulse smear; non-finite / absurd inputs degrade, never throw; area cap.
+  - `[low]` `[patch]` `verifyArc` ledger could pass on a hull wider than the beam → counts only narrower targets; upper-bound arm added.
+
+## Auto Run Result
+
+Status: done (PR open to `development`; Eric merges).
+- **Change:** every radar paint (hull, wake, crate) is an arc about its observer — 5.6° beam centered on the true bearing, 2 hm pulse — server-side before the fuzz; client validators and the wake halo follow; bots de-smear; PV 106 → 107.
+- **Files:** `shared/src/sim/radarArc.ts` (the law + inverse), `radarRaster.ts` (pipelines, fuzz speedups), `constants.ts` (dials), `index.ts` (PV), `types.ts` (docs); `server/src/game/signals.ts` (observer, memos, wake guard), `paintSalt.ts` (crate salt), `ai/plot.ts` + `ai/utility.ts` (crate filter, own-echo); `client/src/render/radar.ts` (validators), `radarField.ts` (halo), ambient scenes; `client/scripts/arcBench*` (bench page); tests across all three workspaces; golden frames.
+- **Review:** 8 patches applied, 0 deferred, 1 rejected (Codex verdict ship; both Fable hunters fix-first, all their findings patched).
+- **Verification:** `npm run check` green (shared 1468 / server 2956 / client 4469 / hooks 266); `arcBench --selftest` PASS; 16-hull `tickCost` 3.03 → 3.89 ms mean (p95 4.48 → 6.35); `glBudget` PASS; `playCheck` PASS (Chromium + Firefox, 2x); matchSmoke + weaponsSmoke first try.
+- **Residual risks:** the frame cost at full reach is unmeasured on staging (the 9 u cell is unchanged, so the client's paint bill should match 11.2's); oblique Warspite occasionally skipped by bots; a ram shove could leave one wake segment unpainted.

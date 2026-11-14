@@ -734,7 +734,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     expect(blips).toHaveLength(1);
     const ship = w.ships.get('b')!;
     expect({ gx: blips[0].gx, gy: blips[0].gy, w: blips[0].w, h: blips[0].h, bits: blips[0].bits }).toEqual(
-      wirePaint(w, ship.hullId, ship.state.x, ship.state.y, ship.state.heading),
+      wirePaint(w, a.state, ship.hullId, ship.state.x, ship.state.y, ship.state.heading),
     );
   });
 });

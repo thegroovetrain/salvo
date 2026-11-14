@@ -864,8 +864,13 @@ export interface PlainContact {
  *
  * ANTI-CHEAT BOUND (amendment 66's rule carried forward): the mask derives
  * from hull geometry + pose ONLY — never cards, hp, damage state, or any
- * range-derivable quantity. It is observer-INDEPENDENT: every observer
- * painting this hull this tick receives the identical mask. (The buoys' and
+ * range-derivable quantity beyond the arc itself. Since THE ARC (Story 11.3,
+ * Eric 2026-11-13, R1–R4) it is a function of the OBSERVER'S POSITION too:
+ * the sharp mask is smeared about the observer by the radar beam in bearing
+ * (`CONFIG.vision.beamDeg`) and the pulse in range (`CONFIG.vision.pulseHm`)
+ * before the fuzz, so two observers painting one hull in one tick receive
+ * different masks, each centered on its own bearing — still no id, class,
+ * heading or exact position on the wire. (The buoys' and
  * the CHAFF fakes' paints are retired with them — Stories 9.2 and 10.5 — so
  * every blip is a hull.)
  *

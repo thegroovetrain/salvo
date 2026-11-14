@@ -35,7 +35,9 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
+  desmearedExtents,
   effectiveStats,
+  hmToU,
   hullEnvelope,
   sharedIslandIndex,
   type GameEvent,
@@ -146,17 +148,93 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
   return n === 0 ? null : { x: sx / n, y: sy / n };
 }
 
-/** The paint footprint's LONGEST SIDE in world units — `max(w, h)` lattice
- *  cells × `radarCellU` (Story 10.9: the crate-paint filter's measure; see
- *  `CONFIG.bots.cratePaintMaxU`). */
+/** The paint footprint's raw LONGEST SIDE in world units — `max(w, h)`
+ *  lattice cells × `radarCellU` (Story 10.9's crate-filter measure). Since
+ *  the arc (Story 11.3) a far paint's rect is mostly beam, so the filter reads
+ *  `paintExtentU` instead; this stays only for a fold that knows no observer
+ *  (ai/utility.ts `crateSized`). */
 export function paintLongestSideU(e: GhostPaint): number {
   return Math.max(e.w, e.h) * CONFIG.vision.radarCellU;
 }
 
+/** The radar beam (rad) and the pulse (u) every paint is smeared by (Story
+ *  11.3, R1 + R3) — public dials, so a bot may take them off as a human
+ *  would. The pulse carries the smear's mean range-bin slop too: `smearArc`
+ *  lights a cell when its quarter-cell range BIN holds a smeared range,
+ *  over-reaching by up to a quarter cell a side (half that on average). */
+const BEAM_RAD = (CONFIG.vision.beamDeg * Math.PI) / 180;
+const PULSE_U = hmToU(CONFIG.vision.pulseHm) + CONFIG.vision.radarCellU / 4;
+/** How many lattice-anchored directions the de-smeared extent is read in
+ *  (every 22.5°): a hull at any aspect shows its length along one of them. */
+const EXTENT_DIRECTIONS = 8;
+
+/** The lit cells' raw extent (no de-smear) along the world direction `w`. */
+function rawAlong(e: GhostPaint, w: number): number {
+  const cell = CONFIG.vision.radarCellU;
+  const cw = Math.cos(w);
+  const sw = Math.sin(w);
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (let row = 0; row < e.h; row += 1) {
+    for (let col = 0; col < e.w; col += 1) {
+      const bit = row * e.w + col;
+      if (((e.bits[bit >> 5] ?? 0) & (1 << (bit & 31))) === 0) continue;
+      const p = ((e.gx + col + 0.5) * cw + (e.gy + row + 0.5) * sw) * cell;
+      hi = Math.max(hi, p);
+      lo = Math.min(lo, p);
+    }
+  }
+  return Math.max(0, hi - lo);
+}
+
+/** True when the bot stands within one cell of the paint's rect: the arc
+ *  degrades to the SHARP raster when its observer is within a cell of the
+ *  target (sim/radarArc.ts), and the sharp rect lies inside the paint's. */
+function maybeUnsmeared(e: GhostPaint, ox: number, oy: number): boolean {
+  const cell = CONFIG.vision.radarCellU;
+  const x0 = e.gx * cell;
+  const y0 = e.gy * cell;
+  const dx = Math.max(x0 - ox, 0, ox - (x0 + e.w * cell));
+  const dy = Math.max(y0 - oy, 0, oy - (y0 + e.h * cell));
+  return Math.hypot(dx, dy) < cell;
+}
+
+/**
+ * THE PAINT'S DE-SMEARED EXTENT in world units (Story 11.3 — the crate-paint
+ * filter's measure; see `CONFIG.bots.cratePaintMaxU`). Since the arc a
+ * paint's raw rect is mostly BEAM (~890 u wide at 400 hm) and, near the bot,
+ * mostly PULSE (a crate 30 u off paints a wedge reaching back to the bot), so
+ * the old `max(w, h)` measure called far and near crates hulls. The bot knows
+ * its own position, the beam and the pulse, so it takes off what the radar
+ * added, cell by cell at each cell's own range (shared `desmearedExtents`),
+ * and reads the target's LONGEST extent over `EXTENT_DIRECTIONS`
+ * lattice-anchored directions (lattice-anchored because the fuzz's dilation
+ * and stretch run along the lattice: bearing-anchored directions caught a
+ * crate's fuzzed corners).
+ *
+ * When the bot stands within a cell of the paint (`maybeUnsmeared`) the arc
+ * may have left the paint sharp, and taking a pulse off a sharp hull halves
+ * it; there the raw extent less ONE pulse also counts (a smeared near crate
+ * stays under the dial after that, a sharp hull mostly does not). Cell
+ * centres are measured (no +1 cell). An empty mask reads 0 → crate-sized.
+ */
+export function paintExtentU(e: GhostPaint, ox: number, oy: number): number {
+  const cell = CONFIG.vision.radarCellU;
+  const ext = desmearedExtents(e, ox, oy, cell, BEAM_RAD, PULSE_U, EXTENT_DIRECTIONS);
+  let best = Math.max(0, ...ext);
+  if (best === 0 || !maybeUnsmeared(e, ox, oy)) return best;
+  for (let k = 0; k < EXTENT_DIRECTIONS; k += 1) {
+    best = Math.max(best, rawAlong(e, (k * Math.PI) / EXTENT_DIRECTIONS) - PULSE_U);
+  }
+  return best;
+}
+
 /** Is this radar return too small to be a hull — an airdrop crate's disc
- *  imprint (Story 10.9, `CONFIG.bots.cratePaintMaxU`)? Never a track. */
-export function isCrateSizedPaint(e: GhostPaint): boolean {
-  return paintLongestSideU(e) < CONFIG.bots.cratePaintMaxU;
+ *  imprint (Story 10.9, `CONFIG.bots.cratePaintMaxU`)? Never a track.
+ *  `(ox, oy)` is the painting bot's own position (Story 11.3: the paint is
+ *  an arc about it — see `paintExtentU`). */
+export function isCrateSizedPaint(e: GhostPaint, ox: number, oy: number): boolean {
+  return paintExtentU(e, ox, oy) < CONFIG.bots.cratePaintMaxU;
 }
 
 // ---------------------------------------------------------------------------

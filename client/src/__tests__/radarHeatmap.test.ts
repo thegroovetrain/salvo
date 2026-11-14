@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, paintSegmentCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -56,6 +56,7 @@ import {
   buildField,
   buildWakeStamp,
   cellKey,
+  chopCellKeys,
   chopHaloCells,
   hullSample,
   shipOnlyField,
@@ -1042,6 +1043,76 @@ describe('SHIP-DISPLACEMENT CHOP inherits sea clutter\'s three bounds (amendment
     expect(chopHaloCells({ gx: 0, gy: 0, w: 0, h: 0, bits: [] }, 0), 'a degenerate mask pushes none')
       .toBe(0);
   });
+  // Story 11.3 review (P4): since the arc a far wake segment arrives as a
+  // pulse-deep, beam-wide band, so the mask's own thickness is the RADAR's,
+  // not the source's. The halo takes the beam and pulse off about the
+  // observer (the client's own ship), so the look is today's at every range.
+  const ARC_RANGES = [300, 2000, 9000];
+  /** One wire wake paint: a `wakeSampleU` segment `widthU` wide heading
+   *  `th`, painted by an observer `range` off on bearing `brg` (0 range = the
+   *  observer alongside, inside a cell — the arc leaves that paint sharp). */
+  function wakePaint(widthU: number, th: number, range: number, brg: number, salt: number) {
+    const step = CONFIG.vision.wakeSampleU;
+    const ax = 1000.3;
+    const ay = 2000.7;
+    const bx = ax + Math.cos(th) * step;
+    const by = ay + Math.sin(th) * step;
+    const from = { x: (ax + bx) / 2 - Math.cos(brg) * range, y: (ay + by) / 2 - Math.sin(brg) * range };
+    return { cov: paintSegmentCoverage(ax, ay, bx, by, widthU, CFG.cellU, 4321, salt, from.x, from.y), from };
+  }
+
+  it('UNDER THE ARC the same ribbon pushes the same chop (±1 cell) at 300 u, '
+    + '2,000 u and 9,000 u as alongside, and alongside it is exactly the pre-arc formula', () => {
+    const widths = [CONFIG.vision.radarCellU, ...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].hull.beam)];
+    for (const widthU of widths) {
+      for (let k = 0; k < 4; k++) {
+        const th = 0.3 + k * 0.71;
+        const near = wakePaint(widthU, th, 0, 0, 0x100 + k);
+        const nearHalo = chopHaloCells(near.cov, 0, near.from);
+        expect(nearHalo, `${widthU} u alongside #${k}`).toBe(chopHaloCells(near.cov, 0));
+        for (const range of ARC_RANGES) {
+          const far = wakePaint(widthU, th, range, 1.1 + k * 1.37, 0x100 + k);
+          const halo = chopHaloCells(far.cov, 0, far.from);
+          expect(Math.abs(halo - nearHalo), `${widthU} u at ${range} u #${k}: ${halo} vs ${nearHalo}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('UNDER THE ARC a torpedo\'s ribbon still stays essentially naked and the widest hull\'s '
+    + 'still pushes more, at 9,000 u', () => {
+    let torp = 0;
+    let bb = 0;
+    for (let k = 0; k < 4; k++) {
+      const t = wakePaint(CONFIG.vision.radarCellU, 0.2 + k, 9000, 0.9 + k, 0x200 + k);
+      const b = wakePaint(32, 0.2 + k, 9000, 0.9 + k, 0x200 + k);
+      torp = Math.max(torp, chopHaloCells(t.cov, 0, t.from));
+      bb = Math.max(bb, chopHaloCells(b.cov, 0, b.from));
+    }
+    expect(torp).toBeLessThanOrEqual(1);
+    expect(bb).toBeGreaterThan(torp);
+  });
+
+  it('THE CHOP IS LAID ONCE PER CELL: a far segment\'s halo cells are the covered '
+    + 'cells grown by the halo, each listed once — never cells × (2·halo + 1)² writes', () => {
+    for (const range of ARC_RANGES) {
+      const { cov, from } = wakePaint(WIDEST_BEAM, 0.4, range, 2.2, 0x300);
+      const halo = chopHaloCells(cov, 0, from);
+      const keys = chopCellKeys(cov, halo);
+      expect(new Set(keys).size, 'each chop cell once').toBe(keys.length);
+      expect(keys.length).toBeLessThanOrEqual((cov.w + 2 * halo) * (cov.h + 2 * halo));
+      const brute = new Set<number>();
+      for (let row = 0; row < cov.h; row++) {
+        for (let col = 0; col < cov.w; col++) {
+          if (!coverageHas(cov, col, row)) continue;
+          for (let dy = -halo; dy <= halo; dy++) {
+            for (let dx = -halo; dx <= halo; dx++) brute.add(cellKey(cov.gx + col + dx, cov.gy + row + dy));
+          }
+        }
+      }
+      expect(new Set(keys)).toEqual(brute);
+    }
+  });
 });
 
 // --- 5a. THE WATERLINE COEFFICIENT, at the shipped grain ----------------------
@@ -1344,7 +1415,7 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
   const HULL = { id: 'a', x: 0, y: 520, heading: 0, cls: DEFAULT_CLASS_ID as HullId };
 
   function litFootprintBands(g: HeatGrid): { bands: Set<number>; centre: number; strongest: number } {
-    const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
+    const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0, 0, HULL.x, HULL.y);
     const bands = new Set<number>();
     let strongest = 0;
     for (let row = 0; row < cov.h; row++) {
@@ -1411,7 +1482,7 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
     // wire path: both run the same shared paint pipeline (rasterize + fuzz at
     // the same seed) and the same stamp, so the buffers agree cell for cell.
     const viaField = scope(OBS, { hulls: [HULL] }, CFG);
-    const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
+    const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0, 0, HULL.x, HULL.y);
     const stamp: ShipStamp = new Map();
     stampCoverage(stamp, cov, hullSample(CFG.model));
     const g = grid(CFG, OBS.x, OBS.y);
@@ -1473,7 +1544,7 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
     let total = 0;
     const N = 12;
     for (let k = 0; k < N; k++) {
-      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50);
+      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50, 0, 0, 0);
       let lo = Infinity;
       let hi = -Infinity;
       for (let row = 0; row < cov.h; row++) {
@@ -1488,13 +1559,37 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
     return total / N;
   }
 
+  /** THE MARK'S DEPTH ALONG THE BEARING (u), averaged over glint seeds — where
+   *  ASPECT lives at range since the arc (Story 11.3, R3: a paint's depth is
+   *  the target's own extent along the line of sight plus the pulse, so
+   *  heading still shows in it). The observer is at the origin and the hull
+   *  due +y, so that axis is y. */
+  function meanDepth(cls: HullId, heading: number, dist: number): number {
+    let total = 0;
+    const N = 12;
+    for (let k = 0; k < N; k++) {
+      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50, 0, 0, 0);
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let row = 0; row < cov.h; row++) {
+        for (let col = 0; col < cov.w; col++) {
+          if (!coverageHas(cov, col, row)) continue;
+          lo = Math.min(lo, (cov.gy + row + 0.5) * CFG.cellU);
+          hi = Math.max(hi, (cov.gy + row + 0.5) * CFG.cellU);
+        }
+      }
+      total += hi - lo;
+    }
+    return total / N;
+  }
+
   /** Covered lattice cells, averaged over glint seeds — the other half of
    *  "how big", and the one that separates the biggest hull from the smallest. */
   function meanCells(cls: HullId, heading: number, dist: number): number {
     let total = 0;
     const N = 12;
     for (let k = 0; k < N; k++) {
-      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50);
+      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50, 0, 0, 0);
       for (let row = 0; row < cov.h; row++) {
         for (let col = 0; col < cov.w; col++) if (coverageHas(cov, col, row)) total++;
       }
@@ -1539,12 +1634,21 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
   it('...while SIZE still separates them — the mask is where class and aspect '
     + 'live (amendment 66, delivered by geometry alone)', () => {
     for (const dist of [200, RADAR]) {
-      // ASPECT: a broadside hull's mark is far wider across the bearing than the
-      // same hull bow-on. Measured ~125u vs ~36u for a torpedo boat — a 3-4×
-      // separation that no longer needs to touch colour to be legible.
+      // ASPECT: a broadside hull's mark is wider across the bearing than the
+      // same hull bow-on, and a bow-on hull's is DEEPER along it.
+      // RETIRED AS A RULING (Story 11.3, Eric 2026-11-13, R1 + R3): "the
+      // broadside mark is ≥ 1.5× wider across the bearing AT EVERY RANGE".
+      // Every paint is now an arc smeared by the 5.6° beam, ~890 u across at
+      // the rim, so far out the across-bearing width is mostly beam and aspect
+      // reads in the DEPTH (target extent + pulse — R3: "heading still shows in
+      // a paint's depth"). The 1.5× across separation stands close in.
       for (const cls of CLASSES) {
-        expect(meanAcross(cls, 0, dist), `${cls} aspect @ ${dist}u`)
-          .toBeGreaterThan(meanAcross(cls, Math.PI / 2, dist) * 1.5);
+        const across = meanAcross(cls, 0, dist);
+        const acrossBowOn = meanAcross(cls, Math.PI / 2, dist);
+        if (dist === 200) expect(across, `${cls} aspect across @ ${dist}u`).toBeGreaterThan(acrossBowOn * 1.5);
+        else expect(across, `${cls} aspect across @ ${dist}u`).toBeGreaterThan(acrossBowOn);
+        expect(meanDepth(cls, Math.PI / 2, dist), `${cls} aspect depth @ ${dist}u`)
+          .toBeGreaterThan(meanDepth(cls, 0, dist) * 1.5);
       }
       // CLASS: the biggest hull genuinely covers more of the scope than the
       // smallest, both across the bearing and in raw cells.

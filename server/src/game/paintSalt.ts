@@ -1,5 +1,6 @@
 // THE PAINT SALT (Story 11.2 review gate, F1 — anti-cheat). Every radar
-// paint the server puts on the wire (a hull's `blip`, a wake's `wk`) fuzzes
+// paint the server puts on the wire (a hull's `blip`, a wake's `wk`, and —
+// since Story 11.3 — a crate's `blip`) fuzzes
 // its mask on a seed that is salted here, server-side, from a per-room
 // secret key:
 //
@@ -10,9 +11,11 @@
 //
 // `words` are the paint's own inputs (paint time and exact pose), so the
 // salt is PER PAINT: deterministic and observer-free (every observer
-// painting this hull this tick gets the identical mask, which keeps the
-// one-slot mask memos in signals.ts sound), and carrying no ship identity
-// (no cross-sweep correlation handle — amendment 157 stands).
+// painting this hull this tick draws the identical salt and glint seed), and
+// carrying no ship identity (no cross-sweep correlation handle — amendment
+// 157 stands). The MASK is per observer since Story 11.3 (the arc is smeared
+// about the observer before the fuzz), so signals.ts's one-slot mask memos
+// key on the observer's position as well as on these words.
 //
 // WHY. The unsalted fuzz seed is a public hash of (t, x, y, heading). Since
 // Story 11.2 a plain-hull contact hands an observer a hull's exact pose
@@ -44,9 +47,9 @@ const PAINT_KEY_LABEL = 'hullcracker/paint-salt-key/v1';
 
 /** What is being painted — a domain byte, so a hull and a segment that happen
  *  to share their words never share a salt. */
-export type PaintKind = 'hull' | 'wake';
+export type PaintKind = 'hull' | 'wake' | 'crate';
 
-const KIND_BYTE: Readonly<Record<PaintKind, number>> = { hull: 1, wake: 2 };
+const KIND_BYTE: Readonly<Record<PaintKind, number>> = { hull: 1, wake: 2, crate: 3 };
 
 /** The room's paint-salt key, derived from its dispersion key (see the header). */
 export function paintSaltKey(roomKey: Uint8Array): Buffer {

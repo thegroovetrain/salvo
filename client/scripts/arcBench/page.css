@@ -1,0 +1,12 @@
+/* The arc bench's own additions; the builder prepends the dispersion bench's
+   page.css (theme tokens, cards, sliders, readouts) so the benches share one look. */
+
+h3.group { font-size: 17px; font-weight: 700; margin: 20px 0 8px; color: var(--text); }
+.closeups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 16px; margin-top: 12px; }
+.closeup { min-width: 0; }
+.closeup figcaption { font-size: 14px; }
+.cands { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; margin-top: 12px; }
+.cand { min-width: 0; padding: 10px; border: 1px solid var(--hairline); border-radius: 10px; }
+.cand.picked { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cand .canvas { margin-top: 4px; }
+.check span { font-weight: 600; color: var(--text); }

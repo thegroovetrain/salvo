@@ -105,9 +105,12 @@
 // one function here takes a camera, a zoom or a viewport.
 
 import {
+  CONFIG,
   WAKE_AGE_BUCKETS,
   coverageCellCount,
   coverageHas,
+  desmearedExtents,
+  hmToU,
   sampleHeight,
   SEA_HEIGHT,
   tileCeilingAt,
@@ -531,11 +534,14 @@ export interface WakeSegmentCover {
  * rate; the rate is set by the source's own speed, since a fast hull spreads its
  * buckets over more water. The on-water envelope (render/effects.ts) expresses
  * it in the same buckets, so the water and the scope agree by construction.
+ *
+ * `from` is the OBSERVER a wire paint was smeared about (Story 11.3: the arc) —
+ * the thickness is then the de-smeared ribbon's, not the arc's
+ * (`sourceThicknessCells`). Omitted, the mask is taken as the sharp ribbon.
  */
-export function chopHaloCells(cov: HullCoverage, bucket: number): number {
-  const span = Math.max(cov.w, cov.h);
-  if (!(span > 0)) return 0;
-  const thickness = coverageCellCount(cov) / span;
+export function chopHaloCells(cov: HullCoverage, bucket: number, from?: Vec2): number {
+  const thickness = sourceThicknessCells(cov, from);
+  if (!(thickness > 0)) return 0;
   const halo = (CHOP_HEAD_MULTIPLE - 1) * (thickness / 2);
   const last = WAKE_AGE_BUCKETS - 1;
   const b = Number.isFinite(bucket) ? Math.min(last, Math.max(0, Math.floor(bucket))) : last;
@@ -543,21 +549,96 @@ export function chopHaloCells(cov: HullCoverage, bucket: number): number {
   return Math.max(0, Math.round(halo * taper));
 }
 
-/** Lay one segment's chop halo: every cell within `halo` of a covered cell that
- *  the core does not already own. `putStronger` keeps the core wherever the two
- *  meet, so chop can never overwrite the track it is hiding (amendment 198). */
-function stampChop(stamp: CellStamp, cov: HullCoverage, halo: number, s: FieldSample): void {
-  if (halo <= 0) return;
-  for (let row = 0; row < cov.h; row++) {
-    for (let col = 0; col < cov.w; col++) {
-      if (!coverageHas(cov, col, row)) continue;
-      for (let dy = -halo; dy <= halo; dy++) {
-        for (let dx = -halo; dx <= halo; dx++) {
-          putStronger(stamp, cellKey(cov.gx + col + dx, cov.gy + row + dy), s);
-        }
-      }
+/** The radar's beam (rad) and pulse (u) — the smear `sourceThicknessCells`
+ *  takes off (shared `radarArcOf` smears every wake paint by them). */
+const ARC_BEAM_RAD = (CONFIG.vision.beamDeg * Math.PI) / 180;
+const ARC_PULSE_U = hmToU(CONFIG.vision.pulseHm);
+/** Lattice-anchored directions the de-smeared width is read in (22.5°). */
+const ARC_DIRECTIONS = 8;
+
+/**
+ * THE SOURCE RIBBON'S THICKNESS in cells — what `chopHaloCells` scales.
+ *
+ * Without an observer (`from` omitted) the mask is taken as the sharp ribbon:
+ * `cells / max(w, h)`, its mean thickness along its long axis. THE ARC (Story
+ * 11.3 review, P4) breaks that for a wire paint: the server smears every wake
+ * segment about its observer (pulse-deep, beam-wide), so the mask's thickness
+ * is the RADAR's — a torpedo's ribbon at range read as thick as a
+ * battleship's, and the halo (and `stampChop`'s writes) ballooned. With the
+ * observer given, the beam and pulse come off (shared `desmearedExtents`, the
+ * same inverse the bots' crate filter reads) and the ribbon's WIDTH is the
+ * narrowest de-smeared extent, plus the cell a centre-to-centre extent leaves
+ * out. An observer within one cell of the mask's rect may have been painted
+ * SHARP (the arc degrades there), so it keeps the sharp formula.
+ */
+function sourceThicknessCells(cov: HullCoverage, from: Vec2 | undefined): number {
+  const span = Math.max(cov.w, cov.h);
+  if (!(span > 0)) return 0;
+  if (from === undefined || observerAtMask(cov, from)) return coverageCellCount(cov) / span;
+  const cellU = CONFIG.vision.radarCellU;
+  const ext = desmearedExtents(cov, from.x, from.y, cellU, ARC_BEAM_RAD, ARC_PULSE_U, ARC_DIRECTIONS);
+  return Math.min(...ext) / cellU + 1;
+}
+
+/** Is `p` within one cell of the mask's rect (where the arc leaves a paint
+ *  sharp — shared sim/radarArc.ts)? */
+function observerAtMask(cov: HullCoverage, p: Vec2): boolean {
+  const cellU = CONFIG.vision.radarCellU;
+  const dx = Math.max(cov.gx * cellU - p.x, 0, p.x - (cov.gx + cov.w) * cellU);
+  const dy = Math.max(cov.gy * cellU - p.y, 0, p.y - (cov.gy + cov.h) * cellU);
+  return !(Math.hypot(dx, dy) >= cellU);
+}
+
+/**
+ * THE CHOP'S CELLS for one segment: every cell within `halo` (Chebyshev) of a
+ * covered cell, EACH LISTED ONCE (Story 11.3 review, P4). The naive lay —
+ * (2·halo + 1)² writes per covered cell — is what an arc'd far mask (hundreds
+ * of cells) turned into ~10⁵ Map writes a segment; growing the mask on a
+ * scratch grid (two separable passes) costs one write per chop cell, at most
+ * (w + 2·halo) × (h + 2·halo). Same set, so the stamp is unchanged.
+ */
+export function chopCellKeys(cov: HullCoverage, halo: number): number[] {
+  if (!(halo > 0) || !(cov.w > 0 && cov.h > 0)) return [];
+  const w = cov.w + 2 * halo;
+  const h = cov.h + 2 * halo;
+  const rows = growRows(cov, halo, w, h);
+  const keys: number[] = [];
+  for (let row = 0; row < h; row++) {
+    for (let col = 0; col < w; col++) {
+      if (columnHit(rows, w, h, col, row, halo)) keys.push(cellKey(cov.gx - halo + col, cov.gy - halo + row));
     }
   }
+  return keys;
+}
+
+/** Pass 1: a (w × h) grid (the mask padded by `halo`) where a cell is set
+ *  when a covered cell of its own row lies within `halo` columns. */
+function growRows(cov: HullCoverage, halo: number, w: number, h: number): Uint8Array {
+  const rows = new Uint8Array(w * h);
+  for (let row = 0; row < cov.h; row++) {
+    const base = (row + halo) * w;
+    for (let col = 0; col < cov.w; col++) {
+      if (!coverageHas(cov, col, row)) continue;
+      rows.fill(1, base + col, base + col + 2 * halo + 1);
+    }
+  }
+  return rows;
+}
+
+/** Pass 2: is a row-grown cell within `halo` rows of (col, row)? */
+function columnHit(rows: Uint8Array, w: number, h: number, col: number, row: number, halo: number): boolean {
+  const r1 = Math.min(h - 1, row + halo);
+  for (let r = Math.max(0, row - halo); r <= r1; r++) {
+    if (rows[r * w + col] === 1) return true;
+  }
+  return false;
+}
+
+/** Lay one segment's chop halo (`chopCellKeys`) at the chop sample.
+ *  `putStronger` keeps the core wherever the two meet, so chop can never
+ *  overwrite the track it is hiding (amendment 198). */
+function stampChop(stamp: CellStamp, cov: HullCoverage, halo: number, s: FieldSample): void {
+  for (const key of chopCellKeys(cov, halo)) putStronger(stamp, key, s);
 }
 
 /**
@@ -574,15 +655,20 @@ function stampChop(stamp: CellStamp, cov: HullCoverage, halo: number, s: FieldSa
  * may not be deleted by the client's own shadow walk (amendment 190), while chop
  * is synthesized here, was disclosed by nobody, and may go dark exactly as
  * terrain does.
+ *
+ * `from` is the observer the wire's segments were smeared about (the client's
+ * own ship; Story 11.3) — it sizes the chop from the de-smeared ribbon
+ * (`chopHaloCells`). Omitted for sharp (un-smeared) segments.
  */
 export function buildWakeStamp(
   segs: readonly WakeSegmentCover[],
   m: ReturnModelOpts,
   shadowFloor = 0,
+  from?: Vec2,
 ): CellStamp {
   const stamp: CellStamp = new Map();
   const chop = chopSample(m);
-  for (const seg of segs) stampChop(stamp, seg.cov, chopHaloCells(seg.cov, seg.a), chop);
+  for (const seg of segs) stampChop(stamp, seg.cov, chopHaloCells(seg.cov, seg.a, from), chop);
   for (const seg of segs) {
     stampWakeCore(stamp, seg.cov, wakeSample(m, seg.a, shadowFloor), wakeKeepFraction(m, seg.a));
   }

@@ -816,17 +816,26 @@ export const CONFIG = {
     beaconStandoffFrac: 0.6,
     /**
      * THE CRATE-PAINT FILTER (Story 10.9, orchestrator ruling 2026-11-09): a
-     * radar return whose fuzzed footprint's LONGEST SIDE (the paint rect's
-     * `max(w, h) × vision.radarCellU`) is below this many u is NEVER folded
+     * radar return whose measured size is below this many u is NEVER folded
      * into a hostile track — it is an airdrop crate's disc imprint, not a
      * hull, and a bot that plotted it chased crates. Human parity: a player
-     * reads the same small, still return as "not a ship". Measured
-     * 2026-11-09 over 20,000 random poses / paint clocks on the 9 u lattice:
-     * a 15 u crate's paint (`paintDiscCoverage`) spans 54–81 u (81 u in ~16 %
-     * of paints, never more); a hull's (`paintCoverage`) is ≥ 99 u for
-     * bismarck, ≥ 108 u for yamato / iowa, and ≥ 90 u for warspite except a
-     * ~0.03 % tail at 81 u (one missed paint, recovered next sweep). A
-     * harness dial.
+     * reads the same small, still return as "not a ship". A harness dial.
+     * Pre-arc the size was the fuzzed rect's LONGEST SIDE (`max(w, h) ×
+     * vision.radarCellU`; 2026-11-09, 20,000 poses: a 15 u crate 54–81 u,
+     * every hull ≥ 90 u but a ~0.03 % warspite tail at 81 u). Since the arc
+     * (Story 11.3) it is the paint's DE-SMEARED extent about the painting
+     * bot (server ai/plot.ts `paintExtentU`: beam and pulse taken off each
+     * lit cell at its own range, the longest of 8 lattice-anchored
+     * directions; cell centres, no +1 cell). Measured 2026-11-13 over 3,000
+     * random poses per (kind, range) at 15 / 30 / 60 / 120 / 500 / 1,136 /
+     * 4,545 / 9,091 u, headings random with half the hulls at 45° / 135°
+     * aspect: a crate reads 11–83 u, never a hull (0 in 24,000; 0 in a
+     * further 75,000 at 120 u–400 hm); from 120 u out yamato ≥ 106, bismarck
+     * ≥ 94, iowa ≥ 110 u, warspite ≥ 78 u with a 0.03–0.5 % tail under the
+     * dial (one missed paint, recovered next sweep). Inside 60 u a hull's
+     * paint may be left SHARP by the arc and reads small (warspite 8–96 %,
+     * the others ≤ 5 %) — a hull that close is always sighted, and its paint
+     * is skipped as its own echo before this filter matters.
      */
     cratePaintMaxU: 85,
     /**
@@ -1068,6 +1077,17 @@ export const CONFIG = {
        *  amendment 127's `minPeak` floor always has a footprint to land on. */
       glintP: 0.35,
     },
+    // degrees — THE RADAR BEAM's full width (Story 11.3, Eric 2026-11-13, R1):
+    // every radar paint is smeared in bearing about its observer by this much
+    // (`smearArc`, sim/radarArc.ts), centered on the true bearing (R2). A
+    // dial, not a player knob. Eric: "I want what would be realistic" — the
+    // US SG surface-search set's 5.6° beam, true to the hectometer ruler
+    // (~890 u wide at the 400 hm radar reach).
+    beamDeg: 5.6,
+    // hm — THE PULSE TERM (Story 11.3, Eric 2026-11-13, R3): a paint's depth
+    // along the line of sight is the target's own extent plus this; convert
+    // with `hmToU` where used. The SG's 1.3 µs pulse resolves ~195 m = 2 hm.
+    pulseHm: 2,
     // ms — THE ONE WAKE CLOCK (Story 4.12, Eric ruling 2026-08-08, amendment
     // 205): how long a stretch of disturbed water physically persists behind
     // the hull that laid it, before it flattens and stops existing — on the

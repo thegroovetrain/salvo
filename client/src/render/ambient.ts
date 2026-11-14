@@ -441,9 +441,12 @@ export class AmbientScene {
    * the scope paints only rows handed to it through the wire's own entries.
    */
   private paintReturns(tick: AmbientTick, now: number): void {
+    // The scene's observer is the arc's centre (Story 11.3); unsalted — the
+    // menu scene has no room key.
+    const o = this.world.observer.state;
     for (const hull of ambientPaints(this.world, tick)) {
       const s = hull.state;
-      const cov = paintCoverage(hull.cls, s.x, s.y, s.heading, CONFIG.vision.radarCellU, now);
+      const cov = paintCoverage(hull.cls, s.x, s.y, s.heading, CONFIG.vision.radarCellU, now, 0, o.x, o.y);
       this.radar.onBlip({ k: 'blip', t: now, gx: cov.gx, gy: cov.gy, w: cov.w, h: cov.h, bits: cov.bits });
     }
   }

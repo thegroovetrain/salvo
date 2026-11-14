@@ -28,10 +28,11 @@
 //      `drops[]`), and a spectator never receives `dp`.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, paintDiscCoverage, type BlipEvent, type DropState, type FrameMsg, type GameEvent } from '@salvo/shared';
+import { CONFIG, type BlipEvent, type DropState, type FrameMsg, type GameEvent } from '@salvo/shared';
 import type { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { bareWorld, captain, moveTo } from './beaconFixture.js';
+import { wireCratePaint } from './paintFixture.js';
 
 const RADAR = CONFIG.vision.radar;
 const CRATE_SIGHT = CONFIG.vision.crateKindSight; // Story 11.2: a crate's kind has its own eye reach
@@ -56,11 +57,13 @@ function parkBeamBefore(w: World, id: string, p: { x: number; y: number }): void
   rec.prevSweepAngle = parked;
 }
 
-/** The crate's radar paint, as the production pipeline shapes it this tick —
- *  a DIFFERENTIAL identifier only (which blip is the crate's), never the
- *  oracle of its gate (perception.test.ts re-derives that independently). */
-function crateBlipAt(now: number): BlipEvent {
-  const c = paintDiscCoverage(CRATE.x, CRATE.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, now);
+/** The crate's radar paint, as the production pipeline shapes it this tick
+ *  for observer `id` (Story 11.3: the arc is smeared about the observer, under
+ *  the world's per-paint salt) — a DIFFERENTIAL identifier only (which blip is
+ *  the crate's), never the oracle of its gate (perception.test.ts re-derives
+ *  that independently). */
+function crateBlipAt(w: World, id: string, now: number): BlipEvent {
+  const c = wireCratePaint(w, w.ships.get(id)!.state, CRATE.x, CRATE.y, now);
   return { k: 'blip', t: now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
 
@@ -69,8 +72,8 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 /** A frame with the two channels a crate MAY move set aside: the `drops` key
  *  and any blip byte-equal to the crate's paint this tick. Returns the
  *  stripped frame and how many crate blips it removed. */
-function withoutCrate(frame: FrameMsg): { rest: unknown; crateBlips: number } {
-  const paint = crateBlipAt(frame.t);
+function withoutCrate(w: World, id: string, frame: FrameMsg): { rest: unknown; crateBlips: number } {
+  const paint = crateBlipAt(w, id, frame.t);
   let crateBlips = 0;
   const events = frame.events.filter((e) => {
     if (e.k !== 'blip' || !same(e, paint)) return true;
@@ -144,8 +147,8 @@ describe('airdrops — the two-world differential (crate on vs off changes only 
         const a = buildFrame(withCrate, id);
         const b = buildFrame(without, id);
         ledger.frames += 1;
-        const sa = withoutCrate(a);
-        const sb = withoutCrate(b);
+        const sa = withoutCrate(withCrate, id, a);
+        const sb = withoutCrate(without, id, b);
         expect(sb.crateBlips, `${id} tick ${tick}: the crate-less world painted a crate`).toBe(0);
         expect(sa.rest, `${id} tick ${tick}: something besides drops / the crate's blip moved`).toEqual(sb.rest);
         expect('drops' in b, `${id} tick ${tick}: a crate-less frame carries drops`).toBe(false);
@@ -204,7 +207,7 @@ describe('airdrops — the crate\'s position and id ride NOWHERE but `drops[]`',
           const f = buildFrame(withCrate, id, phase);
           verifyCrateRidesOnlyInDrops(f, `${id} ${phase} tick ${tick}`);
           drops += f.drops?.length ?? 0;
-          crateBlips += withoutCrate(f).crateBlips;
+          crateBlips += withoutCrate(withCrate, id, f).crateBlips;
         }
       }
     }
@@ -212,7 +215,7 @@ describe('airdrops — the crate\'s position and id ride NOWHERE but `drops[]`',
     expect(crateBlips).toBeGreaterThan(0);
     // ...and the blip's rect really is not the position: its cells are integers
     // of the shared lattice, and neither coordinate of the crate is an integer.
-    const paint = crateBlipAt(withCrate.now);
+    const paint = crateBlipAt(withCrate, 'radarOnly', withCrate.now);
     for (const v of [paint.gx, paint.gy, paint.w, paint.h]) expect(Number.isInteger(v)).toBe(true);
     expect(Number.isInteger(CRATE.x) || Number.isInteger(CRATE.y)).toBe(false);
   });

@@ -571,10 +571,12 @@ export function ambientWakeRows(
   out.length = 0;
   const now = tick.nowMs;
   const cell = CONFIG.vision.radarCellU;
+  // The arc's centre is the scene's observer (Story 11.3); unsalted.
+  const o = world.observer.state;
   sources.each(({ ribbon }) => {
     eachWakeSegment(ribbon, now, (seg) => {
       if (!wakeSegmentPainted(world, tick, seg.mx, seg.my)) return;
-      const c = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, cell, now);
+      const c = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, cell, now, 0, o.x, o.y);
       out.push({ k: 'wk', t: now, a: seg.bucket, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     });
   });

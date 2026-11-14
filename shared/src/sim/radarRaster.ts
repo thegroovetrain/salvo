@@ -39,11 +39,14 @@
 // (amendments 66 + 151) — and the calibration proving both lives in
 // shared/src/__tests__/radarRaster.test.ts.
 //
-// GEOMETRY ONLY. No intensity, no falloff, no reflectivity, no observer: the
-// footprint is a pure function of (hull id, pose, cell size, paint seed),
-// which is what makes it world-anchored — every observer painting this hull
-// this tick receives the identical mask, and moving the observer moves
-// nothing.
+// GEOMETRY ONLY. No intensity, no falloff, no reflectivity. Since THE ARC
+// (Story 11.3, Eric 2026-11-13, R1–R4) the footprint is a pure function of
+// (hull id, pose, cell size, paint seed, OBSERVER POSITION): every paint is
+// smeared about its observer by the radar beam in bearing and the pulse in
+// range (`smearArc`, sim/radarArc.ts) before the fuzz, so two observers
+// painting one hull in one tick receive DIFFERENT masks, each centered on its
+// own bearing. Still world-anchored (absolute lattice), and still no id,
+// class, heading or exact position on the wire.
 //
 // THE CELL SIZE IS `CONFIG.vision.radarCellU`, the shared radar grid
 // resolution. It is gameplay-authoritative (it decides what the wire says),
@@ -53,6 +56,8 @@
 import { CONFIG, type HullId } from '../constants.js';
 import { mulberry32 } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
+import { hmToU } from './hm.js';
+import { smearArc, smearArcWithCore } from './radarArc.js';
 import { hullSilhouette, pointInPolygon, transformPolygon } from './silhouette.js';
 
 /**
@@ -444,14 +449,6 @@ function bridgeCoverageBlock(cover: HullCoverage, col: number, row: number): boo
   return false;
 }
 
-/** Clear one mask bit iff (col, row) lies inside the rect. */
-function clearBitInRect(cover: HullCoverage, col: number, row: number): void {
-  if (col >= 0 && row >= 0 && col < cover.w && row < cover.h) {
-    const i = row * cover.w + col;
-    cover.bits[i >>> 5] &= ~(1 << (i & 31));
-  }
-}
-
 /** Reused float-bits view for `segmentPaintSeed` — the 5-word sibling of the
  *  `paintSeed` buffers below (a segment's pose is two endpoints, five scalars
  *  with time). */
@@ -467,9 +464,10 @@ const SEG_SEED_U32 = new Uint32Array(SEG_SEED_F64.buffer);
  * same stretch of water draws a fresh glint every revolution; the inputs are
  * the EXACT float endpoints while the wire carries only cell-quantized
  * coverage, so a modified client cannot reconstruct the seed to invert the
- * glint and template-fit the sharp ribbon back out. Deterministic and
- * observer-free: every observer painting this segment this tick derives the
- * identical seed (which is what keeps the server's one-slot mask memo sound).
+ * glint and template-fit the sharp ribbon back out. Deterministic, and the
+ * SEED is observer-free (every observer painting this segment this tick
+ * derives the identical seed) — but since Story 11.3 the MASK is not: the
+ * glint runs on the observer's arc (`paintSegmentCoverage`).
  */
 export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, by: number, salt = 0): number {
   SEG_SEED_F64[0] = t;
@@ -510,55 +508,6 @@ function saltSeed(h: number, salt: number): number {
     out = Math.imul(out ^ (out >>> 13), 0xc2b2ae35);
   }
   return (out ^ (out >>> 16)) >>> 0;
-}
-
-/** GLINT-ERODE a segment mask's flank cells (the covered cells NOT on the
- *  centre-line spine): row-major over the rect, each covered non-spine cell
- *  draws once and is dropped under `glintP` — the draw order is part of the
- *  wire contract (the perception oracle replays it), exactly as
- *  `glintErode`'s is for hulls. The spine is the CORE and is never dropped,
- *  so the ribbon can never lose continuity or empty out. */
-function glintSegmentFlanks(cover: HullCoverage, spine: HullCoverage, glintP: number, rng: { next(): number }): void {
-  for (let row = 0; row < cover.h; row++) {
-    for (let col = 0; col < cover.w; col++) {
-      if (!coverageHas(cover, col, row) || coverageHas(spine, col, row)) continue;
-      if (rng.next() < glintP) clearBitInRect(cover, col, row);
-    }
-  }
-}
-
-/** [minCol, minRow, maxCol, maxRow] of a packed mask's covered cells. */
-function packedCoveredBounds(cover: HullCoverage): [number, number, number, number] {
-  let minC = cover.w;
-  let minR = cover.h;
-  let maxC = -1;
-  let maxR = -1;
-  for (let row = 0; row < cover.h; row++) {
-    for (let col = 0; col < cover.w; col++) {
-      if (!coverageHas(cover, col, row)) continue;
-      if (col < minC) minC = col;
-      if (col > maxC) maxC = col;
-      if (row < minR) minR = row;
-      if (row > maxR) maxR = row;
-    }
-  }
-  return [minC, minR, maxC, maxR];
-}
-
-/** Crop a packed mask to the tight bounding rect of its covered cells (fresh
- *  arrays — the result goes on the wire / into a frozen paint). Callers
- *  guarantee at least one covered cell (the spine survives every glint). */
-function cropPackedCoverage(cover: HullCoverage): HullCoverage {
-  const [minC, minR, maxC, maxR] = packedCoveredBounds(cover);
-  const cw = maxC - minC + 1;
-  const ch = maxR - minR + 1;
-  const bits = new Array<number>(Math.ceil((cw * ch) / COVERAGE_WORD)).fill(0);
-  for (let row = 0; row < ch; row++) {
-    for (let col = 0; col < cw; col++) {
-      if (coverageHas(cover, col + minC, row + minR)) setBit(bits, row * cw + col);
-    }
-  }
-  return { gx: cover.gx + minC, gy: cover.gy + minR, w: cw, h: ch, bits };
 }
 
 /**
@@ -603,7 +552,9 @@ export function paintSegmentCoverage(
   widthU: number,
   cellU: number,
   t: number,
-  salt = 0,
+  salt: number,
+  ox: number,
+  oy: number,
 ): HullCoverage {
   const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
   const degenerate = degenerateSegment(ax, ay, bx, by, grid);
@@ -617,11 +568,29 @@ export function paintSegmentCoverage(
   const spine: HullCoverage = { gx: cover.gx, gy: cover.gy, w: cover.w, h: cover.h, bits: new Array<number>(cover.bits.length).fill(0) };
   walkSegmentCells(spine, sx, sy, ex, ey, grid);
   for (let i = 0; i < cover.bits.length; i++) cover.bits[i] |= spine.bits[i];
+  // THE ARC (Story 11.3, R4): the sharp ribbon is smeared about the observer
+  // BEFORE the glint; the core is the SPINE's own arc, re-seated on the
+  // ribbon arc's rect (the arc always contains the sharp mask). One smear,
+  // not two (review P5): `smearArcWithCore` tests the spine's arc only on the
+  // ribbon arc's lit cells — the only cells the glint reads it on.
+  const { arc, core } = smearArcWithCore(cover, spine, ox, oy, grid, radarBeamRad(), hmToU(CONFIG.vision.pulseHm));
   // A non-finite paint time still hashes deterministically (Float64Array
   // canonicalizes NaN), so no sanitization — mirror paintSeed exactly.
-  glintSegmentFlanks(cover, spine, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey, salt)));
-  bridgeCoverageDiagonals(cover);
-  return cropPackedCoverage(cover);
+  return finishSegmentPaint(arc, core, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey, salt)));
+}
+
+/** Steps 2–4 on the fuzz's scratch grids (review P5 — the packed-bit reads
+ *  cost more than staging once the arc made segment masks hundreds of cells):
+ *  GLINT the covered non-core cells row-major (`glintErode`: the same draw
+ *  order), BRIDGE to a fixed point (`bridgeDiagonals`: the same block rule
+ *  as `bridgeCoverageDiagonals`), CROP tight. `core` shares `arc`'s rect. */
+function finishSegmentPaint(arc: HullCoverage, core: HullCoverage, rng: { next(): number }): HullCoverage {
+  const [coreGrid, work] = fuzzGrids(arc.w * arc.h);
+  unpackInto(work, arc.w, 0, arc);
+  unpackInto(coreGrid, arc.w, 0, core);
+  glintErode(work, coreGrid, arc.w, arc.h, CONFIG.vision.radarFuzz.glintP, rng);
+  bridgeDiagonals(work, arc.w, arc.h);
+  return cropToCoverage(work, arc.w, arc.h, arc.gx, arc.gy);
 }
 
 // ---------------------------------------------------------------------------
@@ -646,9 +615,10 @@ const SEED_U32 = new Uint32Array(SEED_F64.buffer);
  * client cannot reconstruct the seed to invert the jitter and template-fit the
  * sharp mask back out.
  *
- * DETERMINISTIC AND OBSERVER-FREE by construction: every observer painting
- * this hull this tick derives the identical seed, so the wire mask stays
- * observer-independent (and per-(ship, tick) caching stays sound).
+ * DETERMINISTIC, AND THE SEED IS OBSERVER-FREE: every observer painting this
+ * hull this tick derives the identical seed. The MASK is per observer since
+ * Story 11.3 (the arc is smeared about the observer before this fuzz runs),
+ * so a mask cache must key on the observer too (signals.ts's memos do).
  */
 export function paintSeed(t: number, x: number, y: number, heading: number, salt = 0): number {
   SEED_F64[0] = t;
@@ -677,6 +647,35 @@ export interface RadarFuzz {
  *  frozen paint). Sized on demand; reused across calls. */
 let FUZZ_CORE = new Uint8Array(0);
 let FUZZ_WORK = new Uint8Array(0);
+/** A third scratch grid: the dilation's row pass and the stretch snapshot. */
+let FUZZ_TMP = new Uint8Array(0);
+
+/** The three fuzz scratch grids, grown on demand; core and work zeroed. */
+function fuzzGrids(n: number): [Uint8Array, Uint8Array, Uint8Array] {
+  if (FUZZ_CORE.length < n) {
+    FUZZ_CORE = new Uint8Array(n);
+    FUZZ_WORK = new Uint8Array(n);
+    FUZZ_TMP = new Uint8Array(n);
+  }
+  return [FUZZ_CORE.subarray(0, n).fill(0), FUZZ_WORK.subarray(0, n).fill(0), FUZZ_TMP.subarray(0, n)];
+}
+
+/** Unpack a mask's lit cells into a grid of row stride `w`, offset by `pad`
+ *  cells on both axes (word by word — no per-cell bounds checks). */
+function unpackInto(grid: Uint8Array, w: number, pad: number, cov: HullCoverage): void {
+  const n = cov.w * cov.h;
+  for (let word = 0; word * 32 < n; word++) {
+    let bitsLeft = cov.bits[word] | 0;
+    while (bitsLeft !== 0) {
+      const b = 31 - Math.clz32(bitsLeft & -bitsLeft);
+      bitsLeft &= bitsLeft - 1;
+      const i = word * 32 + b;
+      if (i >= n) break;
+      const row = (i / cov.w) | 0;
+      grid[(row + pad) * w + (i - row * cov.w) + pad] = 1;
+    }
+  }
+}
 
 /**
  * FUZZ ONE COVERAGE MASK into a radar return (amendments 156-157). The
@@ -711,97 +710,164 @@ let FUZZ_WORK = new Uint8Array(0);
 export function fuzzCoverage(cov: HullCoverage, seed: number, fuzz: RadarFuzz): HullCoverage {
   const w = cov.w + 4;
   const h = cov.h + 4;
-  if (FUZZ_CORE.length < w * h) {
-    FUZZ_CORE = new Uint8Array(w * h);
-    FUZZ_WORK = new Uint8Array(w * h);
-  }
-  const core = FUZZ_CORE.subarray(0, w * h).fill(0);
-  const work = FUZZ_WORK.subarray(0, w * h).fill(0);
-  for (let row = 0; row < cov.h; row++) {
-    for (let col = 0; col < cov.w; col++) {
-      if (coverageHas(cov, col, row)) core[(row + 2) * w + col + 2] = 1;
-    }
-  }
-  dilate8(core, work, w, h);
+  const [core, work, tmp] = fuzzGrids(w * h);
+  unpackInto(core, w, 2, cov);
+  dilate8(core, work, tmp, w, h);
   const rng = mulberry32(seed);
-  stretchSides(work, w, h, rng.next() < fuzz.stretchP, rng.next() < fuzz.stretchP, rng.next() < fuzz.stretchP, rng.next() < fuzz.stretchP);
+  stretchSides(work, tmp, w, h, rng.next() < fuzz.stretchP, rng.next() < fuzz.stretchP, rng.next() < fuzz.stretchP, rng.next() < fuzz.stretchP);
   glintErode(work, core, w, h, fuzz.glintP, rng);
   bridgeDiagonals(work, w, h);
   return cropToCoverage(work, w, h, cov.gx - 2, cov.gy - 2);
 }
 
-/** work = core dilated by one cell, 8-neighbourhood. Border cells of the
- *  padded rect are never core (2-cell pad), so no bounds checks are needed on
- *  the ±1 reads beyond clamping to the rect. */
-function dilate8(core: Uint8Array, work: Uint8Array, w: number, h: number): void {
+/** work = core dilated by one cell, 8-neighbourhood, in two separable
+ *  passes (a row OR into `tmp`, then a column OR). The 2-cell pad keeps every
+ *  core cell's neighbourhood inside the rect, so the rect's outer ring of
+ *  `tmp` / `work` only ever reads zeros. */
+function dilate8(core: Uint8Array, work: Uint8Array, tmp: Uint8Array, w: number, h: number): void {
   for (let row = 0; row < h; row++) {
+    const base = row * w;
+    tmp[base] = 0;
+    tmp[base + w - 1] = 0;
+    for (let col = 1; col < w - 1; col++) tmp[base + col] = core[base + col - 1] | core[base + col] | core[base + col + 1];
+  }
+  for (let row = 1; row < h - 1; row++) {
     for (let col = 0; col < w; col++) {
-      if (core[row * w + col] === 0) continue;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) work[(row + dy) * w + col + dx] = 1;
-      }
+      const i = row * w + col;
+      work[i] = tmp[i - w] | tmp[i] | tmp[i + w];
     }
   }
 }
 
 /** Union each flagged side's one-cell shift of the dilated mask (the shifts
- *  read the PRE-stretch snapshot, so the four sides compose independently).
- *  The 2-cell pad guarantees the shifted cells stay inside the rect. */
-function stretchSides(work: Uint8Array, w: number, h: number, negX: boolean, posX: boolean, negY: boolean, posY: boolean): void {
-  const snap = work.slice();
+ *  read the PRE-stretch snapshot, `snap`, so the four sides compose
+ *  independently). The 2-cell pad guarantees the shifted cells stay inside
+ *  the rect. No side flagged: nothing to do. */
+function stretchSides(work: Uint8Array, snap: Uint8Array, w: number, h: number, negX: boolean, posX: boolean, negY: boolean, posY: boolean): void {
+  const shifts = [negX ? -1 : 0, posX ? 1 : 0, negY ? -w : 0, posY ? w : 0].filter((d) => d !== 0);
+  if (shifts.length === 0) return;
+  snap.set(work);
   for (let row = 1; row < h - 1; row++) {
     for (let col = 1; col < w - 1; col++) {
-      if (snap[row * w + col] === 0) continue;
-      if (negX) work[row * w + col - 1] = 1;
-      if (posX) work[row * w + col + 1] = 1;
-      if (negY) work[(row - 1) * w + col] = 1;
-      if (posY) work[(row + 1) * w + col] = 1;
+      const i = row * w + col;
+      if (snap[i] === 0) continue;
+      for (const d of shifts) work[i + d] = 1;
     }
   }
 }
 
-/** Drop each covered non-core cell of the pre-erosion snapshot with
- *  probability `glintP`, in row-major order (the draw order is part of the
- *  contract — the oracle replays it). */
+/** Drop each covered non-core cell with probability `glintP`, in row-major
+ *  order (the draw order is part of the contract — the oracle replays it).
+ *  Each step reads and clears only its own cell, so the pre-erosion snapshot
+ *  the contract names is the grid itself. */
 function glintErode(work: Uint8Array, core: Uint8Array, w: number, h: number, glintP: number, rng: { next(): number }): void {
-  const snap = work.slice();
   for (let i = 0; i < w * h; i++) {
-    if (snap[i] === 0 || core[i] === 1) continue;
+    if (work[i] === 0 || core[i] === 1) continue;
     if (rng.next() < glintP) work[i] = 0;
   }
 }
 
-/** Close every diagonal-only adjacency: a 2×2 block with exactly one covered
- *  diagonal pair gains the block's top-right/top-left bridge cell. Repeats to
- *  a fixed point (each pass only ADDS cells, so it terminates; in practice one
- *  or two passes suffice on a hull-sized mask). */
+/**
+ * Close every diagonal-only adjacency: a 2×2 block with exactly one covered
+ * diagonal pair gains the block's top-right/top-left bridge cell. Repeats to
+ * a fixed point (each pass only ADDS cells, so it terminates).
+ *
+ * SAME RESULT AS RE-SCANNING EVERY BLOCK EACH PASS (Story 11.3 review, P5),
+ * cheaper: the first pass scans every block in row-major order; a later pass
+ * visits, in the same order, only the blocks holding a cell added since the
+ * previous pass — a block none of whose cells changed since it last answered
+ * "no bridge" answers it again, and one that bridged now holds three cells.
+ * A bridge cell lands in its own block and at most the NEXT block of the same
+ * pass (the top-right cell), which a full pass would visit next — so does
+ * this one.
+ */
 function bridgeDiagonals(work: Uint8Array, w: number, h: number): void {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let row = 0; row < h - 1; row++) {
-      for (let col = 0; col < w - 1; col++) {
-        if (bridgeBlock(work, w, row * w + col)) changed = true;
-      }
+  let next: number[] = [];
+  for (let row = 0; row < h - 1; row++) {
+    const [lo, hi] = blockCols(work, w, row);
+    for (let col = lo; col <= hi; col++) {
+      const added = bridgeBlock(work, w, row * w + col);
+      if (added >= 0) markBlocksOf(next, added, w, h);
+    }
+  }
+  while (next.length > 0) {
+    const cur = sortedUnique(next);
+    next = [];
+    for (let k = 0; k < cur.length; k++) bridgeChain(work, w, h, cur, k, next);
+  }
+}
+
+/** The block columns [lo, hi] of block row `row` that hold any covered cell
+ *  (a block with none cannot bridge): the covered span of rows `row` and
+ *  `row + 1`, one column wider on the left. Rows `row + 1` and below are not
+ *  yet touched by this pass's bridges, and a bridge in row `row` lands at
+ *  most one column right of a covered cell — inside the span's blocks. */
+function blockCols(work: Uint8Array, w: number, row: number): [number, number] {
+  const [a0, a1] = rowSpan(work, w, row);
+  const [b0, b1] = rowSpan(work, w, row + 1);
+  return [Math.max(0, Math.min(a0, b0) - 1), Math.min(w - 2, Math.max(a1, b1))];
+}
+
+/** The covered columns [first, last] of one grid row ([w, −1] when none). */
+function rowSpan(work: Uint8Array, w: number, row: number): [number, number] {
+  const base = row * w;
+  let first = 0;
+  while (first < w && work[base + first] === 0) first++;
+  if (first === w) return [w, -1];
+  let last = w - 1;
+  while (work[base + last] === 0) last--;
+  return [first, last];
+}
+
+/** Visit block `cur[k]` of a later pass, and the blocks its top-right bridges
+ *  pull into this pass (each the next block along, unless already `cur[k+1]`). */
+function bridgeChain(work: Uint8Array, w: number, h: number, cur: readonly number[], k: number, next: number[]): void {
+  let i = cur[k];
+  for (;;) {
+    const added = bridgeBlock(work, w, i);
+    if (added < 0) return;
+    markBlocksOf(next, added, w, h);
+    const ni = i + 1;
+    if (added !== ni || (ni % w) > w - 2 || cur[k + 1] === ni) return;
+    i = ni;
+  }
+}
+
+/** Queue every 2×2 block (by its top-left index) that holds cell `c`. */
+function markBlocksOf(next: number[], c: number, w: number, h: number): void {
+  const row = (c / w) | 0;
+  const col = c - row * w;
+  for (let r = row - 1; r <= row; r++) {
+    for (let q = col - 1; q <= col; q++) {
+      if (r >= 0 && q >= 0 && r < h - 1 && q < w - 1) next.push(r * w + q);
     }
   }
 }
 
-/** One 2×2 block: `i` is its top-left index. Returns true when a bridge cell
- *  was added. The `\` diagonal bridges through the top-right cell, the `/`
- *  diagonal through the top-left — a fixed, deterministic choice. */
-function bridgeBlock(work: Uint8Array, w: number, i: number): boolean {
+/** Ascending, de-duplicated copy. */
+function sortedUnique(xs: number[]): number[] {
+  const s = Float64Array.from(xs).sort();
+  const out: number[] = [];
+  for (let i = 0; i < s.length; i++) if (i === 0 || s[i] !== s[i - 1]) out.push(s[i]);
+  return out;
+}
+
+/** One 2×2 block: `i` is its top-left index. Returns the index of the bridge
+ *  cell it added, or −1. The `\` diagonal bridges through the top-right
+ *  cell, the `/` diagonal through the top-left — a fixed, deterministic
+ *  choice. */
+function bridgeBlock(work: Uint8Array, w: number, i: number): number {
   const back = work[i] + work[i + w + 1]; // the `\` diagonal
   const fore = work[i + 1] + work[i + w]; // the `/` diagonal
   if (back === 2 && fore === 0) {
     work[i + 1] = 1;
-    return true;
+    return i + 1;
   }
   if (fore === 2 && back === 0) {
     work[i] = 1;
-    return true;
+    return i;
   }
-  return false;
+  return -1;
 }
 
 /** Pack the surviving cells into a tight HullCoverage (fresh arrays — the
@@ -827,13 +893,12 @@ function coveredBounds(work: Uint8Array, w: number, h: number): [number, number,
   let maxC = -1;
   let maxR = -1;
   for (let row = 0; row < h; row++) {
-    for (let col = 0; col < w; col++) {
-      if (work[row * w + col] === 0) continue;
-      if (col < minC) minC = col;
-      if (col > maxC) maxC = col;
-      if (row < minR) minR = row;
-      if (row > maxR) maxR = row;
-    }
+    const [a, b] = rowSpan(work, w, row);
+    if (b < 0) continue;
+    if (a < minC) minC = a;
+    if (b > maxC) maxC = b;
+    if (row < minR) minR = row;
+    maxR = row;
   }
   return [minC, minR, maxC, maxR];
 }
@@ -849,8 +914,15 @@ function coveredBounds(work: Uint8Array, w: number, h: number): [number, number,
  *
  * `salt` (Story 11.2 review gate, F1): the server passes a per-paint salt
  * minted from a room-private key, so its fuzz cannot be replayed from the
- * pose a contact row discloses; 0 (the default) is the unsalted public seed
- * for callers with no key — see `saltSeed`.
+ * pose a contact row discloses; 0 is the unsalted public seed for callers
+ * with no key — see `saltSeed`.
+ *
+ * THE ARC (Story 11.3, R1–R4): `(ox, oy)` is the OBSERVER — the antenna whose
+ * paint this is. The sharp raster is smeared about it by the shipped beam and
+ * pulse (`radarArcOf`) BEFORE the fuzz, so the pipeline is sharp → arc →
+ * fuzz, and the mask is a function of the observer's position. An observer
+ * within a cell of the hull gets the sharp raster (smearArc's degrade
+ * ladder); the fuzz, its seed and its salt are unchanged.
  */
 export function paintCoverage(
   cls: HullId,
@@ -859,10 +931,26 @@ export function paintCoverage(
   heading: number,
   cellU: number,
   t: number,
-  salt = 0,
+  salt: number,
+  ox: number,
+  oy: number,
 ): HullCoverage {
   const sharp = rasterizeHullCoverage(cls, x, y, heading, cellU);
-  return fuzzCoverage(sharp, paintSeed(t, x, y, heading, salt), CONFIG.vision.radarFuzz);
+  return fuzzCoverage(radarArcOf(sharp, ox, oy, cellU), paintSeed(t, x, y, heading, salt), CONFIG.vision.radarFuzz);
+}
+
+/**
+ * THE SHIPPED ARC (Story 11.3, R1 + R3): `smearArc` at the radar's own beam
+ * (`CONFIG.vision.beamDeg`, in radians) and pulse (`CONFIG.vision.pulseHm`,
+ * in u) — the one place the three paint pipelines read the two dials.
+ */
+export function radarArcOf(sharp: HullCoverage, ox: number, oy: number, cellU: number): HullCoverage {
+  return smearArc(sharp, ox, oy, cellU, radarBeamRad(), hmToU(CONFIG.vision.pulseHm));
+}
+
+/** The shipped beam in radians (read per call: CONFIG is a dial). */
+function radarBeamRad(): number {
+  return (CONFIG.vision.beamDeg * Math.PI) / 180;
 }
 
 // ---------------------------------------------------------------------------
@@ -933,13 +1021,16 @@ export function rasterizeDiscCoverage(x: number, y: number, rU: number, cellU: n
 
 /**
  * THE CRATE'S PAINT, whole: the disc imprint (`rasterizeDiscCoverage`) → the
- * per-paint fuzz at the shipped `CONFIG.vision.radarFuzz`, seeded from (paint
- * time, exact centre) through the hull's own `paintSeed` with a zero heading
- * (a disc has none). Exactly `paintCoverage`'s pipeline with the disc as the
- * sharp mask, so a drop's return and a hull's return are the same artifact by
- * construction. Deterministic in (x, y, rU, cellU, t); observer-free.
+ * observer's arc (`radarArcOf`, Story 11.3, R4) → the per-paint fuzz at the
+ * shipped `CONFIG.vision.radarFuzz`, seeded from (paint time, exact centre,
+ * `salt`) through the hull's own `paintSeed` with a zero heading (a disc has
+ * none). Exactly `paintCoverage`'s pipeline with the disc as the sharp mask,
+ * so a drop's return and a hull's return are the same artifact by
+ * construction. `salt` is the server's per-paint salt (game/paintSalt.ts,
+ * kind 'crate'; 0 = unsalted). Deterministic in (x, y, rU, cellU, t, salt,
+ * ox, oy).
  */
-export function paintDiscCoverage(x: number, y: number, rU: number, cellU: number, t: number): HullCoverage {
+export function paintDiscCoverage(x: number, y: number, rU: number, cellU: number, t: number, salt: number, ox: number, oy: number): HullCoverage {
   const sharp = rasterizeDiscCoverage(x, y, rU, cellU);
-  return fuzzCoverage(sharp, paintSeed(t, x, y, 0), CONFIG.vision.radarFuzz);
+  return fuzzCoverage(radarArcOf(sharp, ox, oy, cellU), paintSeed(t, x, y, 0, salt), CONFIG.vision.radarFuzz);
 }

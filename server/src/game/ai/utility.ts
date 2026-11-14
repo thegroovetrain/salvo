@@ -61,6 +61,7 @@
 
 import {
   CONFIG,
+  coverageHas,
   effectiveSight,
   pointInLitZone,
   type BlipEvent,
@@ -89,6 +90,7 @@ import {
   associatePaint,
   foldWakeCells,
   isCrateSizedPaint,
+  paintLongestSideU,
   lineBlocked,
   nearestPredicted,
   paintCenter,
@@ -442,7 +444,7 @@ function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
 }
 
 /** Fold one radar paint — an identity-free coverage footprint. A paint whose
- *  coverage rect covers the position cell of a hull the bot SEES this tick
+ *  LIT CELLS reach the position cell of a hull the bot SEES this tick
  *  (one-cell margin) is that hull's OWN echo (amendment 210: the radar has no
  *  inner edge, so a sighted hull also paints) and is skipped — the contact
  *  fold carries it at full confidence, and associating the paint would smear
@@ -451,20 +453,41 @@ function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
  *  A CRATE-SIZED paint (Story 10.9, `CONFIG.bots.cratePaintMaxU`) is an
  *  airdrop's disc imprint and never becomes a hostile track. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
-  if (isCrateSizedPaint(e)) return;
+  if (crateSized(e, fx.at)) return;
   const c = paintCenter(e);
   if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, fx);
 }
 
-/** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown
- *  by one cell on every side) contain the position cell of a contact sighted
- *  in this view? */
+/** The crate filter from where the bot stands (Story 11.3: a paint is an arc
+ *  about its observer — ai/plot.ts `isCrateSizedPaint`). A fold with no site
+ *  (a hand-built test fold that passes no `FoldSweep`) has no observer to
+ *  de-smear about and falls back to the pre-arc raw rect measure. */
+function crateSized(e: BlipEvent, at: Vec2 | null): boolean {
+  if (at === null) return paintLongestSideU(e) < CONFIG.bots.cratePaintMaxU;
+  return isCrateSizedPaint(e, at.x, at.y);
+}
+
+/** Does the paint LIGHT a cell within one cell of the position cell of a
+ *  contact sighted in this view? Its LIT CELLS, not its rect (Story 11.3
+ *  review, P3): a far paint is an arc whose bounding rect spans hundreds of
+ *  u, so a rect test would discard a hidden hull's paint as the echo of any
+ *  sighted hull that merely sits inside that rect. */
 function paintCoversSighted(e: BlipEvent, sighted: readonly Vec2[]): boolean {
   const cell = CONFIG.vision.radarCellU;
   for (const c of sighted) {
-    const cx = Math.floor(c.x / cell);
-    const cy = Math.floor(c.y / cell);
-    if (cx >= e.gx - 1 && cx <= e.gx + e.w && cy >= e.gy - 1 && cy <= e.gy + e.h) return true;
+    const col = Math.floor(c.x / cell) - e.gx;
+    const row = Math.floor(c.y / cell) - e.gy;
+    if (litNear(e, col, row)) return true;
+  }
+  return false;
+}
+
+/** Is any cell of the 3×3 block about (col, row) lit in the paint? */
+function litNear(e: BlipEvent, col: number, row: number): boolean {
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (coverageHas(e, col + dx, row + dy)) return true;
+    }
   }
   return false;
 }
@@ -608,6 +631,9 @@ interface FoldCtx {
    *  plain hulls (Story 11.2) alike: a paint on one of them is its own echo
    *  and is not folded (foldBlip, amendment 210). */
   sighted: readonly Vec2[];
+  /** The bot's own position (its `FoldSweep` site) — the observer every
+   *  paint's arc is smeared about (Story 11.3); null on a site-less fold. */
+  at: Vec2 | null;
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -717,6 +743,7 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
     sunkNow: new Set(),
     volleys: volleyLedger(mind),
     sighted: [...view.contacts, ...view.plain],
+    at: sweep === undefined ? null : { x: sweep.site.x, y: sweep.site.y },
   };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);

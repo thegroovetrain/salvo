@@ -78,8 +78,14 @@
 // stays byte-stable.
 
 import {
+  CATALOG,
   CONFIG,
+  SHIP_CLASS_IDS,
   bearing,
+  boostedKinematics,
+  draftedKinematics,
+  effectiveStats,
+  hullEnvelope,
   encodeTurretAngles,
   encodeLauncherAngles,
   isAfloat,
@@ -229,8 +235,9 @@ interface SignalContextBase {
    * time + exact pose), bound by perception.ts to `World.paintSaltFor`. The
    * `blip` and `wk` shapers pass it to the shared paint pipeline so the
    * mask's fuzz cannot be replayed from a pose a contact row discloses (see
-   * game/paintSalt.ts). Observer-free: the same paint salts the same for
-   * every observer.
+   * game/paintSalt.ts); the crate path (`dropPaint`, kind 'crate') too since
+   * Story 11.3. The SALT is observer-free (the same paint salts the same for
+   * every observer); the MASK is not — it is the observer's arc.
    */
   paintSaltOf(kind: PaintKind, words: readonly number[]): number;
 }
@@ -646,11 +653,14 @@ function radarOriginPaints(ctx: FoggedSignalContext, o: RadarOrigin, p: Vec2): b
  *  (dilation + glint, amendments 156-157) by the shared `paintCoverage`, as a
  *  world-anchored coverage footprint carrying NO id, NO class, NO heading, NO
  *  extent and no exact position. Identity never leaves the server — there is
- *  no correlation handle across sweeps. GEOMETRY ONLY, observer-independent:
- *  the mask is a pure function of (hull, pose, grid, paint tick), never of
- *  boons, hp, damage state, or the observer — every observer painting this
- *  hull this tick receives the identical mask, and the client computes all
- *  intensity. A genuine paint passes the ship's position and LIVE pose; the
+ *  no correlation handle across sweeps. GEOMETRY ONLY: the mask is a pure
+ *  function of (hull, pose, grid, paint tick, salt, OBSERVER POSITION) —
+ *  never of boons, hp or damage state. Since THE ARC (Story 11.3, R1–R4) the
+ *  sharp raster is smeared about the observer by the beam in bearing and the
+ *  pulse in range before the fuzz, so two observers painting one hull in one
+ *  tick receive DIFFERENT masks, each centered on its own bearing (R2); still
+ *  no id, class, heading or exact position on the wire, and the client
+ *  computes all intensity. A genuine paint passes the ship's position and LIVE pose; the
  *  a non-ship radar subject passes its own position and its frozen
  *  cls/heading (a radar reflector reports true stationary values) — byte-for-
  *  byte the same shape either way, because both run through this one shaper
@@ -661,15 +671,16 @@ function radarOriginPaints(ctx: FoggedSignalContext, o: RadarOrigin, p: Vec2): b
  *  seed derived from (tick time, exact pose) — never from any ship identity —
  *  so class is inferable with skill, never readable (amendment 68), and the
  *  jitter can never become the cross-sweep correlation handle amendment 152
- *  removed. Still observer-independent: the seed has no observer term, so
- *  every observer painting this hull this tick receives the identical mask —
- *  which is why the one-slot memo below is sound: consecutive observers whose
- *  beams gate the same hull in the same tick reuse the mask instead of
- *  re-rasterizing it (cycle-63 review gate note; a full per-(ship, tick)
- *  cache is not warranted — expected hulls-in-wedge per observer per tick is
- *  well under one, amendment 153). */
+ *  removed. The seed has no observer term, but the MASK does (the arc), so
+ *  the one-slot memo below keys on the observer's position too: a hit across
+ *  two observers would hand one the other's arc. It still saves the re-paint
+ *  when one observer's pass meets the same key twice (cycle-63 review gate
+ *  note; a full per-(ship, tick) cache is not warranted — expected
+ *  hulls-in-wedge per observer per tick is well under one, amendment 153). */
 interface MaskMemo {
   salts: SignalContext['paintSaltOf'];
+  ox: number;
+  oy: number;
   cls: HullId;
   x: number;
   y: number;
@@ -679,30 +690,46 @@ interface MaskMemo {
 }
 let lastMask: MaskMemo | null = null;
 
-/** The memoized paint pipeline: (pose, tick) → wire mask. Pure per key. */
-function paintMask(ctx: SignalContext, cls: HullId, p: Vec2, heading: number): HullCoverage {
+/** True iff the memo `m` holds this exact (room, observer, hull, pose, tick). */
+function sameMaskKey(m: MaskMemo, ctx: FoggedSignalContext, cls: HullId, p: Vec2, heading: number): boolean {
+  // `salts` is in the key: the memo is module-level, and two Worlds (two
+  // rooms in one process) salt the same pose differently. The observer is in
+  // it since Story 11.3: the arc is smeared about the observer.
+  if (m.salts !== ctx.paintSaltOf || m.ox !== ctx.me.state.x || m.oy !== ctx.me.state.y) return false;
+  return m.cls === cls && m.x === p.x && m.y === p.y && m.heading === heading && m.t === ctx.now;
+}
+
+/** The memoized paint pipeline: (observer, pose, tick) → wire mask. Pure per key. */
+function paintMask(ctx: FoggedSignalContext, cls: HullId, p: Vec2, heading: number): HullCoverage {
   const t = ctx.now;
   const m = lastMask;
-  // `salts` is in the key: the memo is module-level, and two Worlds (two
-  // rooms in one process) salt the same pose differently.
-  if (m !== null && m.salts === ctx.paintSaltOf && m.cls === cls && m.x === p.x && m.y === p.y && m.heading === heading && m.t === t) {
-    return m.mask;
-  }
+  if (m !== null && sameMaskKey(m, ctx, cls, p, heading)) return m.mask;
   // THE SALT (Story 11.2 review gate, F1): room-private, per paint.
   const salt = ctx.paintSaltOf('hull', [t, p.x, p.y, heading]);
-  const mask = paintCoverage(cls, p.x, p.y, heading, CONFIG.vision.radarCellU, t, salt);
-  lastMask = { salts: ctx.paintSaltOf, cls, x: p.x, y: p.y, heading, t, mask };
+  const { x: ox, y: oy } = ctx.me.state;
+  const mask = paintCoverage(cls, p.x, p.y, heading, CONFIG.vision.radarCellU, t, salt, ox, oy);
+  lastMask = { salts: ctx.paintSaltOf, ox, oy, cls, x: p.x, y: p.y, heading, t, mask };
   return mask;
 }
 
-function blipShape(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): BlipEvent {
+/** THE RADAR OBSERVER (Story 11.3): a radar paint is an arc about the ship
+ *  whose radar painted it, so its shaper needs the FOGGED context (whose `me`
+ *  is always set). Only the fogged path paints — every radar row's visible()
+ *  fails closed on the spectator path — so reaching a radar materialize with
+ *  a spectator context is a programming error, surfaced, never painted. */
+function radarObserver(ctx: SignalContext): FoggedSignalContext {
+  if (ctx.mode !== 'fogged') throw new Error('radar paint materialized on the spectator path (no observer to smear the arc about)');
+  return ctx;
+}
+
+function blipShape(ctx: FoggedSignalContext, p: Vec2, cls: HullId, heading: number): BlipEvent {
   return { k: 'blip', t: ctx.now, ...paintRect(ctx, p, cls, heading) };
 }
 
 /** THE COVERAGE RECT — the blip's payload minus `k` and `t` (`GhostPaint`,
  *  cycle 162), in the SAME key order the blip carries it (gx,gy,w,h,bits).
  *  One caller since CHAFF's retirement (Story 9.2): blipShape. */
-function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): GhostPaint {
+function paintRect(ctx: FoggedSignalContext, p: Vec2, cls: HullId, heading: number): GhostPaint {
   const c = paintMask(ctx, cls, p, heading);
   return { gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
@@ -1157,7 +1184,9 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     // scalar at paint time — never a derived cap or boost flag (build leak).
     // In `return` grammar the pose feeds the server-side raster ONLY — the
     // wire carries the coverage footprint, nothing else (amendment 152).
-    return blipShape(ctx, target.state, target.hullId, target.state.heading);
+    // The arc is smeared about the observer (Story 11.3), so the shaper
+    // needs the fogged context's own ship.
+    return blipShape(radarObserver(ctx), target.state, target.hullId, target.state.heading);
   },
 };
 
@@ -1167,9 +1196,10 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
  * TYPE, not a new event kind and not a seventh exception: the crate's centre
  * runs the IDENTICAL gate a hull runs (`blipGate` — range → swept
  * this tick → height-aware shadow march), and what leaves is a `BlipEvent` carrying NOTHING but the fuzzed
- * coverage rect of its DISC (`paintDiscCoverage` — the hull mask's fuzz law
- * over a disc of `CONFIG.drops.radiusU`, seeded from (tick, centre) with no
- * identity term). No id, no rolls, no "crate" flag: a client reads a small
+ * coverage rect of its DISC (`paintDiscCoverage` — the hull mask's arc +
+ * fuzz law over a disc of `CONFIG.drops.radiusU`, smeared about the observer
+ * (Story 11.3, R4) and seeded from (tick, centre, the per-paint 'crate'
+ * salt) with no identity term). No id, no rolls, no "crate" flag: a client reads a small
  * round return that never moves and infers a crate by size and stillness, or
  * does not (that is the ruling). Null when the gate fails — nothing about the
  * drop is emitted. The caller (perception's drop paint scan) runs this on the
@@ -1182,7 +1212,10 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
  */
 export function dropPaint(ctx: FoggedSignalContext, drop: DropState): BlipEvent | null {
   if (!blipGate(ctx, drop)) return null;
-  const c = paintDiscCoverage(drop.x, drop.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, ctx.now);
+  // THE SALT (Story 11.3): room-private, per paint — the hull path's, kind
+  // 'crate'. The arc is the observer's (R4: crates smear like hulls).
+  const salt = ctx.paintSaltOf('crate', [ctx.now, drop.x, drop.y]);
+  const c = paintDiscCoverage(drop.x, drop.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, ctx.now, salt, ctx.me.state.x, ctx.me.state.y);
   // The one blip key order (k,t,gx,gy,w,h,bits) — byte-for-byte blipShape's.
   return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
@@ -1436,15 +1469,48 @@ export function sweepMayCrossWake(me: ShipRecord, r: WakeRibbon): boolean {
   return offset < window || offset > 2 * Math.PI - 2 * half;
 }
 
+/**
+ * u — THE LONGEST LEGAL WAKE SEGMENT (Story 11.3 review, P6). A ribbon stores
+ * a sample once its source has run `wakeSampleU` past the last one, so two
+ * consecutive samples are at most one cadence plus ONE TICK of travel apart.
+ * DERIVED from the fastest thing that lays water: every hull with every card
+ * line at its cap (ENGINES included), boosted and drafted (the same fold
+ * world.ts provisions its rings on), and every torpedo row at its cap — so a
+ * retune moves it. A longer segment is not water but a teleport chained
+ * across a ring (production detaches the ribbon at every teleport —
+ * world.ts `detachWake`; a dev / test pose placed into a live ring does
+ * not), and it is never painted: since the arc an 8,000 u segment smears
+ * into a ~900-cell mask.
+ */
+export const MAX_WAKE_SEGMENT_U = ((): number => {
+  const everyCard = Object.values(CATALOG).flatMap((line) => Array<string>(line.cap).fill(line.id));
+  let fastest: number = CONFIG.torpedo.speed;
+  for (const id of SHIP_CLASS_IDS) {
+    const st = effectiveStats(hullEnvelope(id), everyCard);
+    const hull = draftedKinematics(boostedKinematics(st.kinematics, CONFIG.boost.factor, true), CONFIG.wake.draft.lift, true);
+    const eq = st.equipment;
+    fastest = Math.max(fastest, hull.maxSpeed, eq.lightTorpedo.speed, eq.heavyTorpedo.speed, eq.supercavTorpedo.speed);
+  }
+  return CONFIG.vision.wakeSampleU + (fastest * CONFIG.tick.simDtMs) / 1000;
+})();
+
+/** Is the segment no longer than a legal one (`MAX_WAKE_SEGMENT_U`)? */
+function legalWakeSegment(seg: WakeSubject): boolean {
+  return Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) <= MAX_WAKE_SEGMENT_U;
+}
+
 /** The memoized segment-mask pipeline (the paintMask precedent): a wake mask
- *  is a pure function of (segment geometry, PAINT TICK) — since the cycle-69
- *  review gate (P3) the flanks glint per paint through
+ *  is a pure function of (segment geometry, PAINT TICK, OBSERVER POSITION) —
+ *  since the cycle-69 review gate (P3) the flanks glint per paint through
  *  `paintSegmentCoverage`, so `t` is in the one-slot key exactly as it is in
- *  paintMask's. Consecutive observers whose beams cross the same segment in
- *  the SAME tick still reuse the mask (the seed is observer-free); a later
- *  revolution re-draws it, which is the scintillation working. */
+ *  paintMask's, and since Story 11.3 the segment is smeared into the
+ *  observer's arc first, so the observer is in the key too (a hit across two
+ *  observers would hand one the other's arc). A later revolution re-draws
+ *  it, which is the scintillation working. */
 interface WakeMaskMemo {
   salts: SignalContext['paintSaltOf'];
+  ox: number;
+  oy: number;
   ax: number;
   ay: number;
   bx: number;
@@ -1455,12 +1521,13 @@ interface WakeMaskMemo {
 }
 let lastWakeMask: WakeMaskMemo | null = null;
 
-function sameWakeKey(m: WakeMaskMemo, ctx: SignalContext, s: WakeSubject): boolean {
+function sameWakeKey(m: WakeMaskMemo, ctx: FoggedSignalContext, s: WakeSubject): boolean {
   if (m.salts !== ctx.paintSaltOf || m.t !== ctx.now || m.widthU !== s.widthU) return false;
+  if (m.ox !== ctx.me.state.x || m.oy !== ctx.me.state.y) return false;
   return m.ax === s.ax && m.ay === s.ay && m.bx === s.bx && m.by === s.by;
 }
 
-function wakeMask(ctx: SignalContext, s: WakeSubject): HullCoverage {
+function wakeMask(ctx: FoggedSignalContext, s: WakeSubject): HullCoverage {
   const t = ctx.now;
   const m = lastWakeMask;
   if (m !== null && sameWakeKey(m, ctx, s)) return m.mask;
@@ -1469,8 +1536,9 @@ function wakeMask(ctx: SignalContext, s: WakeSubject): HullCoverage {
   // glint seed was replayable and the ribbon's sharp width (the source's
   // beam, a class table) readable. Room-private, per paint, like the hull's.
   const salt = ctx.paintSaltOf('wake', [t, s.ax, s.ay, s.bx, s.by]);
-  const mask = paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, s.widthU, CONFIG.vision.radarCellU, t, salt);
-  lastWakeMask = { salts: ctx.paintSaltOf, ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, widthU: s.widthU, t, mask };
+  const { x: ox, y: oy } = ctx.me.state;
+  const mask = paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, s.widthU, CONFIG.vision.radarCellU, t, salt, ox, oy);
+  lastWakeMask = { salts: ctx.paintSaltOf, ox, oy, ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, widthU: s.widthU, t, mask };
   return mask;
 }
 
@@ -1525,6 +1593,7 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
     // dispatched 'wk' WIRE event (no `ax` on the wire shape) fails closed.
     if (!('ax' in seg)) return false;
     if (ctx.mode !== 'fogged') return false;
+    if (!legalWakeSegment(seg)) return false; // a teleport across a ring, not water (P6)
     // Conservative swept PREFILTER (mayBeSwept — a cost device that can only
     // over-accept, so it decides nothing): in wake geometry the ~4.5° wedge
     // is by far the most selective spatial clause, and this keeps the atan2
@@ -1536,7 +1605,7 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
   materialize(ctx, seg) {
     // KEY ORDER IS LOAD-BEARING (msgpack): k,t,a,gx,gy,w,h,bits — the
     // ReturnBlipEvent order with the age bucket after `t`.
-    const c = wakeMask(ctx, seg);
+    const c = wakeMask(radarObserver(ctx), seg);
     return { k: 'wk', t: ctx.now, a: seg.bucket, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
   },
 };

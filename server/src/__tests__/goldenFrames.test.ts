@@ -308,6 +308,25 @@
 //       `mg` reveals come at t 50 / 350 / 700 / 1 050 / 1 400 (were eight,
 //       about 100 ms apart, to t 850), so the mine pops at t 1 600 (was 950)
 //       — the 13 extra frames — with the same victimless boom.
+//
+// RE-RECORDED 2026-11-13 (Story 11.3, the arc; Eric's rulings R1–R6; PV
+// 107). VALUES ONLY — diffed frame by frame: 185 → 185 frames, no key, row,
+// event or frame added or removed (every frame's key-path set and event-kind
+// order is identical), the perception exceptions unchanged. What moved: EVERY
+// RADAR PAINT IS NOW AN ARC PER OBSERVER — each `blip` (hull and crate) and
+// `wk` mask is smeared about the observer that painted it by the 5.6° beam in
+// bearing and the 2 hm pulse in range (`smearArc`) before today's fuzz /
+// glint, so their `gx` / `gy` / `w` / `h` / `bits` moved (17 `blip` and 30
+// `wk` rows across 23 frames; e.g. a 17 × 6 hull paint became 48 × 95, a
+// 3 × 2 wake segment 8 × 94). Crate paints now also take the per-paint salt
+// (kind 'crate'). Story 11.3 review (P6), same day: scnWake's injected ring
+// chains its in-sight pair (212 u east of a) straight onto the annulus run —
+// one ~8,000 u "segment" no real ribbon can lay (production detaches a ring
+// at every teleport), which the arc had smeared into a 929 × 94 mask. A wake
+// segment longer than `MAX_WAKE_SEGMENT_U` (one sample cadence plus one tick
+// of the fastest water-layer, signals.ts) is no longer painted, so that one
+// `wk` row left the two frames that carried it (10 → 9 `wk` each); every
+// other byte of all 185 frames is unchanged.
 
 import { describe, it, expect } from 'vitest';
 import {

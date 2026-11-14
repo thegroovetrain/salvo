@@ -171,6 +171,10 @@ import {
   FLASH_WINDOW_MS,
   effectiveSight,
   effectiveStats,
+  hullEnvelope,
+  boostedKinematics,
+  draftedKinematics,
+  hmToU,
   hullSilhouette,
   mulberry32,
   FOG_NO_CUT,
@@ -181,9 +185,11 @@ import {
   paintSeed,
   segPolygonHit,
   segmentPaintSeed,
+  smearArc,
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
+  type HullCoverage,
   type HullId,
   type ReturnBlipEvent,
   type BoomEvent,
@@ -471,6 +477,15 @@ const FOG_THIN_SEEN = { n: 0 };
 const FOG_HID_MINE_OR_TORP = { n: 0 };
 const FOG_HID_SM = { n: 0 };
 const RADAR_THROUGH_FOG = { n: 0 };
+
+/** Non-vacuity ledgers for THE ARC INVARIANT LINE (Story 11.3 — verifyArc):
+ *  hull, crate and wake paints checked at a range where the beam is many
+ *  cells wide (≥ ARC_FAR_U) AND the target's own angular width is under the
+ *  beam (less the arm's slack), so the bearing-span arm (a) is a claim the
+ *  target alone could not satisfy (Story 11.3 review, P8). */
+const ARC_HULL_FAR = { n: 0 };
+const ARC_CRATE_FAR = { n: 0 };
+const ARC_WAKE_FAR = { n: 0 };
 
 /** Non-vacuity ledgers for the cloud (the DECOY_PAINT_EXPECTED idiom).
  *  CLOUD_SIGHT_THROUGH: (observer, hull) pairs inside sight with island LOS
@@ -1184,7 +1199,7 @@ describe('perception — radar paint window (exact)', () => {
     const blips = blipsOf(buildFrame(w, 'a'));
     expect(blips).toHaveLength(1);
     expect(blips[0].t).toBe(w.now);
-    expect(maskEquals(maskOracle(w, DEFAULT_CLASS_ID, b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, a.state, DEFAULT_CLASS_ID, b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
   });
 
   it('does not paint outside the beam window', () => {
@@ -1215,7 +1230,7 @@ describe('perception — radar paint window (exact)', () => {
     expect(f.contacts.map((c) => c.id)).toEqual(['b']);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, a.state, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
     // ...and only when swept: the beam elsewhere leaves the contact alone.
     windowAround(a, Math.PI);
     const g = buildFrame(w, 'a');
@@ -2133,7 +2148,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     expect(f.contacts.map((c) => c.id)).toEqual(['b']);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1); // the zone no longer withholds the paint
-    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, a.state, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('the firer watches a zone-revealed ship die: boom (victim id KEPT) + sunk arrive', () => {
@@ -3437,7 +3452,7 @@ function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
     if (!blipPredicate(w, me, target.state)) continue;
     if (fogTollOracle(w, me.state, target.state).touched > 0) RADAR_THROUGH_FOG.n += 1; // Story 9.10: painted through fog
     const s = target.state;
-    out.push({ mask: maskOracle(w, target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
+    out.push({ mask: maskOracle(w, me.state, target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
   }
   return out;
 }
@@ -3451,7 +3466,7 @@ function expectedDropBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   for (const drop of w.drops.values()) {
     if (!blipPredicate(w, me, drop)) continue;
     DROP_PAINTED.n += 1;
-    out.push({ mask: discMaskOracle(drop.x, drop.y, w.now), label: `gated drop ${drop.id}` });
+    out.push({ mask: discMaskOracle(w, me.state, drop.x, drop.y, w.now), label: `gated drop ${drop.id}` });
   }
   return out;
 }
@@ -3854,11 +3869,53 @@ function bridgeOracle(out: Uint8Array, w: number, h: number): void {
   }
 }
 
-/** Test-local paint-pipeline oracle: sharp → fuzz(paintSeed(t, pose)) →
- *  tight-crop → LSB-first packing. `t` is the paint tick (the server stamps
- *  `t = now` and seeds the glint from it). */
-function maskOracle(w: World, cls: HullId, x: number, y: number, heading: number, t: number): MaskOracle {
-  const s = sharpOracle(cls, x, y, heading);
+/** A padded sharp grid (2 cells each side — `sharpOracle`'s shape). */
+interface PaddedOracle { grid: Uint8Array; w: number; h: number; gx0: number; gy0: number }
+
+/** The shipped beam (rad) and pulse (u) — the arc's two dials (Story 11.3). */
+const ARC_BEAM = (CONFIG.vision.beamDeg * Math.PI) / 180;
+const ARC_PULSE = hmToU(CONFIG.vision.pulseHm);
+
+/** Pack the inner (unpadded) rect of a padded grid into a mask on the SAME
+ *  rect — no crop: the arc's frame reads the sharp rect, so the oracle must
+ *  hand it the rect the production rasterizer builds. */
+function innerMaskOracle(s: PaddedOracle): HullCoverage {
+  const w = s.w - 4;
+  const h = s.h - 4;
+  const bits = new Array<number>(Math.ceil((w * h) / 32)).fill(0);
+  for (let row = 0; row < h; row++) {
+    for (let col = 0; col < w; col++) {
+      if (s.grid[(row + 2) * s.w + col + 2] === 1) bits[(row * w + col) >>> 5] |= 1 << ((row * w + col) & 31);
+    }
+  }
+  return { gx: s.gx0 + 2, gy: s.gy0 + 2, w, h, bits };
+}
+
+/** THE ARC, in the oracle (Story 11.3, R1–R4): the sharp core → the SHARED
+ *  `smearArc` at the shipped beam and pulse about the observer (the arc law
+ *  has its own contract tests, shared/src/__tests__/radarArc.test.ts; the
+ *  oracle replays the COMPOSITION independently) → re-padded 2 cells each
+ *  side for the fuzz. */
+function arcOracle(s: PaddedOracle, o: { x: number; y: number }): PaddedOracle {
+  const arc = smearArc(innerMaskOracle(s), o.x, o.y, RCELL_U, ARC_BEAM, ARC_PULSE);
+  const w = arc.w + 4;
+  const h = arc.h + 4;
+  const grid = new Uint8Array(w * h);
+  for (let row = 0; row < arc.h; row++) {
+    for (let col = 0; col < arc.w; col++) {
+      const i = row * arc.w + col;
+      if ((arc.bits[i >>> 5] & (1 << (i & 31))) !== 0) grid[(row + 2) * w + col + 2] = 1;
+    }
+  }
+  return { grid, w, h, gx0: arc.gx - 2, gy0: arc.gy - 2 };
+}
+
+/** Test-local paint-pipeline oracle: sharp → THE OBSERVER'S ARC (Story 11.3)
+ *  → fuzz(paintSeed(t, pose)) → tight-crop → LSB-first packing. `t` is the
+ *  paint tick (the server stamps `t = now` and seeds the glint from it); `o`
+ *  is the observer whose radar painted it. */
+function maskOracle(w: World, o: { x: number; y: number }, cls: HullId, x: number, y: number, heading: number, t: number): MaskOracle {
+  const s = arcOracle(sharpOracle(cls, x, y, heading), o);
   // THE SALT (Story 11.2 review gate, F1): the wire mask is fuzzed on the
   // room-private per-paint salt — the oracle asks the World for it, which a
   // client cannot.
@@ -3922,11 +3979,13 @@ function sharpDiscOracle(x: number, y: number, r: number): { grid: Uint8Array; w
 }
 
 /** The AIRDROP paint oracle (Story 10.9, R3): sharp disc of the crate radius
- *  → the SAME fuzz law as a hull, seeded from (paint tick, exact centre, a
- *  ZERO heading — a disc has none) → tight-crop → LSB-first packing. */
-function discMaskOracle(x: number, y: number, t: number): MaskOracle {
-  const s = sharpDiscOracle(x, y, CONFIG.drops.radiusU);
-  const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, 0));
+ *  → THE OBSERVER'S ARC (Story 11.3, R4: crates smear like hulls) → the SAME
+ *  fuzz law as a hull, seeded from (paint tick, exact centre, a ZERO heading —
+ *  a disc has none — and the room's per-paint 'crate' salt) → tight-crop →
+ *  LSB-first packing. */
+function discMaskOracle(w: World, o: { x: number; y: number }, x: number, y: number, t: number): MaskOracle {
+  const s = arcOracle(sharpDiscOracle(x, y, CONFIG.drops.radiusU), o);
+  const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, 0, w.paintSaltFor('crate', [t, x, y])));
   return packOracle(grid, s.w, s.h, s.gx0, s.gy0);
 }
 
@@ -3936,7 +3995,7 @@ function discMaskOracle(x: number, y: number, t: number): MaskOracle {
 function blipMatchesDrop(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   for (const drop of w.drops.values()) {
     if (!blipPredicate(w, me, drop)) continue;
-    if (maskEquals(discMaskOracle(drop.x, drop.y, w.now), ev)) return true;
+    if (maskEquals(discMaskOracle(w, me.state, drop.x, drop.y, w.now), ev)) return true;
   }
   return false;
 }
@@ -3954,12 +4013,13 @@ function maskEquals(a: MaskOracle, ev: GhostPaint): boolean {
  *  never an id, position, extent, or pose field). */
 function blipPoseMatches(
   w: World,
+  o: { x: number; y: number },
   ev: BlipEvent,
   cls: HullId,
   p: { x: number; y: number },
   heading: number,
 ): boolean {
-  return maskEquals(maskOracle(w, cls, p.x, p.y, heading, w.now), ev);
+  return maskEquals(maskOracle(w, o, cls, p.x, p.y, heading, w.now), ev);
 }
 
 /** True iff `ev` is a legitimate GENUINE ship paint. The payload carries NO
@@ -3970,7 +4030,7 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   for (const target of w.ships.values()) {
     if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
     if (!blipPredicate(w, me, target.state)) continue;
-    if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading)) return true;
+    if (blipPoseMatches(w, me.state, ev, target.hullId, target.state, target.state.heading)) return true;
   }
   return false;
 }
@@ -4007,6 +4067,171 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // The AIRDROP arm (Story 10.9, R3): a blip may instead be a gated crate's
   // fuzzed DISC footprint — the same four gate terms, keyed on the drop's id.
   expect(blipMatchesShip(w, me, ev) || blipMatchesDrop(w, me, ev)).toBe(true);
+  // THE ARC LINE (Story 11.3): the justified paint is an arc about THIS observer.
+  const truth = blipArcTruth(w, me, ev);
+  expect(truth, 'a justified blip has a subject to measure its arc against').not.toBeNull();
+  verifyArc(me, ev, truth!, 'blip');
+}
+
+// ---------------------------------------------------------------------------
+// THE ARC INVARIANT LINE (Story 11.3, Eric 2026-11-13, R1–R4) — beside the
+// master invariant, for EVERY radar paint (hull blip, crate blip, wake `wk`)
+// any observer receives across the scenario battery. Not an exception (the
+// count stays SIX): a tightening of what an already-justified paint may look
+// like. About THAT observer, the paint's lit cell centres must
+//   (a) span at least the beam in bearing, minus one lattice cell of slack
+//       per edge (a lit centre sits up to a cell inside the smeared edge —
+//       measured worst ~1.5 cells across both edges), so a far contact is
+//       never NARROWER than the beam allows (R2's superseding AC);
+//   (b) contain the target's TRUE bearing — the arc is centered (R2);
+//   (c) be no deeper along the line of sight than the target's own radial
+//       extent + the pulse + a fuzz bound (R3). FUZZ BOUND, per side: half a
+//       cell diagonal of lattice phase + a quarter cell of smearArc range-bin
+//       over-inclusion + √2 cells of 8-neighbour dilation + one cell of
+//       stretch + a bridge cell ≈ 4 cells → 8 cells across both sides. A
+//       wake has no dilation or stretch, so the bound is loose for it.
+// The target's radial extent is exact geometry (the hull's silhouette, the
+// crate's disc, the wake's capsule quad), measured from the observer.
+// ---------------------------------------------------------------------------
+
+/** u — the range past which a paint counts toward the ARC_*_FAR ledgers: the
+ *  beam is ~11 cells wide at 50 hm. */
+const ARC_FAR_U = hmToU(50);
+/** u — the fuzz/lattice depth bound (see the header above). */
+const ARC_DEPTH_FUZZ_U = 8 * RCELL_U;
+
+/** The measured truth a paint's arc is checked against: the target's centre
+ *  and its radial extent [rMin, rMax] about the observer. */
+interface ArcTruth { cx: number; cy: number; rMin: number; rMax: number; aWidth: number; kind: 'hull' | 'crate' | 'wake' }
+
+/** The angular width (rad) of a point set about `o`, bearings relative to the
+ *  bearing of (cx, cy) and wrapped to ±π. */
+function angularWidth(o: { x: number; y: number }, pts: readonly { x: number; y: number }[], cx: number, cy: number): number {
+  const brg = Math.atan2(cy - o.y, cx - o.x);
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of pts) {
+    const a = Math.atan2(p.y - o.y, p.x - o.x) - brg;
+    const rel = Math.atan2(Math.sin(a), Math.cos(a));
+    lo = Math.min(lo, rel);
+    hi = Math.max(hi, rel);
+  }
+  return hi - lo;
+}
+
+/** Distance from (px, py) to the segment a→b. */
+function pointSegDist(px: number, py: number, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / l2)) : 0;
+  return Math.hypot(px - (a.x + dx * t), py - (a.y + dy * t));
+}
+
+/** A polygon's radial extent about `o`: farthest vertex, nearest boundary
+ *  point (0 when `o` is inside). */
+function polyArcTruth(o: { x: number; y: number }, poly: readonly { x: number; y: number }[], cx: number, cy: number, kind: ArcTruth['kind']): ArcTruth {
+  let rMax = 0;
+  let rMin = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    rMax = Math.max(rMax, Math.hypot(poly[i].x - o.x, poly[i].y - o.y));
+    rMin = Math.min(rMin, pointSegDist(o.x, o.y, poly[i], poly[(i + 1) % poly.length]));
+  }
+  if (inPolyOracle(o.x, o.y, poly)) rMin = 0;
+  return { cx, cy, rMin, rMax, aWidth: angularWidth(o, poly, cx, cy), kind };
+}
+
+/** The subject a justified blip was matched to (the blipMatchesShip /
+ *  blipMatchesDrop quantifiers, returning the geometry instead of a flag). */
+function blipArcTruth(w: World, me: ShipRecord, ev: BlipEvent): ArcTruth | null {
+  for (const target of w.ships.values()) {
+    if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
+    if (!blipPredicate(w, me, target.state)) continue;
+    if (!blipPoseMatches(w, me.state, ev, target.hullId, target.state, target.state.heading)) continue;
+    const { x, y, heading } = target.state;
+    const c = Math.cos(heading);
+    const sn = Math.sin(heading);
+    const poly = hullSilhouette(target.hullId).map((p) => ({ x: x + c * p.x - sn * p.y, y: y + sn * p.x + c * p.y }));
+    return polyArcTruth(me.state, poly, x, y, 'hull');
+  }
+  for (const drop of w.drops.values()) {
+    if (!blipPredicate(w, me, drop)) continue;
+    if (!maskEquals(discMaskOracle(w, me.state, drop.x, drop.y, w.now), ev)) continue;
+    const d = Math.hypot(drop.x - me.state.x, drop.y - me.state.y);
+    const r = CONFIG.drops.radiusU;
+    return { cx: drop.x, cy: drop.y, rMin: Math.max(0, d - r), rMax: d + r, aWidth: d > r ? 2 * Math.asin(r / d) : 2 * Math.PI, kind: 'crate' };
+  }
+  return null;
+}
+
+/** The capsule quad of a wake segment (the wakeMaskOracle's own derivation). */
+function wakeArcTruth(o: { x: number; y: number }, seg: WakeSegOracle, widthU: number): ArcTruth {
+  const dx = seg.bx - seg.ax;
+  const dy = seg.by - seg.ay;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const ux = len > 0 ? dx / len : 1;
+  const uy = len > 0 ? dy / len : 0;
+  const hw = Number.isFinite(widthU) && widthU > 0 ? widthU / 2 : 0;
+  const quad = [
+    { x: seg.ax - ux * hw - uy * hw, y: seg.ay - uy * hw + ux * hw },
+    { x: seg.bx + ux * hw - uy * hw, y: seg.by + uy * hw + ux * hw },
+    { x: seg.bx + ux * hw + uy * hw, y: seg.by + uy * hw - ux * hw },
+    { x: seg.ax - ux * hw + uy * hw, y: seg.ay - uy * hw - ux * hw },
+  ];
+  return polyArcTruth(o, quad, seg.mx, seg.my, 'wake');
+}
+
+/** The lit cell centres' bearing span (relative to `brg`, wrapped to ±π) and
+ *  range span about `o`. */
+function litPolar(m: GhostPaint, o: { x: number; y: number }, brg: number): { lo: number; hi: number; rLo: number; rHi: number } {
+  const out = { lo: Infinity, hi: -Infinity, rLo: Infinity, rHi: -Infinity };
+  for (let row = 0; row < m.h; row++) {
+    for (let col = 0; col < m.w; col++) {
+      const i = row * m.w + col;
+      if ((m.bits[i >>> 5] & (1 << (i & 31))) === 0) continue;
+      const dx = (m.gx + col + 0.5) * RCELL_U - o.x;
+      const dy = (m.gy + row + 0.5) * RCELL_U - o.y;
+      const a = Math.atan2(dy, dx) - brg;
+      const rel = Math.atan2(Math.sin(a), Math.cos(a));
+      const r = Math.hypot(dx, dy);
+      out.lo = Math.min(out.lo, rel);
+      out.hi = Math.max(out.hi, rel);
+      out.rLo = Math.min(out.rLo, r);
+      out.rHi = Math.max(out.rHi, r);
+    }
+  }
+  return out;
+}
+
+/** THE ARC LINE for one paint (see the section header). */
+function verifyArc(me: ShipRecord, m: GhostPaint, t: ArcTruth, tag: string): void {
+  const o = me.state;
+  const range = Math.hypot(t.cx - o.x, t.cy - o.y);
+  if (!(range > 0)) return; // a paint on the antenna's own point has no bearing (the gate never paints one)
+  const brg = Math.atan2(t.cy - o.y, t.cx - o.x);
+  const p = litPolar(m, o, brg);
+  const label = `${tag} ${t.kind} @ ${range.toFixed(0)} u`;
+  // (a) never narrower than the beam (one cell of slack per edge).
+  expect(p.hi - p.lo, `${label}: bearing span ≥ beam`).toBeGreaterThanOrEqual(ARC_BEAM - (2 * RCELL_U) / range);
+  // (b) centered: the true bearing lies inside the span (within one cell of
+  // lattice phase — a near, unsmeared ribbon's cell centres can all sit just
+  // to one side of its exact midpoint bearing; far out the beam swamps it).
+  const cellAngle = RCELL_U / range;
+  expect(p.lo, `${label}: arc holds the true bearing (lo)`).toBeLessThanOrEqual(cellAngle);
+  expect(p.hi, `${label}: arc holds the true bearing (hi)`).toBeGreaterThanOrEqual(-cellAngle);
+  // (c) no deeper than the target's own extent + the pulse + the fuzz bound.
+  expect(p.rHi - p.rLo, `${label}: depth bound`).toBeLessThanOrEqual(t.rMax - t.rMin + ARC_PULSE + ARC_DEPTH_FUZZ_U);
+  if (range < ARC_FAR_U) return;
+  // (d) far: no WIDER than the target's own angular width plus the beam, plus
+  // the lattice and fuzz (a sharp cell centre within a cell diagonal of the
+  // target, then two fuzz cells — dilation + stretch — a side).
+  expect(p.hi - p.lo, `${label}: bearing span ≤ target + beam`).toBeLessThanOrEqual(t.aWidth + ARC_BEAM + (5 * Math.SQRT2 * RCELL_U) / range);
+  // The ledger counts a paint only where arm (a) is a real claim: the target
+  // alone is narrower than the beam less the arm's slack.
+  if (!(t.aWidth < ARC_BEAM - (2 * RCELL_U) / range)) return;
+  if (t.kind === 'hull') ARC_HULL_FAR.n += 1;
+  else if (t.kind === 'crate') ARC_CRATE_FAR.n += 1;
+  else ARC_WAKE_FAR.n += 1;
 }
 
 // shell AND torp share one verifier — with the fork by kind (Story 11.2, R4):
@@ -4275,11 +4500,28 @@ function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
 function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle): boolean {
   const mid = { x: seg.mx, y: seg.my };
   if (mid.x === me.state.x && mid.y === me.state.y) return false;
+  if (Math.hypot(seg.bx - seg.ax, seg.by - seg.ay) > LEGAL_WAKE_SEGMENT_U) return false;
   const d = dist(me.state, mid);
   if (d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
   return shadowVisible(w, me, mid);
 }
+
+/** u — the longest segment real water makes (Story 11.3 review, P6),
+ *  re-derived here: one sample cadence plus one tick of the fastest water-
+ *  layer (every hull with every card line at its cap, boosted and drafted;
+ *  every torpedo row at its cap). Longer is a pose teleported across a live
+ *  ring (these fixtures place hulls by fiat) and is never painted. */
+const LEGAL_WAKE_SEGMENT_U = ((): number => {
+  const every = Object.values(CATALOG).flatMap((l) => Array<string>(l.cap).fill(l.id));
+  let v: number = CONFIG.torpedo.speed;
+  for (const id of SHIP_CLASS_IDS) {
+    const st = effectiveStats(hullEnvelope(id), every);
+    v = Math.max(v, draftedKinematics(boostedKinematics(st.kinematics, CONFIG.boost.factor, true), CONFIG.wake.draft.lift, true).maxSpeed);
+    v = Math.max(v, st.equipment.lightTorpedo.speed, st.equipment.heavyTorpedo.speed, st.equipment.supercavTorpedo.speed);
+  }
+  return CONFIG.vision.wakeSampleU + (v * CONFIG.tick.simDtMs) / 1000;
+})();
 
 /** Test-local SEGMENT mask oracle (the maskOracle sibling, re-derived from
  *  the documented paintSegmentCoverage contract): capsule quad with square
@@ -4294,7 +4536,7 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle): boolean {
  *  primitives, the paintSeed precedent), the fixed-point diagonal bridge
  *  pass, LSB-first packing, and the tight CROP of what survived. NO dilation
  *  and NO stretch. */
-function wakeMaskOracle(w: World, ax: number, ay: number, bx: number, by: number, widthU: number, t: number): MaskOracle {
+function wakeMaskOracle(w: World, o: { x: number; y: number }, ax: number, ay: number, bx: number, by: number, widthU: number, t: number): MaskOracle {
   const dx = bx - ax;
   const dy = by - ay;
   // sqrt(dx²+dy²), NOT Math.hypot: the documented axis derivation — a
@@ -4341,13 +4583,55 @@ function wakeMaskOracle(w: World, ax: number, ay: number, bx: number, by: number
     prow = row;
   }
   for (let i = 0; i < cw * ch; i++) if (spine[i] === 1) grid[i] = 1; // spine ∪ fill
-  // THE PER-PAINT FLANK GLINT (P3): row-major, covered non-spine cells only.
+  // THE ARC (Story 11.3, R4): spine ∪ fill is smeared about the observer by
+  // the SHARED smearArc; the core is the spine's own arc (smearArc of the
+  // spine on the same rect), re-seated on the arc's rect. An observer within
+  // a cell of the rect gets no arc (smearArc returns its input), and the core
+  // is then the bare spine.
+  const coverMask = innerMaskOracle({ grid: padOracle(grid, cw, ch), w: cw + 4, h: ch + 4, gx0: gx - 2, gy0: gy - 2 });
+  const spineMask = innerMaskOracle({ grid: padOracle(spine, cw, ch), w: cw + 4, h: ch + 4, gx0: gx - 2, gy0: gy - 2 });
+  const arc = smearArc(coverMask, o.x, o.y, RCELL_U, ARC_BEAM, ARC_PULSE);
+  const coreMask = arc === coverMask ? spineMask : smearArc(spineMask, o.x, o.y, RCELL_U, ARC_BEAM, ARC_PULSE);
+  const ag = maskToGridOracle(arc, arc);
+  const core = maskToGridOracle(coreMask, arc);
+  // THE PER-PAINT FLANK GLINT (P3): row-major over the ARC's rect, covered
+  // non-core cells only.
   const rng = mulberry32(segmentPaintSeed(t, ax, ay, bx, by, w.paintSaltFor('wake', [t, ax, ay, bx, by]))); // F1: the room-private salt
   const glintP = CONFIG.vision.radarFuzz.glintP;
-  for (let i = 0; i < cw * ch; i++) {
-    if (grid[i] === 1 && spine[i] !== 1 && rng.next() < glintP) grid[i] = 0;
+  for (let i = 0; i < arc.w * arc.h; i++) {
+    if (ag[i] === 1 && core[i] !== 1 && rng.next() < glintP) ag[i] = 0;
   }
-  bridgeOracle(grid, cw, ch); // the same fixed-point rule, reused test-locally
+  bridgeOracle(ag, arc.w, arc.h); // the same fixed-point rule, reused test-locally
+  return cropPackOracle(ag, arc.w, arc.h, arc.gx, arc.gy);
+}
+
+/** A bare `cw × ch` grid padded 2 cells each side (`innerMaskOracle`'s input). */
+function padOracle(g: Uint8Array, cw: number, ch: number): Uint8Array {
+  const out = new Uint8Array((cw + 4) * (ch + 4));
+  for (let row = 0; row < ch; row++) {
+    for (let col = 0; col < cw; col++) out[(row + 2) * (cw + 4) + col + 2] = g[row * cw + col];
+  }
+  return out;
+}
+
+/** `m`'s lit cells on `rect`'s grid (absolute lattice; cells outside dropped). */
+function maskToGridOracle(m: HullCoverage, rect: HullCoverage): Uint8Array {
+  const out = new Uint8Array(rect.w * rect.h);
+  for (let row = 0; row < m.h; row++) {
+    for (let col = 0; col < m.w; col++) {
+      const i = row * m.w + col;
+      if ((m.bits[i >>> 5] & (1 << (i & 31))) === 0) continue;
+      const c = m.gx + col - rect.gx;
+      const r = m.gy + row - rect.gy;
+      if (c >= 0 && r >= 0 && c < rect.w && r < rect.h) out[r * rect.w + c] = 1;
+    }
+  }
+  return out;
+}
+
+/** CROP a grid at absolute origin (gx, gy) to its covered bbox and pack it
+ *  LSB-first (the core guarantees at least one cell). */
+function cropPackOracle(grid: Uint8Array, cw: number, ch: number, gx: number, gy: number): MaskOracle {
   // CROP to the covered bbox (the spine guarantees at least one cell).
   let minC = cw;
   let minR = ch;
@@ -4383,7 +4667,11 @@ function wakeMatchesSegment(w: World, me: ShipRecord, ev: WakeBlipEvent): boolea
   for (const ribbon of w.wakeRibbons) {
     for (const seg of wakeSegmentsOracle(ribbon, w.now)) {
       if (seg.bucket !== ev.a || !wakeDisclosed(w, me, seg)) continue;
-      if (maskEquals(wakeMaskOracle(w, seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now), ev as unknown as ReturnBlipEvent)) return true;
+      if (!maskEquals(wakeMaskOracle(w, me.state, seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now), ev as unknown as ReturnBlipEvent)) continue;
+      // THE ARC LINE (Story 11.3, R4): the justified segment paint is an arc
+      // about THIS observer, like a hull's.
+      verifyArc(me, ev, wakeArcTruth(me.state, seg, ribbon.widthU), 'wk');
+      return true;
     }
   }
   return false;
@@ -4423,7 +4711,7 @@ function verifyWakeCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
     for (const seg of wakeSegmentsOracle(ribbon, w.now)) {
       if (!wakeDisclosed(w, me, seg)) continue;
       gated++;
-      const expected = wakeMaskOracle(w, seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now);
+      const expected = wakeMaskOracle(w, me.state, seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, w.now);
       expect(
         wks.some((b) => b.a === seg.bucket && maskEquals(expected, b as unknown as ReturnBlipEvent)),
         `gated wake segment (${seg.ax},${seg.ay})→(${seg.bx},${seg.by}) accounted for`,
@@ -4771,6 +5059,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     FOG_HID_MINE_OR_TORP.n = 0;
     FOG_HID_SM.n = 0;
     RADAR_THROUGH_FOG.n = 0;
+    ARC_HULL_FAR.n = 0;
+    ARC_CRATE_FAR.n = 0;
+    ARC_WAKE_FAR.n = 0;
     PLAIN_SEEN.n = 0;
     PLAIN_DEMANDED.n = 0;
     let plainRevisits = 0; // Story 11.2: proves a plain hull left the band and came back under a new handle
@@ -5370,6 +5661,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(FOG_HID_MINE_OR_TORP.n).toBeGreaterThan(0);
     expect(FOG_HID_SM.n).toBeGreaterThan(0);
     expect(RADAR_THROUGH_FOG.n).toBeGreaterThan(0);
+    // THE ARC LINE (Story 11.3) was exercised far out, where the beam is
+    // many cells wide, for every paint source the battery produces.
+    if (process.env.HC_PERF_LOG) console.log(`arc ledgers: hull ${ARC_HULL_FAR.n} | crate ${ARC_CRATE_FAR.n} | wake ${ARC_WAKE_FAR.n}`);
+    expect(ARC_HULL_FAR.n).toBeGreaterThan(0);
+    expect(ARC_CRATE_FAR.n).toBeGreaterThan(0);
+    expect(ARC_WAKE_FAR.n).toBeGreaterThan(0);
   });
 });
 
@@ -5424,7 +5721,7 @@ describe('perception — the invariant still catches a genuine leak (Story 8.16)
     // Forge the exact payload a leaking blip path would emit for `h` — its
     // true pose rasterized+fuzzed for this tick — and assert the oracle
     // REFUSES it: it matches no gated ship.
-    const forged = maskOracle(w, h.hullId, h.state.x, h.state.y, h.state.heading, w.now);
+    const forged = maskOracle(w, w.ships.get('a')!.state, h.hullId, h.state.x, h.state.y, h.state.heading, w.now);
     const forgedFrame = buildFrame(w, 'a');
     forgedFrame.events.push({ k: 'blip', t: w.now, gx: forged.gx, gy: forged.gy, w: forged.w, h: forged.h, bits: forged.bits });
     expect(() => verifyFrame(w, 'a', forgedFrame)).toThrow();
@@ -5465,7 +5762,7 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
     verifyFrame(w, 'a', legit); // the honest frame passes: two twin paints + one
     const blips = legit.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
     expect(blips).toHaveLength(3);
-    const twinMask = maskOracle(w, DEFAULT_CLASS_ID, ANNULUS_D, 0, 0, w.now);
+    const twinMask = maskOracle(w, me.state, DEFAULT_CLASS_ID, ANNULUS_D, 0, 0, w.now);
     const twinBlips = blips.filter((b) => maskEquals(twinMask, b));
     const other = blips.find((b) => !maskEquals(twinMask, b))!;
     expect(twinBlips).toHaveLength(2);
@@ -5562,7 +5859,7 @@ describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendme
     const blips = blipsOf(f);
     expect(blips).toHaveLength(3);
     for (const ship of [b, p, c]) {
-      expect(blips.some((e) => maskEquals(maskOracle(w, ship.hullId, ship.state.x, ship.state.y, ship.state.heading, w.now), e))).toBe(true);
+      expect(blips.some((e) => maskEquals(maskOracle(w, a.state, ship.hullId, ship.state.x, ship.state.y, ship.state.heading, w.now), e))).toBe(true);
     }
     // Neither the blip nor the plain row carries an identity.
     const wire = JSON.stringify(f.contacts) + JSON.stringify(f.events) + JSON.stringify(f.pc);
@@ -5860,7 +6157,7 @@ describe('perception — amendment 210: the server returns the entire sweep', ()
     expect(f.contacts.map((c) => c.id)).toEqual(['b']);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, a.state, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('observer in SOLID fog, hull in clear water inside sight whose ray pays its way out: no contact, yet a blip', () => {
@@ -5876,7 +6173,7 @@ describe('perception — amendment 210: the server returns the entire sweep', ()
     expect(f.contacts).toEqual([]);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, a.state, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('a hull behind a LOW island inside sight: no contact (eye: binary island LOS), a PARTIAL blip (radar: the shadow march)', () => {
@@ -5897,7 +6194,7 @@ describe('perception — amendment 210: the server returns the entire sweep', ()
     expect(f.contacts).toEqual([]);
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
-    expect(maskEquals(maskOracle(w, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
+    expect(maskEquals(maskOracle(w, a.state, b.hullId, b.state.x, b.state.y, b.state.heading, w.now), blips[0])).toBe(true);
   });
 
   it('a hull behind HARD cover (at or above mast height) inside sight: nothing on either channel', () => {
