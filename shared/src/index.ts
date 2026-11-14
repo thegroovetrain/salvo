@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  107 — Story 11.3 THE ARC (2026-11-13, Eric's rulings R1–R6; cycle and
+ *  version stamped at PR time): no wire shape change — every radar paint
+ *  (`blip` hull and crate, `wk`) is now smeared about its observer into an
+ *  arc (beam in bearing, pulse in range) before the fuzz, so masks are wider
+ *  and per observer; the client reads the new `vision.beamDeg` /
+ *  `vision.pulseHm` for its paint-size validators (render/radar.ts).
  *  106 — GUN CADENCE RETUNE (2026-11-13, Eric; epic-11 amendment
  *  9; cycle 232, 0.19.26): wire shape — `OwnShip.sec` loses
  *  `locked` (full heat never locks any more; it carries `heat` only). The
@@ -1090,7 +1096,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 106;
+export const PROTOCOL_VERSION = 107;
 
 // Tunables
 export * from './constants.js';

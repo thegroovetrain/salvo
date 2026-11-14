@@ -39,11 +39,14 @@
 // (amendments 66 + 151) — and the calibration proving both lives in
 // shared/src/__tests__/radarRaster.test.ts.
 //
-// GEOMETRY ONLY. No intensity, no falloff, no reflectivity, no observer: the
-// footprint is a pure function of (hull id, pose, cell size, paint seed),
-// which is what makes it world-anchored — every observer painting this hull
-// this tick receives the identical mask, and moving the observer moves
-// nothing.
+// GEOMETRY ONLY. No intensity, no falloff, no reflectivity. Since THE ARC
+// (Story 11.3, Eric 2026-11-13, R1–R4) the footprint is a pure function of
+// (hull id, pose, cell size, paint seed, OBSERVER POSITION): every paint is
+// smeared about its observer by the radar beam in bearing and the pulse in
+// range (`smearArc`, sim/radarArc.ts) before the fuzz, so two observers
+// painting one hull in one tick receive DIFFERENT masks, each centered on its
+// own bearing. Still world-anchored (absolute lattice), and still no id,
+// class, heading or exact position on the wire.
 //
 // THE CELL SIZE IS `CONFIG.vision.radarCellU`, the shared radar grid
 // resolution. It is gameplay-authoritative (it decides what the wire says),
@@ -53,6 +56,8 @@
 import { CONFIG, type HullId } from '../constants.js';
 import { mulberry32 } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
+import { hmToU } from './hm.js';
+import { smearArc } from './radarArc.js';
 import { hullSilhouette, pointInPolygon, transformPolygon } from './silhouette.js';
 
 /**
@@ -467,9 +472,10 @@ const SEG_SEED_U32 = new Uint32Array(SEG_SEED_F64.buffer);
  * same stretch of water draws a fresh glint every revolution; the inputs are
  * the EXACT float endpoints while the wire carries only cell-quantized
  * coverage, so a modified client cannot reconstruct the seed to invert the
- * glint and template-fit the sharp ribbon back out. Deterministic and
- * observer-free: every observer painting this segment this tick derives the
- * identical seed (which is what keeps the server's one-slot mask memo sound).
+ * glint and template-fit the sharp ribbon back out. Deterministic, and the
+ * SEED is observer-free (every observer painting this segment this tick
+ * derives the identical seed) — but since Story 11.3 the MASK is not: the
+ * glint runs on the observer's arc (`paintSegmentCoverage`).
  */
 export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, by: number, salt = 0): number {
   SEG_SEED_F64[0] = t;
@@ -603,7 +609,9 @@ export function paintSegmentCoverage(
   widthU: number,
   cellU: number,
   t: number,
-  salt = 0,
+  salt: number,
+  ox: number,
+  oy: number,
 ): HullCoverage {
   const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
   const degenerate = degenerateSegment(ax, ay, bx, by, grid);
@@ -617,11 +625,29 @@ export function paintSegmentCoverage(
   const spine: HullCoverage = { gx: cover.gx, gy: cover.gy, w: cover.w, h: cover.h, bits: new Array<number>(cover.bits.length).fill(0) };
   walkSegmentCells(spine, sx, sy, ex, ey, grid);
   for (let i = 0; i < cover.bits.length; i++) cover.bits[i] |= spine.bits[i];
+  // THE ARC (Story 11.3, R4): the sharp ribbon is smeared about the observer
+  // BEFORE the glint; the spine stays the never-dropped core, re-seated on
+  // the arc's rect (the arc always contains the sharp mask).
+  const arc = radarArcOf(cover, ox, oy, grid);
+  const core = arc === cover ? spine : rebaseCoverage(radarArcOf(spine, ox, oy, grid), arc);
   // A non-finite paint time still hashes deterministically (Float64Array
   // canonicalizes NaN), so no sanitization — mirror paintSeed exactly.
-  glintSegmentFlanks(cover, spine, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey, salt)));
-  bridgeCoverageDiagonals(cover);
-  return cropPackedCoverage(cover);
+  glintSegmentFlanks(arc, core, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey, salt)));
+  bridgeCoverageDiagonals(arc);
+  return cropPackedCoverage(arc);
+}
+
+/** `src`'s covered cells re-seated on `onto`'s rect (same absolute lattice;
+ *  cells outside `onto` are dropped — the arc contains the sharp mask, so
+ *  none are in practice). A fresh mask; `onto` is only read for its rect. */
+function rebaseCoverage(src: HullCoverage, onto: HullCoverage): HullCoverage {
+  const out: HullCoverage = { gx: onto.gx, gy: onto.gy, w: onto.w, h: onto.h, bits: new Array<number>(onto.bits.length).fill(0) };
+  for (let row = 0; row < src.h; row++) {
+    for (let col = 0; col < src.w; col++) {
+      if (coverageHas(src, col, row)) setBitInRect(out, src.gx - onto.gx + col, src.gy - onto.gy + row);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -646,9 +672,10 @@ const SEED_U32 = new Uint32Array(SEED_F64.buffer);
  * client cannot reconstruct the seed to invert the jitter and template-fit the
  * sharp mask back out.
  *
- * DETERMINISTIC AND OBSERVER-FREE by construction: every observer painting
- * this hull this tick derives the identical seed, so the wire mask stays
- * observer-independent (and per-(ship, tick) caching stays sound).
+ * DETERMINISTIC, AND THE SEED IS OBSERVER-FREE: every observer painting this
+ * hull this tick derives the identical seed. The MASK is per observer since
+ * Story 11.3 (the arc is smeared about the observer before this fuzz runs),
+ * so a mask cache must key on the observer too (signals.ts's memos do).
  */
 export function paintSeed(t: number, x: number, y: number, heading: number, salt = 0): number {
   SEED_F64[0] = t;
@@ -849,8 +876,15 @@ function coveredBounds(work: Uint8Array, w: number, h: number): [number, number,
  *
  * `salt` (Story 11.2 review gate, F1): the server passes a per-paint salt
  * minted from a room-private key, so its fuzz cannot be replayed from the
- * pose a contact row discloses; 0 (the default) is the unsalted public seed
- * for callers with no key — see `saltSeed`.
+ * pose a contact row discloses; 0 is the unsalted public seed for callers
+ * with no key — see `saltSeed`.
+ *
+ * THE ARC (Story 11.3, R1–R4): `(ox, oy)` is the OBSERVER — the antenna whose
+ * paint this is. The sharp raster is smeared about it by the shipped beam and
+ * pulse (`radarArcOf`) BEFORE the fuzz, so the pipeline is sharp → arc →
+ * fuzz, and the mask is a function of the observer's position. An observer
+ * within a cell of the hull gets the sharp raster (smearArc's degrade
+ * ladder); the fuzz, its seed and its salt are unchanged.
  */
 export function paintCoverage(
   cls: HullId,
@@ -859,10 +893,21 @@ export function paintCoverage(
   heading: number,
   cellU: number,
   t: number,
-  salt = 0,
+  salt: number,
+  ox: number,
+  oy: number,
 ): HullCoverage {
   const sharp = rasterizeHullCoverage(cls, x, y, heading, cellU);
-  return fuzzCoverage(sharp, paintSeed(t, x, y, heading, salt), CONFIG.vision.radarFuzz);
+  return fuzzCoverage(radarArcOf(sharp, ox, oy, cellU), paintSeed(t, x, y, heading, salt), CONFIG.vision.radarFuzz);
+}
+
+/**
+ * THE SHIPPED ARC (Story 11.3, R1 + R3): `smearArc` at the radar's own beam
+ * (`CONFIG.vision.beamDeg`, in radians) and pulse (`CONFIG.vision.pulseHm`,
+ * in u) — the one place the three paint pipelines read the two dials.
+ */
+export function radarArcOf(sharp: HullCoverage, ox: number, oy: number, cellU: number): HullCoverage {
+  return smearArc(sharp, ox, oy, cellU, (CONFIG.vision.beamDeg * Math.PI) / 180, hmToU(CONFIG.vision.pulseHm));
 }
 
 // ---------------------------------------------------------------------------
@@ -933,13 +978,16 @@ export function rasterizeDiscCoverage(x: number, y: number, rU: number, cellU: n
 
 /**
  * THE CRATE'S PAINT, whole: the disc imprint (`rasterizeDiscCoverage`) → the
- * per-paint fuzz at the shipped `CONFIG.vision.radarFuzz`, seeded from (paint
- * time, exact centre) through the hull's own `paintSeed` with a zero heading
- * (a disc has none). Exactly `paintCoverage`'s pipeline with the disc as the
- * sharp mask, so a drop's return and a hull's return are the same artifact by
- * construction. Deterministic in (x, y, rU, cellU, t); observer-free.
+ * observer's arc (`radarArcOf`, Story 11.3, R4) → the per-paint fuzz at the
+ * shipped `CONFIG.vision.radarFuzz`, seeded from (paint time, exact centre,
+ * `salt`) through the hull's own `paintSeed` with a zero heading (a disc has
+ * none). Exactly `paintCoverage`'s pipeline with the disc as the sharp mask,
+ * so a drop's return and a hull's return are the same artifact by
+ * construction. `salt` is the server's per-paint salt (game/paintSalt.ts,
+ * kind 'crate'; 0 = unsalted). Deterministic in (x, y, rU, cellU, t, salt,
+ * ox, oy).
  */
-export function paintDiscCoverage(x: number, y: number, rU: number, cellU: number, t: number): HullCoverage {
+export function paintDiscCoverage(x: number, y: number, rU: number, cellU: number, t: number, salt: number, ox: number, oy: number): HullCoverage {
   const sharp = rasterizeDiscCoverage(x, y, rU, cellU);
-  return fuzzCoverage(sharp, paintSeed(t, x, y, 0), CONFIG.vision.radarFuzz);
+  return fuzzCoverage(radarArcOf(sharp, ox, oy, cellU), paintSeed(t, x, y, 0, salt), CONFIG.vision.radarFuzz);
 }

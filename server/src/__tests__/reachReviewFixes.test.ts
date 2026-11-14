@@ -76,6 +76,10 @@ function plainPoses(n: number, seed: number): { x: number; y: number; heading: n
   });
 }
 
+/** The observer `paintOne` paints for — `a` at the origin, whose own position a
+ *  modified client knows exactly (Story 11.3: the replay smears about it). */
+const ORIGIN = { x: 0, y: 0 };
+
 /** One plain-band hull painted for observer `a` at the origin: the frame's
  *  plain contact (what the eye gives) and blip (what the radar gives). */
 function paintOne(w: World, pose: { x: number; y: number; heading: number; cls: HullId }): { pc: NonNullable<FrameMsg['pc']>[number]; blip: BlipEvent } {
@@ -100,10 +104,10 @@ describe('F1 — the radar paint of a plain hull does not give up its class to a
     for (const pose of plainPoses(SAMPLES, 0xa11)) {
       const { pc, blip } = paintOne(w, pose);
       // Everything a modified client holds: pc.x / pc.y / pc.heading, blip.t, the lattice, the four hulls.
-      const guesses = SHIP_CLASS_IDS.filter((cls) => same(paintCoverage(cls, pc.x, pc.y, pc.heading, CELL, blip.t), maskOf(blip)));
+      const guesses = SHIP_CLASS_IDS.filter((cls) => same(paintCoverage(cls, pc.x, pc.y, pc.heading, CELL, blip.t, 0, ORIGIN.x, ORIGIN.y), maskOf(blip)));
       if (guesses.length > 0) replayed += 1;
       // The wiring: the wire mask IS the shared pipeline under this room's salt.
-      expect(maskOf(blip)).toEqual(wirePaint(w, pose.cls, pose.x, pose.y, pose.heading));
+      expect(maskOf(blip)).toEqual(wirePaint(w, ORIGIN, pose.cls, pose.x, pose.y, pose.heading));
     }
     expect(replayed).toBeLessThan(SAMPLES / 4);
   });
@@ -138,11 +142,11 @@ describe('F1 — the radar paint of a plain hull does not give up its class to a
       const widthU = widths[k % widths.length];
       const seg: WakeSubject = { x: ax + (Math.cos(ang) * len) / 2, y: ay + (Math.sin(ang) * len) / 2, ax, ay, bx: ax + Math.cos(ang) * len, by: ay + Math.sin(ang) * len, bucket: 0, widthU };
       const wire = maskOf(SIGNAL_REGISTRY.wk.materialize(ctx, seg));
-      expect(wire).toEqual(wireWakePaint(w, seg.ax, seg.ay, seg.bx, seg.by, widthU));
-      const publicMask = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, widthU, CELL, w.now);
+      expect(wire).toEqual(wireWakePaint(w, a.state, seg.ax, seg.ay, seg.bx, seg.by, widthU));
+      const publicMask = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, widthU, CELL, w.now, 0, a.state.x, a.state.y);
       // Only a segment whose glint actually differs under another seed can tell the two apart.
-      if (!same(publicMask, paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, widthU, CELL, w.now + CONFIG.tick.simDtMs))) glinted += 1;
-      if (widths.some((cand) => same(paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, cand, CELL, w.now), wire))) replayed += 1;
+      if (!same(publicMask, paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, widthU, CELL, w.now + CONFIG.tick.simDtMs, 0, a.state.x, a.state.y))) glinted += 1;
+      if (widths.some((cand) => same(paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, cand, CELL, w.now, 0, a.state.x, a.state.y), wire))) replayed += 1;
     }
     expect(glinted).toBeGreaterThan(SAMPLES / 2); // premise: these segments DO scintillate
     expect(replayed).toBeLessThan(glinted / 2);

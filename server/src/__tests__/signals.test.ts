@@ -6,9 +6,9 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
-import { wirePaint } from './paintFixture.js';
+import { wireCratePaint, wirePaint } from './paintFixture.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
@@ -232,7 +232,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
     expect(Object.keys(wire as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
-    const c = wirePaint(w, DEFAULT_CLASS_ID, B_X, 0, 1.2);
+    const c = wirePaint(w, a.state, DEFAULT_CLASS_ID, B_X, 0, 1.2);
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
@@ -423,7 +423,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(paint)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']); // the one blip key order (blipShape's)
     expect(paint.k).toBe('blip');
     expect(paint.t).toBe(w.now);
-    const disc = paintDiscCoverage(swept.x, swept.y, CONFIG.drops.radiusU, CONFIG.vision.radarCellU, w.now);
+    const disc = wireCratePaint(w, me.state, swept.x, swept.y);
     expect({ gx: paint.gx, gy: paint.gy, w: paint.w, h: paint.h, bits: paint.bits }).toEqual(disc);
     for (const forbidden of ['id', 'x', 'y', 'c', 'g', 'kind', 'rolls', 'cls', 'heading', 'src']) expect(forbidden in paint).toBe(false);
     // The same crate off the swept bearing, beyond radar range, or behind hard cover: no paint.

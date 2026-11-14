@@ -89,6 +89,7 @@ import {
   associatePaint,
   foldWakeCells,
   isCrateSizedPaint,
+  paintLongestSideU,
   lineBlocked,
   nearestPredicted,
   paintCenter,
@@ -451,9 +452,18 @@ function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
  *  A CRATE-SIZED paint (Story 10.9, `CONFIG.bots.cratePaintMaxU`) is an
  *  airdrop's disc imprint and never becomes a hostile track. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
-  if (isCrateSizedPaint(e)) return;
+  if (crateSized(e, fx.at)) return;
   const c = paintCenter(e);
   if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, fx);
+}
+
+/** The crate filter from where the bot stands (Story 11.3: a paint is an arc
+ *  about its observer — ai/plot.ts `isCrateSizedPaint`). A fold with no site
+ *  (a hand-built test fold that passes no `FoldSweep`) has no observer to
+ *  de-smear about and falls back to the pre-arc raw rect measure. */
+function crateSized(e: BlipEvent, at: Vec2 | null): boolean {
+  if (at === null) return paintLongestSideU(e) < CONFIG.bots.cratePaintMaxU;
+  return isCrateSizedPaint(e, at.x, at.y);
 }
 
 /** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown
@@ -608,6 +618,9 @@ interface FoldCtx {
    *  plain hulls (Story 11.2) alike: a paint on one of them is its own echo
    *  and is not folded (foldBlip, amendment 210). */
   sighted: readonly Vec2[];
+  /** The bot's own position (its `FoldSweep` site) — the observer every
+   *  paint's arc is smeared about (Story 11.3); null on a site-less fold. */
+  at: Vec2 | null;
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -717,6 +730,7 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
     sunkNow: new Set(),
     volleys: volleyLedger(mind),
     sighted: [...view.contacts, ...view.plain],
+    at: sweep === undefined ? null : { x: sweep.site.x, y: sweep.site.y },
   };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);

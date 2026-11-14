@@ -29,6 +29,8 @@ import {
 
 const D = CONFIG.drops;
 const CELL = CONFIG.vision.radarCellU;
+/** A far observer (Story 11.3): every crate paint is an arc about one. */
+const OBS = { x: -3000, y: 500 };
 
 describe('dropCountFor — the count law', () => {
   it('scatters perMinuteRemaining × untilMinute at minute 0', () => {
@@ -276,23 +278,23 @@ describe('isDropRoll — the fail-closed ingest gate', () => {
 
 describe('paintDiscCoverage — the crate imprint on the radar grid', () => {
   it('is deterministic for a fixed paint time', () => {
-    expect(paintDiscCoverage(123.4, -56.7, D.radiusU, CELL, 5000)).toEqual(
-      paintDiscCoverage(123.4, -56.7, D.radiusU, CELL, 5000),
+    expect(paintDiscCoverage(123.4, -56.7, D.radiusU, CELL, 5000, 0, OBS.x, OBS.y)).toEqual(
+      paintDiscCoverage(123.4, -56.7, D.radiusU, CELL, 5000, 0, OBS.x, OBS.y),
     );
   });
 
   it('covers at least one cell, the crate cell included', () => {
     const x = 123.4;
     const y = -56.7;
-    const c = paintDiscCoverage(x, y, D.radiusU, CELL, 5000);
+    const c = paintDiscCoverage(x, y, D.radiusU, CELL, 5000, 0, OBS.x, OBS.y);
     expect(coverageCellCount(c)).toBeGreaterThan(0);
     expect(coverageHas(c, Math.floor(x / CELL) - c.gx, Math.floor(y / CELL) - c.gy)).toBe(true);
   });
 
   it('a disc of radius ≥ a few cells covers more cells than one of radius ≤ half a cell', () => {
     for (const t of [0, 1000, 77_777]) {
-      const small = paintDiscCoverage(400.5, 400.5, CELL / 2, CELL, t);
-      const big = paintDiscCoverage(400.5, 400.5, 3 * CELL, CELL, t);
+      const small = paintDiscCoverage(400.5, 400.5, CELL / 2, CELL, t, 0, OBS.x, OBS.y);
+      const big = paintDiscCoverage(400.5, 400.5, 3 * CELL, CELL, t, 0, OBS.x, OBS.y);
       expect(coverageCellCount(big)).toBeGreaterThan(coverageCellCount(small));
     }
   });
@@ -303,7 +305,7 @@ describe('paintDiscCoverage — the crate imprint on the radar grid', () => {
       [17.3, 4.4, 50],
       [-901.2, 333.9, 12_345],
     ]) {
-      const c = paintDiscCoverage(x, y, D.radiusU, CELL, t);
+      const c = paintDiscCoverage(x, y, D.radiusU, CELL, t, 0, OBS.x, OBS.y);
       expect(c.gx).toBeLessThanOrEqual(Math.floor((x - D.radiusU) / CELL));
       expect(c.gy).toBeLessThanOrEqual(Math.floor((y - D.radiusU) / CELL));
       expect(c.gx + c.w - 1).toBeGreaterThanOrEqual(Math.floor((x + D.radiusU) / CELL));
@@ -329,7 +331,7 @@ describe('paintDiscCoverage — the crate imprint on the radar grid', () => {
 
   it('degrades to one cell on a non-finite centre, radius or lattice', () => {
     for (const c of [
-      paintDiscCoverage(NaN, 0, D.radiusU, CELL, 0),
+      paintDiscCoverage(NaN, 0, D.radiusU, CELL, 0, 0, OBS.x, OBS.y),
       rasterizeDiscCoverage(NaN, 0, D.radiusU, CELL),
       rasterizeDiscCoverage(5, 5, NaN, CELL),
       rasterizeDiscCoverage(5, 5, -1, CELL),

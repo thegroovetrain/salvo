@@ -15,6 +15,7 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
+  hmToU,
   hullEnvelope,
   mulberry32,
   launcherAimPoint,
@@ -39,6 +40,7 @@ import {
   fitWakeVelocity,
   foldWakeCells,
   isCrateSizedPaint,
+  paintExtentU,
   paintLongestSideU,
   paintVelocity,
   predictedAssocRadius,
@@ -119,6 +121,18 @@ function cellCentre(x: number, y: number): { x: number; y: number } {
  *  (Story 10.9). The centroid is exactly the one-cell paint's. */
 function blipAt(x: number, y: number, t: number): GameEvent {
   return { k: 'blip', t, gx: Math.floor(x / CELL) - 5, gy: Math.floor(y / CELL), w: 11, h: 1, bits: [0x7ff] };
+}
+
+/** A HULL-SIZED radar paint for a fold that knows its SITE (Story 11.3: the
+ *  crate filter then reads the paint's de-smeared extent about the bot —
+ *  `paintExtentU`): a 17 × 17 all-lit block centred on (x, y)'s cell, whose
+ *  radial depth beats the pulse plus `CONFIG.bots.cratePaintMaxU` at every
+ *  bearing. Symmetric, so its lit-cell centroid is the one-cell paint's. */
+function siteBlipAt(x: number, y: number, t: number): GameEvent {
+  const n = 17;
+  const bits = new Array<number>(Math.ceil((n * n) / 32)).fill(0);
+  for (let i = 0; i < n * n; i++) bits[i >> 5] |= 1 << (i & 31);
+  return { k: 'blip', t, gx: Math.floor(x / CELL) - 8, gy: Math.floor(y / CELL) - 8, w: n, h: n, bits };
 }
 
 /** A one-cell wake segment at (x, y) in age bucket `a`. */
@@ -325,7 +339,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     expect(m.contacts.get('s1')!.live).toBe(true);
     // Out of the bubble: one tick dark, then the beam crosses it ~1 s later at 293 u.
     foldView(m, view([]), NOW + 50, { beam: { lastSweep: 3, sweepAngle: 3.05 }, site: SITE2 });
-    foldView(m, view([blipAt(293, 0, NOW + 1000)]), NOW + 1000, { beam: { lastSweep: 2 * Math.PI - 0.05, sweepAngle: 0.05 }, site: SITE2 });
+    foldView(m, view([siteBlipAt(293, 0, NOW + 1000)]), NOW + 1000, { beam: { lastSweep: 2 * Math.PI - 0.05, sweepAngle: 0.05 }, site: SITE2 });
     expect([...m.contacts.keys()]).toEqual(['s1']);
     const t = m.contacts.get('s1')!;
     expect(t.paintAt).toBe(NOW + 1000);
@@ -571,7 +585,7 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
         const cur = (0.05 + k * STEP) % (2 * Math.PI);
         // The hull runs 80 u AHEAD of the prediction (~15° of bearing): its paint lands when the beam gets there.
         const hb = Math.atan2(80, 300);
-        const events: GameEvent[] = paintHull && hb >= last && hb < cur ? [blipAt(300, 80, at)] : [];
+        const events: GameEvent[] = paintHull && hb >= last && hb < cur ? [siteBlipAt(300, 80, at)] : [];
         foldView(m, view(events), at, { beam: { lastSweep: last, sweepAngle: cur }, site: SITE });
         last = cur;
         if (k === 2) expect(m.contacts.has('c')).toBe(true); // grace run, band not cleared: kept
@@ -660,7 +674,7 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     const c = cellCentre(500, 0);
     m.contacts.set('A', anon({ ...c, seenAt: NOW - 4000, paintX: c.x, paintY: c.y, paintAt: NOW - 4000 }));
     m.contacts.set('B', anon({ x: c.x + 18, y: c.y, seenAt: NOW - 4000, paintX: c.x + 18, paintY: c.y, paintAt: NOW - 4000 }));
-    foldView(m, view([blipAt(500, 0, NOW), blipAt(500, 0, NOW)]), NOW, { beam: ACROSS, site: SITE });
+    foldView(m, view([siteBlipAt(500, 0, NOW), siteBlipAt(500, 0, NOW)]), NOW, { beam: ACROSS, site: SITE });
     expect(m.contacts.size).toBe(2);
     for (const k of ['A', 'B']) {
       const t = m.contacts.get(k)!;
@@ -700,7 +714,7 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     m.contacts.set('a', anon({ ...p, seenAt: NOW - 1000, paintX: p.x, paintY: p.y, paintAt: NOW - 1000 }));
     foldView(m, view([]), NOW, { beam: ACROSS, site: SITE });
     expect(m.contacts.get('a')!.missSweptAt).toBe(NOW);
-    foldView(m, view([blipAt(p.x + 5, p.y, NOW + DT)]), NOW + DT, { beam: FROZEN, site: SITE });
+    foldView(m, view([siteBlipAt(p.x + 5, p.y, NOW + DT)]), NOW + DT, { beam: FROZEN, site: SITE });
     expect(m.contacts.get('a')!.missSweptAt).toBe(-1);
     foldView(m, view([]), NOW + 3 * DT, { beam: FROZEN, site: SITE });
     expect(m.contacts.size).toBe(1);
@@ -729,7 +743,7 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     const m2 = mkMind();
     const p = cellCentre(500, 0);
     m2.contacts.set('a', anon({ ...p, seenAt: NOW - 1000, paintX: p.x, paintY: p.y, paintAt: NOW - 1000 }));
-    foldView(m2, view([blipAt(500, 0, NOW)]), NOW, { beam: ACROSS, site: SITE });
+    foldView(m2, view([siteBlipAt(500, 0, NOW)]), NOW, { beam: ACROSS, site: SITE });
     expect(m2.contacts.size).toBe(1);
     expect(m2.contacts.get('a')!.seenAt).toBe(NOW);
     expect(m2.contacts.get('a')!.missSweptAt).toBe(-1);
@@ -914,26 +928,56 @@ describe('ai/tacticKit — the lead solve on an estimated course', () => {
 
 describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a crate imprint never becomes a track', () => {
   const T = 123450; // a fixed paint clock
-  const at = { x: 1003.3, y: -497.1 };
+  // Story 11.3: every paint is an ARC about the bot that painted it, so the
+  // filter reads the paint's de-smeared extent about the bot's own position
+  // (`paintExtentU`). Real paints from the shipped pipeline, at several
+  // ranges and bearings, under per-paint salts.
+  const BOT = { x: 37.1, y: -12.4 };
+  const SITE: SweepSite = { x: BOT.x, y: BOT.y, stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 }, islands: [] };
+  const RANGES_HM = [50, 100, 200, 300, 400];
+  const placed = (hm: number, k: number): { x: number; y: number; brg: number } => {
+    const brg = 0.37 + k * 1.91;
+    return { x: BOT.x + Math.cos(brg) * hmToU(hm), y: BOT.y + Math.sin(brg) * hmToU(hm), brg };
+  };
   const asBlip = (c: { gx: number; gy: number; w: number; h: number; bits: number[] }): GameEvent => ({ k: 'blip', t: NOW, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
-
-  it('a crate disc paint is crate-sized and folds into NO track', () => {
-    const crate = paintDiscCoverage(at.x, at.y, CONFIG.drops.radiusU, CELL, T);
-    expect(paintLongestSideU(crate)).toBeLessThan(CONFIG.bots.cratePaintMaxU);
-    expect(isCrateSizedPaint(crate)).toBe(true);
+  const foldAt = (e: GameEvent): BotMind => {
     const m = mkMind();
-    foldView(m, view([asBlip(crate)]), NOW);
-    expect(m.contacts.size).toBe(0);
+    foldView(m, view([e]), NOW, { beam: { lastSweep: -1, sweepAngle: 0 }, site: SITE });
+    return m;
+  };
+
+  it('a crate disc paint at 50–400 hm is crate-sized about the bot and folds into NO track', () => {
+    for (const hm of RANGES_HM) {
+      for (let k = 0; k < 4; k++) {
+        const at = placed(hm, k);
+        const crate = paintDiscCoverage(at.x, at.y, CONFIG.drops.radiusU, CELL, T + k * 50, 0x700 + k, BOT.x, BOT.y);
+        expect(isCrateSizedPaint(crate, BOT.x, BOT.y), `${hm} hm #${k} (${paintExtentU(crate, BOT.x, BOT.y).toFixed(1)} u)`).toBe(true);
+        expect(foldAt(asBlip(crate)).contacts.size, `${hm} hm #${k}`).toBe(0);
+      }
+    }
   });
 
-  it('a hull paint of every class is not crate-sized and opens a track', () => {
-    for (const cls of SHIP_CLASS_IDS) {
-      const hull = paintCoverage(cls, at.x, at.y, 0.3, CELL, T);
-      expect(isCrateSizedPaint(hull), cls).toBe(false);
-      const m = mkMind();
-      foldView(m, view([asBlip(hull)]), NOW);
-      expect(m.contacts.size, cls).toBe(1);
+  it('a hull paint of every class at 50–400 hm, side-on and end-on, is not crate-sized and opens a track', () => {
+    for (const hm of RANGES_HM) {
+      for (const cls of SHIP_CLASS_IDS) {
+        for (const [aspect, off] of [['side-on', Math.PI / 2], ['end-on', 0]] as const) {
+          for (let k = 0; k < 2; k++) {
+            const at = placed(hm, k);
+            const hull = paintCoverage(cls, at.x, at.y, at.brg + off, CELL, T + k * 50, 0x900 + k, BOT.x, BOT.y);
+            const tag = `${cls} ${aspect} ${hm} hm #${k} (${paintExtentU(hull, BOT.x, BOT.y).toFixed(1)} u)`;
+            expect(isCrateSizedPaint(hull, BOT.x, BOT.y), tag).toBe(false);
+            expect(foldAt(asBlip(hull)).contacts.size, tag).toBe(1);
+          }
+        }
+      }
     }
+  });
+
+  it('the beam does not inflate the measure: a far crate\'s raw rect is hull-sized, its de-smeared extent is not', () => {
+    const at = placed(400, 0);
+    const crate = paintDiscCoverage(at.x, at.y, CONFIG.drops.radiusU, CELL, T, 0x77, BOT.x, BOT.y);
+    expect(paintLongestSideU(crate)).toBeGreaterThan(CONFIG.bots.cratePaintMaxU);
+    expect(paintExtentU(crate, BOT.x, BOT.y)).toBeLessThan(CONFIG.bots.cratePaintMaxU);
   });
 });
 

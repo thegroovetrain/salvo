@@ -150,6 +150,7 @@ import { BufferImageSource, Container, Rectangle, Sprite, Texture } from 'pixi.j
 import {
   CONFIG,
   HULL_IDS,
+  hmToU,
   hullEnvelope,
   hullSilhouette,
   mapRadius,
@@ -1463,21 +1464,42 @@ export class Radar {
 }
 
 /**
+ * THE ARC'S GROWTH (Story 11.3, R1–R4), u: how much wider than its target a
+ * radar paint's rect can get from `smearArc`. Every lit cell is smeared by
+ * half the beam either side of its bearing and half the pulse either side of
+ * its range, so a target of diameter `d` whose far edge sits at range ≤
+ * `CONFIG.vision.radar + d` (the gate tests the target's centre — a wake
+ * segment's midpoint — against the radar reach; `effectiveStats` passes
+ * `radarRange` through unscaled) grows by at most the beam's chord at that
+ * range plus the pulse, plus a cell of range-bin slack, along any lattice
+ * axis. DERIVED from the dials the client reads (`beamDeg`, `pulseHm`,
+ * `radar`), never a literal.
+ */
+function arcGrowthU(d: number): number {
+  const beam = (CONFIG.vision.beamDeg * Math.PI) / 180;
+  const rOut = CONFIG.vision.radar + d;
+  return 2 * rOut * Math.sin(beam / 2) + hmToU(CONFIG.vision.pulseHm) + CONFIG.vision.radarCellU;
+}
+
+/**
  * The widest coverage rect a legitimate footprint can need, in cells — DERIVED
  * from the longest hull and the shared lattice, never a literal (cycle-63
  * review gate: the old literal 64 silently broke the moment `radarCellU` was
  * retuned small — the validator would have dropped every long-hull mask and
  * hulls would simply have vanished from the scope). The derivation: the
  * worst-heading span of the biggest silhouette (its bounding-circle diameter),
- * in cells, plus one cell of lattice phase, plus two cells per side of fuzz
- * growth (one of dilation + one of stretch, `fuzzCoverage`), doubled as
- * structural slack. NOT a tuning knob — a bound on wire input that sizes an
- * array and bounds two loops.
+ * in cells, PLUS THE ARC (Story 11.3: `arcGrowthU` — the beam's smear at the
+ * farthest legal paint, and the pulse), plus one cell of lattice phase, plus
+ * two cells per side of fuzz growth (one of dilation + one of stretch,
+ * `fuzzCoverage`), doubled as structural slack. A crate's disc is smaller
+ * than any hull, so this bounds its paint too. NOT a tuning knob — a bound on
+ * wire input that sizes an array and bounds two loops; a mask wider than any
+ * legal arc is still dropped.
  */
 const MAX_COVERAGE_SPAN = ((): number => {
   let diameter = 0;
   for (const id of HULL_IDS) diameter = Math.max(diameter, 2 * polygonMaxRadius(hullSilhouette(id)));
-  return 2 * (Math.ceil(diameter / CONFIG.vision.radarCellU) + 1 + 4);
+  return 2 * (Math.ceil((diameter + arcGrowthU(diameter)) / CONFIG.vision.radarCellU) + 1 + 4);
 })();
 
 /**
@@ -1532,8 +1554,9 @@ function validRect(e: BlipEvent): boolean {
  *     the chop halo the client itself will lay around it — so the bound is
  *     computed from `CONFIG.vision.wakeSampleU` and the widest beam in the
  *     registry rather than reusing `MAX_COVERAGE_SPAN` (which is sized for a
- *     124u hull plus fuzz and would wave through a mask an order of magnitude
- *     too big). Never a literal: retune the cadence or the lattice and it moves.
+ *     124u hull plus fuzz plus the arc and would wave through a mask bigger
+ *     than any ribbon's arc). Never a literal: retune the cadence, the
+ *     lattice or the beam and it moves.
  *   • THE AGE BUCKET IS AN INDEX AND IS BOUNDED AS ONE. `a` selects an intensity
  *     scale; out of range it would either read past the ladder or, non-finite,
  *     put a NaN into `writeCell` — which under max-wins compares false against
@@ -1559,10 +1582,13 @@ function validWakeRect(e: WakeBlipEvent): boolean {
  * the moment the lattice or the cadence is retuned, and the validator would then
  * drop every real ribbon and wakes would simply vanish). The derivation: one
  * sample cadence of track, plus the widest turbulent core in the registry (a
- * hull's beam), plus a cell of lattice phase, doubled as structural slack.
+ * hull's beam), PLUS THE ARC (Story 11.3: the segment is smeared about its
+ * observer like a hull — `arcGrowthU`), plus a cell of lattice phase, doubled
+ * as structural slack. Still far below `MAX_COVERAGE_SPAN`'s hull term.
  */
 const MAX_WAKE_SPAN = ((): number => {
   let beam: number = CONFIG.vision.radarCellU; // a torpedo's core is exactly one cell
   for (const id of HULL_IDS) beam = Math.max(beam, hullEnvelope(id).hull.beam);
-  return 2 * (Math.ceil((CONFIG.vision.wakeSampleU + beam) / CONFIG.vision.radarCellU) + 1);
+  const ribbon = CONFIG.vision.wakeSampleU + beam;
+  return 2 * (Math.ceil((ribbon + arcGrowthU(ribbon)) / CONFIG.vision.radarCellU) + 1);
 })();

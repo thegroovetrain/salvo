@@ -18,9 +18,12 @@ import {
   fuzzCoverage,
   hullSilhouette,
   paintCoverage,
+  hmToU,
   paintSeed,
   pointInPolygon,
+  radarArcOf,
   rasterizeHullCoverage,
+  smearArc,
   transformPolygon,
   type HullCoverage,
   type HullId,
@@ -181,12 +184,18 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
 // orientation still readable.
 // ---------------------------------------------------------------------------
 
-/** One fuzzed paint with lattice phase and glint seed varied per index. */
+/** One fuzzed paint with lattice phase and glint seed varied per index. The
+ *  observer sits ON the hull (Story 11.3: an observer within a cell of the
+ *  target gets no arc — smearArc's degrade ladder), so this calibration
+ *  measures the FUZZ alone, exactly as it was ruled. */
 function fuzzedPaint(cls: HullId, k: number, heading: number): HullCoverage {
   const x = 100 + ((k * 37.3) % CELL);
   const y = 500 + ((k * 53.7) % CELL);
-  return paintCoverage(cls, x, y, heading, CELL, 1000 + k * 50);
+  return paintCoverage(cls, x, y, heading, CELL, 1000 + k * 50, 0, x, y);
 }
+
+/** A far observer (Story 11.3) for the tests that exercise the whole pipeline. */
+const OBS = { x: -4000, y: 2500 };
 
 interface Dims {
   long: number;
@@ -233,14 +242,31 @@ describe('fuzzCoverage — the mechanism contract', () => {
     }
   });
 
-  it('is DETERMINISTIC per seed and OBSERVER-FREE: the same (pose, tick) always yields the identical mask', () => {
-    // This is the property that makes the wire mask observer-independent, the
-    // server's one-slot memo sound, and the decoy's counter-intel paint
-    // byte-identical to a genuine hull at the same pose (amendment 11: both
-    // run this same pipeline; there is no observer input to diverge on).
-    const a = paintCoverage('warspite', 321.5, -77.25, 1.9, CELL, 4321);
-    const b = paintCoverage('warspite', 321.5, -77.25, 1.9, CELL, 4321);
+  // RETIRED AS A RULING (Story 11.3, Eric 2026-11-13, R1–R4): "OBSERVER-FREE —
+  // the same (pose, tick) always yields the identical mask". Every paint is
+  // now an arc smeared about its observer, so the mask is a function of the
+  // observer's position; the server's memos key on it (signals.ts). What
+  // stands is determinism per (pose, tick, salt, OBSERVER).
+  it('is DETERMINISTIC per (pose, tick, salt, observer): the same inputs always yield the identical mask', () => {
+    const a = paintCoverage('warspite', 321.5, -77.25, 1.9, CELL, 4321, 0, OBS.x, OBS.y);
+    const b = paintCoverage('warspite', 321.5, -77.25, 1.9, CELL, 4321, 0, OBS.x, OBS.y);
     expect(b).toEqual(a);
+  });
+
+  it('THE PIPELINE IS sharp → smearArc → fuzz (Story 11.3): the paint equals the fuzz of the shipped arc of the sharp raster', () => {
+    const beam = (CONFIG.vision.beamDeg * Math.PI) / 180;
+    const pulse = hmToU(CONFIG.vision.pulseHm);
+    for (const cls of HULL_IDS) {
+      for (let k = 0; k < 6; k++) {
+        const x = 2000 + k * 731.3;
+        const y = -1500 + k * 417.9;
+        const heading = k * 1.1;
+        const sharp = rasterizeHullCoverage(cls, x, y, heading, CELL);
+        const arc = smearArc(sharp, OBS.x, OBS.y, CELL, beam, pulse);
+        const want = fuzzCoverage(arc, paintSeed(3000 + k, x, y, heading, 0x55 + k), CONFIG.vision.radarFuzz);
+        expect(paintCoverage(cls, x, y, heading, CELL, 3000 + k, 0x55 + k, OBS.x, OBS.y), cls).toEqual(want);
+      }
+    }
   });
 
   it('NO STABLE PER-SHIP SIGNATURE (amendment 157): the same hull at the same pose re-glints every paint — the jitter cannot correlate a hull across sweeps', () => {
@@ -250,7 +276,7 @@ describe('fuzzCoverage — the mechanism contract', () => {
     // this fails.
     const masks = new Set<string>();
     for (let t = 0; t < 12; t++) {
-      masks.add(JSON.stringify(paintCoverage('yamato', 400, 250, 0.6, CELL, 1000 + t * 50)));
+      masks.add(JSON.stringify(paintCoverage('yamato', 400, 250, 0.6, CELL, 1000 + t * 50, 0, OBS.x, OBS.y)));
     }
     expect(masks.size).toBeGreaterThan(8);
   });
@@ -346,12 +372,14 @@ describe('the paint salt — the fuzz of a paint is a function of (pose, time, S
   /** Exact, fractional poses spread over the lattice phases. */
   const poses = Array.from({ length: 40 }, (_, k) => ({ x: 137.31 + k * 23.7, y: -412.9 + k * 11.3, heading: k * 0.37, t: 5000 + k * 50 }));
 
-  it('salt 0 IS the unsalted pipeline (the default a keyless caller gets): identical seed and identical mask, hull and segment', () => {
+  it('salt 0 IS the unsalted pipeline (what a keyless caller passes): identical seed and identical mask, hull and segment', () => {
     for (const p of poses) {
       expect(paintSeed(p.t, p.x, p.y, p.heading, 0)).toBe(paintSeed(p.t, p.x, p.y, p.heading));
       expect(segmentPaintSeed(p.t, p.x, p.y, p.x + 60, p.y + 25, 0)).toBe(segmentPaintSeed(p.t, p.x, p.y, p.x + 60, p.y + 25));
       for (const cls of HULL_IDS) {
-        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0)).toEqual(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t));
+        const arc = radarArcOf(rasterizeHullCoverage(cls, p.x, p.y, p.heading, CELL), OBS.x, OBS.y, CELL);
+        const unsalted = fuzzCoverage(arc, paintSeed(p.t, p.x, p.y, p.heading), CONFIG.vision.radarFuzz);
+        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0, OBS.x, OBS.y)).toEqual(unsalted);
       }
     }
   });
@@ -361,11 +389,11 @@ describe('the paint salt — the fuzz of a paint is a function of (pose, time, S
       let twoSalts = 0;
       let saltedVsPublic = 0;
       for (const [k, p] of poses.entries()) {
-        const a = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k);
-        const b = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x7654321 + k);
-        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k)).toEqual(a);
+        const a = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k, OBS.x, OBS.y);
+        const b = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x7654321 + k, OBS.x, OBS.y);
+        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k, OBS.x, OBS.y)).toEqual(a);
         if (!same(a, b)) twoSalts += 1;
-        if (!same(a, paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t))) saltedVsPublic += 1;
+        if (!same(a, paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0, OBS.x, OBS.y))) saltedVsPublic += 1;
       }
       expect(twoSalts, cls).toBeGreaterThan(poses.length / 2);
       expect(saltedVsPublic, cls).toBeGreaterThan(poses.length / 2);
@@ -376,7 +404,7 @@ describe('the paint salt — the fuzz of a paint is a function of (pose, time, S
     for (const cls of HULL_IDS) {
       for (const [k, p] of poses.entries()) {
         const sharp = rasterizeHullCoverage(cls, p.x, p.y, p.heading, CELL);
-        const salted = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0xabcdef + k);
+        const salted = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0xabcdef + k, OBS.x, OBS.y);
         const lit = new Set(cellsOf(salted).map((c) => `${c.gx},${c.gy}`));
         for (const c of cellsOf(sharp)) expect(lit.has(`${c.gx},${c.gy}`), `${cls} pose ${k}`).toBe(true);
       }
@@ -389,10 +417,10 @@ describe('the paint salt — the fuzz of a paint is a function of (pose, time, S
     for (const [k, p] of poses.entries()) {
       const bx = p.x + Math.cos(p.heading) * 80;
       const by = p.y + Math.sin(p.heading) * 80;
-      const a = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x1111 + k);
-      const b = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x2222 + k);
+      const a = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x1111 + k, OBS.x, OBS.y);
+      const b = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x2222 + k, OBS.x, OBS.y);
       if (!same(a, b)) differ += 1;
-      const spine = new Set(cellsOf(paintSegmentCoverage(p.x, p.y, bx, by, 0, CELL, p.t)).map((c) => `${c.gx},${c.gy}`));
+      const spine = new Set(cellsOf(paintSegmentCoverage(p.x, p.y, bx, by, 0, CELL, p.t, 0, OBS.x, OBS.y)).map((c) => `${c.gx},${c.gy}`));
       const lit = new Set(cellsOf(a).map((c) => `${c.gx},${c.gy}`));
       for (const cell of spine) expect(lit.has(cell), `pose ${k}`).toBe(true);
     }

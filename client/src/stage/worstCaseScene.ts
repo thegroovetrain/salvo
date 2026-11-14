@@ -652,7 +652,10 @@ function blipEvents(world: SceneWorld, tick: number, serverT: number): GameEvent
     const age = (i * 7) % 40;
     const p = hullPose(h, world, tick - age);
     const t = serverT - age * SCENE_TICK_MS;
-    const c = paintCoverage(h.cls, p.x, p.y, p.heading, CONFIG.vision.radarCellU, t);
+    // The arc is smeared about the observer at the paint time (Story 11.3) —
+    // the own hull's pose on the paint tick, unsalted (no room key here).
+    const o = ownPoseAt(world, tick - age);
+    const c = paintCoverage(h.cls, p.x, p.y, p.heading, CONFIG.vision.radarCellU, t, 0, o.x, o.y);
     out.push({ k: 'blip' as const, t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   }
   return out;

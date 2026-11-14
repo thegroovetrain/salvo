@@ -416,10 +416,31 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
    *  would count. */
   const litRowCount = (c: HullCoverage): number => new Set(litCells(c).map(([, r]) => r)).size;
 
-  it('is deterministic per (geometry, paint time), and observer-free by construction', () => {
-    const a = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, 4_200);
-    const b = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, 4_200);
+  // RETIRED AS A RULING (Story 11.3, Eric 2026-11-13, R4): "observer-free by
+  // construction". A wake segment is smeared into its observer's arc like a
+  // hull, so the mask is a function of the observer's position. What stands
+  // is determinism per (geometry, paint time, salt, observer). The glint
+  // calibrations below put the observer ON the segment (no arc — smearArc's
+  // degrade ladder), so they keep measuring the glint alone.
+  it('is deterministic per (geometry, paint time, salt, observer)', () => {
+    const a = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, 4_200, 0, -3000, 900);
+    const b = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, 4_200, 0, -3000, 900);
     expect(b).toEqual(a);
+  });
+
+  it('a far observer gets the ARC (Story 11.3, R4): the sharp spine stays core inside it, and the mask spans the beam about that observer', () => {
+    const ox = -3000;
+    const oy = 900;
+    const beam = (CONFIG.vision.beamDeg * Math.PI) / 180;
+    for (let k = 0; k < 12; k++) {
+      const c = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 200, 0x99 + k, ox, oy);
+      for (const [col, row] of litCells(rasterizeSegmentCoverage(10, 13.5, 40, 13.5, 0, CELL))) {
+        expect(coverageHas(c, col - c.gx, row - c.gy)).toBe(true);
+      }
+      const bearings = litCells(c).map(([col, row]) => Math.atan2((row + 0.5) * CELL - oy, (col + 0.5) * CELL - ox));
+      const range = Math.hypot(25 - ox, 13.5 - oy);
+      expect(Math.max(...bearings) - Math.min(...bearings)).toBeGreaterThanOrEqual(beam - (2 * CELL) / range);
+    }
   });
 
   it('the mask SCINTILLATES across paint times at fixed geometry — the wire width is a random variable, not a template', () => {
@@ -429,7 +450,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
     const rows = new Set<number>();
     const rectHs = new Set<number>();
     for (let k = 0; k < 48; k++) {
-      const c = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 200);
+      const c = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 200, 0, 10, 13.5);
       rows.add(litRowCount(c));
       rectHs.add(c.h);
     }
@@ -440,7 +461,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
   it('never dilates: a painted mask is a SUBSET of the sharp mask (glint only erodes flanks)', () => {
     for (let k = 0; k < 24; k++) {
       const sharp = rasterizeSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL);
-      const painted = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 333);
+      const painted = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 333, 0, 25, 13.5);
       for (const [col, row] of litCells(painted)) {
         expect(coverageHas(sharp, col - sharp.gx, row - sharp.gy)).toBe(true);
       }
@@ -463,7 +484,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
           const ay = 77 + k * 0.7;
           const bx = ax + (dx / len) * STEP;
           const by = ay + (dy / len) * STEP;
-          const c = paintSegmentCoverage(ax, ay, bx, by, width, CELL, k * 517);
+          const c = paintSegmentCoverage(ax, ay, bx, by, width, CELL, k * 517, 0, ax, ay);
           const cells = litCells(c);
           expect(cells.length).toBeGreaterThan(0);
           // The SPINE (the width-0 sharp mask: the bare centre-line walk) is
@@ -506,7 +527,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
       const seen = new Set<number>();
       for (const phase of [0, 2.7, 4.5, 6.3]) {
         for (let k = 0; k < 48; k++) {
-          const c = paintSegmentCoverage(10, 13.5 + phase, 46, 13.5 + phase, coreU, CELL, k * 200 + phase * 17);
+          const c = paintSegmentCoverage(10, 13.5 + phase, 46, 13.5 + phase, coreU, CELL, k * 200 + phase * 17, 0, 28, 13.5 + phase);
           seen.add(litRowCount(c));
         }
       }

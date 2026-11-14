@@ -22,7 +22,10 @@ export interface EchoHull {
 }
 
 /** Stamp each hull's wire-equivalent footprint (`paintCoverage` at glint seed
- *  `seedT`) into one ship layer, max-wins. */
+ *  `seedT`) into one ship layer, max-wins. The paint is made with the
+ *  observer ON the hull — no arc (Story 11.3: smearArc's degrade ladder) — so
+ *  these suites keep testing how the client draws a hull-shaped footprint;
+ *  the client draws whatever mask the wire delivers, arc or not. */
 export function buildShipStamp(
   hulls: readonly EchoHull[],
   m: ReturnModelOpts,
@@ -32,7 +35,7 @@ export function buildShipStamp(
   const stamp: ShipStamp = new Map();
   const steel = hullSample(m);
   for (const h of hulls) {
-    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), steel);
+    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT, 0, h.x, h.y), steel);
   }
   return stamp;
 }

@@ -35,7 +35,9 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
+  angleDiff,
   effectiveStats,
+  hmToU,
   hullEnvelope,
   sharedIslandIndex,
   type GameEvent,
@@ -146,17 +148,90 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
   return n === 0 ? null : { x: sx / n, y: sy / n };
 }
 
-/** The paint footprint's LONGEST SIDE in world units — `max(w, h)` lattice
- *  cells × `radarCellU` (Story 10.9: the crate-paint filter's measure; see
- *  `CONFIG.bots.cratePaintMaxU`). */
+/** The paint footprint's raw LONGEST SIDE in world units — `max(w, h)`
+ *  lattice cells × `radarCellU` (Story 10.9's crate-filter measure). Since
+ *  the arc (Story 11.3) a far paint's rect is mostly beam, so the filter reads
+ *  `paintExtentU` instead; this stays only for a fold that knows no observer
+ *  (ai/utility.ts `crateSized`). */
 export function paintLongestSideU(e: GhostPaint): number {
   return Math.max(e.w, e.h) * CONFIG.vision.radarCellU;
 }
 
+/** The radar beam (rad) and pulse (u) every paint is smeared by (Story 11.3,
+ *  R1 + R3) — public dials, so a bot may subtract them as a human would. */
+const BEAM_RAD = (CONFIG.vision.beamDeg * Math.PI) / 180;
+const PULSE_U = hmToU(CONFIG.vision.pulseHm);
+/** u — the smear's range-bin slop: `smearArc` lights a cell when its range
+ *  BIN (a quarter cell wide) holds a smeared range, so the lit depth can
+ *  exceed target + pulse by up to a quarter cell per side. Subtracted with
+ *  the pulse so a far crate's radial reading is the crate, not the binning. */
+const RANGE_BIN_SLOP_U = CONFIG.vision.radarCellU / 2;
+
+/** The lit cells' extent about an observer: radial [rLo, rHi] (u) and the
+ *  bearing span [aLo, aHi] (rad, relative to `bearing`). */
+interface PolarExtent {
+  rLo: number;
+  rHi: number;
+  aLo: number;
+  aHi: number;
+}
+
+/** Walk the lit cells once, measuring range and bearing about (ox, oy). */
+function polarExtent(e: GhostPaint, ox: number, oy: number, bearing: number): PolarExtent {
+  const cell = CONFIG.vision.radarCellU;
+  const out: PolarExtent = { rLo: Infinity, rHi: -Infinity, aLo: Infinity, aHi: -Infinity };
+  for (let row = 0; row < e.h; row += 1) {
+    const dy = (e.gy + row + 0.5) * cell - oy;
+    for (let col = 0; col < e.w; col += 1) {
+      const bit = row * e.w + col;
+      if (((e.bits[bit >> 5] ?? 0) & (1 << (bit & 31))) === 0) continue;
+      const dx = (e.gx + col + 0.5) * cell - ox;
+      const r = Math.hypot(dx, dy);
+      const a = angleDiff(bearing, Math.atan2(dy, dx));
+      out.rLo = Math.min(out.rLo, r);
+      out.rHi = Math.max(out.rHi, r);
+      out.aLo = Math.min(out.aLo, a);
+      out.aHi = Math.max(out.aHi, a);
+    }
+  }
+  return out;
+}
+
+/**
+ * THE PAINT'S DE-SMEARED EXTENT in world units (Story 11.3 — the crate-paint
+ * filter's measure; see `CONFIG.bots.cratePaintMaxU`). Since the arc a
+ * paint's raw rect is mostly BEAM (~890 u wide at 400 hm), so the old
+ * `max(w, h)` measure grew with range and called every far crate a hull. The
+ * bot knows its own position, the beam and the pulse, so it reads the paint
+ * in the polar frame about itself and takes off what the radar added:
+ *
+ *   radial = the lit cells' RADIAL DEPTH along the line of sight − the pulse
+ *            (and the smear's quarter-cell range-bin slop per side);
+ *   cross  = the lit cells' BEARING SPAN − the beam, × the range.
+ *
+ * The larger of the two is the target's own longest extent (plus fuzz and
+ * lattice slop): a hull end-on shows it radially, side-on across. Cell
+ * centres are measured (no +1 cell). An empty mask, or one the bot sits
+ * inside, reads 0 → crate-sized (never a track — a hull that close is
+ * sighted and carried by the contact fold).
+ */
+export function paintExtentU(e: GhostPaint, ox: number, oy: number): number {
+  const c = paintCenter(e);
+  if (c === null) return 0;
+  const range = Math.hypot(c.x - ox, c.y - oy);
+  if (!(range > 0)) return 0;
+  const p = polarExtent(e, ox, oy, Math.atan2(c.y - oy, c.x - ox));
+  const radial = p.rHi - p.rLo - PULSE_U - RANGE_BIN_SLOP_U;
+  const cross = (p.aHi - p.aLo - BEAM_RAD) * range;
+  return Math.max(0, radial, cross);
+}
+
 /** Is this radar return too small to be a hull — an airdrop crate's disc
- *  imprint (Story 10.9, `CONFIG.bots.cratePaintMaxU`)? Never a track. */
-export function isCrateSizedPaint(e: GhostPaint): boolean {
-  return paintLongestSideU(e) < CONFIG.bots.cratePaintMaxU;
+ *  imprint (Story 10.9, `CONFIG.bots.cratePaintMaxU`)? Never a track.
+ *  `(ox, oy)` is the painting bot's own position (Story 11.3: the paint is
+ *  an arc about it — see `paintExtentU`). */
+export function isCrateSizedPaint(e: GhostPaint, ox: number, oy: number): boolean {
+  return paintExtentU(e, ox, oy) < CONFIG.bots.cratePaintMaxU;
 }
 
 // ---------------------------------------------------------------------------

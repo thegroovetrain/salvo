@@ -455,7 +455,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick
     const blips = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'blip');
-    const c = wirePaint(w, 'bismarck', b.state.x, b.state.y, 0);
+    const c = wirePaint(w, a.state, 'bismarck', b.state.x, b.state.y, 0);
     expect(blips).toEqual([{ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }]);
   });
 

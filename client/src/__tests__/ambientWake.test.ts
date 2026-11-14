@@ -74,7 +74,7 @@ describe('ambientWakeRows — the stand-in server\'s wk rows', () => {
     const rows = ambientWakeRows(w, tickAcross(bearing), storeOf(ribbon));
     const expected: WakeBlipEvent[] = [];
     eachWakeSegment(ribbon, NOW, (seg) => {
-      const c = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, CONFIG.vision.radarCellU, NOW);
+      const c = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, CONFIG.vision.radarCellU, NOW, 0, w.observer.state.x, w.observer.state.y);
       expected.push({ k: 'wk', t: NOW, a: seg.bucket, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     });
     expect(rows.length).toBeGreaterThanOrEqual(1);

@@ -2,8 +2,8 @@
 // (cycle 63's coverage footprint; cycle 105's ONE-RADAR ruling deleted the
 // retired silhouette grammar and the per-room mode flags this file used to
 // exercise). What survives here are the pins on the SHIPPED behaviour: the
-// identity-free wire shape and its key order, world-anchored observer
-// independence, aspect disclosure, the anti-cheat bound (boons/hp never reach
+// identity-free wire shape and its key order, the world-anchored PER-OBSERVER
+// arc (Story 11.3), aspect disclosure, the anti-cheat bound (boons/hp never reach
 // the mask), the range/sweep gate, and the server-private per-match track-id
 // stream (World.pseudonymFor — identity never leaves the server, and the
 // track map exists so any future identity consumer resolves through one
@@ -81,9 +81,9 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // is `paintCoverage`, never the sharp rasterization) — matched exactly
     // once each, since the wire does not say which is which.
     const expected = [
-      wirePaint(w, 'yamato', 700, 0, 0.9),
-      wirePaint(w, 'bismarck', 0, 720, 2.1),
-      wirePaint(w, 'warspite', -750, 0, -0.4),
+      wirePaint(w, a.state, 'yamato', 700, 0, 0.9),
+      wirePaint(w, a.state, 'bismarck', 0, 720, 2.1),
+      wirePaint(w, a.state, 'warspite', -750, 0, -0.4),
     ];
     for (const ev of blips) {
       // Assert on the object's KEYS, order included (msgpack wire shape) — and
@@ -99,22 +99,46 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     expect(expected).toHaveLength(0); // all three hulls accounted for, once each
   });
 
-  it('the mask is WORLD-ANCHORED and observer-INDEPENDENT: two observers at different positions receive byte-identical footprints', () => {
+  // RETIRED AS A RULING (Story 11.3, Eric 2026-11-13, R1–R4): "the mask is
+  // observer-INDEPENDENT — two observers at different positions receive
+  // byte-identical footprints". Every paint is now an ARC smeared about its
+  // observer (beam in bearing, pulse in range), centered on the true bearing
+  // (R2), so two observers receive different masks. What stands: the mask is
+  // still world-anchored (absolute lattice), and each observer's mask is the
+  // shared pipeline about THAT observer.
+  it('the mask is WORLD-ANCHORED and PER OBSERVER (Story 11.3): two observers at different bearings receive different masks, each containing its own centered bearing', () => {
     const w = bareWorld(53);
     const a1 = place(w, 'a1', 0, 0);
-    const a2 = place(w, 'a2', 120, -260);
+    const a2 = place(w, 'a2', 700, -900);
     const b = place(w, 'b', 700, 0, 1.1, 'yamato');
-    windowAround(a1, Math.atan2(b.state.y - a1.state.y, b.state.x - a1.state.x));
-    windowAround(a2, Math.atan2(b.state.y - a2.state.y, b.state.x - a2.state.x));
-    const seen1 = blipsOf(buildFrame(w, 'a1'));
-    const seen2 = blipsOf(buildFrame(w, 'a2'));
-    // Compare the footprint that matches b's true raster, which must appear
-    // for BOTH observers, byte-identical — moving the observer moves nothing.
-    const truth = JSON.stringify(wirePaint(w, 'yamato', 700, 0, 1.1));
-    const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
-    const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
-    expect(of1).toHaveLength(1);
-    expect(of2).toHaveLength(1);
+    const masks = [a1, a2].map((o) => {
+      const brg = Math.atan2(b.state.y - o.state.y, b.state.x - o.state.x);
+      windowAround(o, brg);
+      const seen = blipsOf(buildFrame(w, o.id));
+      expect(seen, o.id).toHaveLength(1);
+      const mask = maskOf(seen[0]);
+      // Exactly the shared pipeline about THIS observer.
+      expect(mask, o.id).toEqual(wirePaint(w, o.state, 'yamato', 700, 0, 1.1));
+      // Centered on the true bearing (R2): the lit cells' bearing span about
+      // the observer straddles it, its middle within a cell of it.
+      const rel: number[] = [];
+      for (let row = 0; row < mask.h; row++) {
+        for (let col = 0; col < mask.w; col++) {
+          if (!coverageHas(mask, col, row)) continue;
+          const a = Math.atan2((mask.gy + row + 0.5) * CELL - o.state.y, (mask.gx + col + 0.5) * CELL - o.state.x) - brg;
+          rel.push(Math.atan2(Math.sin(a), Math.cos(a)));
+        }
+      }
+      const lo = Math.min(...rel);
+      const hi = Math.max(...rel);
+      const range = Math.hypot(b.state.x - o.state.x, b.state.y - o.state.y);
+      expect(lo, o.id).toBeLessThan(0);
+      expect(hi, o.id).toBeGreaterThan(0);
+      expect(Math.abs((lo + hi) / 2), o.id).toBeLessThan(CELL / range + 0.02); // + the hull's own off-centre extent
+      expect(hi - lo, o.id).toBeGreaterThanOrEqual((CONFIG.vision.beamDeg * Math.PI) / 180 - (2 * CELL) / range);
+      return JSON.stringify(mask);
+    });
+    expect(masks[0]).not.toBe(masks[1]);
   });
 
   it('a bow-on hull and a broadside hull of the same class produce DIFFERENT rects — the footprint points the way the hull does', () => {
@@ -194,7 +218,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     expect(w.ships.has(f.pc![0].h)).toBe(false);
     // The three footprints are exactly the three swept hulls' rasters, and
     // the unswept ship leaks nowhere.
-    const expected = [at.in, at.mid, at.near].map((p) => wirePaint(w, 'bismarck', p.x, p.y, 0.3));
+    const expected = [at.in, at.mid, at.near].map((p) => wirePaint(w, a.state, 'bismarck', p.x, p.y, 0.3));
     expect(blips.map(maskOf)).toEqual(expect.arrayContaining(expected));
     const cellOfU = (v: number): number => Math.floor(v / CELL);
     expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(at.out.x) - b.gx, cellOfU(at.out.y) - b.gy))).toBe(false);

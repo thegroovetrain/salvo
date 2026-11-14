@@ -43,7 +43,10 @@ import {
   coverageHas,
   effectiveSight,
   FLASH_WINDOW_MS,
+  hullEnvelope,
   paintCoverage,
+  paintDiscCoverage,
+  paintSegmentCoverage,
   rasterizeSegmentCoverage,
   type HeightRaster,
   type HullId,
@@ -125,10 +128,12 @@ function revolution(radar: Radar, own = OWN): void {
  *  the SAME shared paint pipeline the server runs (rasterize + fuzz, seeded
  *  from the paint time and pose — amendments 156-157). The record keeps the
  *  pose beside the wire event, because the event itself deliberately carries
- *  no position, class or id any more (amendment 152). */
+ *  no position, class or id any more (amendment 152). Painted with the
+ *  observer ON the hull — no arc (Story 11.3) — so these suites keep testing
+ *  how the client draws a hull-shaped footprint. */
 interface TestEcho { e: ReturnBlipEvent; x: number; y: number }
 function wireEcho(cls: HullId, x: number, y: number, heading: number, t = 1000): TestEcho {
-  const c = paintCoverage(cls, x, y, heading, CELL, t);
+  const c = paintCoverage(cls, x, y, heading, CELL, t, 0, x, y);
   return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y };
 }
 
@@ -261,6 +266,29 @@ describe('malformed wire payloads are dropped whole at the adapter', () => {
     radar.onBlip({ ...big, bits: big.bits.slice(0, -1) });
     radar.render(OWN, 1000);
     expect(radar.livePaints).toBe(0);
+  });
+
+  it('a legitimate FAR ARC lands (Story 11.3): the widest hull and a crate, painted by the shipped '
+    + 'pipeline about an observer at the radar reach on a diagonal bearing, pass the derived bound', () => {
+    const reach = CONFIG.vision.radar - 1;
+    for (const bearing of [0, Math.PI / 4, 1.1]) {
+      const x = OWN.x + Math.cos(bearing) * reach;
+      const y = OWN.y + Math.sin(bearing) * reach;
+      for (const cls of SHIP_CLASS_IDS) {
+        for (const heading of [bearing, bearing + Math.PI / 2, bearing + Math.PI / 4]) {
+          const { radar } = makeRadar();
+          radar.render(OWN, 900);
+          const c = paintCoverage(cls, x, y, heading, CELL, 1000, 0x5a, OWN.x, OWN.y);
+          radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+          expect(radar.livePaints, `${cls} @ ${bearing.toFixed(2)} hdg ${heading.toFixed(2)} (${c.w}x${c.h})`).toBe(1);
+        }
+      }
+      const { radar } = makeRadar();
+      radar.render(OWN, 900);
+      const d = paintDiscCoverage(x, y, CONFIG.drops.radiusU, CELL, 1000, 0x5a, OWN.x, OWN.y);
+      radar.onBlip({ k: 'blip', t: 1000, gx: d.gx, gy: d.gy, w: d.w, h: d.h, bits: d.bits });
+      expect(radar.livePaints, `crate @ ${bearing.toFixed(2)}`).toBe(1);
+    }
   });
 
   it('the pending park is CAPPED while own pose is null — a join gap cannot grow it unboundedly', () => {
@@ -567,6 +595,23 @@ describe('malformed wake payloads are dropped whole at the adapter', () => {
     expect(accepts({ w: 0 })).toBe(false);
     expect(accepts({ bits: 'nope' as never })).toBe(false);
   });
+
+  it('a legitimate FAR ARC lands (Story 11.3): the widest wake segment, painted by the shipped '
+    + 'pipeline about an observer at the radar reach on a diagonal bearing, passes the derived bound', () => {
+    const reach = CONFIG.vision.radar - 1;
+    const step = CONFIG.vision.wakeSampleU;
+    const widest = Math.max(...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).hull.beam));
+    for (const bearing of [0, Math.PI / 4, 1.1]) {
+      const x = OWN.x + Math.cos(bearing) * reach;
+      const y = OWN.y + Math.sin(bearing) * reach;
+      for (const h of [bearing, bearing + Math.PI / 2, bearing + Math.PI / 4]) {
+        const dx = (Math.cos(h) * step) / 2;
+        const dy = (Math.sin(h) * step) / 2;
+        const c = paintSegmentCoverage(x - dx, y - dy, x + dx, y + dy, widest, CELL, 1000, 0x5a, OWN.x, OWN.y);
+        expect(accepts({ gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }), `@ ${bearing.toFixed(2)} hdg ${h.toFixed(2)} (${c.w}x${c.h})`).toBe(true);
+      }
+    }
+  });
 });
 
 describe('a disclosed wake segment ATTENUATES in shadow and is never deleted '
@@ -768,7 +813,7 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     const farX = MID + shift * CELL;
     expect(farX).toBeGreaterThan(near.sightHoleU);
     expect(farX).toBeLessThan(CONFIG.vision.radar);
-    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0);
+    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0, 0, MID, 0);
     for (const r of [near, far]) r.render(OWN, 900);
     near.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     far.onBlip({ k: 'blip', t: 1000, gx: c.gx + shift, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
@@ -798,7 +843,7 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     const { radar } = makeRadar();
     expect(MID).toBeLessThan(radar.sightHoleU);
     radar.render(OWN, 900);
-    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0);
+    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0, 0, MID, 0);
     radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     radar.render(OWN, 1000);
     expect(radar.bandAt(MID, 0), 'the in-bubble wire blip is on the scope').toBeGreaterThanOrEqual(0);
