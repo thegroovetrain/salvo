@@ -1071,12 +1071,14 @@ export const CONFIG = {
     // degrees — THE RADAR BEAM's full width (Story 11.3, Eric 2026-11-13, R1):
     // every radar paint is smeared in bearing about its observer by this much
     // (`smearArc`, sim/radarArc.ts), centered on the true bearing (R2). A
-    // dial, not a player knob. 3° is ~476 u wide at the 400 hm radar reach.
-    beamDeg: 3,
+    // dial, not a player knob. Eric: "I want what would be realistic" — the
+    // US SG surface-search set's 5.6° beam, true to the hectometer ruler
+    // (~890 u wide at the 400 hm radar reach).
+    beamDeg: 5.6,
     // hm — THE PULSE TERM (Story 11.3, Eric 2026-11-13, R3): a paint's depth
     // along the line of sight is the target's own extent plus this; convert
-    // with `hmToU` where used.
-    pulseHm: 1.5,
+    // with `hmToU` where used. The SG's 1.3 µs pulse resolves ~195 m = 2 hm.
+    pulseHm: 2,
     // ms — THE ONE WAKE CLOCK (Story 4.12, Eric ruling 2026-08-08, amendment
     // 205): how long a stretch of disturbed water physically persists behind
     // the hull that laid it, before it flattens and stops existing — on the

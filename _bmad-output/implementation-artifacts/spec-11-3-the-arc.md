@@ -2,7 +2,7 @@
 title: 'Story 11.3: The Arc'
 type: 'feature'
 created: '2026-11-13'
-status: 'draft'
+status: 'in-progress'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -21,12 +21,12 @@ warnings: ['oversized']
 ## Boundaries & Constraints
 
 **Always (Eric's rulings, AskUserQuestion x2, 2026-11-13, R1–R6):**
-- R1 Beam width 3° — `CONFIG.vision.beamDeg: 3`, a dial, not a player knob. (The forge's "5–6° ≈ 500 u at 9,000 u" was inconsistent; 500 u at full reach IS ~3°.)
+- R1 Beam width 5.6° — `CONFIG.vision.beamDeg: 5.6`, a dial, not a player knob. Eric first took 3°, then on the bench page (https://claude.ai/artifact/KgMPniof62TQ4V8VFCCsDa): "I want what would be realistic" → the US SG set's 5.6° beam, true to the hectometer ruler (NOT doubled for the 2× hull drawing; ~890 u wide at 400 hm). Bench: yes.
 - R2 The arc is CENTERED on the true bearing, like a real set. Eric accepts that a modified client can read the exact bearing from an arc's middle. The story AC's "never leaks the bearing more tightly than the beam allows" is superseded by: a paint is never NARROWER in bearing than the beam at its range.
-- R3 Depth = the target's own extent along the line of sight + a pulse term of 1.5 hm (`CONFIG.vision.pulseHm: 1.5`, written via `hmToU`). Heading still shows in a paint's depth.
+- R3 Depth = the target's own extent along the line of sight + a pulse term of 2 hm (`CONFIG.vision.pulseHm: 2`, written via `hmToU`; the SG's 1.3 µs pulse ≈ 195 m; Eric's realistic pick). Heading still shows in a paint's depth.
 - R4 Everything the radar paints smears by the same beam: hulls, wake segments, crate discs.
 - R5 Bench page FIRST (amendment 1(q)): built from the real shared arc function on real `generateMap` seeds, dials for beam and pulse, targets at several hm ranges incl. 400; Eric's yes before game wiring is committed.
-- R6 Client far-cell look: candidate curves (today's fixed 9 u cell among them) rendered side by side on the bench page; Eric picks; nothing ships unseen.
+- R6 Client far-cell look: Eric picked A — today's fixed 9 u cell at every range. No client cell change; zoom lattices (#30) only if a staging capture demands them.
 - The smear is per OBSERVER: observer → target bearing/range is an input; the paint memos key on it. Per-paint salt (`paintSalt.ts`) stays; the crate path gains the salt the hull path has.
 - Still exactly SIX perception exceptions; the arc gets its own invariant line (every radar paint, at any range, spans at least the beam's bearing width at its range and is no deeper than target extent + pulse + fuzz).
 - `PROTOCOL_VERSION` bumps (the client reads `beamDeg` for its validators).
@@ -40,7 +40,7 @@ warnings: ['oversized']
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
-| Far hull | hull at 400 hm | arc ≈ 476 u wide, ≈ hull depth + 34 u deep | none |
+| Far hull | hull at 400 hm | arc ≈ 890 u + hull's angular width wide, ≈ hull depth + 45 u deep | none |
 | Near hull | hull at 5 hm | beam adds < 1 cell; silhouette shape survives | none |
 | Wake | segment at 300 hm | smeared like a hull | none |
 | Crate | crate at 350 hm | smeared; bots still classify it a crate | none |
@@ -71,7 +71,6 @@ warnings: ['oversized']
 - [ ] `server/src/game/signals.ts` -- pass `ctx.me` pose; memo keys gain the observer -- per-observer paints.
 - [ ] `client/src/render/radar.ts` + the three client callers -- validators re-derived from beam, pulse and radar reach; ambient scenes pass their observer -- far paints are not dropped.
 - [ ] `server/src/game/ai/plot.ts` -- crate test reads radial depth, not `max(w,h)` -- bots stay functional.
-- [ ] Client far-cell change per Eric's bench pick (R6).
 - [ ] Tests: arc unit tests (width ≥ beam at range, depth bound, wrap, near-range shape); per-observer invariant line in the perception suite; oracles/fixtures take the observer; golden frames re-recorded with a dated header paragraph; `shared/src/index.ts` PV bump.
 
 **Acceptance Criteria:**
