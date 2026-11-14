@@ -2,7 +2,7 @@
 title: 'Own shells always end on screen; secondaries hit only where they land'
 type: 'feature'
 created: '2026-11-13'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'ce2fe0f4a23b684ec908408a0bf87d21b9b6a4be'
 review_loop_iteration: 0
 context:
