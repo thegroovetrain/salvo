@@ -362,8 +362,9 @@ export interface InputMsg {
    * THE SECONDARIES LEVEL (Story 10.4, R3, Eric 2026-11-04, epic-10 amendment
    * 9): `true` while the captain's RIGHT mouse button is DOWN — a LEVEL sampled
    * from the live pointer at input time, exactly `held`'s grammar. It drives
-   * the secondaries' stream (sim/secondaries.ts: one round per
-   * `CONFIG.secondaries.rateMs` while held, heat permitting) toward the aim
+   * the secondaries' stream (sim/secondaries.ts: rounds at a rate that
+   * slides with heat from `CONFIG.secondaries.coldRatePerS` to `hotRatePerS`
+   * while held) toward the aim
    * point (`aim` / `aimDist`, clamped to `stats.secondaryRangeU`) and nothing
    * else. The server reads it off the LATEST input; a tap shorter than one
    * sample should be latched client-side like `held`.
@@ -486,8 +487,9 @@ export interface OwnShip {
    */
   turrets: TurretState[];
   /**
-   * THE OWN SECONDARIES' HEAT (Story 10.4, R3): `heat` 0..1 and `locked`
-   * (overheated — no round until heat is back to 0). The client steps its own
+   * THE OWN SECONDARIES' HEAT (Story 10.4, R3): `heat` 0..1 only — full heat
+   * slows the gun and never locks it (epic-11 amendment 9, PV 106:
+   * `locked` is gone). The client steps its own
    * copy with the shared `stepSecondaries` and overwrites it from this.
    * SELF-PRIVATE, non-spatial: `you` only.
    */

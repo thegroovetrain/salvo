@@ -169,7 +169,7 @@ export interface BotSelf {
   readonly launchers?: readonly LauncherState[];
   /**
    * This hull's OWN SECONDARIES HEAT (Story 10.4) — exactly the `OwnShip.sec`
-   * a human client is sent (`{heat, locked}`). The secondaries trigger reads
+   * a human client is sent (`{heat}`). The secondaries trigger reads
    * it for its burst discipline (ai/battery.ts). Optional, like `turrets`;
    * absent = no secondaries.
    */

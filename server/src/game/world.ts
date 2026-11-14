@@ -671,7 +671,7 @@ export interface ShipRecord {
   /**
    * THE SECONDARIES' HEAT (Story 10.4, R3): the shared stepper's state,
    * stepped in place by the `secondariesControl` STEP_ORDER row off the
-   * latest input's `sec` level. `{heat, locked}` ride the own-ship frame only
+   * latest input's `sec` level. `{heat}` rides the own-ship frame only
    * (`OwnShip.sec`); the round phase (`untilRoundMs`) never leaves the server.
    * Reset at every spawn / redeploy / respawn.
    */
@@ -7195,8 +7195,8 @@ export class World {
    * runs on the latest input's `sec` level — refused (frozen room / dead hull,
    * the one `activationRefusal` rule; a SINKING hull stays live exactly as its
    * weapons do) reads as released, so the guns drain — and every round it
-   * returns is spawned. No denial is ever queued: a locked gun is visible in
-   * `OwnShip.sec`, and a level that fires nothing is not a refused press.
+   * returns is spawned. No denial is ever queued: a gun waiting out its
+   * interval is not a refused press, and its heat is visible in `OwnShip.sec`.
    */
   private secondariesControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
@@ -7525,7 +7525,7 @@ export class World {
    * weapon that is not reloading is untouched; the Shift slot (1) is never
    * visited, and neither are the HULL REPAIR / SMOKE cooldowns (Story 10.5,
    * R3 / R10 — they are not reloads). THE SECONDARIES are vented — heat to
-   * zero, the overheat lock cleared (2026-11-05, Story 10.5, R10, epic-10
+   * zero (2026-11-05, Story 10.5, R10, epic-10
    * amendment 11; supersedes amendment 9(h) R7 "heat untouched") — through
    * the shared `ventSecondaries` law.
    */

@@ -362,13 +362,6 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
           rig.rec.sec.heat = (CONFIG.bots.secReleaseHeat + 1) / 2;
         },
       },
-      {
-        name: 'locked',
-        prep: (rig) => {
-          sightMines(rig.mind, [inWay(rig)]);
-          rig.rec.sec.locked = true;
-        },
-      },
     ];
     for (const c of cases) {
       const rig = rigFor('bismarck', 1313);

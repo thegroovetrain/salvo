@@ -400,8 +400,9 @@ export function hoverPreview(you: ReadoutShip, line: string | null, ownSlots?: r
 
 /** The row state the outline is drawn in. No state WORD prints (Eric
  *  2026-11-10, round 3): ready = the solid rings, readied = the amber outline,
- *  wash and filled chip, locked = the red outline and the hatched heat bar. */
-export type RowState = 'empty' | 'ready' | 'cooling' | 'readied' | 'locked';
+ *  wash and filled chip. (The secondaries' `locked` state retired with the
+ *  overheat lock, epic-11 amendment 9: that row is always ready.) */
+export type RowState = 'empty' | 'ready' | 'cooling' | 'readied';
 
 /** The key each row and button spells — the keys input binds. */
 export const ROW_KEY_GLYPH: Readonly<Record<WeaponRowKind, string>> = {
@@ -550,11 +551,10 @@ function emptyRow(kind: WeaponRowKind): WeaponRowModel {
 }
 
 function secondariesRow(input: WeaponsInput): WeaponRowModel {
-  const state: RowState = input.sec.locked ? 'locked' : 'ready';
   return {
     kind: 'secondaries', slot: null, id: null, name: ROW_NAME.secondaries ?? '', emptyGlyph: null,
-    state, readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH.secondaries,
-    clocks: [], racks: [], heat: { heat: input.sec.heat, locked: input.sec.locked }, stats: rowStats('secondaries', input.readouts),
+    state: 'ready', readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH.secondaries,
+    clocks: [], racks: [], heat: { heat: input.sec.heat }, stats: rowStats('secondaries', input.readouts),
   };
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "hullcracker",
-  "version": "0.19.25",
+  "version": "0.19.26",
   "private": true,
   "workspaces": [
     "shared",

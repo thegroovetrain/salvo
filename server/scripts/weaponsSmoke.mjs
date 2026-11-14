@@ -63,9 +63,10 @@
 //      every own frame `ammo[0]` is the turrets' summary.
 //   7. SECONDARIES (R3) — `sec: true` on a target inside half the main reach:
 //      a short burst (heat rises, then drains after release with no further
-//      rounds), then a continuous hold from cold to the OVERHEAT lock (the
-//      rounds landed equal the shared stepper's count to lock), no round while
-//      locked although still held, and rounds again once heat is back to zero.
+//      rounds), then a continuous hold from cold to FULL HEAT (the rounds
+//      landed equal the shared stepper's count to full heat), then a hold AT
+//      full heat: heat stays 1 and rounds keep landing — full heat never locks
+//      (epic-11 amendment 9).
 //      Asserts `mg` reveals and the gated per-round blow.
 //   8. SECONDARIES POP A MINE — a captain within secondary reach of an enemy
 //      mine holds `sec` on its marker; the mine vanishes on the landing CONFIG
@@ -140,6 +141,7 @@ import {
   transformPolygon,
   dispersionAxes,
   regenGain,
+  secondariesIntervalMs,
   settleBlow,
   slotsWithCards,
   stepSecondaries,
@@ -262,7 +264,7 @@ async function joinClient(name, cls, opts) {
     events: [], // every event this client is shown, with the frame's server time `ft`
     frames: 0,
     batteryMismatch: [], // own frames whose ammo[0] is NOT the turrets' summary (Story 10.4)
-    secSeen: 0, // own frames carrying a `{heat, locked}` sec block
+    secSeen: 0, // own frames carrying a `{heat}` sec block
     hook: null, // a phase's per-frame judge (Story 10.4), run after the frame is filed
     seq: 0,
     fireSeq: 0,
@@ -314,7 +316,7 @@ function onFrame(ctx, f) {
  *  (`batterySummary`): `n` = turrets ready, `reloadMsLeft` = the soonest
  *  running reload (0 when all are ready). Checked on EVERY own frame. */
 function checkBatterySummary(ctx, you) {
-  if (you.sec && typeof you.sec.heat === 'number' && typeof you.sec.locked === 'boolean') ctx.secSeen += 1;
+  if (you.sec && typeof you.sec.heat === 'number' && !('locked' in you.sec)) ctx.secSeen += 1;
   const t = you.turrets;
   const s = you.ammo?.[0];
   if (!Array.isArray(t) || !s) {
@@ -980,16 +982,17 @@ async function mainBatteryDirectHitPhase(log) {
 }
 
 /** The shared stepper's own count: rounds a CONTINUOUS hold fires from cold
- *  before the lock (sim/secondaries.ts — the very function the server steps). */
-function roundsToLock() {
+ *  up to the round that reaches full heat (sim/secondaries.ts — the very
+ *  function the server steps). */
+function roundsToFull() {
   const s = initialSecondaries();
   let n = 0;
-  for (let i = 0; i < 100000 && !s.locked; i++) n += stepSecondaries(s, true, DT);
-  precondition(s.locked, 'secondaries: the shared stepper never locks');
+  for (let i = 0; i < 100000 && s.heat < 1; i++) n += stepSecondaries(s, true, DT);
+  precondition(s.heat === 1, 'secondaries: the shared stepper never reaches full heat');
   return n;
 }
 
-/** PHASE 7 — the secondaries: burst, release, overheat lock, cool, resume. */
+/** PHASE 7 — the secondaries: burst, release, cold to full heat, firing on at full heat. */
 async function secondariesPhase(log) {
   const st = statsOf(GUNNER);
   const reach = st.secondaryRangeU;
@@ -1002,12 +1005,13 @@ async function secondariesPhase(log) {
   precondition(D + SEC_OVERSHOOT_U <= reach, `sec: ${D}u (+${SEC_OVERSHOOT_U}) outside the reach ${reach}`);
   const cfg = CONFIG.secondaries;
   const blow = gatedBlow(cfg.damage, statsOf(GUN_TARGET), st);
-  const toLock = roundsToLock();
+  const toFull = roundsToFull();
+  const hotMs = secondariesIntervalMs(1);
   const flightMs = ((D + SEC_OVERSHOOT_U) / cfg.shellSpeed) * 1000;
   const a = await joinClient('SEC-A', GUNNER, { fit: [], pose: aPose });
   const b = await joinClient('SEC-B', GUN_TARGET, { fit: [], pose: bPose, roomId: a.room.roomId });
   await awaitPosed([a, b], 'sec');
-  assert(a.you.sec && a.you.sec.heat === 0 && a.you.sec.locked === false, `sec: a fresh hull's sec block is ${JSON.stringify(a.you.sec)}, expected cold`);
+  assert(a.you.sec && a.you.sec.heat === 0 && !('locked' in a.you.sec), `sec: a fresh hull's sec block is ${JSON.stringify(a.you.sec)}, expected cold`);
   const brg = bearing(a.you, b.you);
   let held = false;
   let heldTicks = 0;
@@ -1024,7 +1028,6 @@ async function secondariesPhase(log) {
   await pilotUntil([a, b], () => heldTicks * DT >= cfg.overheatMs / 4, cfg.overheatMs / 4 + 2000, 'sec burst', () => {
     burstMax = Math.max(burstMax, a.you.sec.heat);
   });
-  const lockedInBurst = a.you.sec.locked;
   held = false;
   await holdFor([a, b], flightMs + 4 * DT);
   const hpAfterBurst = b.you.hp;
@@ -1035,49 +1038,55 @@ async function secondariesPhase(log) {
   const drainedIn = await pilotUntil([a, b], () => a.you.sec.heat === 0, cfg.coolMs + 1000, 'sec heat drains to zero');
   const burstRounds = (hp0 - hpAfterBurst) / blow;
   assert(burstMax > 0, 'sec: heat never rose while held');
-  assert(!lockedInBurst, 'sec: a short burst locked the guns');
   assert(heatAfterRelease < burstMax, `sec: heat ${heatAfterRelease} after release did not drain below ${burstMax}`);
   assert(burstRounds >= 1 && Number.isInteger(burstRounds), `sec: the burst took ${hp0 - hpAfterBurst} hp, not a whole number (>= 1) of ${blow}-hp rounds`);
   assert(hpQuiet === hpAfterBurst, `sec: the target lost ${hpAfterBurst - hpQuiet} hp after release — rounds without the trigger`);
-  // (b) OVERHEAT: a continuous hold from cold to the lock.
+  // (b) TO FULL HEAT: a continuous hold from cold, released on the first own
+  // frame at full heat — inside the capping round's own interval, so no
+  // further round fires — then every round in flight lands.
   const hpCold = b.you.hp;
   held = true;
-  // The FIRST own frame that shows the lock cleared, recorded per frame (the
-  // stepper clears it on the step heat reaches zero and fires on the next).
-  let firstUnlocked = null;
-  let sawLocked = false;
   a.hook = (ctx) => {
-    if (ctx.you.sec.locked) sawLocked = true;
-    else if (sawLocked && firstUnlocked === null) firstUnlocked = { ...ctx.you.sec };
+    if (ctx.you.sec.heat === 1) held = false;
   };
-  const lockIn = await pilotUntil([a, b], () => a.you.sec.locked, cfg.overheatMs + 2000, 'sec overheat lock');
-  await holdFor([a, b], flightMs + 4 * DT); // still held: the last rounds land, no new ones fire
-  const hpAtLock = b.you.hp;
-  const lockRounds = (hpCold - hpAtLock) / blow;
-  // ...still held through the lock: nothing may land until heat is back to zero.
-  const coolIn = await pilotUntil([a, b], () => !a.you.sec.locked, cfg.coolMs + 2000, 'sec lock clears');
-  const hpAtUnlock = b.you.hp;
-  const heatAtUnlock = firstUnlocked?.heat;
+  const fullIn = await pilotUntil([a, b], () => a.you.sec.heat === 1, cfg.overheatMs + 2000, 'sec full heat');
+  await holdFor([a, b], flightMs + 4 * DT);
   a.hook = null;
-  await holdFor([a, b], flightMs + 6 * DT); // still held: the guns are back
+  const hpAtFull = b.you.hp;
+  const fullRounds = (hpCold - hpAtFull) / blow;
+  // (c) AT FULL HEAT: held again until heat is back at 1, then held on for
+  // three hot intervals — every own frame shows heat 1, and rounds land.
+  // The re-press waits for a frame that shows the gun cooling first: a stale
+  // full-heat frame would end the next wait before any held input went out,
+  // and the press could then land a tick after cooling began (review fix).
+  await pilotUntil([a, b], () => a.you.sec.heat < 1, cfg.coolMs + 2000, 'sec starts cooling after the release');
+  held = true;
+  await pilotUntil([a, b], () => a.you.sec.heat === 1, cfg.overheatMs + 2000, 'sec back at full heat');
+  const hpHot0 = b.you.hp;
+  let hotFrames = 0;
+  let coolerFrames = 0;
+  a.hook = (ctx) => {
+    if (ctx.you.sec.heat === 1) hotFrames += 1;
+    else coolerFrames += 1;
+  };
+  await holdFor([a, b], 3 * hotMs);
+  a.hook = null;
   held = false;
   await holdFor([a, b], flightMs + 4 * DT);
   const hpEnd = b.you.hp;
+  const hotRounds = (hpHot0 - hpEnd) / blow;
   const hits = b.dmg;
   const ws = b.shellW;
   log.push(
     `sec: ${GUNNER} -> ${GUN_TARGET} at ${D}u (reach ${reach}); blow ${blow} (${cfg.damage} x armor curve); ` +
       `burst ${secs(cfg.overheatMs / 4)}: heat max ${burstMax.toFixed(3)} -> ${heatAfterRelease.toFixed(3)} after release, ${burstRounds} rounds, drained in ${secs(drainedIn)}; ` +
-      `hold from cold locked in ${secs(lockIn)} after ${lockRounds} rounds (stepper says ${toLock}); lock cleared ${secs(coolIn)} later (heat ${heatAtUnlock}), ` +
-      `${(hpAtLock - hpAtUnlock) / blow} rounds while locked; resumed ${(hpAtUnlock - hpEnd) / blow} rounds; hp ${hp0}->${hpEnd}; ` +
+      `hold from cold reached full heat in ${secs(fullIn)} after ${fullRounds} rounds (stepper says ${toFull}); ` +
+      `held ${secs(3 * hotMs)} at full heat: ${hotFrames} frames at heat 1, ${coolerFrames} cooler, ${hotRounds} rounds landed; hp ${hp0}->${hpEnd}; ` +
       `${hits.length} dmg events, reveals w=[${[...new Set(ws)].join(',')}]`,
   );
-  assert(lockRounds === toLock, `sec: ${lockRounds} rounds landed from cold to the lock, the shared stepper fires ${toLock}`);
-  assert(hpAtUnlock === hpAtLock, `sec: ${hpAtLock - hpAtUnlock} hp landed while LOCKED (still held)`);
-  // The first unlocked frame shows heat zero, or at most ONE firing step past
-  // it (a frame can carry the next tick, which fires again while held).
-  assert(heatAtUnlock !== undefined && heatAtUnlock <= DT / cfg.overheatMs + 1e-9, `sec: the lock cleared at heat ${heatAtUnlock}, not zero`);
-  assert(hpEnd < hpAtUnlock, 'sec: no round after the lock cleared although still held');
+  assert(fullRounds === toFull, `sec: ${fullRounds} rounds landed from cold to full heat, the shared stepper fires ${toFull}`);
+  assert(coolerFrames === 0 && hotFrames > 0, `sec: held at full heat, ${coolerFrames} own frames showed heat below 1`);
+  assert(hotRounds >= 2, `sec: only ${hotRounds} rounds landed in ${secs(3 * hotMs)} held at full heat — full heat must never stop the gun`);
   assert(ws.length > 0, 'sec: the target never saw a round reveal (the w check would be vacuous)');
   for (const w of ws) assert(w === 'mg', `sec: a round reveal carried w='${w}', expected 'mg'`);
   for (const h of hits) assert(h.amount === blow, `sec: a ${h.amount}-damage blow, expected ${blow}`);
@@ -1139,7 +1148,7 @@ async function secondariesMinePhase(log) {
     if (present) seenPresent = true;
     if (!present && seenPresent && popAt === null) popAt = landings();
   };
-  const budget = landingsNeeded * CONFIG.secondaries.rateMs + (aimDist / CONFIG.secondaries.shellSpeed) * 1000 + 2000;
+  const budget = landingsNeeded * secondariesIntervalMs(1) + (aimDist / CONFIG.secondaries.shellSpeed) * 1000 + 2000;
   const took = await pilotUntil([a, s], () => popAt !== null, budget, 'sec-mine: the mine pops');
   s.hook = null;
   s.script = idle;

@@ -99,8 +99,9 @@ const OWN_SHELL = own('ownShell', 2);
 
 /** Eric's picks (2026-11-11, the takes shipped in candidates/) under their game budgets. */
 const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
-  // Own fire. A secondary round leaves every 120 ms while held and rings ~1.3 s,
-  // so its family holds a held stream (cheap: ~17 nodes a voice).
+  // Own fire. A secondary round leaves at up to `CONFIG.secondaries.coldRatePerS`
+  // a second while held (slower as it heats) and rings ~1.3 s, so its family
+  // holds a held stream (cheap: ~17 nodes a voice).
   mainBattery: row(take(MAIN_BATTERY, 'A'), own('ownMain', 6)),
   secondaries: row(take(SECONDARIES, 'A'), own('ownSecondary', 12)),
   torpedoLaunch: row(take(TORPEDO_LAUNCH, 'A'), own('ownTorpedo', 2)),

@@ -91,18 +91,17 @@ describe('OwnBattery.step — the shared steppers, same inputs', () => {
 });
 
 describe('OwnBattery.correct — a frame overwrites the prediction', () => {
-  it('copies the turrets and the heat + lock, keeping the local round phase', () => {
+  it('copies the turrets and the heat, keeping the local round phase', () => {
     const b = new OwnBattery(DEFAULT_CLASS_ID);
     for (let i = 0; i < 5; i++) b.step(POSE, AIM, AIM_DIST, true, DT);
     const phase = b.sec.untilRoundMs;
     const server = initialTurrets(DEFAULT_CLASS_ID).map((t, i) => ({ a: t.a, reloadMsLeft: 1000 * (i + 1) }));
     const local = b.turrets.map((t) => t.a);
-    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: { heat: 0.75, locked: true } }, 0);
+    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: { heat: 0.75 } }, 0);
     expect(b.turrets.map((t) => t.reloadMsLeft)).toEqual(server.map((t) => t.reloadMsLeft));
     expect(b.turrets.map((t) => t.a)).toEqual(local); // the angles stay local (F-B)
     expect(b.turrets).not.toBe(server); // copied, never aliased
     expect(b.heat).toBe(0.75);
-    expect(b.locked).toBe(true);
     expect(b.sec.untilRoundMs).toBe(phase);
   });
 
@@ -116,19 +115,18 @@ describe('OwnBattery.correct — a frame overwrites the prediction', () => {
     const derived = b.turrets.map((_, i) => turretAngle(DEFAULT_CLASS_ID, i, POSE, aimPt));
     expect(b.turrets.map((t) => t.a)).toEqual(derived); // the premise
     const server = b.turrets.map((t, i) => ({ a: t.a + 0.2, reloadMsLeft: 500 * (i + 1) }));
-    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: { heat: 0, locked: false } }, 0);
+    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: { heat: 0 } }, 0);
     expect(b.turrets.map((t) => t.a)).toEqual(derived);
     expect(b.turrets.map((t) => t.reloadMsLeft)).toEqual(server.map((t) => t.reloadMsLeft));
   });
 
-  it('INSTANT RELOAD (Story 10.5, R10) is not predicted: the vented own frame unlocks a locked local gun, which fires on the next held step', () => {
+  it('INSTANT RELOAD (Story 10.5, R10) is not predicted: the vented own frame cools a full-heat local gun, which fires on the next held step', () => {
     const b = new OwnBattery(DEFAULT_CLASS_ID);
-    while (!b.locked) b.step(POSE, AIM, AIM_DIST, true, DT);
+    while (b.heat < 1) b.step(POSE, AIM, AIM_DIST, true, DT);
     const server = initialTurrets(DEFAULT_CLASS_ID);
-    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: ventSecondaries({ heat: 1, locked: true }) }, 0);
+    b.correct({ cls: DEFAULT_CLASS_ID, turrets: server, sec: ventSecondaries({ heat: 1 }) }, 0);
     expect(b.heat).toBe(0);
-    expect(b.locked).toBe(false);
-    b.sec.untilRoundMs = 0; // the local round phase is kept by a correction; clear it to isolate the lock
+    b.sec.untilRoundMs = 0; // the local round phase is kept by a correction; clear it to isolate the vent
     expect(b.step(POSE, AIM, AIM_DIST, true, DT)).toBeGreaterThan(0);
   });
 
@@ -137,7 +135,7 @@ describe('OwnBattery.correct — a frame overwrites the prediction', () => {
     const other = SHIP_CLASS_IDS.find((id) => turretMounts(id).length !== turretMounts(SHIP_CLASS_IDS[0]).length);
     expect(other).toBeDefined();
     if (other === undefined) return;
-    b.correct({ cls: other, turrets: initialTurrets(other), sec: { heat: 0, locked: false } }, 0);
+    b.correct({ cls: other, turrets: initialTurrets(other), sec: { heat: 0 } }, 0);
     expect(b.hullId).toBe(other);
     expect(b.turrets.length).toBe(turretMounts(other).length);
   });
@@ -301,7 +299,7 @@ describe('OwnBattery.correct — a stale frame keeps a predicted shot (review C2
     return {
       cls: DEFAULT_CLASS_ID,
       turrets: initialTurrets(DEFAULT_CLASS_ID).map((t) => ({ a: t.a + angleShift, reloadMsLeft: reload })),
-      sec: { heat: 0, locked: false },
+      sec: { heat: 0 },
     };
   }
 

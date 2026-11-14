@@ -2869,11 +2869,11 @@ function verifyBatteryPrivacy(w: World, me: ShipRecord, f: FrameMsg, withoutYou:
   const withoutContacts = { ...withoutYou, contacts: undefined };
   expect(hasForbiddenKey(withoutContacts, ['tu', 'lu'])).toBe(false);
   // Tube and rack clocks (Story 10.6) ride `you` and nothing else.
-  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'locked', 'untilRoundMs', 'shift', 'launchers', 'tubes', 'racks'])).toBe(false);
+  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'untilRoundMs', 'shift', 'launchers', 'tubes', 'racks'])).toBe(false);
   expect(JSON.stringify(f)).not.toContain('untilRoundMs');
   if (f.you === undefined) return;
   expect(f.you.turrets).toEqual(me.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })));
-  expect(f.you.sec).toEqual({ heat: me.sec.heat, locked: me.sec.locked });
+  expect(f.you.sec).toEqual({ heat: me.sec.heat });
   // ...and on `you` they are exactly the observer's own, present iff it holds any.
   expect('launchers' in f.you).toBe(me.launchers.length > 0);
   if (me.launchers.length > 0) expect(f.you.launchers).toEqual(me.launchers);

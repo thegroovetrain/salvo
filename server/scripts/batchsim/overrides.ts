@@ -67,10 +67,11 @@ const TUNE_FAMILIES = [
   // R3): the captain's turret battery (reach, per-turret reload, the shell;
   // traverse and the on-target tolerance retired 2026-11-12, Story 11.1) and
   // the heat-limited secondaries (damage,
-  // rate, heat clocks, reach fraction, the round). `mainBattery.reloadMs` is
-  // floored by the reload suffix rule, `rangeU` / `shellSpeed` by their leaf;
-  // the three secondaries clocks are floored by exact key
-  // (TUNE_MIN_ONE_KEYS) — the heat stepper divides by them.
+  // cold / hot rates, heat clocks, reach fraction, the round).
+  // `mainBattery.reloadMs` is floored by the reload suffix rule, `rangeU` /
+  // `shellSpeed` by their leaf; the two secondaries rates and two heat clocks
+  // are floored by exact key (TUNE_MIN_ONE_KEYS) — the heat stepper divides
+  // by them.
   'mainBattery.',
   'secondaries.',
   // The deck gun — kept for reference (amendment 6); no hull mounts it since Story 10.8.
@@ -511,8 +512,10 @@ const TUNE_MIN_ONE_LEAVES = new Set([
  *  R8.) */
 const TUNE_MIN_ONE_KEYS = new Set([
   // Story 10.4: the secondaries' heat clocks and cadence (sim/secondaries.ts
-  // divides by the two heat clocks; a 0 rate is a round every step).
-  'secondaries.rateMs',
+  // divides by the two heat clocks and by the heat-slid rate; a 0 rate is an
+  // interval that never ends — epic-11 amendment 9 replaced `rateMs`).
+  'secondaries.coldRatePerS',
+  'secondaries.hotRatePerS',
   'secondaries.overheatMs',
   'secondaries.coolMs',
   // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.

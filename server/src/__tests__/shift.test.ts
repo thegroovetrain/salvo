@@ -98,14 +98,14 @@ describe('slot 1 is the SEAT\'s Shift (Story 10.4)', () => {
 
 describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', () => {
   /** An INSTANT RELOAD seat with every turret reloading, torpedo reloading
-   *  (0), mines 1/2 reloading, the secondaries OVERHEATED and locked, and
+   *  (0), mines 1/2 reloading, the secondaries at FULL HEAT, and
    *  both cooldown abilities (C / V) cooling. */
   function loaded(w: World): ShipRecord {
     const a = place(w, 'a', 'warspite', 'instantReload');
     w.applyCard(a, 'heavyTorpedo');
     w.applyCard(a, 'navalMines');
     w.applyCard(a, 'navalMines'); // tier II: a 2-round rack
-    a.sec = { heat: 1, locked: true, untilRoundMs: 0 };
+    a.sec = { heat: 1, untilRoundMs: 900 }; // mid-interval, as a gun that just fired at full heat is
     a.repairReadyAt = w.now + 40000;
     a.smokeReadyAt = w.now + 30000;
     a.turrets.forEach((t, i) => (t.reloadMsLeft = 2100 + i * 1000));
@@ -124,9 +124,8 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     const smokeReadyAt = a.smokeReadyAt;
     pressShift(w, 'a', 1);
     expect(a.turrets.every((t) => t.reloadMsLeft === 0)).toBe(true);
-    // R10: heat zero and the overheat lock cleared, even from a locked gun.
+    // R10: heat zero, even from full heat.
     expect(a.sec.heat).toBe(0);
-    expect(a.sec.locked).toBe(false);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.stats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout[WEAPON_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
     expect(a.loadout[WEAPON_SLOTS[1]].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
@@ -135,14 +134,14 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     expect(a.smokeReadyAt).toBe(smokeReadyAt);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: CONFIG.instantReload.reloadMs });
     // ...and the own frame carries the vented heat through (the client corrects from it).
-    expect(buildFrame(w, 'a').you!.sec).toEqual({ heat: 0, locked: false });
+    expect(buildFrame(w, 'a').you!.sec).toEqual({ heat: 0 });
   });
 
   it('a vented gun that is still held fires on the very next step', () => {
     const w = bareWorld();
     const a = loaded(w);
     pressShift(w, 'a', 1);
-    expect(a.sec.locked).toBe(false);
+    expect(a.sec.heat).toBe(0);
     w.submitInput('a', makeInput({ seq: 2, actSeq: 1, sec: true }));
     w.step();
     expect(a.sec.heat).toBeGreaterThan(0); // a round fired: its heat landed

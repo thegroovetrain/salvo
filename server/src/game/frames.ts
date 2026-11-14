@@ -104,9 +104,10 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // turrets from it (`copyTurrets`). An enemy sees a sighted hull's ANGLES
     // only, through its contact row (`Contact.tu`) — never a reload.
     turrets: ship.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })),
-    // THE SECONDARIES' HEAT (Story 10.4, R3) — `{heat, locked}` ONLY,
-    // SELF-PRIVATE; the round phase (`untilRoundMs`) never leaves the server.
-    sec: { heat: ship.sec.heat, locked: ship.sec.locked },
+    // THE SECONDARIES' HEAT (Story 10.4, R3) — `{heat}` ONLY (no lock since
+    // epic-11 amendment 9), SELF-PRIVATE; the round phase
+    // (`untilRoundMs`) never leaves the server.
+    sec: { heat: ship.sec.heat },
     // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
     // wholesale strip. The client derives effective stats from (cls, boons).)
     // Banked levels = the bare unspent-level count (single source of truth).
