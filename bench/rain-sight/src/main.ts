@@ -1,6 +1,7 @@
-// RAIN-SIGHT BENCH (Story 11.6 pre-spec, throwaway). Four synced panels show
+// RAIN-SIGHT BENCH (Story 11.6 pre-spec, throwaway). Three synced panels show
 // the same scene — real rain field, real hulls on curving courses — each
-// drawing the partly-hidden enemy hulls in one candidate look (A–D). The
+// drawing the partly-hidden enemy hulls in one look: A+D (the pick, large),
+// with A and D alongside for reference. The
 // visibility model is page-only math (PLAN.md §3): V(P) = exp(−k·τ(P)), τ the
 // optical depth from the observer to P, evaluated on a per-hull grid.
 
@@ -37,6 +38,7 @@ const P = {
   cutoff: 0.05,
   spanU: 1320,
   blurU: 6,
+  dStr: 0.4, // D strength inside A+D
   rainOnTop: true,
   shipsFollowSpeed: false,
   paused: false,
@@ -45,11 +47,11 @@ const P = {
   seed: 20261114,
 };
 
+// panel index = order here (A+D first, the big compare panel); id = shader mode
 const LOOKS: { id: LookId; name: string; sub: string }[] = [
+  { id: 2, name: 'A+D', sub: 'dissolve + fade/blur' },
   { id: 0, name: 'A', sub: 'fine dissolve' },
-  { id: 1, name: 'B', sub: 'coarse dissolve' },
-  { id: 2, name: 'C', sub: 'plain fade' },
-  { id: 3, name: 'D', sub: 'fade + blur' },
+  { id: 1, name: 'D', sub: 'fade + blur' },
 ];
 
 // --- the scene ---------------------------------------------------------------
@@ -298,10 +300,16 @@ async function boot(): Promise<void> {
       p.root.visible = show;
       p.label.style.display = show ? 'block' : 'none';
       if (P.solo === -1) {
-        w = (W - gap) / 2;
-        h = (H - gap) / 2;
-        x = (p.id % 2) * (w + gap);
-        y = Math.floor(p.id / 2) * (h + gap);
+        // A+D large on the left (full height); A and D stacked on the right for reference
+        const bigW = Math.round((W - gap) * 0.62);
+        if (p.id === 2) {
+          w = bigW;
+        } else {
+          w = W - gap - bigW;
+          h = (H - gap) / 2;
+          x = bigW + gap;
+          y = p.id === 0 ? 0 : h + gap;
+        }
       }
       p.root.position.set(x, y);
       p.w = w;
@@ -367,7 +375,7 @@ async function boot(): Promise<void> {
         const m = p.looks[i].mesh;
         m.position.set(s.x, s.y);
         m.rotation = s.heading;
-        p.looks[i].set({ cols: P.cols, rows: P.rows, cutoff: P.cutoff, pxPerU: ppu * app.renderer.resolution, grainU: P.grainU, blurU: P.blurU });
+        p.looks[i].set({ cols: P.cols, rows: P.rows, cutoff: P.cutoff, pxPerU: ppu * app.renderer.resolution, grainU: P.grainU, blurU: P.blurU, dStr: P.dStr });
       });
     }
     readoutAcc += dt;
@@ -393,7 +401,7 @@ async function boot(): Promise<void> {
   const soloBtns: HTMLButtonElement[] = [];
   const setSolo = (v: -1 | LookId): void => {
     P.solo = v;
-    soloBtns.forEach((b, i) => b.classList.toggle('on', i - 1 === v));
+    soloBtns.forEach((b, i) => b.classList.toggle('on', i === 0 ? v === -1 : LOOKS[i - 1].id === v));
     layout();
   };
   soloBtns.push(mkBtn('Compare', () => setSolo(-1)));
@@ -452,7 +460,7 @@ async function boot(): Promise<void> {
   }, (v) => `${Math.round(v * 100)} %`);
   slider('Time speed (rain clock)', 1, 60, 1, () => P.timeSpeed, (v) => (P.timeSpeed = v), (v) => `${v}×`);
   check('Time speed moves ships too', () => P.shipsFollowSpeed, (v) => (P.shipsFollowSpeed = v));
-  slider('Grain (A; B is ×5)', 0.5, 6, 0.25, () => P.grainU, (v) => {
+  slider('Grain (A, A+D)', 0.5, 6, 0.25, () => P.grainU, (v) => {
     P.grainU = v;
     regrain();
   }, (v) => `${v.toFixed(2)} u`);
@@ -460,6 +468,7 @@ async function boot(): Promise<void> {
   slider('Grid across hull', 1, VIS_ROWS_MAX, 1, () => P.rows, (v) => (P.rows = v), (v) => `${v}`);
   slider('Vanish cutoff', 0, 0.5, 0.01, () => P.cutoff, (v) => (P.cutoff = v), (v) => `V < ${v.toFixed(2)}`);
   slider('Blur at V = 0 (D)', 0, 15, 0.5, () => P.blurU, (v) => (P.blurU = v), (v) => `${v.toFixed(1)} u`);
+  slider('D strength in A+D', 0, 1, 0.05, () => P.dStr, (v) => (P.dStr = v), (v) => v.toFixed(2));
   slider('Zoom (span, short axis)', 300, 8000, 20, () => P.spanU, (v) => (P.spanU = v),
     (v) => `${Math.round(v)} u${v === CLIENT_CONFIG.zoom.defaultSpanU ? ' (game)' : ''}`);
   check('Rain drawn on top of ships', () => P.rainOnTop, (v) => (P.rainOnTop = v));

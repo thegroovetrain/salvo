@@ -1,7 +1,8 @@
 // Headless verification: open rain-sight.html in MUTED headless Chrome over CDP,
 // collect console errors, take two screenshots a few seconds apart, print the
 // ships' per-part V ranges. Kills the browser it started.
-// Usage: node bench/rain-sight/shoot.mjs [solo]   (solo = 0..3 to shoot one look full-size)
+// Usage: node bench/rain-sight/shoot.mjs [solo] [span]   (solo = 0 A+D, 1 A, 2 D — one look full-size; omit or '-' for compare)
+// FOLLOW=<ship index> centres the camera on that ship.
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,9 +13,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const page = 'file://' + resolve(here, 'rain-sight.html') + (process.env.HASH ?? '');
 const shots = resolve(here, 'shots');
 mkdirSync(shots, { recursive: true });
-const solo = process.argv[2];
+const SOLO_TAGS = ['AD', 'A', 'D'];
+const soloArg = process.argv[2];
+const solo = soloArg === undefined || soloArg === '-' ? undefined : soloArg;
 const zoom = process.argv[3];
-const tag = solo === undefined ? 'compare' : `solo${solo}`;
+const tag = (solo === undefined ? 'compare' : `solo-${SOLO_TAGS[Number(solo)]}`) + (process.env.FOLLOW ? `-follow${process.env.FOLLOW}` : '');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const port = 9300 + Math.floor(Math.random() * 500);
 const profile = mkdtempSync(join(tmpdir(), 'rainbench-'));
