@@ -3,7 +3,8 @@
 //
 // MAIN BATTERY. The bot aims with its existing lead solver (tacticKit
 // `leadPoint` at the main-battery shell speed) plus the competence scatter
-// (`CONFIG.bots.aimScatterU`, untouched by Story 11.1's real dispersion — R8)
+// (`CONFIG.bots.gunAimScatterU` — the guns' own disc since epic-11 amendment
+// <AMENDMENT>; untouched by Story 11.1's real dispersion — R8)
 // — the scatter offset HELD (`BotMind.batteryScatter`) rather than re-drawn
 // every tick, so the aim it writes into `InputMsg.aim` / `aimDist` stays one
 // point between clicks. The offset is re-drawn after each click, and
@@ -89,7 +90,7 @@ function heldScatter(mind: BotMind, range: number): Vec2 {
   const key = mind.targetKey;
   const held = mind.batteryScatter;
   if (held !== undefined && held !== null && mind.batteryScatterKey === key) return held;
-  const drawn = scatterOffset(range, mind.rng);
+  const drawn = scatterOffset(range, mind.rng, CONFIG.bots.gunAimScatterU);
   mind.batteryScatter = drawn;
   mind.batteryScatterKey = key;
   return drawn;
