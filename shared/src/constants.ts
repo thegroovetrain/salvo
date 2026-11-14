@@ -442,6 +442,17 @@ export const CONFIG = {
      * ~6u at 250u).
      */
     aimScatterU: 6,
+    /**
+     * u — THE SAME SCATTER FOR THE GUNS ALONE (main battery and secondaries,
+     * ai/battery.ts), at the same `aimScatterRefU` (Eric 2026-11-14, epic-11
+     * amendment 11: "your recommendation is fine" — both guns at
+     * 1.2 % of range). Guns hit only where a shell LANDS (amendments 8 and
+     * 11), so the 2.4 % disc that suits a torpedo or a blast left a
+     * bot's guns at 15 % per shell on a broadside hull at 95 hm; at 1.2 % it
+     * is 32 % (a perfect aim is 56 %). `aimScatterU` still steers every other
+     * bot weapon.
+     */
+    gunAimScatterU: 3,
     /** u — the reference range aimScatterU is quoted at (scatter scales as
      *  range / aimScatterRefU, so long shots wander proportionally more). */
     aimScatterRefU: 250,

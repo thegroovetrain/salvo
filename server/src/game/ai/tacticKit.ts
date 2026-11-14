@@ -217,9 +217,11 @@ function scatter(p: Vec2, sit: BotSituation, rng: Rng): Vec2 {
 
 /** The scatter's OFFSET alone at `range` u (the same two draws, same order)
  *  — exported so the main battery can HOLD one offset across ticks
- *  (ai/battery.ts) instead of re-drawing it every tick. */
-export function scatterOffset(range: number, rng: Rng): Vec2 {
-  const r = Math.sqrt(rng.next()) * CONFIG.bots.aimScatterU * (range / CONFIG.bots.aimScatterRefU);
+ *  (ai/battery.ts) instead of re-drawing it every tick. `scatterU` is the
+ *  disc at the reference range: every weapon's `aimScatterU` by default, the
+ *  guns' own `gunAimScatterU` from the battery. */
+export function scatterOffset(range: number, rng: Rng, scatterU: number = CONFIG.bots.aimScatterU): Vec2 {
+  const r = Math.sqrt(rng.next()) * scatterU * (range / CONFIG.bots.aimScatterRefU);
   const a = rng.float(0, TAU);
   return { x: Math.cos(a) * r, y: Math.sin(a) * r };
 }

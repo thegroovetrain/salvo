@@ -2970,7 +2970,7 @@ describe('THE MAIN BATTERY — the held aim and the on-target click (Story 10.4)
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(0);
     expect(Math.abs(d.aim)).toBeLessThan(0.1);
-    expect(Math.abs(d.aimDist - dist)).toBeLessThan(CONFIG.bots.aimScatterU * (dist / CONFIG.bots.aimScatterRefU) + 1);
+    expect(Math.abs(d.aimDist - dist)).toBeLessThan(CONFIG.bots.gunAimScatterU * (dist / CONFIG.bots.aimScatterRefU) + 1);
     expect(d.sec ?? false).toBe(false); // beyond the secondaries' reach
   });
 
