@@ -1,95 +1,94 @@
-// The rain field for the bench: the REAL shared fog field (sim/fog.ts) sampled
-// into a world raster, refreshed progressively (a few rows a frame into a back
-// buffer) and blended between the last two complete rasters so neither the
-// drawing nor the optical depth ever steps. The optical-depth march reads the
-// blended raster bilinearly (the exact per-point fogDensityAt march is far too
-// slow for ~70 points × 6 ships × 60 fps).
+// The rain raster for the bench: the storm field (stormField.ts — the eye of the
+// hurricane anchored to the live zone ring, PLAN.md §7) sampled into a square
+// world raster, refreshed progressively (rows into a back buffer under a
+// per-frame time budget) and blended between the last two complete rasters so
+// neither the drawing nor the optical depth ever steps. The optical-depth march
+// reads the blended raster bilinearly (an exact per-point march is far too slow
+// for ~70 points × 6 ships × 60 fps). Two of these exist: one around the
+// observer (the ship-look view), one over the whole map (the Storm view).
 
-import {
-  CONFIG,
-  FOG_NO_CUT,
-  fogCutForTarget,
-  fogDensityAt,
-  fogLattice,
-  makeFogField,
-  type FogField,
-} from '@salvo/shared';
-
-export const OCEAN_R = 5000; // u — the field's ocean (spin centre = origin); fog is 0 beyond it
-export const RASTER_R = 3800; // u — half-side of the sampled square around the observer (origin)
-export const CELL_U = 24; // u per raster cell
-export const N = Math.ceil((2 * RASTER_R) / CELL_U) + 1;
-const ROWS_PER_FRAME = 12;
+import { CONFIG } from '@salvo/shared';
+import { stormDensityAt, stormFrame, type StormField, type StormFrame } from './stormField.js';
 
 export class RainField {
-  field: FogField;
-  cut = FOG_NO_CUT;
-  coverage: number;
-  readonly ox = -RASTER_R;
-  readonly oy = -RASTER_R;
-  private prev = new Float32Array(N * N);
-  private cur = new Float32Array(N * N);
-  private fill = new Float32Array(N * N);
+  readonly N: number;
+  ox = 0;
+  oy = 0;
+  private prev: Float32Array;
+  private cur: Float32Array;
+  private fill: Float32Array;
   /** Blended display raster (what is drawn and marched). */
-  readonly view = new Float32Array(N * N);
+  readonly view: Float32Array;
   private fillRow = 0;
-  private fillT = 0;
-  private fillCut = FOG_NO_CUT;
-  private readonly lattice: { x: number; y: number }[];
+  private frame: StormFrame | undefined;
+  /** ms spent sampling in the last step (for the readout). */
+  lastStepMs = 0;
+  /** ms one full raster took to fill (sum over its frames). */
+  lastFullMs = 0;
+  private accMs = 0;
 
-  constructor(seed: number, coverage: number, tMs: number) {
-    this.coverage = coverage;
-    this.field = makeFogField(seed, CONFIG.fog, OCEAN_R);
-    this.lattice = fogLattice(0, 0, OCEAN_R, CONFIG.fog.quantileLattice);
-    this.resetAt(tMs);
+  constructor(
+    public field: StormField,
+    readonly halfU: number,
+    readonly cellU: number,
+    cx: number,
+    cy: number,
+    tMs: number,
+    private budgetMs = 7,
+  ) {
+    this.N = Math.ceil((2 * halfU) / cellU) + 1;
+    const n = this.N * this.N;
+    this.prev = new Float32Array(n);
+    this.cur = new Float32Array(n);
+    this.fill = new Float32Array(n);
+    this.view = new Float32Array(n);
+    this.resetAt(tMs, cx, cy);
   }
 
-  reseed(seed: number, tMs: number): void {
-    this.field = makeFogField(seed, CONFIG.fog, OCEAN_R);
-    this.resetAt(tMs);
-  }
-
-  setCoverage(c: number, tMs: number): void {
-    this.coverage = c;
-    this.resetAt(tMs);
-  }
-
-  /** Synchronous full refresh (seed / coverage change). */
-  resetAt(tMs: number): void {
-    this.cut = fogCutForTarget(this.field, tMs, this.lattice, this.coverage);
-    this.fillT = tMs;
-    this.fillCut = this.cut;
-    for (let j = 0; j < N; j++) this.fillRowAt(j);
+  /** Synchronous full refresh at `tMs`, optionally re-centred (seed / scrub / view change). */
+  resetAt(tMs: number, cx?: number, cy?: number): void {
+    if (cx !== undefined && cy !== undefined) {
+      this.ox = cx - this.halfU;
+      this.oy = cy - this.halfU;
+    }
+    this.startFill(tMs);
+    for (let j = 0; j < this.N; j++) this.fillRowAt(j);
     this.prev.set(this.fill);
     this.cur.set(this.fill);
     this.view.set(this.fill);
-    this.fillRow = 0;
     this.startFill(tMs);
   }
 
   private startFill(tMs: number): void {
-    this.fillT = tMs;
-    this.fillCut = fogCutForTarget(this.field, tMs, this.lattice, this.coverage);
+    this.frame = stormFrame(this.field, tMs, this.frame);
     this.fillRow = 0;
   }
 
   private fillRowAt(j: number): void {
-    const y = this.oy + j * CELL_U;
+    const N = this.N;
+    const y = this.oy + j * this.cellU;
     const row = j * N;
-    for (let i = 0; i < N; i++) this.fill[row + i] = fogDensityAt(this.field, this.ox + i * CELL_U, y, this.fillT, this.fillCut);
+    const f = this.frame!;
+    for (let i = 0; i < N; i++) this.fill[row + i] = stormDensityAt(this.field, f, this.ox + i * this.cellU, y);
   }
 
-  /** Advance the progressive refresh; `tMs` = current rain clock. Rebuilds `view`. */
+  /** Advance the progressive refresh (time-budgeted); `tMs` = current match clock. Rebuilds `view`. */
   step(tMs: number): void {
-    const end = Math.min(N, this.fillRow + ROWS_PER_FRAME);
-    for (let j = this.fillRow; j < end; j++) this.fillRowAt(j);
-    this.fillRow = end;
+    const N = this.N;
+    const t0 = performance.now();
+    while (this.fillRow < N) {
+      this.fillRowAt(this.fillRow++);
+      if (performance.now() - t0 > this.budgetMs) break;
+    }
+    this.lastStepMs = performance.now() - t0;
+    this.accMs += this.lastStepMs;
     if (this.fillRow >= N) {
       const p = this.prev;
       this.prev = this.cur;
       this.cur = this.fill;
       this.fill = p;
-      this.cut = this.fillCut;
+      this.lastFullMs = this.accMs;
+      this.accMs = 0;
       this.startFill(tMs);
     }
     const f = this.fillRow / N;
@@ -101,8 +100,9 @@ export class RainField {
 
   /** Bilinear density from the blended raster; 0 outside it. */
   densityAt(x: number, y: number): number {
-    const gx = (x - this.ox) / CELL_U;
-    const gy = (y - this.oy) / CELL_U;
+    const N = this.N;
+    const gx = (x - this.ox) / this.cellU;
+    const gy = (y - this.oy) / this.cellU;
     if (!(gx >= 0 && gy >= 0 && gx < N - 1 && gy < N - 1)) return 0;
     const i = gx | 0;
     const j = gy | 0;

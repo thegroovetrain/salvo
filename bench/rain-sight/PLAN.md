@@ -63,3 +63,37 @@ watch candidate looks move and pick one. NOTHING in game code changes.
   --screenshot` (or equivalent) — MUTED, kill what you start. Capture two screenshots a few
   seconds apart to prove motion and that a ship partly in rain shows partial fade.
 - No commits. Report: files, how each look is built, screenshots' paths, anything that fell back.
+
+## §7 Storm motion (Eric 2026-11-14 — the eye of the storm)
+Eric's model: the battle is in the EYE of a hurricane closing around you. Rulings (his):
+- The field is anchored to the LIVE ring (center + radius from `zoneStateAt` on a real
+  `rollZoneRings` timeline with real `CONFIG.zone` / `mapRadius`): the eye's center IS the live
+  ring's center and moves with it, linearly, during each closing beat.
+- Spin about that moving center; angular motion rises from calm at the center to FASTEST at the
+  ring edge. Outside the ring speed is unimportant to Eric — pick what is cheap and looks right
+  (default: hold the edge speed). Direction: per-match COIN FLIP. NO wind drift.
+- Density: a TRUE EYE (zero rain in a central disc, soft edge) → thicker toward the ring →
+  densest at the ring edge; OUTSIDE the ring: "heavy rain with gaps, so if a ship is out there
+  you can still catch a glimpse of it". Rain extends out through the storm water to the map edge.
+- This REPLACES the coverage-target machinery (`fogCutForTarget`, coverageMin/Max,
+  targetPeriodMs) entirely: density is a function of ρ = distance / live ring radius.
+- Keep the slow shape morph (two layers cross-fading) and the fbm noise from shared/.
+Orchestrator rulings (engineering):
+- Write the new field as a PURE module `bench/rain-sight/src/stormField.ts` in the shared/ posture
+  (deterministic, plain objects, time as an argument; no Math.sin/cos/exp/pow/random — use
+  `fogSinCos` from shared/src/sim/fog.ts) so it can move to shared/ later nearly verbatim.
+  Reuse `fbm`/`makeLayer` from shared/src/sim/noise.ts.
+- Bounded shear: differential rotation must not wind the pattern infinitely — measure each layer's
+  accumulated twist from its last invisible morph instant (the trick fog.ts already uses), so
+  spiral bands form and refresh. Sample noise relative to the MOVING eye center so clouds travel
+  with the eye.
+- Density from ρ via a coverage-to-cut map (precompute the fbm value distribution once), so the
+  dials read as shares: eye radius (fraction of ring R), coverage just inside the ring edge,
+  coverage outside the ring, plus the soft-edge width. Thin → thick ramp between eye and edge.
+- Dials (all Eric's numbers, page defaults are only a start): edge speed (u/s), center speed
+  fraction, eye radius fraction, coverage at edge, coverage outside, morph period, match clock
+  speed (1–60×) + a match-clock scrub slider (0 → full timeline incl. collapse), reseed (new
+  rings + new coin flip). The §3 sight model and A+D look stay exactly as they are.
+- New "Storm" view (mode toggle beside Compare): the WHOLE map, live ring drawn as a thin line,
+  the next ring's reveal optional, rain field over the ocean, clock readout. The ship-look view
+  also uses the new field, observer placed inside the live ring.

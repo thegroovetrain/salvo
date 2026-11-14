@@ -1,8 +1,16 @@
 // Headless verification: open rain-sight.html in MUTED headless Chrome over CDP,
-// collect console errors, take two screenshots a few seconds apart, print the
-// ships' per-part V ranges. Kills the browser it started.
+// collect console errors, take screenshots a few seconds apart, print the
+// ships' per-part V ranges and the page's frame time. Kills the browser it started.
 // Usage: node bench/rain-sight/shoot.mjs [solo] [span]   (solo = 0 A+D, 1 A, 2 D — one look full-size; omit or '-' for compare)
-// FOLLOW=<ship index> centres the camera on that ship.
+// Env:
+//   VIEW=storm      the whole-map Storm view instead of the ship looks
+//   CLOCK=<ms>      jump the match clock there first (ms from zone start)
+//   SPEED=<x>       match clock speed (1–60)
+//   PAUSE=1         freeze the clock (shot lands exactly on CLOCK)
+//   GAP=<ms>        real ms between the two shots (default 4000)
+//   SHOTS=<n>       number of shots (default 2)
+//   TAG=<name>      file name stem (default derived)
+//   FOLLOW=<i>      centre the camera on ship i
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +25,13 @@ const SOLO_TAGS = ['AD', 'A', 'D'];
 const soloArg = process.argv[2];
 const solo = soloArg === undefined || soloArg === '-' ? undefined : soloArg;
 const zoom = process.argv[3];
-const tag = (solo === undefined ? 'compare' : `solo-${SOLO_TAGS[Number(solo)]}`) + (process.env.FOLLOW ? `-follow${process.env.FOLLOW}` : '');
+const storm = process.env.VIEW === 'storm';
+const tag = process.env.TAG
+  ?? ((storm ? 'storm' : solo === undefined ? 'compare' : `solo-${SOLO_TAGS[Number(solo)]}`)
+    + (process.env.CLOCK ? `-t${Math.round(Number(process.env.CLOCK) / 1000)}s` : '')
+    + (process.env.FOLLOW ? `-follow${process.env.FOLLOW}` : ''));
+const GAP = Number(process.env.GAP ?? 4000);
+const NSHOTS = Number(process.env.SHOTS ?? 2);
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const port = 9300 + Math.floor(Math.random() * 500);
 const profile = mkdtempSync(join(tmpdir(), 'rainbench-'));
@@ -60,22 +74,27 @@ try {
   await send('Page.navigate', { url: page });
   await sleep(3000);
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true })).result?.result?.value;
-  if (solo !== undefined) await ev(`document.querySelectorAll('.btns button')[${Number(solo) + 1}].click()`);
+  if (storm) await ev(`window.__bench.setMode('storm')`);
+  else if (solo !== undefined) await ev(`window.__bench.setMode('look', ${[2, 0, 1][Number(solo)]})`);
   if (process.env.FOLLOW) await ev(`window.__bench.P.follow = ${Number(process.env.FOLLOW)}`);
-  if (zoom !== undefined) await ev(`(()=>{const i=[...document.querySelectorAll('input[type=range]')].at(-1); i.value=${Number(zoom)}; i.dispatchEvent(new Event('input'));})()`);
-  await sleep(1000);
-  const info = await ev(`(() => { const r = document.querySelector('canvas'); const gl = r && (r.getContext('webgl2') || r.getContext('webgl')); return { canvas: !!r, renderer: window.__bench ? 'ok' : 'no bench', ships: window.__bench ? window.__bench.ships.map(s => [s.cls, Math.round(s.x), Math.round(s.y), s.vMin.toFixed(2), s.vMax.toFixed(2)]) : null }; })()`);
-  console.log('t0', JSON.stringify(info));
+  if (zoom !== undefined) await ev(`window.__bench.P.spanU = ${Number(zoom)}`);
+  if (process.env.SPEED) await ev(`window.__bench.P.timeSpeed = ${Number(process.env.SPEED)}`);
+  if (process.env.PAUSE) await ev(`window.__bench.P.paused = true`);
+  if (process.env.EYE) await ev(`window.__bench.P.showEye = true`);
+  if (process.env.CLOCK) await ev(`window.__bench.setClock(${Number(process.env.CLOCK)})`);
+  if (process.env.CLOCK && !storm) await ev(`window.__bench.reseatObserver()`);
+  await sleep(1500);
+  const state = `(() => { const b = window.__bench; return { clock: Math.round(b.matchT), frameMs: +b.frameMs.toFixed(1), perf: document.querySelector('.perf').textContent, spin: b.storm.spinSign, ships: b.ships.map(s => [s.cls, Math.round(s.x), Math.round(s.y), s.vMin.toFixed(2), s.vMax.toFixed(2)]) }; })()`;
   const shot = async (name) => {
     const r = await send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(join(shots, name), Buffer.from(r.result.data, 'base64'));
     console.log('wrote', join(shots, name));
   };
-  await shot(`${tag}-1.png`);
-  await sleep(4000);
-  const info2 = await ev(`window.__bench.ships.map(s => [s.cls, Math.round(s.x), Math.round(s.y), s.vMin.toFixed(2), s.vMax.toFixed(2)])`);
-  console.log('t1', JSON.stringify(info2));
-  await shot(`${tag}-2.png`);
+  for (let i = 1; i <= NSHOTS; i++) {
+    if (i > 1) await sleep(GAP);
+    console.log(`t${i}`, JSON.stringify(await ev(state)));
+    await shot(`${tag}-${i}.png`);
+  }
   console.log('console errors/warnings:', errors.length ? errors : 'none');
 } finally {
   try { ws?.close(); } catch { /* */ }
