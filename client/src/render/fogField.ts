@@ -75,13 +75,13 @@ import { BufferImageSource, Container, Rectangle, Sprite, Texture, TilingSprite 
 import {
   CONFIG,
   fogDensityAt,
-  fogDepthReachFan,
   fogFrameAt,
   fogMaxDepth,
   makeFogField,
   type FogField,
   type FogFrame,
   type Island,
+  type SmokeDisc,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { ScreenWorldRect } from './camera.js';
@@ -89,6 +89,7 @@ import { BASE_HAZE_HALO_U, haloSpanU } from './hazeHalo.js';
 import { HazeLosCaster } from './hazeLos.js';
 import { HALO_MASK_TEXTURE_SIZE, bakeHaloMaskTexture } from './textures.js';
 import { PUFF_TILE_SEED, bakePuffTile, puffTileRgba } from './fogPuffTile.js';
+import { eyeReachFanInto } from './rainSight.js';
 
 const F = CLIENT_CONFIG.fogField;
 /** The halo's own knobs — shared with the countermeasure's mask on purpose. */
@@ -97,6 +98,7 @@ const H = CLIENT_CONFIG.countermeasure;
 export const SPECTATOR_CELLS = 128;
 /** Largest frame gap (ms) the scroll advances across (a backgrounded tab must not jump). */
 const MAX_SCROLL_DT_MS = 500;
+const NO_SMOKE: readonly SmokeDisc[] = [];
 
 /** Scene-graph label of the fog layer's halo mask (test seam). */
 export const FOG_HALO_MASK_LABEL = 'fogHaloMask';
@@ -261,6 +263,8 @@ export class FogFieldView {
    *  reused for the view's life. */
   private frame: FogFrame | null = null;
   private frameT = Number.NaN;
+  /** The held smoke as sight discs at a server time (`setSmokeSource`); null = none. */
+  private smokeSource: ((tMs: number) => readonly SmokeDisc[]) | null = null;
   private readonly flow = { x: 0, y: 0 };
   /** The body: the density mask sprite + the wisps tile (the layer's second child, after the halo). */
   private readonly body = new Container();
@@ -429,22 +433,32 @@ export class FogFieldView {
     this.clipToScreen(screen);
   }
 
+  /** Where the eye-reach fan reads the held SMOKE clouds as sight discs at a
+   *  server time (main.ts: the same `smokeDiscsInto` set `rainEyeFor` uses).
+   *  None set → no smoke. */
+  setSmokeSource(source: ((tMs: number) => readonly SmokeDisc[]) | null): void {
+    this.smokeSource = source;
+  }
+
   /**
    * THE EYE-REACH FAN for the radar's near-range dim mask (amendment 210): how
    * far the eye at (ox, oy) with `sightU` of effective truesight reaches through
-   * the rain on each of `out.length` bearings (ray k at k·2π/N, world axes) —
-   * where the optical depth from the observer first reaches the sight
-   * threshold T (shared `fogDepthReachFan` under `fogMaxDepth(CONFIG.fog)`),
-   * capped at `sightU` — written into `out` and returned. Null when there is
-   * nothing to toll — no field yet, no rain at `tMs`, or a non-finite pose — so
-   * the radar falls back to its radial bake. Presentation only; the field
-   * stays private.
+   * the rain AND the held smoke (Story 11.6: τ = rain + smoke) on each of
+   * `out.length` bearings (ray k at k·2π/N, world axes) — where the optical
+   * depth from the observer first reaches the sight threshold T
+   * (`fogMaxDepth(CONFIG.fog)`), capped at `sightU` (rainSight.ts
+   * `eyeReachFanInto`; a ray no cloud lies on is the shared rain reach) —
+   * written into `out` and returned. Null when nothing shortens the eye — no
+   * rain and no smoke at `tMs`, or a non-finite pose — so the radar falls back
+   * to its radial bake. Cast on the radar's re-cast cadence (`refreshMs`),
+   * never per frame. Presentation only; the field stays private.
    */
   eyeReachFan(ox: number, oy: number, sightU: number, tMs: number, out: Float32Array): Float32Array | null {
     if (!Number.isFinite(ox + oy + sightU + tMs)) return null;
     const frame = this.frameAt(tMs);
-    if (frame === null) return null;
-    return fogDepthReachFan(frame, ox, oy, sightU, fogMaxDepth(CONFIG.fog), out);
+    const smoke = this.smokeSource === null ? NO_SMOKE : this.smokeSource(tMs);
+    if (frame === null && smoke.length === 0) return null;
+    return eyeReachFanInto(frame, smoke, ox, oy, sightU, fogMaxDepth(CONFIG.fog), out);
   }
 
   // --- test seams ---------------------------------------------------------

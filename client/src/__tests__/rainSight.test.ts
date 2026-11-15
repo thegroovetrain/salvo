@@ -15,6 +15,9 @@ import {
   CONFIG,
   DEFAULT_CLASS_ID,
   fogDepthAlong,
+  fogDepthReachFan,
+  fogMaxDepth,
+  smokeDepthAlong,
   fogFrameAt,
   fogHullGrid,
   fogVisibility,
@@ -30,6 +33,9 @@ import {
   RAIN_GRID_COLS,
   RAIN_GRID_N,
   RAIN_GRID_ROWS,
+  SENT_FLOOR_V,
+  eyeForHull,
+  eyeReachFanInto,
   hullVisGrid,
   floorSentHull,
   meanVisibility,
@@ -42,6 +48,7 @@ import {
 import {
   HullDissolve,
   HullDissolveFilter,
+  dissolveAlpha,
   dissolveNoise,
   dissolvePaddingPx,
   hullDissolveSupported,
@@ -116,11 +123,11 @@ describe('hullVisGrid — smoke adds its optical depth (τ = rain + smoke)', () 
   };
   const below = (v: Float32Array): number => v.filter((x) => x < cut).length;
 
-  it('a hull behind a grown cloud reads below the cutoff (only the sent floor at it); with no cloud it reads 1', () => {
+  it('a hull behind a grown cloud reads below the cutoff (only the sent floor above it); with no cloud it reads 1', () => {
     const d = 2 * R + 400; // observer and hull on opposite sides of the cloud
     const behind = grid({ frame: null, smoke: grownDiscs(d / 2), x: 0, y: 0 }, d);
     expect(below(behind)).toBeGreaterThanOrEqual(RAIN_GRID_N - 1);
-    expect(Math.max(...behind)).toBeLessThanOrEqual(Math.fround(cut));
+    expect(Math.max(...behind)).toBeLessThanOrEqual(Math.fround(SENT_FLOOR_V));
     const clear = grid({ frame: null, smoke: [], x: 0, y: 0 }, d);
     expect(clear.every((v) => v === 1)).toBe(true);
     const aside = grid({ frame: null, smoke: grownDiscs(-d), x: 0, y: 0 }, d); // the cloud behind the OBSERVER, off the line
@@ -165,18 +172,30 @@ describe('hullVisGrid — smoke adds its optical depth (τ = rain + smoke)', () 
 });
 
 describe('floorSentHull — a sent hull is never drawn fully gone', () => {
-  it('raises only the best part to the cutoff when every part is below it', () => {
+  it('raises only the best part to the sent floor when every part is below it', () => {
     const cut = CONFIG.fog.sightCutoffV;
     const v = Float32Array.from({ length: RAIN_GRID_N }, (_, i) => (cut / 10) * (1 + i / RAIN_GRID_N));
     const before = Float32Array.from(v);
     const best = before.indexOf(Math.max(...before));
     floorSentHull(v);
-    for (let i = 0; i < v.length; i++) expect(v[i]).toBe(i === best ? Math.fround(cut) : before[i]);
+    for (let i = 0; i < v.length; i++) expect(v[i]).toBe(i === best ? Math.fround(SENT_FLOOR_V) : before[i]);
   });
 
-  it('leaves a grid with any part at or above the cutoff untouched', () => {
+  it('the floored best part DRAWS: the shader alpha clears its vanish edge and is visibly present', () => {
+    // every part at or under the cutoff — the case the floor exists for
+    for (const fill of [0, CONFIG.fog.sightCutoffV / 2, CONFIG.fog.sightCutoffV]) {
+      const v = floorSentHull(new Float32Array(RAIN_GRID_N).fill(fill));
+      const best = Math.max(...v);
+      // the vanish edge is fully open at the best part (the dissolve's own survivors draw at full D fade)
+      expect(dissolveAlpha(best, 1, 1)).toBeCloseTo(1 + (best - 1) * L.dStrength, 6);
+      // the plain-fade path (far fallback) draws it at least a few 8-bit steps
+      expect(dissolveAlpha(best, 0, 0)).toBeGreaterThan(4 / 255);
+    }
+  });
+
+  it('leaves a grid with any part at or above the sent floor untouched', () => {
     const v = new Float32Array(RAIN_GRID_N).fill(0);
-    v[3] = CONFIG.fog.sightCutoffV;
+    v[3] = SENT_FLOOR_V;
     const before = Float32Array.from(v);
     floorSentHull(v);
     expect(Array.from(v)).toEqual(Array.from(before));
@@ -238,7 +257,53 @@ describe('HullRainVis — the cadence', () => {
   });
 });
 
+describe('HullRainVis — the floor holds while easing between marches', () => {
+  it('the drawn best part never dips under the sent floor when the best part moves', () => {
+    // a hull broadside-on behind a cloud, seen first from one side, then the other:
+    // both marches floor a DIFFERENT best part; the ease between them must not dim both
+    const d = 600;
+    const disc = (cx: number) => [{ x: cx, y: 0, r: 260 }];
+    const west: RainEye = { frame: null, smoke: disc(d / 2), x: 0, y: 0 };
+    const east: RainEye = { frame: null, smoke: disc(1.5 * d), x: 2 * d, y: 0 };
+    const pts = new Float64Array(2 * RAIN_GRID_N);
+    const a = hullVisGrid(west, d, 0, Math.PI / 2, HULL.length, HULL.beam, pts, new Float32Array(RAIN_GRID_N));
+    const b = hullVisGrid(east, d, 0, Math.PI / 2, HULL.length, HULL.beam, pts, new Float32Array(RAIN_GRID_N));
+    expect(a.indexOf(Math.max(...a))).not.toBe(b.indexOf(Math.max(...b)));
+    const rv = new HullRainVis(0);
+    rv.step(west, d, 0, Math.PI / 2, HULL.length, HULL.beam, 16);
+    for (let t = 0; t < 4 * L.visRefreshMs; t += 16) {
+      const vis = rv.step(east, d, 0, Math.PI / 2, HULL.length, HULL.beam, 16)!;
+      expect(Math.max(...vis)).toBeGreaterThanOrEqual(Math.fround(SENT_FLOOR_V));
+    }
+  });
+});
+
+describe('a hull lit from above by an OWN star shell gets no rain eye (V = 1)', () => {
+  it('eyeForHull: inside an own live lit zone → null; outside, or no zones → the eye', () => {
+    const lit = [{ x: PART.x, y: PART.y, r: 50 }];
+    expect(eyeForHull({ ...PART.eye, lit }, PART.x + 10, PART.y)).toBeNull();
+    const eye = { ...PART.eye, lit };
+    expect(eyeForHull(eye, PART.x + 100, PART.y)).toBe(eye);
+    expect(eyeForHull(PART.eye, PART.x, PART.y)).toBe(PART.eye);
+    expect(eyeForHull(null, PART.x, PART.y)).toBeNull();
+  });
+
+  it('a contact view inside its observer\'s own lit zone draws undissolved; outside it, rained', () => {
+    setHullDissolveSupport(true);
+    const v = new ShipView(relationStyle('enemy'), DEFAULT_CLASS_ID);
+    v.update(PART.x, PART.y, PART.h);
+    v.setRain({ ...PART.eye, lit: [{ x: PART.x, y: PART.y, r: 80 }] }, 16);
+    expect(v.rainFiltered).toBe(false);
+    v.setRain({ ...PART.eye, lit: [{ x: PART.x + 5000, y: PART.y, r: 80 }] }, 16);
+    expect(v.rainFiltered).toBe(true);
+  });
+});
+
 describe('HullDissolve — one filter per view, attached only while rained', () => {
+  it('the filter renders at the render target\'s resolution (a hull never softens when it attaches)', () => {
+    expect(new HullDissolveFilter(new Container()).resolution).toBe('inherit');
+  });
+
   it('is unsupported until the stage says WebGL', () => {
     expect(hullDissolveSupported()).toBe(false);
     setHullDissolveSupport(true);
@@ -349,5 +414,43 @@ describe('the hull views', () => {
     expect(p.gfx.alpha).toBeLessThan(0.5);
     p.setRain(null, 16);
     expect(p.gfx.alpha).toBe(0.5);
+  });
+});
+
+describe('eyeReachFanInto — the radar dim fan through rain AND smoke', () => {
+  const RAYS = 120;
+  const TAU = fogMaxDepth(CONFIG.fog);
+  const SIGHT = 900;
+  const SMOKE = { thickness: CONFIG.countermeasure.sightThickness, softFrac: CONFIG.countermeasure.sightSoftFrac };
+  const along = (k: number, d: number, ox: number, oy: number) => {
+    const a = (k * 2 * Math.PI) / RAYS;
+    return { x: ox + Math.cos(a) * d, y: oy + Math.sin(a) * d };
+  };
+
+  it('with no smoke it IS the shared rain fan', () => {
+    const out = eyeReachFanInto(FRAME, [], PART.eye.x, PART.eye.y, SIGHT, TAU, new Float32Array(RAYS));
+    expect(Array.from(out)).toEqual(Array.from(fogDepthReachFan(FRAME, PART.eye.x, PART.eye.y, SIGHT, TAU, new Float32Array(RAYS))));
+  });
+
+  it('smoke alone (no rain) shortens only the bearings a cloud lies on, to where its τ reaches T', () => {
+    const cloud = [{ x: 400, y: 0, r: 150 }];
+    const out = eyeReachFanInto(null, cloud, 0, 0, SIGHT, TAU, new Float32Array(RAYS));
+    expect(out[0]).toBeLessThan(SIGHT);
+    const p = along(0, out[0], 0, 0);
+    expect(smokeDepthAlong(cloud, 0, 0, p.x, p.y, SMOKE)).toBeCloseTo(TAU, -1); // within one march step's linearization
+    expect(out[RAYS / 2]).toBe(Math.fround(SIGHT)); // the bearing away from the cloud
+  });
+
+  it('rain + smoke: a shortened bearing ends where the two depths together reach T, never past the rain-only reach', () => {
+    const ox = PART.eye.x;
+    const oy = PART.eye.y;
+    const rainOnly = fogDepthReachFan(FRAME, ox, oy, SIGHT, TAU, new Float32Array(RAYS));
+    const thin = [{ x: ox + 150, y: oy, r: 60 }];
+    const out = eyeReachFanInto(FRAME, thin, ox, oy, SIGHT, TAU, new Float32Array(RAYS));
+    for (let k = 0; k < RAYS; k++) expect(out[k]).toBeLessThanOrEqual(rainOnly[k] + 1e-3);
+    expect(out[0]).toBeLessThan(rainOnly[0]);
+    const p = along(0, out[0], ox, oy);
+    const tau = fogDepthAlong(FRAME, ox, oy, p.x, p.y) + smokeDepthAlong(thin, ox, oy, p.x, p.y, SMOKE);
+    expect(Math.abs(tau - TAU)).toBeLessThan(TAU * 0.05);
   });
 });

@@ -5,7 +5,8 @@
 // from the shared rain field (`fogDensityAt`) — no server, no wire.
 //
 // Pure presentation math, NO Pixi, NO Math.random: the grain is a hash of the
-// ABSOLUTE radar-lattice cell (`CONFIG.vision.radarCellU`) and the SWEEP INDEX
+// ABSOLUTE radar-lattice cell (`CONFIG.vision.radarCellU`, which the radar
+// hands in as `CLIENT_CONFIG.blip.heatmap.cellU` — one lattice) and the SWEEP INDEX
 // (`cellNoise(paintSeed('rainClutter', sweep), gx, gy)`), so one revolution's
 // clutter is a frozen, reproducible pattern and the next revolution rolls a
 // fresh one. The output is a `MarchSlice` — the record the radar's own
@@ -38,7 +39,7 @@ export interface ClutterTier {
 }
 
 export interface RainClutterOpts {
-  cellU: number; // u — the radar lattice (CONFIG.vision.radarCellU)
+  cellU: number; // u — the radar lattice: radar.ts passes CLIENT_CONFIG.blip.heatmap.cellU, which IS CONFIG.vision.radarCellU
   weak: ClutterTier;
   medium: ClutterTier;
   heavy: ClutterTier;

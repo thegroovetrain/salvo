@@ -1,15 +1,15 @@
 // THE DIM MASK FOLLOWS THE FOGGED EYE (epic-9 amendment 210, Eric 2026-10-21):
 // the near-range dim keeps its look — the floor across the sight bubble, linear
 // to full at the flash rung — but on each bearing the ramp SLIDES inward to
-// where the observer's fog-tolled eye actually ends, by the `dim.fogLift` dial:
+// where the observer's eye (through rain and smoke) actually ends, by the `dim.fogLift` dial:
 //     scale(θ, d) = radial(d + (sight − reach(θ)) × fogLift)
 // Contracts pinned here: no fog (or fogLift 0) IS today's mask; a fogged
 // bearing's floor ends at its reach and full strength begins one ramp-width
 // later; the bake draws one wedge per bearing (jsdom cannot rasterize, so the
 // wedge geometry and the recorded draw calls are the evidence); the Radar
 // re-casts and re-bakes on the fog cadence or a move, never per frame; the
-// FogFieldView casts the shared depth fan (Story 11.6: where the rain's optical
-// depth reaches the sight threshold) from its one frame, or null with no rain.
+// FogFieldView casts its depth fan (Story 11.6: where the rain's + the held smoke's optical
+// depth reaches the sight threshold) from its one frame, or null with neither.
 // Radii are derived from CONFIG / CLIENT_CONFIG, never literals.
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
@@ -413,6 +413,23 @@ describe('FogFieldView.eyeReachFan — the shared depth fan under the sight thre
       }
     }
     expect(shortened, 'some observer on the lattice has rain ahead').toBe(true);
+  });
+
+  it('includes the held smoke: no rain + a cloud ahead → a fan shortened on the cloud bearing; neither → null', () => {
+    const v = view(null); // no rain at all
+    const out = new Float32Array(RAYS);
+    expect(v.eyeReachFan(0, 0, SIGHT, T, out)).toBeNull();
+    let asked = Number.NaN;
+    v.setSmokeSource((t) => {
+      asked = t;
+      return [{ x: 300, y: 0, r: 120 }];
+    });
+    expect(v.eyeReachFan(0, 0, SIGHT, T, out)).toBe(out);
+    expect(asked).toBe(T); // the clouds are read at the cast's server time
+    expect(out[0]).toBeLessThan(Math.fround(SIGHT));
+    expect(out[RAYS / 2]).toBe(Math.fround(SIGHT));
+    v.setSmokeSource(() => []);
+    expect(v.eyeReachFan(0, 0, SIGHT, T, out)).toBeNull();
   });
 
   it('inside the clear eye with sight short of the rain, nothing is shortened', () => {

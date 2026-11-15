@@ -1,8 +1,9 @@
 // MULTI-SPECTRAL COUNTERMEASURE cloud rendering from FrameMsg.clouds (Story
 // 9.3). SMOKE IS PAINT (Eric 2026-10-12): "rather than fucking with whether I
 // can see something, just draw it on top of ships" — the server hides nothing
-// behind a cloud any more; the cloud is purely a visual overlay painted from
-// the wire's {id,x,y,t0}.
+// from RADAR behind a cloud; this paint is a visual overlay drawn from the
+// wire's {id,x,y,t0}. (Since Story 11.6 a cloud DOES occlude SIGHT, like rain —
+// that is render/rainSight.ts and the server's eye gate, not this file.)
 //
 // THE LAYER: chartRoot's `cloud` layer, above enemy hulls and nameplates and
 // below radar paints and the own hull (Eric: "If I'm the user, I should be on

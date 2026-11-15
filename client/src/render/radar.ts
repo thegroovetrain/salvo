@@ -70,7 +70,7 @@
 // render/radarDim.ts owns the curve; render/textures.ts draws it.
 //
 // ON A FOGGED BEARING THE RAMP SLIDES INWARD (epic-9 amendment 210, Eric
-// 2026-10-21): each bearing's ramp starts where the observer's fog-tolled EYE
+// 2026-10-21): each bearing's ramp starts where the observer's EYE (through rain and smoke)
 // actually ends on it, by the `dim.fogLift` dial, so a return the fog hid from
 // the eye is not muted as though it were in plain sight. The fan comes from an
 // `EyeReachSource` (main.ts hands over the FogFieldView once) and is re-cast
@@ -469,8 +469,8 @@ export class Radar {
    */
   private clutterSource: ClutterFrameSource | null = null;
   private readonly clutter = new ClutterTrack(
-    { ...RAIN_CLUTTER_DEFAULTS, cellU: CLIENT_CONFIG.blip.heatmap.cellU },
-    maxSlices() / 2 + 1,
+    { ...RAIN_CLUTTER_DEFAULTS, cellU: CLIENT_CONFIG.blip.heatmap.cellU }, // = CONFIG.vision.radarCellU: one lattice
+    maxSlices() / 2 + 1, // persistSweeps revolutions of beam steps, + 1 (no wire-echo slack: clutter is quantum-only)
   );
   /** See `setStaleClock`. */
   private staleClock: (() => number) | null = null;

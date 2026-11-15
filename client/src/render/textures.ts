@@ -337,7 +337,7 @@ function redrawableCtx(into: Texture, size = DIM_MASK_TEXTURE_SIZE): BakeCtx | n
  * With no `into` — first bake, or a caller holding `Texture.EMPTY` — it mints, as
  * it always did.
  *
- * `reach` (amendment 210) is the observer's fog-tolled eye reach per bearing
+ * `reach` (amendment 210) is the observer's eye reach through rain and smoke per bearing
  * (u; ray k at k·2π/N, world axes — FogFieldView `eyeReachFan`). Null, or a fan
  * that slides nothing (every entry at sight, or `dim.fogLift` 0), draws exactly
  * the radial ramp; otherwise each bearing gets its own wedge with the ramp slid

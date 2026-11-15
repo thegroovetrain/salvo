@@ -29,8 +29,11 @@
 import {
   CONFIG,
   cloudOutlineRadius,
+  fogDensityAt,
   fogDepthAlong,
+  fogDepthReach,
   fogHullGrid,
+  fogSinCos,
   fogVisibility,
   smokeDepthAlong,
   type CloudSize,
@@ -39,6 +42,7 @@ import {
   type SmokeSightConfig,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { insideAnyZone } from './litZones.js';
 
 const L = CLIENT_CONFIG.rainLook;
 
@@ -54,13 +58,32 @@ export const RAIN_GRID_N = RAIN_GRID_COLS * RAIN_GRID_ROWS;
  */
 export const CLEAR_V = 1 - 1 / 512;
 
+/**
+ * THE SENT-HULL FLOOR: the least V the best part of a hull the server sent is
+ * drawn at — the vanish cutoff plus `rainLook.sentFloorMarginV`, clear of the
+ * shader's vanish edge (hullDissolve.ts `dissolveAlpha` is 0 AT the cutoff).
+ */
+export const SENT_FLOOR_V = CONFIG.fog.sightCutoffV + L.sentFloorMarginV;
+
 /** Who is looking through the weather: the rain frame (null = no rain), the
- *  smoke discs (absent / empty = none) and the observer's world point. */
+ *  smoke discs (absent / empty = none), the observer's world point, and the
+ *  observer's OWN live star-shell lit zones (absent / empty = none). */
 export interface RainEye {
   frame: FogFrame | null;
   smoke?: readonly SmokeDisc[];
+  /** The own live lit zones (render/litZones.ts `ownActiveZones`): a hull whose
+   *  center is inside one is LIT FROM ABOVE — the server sends it on the zone
+   *  alone (signals.ts `ownZoneCovers`), no eye line — so it gets no rain eye. */
+  lit?: readonly { x: number; y: number; r: number }[];
   x: number;
   y: number;
+}
+
+/** Pure: the eye a hull centered at (x, y) is drawn through — null (V = 1) when
+ *  the hull is inside one of the observer's own lit zones (lit from above). */
+export function eyeForHull(eye: RainEye | null, x: number, y: number): RainEye | null {
+  if (eye === null || eye.lit === undefined || eye.lit.length === 0) return eye;
+  return insideAnyZone({ x, y }, eye.lit) ? null : eye;
 }
 
 /** The smoke sight dials (CONFIG.countermeasure). */
@@ -138,13 +161,14 @@ export function hullVisGrid(
 /**
  * Pure, in place: THE FLOOR for a hull the server SENT. The server held it, so
  * the client must never draw it fully gone on a timing or cell difference: if
- * every part's V is below `CONFIG.fog.sightCutoffV`, the BEST part is raised
- * to the cutoff (the others stay). Returns `out`.
+ * every part's V is below `SENT_FLOOR_V` (the cutoff plus a margin that clears
+ * the shader's vanish edge), the BEST part is raised to it (the others stay).
+ * Returns `out`.
  */
 export function floorSentHull(out: Float32Array, n: number = out.length): Float32Array {
   let best = 0;
   for (let i = 1; i < n; i++) if (out[i] > out[best]) best = i;
-  if (n > 0 && out[best] < CONFIG.fog.sightCutoffV) out[best] = CONFIG.fog.sightCutoffV;
+  if (n > 0 && out[best] < SENT_FLOOR_V) out[best] = SENT_FLOOR_V;
   return out;
 }
 
@@ -195,10 +219,12 @@ export class HullRainVis {
 
   /**
    * Advance by `dtMs` with the hull at (x, y, heading), `lengthU` × `beamU`,
-   * seen from `eye`. Returns the drawn grid, or null with no eye (no observer, or
-   * neither rain nor smoke — the next eye snaps again).
+   * seen from `eye`. Returns the drawn grid, or null with no eye (no observer,
+   * neither rain nor smoke, or the hull lit from above by an own star shell —
+   * the next eye snaps again).
    */
-  step(eye: RainEye | null, x: number, y: number, heading: number, lengthU: number, beamU: number, dtMs: number): Float32Array | null {
+  step(rawEye: RainEye | null, x: number, y: number, heading: number, lengthU: number, beamU: number, dtMs: number): Float32Array | null {
+    const eye = eyeForHull(rawEye, x, y);
     if (eye === null) {
       this.fresh = true;
       return null;
@@ -212,7 +238,7 @@ export class HullRainVis {
     }
     const k = L.visEaseMs > 0 ? 1 - Math.exp(-dt / L.visEaseMs) : 1;
     for (let i = 0; i < RAIN_GRID_N; i++) this.vis[i] += (this.target[i] - this.vis[i]) * k;
-    return this.vis;
+    return floorSentHull(this.vis); // easing between two floored grids can dip every part under the floor
   }
 
   /** Advance the re-march clock by `dt`: is a march due this frame? (always on first sight; never twice for one frame) */
@@ -223,4 +249,76 @@ export class HullRainVis {
     if (this.sinceMs >= L.visRefreshMs) this.sinceMs = 0; // a long gap
     return true;
   }
+}
+
+// --- the radar's eye-reach fan through rain AND smoke ---------------------------
+
+/** Does the ray (ox, oy) + (ux, uy)·t, t ∈ [0, range], cross disc `c`? */
+function rayCrosses(c: SmokeDisc, ox: number, oy: number, ux: number, uy: number, range: number): boolean {
+  if (!(c.r > 0)) return false;
+  const px = ox - c.x;
+  const py = oy - c.y;
+  const b = px * ux + py * uy;
+  const disc = b * b - (px * px + py * py - c.r * c.r);
+  if (!(disc > 0)) return false;
+  const s = Math.sqrt(disc);
+  return -b + s > 0 && -b - s < range;
+}
+
+/**
+ * The reach along unit (ux, uy) where rain τ + smoke τ first reaches `maxDepth`,
+ * capped at `range`: the rain's slots of `marchStepU` laid from the observer
+ * (as the shared march), the smoke's cumulative depth (`smokeDepthAlong`) at
+ * each slot end, linear inside the slot that fills.
+ */
+function combinedReach(
+  frame: FogFrame | null, smoke: readonly SmokeDisc[], ox: number, oy: number, ux: number, uy: number,
+  range: number, maxDepth: number,
+): number {
+  const stepCfg = frame === null ? 0 : frame.field.cfg.marchStepU;
+  const step = stepCfg > 0 ? stepCfg : CONFIG.fog.marchStepU;
+  let rain = 0;
+  let prev = 0;
+  for (let d0 = 0; d0 < range; d0 += step) {
+    const d1 = Math.min(range, d0 + step);
+    if (frame !== null) rain += fogDensityAt(frame, ox + ux * (d0 + step / 2), oy + uy * (d0 + step / 2)) * (d1 - d0);
+    const tot = rain + smokeDepthAlong(smoke, ox, oy, ox + ux * d1, oy + uy * d1, SMOKE_SIGHT);
+    if (tot >= maxDepth) return d0 + ((d1 - d0) * (maxDepth - prev)) / (tot - prev);
+    prev = tot;
+  }
+  return range;
+}
+
+const FSC = { s: 0, c: 0 };
+const crossing: SmokeDisc[] = [];
+
+/**
+ * Pure (module scratch, no allocation once warm): the eye's reach through rain
+ * AND smoke on `out.length` bearings (ray k at k·2π/N, world axes) — per ray,
+ * where rain τ + smoke τ from the observer first reaches `maxDepth`, capped at
+ * `range`. A ray that crosses no cloud is exactly the shared rain reach
+ * (`fogDepthReach`, or `range` with no rain); only the rays a cloud lies on pay
+ * the combined march. A non-positive or non-finite `range`, or a non-positive
+ * `maxDepth`, fills 0 (an infinite range fills itself). Returns `out`.
+ */
+export function eyeReachFanInto(
+  frame: FogFrame | null, smoke: readonly SmokeDisc[], ox: number, oy: number, range: number, maxDepth: number,
+  out: Float32Array,
+): Float32Array {
+  if (!(range > 0) || !Number.isFinite(range) || !(maxDepth > 0)) return out.fill(range > 0 && maxDepth > 0 ? range : 0);
+  const rain = frame !== null && frame.on ? frame : null;
+  const n = out.length;
+  for (let k = 0; k < n; k++) out[k] = rayReach(rain, smoke, ox, oy, (k * 2 * Math.PI) / n, range, maxDepth);
+  return out;
+}
+
+/** One bearing of `eyeReachFanInto`: the combined march if a cloud lies on the ray, else the rain reach. */
+function rayReach(
+  rain: FogFrame | null, smoke: readonly SmokeDisc[], ox: number, oy: number, angle: number, range: number, maxDepth: number,
+): number {
+  fogSinCos(angle, FSC);
+  crossing.length = 0;
+  for (const c of smoke) if (rayCrosses(c, ox, oy, FSC.c, FSC.s, range)) crossing.push(c);
+  if (crossing.length > 0) return combinedReach(rain, crossing, ox, oy, FSC.c, FSC.s, range, maxDepth);
+  return rain === null ? range : fogDepthReach(rain, ox, oy, angle, range, maxDepth);
 }

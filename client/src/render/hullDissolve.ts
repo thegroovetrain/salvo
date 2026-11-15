@@ -58,6 +58,9 @@ export const DISSOLVE_MAX_POINTS = 16;
 /** Dissolve-noise texels per u (the bench page's NOISE_TEXELS_PER_U). */
 export const NOISE_TEXELS_PER_U = 2;
 
+/** V — the width of the shader's vanish edge above the cutoff (alpha × smoothstep(cutoff, cutoff + this, V)). */
+export const VANISH_EDGE_V = 0.004;
+
 const vertex = /* glsl */ `#version 300 es
 in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -158,10 +161,29 @@ void main(void)
   float a = mix(V, keep, far);
   // A+D: the survivors also fade by D, scaled by s
   a *= mix(1.0, V, s);
-  a *= smoothstep(uLook.w, uLook.w + 0.004, V);
+  a *= smoothstep(uLook.w, uLook.w + ${VANISH_EDGE_V.toFixed(4)}, V);
   finalColor = c * a;
 }
 `;
+
+const smoothstep = (e0: number, e1: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * Pure: THE SHADER'S ALPHA, mirrored line for line from the fragment above —
+ * the multiplier a hull pixel at visibility `V` is drawn with, given its
+ * dissolve survival `keep` ∈ [0, 1] (1 − smoothstep of noise past the
+ * threshold) and the far-fallback blend `far` ∈ [0, 1] (0 = the plain fade).
+ * The test seam that holds the sent-hull floor clear of the vanish edge.
+ */
+export function dissolveAlpha(V: number, keep: number, far: number): number {
+  const s = L.dStrength;
+  let a = V + (keep - V) * far;
+  a *= 1 + (V - 1) * s;
+  return a * smoothstep(CONFIG.fog.sightCutoffV, CONFIG.fog.sightCutoffV + VANISH_EDGE_V, V);
+}
 
 // --- support ------------------------------------------------------------------
 
@@ -312,7 +334,12 @@ export class HullDissolveFilter extends Filter {
       uLook: { value: new Float32Array([L.grainU, L.blurU, L.dStrength, CONFIG.fog.sightCutoffV]), type: 'vec4<f32>' },
       uNoiseMap: { value: new Float32Array([ext.w, ext.h, L.farFromPx, L.farToPx]), type: 'vec4<f32>' },
     });
-    super({ glProgram: program, resources: { dissolveUniforms: u, uNoise: dissolveNoiseSource() }, antialias: 'off', padding: 0 });
+    // resolution 'inherit': the pass renders at the render target's resolution
+    // (devicePixelRatio up to 2), so a hull never softens when the filter attaches
+    super({
+      glProgram: program, resources: { dissolveUniforms: u, uNoise: dissolveNoiseSource() },
+      antialias: 'off', padding: 0, resolution: 'inherit',
+    });
     this.frame = new LocalFrame(target);
     this.u = u;
   }

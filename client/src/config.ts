@@ -2502,8 +2502,10 @@ export const CLIENT_CONFIG = {
    * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts +
    * render/cloudPaint.ts, Story 9.3) — FEEL ONLY: knobs Eric may re-tune on
    * staging; the server reads none of them. Since 2026-10-12 ("smoke is
-   * paint") a cloud hides nothing on the server — it is purely a visual
-   * overlay the client paints from the wire's {id,x,y,t0}. Eric: "imagine if
+   * paint") a cloud hides nothing from RADAR — the paint is a visual overlay
+   * the client paints from the wire's {id,x,y,t0}. Since Story 11.6 (epic-11
+   * amendment 13(d)) a cloud DOES occlude SIGHT, like rain, by the shared
+   * `CONFIG.countermeasure` sight dials (render/rainSight.ts) — not these. Eric: "imagine if
    * someone was using the spraypaint tool on a bitmap … the radius of that
    * tool gets slightly bigger over time … each 'paint' itself fades to 0
    * alpha (similarly to the phosphor decay). It's smoke." The spray runs the
@@ -2677,6 +2679,12 @@ export const CLIENT_CONFIG = {
      *  spill: the pass is the hull's screen bounds ∩ the viewport plus this,
      *  so it stays inside the GPU budget (epic-11 amendment 6). */
     maxPadPx: 32,
+    /** V — THE SENT-HULL FLOOR'S MARGIN (Story 11.6 review): a hull the server
+     *  sent always shows its best part at V ≥ `CONFIG.fog.sightCutoffV` + this.
+     *  The shader's vanish edge is smoothstep(cutoff, cutoff + 0.004, V) — 0 AT
+     *  the cutoff — so a floor of exactly the cutoff drew the hull invisible;
+     *  this clears that edge with a visibly present part (orchestrator pick). */
+    sentFloorMarginV: 0.05,
   },
 
   /**
@@ -3448,7 +3456,7 @@ export const CLIENT_CONFIG = {
        *
        * ON A FOGGED BEARING THE RAMP SLIDES INWARD (amendment 210, Eric
        * 2026-10-21): the look above stays, but each bearing's ramp starts where
-       * the observer's fog-tolled EYE actually ends on it, by `fogLift` — so a
+       * the observer's EYE actually ends on it through rain and smoke, by `fogLift` — so a
        * return the fog hid from the eye is not muted as though it were in plain
        * sight. Baked as a fan of `reachRays` wedges on the fog refresh cadence
        * (or a move past `reachRecastMoveU`), never per frame.
@@ -3501,8 +3509,8 @@ export const CLIENT_CONFIG = {
         spanU: CONFIG.vision.radar * 1.25,
         /**
          * THE FOG SLIDE (epic-9 amendment 210, Eric 2026-10-21) — ERIC'S STAGING
-         * DIAL, 0..1. On a bearing where the observer's fog-tolled eye ends at
-         * `reach` < sight (shared `fogDepthReach` under `fogMaxDepth` since Story 11.6 — where the rain's optical depth reaches the sight threshold), the whole ramp slides
+         * DIAL, 0..1. On a bearing where the observer's eye (through rain and smoke) ends at
+         * `reach` < sight (since Story 11.6, where the rain's + the held smoke's optical depth reaches the sight threshold `fogMaxDepth` — render/rainSight.ts `eyeReachFanInto`), the whole ramp slides
          * inward by `(sight − reach) × fogLift`: 1 = the floor ends exactly where
          * the fogged eye ends (with the shipped innerFactor 1; in general the floor
          * ends at innerU − (sight − reach)) and full strength begins one ramp-width later, so a

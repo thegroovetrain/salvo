@@ -67,7 +67,7 @@ export function dimRadii(sightU: number): { innerU: number; outerU: number } {
  * The displayed fraction of a return's painted opacity at `distU` from own hull,
  * for an observer with `sightU` of effective truesight: flat at `minScale`
  * across the whole bubble, linear to 1 at the flash rung (6/12), flat at 1 beyond.
- * `reachU` (default `sightU` = no fog) is where the fog-tolled eye ends on this
+ * `reachU` (default `sightU` = no fog) is where the eye (through rain and smoke) ends on this
  * bearing: the whole curve slides inward by `dimSlideU(sightU, reachU)`.
  *
  * IT FAILS TOWARD A FULLY VISIBLE SCOPE, and that is this file's inherited rule
@@ -96,7 +96,7 @@ function fogLift(): number {
 }
 
 /**
- * How far (u) the ramp slides INWARD on a bearing whose fog-tolled eye ends at
+ * How far (u) the ramp slides INWARD on a bearing whose eye (through rain and smoke) ends at
  * `reachU`, for an observer with `sightU` of effective truesight:
  * `(sightU − reachU) × fogLift`. A reach that is non-finite, negative or not
  * below the bubble (at float32 precision — the fan's storage — so a clear

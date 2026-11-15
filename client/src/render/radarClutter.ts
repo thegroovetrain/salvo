@@ -21,8 +21,10 @@
 // so the step's wedge holds at most `maxCellsPerStep` cells. At the default
 // framing the whole screen is covered; zoomed far out, clutter is a disc of
 // that budget around the own hull. The slice records are pooled: the list
-// holds at most one revolution × `persistSweeps` (+1) of them, recycled, so a
-// warm track allocates nothing (a record grows only past its largest step).
+// holds at most `persistSweeps` revolutions of steps (2π / `march.sliceRad`
+// each) plus one — radar.ts passes `maxSlices() / 2 + 1`, halving away the
+// paints' wire-echo slack, which clutter never emits — recycled, so a warm
+// track allocates nothing (a record grows only past its largest step).
 //
 // NO CLUTTER when there is no rain frame (rain off / pre-zone), with no own
 // pose (the radar marches nothing; spectate renders the radar pose-less), or

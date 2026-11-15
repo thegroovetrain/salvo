@@ -2877,6 +2877,7 @@ function buildGame(
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
   };
   gRef = g;
+  armSmokeReach(g);
   armWorldFlashBudget(g, camera, flashBudget);
   // Coast returns (amendment 69) read the HEIGHT RASTER the client already
   // rebuilt from the map seed — pure presentation, never on the wire. It is the
@@ -4551,15 +4552,26 @@ function renderAlive(
   // zones the two lines above use, so the surfaces cannot disagree about where
   // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
-  g.rainEye = rainEyeFor(g, pose, now);
+  g.rainEye = rainEyeFor(g, pose, now, ownZones);
 }
 
-/** The own hull through this frame's rain and smoke (Story 11.6), or null — no pose, or neither rain nor smoke. */
-function rainEyeFor(g: Game, pose: Point | null, now: number): RainEye | null {
+/**
+ * The own hull through this frame's rain and smoke (Story 11.6), or null — no
+ * pose, or neither rain nor smoke. `lit` = the own live star-shell zones: a hull
+ * inside one is lit from above (the server's `ownZoneCovers`) and gets no eye.
+ */
+function rainEyeFor(g: Game, pose: Point | null, now: number, lit: readonly OwnZone[]): RainEye | null {
   if (!pose) return null;
   const frame = g.fogField.frameAt(now);
   const smoke = smokeDiscsInto(g.state.net.clouds ?? [], now, g.smokeDiscPool, g.smokeDiscs);
-  return frame !== null || smoke.length > 0 ? { frame, smoke, x: pose.x, y: pose.y } : null;
+  return frame !== null || smoke.length > 0 ? { frame, smoke, lit, x: pose.x, y: pose.y } : null;
+}
+
+/** The radar's eye-reach fan reads the SAME held clouds `rainEyeFor` does (Story 11.6), into its own scratch. */
+function armSmokeReach(g: Game): void {
+  const pool: SmokeDiscSlot[] = [];
+  const out: SmokeDiscSlot[] = [];
+  g.fogField.setSmokeSource((tMs) => smokeDiscsInto(g.state.net.clouds ?? [], tMs, pool, out));
 }
 
 // --- spectate rendering ----------------------------------------------------------
