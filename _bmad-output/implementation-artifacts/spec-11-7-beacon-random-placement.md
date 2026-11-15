@@ -2,7 +2,7 @@
 title: 'Story 11.7 Beacon Placement — random open water, 7 / 5 / 3'
 type: 'feature'
 created: '2026-11-15'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'dfbf254bbcca56f9ca9896c6e30e5ce1576e86a4'
 review_loop_iteration: 0
 context:
@@ -109,3 +109,13 @@ The degradation order is deliberately the same posture as today's ratified fallb
 - `npm test -w shared` and `npm test -w server` -- all green.
 - `npm run check` -- exits 0.
 - `HC_DEV_OPTIONS=1` `server/scripts/soloSmoke.mjs` against a self-booted server on a scratch port -- beacon assertions pass; kill the PID AND its tsx child.
+
+## Auto Run Result
+
+**Status: done** (2026-11-15, cycle 235, 0.19.29, PV 108 unchanged, epic-11 amendment 14).
+
+- **Change:** radio beacons are placed at random on open water inside the live ring (500 u edge margin, off land), at least 1,000 u apart, outside every captain's 500 u keep-out (soft: relaxed + logged when impossible; a slot that fails the hard rules is skipped + logged, ids dense). Counts 7 / 5 / 3. The fleet-anchor max-min code is deleted.
+- **Files:** `shared/src/constants.ts` (counts, `minSpacingU`, `placeAttempts`, `keepOutU` 500, comments); `server/src/game/spawn.ts` (`pickBeaconSpot` replaces the ANCHORS section); `server/src/game/beacons.ts` (`BeaconPick` → `Vec2 | null`, dense ids); `server/src/game/world.ts` (`placeBeacons`, `captainPositions`, logs); `server/scripts/rl/worker.ts` (log key comment); tests `beacons.test.ts` (+ `pickBeaconSpot` unit cases, spacing, full lobby), `beaconFixture.ts`, `beaconRoom.test.ts`; records: amendment 14, epics.md / GDD stamps, both trackers, VERSION + package.json.
+- **Review:** 4 patches, 0 deferred, 5 rejected, 1 intent gap resolved by Eric in chat (keep-out 500).
+- **Verification:** lint 0 errors; tsc shared / server / client clean; tests shared 1465, server 2988, client 4505; hook test 266/0; `soloSmoke.mjs` green at the implementation wave (up to 7 beacons charted, no skip / relaxed lines). The single `npm run check` invocation timed out at 40 min on a machine at load ~280 (other sessions), so its stages were re-run individually, all exit 0.
+- **Residual risk:** the 500 u keep-out and 1,000 u spacing are untested in play; a relaxed late-game beacon can still chart near a hull (first hard-valid draw, now rare).
