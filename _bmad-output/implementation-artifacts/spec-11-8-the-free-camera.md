@@ -134,10 +134,10 @@ Why the inverse matters: zoom-in toward the cursor while the slide is active (h 
 
 ## Auto Run Result
 
-**Status: done** (2026-11-15; cycle 236, 0.19.30, PV 108 unchanged, epic-11 amendment 15).
+**Status: done** (2026-11-15; cycle 235, 0.19.29, PV 108 unchanged, epic-11 amendment 14).
 
 - **Built:** strategic zoom — a FOLLOW / PANNED camera (own ship dead center in FOLLOW; zoom out about the anchor with the slide to ring center then board center; cursor zoom-in; waypoint stops kept); middle-drag + arrow-key pan, Space home, arrows off steering, the same in spectate; corner brackets on hulls under 24 px; 10 px chart icons for mines, airdrops and salvage wrecks; X splash pegs (own `sp` / own `hc`, 15 s fade); settings rows; DESIGN.md rows; fog bake / fog field / compass made pan-safe.
 - **Files:** `client/src/render/camera.ts`, new `cameraSlide.ts` / `cameraZoom.ts`, `input/{keyboard,telegraph,mouse}.ts`, `main.ts`, `render/{spectate,fog,fogField,rangeRings,radarDisplay,ambient}.ts`, new `render/{brackets,chartMarks,pegs}.ts`, `render/{ships,contacts,stage,mines,drops}.ts`, `net/roomBindings.ts`, `config.ts`, `ui/settings.ts`, `client/scripts/playCheck.mjs`, tests (new `cameraSlide`, `cameraReview`, `fogBake`, `chartMarks`).
 - **Review:** 13 patches (2 high), 0 deferred, 4 rejected — see the triage log.
 - **Verification:** `npm run check` exit 0 (lint 0 errors / 3 pre-existing length warnings; shared 1465, server 2979, client 176 files all pass; hook test passes); `playCheck.mjs` PASS in Chromium + Firefox at both viewports (drives middle drag, arrows, Space, wheel while panned); `glBudget.mjs` PASS.
-- **Residual risks:** Windows middle-button autoscroll suppression unverified (no Windows machine); the slide-floor reading (amendment 15(f)) is the orchestrator's — Eric's veto; frame cost of the bracket / peg layers is unmeasured on staging (a perf verdict is a staging capture).
+- **Residual risks:** Windows middle-button autoscroll suppression unverified (no Windows machine); the slide-floor reading (amendment 14(f)) is the orchestrator's — Eric's veto; frame cost of the bracket / peg layers is unmeasured on staging (a perf verdict is a staging capture).
