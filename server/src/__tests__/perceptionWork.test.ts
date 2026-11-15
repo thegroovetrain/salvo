@@ -5,35 +5,41 @@
 // AND an every-island scan for every hull and every shell inside geometric
 // reach, every tick — walks for rays an island already blocked, walks for
 // rays so short no fog could hide them. This suite keeps that from coming
-// back silently, and it does so by counting WORK, never by timing it:
+// back silently, and it does so by counting WORK, never by timing it (the
+// weather is the storm-eye RAIN since Story 11.6 — an optical-depth gate
+// `τ ≤ T`, and a hull is asked over its sight grid):
 //
-//   - `World.fogWalks`  — fog lattice walks started;
+//   - `World.fogWalks`  — rain lattice walks started;
 //   - `World.losTests`  — islands a sight ray took past the bounding circle
 //                         to the core / coastline test.
 //
 // THE CONTRACT, per observer pass (`observe()` — what one tick costs one
 // client or one bot), against an independent count of what the rules need:
 //   1. a subject outside geometric reach costs NOTHING — no walk, no island;
-//   2. a fog walk is paid only for a question whose answer fog can change:
-//      the subject in reach, the ray island-clear, and the ray long enough
-//      that its whole length at full density would not still fit the reach;
+//   2. a rain walk is paid only for a question whose answer rain can change:
+//      the subject in reach, the ray island-clear, and the ray longer than T
+//      (a shorter ray's whole length at full density is still under the
+//      threshold) — and a HULL, asked over its sight grid, costs at most one
+//      walk per grid point per pass however many rows ask about it;
 //   3. a sight ray asks the coastline only of islands whose bounding circle
 //      it actually meets.
 // The bounds are sums over this scene's own subjects, computed here from the
 // rules (the reference island scan, the reach facts) — never a pinned count.
 // The scene must also be DISCRIMINATING: it holds in-reach subjects that are
-// island-blocked or inside the free radius, so a pass that walked every
-// in-reach ray (the regression) breaks bound 2 here.
+// island-blocked or nearer than T, so a pass that walked every in-reach ray
+// (the regression) breaks bound 2 here.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, fogCutForTarget, fogLattice, mulberry32, pointInIsland, segCircleHit, type Vec2 } from '@salvo/shared';
+import { CONFIG, hullEnvelope, mulberry32, pointInIsland, segCircleHit, type Vec2 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { observe } from '../game/perception.js';
 import { hullSightOf, losClear, sightOf } from '../game/signals.js';
+import { RAIN_T, stormFrame } from './rainFixture.js';
 
 const HULLS = CONFIG.map.playerCap; // a full lobby
 const SHELLS = 200;
-const COST = CONFIG.fog.sightCostPerU;
+/** Walks one hull question may cost: one per point of its sight grid. */
+const GRID = CONFIG.fog.hullGridCols * CONFIG.fog.hullGridRows;
 
 /** The most island-line questions one pass asks about one hull: the `contact`
  *  row, the `plain` row's "not already a full contact" re-ask, and the
@@ -59,8 +65,8 @@ function ringPoint(w: World, r: number, k: number, n: number): Vec2 {
 
 function scene(seed: number): { w: World; ids: string[] } {
   const w = new World(seed, HULLS);
-  // Real banks with clear water between: a third of the ocean solid.
-  w.setFogCutForTest(fogCutForTarget(w.fogFieldForTest(), w.now, fogLattice(0, 0, w.map.radius, CONFIG.fog.quantileLattice), 0.3));
+  // The real storm: rain bands with clear water between and a clear eye.
+  w.setFogFrameForTest(stormFrame(w));
   const ids: string[] = [];
   // Every hull inside every other's plain-hull reach: a ring a third of that reach across.
   const ringR = CONFIG.vision.hullSight / 3;
@@ -92,31 +98,58 @@ function scene(seed: number): { w: World; ids: string[] } {
 
 interface Need {
   inReach: number; // questions whose subject is inside the reach asked
-  walks: number; // ...of which fog can change the answer (bound 2)
+  decidable: number; // ...of which rain can change the answer
+  walks: number; // the walks those may cost (bound 2): one per point ray, one per grid point per hull
   islands: number; // island circles the in-reach rays meet, × asks (bound 3)
 }
 
-/** What ONE eye question — "is `p` held at `reach`?" — may cost, by the rules. */
-function question(w: World, me: ShipRecord, p: Vec2, reach: number, asks: number, need: Need): void {
+/** Can rain decide a ray of length `d`? Not when its whole length at density 1 is still under T. */
+const rainCanDecide = (d: number): boolean => d > RAIN_T - 1e-3;
+
+/** The island half of ONE eye question — "is `p` held at `reach`?" — by the
+ *  rules; returns whether the question is in reach at all (bound 1: outside
+ *  reach it costs nothing). */
+function islandsOf(w: World, me: ShipRecord, p: Vec2, reach: number, asks: number, need: Need): boolean {
   const d = Math.hypot(p.x - me.state.x, p.y - me.state.y);
-  if (!(d <= reach)) return; // bound 1: outside reach costs nothing
+  if (!(d <= reach)) return false;
   need.inReach += 1;
   need.islands += asks * w.map.islands.filter((isle) => segCircleHit(me.state, p, isle, isle.r) !== null).length;
-  const fogCanDecide = d * (1 + COST) > reach - 1e-3; // else the whole ray at density 1 still fits
-  if (fogCanDecide && losClear(me.state, p, w.map.islands)) need.walks += 1;
+  return true;
+}
+
+/** What a POINT question may cost: its islands, and one walk when rain can decide an island-clear ray. */
+function pointQuestion(w: World, me: ShipRecord, p: Vec2, reach: number, asks: number, need: Need): void {
+  if (!islandsOf(w, me, p, reach, asks, need)) return;
+  const d = Math.hypot(p.x - me.state.x, p.y - me.state.y);
+  if (!rainCanDecide(d) || !losClear(me.state, p, w.map.islands)) return;
+  need.decidable += 1;
+  need.walks += 1;
+}
+
+/** What a HULL may cost one pass: the island tests of the contact row, the
+ *  plain row's re-ask and the plain row's own — and ONE grid of walks, when
+ *  the hull is inside the outer reach on an island-clear center ray and far
+ *  enough that rain can decide some grid point (the rows share the answer). */
+function hullQuestion(w: World, me: ShipRecord, other: ShipRecord, need: Need): void {
+  islandsOf(w, me, other.state, sightOf(me, w.now), 2, need);
+  if (!islandsOf(w, me, other.state, hullSightOf(me, w.now), HULL_ASKS - 2, need)) return;
+  const d = Math.hypot(other.state.x - me.state.x, other.state.y - me.state.y);
+  const hull = hullEnvelope(other.hullId).hull;
+  const farthestPoint = d + Math.hypot(hull.length, hull.beam) / 2;
+  if (!rainCanDecide(farthestPoint) || !losClear(me.state, other.state, w.map.islands)) return;
+  need.decidable += 1;
+  need.walks += GRID;
 }
 
 /** Everything one fogged pass of `me` may ask, by the rules. */
 function needOf(w: World, me: ShipRecord): Need {
-  const need: Need = { inReach: 0, walks: 0, islands: 0 };
+  const need: Need = { inReach: 0, decidable: 0, walks: 0, islands: 0 };
   for (const other of w.ships.values()) {
-    if (other.id === me.id) continue;
-    question(w, me, other.state, sightOf(me, w.now), 2, need); // the contact row + the plain row's re-ask (one walk: the re-ask is remembered)
-    question(w, me, other.state, hullSightOf(me, w.now), HULL_ASKS - 2, need); // the plain row's own
+    if (other.id !== me.id) hullQuestion(w, me, other, need);
   }
   for (const shell of w.shells.values()) {
     if (shell.ownerId === me.id) continue; // the owner's gate never looks
-    question(w, me, shell, CONFIG.vision.shellSight, SHELL_ASKS, need);
+    pointQuestion(w, me, shell, CONFIG.vision.shellSight, SHELL_ASKS, need);
   }
   return need;
 }
@@ -129,10 +162,10 @@ function passCost(w: World, id: string): { walks: number; islands: number } {
 }
 
 describe('perception work per observer pass — bounded by what the rules need, never by entity products', () => {
-  it('a full lobby in mutual reach with 200 shells in flight: every pass walks fog only where fog can decide and asks only the islands its rays meet — on the first pass (every shell unseen) and on the next (the seen ones re-checked)', () => {
+  it('a full lobby in mutual reach with 200 shells in flight: every pass walks rain only where rain can decide and asks only the islands its rays meet — on the first pass (every shell unseen) and on the next (the seen ones re-checked)', () => {
     for (const seed of [7, 21]) {
       const { w, ids } = scene(seed);
-      const total: Need = { inReach: 0, walks: 0, islands: 0 };
+      const total: Need = { inReach: 0, decidable: 0, walks: 0, islands: 0 };
       for (let pass = 0; pass < 2; pass++) {
         for (const id of ids) {
           const need = needOf(w, w.ships.get(id)!);
@@ -140,21 +173,22 @@ describe('perception work per observer pass — bounded by what the rules need, 
           expect(cost.walks, `seed ${seed} pass ${pass} ${id}: fog walks`).toBeLessThanOrEqual(need.walks);
           expect(cost.islands, `seed ${seed} pass ${pass} ${id}: island tests`).toBeLessThanOrEqual(need.islands);
           total.inReach += need.inReach;
+          total.decidable += need.decidable;
           total.walks += need.walks;
           total.islands += need.islands;
         }
       }
-      // THE SCENE DISCRIMINATES: most in-reach questions are decided without
-      // fog (an island in the way, or too close for fog to matter), so a pass
-      // that walked every in-reach ray would break the bound above; and the
-      // scene really does exercise both kinds of work.
-      expect(total.inReach).toBeGreaterThan(total.walks);
+      // THE SCENE DISCRIMINATES: many in-reach questions are decided without
+      // rain (an island in the way, or too close for rain to matter), so a
+      // pass that walked every in-reach ray would break the bound above; and
+      // the scene really does exercise both kinds of work.
+      expect(total.inReach).toBeGreaterThan(total.decidable);
       expect(total.walks).toBeGreaterThan(0);
       expect(total.islands).toBeGreaterThan(0);
     }
   });
 
-  it('subjects outside every reach cost nothing, however many there are: an eye far from the fleet asks no island and walks no fog', () => {
+  it('subjects outside every reach cost nothing, however many there are: an eye far from the fleet asks no island and walks no rain', () => {
     const { w, ids } = scene(7);
     // Move one hull out past the plain-hull reach of every other hull and
     // every shell (the fleet sits within a third of that reach of the centre).

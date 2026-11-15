@@ -6,7 +6,8 @@
 // per-client `observe()` a solo room pays; every bot's `observe()` runs inside
 // the step). It reports the wall cost of a tick over the first seconds of the
 // ACTIVE phase beside the WORK counters the perception guard test bounds
-// (fog lattice walks, island narrow-phase tests) and the live shell count.
+// (rain lattice walks and memo cells evaluated, island narrow-phase tests)
+// and the live shell count.
 //
 // The milliseconds compare two builds ON ONE MACHINE and say nothing about a
 // host; the counters are the portable half. Deterministic per (seed, hulls,
@@ -30,6 +31,8 @@ interface Args {
  *  build that predates one of them (it then prints `n/a`). */
 interface WorkCounters {
   fogWalks?: number;
+  fogCellEvals?: number;
+  fogLive?: boolean;
   losTests?: number;
 }
 
@@ -105,11 +108,13 @@ function main(): void {
   const shells: number[] = [];
   let walks0: number | undefined;
   let los0: number | undefined;
+  let cells0: number | undefined;
   for (let guard = 0; guard < want + 2000 && ms.length < want; guard += 1) {
     const active = match.phase === 'active';
     if (active && ms.length === 0) {
       walks0 = counters.fogWalks;
       los0 = counters.losTests;
+      cells0 = counters.fogCellEvals;
     }
     const t0 = performance.now();
     world.step();
@@ -127,9 +132,10 @@ function main(): void {
   console.log(`tickCost: seed ${args.seed}, ${args.hulls} hulls, ${ms.length} active ticks (${((ms.length * dt) / 1000).toFixed(0)} s), phase at end: ${match.phase}`);
   console.log(`ms/tick   mean ${fmt(mean(ms))}  p50 ${fmt(quantile(sorted, 0.5))}  p95 ${fmt(quantile(sorted, 0.95))}  p99 ${fmt(quantile(sorted, 0.99))}  max ${fmt(sorted[sorted.length - 1])}  first-10s mean ${fmt(mean(first))}`);
   console.log(`shells    mean ${mean(shells).toFixed(1)}  p50 ${quantile(shellsSorted, 0.5)}  peak ${shellsSorted[shellsSorted.length - 1]}`);
-  console.log(`work/tick fog walks ${perTick(counters.fogWalks, walks0, ms.length)}  island narrow-phase tests ${perTick(counters.losTests, los0, ms.length)}`);
+  console.log(`work/tick fog walks ${perTick(counters.fogWalks, walks0, ms.length)}  memo cells evaluated ${perTick(counters.fogCellEvals, cells0, ms.length)}  island narrow-phase tests ${perTick(counters.losTests, los0, ms.length)}`);
   const afloat = [...world.ships.values()].filter((s) => s.lifecycle.kind === 'alive').length;
-  console.log(`end state ships ${world.ships.size} (afloat ${afloat}), fog cut ${world.fogCut}`);
+  const rain = counters.fogLive === undefined ? 'n/a' : counters.fogLive ? `on (epoch clock ${world.fogEpochT} ms of ${world.now})` : 'off';
+  console.log(`end state ships ${world.ships.size} (afloat ${afloat}), rain ${rain}`);
 }
 
 main();

@@ -168,19 +168,28 @@ const TUNE_FAMILIES = [
   // its curve validation left the --tune surface. No `vision.*` leaf is a
   // harness dial: the reaches are hectometer facts the shared fold and the
   // client both read.
-  // THE FOG FIELD (Story 9.10, Eric 2026-10-15 — "no discs", a rolling
-  // fractal-noise field; every leaf of CONFIG.fog is a harness dial).
-  // Floors: `sightCostPerU`, `windU`, `edgeBand` and `cutRatePerS` at 0 (each
-  // a real arm — fog that costs nothing / a still field / a hard edge / a
-  // frozen cut); every length, clock and count at 1 (TUNE_MIN_ONE_KEYS — a
-  // 0 wavelength or march step divides, a 0 refresh or lattice spins or
-  // samples nothing); `gain` on (0, 1] (FOG_GAIN_KEY — fbm persistence) and
-  // the coverage band a closed share of the ring's area [0, 1]
-  // (FOG_SHARE_KEYS — `coverageMax=0` is "fog off"). `coverageMin <=
-  // coverageMax` is refused on the finished CONFIG in validateFogDials.
-  // `spinRimU` (u/s at the rim) and `spinShear` take the generic floor of 0:
-  // 0 is "no spin" / "rigid spin", both real arms (amendments 177–178; the
-  // rate is a speed over the ocean radius, so no divide-by-period hazard).
+  // THE RAIN FIELD (Story 11.6, Eric 2026-11-14 — the storm eye; it replaced
+  // Story 9.10's fog banks, so `sightCostPerU`, `windU`, `cutRatePerS`,
+  // `spinRimU`, `spinShear`, `coverageMin` / `coverageMax`, `targetPeriodMs`
+  // and `quantileLattice` are GONE with their leaves). Every numeric leaf of
+  // CONFIG.fog is a harness dial. Floors: the generic 0 for `edgeBand` (a
+  // hard edge), `extinctionPerU` (0 = rain that hides nothing), `edgeSpeedU`
+  // (a still storm), `centerTurnFrac`, `spiralWindRad`, `edgeSoftFrac` and
+  // `onsetMs` (0 = no roll-in) — each a real arm; every length, clock and
+  // count that divides or sizes at 1 (TUNE_MIN_ONE_KEYS), `marchStepU` and
+  // `refreshMs` at their SERVER floors (FOG_SERVER_FLOORS); `gain` on (0, 1]
+  // (FOG_GAIN_KEY — fbm persistence); `sightCutoffV` and `outsideCoverage` on
+  // CLOSED [0, 1] (FOG_SHARE_KEYS). THE TWO PER-RING ARRAYS
+  // (`eyeRadiusFracByRing`, `edgeCoverageByRing`) are dials BY INDEX —
+  // `fog.edgeCoverageByRing.2=0.6`, the `zone.ringRadii.0` precedent
+  // (resolveLeaf's array rule: an entry is addressable only by an existing
+  // index, so an arm can move an entry and never grow or truncate a table) —
+  // each entry on CLOSED [0, 1] (FOG_RING_SHARE). `octaves`, `hullGridCols`
+  // and `hullGridRows` are COUNTS: integers, the grid capped at
+  // FOG_GRID_CEILING a side (validateFogDials, on the finished CONFIG).
+  // READ-ONCE CAVEAT (true of the old field too): a World reads the dials
+  // when it is constructed (the quantile table, T, the grid), so an arm is
+  // applied before its matches are built — which is how the harness runs.
   'fog.',
   // THE BOT BRAIN (Story 9.13 wave 3, spec Harness paragraph): every numeric
   // leaf of CONFIG.bots is an arm Eric may run against the posture workover's
@@ -518,30 +527,25 @@ const TUNE_MIN_ONE_KEYS = new Set([
   'secondaries.hotRatePerS',
   'secondaries.overheatMs',
   'secondaries.coolMs',
-  // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
-  'fog.targetPeriodMs',
+  // THE RAIN FIELD (Story 11.6) — see the `fog.` family note in TUNE_FAMILIES.
   'fog.wavelengthU',
   'fog.octaves',
   'fog.morphMs',
   'fog.refreshMs',
   'fog.marchStepU',
-  'fog.quantileLattice',
+  'fog.hullGridCols',
+  'fog.hullGridRows',
+  'fog.spinRadiusFloorU',
 ]);
 
-/** The coverage lattice's floor (Story 9.10 review gate): under ~1/target
- *  points the (1 − target) quantile lands on the lattice maximum — coverage 0
- *  while the dial names a share. 8 a side (≈ 50 points inside the disc) is
- *  the least that still resolves the 2 % floor of the band. */
-const FOG_LATTICE_KEY = 'fog.quantileLattice';
-const FOG_LATTICE_FLOOR = 8;
-/** Fog dials whose floor keeps the SERVER up (Story 9.10 review gate):
+/** Rain dials whose floor keeps the SERVER up (Story 9.10 review gate):
  *  `marchStepU` sizes the density memo (≈ (2 × radius / step)² cells — at
  *  1 u that is 100 M cells, ~800 MB per room; 5 u is ~4 M, 34 MB) and
- *  `refreshMs` is the quantile + epoch cadence (every tick at 50 ms). */
+ *  `refreshMs` is the frame + epoch cadence (every tick at 50 ms would
+ *  re-evaluate every touched cell every tick). */
 const FOG_SERVER_FLOORS = new Map<string, number>([
   ['fog.marchStepU', 5],
   ['fog.refreshMs', 250],
-  [FOG_LATTICE_KEY, FOG_LATTICE_FLOOR],
 ]);
 
 function tuneFloor(key: string): number {
@@ -567,7 +571,7 @@ export function validateTuneValue(key: string, value: number): void {
   if (validateBotRange(key, value)) return;
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
-  if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
+  if (isFogShare(key)) return validateShare(key, value);
   if (GUN_FRACTION_KEYS.has(key)) return validateFraction(key, value);
   if (key === FOG_GAIN_KEY) return validateGain(key, value);
   if (key === BARRELS_KEY) return validateBarrels(key, value);
@@ -676,10 +680,19 @@ function validateBotDials(): void {
   }
 }
 
-/** The fog controller's coverage band (Story 9.10): a CLOSED share of the
- *  live ring's area, [0, 1] — 0 is "no fog" and a real arm; above 1 the
- *  quantile would chase a coverage the ring cannot hold. */
-const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
+/** The rain's shares (Story 11.6), each on CLOSED [0, 1]: `outsideCoverage`
+ *  is a share of area at solid rain (0 = a clear storm, a real arm) and
+ *  `sightCutoffV` a visibility (0 = rain never hides, 1 = any rain hides —
+ *  `fogMaxDepth` defines both ends). */
+const FOG_SHARE_KEYS = new Set(['fog.outsideCoverage', 'fog.sightCutoffV']);
+/** One entry of a per-ring rain table, by index: the eye's radius as a
+ *  fraction of the live ring, or the solid share at the ring edge — [0, 1]. */
+const FOG_RING_SHARE = /^fog\.(?:eyeRadiusFracByRing|edgeCoverageByRing)\.\d+$/;
+
+/** Is `key` one of the rain's [0, 1] shares — a scalar one or a per-ring table entry? */
+function isFogShare(key: string): boolean {
+  return FOG_SHARE_KEYS.has(key) || FOG_RING_SHARE.test(key);
+}
 
 /** The deck-gun blow fraction (Story 9.12): CLOSED [0, 1] — flak's rim loss
  *  (`rimFactor=0` is the flat blast). The shared function clamps an
@@ -713,7 +726,7 @@ function validateBarrels(key: string, value: number): void {
 
 function validateShare(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
-    throw new TunableError(`'${key}': expected a finite share of water in [0, 1], got '${value}'`);
+    throw new TunableError(`'${key}': expected a finite share in [0, 1], got '${value}'`);
   }
 }
 
@@ -815,29 +828,24 @@ function validateCoverBand(): void {
 }
 
 /**
- * THE FOG DIALS MUST DESCRIBE A FIELD (Story 9.10): `coverageMin <=
- * coverageMax` (the target is drawn in [min, max]); `octaves` and
- * `quantileLattice` are COUNTS — a fractional octave count is a partial fbm
- * loop and a fractional lattice side is a lattice that is not square — so
- * both must be integers (review gate, Codex #3). Judged on the FINISHED
- * CONFIG — an arm may set several leaves at once.
+ * THE RAIN DIALS MUST DESCRIBE A FIELD (Story 9.10; Story 11.6): `octaves`,
+ * `hullGridCols` and `hullGridRows` are COUNTS — a fractional octave count is
+ * a partial fbm loop and a fractional grid side is no grid — so each must be
+ * an integer, and the hull grid stays at most FOG_GRID_CEILING a side.
+ * Judged on the FINISHED CONFIG — an arm may set several leaves at once.
  */
 function validateFogDials(): void {
-  const { coverageMin, coverageMax, octaves, quantileLattice } = CONFIG.fog;
-  if (!(coverageMin <= coverageMax)) {
-    throw new TunableError(`'fog.coverageMin' (${coverageMin}) must stay <= 'fog.coverageMax' (${coverageMax})`);
-  }
+  const { octaves, hullGridCols, hullGridRows } = CONFIG.fog;
   if (!Number.isInteger(octaves)) throw new TunableError(`'fog.octaves' must be an integer count of fbm octaves, got '${octaves}'`);
-  if (!Number.isInteger(quantileLattice)) {
-    throw new TunableError(`'fog.quantileLattice' must be an integer lattice side, got '${quantileLattice}'`);
-  }
-  if (quantileLattice > FOG_LATTICE_CEILING) {
-    throw new TunableError(`'fog.quantileLattice' (${quantileLattice}) must stay <= ${FOG_LATTICE_CEILING}: the quantile sorts side² noise samples every refresh`);
+  for (const [name, side] of [['hullGridCols', hullGridCols], ['hullGridRows', hullGridRows]] as const) {
+    if (!Number.isInteger(side) || side > FOG_GRID_CEILING) {
+      throw new TunableError(`'fog.${name}' must be an integer grid side <= ${FOG_GRID_CEILING} (a hidden hull costs one rain walk per grid point per observer), got '${side}'`);
+    }
   }
 }
 
-/** The lattice's ceiling: 256² = 65k noise samples sorted per refresh is the most a tick can carry. */
-const FOG_LATTICE_CEILING = 256;
+/** The hull sight grid's ceiling a side: every point is one optical-depth walk per hidden hull per observer per tick. */
+const FOG_GRID_CEILING = 16;
 
 /**
  * `offer.weighting.floor <= offer.weighting.factor` (Story 8.14 review, F5).

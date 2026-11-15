@@ -95,7 +95,7 @@ describe('poolReadouts — empty cases', () => {
   });
 
   it('zero offers: heal take rate is n/a, not 0/0', () => {
-    const p = buildPoolReadouts([match([bot()], { peakMines: 0, fogCoverage: 0, takes: {}, bots: [poolBot()] })]);
+    const p = buildPoolReadouts([match([bot()], { peakMines: 0, takes: {}, bots: [poolBot()] })]);
     expect(p.heal).toEqual({ hands: 0, offeredHands: 0, taken: 0, takeRate: null });
     // A lobby with no weapon take has 0 distinct lines and NO top-line share.
     expect(p.weaponSpread.meanDistinctLines).toBe(0);
@@ -112,7 +112,7 @@ describe('poolReadouts — arithmetic', () => {
       bot({ id: 'd', placement: 2 }),
     ];
     const pool: PoolMatchSample = {
-      peakMines: 0, fogCoverage: 0,
+      peakMines: 0, 
       takes: {},
       bots: [
         poolBot({ id: 'a', shift: S1 }),
@@ -133,7 +133,7 @@ describe('poolReadouts — arithmetic', () => {
 
   it('weaponless at level: per-level shares over the bots that reached it', () => {
     const pool: PoolMatchSample = {
-      peakMines: 0, fogCoverage: 0,
+      peakMines: 0, 
       takes: {},
       bots: [
         poolBot({ id: 'a', levelEmpty: [3, 2, 0] }),
@@ -161,7 +161,7 @@ describe('poolReadouts — arithmetic', () => {
       bot({ id: 'b', levelsEarned: 6, levelsUnspent: 0, offerHands: 5, offersSeen: { [HULL_REPAIR_ID]: 1 } }),
     ];
     const pool: PoolMatchSample = {
-      peakMines: 0, fogCoverage: 0,
+      peakMines: 0, 
       takes: {},
       bots: [poolBot({ id: 'a', finalEmpty: 3 }), poolBot({ id: 'b', finalEmpty: 1 })],
     };
@@ -172,14 +172,13 @@ describe('poolReadouts — arithmetic', () => {
   });
 
   it('weapon-line spread, peak mines and fog coverage: per-match readings averaged across matches', () => {
-    const m0 = match([], { peakMines: 4, fogCoverage: 0.02, takes: { heavyTorpedo: 3, navalMines: 1 }, bots: [] }, 0);
-    const m1 = match([], { peakMines: 10, fogCoverage: 0.06, takes: { broadside: 1, flak: 1, starShells: 2 }, bots: [] }, 1);
+    const m0 = match([], { peakMines: 4, takes: { heavyTorpedo: 3, navalMines: 1 }, bots: [] }, 0);
+    const m1 = match([], { peakMines: 10, takes: { broadside: 1, flak: 1, starShells: 2 }, bots: [] }, 1);
     const p = buildPoolReadouts([m0, m1]);
     expect(p.weaponSpread.matches).toBe(2);
     expect(p.weaponSpread.meanDistinctLines).toBe(2.5);
     expect(p.weaponSpread.meanTopLineShare).toBeCloseTo((0.75 + 0.5) / 2, 12);
     expect(p.peakMines).toEqual({ matches: 2, mean: 7, max: 10 });
-    expect(p.fogCoverage).toEqual({ matches: 2, mean: 0.04, max: 0.06 }); // Story 9.10 — independent of the mine peak
   });
 
   it('emptyWeaponSlots reads the Q/E/R slots only (never the gun, Shift or belt)', () => {

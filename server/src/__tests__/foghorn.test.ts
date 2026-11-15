@@ -69,7 +69,8 @@ const radarCtx = (w: World) => ({
   // Story 9.3: the live countermeasure clouds (the context field; the fh
   // row's muffle never reads them — a cloud hides nothing, session 2).
   clouds: w.cloudRecords,
-  fogToll: (ax: number, ay: number, bx: number, by: number) => w.fogTollAlong(ax, ay, bx, by), // Story 9.10: the fog toll thunk (the fh row never calls it — the horn is fog-blind)
+  fogAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogSightAdmits(ax, ay, bx, by), // the rain gate thunks (the fh row never calls them — the horn is weather-blind)
+  fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,

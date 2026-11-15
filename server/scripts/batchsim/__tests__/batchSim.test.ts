@@ -1620,67 +1620,81 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
 
   // (DELETED 2026-11-12 — Story 11.2, a ruling recorded in the epic-11 amendments: "--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values" — it pinned `validateDropoutCurve`, which left overrides.ts with the dropout; the generic mechanism (cross-key validation on the final values, rolled back) stays pinned by the boost and fog cases.)
 
-  it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
+  it('--tune fog.* is reachable (Story 11.6, the rain field): every numeric leaf, the two per-ring tables by index, with floors on the lengths/clocks/counts, gain on (0, 1] and the shares in [0, 1]', () => {
+    // EVERY numeric leaf of CONFIG.fog parses at its shipped value, and every
+    // entry of an array leaf parses by index — so a new dial is reachable (or
+    // this fails) without anyone editing a list here.
+    for (const [leaf, v] of Object.entries(CONFIG.fog)) {
+      const keys = Array.isArray(v) ? v.map((e, i) => `fog.${leaf}.${i}=${String(e)}`) : [`fog.${leaf}=${String(v)}`];
+      for (const key of keys) expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
     for (const key of [
-      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0', 'fog.spinRimU=0', 'fog.spinShear=0',
-      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=8',
-      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.targetPeriodMs=1', 'fog.quantileLattice=256',
+      'fog.edgeBand=0', 'fog.extinctionPerU=0', 'fog.edgeSpeedU=0', 'fog.centerTurnFrac=0', 'fog.spiralWindRad=0', 'fog.edgeSoftFrac=0', 'fog.onsetMs=0',
+      'fog.outsideCoverage=0', 'fog.outsideCoverage=1', 'fog.sightCutoffV=0', 'fog.sightCutoffV=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1',
+      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.hullGridCols=1', 'fog.hullGridRows=1', 'fog.spinRadiusFloorU=1',
+      'fog.eyeRadiusFracByRing.0=0', 'fog.eyeRadiusFracByRing.0=1', 'fog.edgeCoverageByRing.0=0', 'fog.edgeCoverageByRing.0=1',
     ]) {
       expect(() => parseArgs(['--tune', key]), key).not.toThrow();
     }
     for (const key of [
-      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.targetPeriodMs=0',
+      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.hullGridCols=0', 'fog.hullGridRows=0', 'fog.spinRadiusFloorU=0',
     ]) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
     }
     // Floors that keep the SERVER up (review gate): the memo lattice is sized
-    // from marchStepU (1 u = 100 M cells) and refreshMs is the quantile cadence.
+    // from marchStepU (1 u = 100 M cells) and refreshMs is the epoch cadence.
     for (const key of ['fog.marchStepU=0', 'fog.marchStepU=1', 'fog.marchStepU=4.9']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 5/);
     }
     for (const key of ['fog.refreshMs=0', 'fog.refreshMs=50', 'fog.refreshMs=249']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 250/);
     }
-    // The coverage lattice's floor is 8 a side (review gate): under ~1/target
-    // points the quantile lands on the lattice maximum and the share reads 0.
-    for (const key of ['fog.quantileLattice=0', 'fog.quantileLattice=4', 'fog.quantileLattice=7']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 8/);
-    }
-    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1', 'fog.spinShear=-0.1']) {
+    for (const key of ['fog.edgeBand=-0.1', 'fog.extinctionPerU=-1', 'fog.edgeSpeedU=-1', 'fog.centerTurnFrac=-0.1', 'fog.spiralWindRad=-1', 'fog.edgeSoftFrac=-0.1', 'fog.onsetMs=-1']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
     }
-    for (const key of ['fog.spinRimU=-1']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
-    }
-    for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);
+    for (const key of [
+      'fog.outsideCoverage=-0.1', 'fog.outsideCoverage=1.5', 'fog.sightCutoffV=-0.1', 'fog.sightCutoffV=1.5',
+      'fog.eyeRadiusFracByRing.1=-0.1', 'fog.eyeRadiusFracByRing.1=1.5', 'fog.edgeCoverageByRing.1=-0.1', 'fog.edgeCoverageByRing.1=1.5',
+    ]) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/share in \[0, 1\]/);
     }
     for (const key of ['fog.gain=0', 'fog.gain=1.5', 'fog.gain=-0.5']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/gain in \(0, 1\]/);
     }
+    // A per-ring table is addressable ONLY by an existing index: an arm can
+    // move an entry, never grow or truncate the table (the array rule).
+    const past = CONFIG.fog.edgeCoverageByRing.length;
+    for (const key of [`fog.edgeCoverageByRing.${past}=0.5`, 'fog.edgeCoverageByRing.length=2', 'fog.eyeRadiusFracByRing=0.4']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(TunableError);
+    }
+    // The retired Story 9.10 leaves are no dials any more.
+    for (const key of ['fog.sightCostPerU=1', 'fog.windU=1', 'fog.cutRatePerS=0.04', 'fog.coverageMin=0.1', 'fog.coverageMax=0.2', 'fog.quantileLattice=48', 'fog.targetPeriodMs=1000', 'fog.spinRimU=1', 'fog.spinShear=1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(TunableError);
+    }
   });
 
-  it('--tune fog.* must describe a field: coverageMin <= coverageMax, integer octaves and lattice side (judged on the final values, rolled back)', () => {
+  it('--tune fog.* must describe a field: integer octaves and hull grid sides under the ceiling (judged on the final values, rolled back)', () => {
     const snapshot = JSON.stringify(CONFIG.fog);
-    const { coverageMax } = CONFIG.fog;
     const refused: Array<[Record<string, number>, RegExp]> = [
-      [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
-      [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
       [{ 'fog.wavelengthU': 0 }, />= 1/],
       [{ 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/],
-      [{ 'fog.quantileLattice': 12.5 }, /'fog\.quantileLattice' must be an integer/],
-      [{ 'fog.quantileLattice': 4 }, />= 8/],
-      [{ 'fog.quantileLattice': 257 }, /'fog\.quantileLattice'.*must stay <= 256/],
+      [{ 'fog.hullGridCols': 2.5 }, /'fog\.hullGridCols' must be an integer/],
+      [{ 'fog.hullGridRows': 1.5 }, /'fog\.hullGridRows' must be an integer/],
+      [{ 'fog.hullGridCols': 1000 }, /'fog\.hullGridCols' must be an integer grid side <=/],
+      [{ 'fog.edgeCoverageByRing.0': 0.2, 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/], // a legal leaf beside a refused one: both rolled back
     ];
     for (const [tune, re] of refused) {
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
       expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
     }
-    // Both leaves at once: each alone would break the pair, the final set is legal.
-    const restore = applyOverrides({}, { 'fog.coverageMin': coverageMax + 0.05, 'fog.coverageMax': coverageMax + 0.1 });
+    // A per-ring entry moves by index and restores: the table keeps its length.
+    const entry = CONFIG.fog.edgeCoverageByRing[1];
+    const moved = entry > 0.5 ? entry - 0.25 : entry + 0.25;
+    const restore = applyOverrides({}, { 'fog.edgeCoverageByRing.1': moved });
     try {
-      expect(CONFIG.fog.coverageMin).toBeCloseTo(coverageMax + 0.05, 12);
+      expect(CONFIG.fog.edgeCoverageByRing[1]).toBe(moved);
+      expect(JSON.parse(snapshot).edgeCoverageByRing).toHaveLength(CONFIG.fog.edgeCoverageByRing.length);
     } finally {
       restore();
     }

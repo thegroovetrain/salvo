@@ -11,19 +11,22 @@
 // points, Story 4.3's sp/hc/mz gunnery rows, Story 4.4's anonymous `sm`
 // wounded smoke, and Story 4.5's bearing-only `fh` foghorn), each codified
 // by its own independently-reimplemented oracle in that suite. "Sight"
-// itself is FOG-TOLLED since Story 9.10 (epic-9 amendments 149–150,
-// 163–170, 179 — the observer's own bank is free): a ray pays the world's `fogTollAlong` (the shared fog field's
-// density, marched) on top of its length, so a hull inside the bubble that
-// fog hides is no contact — but RADAR HAS NO INNER EDGE (amendment 210, Eric
-// 2026-10-21, superseding amendment 163's "dark to both"): the server
-// returns the entire sweep, so that hull still paints as a blip, and a
-// sighted hull is a contact AND a blip. FOG IS A TOLL, NEVER A
-// CHANNEL: the field is public weather both sides derive from the welcome
-// seed and the schema cut, so nothing per-observer about fog rides a frame.
+// itself is RAIN-GATED (Story 9.10's fog toll, re-cut as the storm-eye rain
+// by Story 11.6 — Eric 2026-11-14): a ray is seen while the optical depth of
+// the rain along it (the world's `fogSightAdmits`, the shared field's
+// density, walked) stays at most T, inside its unchanged range cap — no
+// own-bank exemption — and a HULL is held while ANY point of its sight grid
+// passes (`fogHullAdmits`). A hull inside the bubble that rain hides is no
+// contact — but RADAR HAS NO INNER EDGE (amendment 210, Eric 2026-10-21): the
+// server returns the entire sweep, so that hull still paints as a blip, and
+// a sighted hull is a contact AND a blip. RAIN IS A GATE, NEVER A CHANNEL:
+// the field is public weather both sides derive from the welcome seed, the
+// zone clock and the revealed rings, so nothing per-observer about rain rides
+// a frame.
 //
 // TWO EYE TIERS SINCE STORY 11.2 (Eric 2026-11-12, R3): "sight" is the
 // CLASS-AND-NAME reach — inside it a hull is a full `Contact`; between it and
-// the PLAIN-HULL reach the same eye, under the same fog toll and island LOS,
+// the PLAIN-HULL reach the same eye, under the same rain gate and island LOS,
 // holds only a `PlainContact` — pose under an anonymous per-observer,
 // per-visit handle, in the frame's `pc` channel (`PerceptionView.plain`). The
 // two lists are disjoint by construction (the `plain` row's first term is the
@@ -122,15 +125,16 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 9.3: every live COUNTERMEASURE cloud — the cloud channel's
     // subjects and nothing else (a cloud occludes no sensor).
     clouds: world.cloudRecords,
-    // Story 9.10: THE FOG TOLL — the World's `fogTollAlong` (the shared
-    // field under the live cut), read by every eyeHolds site. A thunk,
-    // so the field itself never rides the context.
-    fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
+    // THE RAIN GATES (Story 11.6) — the World's bounded optical-depth gate
+    // on a ray (`fogSightAdmits`, read by every eyeHolds site) and on a
+    // hull's sight grid (`fogHullAdmits`, the two hull rows). Thunks, so the
+    // field itself never rides the context.
+    fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
+    fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
     // Story 11.2 follow-up: the island broadphase index (validated ONCE here,
-    // for this whole pass) and the bounded fog gate — the same answers as
-    // `islands` + `fogToll`, without the work that cannot change them.
+    // for this whole pass) — the same answers as `islands`, without the work
+    // that cannot change them.
     los: world.islandIndex,
-    fogAdmits: (ax, ay, bx, by, d, range) => world.fogSightAdmits(ax, ay, bx, by, d, range),
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -162,10 +166,10 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     foulZones: world.foulZones, // Story 9.4: spectators see every foul zone
     // Story 9.3: the cloud channel's subjects (spectators see every cloud).
     clouds: world.cloudRecords,
-    // Story 9.10: the fog toll thunk — INERT on this path (the spectator
-    // rows never call a sight site); rides uniformly so the context stays
-    // one shape.
-    fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
+    // The rain gate thunks — INERT on this path (the spectator rows never
+    // call a sight site); ride uniformly so the context stays one shape.
+    fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
+    fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,

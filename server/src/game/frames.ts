@@ -291,9 +291,10 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * — the PLAIN HULLS of the outer sight tier, `{h,x,y,heading,speed}` each
  * through the `plain` row, sorted by handle; never present on a spectator
  * frame, where every hull is a full contact). The DECOY BUOYS' `decoys`
- * channel left with Story 10.5. FOG HAS NO CHANNEL (Story 9.10):
- * the field is public weather off the welcome seed and the schema cut; its
- * hiding is the toll inside every sight site, never a frame key.
+ * channel left with Story 10.5. THE RAIN HAS NO CHANNEL (Story 9.10; the
+ * storm eye since Story 11.6): the field is public weather off the welcome
+ * seed and the zone clock; its hiding is the optical-depth gate inside every
+ * sight site, never a frame key.
  */
 function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'clouds' | 'drops' | 'pc'> {
   return {

@@ -9,11 +9,12 @@
 // epic-10 amendment 11; the SMOKE SCREEN's `smoke` channel joined in
 // Story 8.18 and became the MULTI-SPECTRAL COUNTERMEASURE's `cloud` channel
 // in Story 9.3; the FOULING SHELL's `foulzone` channel joined in Story 9.4 on
-// the burn zone's gate). FOG IS NOT A CHANNEL (Story 9.10, Eric 2026-10-15):
-// the fog field is public weather both sides derive from the welcome seed
-// and the schema cut; it reaches perception only as the TOLL inside the
-// sight predicates (`eyeHolds` below) — nothing per-observer about fog
-// ever rides a frame, and the declared exceptions stay at SIX.
+// the burn zone's gate). RAIN IS NOT A CHANNEL (Story 9.10, Eric 2026-10-15;
+// the storm-eye rain since Story 11.6): the field is public weather both
+// sides derive from the welcome seed, the zone clock and the revealed rings;
+// it reaches perception only as the OPTICAL-DEPTH GATE inside the sight
+// predicates (`eyeHolds` / `hullHeld` below) — nothing per-observer about
+// rain ever rides a frame, and the declared exceptions stay at SIX.
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
 // visible()/materialize(); nothing spatial leaves the server outside a row.
 //
@@ -27,20 +28,22 @@
 // SINCE THE STORY 11.2 FOLLOW-UP the eye gates (`eyeHolds`) ask that same
 // rule through the context's island BROADPHASE INDEX (`ctx.los` — shared
 // sim/islandIndex.ts: only the islands a ray can touch, the reference's own
-// per-island tests) and test in the order plain distance → islands → fog,
-// with the fog half answered by the World's bounded gate (`ctx.fogAdmits`):
-// the same booleans as `losClear` + the full toll, at a cost that no longer
-// grows with islands the ray cannot touch or with fog it need not read. A
-// context without the two (a hand-built test context) takes the reference
-// scan and the full toll.
-// THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 164–170): every
-// sight-RANGE comparison on those same sites goes through `eyeHolds`,
-// which adds the ray's fog toll (`SightField.fogToll` — the World's
-// `fogTollAlong`, the shared field's midpoint march; observer-first, since
-// amendment 179 the observer's own solid bank is free) to its length before
-// comparing against the range — fog never widens anything, so the plain
-// range test rejects first and the march runs only inside geometric range.
-// Radar, zone circles, the foghorn and the storm never read the field.
+// per-island tests) and test in the order plain distance → islands → rain,
+// with the rain half answered by the World's bounded gate (`ctx.fogAdmits`):
+// the same booleans as `losClear` + the whole optical-depth walk, at a cost
+// that no longer grows with islands the ray cannot touch or with rain it
+// need not read. A context without the index (a hand-built test context)
+// takes the reference island scan.
+// THE RAIN GATE (Story 11.6, Eric 2026-11-14; it replaces Story 9.10's fog
+// toll): every sight comparison on those same sites goes through `eyeHolds`,
+// which asks whether the optical depth τ of the rain on the ray observer →
+// point is at most T (`SightField.fogAdmits` — the World's `fogSightAdmits`).
+// The reach is an unchanged range CAP — rain never widens anything and no
+// longer adds distance; NO own-bank exemption (rain the observer stands in
+// counts). THE TWO HULL ROWS (`contact`, `plain`) ask it of the hull's sight
+// GRID (`hullHeld` → `SightField.fogHullAdmits`): the hull is held while ANY
+// grid point passes. Radar, zone circles, the foghorn and the storm never
+// read the field.
 // ALL island-geometry branching stays inside losClear: no visible()/
 // materialize() row may iterate polygon edges itself, or the rows blow the
 // ESLint complexity ceiling. THE ONE EXCEPTION (Story 4.11, amendment 179):
@@ -113,6 +116,7 @@ import {
   type BurnZoneView,
   type FoulZoneView,
   effectiveHullSight,
+  hullEnvelope,
   effectiveSight,
   whiteoutReach,
   type PlainContact,
@@ -174,13 +178,21 @@ interface SignalContextBase {
    *  channel's scan subjects and NOTHING else — a cloud occludes no sensor
    *  (Eric 2026-10-12: it is a client overlay). Rides both paths uniformly. */
   readonly clouds: readonly StoredCloud[];
-  /** THE FOG TOLL on a ray (Story 9.10 — `World.fogTollAlong` bound by
-   *  perception.ts): the extra sight distance a ray A → B pays crossing the
-   *  fog field right now, read by every sight-range comparison through
-   *  `eyeHolds` (`fogCostTo`). Rides both paths uniformly; the spectator
-   *  path never calls it (spectators are unfogged). Never a radar input
-   *  (amendment 149). */
-  readonly fogToll: (ax: number, ay: number, bx: number, by: number) => number;
+  /**
+   * THE RAIN GATE on a ray (Story 11.6 — `World.fogSightAdmits` bound by
+   * perception.ts): does the eye at A see the point B through the rain right
+   * now — optical depth τ(A → B) ≤ T — read by every sight comparison through
+   * `eyeHolds`. Rides both paths uniformly; the spectator path never calls
+   * it (spectators are unfogged). Never a radar input (amendment 149).
+   */
+  readonly fogAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
+  /**
+   * THE RAIN GATE on a HULL (Story 11.6 — `World.fogHullAdmits`): does the
+   * eye at A see ANY point of the sight grid of a hull `lengthU × beamU` at
+   * (cx, cy, heading) through the rain. Read by the two hull rows alone
+   * (`hullHeld`); inert on the spectator path.
+   */
+  readonly fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => boolean;
   /**
    * THE ISLAND BROADPHASE INDEX of `islands` (Story 11.2 follow-up — shared
    * sim/islandIndex.ts, `World.islandIndex` taken once per pass by
@@ -190,14 +202,6 @@ interface SignalContextBase {
    * without one (a hand-built test context) takes the reference scan.
    */
   readonly los?: IslandIndex;
-  /**
-   * THE BOUNDED FOG GATE (Story 11.2 follow-up — `World.fogSightAdmits`):
-   * `toll <= 0 || d + toll <= range` for this ray's `fogToll`, answered
-   * without finishing the lattice walk once the answer is decided. Exactly
-   * the comparison on the full toll. OPTIONAL: a context without one takes
-   * the full toll.
-   */
-  readonly fogAdmits?: (ax: number, ay: number, bx: number, by: number, d: number, range: number) => boolean;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
    *  The `return` blip payload carries no id at all (amendment 152), so no
@@ -311,9 +315,9 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
  * state). Every sight-tier gate calls this — the contact row, pointSighted,
  * the named point reaches, shipSees, the mz/sm halos and the foghorn muffle. No cloud term (Story 9.3 session
  * 2, Eric 2026-10-12: the countermeasure is a client overlay — cycle 174's
- * pixel occlusion and Story 8.18's smoke clamp are retired). No fog term
- * EITHER: fog is a RANGE cost, not an occluder — it lives in `eyeHolds`
- * beside this, never here (a fully fogged ray is still island-clear). Takes
+ * pixel occlusion and Story 8.18's smoke clamp are retired). No rain term
+ * EITHER: rain is its own gate — it lives in `eyeHolds` beside this, never
+ * here (a ray lost in rain is still island-clear). Takes
  * the RECORD, not a Vec2, so every caller threads the observer's own state
  * the same way.
  */
@@ -322,44 +326,19 @@ export function sightClear(me: ShipRecord, b: Vec2, islands: readonly Island[]):
 }
 
 /**
- * THE SIGHT FIELD (Story 9.10): everything a sight-range comparison reads
- * besides the observer — the islands for LOS and the fog toll thunk.
+ * THE SIGHT FIELD (Story 9.10; Story 11.6): everything a sight comparison
+ * reads besides the observer — the islands for LOS and the rain gate thunks.
  * `SignalContextBase` satisfies it structurally, so every row passes its
  * `ctx`.
  */
 export interface SightField {
   readonly islands: readonly Island[];
-  readonly fogToll: (ax: number, ay: number, bx: number, by: number) => number;
+  /** The rain gate on a ray: τ(A → B) ≤ T (see `SignalContextBase.fogAdmits`). The observer is ALWAYS the A end. */
+  readonly fogAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
+  /** The rain gate on a hull's sight grid (see `SignalContextBase.fogHullAdmits`). */
+  readonly fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => boolean;
   /** OPTIONAL: the broadphase index of `islands` (see `SignalContextBase.los`). */
   readonly los?: IslandIndex;
-  /** OPTIONAL: the bounded fog gate (see `SignalContextBase.fogAdmits`). */
-  readonly fogAdmits?: (ax: number, ay: number, bx: number, by: number, d: number, range: number) => boolean;
-}
-
-/** The fog toll on the ray me → p (Story 9.10): the field's thunk — the
- *  World's `fogTollAlong` (shared sim/fog.ts owns the math; the invariant
- *  oracle re-integrates the shared density numerically by design). THE one
- *  entry of the fog cost into perception — nothing else derives it. The
- *  observer is ALWAYS the ray's A end: since amendment 179 the toll is
- *  directional (an observer standing in solid fog pays nothing inside that
- *  bank — "see out of it normally"), so no caller may swap the ends. */
-function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
-  return field.fogToll(me.state.x, me.state.y, p.x, p.y);
-}
-
-/**
- * The FOG half of the sight-range comparison (Story 9.10, amendments 164,
- * 167): does the ray me → p, `d2` long squared and already known to be within
- * `range` geometrically, stay within it once its toll is added —
- * `d + toll ≤ range`, boundary inclusive (a free ray is always in). Through
- * the field's bounded gate when it has one (`fogAdmits` — the same comparison,
- * decided without finishing the walk), else on the full toll.
- */
-function fogAdmits(field: SightField, me: ShipRecord, p: Vec2, d2: number, range: number): boolean {
-  if (field.fogAdmits !== undefined) return field.fogAdmits(me.state.x, me.state.y, p.x, p.y, Math.sqrt(d2), range);
-  const toll = fogCostTo(field, me, p);
-  if (toll <= 0) return true;
-  return Math.sqrt(d2) + toll <= range;
 }
 
 /** Island LOS from the observer over the field: its broadphase index when it
@@ -371,42 +350,65 @@ function fieldClear(field: SightField, me: ShipRecord, b: Vec2): boolean {
 }
 
 /**
- * THE one EYE test (Story 9.10, amendments 164, 167; Story 11.2): is point
- * `p` held by the observer's eye at `range` — within `range` once the ray's
- * fog toll is added to its length (`d + toll ≤ range`, boundary inclusive)
- * AND on an island-clear ray. Every sight-tier site calls this — the contact
- * and plain rows, every point reach, discSighted (to the nearest rim point)
- * and the mz/sm halos.
+ * The two cheap terms every eye test starts with: is `p` inside `range` of
+ * the observer (plain squared distance, boundary inclusive) on an
+ * island-clear ray. Written `!(d2 <= r²)` so a non-finite range REJECTS
+ * (fail-closed: a NaN range sees nothing, never everything), and a ZERO range
+ * rejects even `d = 0` (gate fix F4: a whited-out observer must not sight a
+ * point at its own centre — a co-located hull, a cloud it stands in, an event
+ * on its own hull).
+ */
+function inReachAndClear(field: SightField, me: ShipRecord, p: Vec2, range: number): boolean {
+  const dx = p.x - me.state.x;
+  const dy = p.y - me.state.y;
+  if (!(range > 0)) return false;
+  if (!(dx * dx + dy * dy <= range * range)) return false;
+  return fieldClear(field, me, p);
+}
+
+/**
+ * THE one EYE test for a POINT (Story 9.10; Story 11.2; the rain gate since
+ * Story 11.6): is point `p` held by the observer's eye at `range` — within
+ * `range` (an unchanged cap, boundary inclusive), on an island-clear ray, AND
+ * through the rain: the optical depth τ of the ray observer → p at most T
+ * (`field.fogAdmits`). Every point site calls this — every point reach,
+ * discSighted (to the nearest rim point) and the mz/sm halos. A HULL asks
+ * `hullHeld` instead.
  *
  * CHEAPEST REJECT FIRST, EXACT WORK LAST (Story 11.2 follow-up — the three
  * terms are a pure AND, so the order changes the cost and never the answer):
- *   1. the plain squared distance — rejects anything beyond geometric range
- *      before any other work (fog never widens sight); written
- *      `!(d2 <= r²)` so a non-finite range REJECTS (fail-closed: a NaN range
- *      sees nothing, never everything), and a ZERO range rejects even
- *      `d = 0` (gate fix F4: blind is blind);
+ *   1. the plain squared distance;
  *   2. island line of sight (`fieldClear` — a broadphase, then the exact
  *      coastline test on the islands the ray can touch);
- *   3. the fog toll (`fogAdmits`), only for a ray in range and island-clear.
- * With no fog the toll answers without a march (the World's cut gate), so
- * the pre-fog gates are byte-identical. Radar has NO inner edge (amendment
- * 210, Eric 2026-10-21, superseding amendment 163's "dark to both"): a hull
- * fog hides inside the bubble is no contact, yet the beam still paints it —
- * fog is never a radar input (amendment 149).
- * (HISTORY: until the follow-up this was `withinSight` — range and fog —
- * AND-ed with `sightClear` at each site, fog before islands.)
+ *   3. the rain (`fogAdmits`), only for a ray in range and island-clear.
+ * With no rain the gate answers without a walk, so the pre-rain gates are
+ * byte-identical. Radar has NO inner edge (amendment 210, Eric 2026-10-21):
+ * a hull the rain hides inside the bubble is no contact, yet the beam still
+ * paints it — rain is never a radar input (amendment 149).
  */
 function eyeHolds(field: SightField, me: ShipRecord, p: Vec2, range: number): boolean {
-  const dx = p.x - me.state.x;
-  const dy = p.y - me.state.y;
-  const d2 = dx * dx + dy * dy;
-  // ZERO SIGHT ADMITS NOTHING (gate fix F4): a whited-out observer (range 0)
-  // must not sight a point at its own centre (`0 <= 0`) — a co-located hull,
-  // a cloud it stands in, an event on its own hull. Also rejects NaN/negative.
-  if (!(range > 0)) return false;
-  if (!(d2 <= range * range)) return false;
-  if (!fieldClear(field, me, p)) return false;
-  return fogAdmits(field, me, p, d2, range);
+  if (!inReachAndClear(field, me, p, range)) return false;
+  return field.fogAdmits(me.state.x, me.state.y, p.x, p.y);
+}
+
+/**
+ * THE one EYE test for a HULL (Story 11.6, Eric 2026-11-14 — "you see the
+ * parts of a ship the rain lets through"): is `ship` held by the observer's
+ * eye at `range`. RANGE AND ISLAND LINE OF SIGHT ARE THE HULL'S CENTER'S,
+ * exactly as before (the tier reaches stay caps on the center, and an island
+ * hides a hull by its center ray — no new "half behind an island" rule); THE
+ * RAIN is asked of the hull's sight GRID: held while ANY of the
+ * `CONFIG.fog.hullGridCols × hullGridRows` points of the shared `fogHullGrid`
+ * over the hull's true pose and its class's `hullEnvelope(...).hull` length ×
+ * beam has τ ≤ T (`field.fogHullAdmits`). The client draws each part from the
+ * same grid on the same field. Both hull rows call this at their own reach,
+ * so the rain term is one answer for both tiers.
+ */
+function hullHeld(field: SightField, me: ShipRecord, ship: ShipRecord, range: number): boolean {
+  const s = ship.state;
+  if (!inReachAndClear(field, me, s, range)) return false;
+  const hull = hullEnvelope(ship.hullId).hull;
+  return field.fogHullAdmits(me.state.x, me.state.y, s.x, s.y, s.heading, hull.length, hull.beam);
 }
 
 /**
@@ -424,8 +426,8 @@ function eyeHolds(field: SightField, me: ShipRecord, p: Vec2, range: number): bo
  * in-smoke argument — a cloud never scales sight.) THE one place the
  * sight RADIUS enters perception — every sight-tier predicate below and
  * every reach derived from it calls this, so a future sight modifier lands
- * in the shared function and nowhere else. FOG (Story 9.10) does NOT scale
- * this radius: it is a toll on the RAY, added in `eyeHolds`. No radar
+ * in the shared function and nowhere else. RAIN does NOT scale this radius:
+ * it is a gate on the RAY's optical depth, asked in `eyeHolds`. No radar
  * gate reads this radius at all since amendment 210 (the radar paints from
  * the observer's hull out to radar range — no inner edge).
  * Never re-derived here: one derivation, both sides.
@@ -459,8 +461,8 @@ function eyeReach(me: ShipRecord, reachU: number, now: number): number {
 
 /**
  * THE one point-by-eye test (Story 11.2): `p` within `reach` of the observer
- * once the ray's fog toll is added (`eyeHolds`) + SIGHT-clear (island
- * LOS). Every point gate below is this at its own reach.
+ * + SIGHT-clear (island LOS) + through the rain (`eyeHolds`). Every point
+ * gate below is this at its own reach.
  */
 function pointSeenWithin(me: ShipRecord, p: Vec2, field: SightField, reach: number): boolean {
   return eyeHolds(field, me, p, reach);
@@ -468,7 +470,7 @@ function pointSeenWithin(me: ShipRecord, p: Vec2, field: SightField, reach: numb
 
 /**
  * CLASS-REACH test for a point: within the observer's effective CLASS-AND-NAME
- * sight (`sightOf`, inclusive, fog-tolled) + SIGHT-clear. Since Story 11.2
+ * sight (`sightOf`, inclusive, rain-gated) + SIGHT-clear. Since Story 11.2
  * this is THE IDENTITY GATE — the reach at which a roster id or a class may
  * be attached to a point: the boom's victim id, the sunk row's `seen` stamp
  * and the spawn row (whose payload IS a roster id). Positions without an
@@ -482,7 +484,7 @@ function pointSighted(me: ShipRecord, p: Vec2, field: SightField, now: number): 
  * SPLASH-REACH test for a point (Story 11.2, R4 / R18 —
  * `CONFIG.vision.splashSight`): where an explosion — a boom or a burst — is
  * seen by eye. POSITION ONLY: no row may attach an identity on this gate (see
- * `pointSighted`). Whiteout-scaled, fog-tolled, island LOS.
+ * `pointSighted`). Whiteout-scaled, rain-gated, island LOS.
  */
 function splashSeen(me: ShipRecord, p: Vec2, field: SightField, now: number): boolean {
   return pointSeenWithin(me, p, field, eyeReach(me, CONFIG.vision.splashSight, now));
@@ -728,12 +730,12 @@ function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): G
 /** THE FOGGED FULL-CONTACT PREDICATE — one boolean, two callers (the
  *  `contact` row and the `plain` row's "not already a full contact" term), so
  *  the two tiers can never both claim a hull in one frame. The observer's
- *  own effective CLASS reach (the one derivation), fog-tolled (Story 9.10:
- *  eyeHolds adds the ray's bank cost before comparing); the owned-zone OR
- *  is untouched (a flare lights from above). */
+ *  own effective CLASS reach (the one derivation) on the hull's center, the
+ *  rain asked of the hull's sight grid (`hullHeld`, Story 11.6); the
+ *  owned-zone OR is untouched (a flare lights from above). */
 function fullContactSeen(ctx: FoggedSignalContext, ship: ShipRecord): boolean {
   const me = ctx.me;
-  return pointSeenWithin(me, ship.state, ctx, sightOf(me, ctx.now)) || ownZoneCovers(ctx, ship.state);
+  return hullHeld(ctx, me, ship, sightOf(me, ctx.now)) || ownZoneCovers(ctx, ship.state);
 }
 
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
@@ -784,8 +786,8 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
  * (`fullContactSeen` is false — beyond the class-and-name reach and outside
  * every lit zone the observer owns) and IS within the observer's effective
  * PLAIN-HULL sight (`hullSightOf` — `CONFIG.vision.hullSight` under the same
- * whiteout factor; boundary INCLUSIVE; the same fog toll through
- * `eyeHolds`) on an island-clear ray (`sightClear`). The two tiers are
+ * whiteout factor; boundary INCLUSIVE; the same rain gate on the hull's
+ * sight grid through `hullHeld`) on an island-clear ray (`sightClear`). The two tiers are
  * DISJOINT by construction: this row's first term is the negation of the
  * contact row's predicate, so no frame carries one hull in both lists, and a
  * hull crossing inward is a `pc` row in one frame and a contact in the next.
@@ -814,7 +816,7 @@ const plainSignal: SignalSpec<ShipRecord, PlainContact> = {
     const me = ctx.me;
     if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || ship.id === me.id) return false;
     if (fullContactSeen(ctx, ship)) return false;
-    return pointSeenWithin(me, ship.state, ctx, hullSightOf(me, ctx.now));
+    return hullHeld(ctx, me, ship, hullSightOf(me, ctx.now));
   },
   materialize(ctx, ship) {
     const s = ship.state;
@@ -827,7 +829,7 @@ const plainSignal: SignalSpec<ShipRecord, PlainContact> = {
  * contacts. The owner sees ALL its own mines always (own field awareness, even
  * under fog); everyone else sees a mine only when it is within the MINE eye
  * reach (`CONFIG.vision.mineSight`, Story 11.2 R4 / R18 — a mine sits low in
- * the water; whiteout-scaled, fog-tolled; Story 4.9's detect rung before) + island-LOS — OR inside a lit zone the
+ * the water; whiteout-scaled, rain-gated; Story 4.9's detect rung before) + island-LOS — OR inside a lit zone the
  * observer OWNS (Story 1.7 truesight parity, no LOS on the zone path). Mines
  * NEVER radar-paint, and arm state makes no difference to visibility. A
  * static persistent entity synced this way cannot suffer event-lifecycle
@@ -870,7 +872,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
  * recomputed every tick like mines: a fogged observer sees a crate — its
  * position AND its kind `c` — iff the crate's centre is within the CRATE-KIND
  * eye reach (`CONFIG.vision.crateKindSight`, Story 11.2 R4 / R18 — the kind
- * is read only close; whiteout-scaled, island LOS, fog-tolled) OR sits
+ * is read only close; whiteout-scaled, island LOS, rain-gated) OR sits
  * inside a lit zone the observer OWNS (`ownZoneCovers`, lit from above).
  * That is the mine gate MINUS the owner clause: a drop has no owner, so
  * nobody is "always" told. Spectators see every crate. The crate's radar
@@ -1040,9 +1042,9 @@ const foulZoneSignal: SignalSpec<FoulZone, FoulZoneView> = {
  * predicate the invariant suite re-derives independently (verifyClouds), and
  * never reaches past the sight bubble or this tick's radar. The declared
  * exceptions are exactly SIX — sp, hc, mz, sunk, sm, fh — rows that reach
- * beyond every gate (Story 9.10's fog is a TOLL on the sight predicates,
- * never a channel: the field is public weather derived on both sides from
- * the welcome seed and the schema cut). materialize() emits
+ * beyond every gate (the rain is a GATE inside the sight predicates, never
+ * a channel: the field is public weather derived on both sides from the
+ * welcome seed and the zone clock). materialize() emits
  * `{id, x, y, t0, lifeMs, r0, r1}` and NOTHING else (the disc's size and life
  * are the cloud's stamped own — Story 10.6, I6), no owner (a cloud tells
  * you nothing about who made it — the mz/sm anonymity posture), no `until`.
@@ -1060,10 +1062,10 @@ function nearestRimPoint(o: Vec2, c: Vec2, r: number): Vec2 {
 
 /** Clause (a): the disc's nearest point within sight on an island-clear
  *  segment. `d` is the observer→centre distance, `r` the disc radius.
- *  Story 9.10: the segment to the nearest rim point pays the fog toll
- *  (eyeHolds — its plain test is the old `d − r ≤ sightOf`), observer
- *  first like every other ray — so since amendment 179 an observer standing
- *  in solid fog pays nothing on that segment until it leaves its own bank. */
+ *  The segment to the nearest rim point passes the rain gate (eyeHolds —
+ *  its plain test is the old `d − r ≤ sightOf`), observer first like every
+ *  other ray (Story 11.6: no own-bank exemption — an observer standing in
+ *  rain pays for it on that segment too). */
 function discSighted(ctx: FoggedSignalContext, cloud: StoredCloud, d: number, r: number): boolean {
   const me = ctx.me;
   const sight = sightOf(me, ctx.now);
@@ -1386,7 +1388,7 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
  * returns the entire sweep). HISTORY (superseded): the per-source inner
  * bound (`wakeInnerBound` — sight for ship water, detect for torpedo water,
  * cycle-69 review gate P2) and the in-bubble torpedo-water clause that used
- * the eye's binary LOS + fog toll are retired; in-bubble water is a radar
+ * the eye's binary LOS + weather gate are retired; in-bubble water is a radar
  * return like any other. No cloud term (Story 9.3 session 2, Eric
  * 2026-10-12: a cloud hides nothing). Clause order is blipGate's cost order.
  */
@@ -1759,7 +1761,7 @@ function boomWire(e: BoomSubject, keepHit: boolean): BoomEvent {
 /**
  * A TORPEDO RUN-OUT is seen ending only where a torpedo is seen (Story 11.2
  * review gate, F4 — orchestrator ruling): the torpedo eye reach
- * (`CONFIG.vision.torpedoSight`, whiteout-scaled, fog-tolled, island LOS), an
+ * (`CONFIG.vision.torpedoSight`, whiteout-scaled, rain-gated, island LOS), an
  * owned lit zone, or the OWNER — whose ballistic gate never closes on its
  * own torpedo (`ballisticGateOpen`), so the end of the track tells it
  * nothing it did not hold, and its client needs the boom to retire the
@@ -2095,8 +2097,8 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
     if (ctx.mode === 'spectator') return true;
     const me = ctx.me;
     // The muzzle-flash halo (its own fact since Story 11.2),
-    // fog-tolled (Story 9.10, amendment 167: the flash PAYS the toll — the
-    // halo is a sight reach, not a radar one).
+    // rain-gated (Story 9.10, amendment 167: the flash is hidden by weather
+    // like every eye reach — the halo is a sight reach, not a radar one).
     return eyeHolds(ctx, me, e, muzzleFlashReach());
   },
   materialize(_ctx, e) {
@@ -2132,8 +2134,8 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
     if (ctx.mode === 'spectator') return true;
     const me = ctx.me;
     // The muzzle-flash halo, reused verbatim (its own fact since Story 11.2),
-    // fog-tolled (Story 9.10, amendment 167: smoke PAYS the toll like the
-    // flash; zone circles, the foghorn and the storm never do).
+    // rain-gated (Story 9.10, amendment 167: smoke is hidden by weather like
+    // the flash; zone circles, the foghorn and the storm never are).
     return eyeHolds(ctx, me, e, muzzleFlashReach());
   },
   materialize(_ctx, e) {
@@ -2316,9 +2318,10 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // session 2, Eric 2026-10-12 — a client overlay); this row is only how
   // the cloud itself ({id,x,y,t0}) reaches the client.
   cloud: cloudSignal,
-  // Story 9.10: FOG HAS NO ROW — the field is public weather (welcome seed +
-  // schema cut) and its hiding is the toll inside every sight site above
-  // (eyeHolds). Nothing per-observer about fog rides a frame.
+  // RAIN HAS NO ROW (Story 9.10; Story 11.6) — the field is public weather
+  // (welcome seed + the zone clock) and its hiding is the optical-depth gate
+  // inside every sight site above (eyeHolds / hullHeld). Nothing per-observer
+  // about rain rides a frame.
   blip: blipSignal,
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),

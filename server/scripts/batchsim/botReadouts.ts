@@ -111,7 +111,7 @@ export interface BotReadouts {
   /** Tactic-row ids by count of CHANGES in `lastTacticOf` (the same row firing
    *  on consecutive stamps without another in between counts once). */
   tacticCounts: Record<string, number>;
-  /** Afloat ticks standing in solid fog (`world.fogDensityAt` ≥ FOG_SOLID_DENSITY = 0.5). */
+  /** Afloat ticks standing in solid rain (`world.fogDensityAt` — the storm-eye field at the server's epoch frame since Story 11.6 — ≥ FOG_SOLID_DENSITY = 0.5). */
   fogTicks: number;
   /** fogTicks split by the posture held on that tick. */
   fogTicksByPosture: Record<BotPosture, number>;
