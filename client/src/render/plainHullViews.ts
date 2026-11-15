@@ -12,6 +12,7 @@ import type { Container } from 'pixi.js';
 import type { PlainContactStore } from '../net/plainContacts.js';
 import { Fader } from './fade.js';
 import { PlainHullView } from './plainHull.js';
+import type { RainEye } from './rainSight.js';
 
 interface FadingPlain {
   view: PlainHullView;
@@ -28,14 +29,15 @@ export class PlainHullViews {
     return this.views.size;
   }
 
-  /** Sample + draw every plain hull at `renderTime`; advance fades by `dtMs`. */
-  render(store: PlainContactStore, renderTime: number, dtMs: number): void {
+  /** Sample + draw every plain hull at `renderTime`; advance fades by `dtMs`;
+   *  `rain` = the frame's rain eye for the A+D look (null = none). */
+  render(store: PlainContactStore, renderTime: number, dtMs: number, rain: RainEye | null = null): void {
     for (const h of store.ids()) {
       const buf = store.get(h);
       if (buf && buf.size > 0) this.viewFor(h, store).fader.show();
     }
     for (const [h, fp] of this.views) {
-      if (store.takeRetiredByHandoff(h) || this.updateView(h, fp, store, renderTime, dtMs)) {
+      if (store.takeRetiredByHandoff(h) || this.updateView(h, fp, store, renderTime, dtMs, rain)) {
         fp.view.destroy();
         this.views.delete(h);
       }
@@ -43,11 +45,12 @@ export class PlainHullViews {
   }
 
   /** Pose + fade one view; true once it has fully faded out. */
-  private updateView(h: string, fp: FadingPlain, store: PlainContactStore, renderTime: number, dtMs: number): boolean {
+  private updateView(h: string, fp: FadingPlain, store: PlainContactStore, renderTime: number, dtMs: number, rain: RainEye | null): boolean {
     const s = store.get(h)?.sampleAt(renderTime);
     if (s) fp.view.update(s.x, s.y, s.heading);
     else fp.fader.hide(); // the row stopped arriving: hold the last pose, fade out
     fp.view.setFade(fp.fader.update(dtMs));
+    fp.view.setRain(rain, dtMs);
     return fp.fader.hidden;
   }
 

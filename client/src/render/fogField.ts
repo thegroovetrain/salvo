@@ -1,11 +1,15 @@
-// THE FOG FIELD view (Story 9.10 re-plan "THE FIELD", Eric 2026-10-15: "no
-// discs — realistic rolling fog", "make it performant"; the look is his pick B
-// "Wisps"). The fog is a continuous density field over the whole ocean
-// (shared sim/fog.ts), derived HERE from the same inputs the server uses: the
-// welcome's `fogSeed` (`setSeed`), the match clock (`serverNow`), `CONFIG.fog`
-// and the schema's match-wide `fogCut` (`setCut`). Nothing per-ship about fog
-// rides the wire; this view never decides visibility (the server already
-// withheld every contact the eye cannot see through the haze) — it only paints.
+// THE FOG FIELD view — since Story 11.6 THE RAIN (Eric 2026-11-14: "the eye of
+// a closing hurricane"; the look is still his Story 9.10 pick B "Wisps"). The
+// rain is a continuous density field over the whole ocean (shared sim/fog.ts,
+// the storm-eye field), derived HERE from the same PUBLIC inputs the server
+// uses: the welcome's `fogSeed` (`setSeed`), the match clock (`serverNow`),
+// `CONFIG.fog`, the schema's `zoneStartT` and the client's own LIVE zone ring
+// (`setZone` — sim/zoneView.ts, the shared zoneLiveState). There is no cut any
+// more: one `fogFrameAt` per frame is the whole weather. Nothing per-ship about
+// rain rides the wire; this view never decides visibility (the server already
+// withheld every contact the eye cannot see through the rain) — it only paints,
+// and lends its frame to the radar's dim fan and the hulls' A+D look
+// (render/rainSight.ts).
 //
 // THE LAYER: chartRoot's `fog` layer, directly above `litZone` and below
 // `smoke`, every marker, every hull and nameplate (render/stage.ts — amendment
@@ -14,14 +18,15 @@
 // THE COMPOSITION (density mask × scrolling wisps tile):
 // - THE DENSITY RASTER: ONE world-anchored Float32 grid of `cellU` cells over
 //   the viewer's halo square (side 2 × (halo span + recenterU)), filled with
-//   `fogDensityAt(field, x, y, serverNow, easedCut)` every `refreshMs` of frame
+//   `fogDensityAt(frame, x, y)` (the frame at serverNow) every `refreshMs` of frame
 //   time — or at once when the raster's centre is more than `recenterU` from
 //   the own hull (the origin then snaps to the cell grid around the hull, so a
 //   re-centre never makes the image swim). It is uploaded into ONE
 //   BufferImageSource (rgb white, alpha = density, LINEAR filtering) on ONE
 //   sprite placed at the raster origin in world units, scale = cellU. Between
-//   refreshes nothing moves: the fog's own motion is inside the field (its
-//   wind and spin terms), so the next refresh carries it.
+//   refreshes nothing moves: the rain's own motion is inside the field (its
+//   spin about the eye, and the eye riding the live ring), so the next refresh
+//   carries it.
 // - ONE SOURCE FOR THE VIEW'S LIFE (Story 11.2 follow-up 3, ruling R1). The
 //   density sprite is a LIVE alpha mask, and Pixi binds a sprite mask's own
 //   TextureSource into the pooled MaskFilter's bind group: destroying or
@@ -38,8 +43,9 @@
 //   the wisps tile never reaches past the n × n corner, so the rest is unseen.
 // - THE WISPS: a TilingSprite of the pre-baked puff tile (render/fogPuffTile.ts,
 //   2 u per texel), alpha `maxAlpha`, world-anchored through `tilePosition`
-//   and scrolled with the field's local velocity at the view centre (wind +
-//   the spin's tangential speed there, u/ms) — motion off → it holds still.
+//   and scrolled with the field's local velocity at the view centre (the
+//   spin's tangential speed about the eye there, u/ms — `rainFlowAt`) —
+//   motion off → it holds still.
 // - The density sprite is the tiling sprite's MASK on the ALPHA channel
 //   (`setMask({ channel: 'alpha' })`), so per screen pixel the drawn alpha is
 //   density(cell, linearly filtered) × puff(uv) × maxAlpha. Chosen because it
@@ -58,19 +64,23 @@
 // that covers the screen around its centre (cell grown so the raster stays
 // ≤ SPECTATOR_CELLS² cells): a spectator sees the whole field.
 //
-// NO FOG, NO WORK: with no field or a no-fog eased cut the body is hidden, the
-// layer unmasked, the bitmap zeroed once, and nothing is evaluated.
-// PER FRAME: ease the cut, advance the tile scroll, test the refresh timer and
-// the re-centre distance, place the tile. No per-frame allocation.
+// NO RAIN, NO WORK: with no field or a frame that cannot rain (pre-zone, a
+// non-finite input) the body is hidden, the layer unmasked, the bitmap zeroed
+// once, and nothing is evaluated.
+// PER FRAME: one `fogFrameAt` into the reused frame (its tables are reused —
+// ~0.05 ms), advance the tile scroll, test the refresh timer and the re-centre
+// distance, place the tile. No per-frame allocation.
 
 import { BufferImageSource, Container, Rectangle, Sprite, Texture, TilingSprite } from 'pixi.js';
 import {
   CONFIG,
-  FOG_NO_CUT,
   fogDensityAt,
-  fogEyeReachFan,
+  fogDepthReachFan,
+  fogFrameAt,
+  fogMaxDepth,
   makeFogField,
   type FogField,
+  type FogFrame,
   type Island,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -142,33 +152,46 @@ export type FogViewMode = 'alive' | 'spectate';
 export type FogDensityFn = typeof fogDensityAt;
 
 /**
- * Pure: one frame's step of the drawn cut toward the schema's. Moves at most
- * `cutEasePerS × dt`; SNAPS when either side is the no-fog cut (fog appearing
- * from none must not take minutes to ease down from 9, and the no-fog target
- * is honoured at once). A non-finite target reads as no fog.
+ * Pure: the rain's local velocity (u/ms) at world (x, y) for `frame` — the
+ * spin's tangential speed about the eye (sim/fog.ts's turn rate: `edgeSpeedU`
+ * at the ring edge, `centerTurnFrac` of the edge's turn rate at the center,
+ * the linear speed held outside the ring; R floored at `spinRadiusFloorU`),
+ * in the field's per-match direction. Written into `out`; zero with no rain.
+ * Presentation only — the wisps tile's scroll.
  */
-export function easeFogCut(eased: number, target: number, dtMs: number): number {
-  const t = Number.isFinite(target) ? target : FOG_NO_CUT;
-  if (t >= FOG_NO_CUT || !(eased < FOG_NO_CUT)) return t;
-  const max = F.cutEasePerS * (Math.max(0, dtMs) / 1000);
-  return eased + Math.min(max, Math.max(-max, t - eased));
+export function rainFlowAt(frame: FogFrame, x: number, y: number, out: { x: number; y: number }): { x: number; y: number } {
+  out.x = 0;
+  out.y = 0;
+  if (!frame.on) return out;
+  const cfg = frame.field.cfg;
+  const px = x - frame.cx;
+  const py = y - frame.cy;
+  const r = Math.hypot(px, py);
+  const Rs = Math.max(frame.R, cfg.spinRadiusFloorU);
+  const v = cfg.edgeSpeedU / 1000;
+  const turn = r < Rs ? (v / Rs) * (cfg.centerTurnFrac + (1 - cfg.centerTurnFrac) * (r / Rs)) : v / r;
+  const w = frame.field.spinSign * turn; // rad/ms
+  if (!Number.isFinite(w)) return out;
+  out.x = -py * w;
+  out.y = px * w;
+  return out;
 }
 
 /**
- * Pure: fill `out` (n × n, row-major) with the density at the cell centres
- * `(ox + i·cellU, oy + j·cellU)` at match time `tMs` under `cut`. Returns
- * whether any cell is above 0.
+ * Pure: fill `out` (n × n, row-major) with the rain density of `frame` at the
+ * cell centres `(ox + i·cellU, oy + j·cellU)`. Returns whether any cell is
+ * above 0.
  */
 export function fillFogRaster(
-  out: Float32Array, field: FogField, ox: number, oy: number, cellU: number, n: number,
-  tMs: number, cut: number, density: FogDensityFn = fogDensityAt,
+  out: Float32Array, frame: FogFrame, ox: number, oy: number, cellU: number, n: number,
+  density: FogDensityFn = fogDensityAt,
 ): boolean {
   let any = false;
   for (let j = 0; j < n; j++) {
     const y = oy + j * cellU;
     const row = j * n;
     for (let i = 0; i < n; i++) {
-      const d = density(field, ox + i * cellU, y, tMs, cut);
+      const d = density(frame, ox + i * cellU, y);
       out[row + i] = d;
       if (d > 0) any = true;
     }
@@ -230,8 +253,15 @@ export class FogFieldView {
   private field: FogField | null = null;
   private seed: number | null = null;
   private oceanRadiusU = -1;
-  private target = FOG_NO_CUT;
-  private eased = FOG_NO_CUT;
+  /** The live zone the eye rides (`setZone`); null start = no rain. */
+  private zoneStartT: number | null = null;
+  private zoneCx = 0;
+  private zoneCy = 0;
+  /** THE frame: one `fogFrameAt` per new instant (`frameAt`), its tables
+   *  reused for the view's life. */
+  private frame: FogFrame | null = null;
+  private frameT = Number.NaN;
+  private readonly flow = { x: 0, y: 0 };
   /** The body: the density mask sprite + the wisps tile (the layer's second child, after the halo). */
   private readonly body = new Container();
   private readonly clip = new Rectangle();
@@ -295,7 +325,7 @@ export class FogFieldView {
     layer.addChild(this.body);
   }
 
-  /** The welcome's `fogSeed` over the match's ocean radius (the spin's center is the ocean center): (re)build the field only when either changes. */
+  /** The welcome's `fogSeed` over the match's ocean radius (the rain lives inside that disc and its ring ladder is that radius's): (re)build the field only when either changes. */
   setSeed(seed: number, oceanRadiusU: number): void {
     if (!Number.isFinite(seed) || !Number.isFinite(oceanRadiusU)) return;
     const s = seed >>> 0;
@@ -303,12 +333,39 @@ export class FogFieldView {
     this.seed = s;
     this.oceanRadiusU = oceanRadiusU;
     this.field = makeFogField(s, CONFIG.fog, oceanRadiusU);
+    this.frame = null;
+    this.frameT = Number.NaN;
     this.sinceRefresh = Number.POSITIVE_INFINITY;
   }
 
-  /** The schema's match-wide `fogCut` (FOG_NO_CUT = no fog); eased per frame in `update`. */
-  setCut(cut: number): void {
-    this.target = Number.isFinite(cut) ? cut : FOG_NO_CUT;
+  /**
+   * The live zone the eye rides: the schema's `zoneStartT` (null while the zone
+   * is idle — no rain) and the LIVE ring's center from the client's own zone
+   * view (sim/zoneView.ts `zoneViewFrom`, the shared zoneLiveState at the same
+   * serverNow). Called once per frame before anything reads the rain; a change
+   * re-derives the frame on the next read.
+   */
+  setZone(startT: number | null, cx: number, cy: number): void {
+    if (startT === this.zoneStartT && cx === this.zoneCx && cy === this.zoneCy) return;
+    this.zoneStartT = startT;
+    this.zoneCx = cx;
+    this.zoneCy = cy;
+    this.frameT = Number.NaN;
+  }
+
+  /**
+   * The rain at match time `tMs` (ONE shared frame, re-derived only for a new
+   * instant or zone), or null when nothing can rain — no field yet, pre-zone,
+   * or a non-finite input. The raster, the radar's fan and the hulls' A+D look
+   * (render/rainSight.ts) all read this one frame.
+   */
+  frameAt(tMs: number): FogFrame | null {
+    if (this.field === null) return null;
+    if (this.frame === null || tMs !== this.frameT) {
+      this.frame = fogFrameAt(this.field, tMs, this.zoneStartT, this.zoneCx, this.zoneCy, CONFIG.zone, this.frame ?? undefined);
+      this.frameT = tMs;
+    }
+    return this.frame.on ? this.frame : null;
   }
 
   /** The viewer's halo radius — `hazeHaloU(radarRange)` beside the countermeasure's. */
@@ -324,10 +381,9 @@ export class FogFieldView {
     this.castX = Number.NaN;
   }
 
-  /** The match-start edge: the drawn cut back to no fog, the bitmap dark. */
+  /** The match-start edge: the zone back to not started (no rain), the bitmap dark. */
   clear(): void {
-    this.target = FOG_NO_CUT;
-    this.eased = FOG_NO_CUT;
+    this.setZone(null, 0, 0);
     this.hide();
   }
 
@@ -348,16 +404,16 @@ export class FogFieldView {
     screen: ScreenWorldRect | null = null,
     mode: FogViewMode = 'alive',
   ): void {
-    this.eased = easeFogCut(this.eased, this.target, dtMs);
+    const frame = this.frameAt(serverNow);
     const spectating = mode === 'spectate';
     const eye = spectating ? null : own;
     const centre = this.centreFor(eye, spectating ? screen : null);
-    if (this.field === null || this.eased >= FOG_NO_CUT || centre === null) {
+    if (frame === null || centre === null) {
       this.hide();
       return;
     }
-    this.advanceScroll(dtMs, motionOn, centre);
-    this.maybeRefresh(dtMs, serverNow, centre, spectating ? screen : null, screen);
+    this.advanceScroll(frame, dtMs, motionOn, centre);
+    this.maybeRefresh(frame, dtMs, centre, spectating ? screen : null, screen);
     this.draw(eye, screen);
   }
 
@@ -376,28 +432,22 @@ export class FogFieldView {
   /**
    * THE EYE-REACH FAN for the radar's near-range dim mask (amendment 210): how
    * far the eye at (ox, oy) with `sightU` of effective truesight reaches through
-   * the fog on each of `out.length` bearings (ray k at k·2π/N, world axes),
-   * written into `out` by the shared `fogEyeReachFan` and returned. Null when
-   * there is nothing to toll — no field yet, no fog (the drawn cut at or past
-   * FOG_NO_CUT) or a non-finite pose — so the radar falls back to its radial bake.
-   *
-   * It marches at the EASED cut, the one this view draws, not the schema's
-   * target: the mask then follows the fog the player is looking at. The server
-   * gates sight on its own (≈ one cell different) march; this is presentation
-   * only, and the spec accepts that tolerance. The field stays private.
+   * the rain on each of `out.length` bearings (ray k at k·2π/N, world axes) —
+   * where the optical depth from the observer first reaches the sight
+   * threshold T (shared `fogDepthReachFan` under `fogMaxDepth(CONFIG.fog)`),
+   * capped at `sightU` — written into `out` and returned. Null when there is
+   * nothing to toll — no field yet, no rain at `tMs`, or a non-finite pose — so
+   * the radar falls back to its radial bake. Presentation only; the field
+   * stays private.
    */
   eyeReachFan(ox: number, oy: number, sightU: number, tMs: number, out: Float32Array): Float32Array | null {
-    if (this.field === null || !(this.eased < FOG_NO_CUT)) return null;
     if (!Number.isFinite(ox + oy + sightU + tMs)) return null;
-    return fogEyeReachFan(this.field, ox, oy, sightU, tMs, this.eased, out);
+    const frame = this.frameAt(tMs);
+    if (frame === null) return null;
+    return fogDepthReachFan(frame, ox, oy, sightU, fogMaxDepth(CONFIG.fog), out);
   }
 
   // --- test seams ---------------------------------------------------------
-
-  /** The eased cut being drawn. */
-  get drawnCut(): number {
-    return this.eased;
-  }
 
   /** How many raster refreshes have run. */
   get refreshCount(): number {
@@ -459,40 +509,26 @@ export class FogFieldView {
   }
 
   /**
-   * Scroll the wisps with the field's LOCAL velocity at the view centre
-   * (motion-gated), wrapped to one tile period: the wind plus the spin's
-   * tangential speed there (amendment 177 — the pattern turns about the
-   * ocean centre, faster toward the middle by the shear; cycle-192 gate: a
-   * wind-only scroll made the wisps swim against their own bank at the rim,
-   * where the spin then moved the banks several times faster than the wind —
-   * both dials are 1 u/s since cycle 193, the velocity sum still holds).
-   * One tile cannot turn with the whole field; following the centre's
-   * velocity keeps the wisps riding the banks the viewer is looking at.
+   * Scroll the wisps with the rain's LOCAL velocity at the view centre
+   * (motion-gated, `rainFlowAt`), wrapped to one tile period: the spin's
+   * tangential speed about the eye there. One tile cannot turn with the whole
+   * field; following the centre's velocity keeps the wisps riding the bands
+   * the viewer is looking at (the cycle-192 lesson: a tile that ignores the
+   * spin swims against its own bands).
    */
-  private advanceScroll(dtMs: number, motionOn: boolean, centre: { x: number; y: number }): void {
-    if (!motionOn || this.field === null) return;
+  private advanceScroll(frame: FogFrame, dtMs: number, motionOn: boolean, centre: { x: number; y: number }): void {
+    if (!motionOn) return;
     const dt = Math.min(MAX_SCROLL_DT_MS, Math.max(0, dtMs));
     const period = F.puffTilePx / F.puffPxPerU;
-    const f = this.field;
-    let vx = f.windX;
-    let vy = f.windY;
-    if (f.cfg.spinRimU > 0 && f.spinRadiusU > 0) {
-      const px = centre.x - f.spinCx;
-      const py = centre.y - f.spinCy;
-      const r = Math.hypot(px, py);
-      const shear = r >= f.spinRadiusU ? 0 : f.cfg.spinShear * (1 - r / f.spinRadiusU);
-      const w = (f.spinSign * (f.cfg.spinRimU / 1000) * (1 + shear)) / f.spinRadiusU; // rad/ms at the centre point
-      vx += -py * w;
-      vy += px * w;
-    }
-    this.scrollX = wrap(this.scrollX + vx * dt, period);
-    this.scrollY = wrap(this.scrollY + vy * dt, period);
+    const v = rainFlowAt(frame, centre.x, centre.y, this.flow);
+    this.scrollX = wrap(this.scrollX + v.x * dt, period);
+    this.scrollY = wrap(this.scrollY + v.y * dt, period);
   }
 
   /** Refresh on the cadence, on a re-centre, or on a raster geometry change. */
   private maybeRefresh(
+    frame: FogFrame,
     dtMs: number,
-    serverNow: number,
     c: { x: number; y: number },
     spectatorScreen: ScreenWorldRect | null,
     screen: ScreenWorldRect | null,
@@ -502,7 +538,7 @@ export class FogFieldView {
     const half = ((this.n - 1) / 2) * this.cell;
     const moved = Math.hypot(c.x - (this.ox + half), c.y - (this.oy + half)) > F.recenterU;
     if (this.sinceRefresh < F.refreshMs && !moved && n === this.n && cell === this.cell) return;
-    this.refresh(serverNow, c, n, cell);
+    this.refresh(frame, c, n, cell);
   }
 
   /** The raster's cell count and cell size: the halo square, or the
@@ -528,14 +564,14 @@ export class FogFieldView {
   }
 
   /** Re-evaluate the raster around `c` and upload it. */
-  private refresh(serverNow: number, c: { x: number; y: number }, n: number, cell: number): void {
+  private refresh(frame: FogFrame, c: { x: number; y: number }, n: number, cell: number): void {
     if (n !== this.n) this.resize(n);
     n = this.n;
     this.cell = cell;
     const lo = Math.floor(n / 2);
     this.ox = (Math.round(c.x / cell) - lo) * cell;
     this.oy = (Math.round(c.y / cell) - lo) * cell;
-    this.lit = fillFogRaster(this.density, this.field as FogField, this.ox, this.oy, cell, n, serverNow, this.eased, this.densityFn);
+    this.lit = fillFogRaster(this.density, frame, this.ox, this.oy, cell, n, this.densityFn);
     this.upload();
     this.densitySprite.position.set(this.ox - cell / 2, this.oy - cell / 2);
     this.densitySprite.scale.set(cell);

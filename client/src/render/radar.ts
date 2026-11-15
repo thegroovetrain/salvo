@@ -331,9 +331,10 @@ export interface CloudReturnSource {
 }
 
 /** Where the dim mask's eye-reach fan comes from (render/fogField.ts
- *  `FogFieldView.eyeReachFan`): fills `out` with the fog-tolled eye reach per
- *  bearing (ray k at k·2π/N, world axes) and returns it, or null when there is
- *  no fog to toll — the mask then stays radial. */
+ *  `FogFieldView.eyeReachFan`): fills `out` with the eye's reach through the
+ *  rain per bearing (ray k at k·2π/N, world axes; shared `fogDepthReachFan`
+ *  under `fogMaxDepth`) and returns it, or null when there is no rain — the
+ *  mask then stays radial. */
 export interface EyeReachSource {
   eyeReachFan(ox: number, oy: number, sightU: number, tMs: number, out: Float32Array): Float32Array | null;
 }

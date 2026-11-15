@@ -8,12 +8,13 @@
 // later; the bake draws one wedge per bearing (jsdom cannot rasterize, so the
 // wedge geometry and the recorded draw calls are the evidence); the Radar
 // re-casts and re-bakes on the fog cadence or a move, never per frame; the
-// FogFieldView casts the shared fan at its drawn cut, or null with no fog.
+// FogFieldView casts the shared depth fan (Story 11.6: where the rain's optical
+// depth reaches the sight threshold) from its one frame, or null with no rain.
 // Radii are derived from CONFIG / CLIENT_CONFIG, never literals.
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { CanvasSource, Container, Texture, TextureSource } from 'pixi.js';
-import { CONFIG, FOG_NO_CUT, fogEyeReachFan, makeFogField } from '@salvo/shared';
+import { CONFIG, fogDepthReachFan, fogFrameAt, fogMaxDepth, makeFogField } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dimFanSlides, dimRadii, dimRampU, dimScaleAt, dimSlideU } from '../render/radarDim.js';
 import { DIM_MASK_TEXTURE_SIZE, dimWedge } from '../render/textures.js';
@@ -373,42 +374,53 @@ describe('Radar: the fan is cast and baked on a cadence, never per frame', () =>
   });
 });
 
-describe('FogFieldView.eyeReachFan — the shared fan at the drawn cut', () => {
+describe('FogFieldView.eyeReachFan — the shared depth fan under the sight threshold', () => {
   const SEED = 0x1234abcd;
   const OCEAN = 5000;
-  const MID = 0.1;
-  const viewAt = (cut: number): FogFieldView => {
-    const view = new FogFieldView(new Container());
-    view.setSeed(SEED, OCEAN);
-    view.setCut(cut);
-    view.update(16, 0, false, null); // eases the cut; no pose → nothing drawn
-    return view;
+  /** Past the onset ramp: full rain. */
+  const T = CONFIG.fog.onsetMs + 45000;
+  const view = (startT: number | null): FogFieldView => {
+    const v = new FogFieldView(new Container());
+    v.setSeed(SEED, OCEAN);
+    v.setZone(startT, 0, 0);
+    return v;
   };
 
-  it('returns null with no fog cut', () => {
-    expect(viewAt(FOG_NO_CUT).eyeReachFan(0, 0, SIGHT, 0, new Float32Array(RAYS))).toBeNull();
+  it('returns null before the zone starts (no rain)', () => {
+    expect(view(null).eyeReachFan(3000, 0, SIGHT, T, new Float32Array(RAYS))).toBeNull();
+    expect(view(T + 1000).eyeReachFan(3000, 0, SIGHT, T, new Float32Array(RAYS))).toBeNull();
   });
 
-  it('returns null before a field exists', () => {
-    const view = new FogFieldView(new Container());
-    view.setCut(MID);
-    view.update(16, 0, false, null);
-    expect(view.eyeReachFan(0, 0, SIGHT, 0, new Float32Array(RAYS))).toBeNull();
+  it('returns null before a field exists, and for a non-finite pose', () => {
+    const v = new FogFieldView(new Container());
+    v.setZone(0, 0, 0);
+    expect(v.eyeReachFan(0, 0, SIGHT, T, new Float32Array(RAYS))).toBeNull();
+    expect(view(0).eyeReachFan(Number.NaN, 0, SIGHT, T, new Float32Array(RAYS))).toBeNull();
   });
 
-  it('fills the given array with the shared fan at the drawn cut: every entry ≤ sight, some short where a bank lies ahead', () => {
-    const view = viewAt(MID);
-    const field = makeFogField(SEED, CONFIG.fog, OCEAN);
+  it('fills the given array with the shared fan at T = fogMaxDepth: every entry ≤ sight, some short where rain lies ahead', () => {
+    const v = view(0);
+    const frame = fogFrameAt(makeFogField(SEED, CONFIG.fog, OCEAN), T, 0, 0, 0);
     const out = new Float32Array(RAYS);
     let shortened = false;
-    for (let x = -2000; x <= 2000 && !shortened; x += 400) {
-      for (let y = -2000; y <= 2000 && !shortened; y += 400) {
-        expect(view.eyeReachFan(x, y, SIGHT, 1000, out)).toBe(out);
-        expect(out).toEqual(fogEyeReachFan(field, x, y, SIGHT, 1000, view.drawnCut, new Float32Array(RAYS)));
-        for (const r of out) expect(r).toBeLessThanOrEqual(SIGHT);
-        shortened = out.some((r) => r < SIGHT);
+    for (let x = -4000; x <= 4000 && !shortened; x += 800) {
+      for (let y = -4000; y <= 4000 && !shortened; y += 800) {
+        if (x * x + y * y > OCEAN * OCEAN) continue;
+        expect(v.eyeReachFan(x, y, SIGHT, T, out)).toBe(out);
+        expect(out).toEqual(fogDepthReachFan(frame, x, y, SIGHT, fogMaxDepth(CONFIG.fog), new Float32Array(RAYS)));
+        for (const r of out) expect(r).toBeLessThanOrEqual(Math.fround(SIGHT));
+        shortened = out.some((r) => r < Math.fround(SIGHT));
       }
     }
-    expect(shortened, 'some observer on the lattice has a bank ahead').toBe(true);
+    expect(shortened, 'some observer on the lattice has rain ahead').toBe(true);
+  });
+
+  it('inside the clear eye with sight short of the rain, nothing is shortened', () => {
+    const v = view(0);
+    const frame = v.frameAt(T)!;
+    const clearU = frame.R * frame.eyeFrac * 0.5; // the eye's clear disc, halved
+    const out = new Float32Array(RAYS);
+    v.eyeReachFan(0, 0, clearU * 0.5, T, out);
+    for (const r of out) expect(r).toBe(Math.fround(clearU * 0.5));
   });
 });

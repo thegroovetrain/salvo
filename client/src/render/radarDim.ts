@@ -39,8 +39,10 @@
 // fog, or when I am detecting something in the fog that I would otherwise have
 // seen visually, the returns are NOT muted (or at least muted less)"). Both
 // cases are one rule: on each bearing the ramp TRANSLATES inward to where the
-// observer's fog-tolled EYE actually ends on that bearing (shared sim/fog.ts
-// `fogEyeReach`, ≤ sight, = sight with no fog), scaled by Eric's staging dial
+// observer's EYE actually ends on that bearing — since Story 11.6, where the
+// rain's optical depth from the observer reaches the sight threshold (shared
+// `fogDepthReach` under `fogMaxDepth`, ≤ sight, = sight with no rain) — scaled
+// by Eric's staging dial
 // `dim.fogLift`:
 //     scale(θ, d) = radial(d + (sight − reach(θ)) × fogLift)
 // where `radial` is the curve above. The ramp's WIDTH never changes, only where
