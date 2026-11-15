@@ -53,6 +53,7 @@ function fireLine(
     row: { speed: row.speed, damage: row.damage, homingTurnRate: row.homingTurnRate, reloadMs: row.reloadMs, runU: row.runU },
     hits: hitsFor(id),
   });
+  if (out.torp) out.torp.weapon = id; // the gate's weapon POWER (CONFIG.armor.weaponPowerPerTier)
   syncTorpedoSlot(ship);
   return out;
 }

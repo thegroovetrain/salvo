@@ -406,20 +406,6 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
     expect(effectiveStats(BASE, stack(id, cap)).equipment[id].rangeU).toBe(CONFIG.foulingShell.rangeU);
   });
 
-  it('SUPERCAV: every tier adds the same authored damage step, and it NEVER homes (amendment 74)', () => {
-    const row = (copies: number) => effectiveStats(BASE, stack('supercavTorpedo', copies)).equipment.supercavTorpedo;
-    expect(row(1).damage).toBe(CONFIG.supercavTorpedo.damage);
-    const cap = CATALOG.supercavTorpedo.cap;
-    const step = row(2).damage - row(1).damage;
-    expect(step).toBeGreaterThan(0);
-    for (let n = 2; n <= cap; n += 1) {
-      expect(row(n).damage - row(n - 1).damage, `tier ${n}`).toBe(step);
-      expect(row(n).homingTurnRate, `tier ${n}`).toBe(0);
-      expect(row(n).speed, `tier ${n}`).toBe(CONFIG.supercavTorpedo.speed);
-      expect(row(n).maxAmmo, `tier ${n}`).toBe(CONFIG.supercavTorpedo.maxAmmo);
-    }
-  });
-
   it.each(['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const)(
     '%s reloads like every slot weapon: its tier bonus and the ship\'s RELOAD in the one haste law (R4, R11; Story 10.6, R5)',
     (id) => {

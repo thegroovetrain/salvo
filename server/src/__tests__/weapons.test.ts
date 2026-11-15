@@ -866,11 +866,10 @@ describe('SUPERCAV TORPEDO — a torpedo-slot weapon on the reload pool (Story 1
     expect(ship.loadout[SLOT_SUPERCAV].state!.n).toBe(row.maxAmmo);
   });
 
-  it('its TIER raises the fish\'s damage (amendment 8(e)); speed and reload follow the row', () => {
+  it('the fish carries its row\'s damage; speed and reload follow the row', () => {
     const w = bareWorld(38);
     const one = carrier(w, 'a', 'supercavTorpedo', 1, HALF_PI, SLOT_SUPERCAV);
     const two = carrier(w, 'b', 'supercavTorpedo', 2, HALF_PI, SLOT_SUPERCAV);
-    expect(two.stats.equipment.supercavTorpedo.damage).toBeGreaterThan(one.stats.equipment.supercavTorpedo.damage);
     expect(w.sinkingActivationGate(two, SLOT_SUPERCAV)).toEqual({ ok: true });
     const fish = [...w.shells.values()].find((sh) => sh.kind === 'torp' && sh.ownerId === 'b')!;
     expect(fish.damage).toBe(two.stats.equipment.supercavTorpedo.damage);

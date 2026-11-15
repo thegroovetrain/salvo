@@ -66,6 +66,7 @@ function firePhosphorShell(
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
     burn: { radius: row.zoneRadius, durationMs: row.zoneDurationMs, dps: row.dps }, // stamped at launch (135(e))
   });
+  shell.weapon = 'phosphorShells'; // the gate's weapon POWER (CONFIG.armor.weaponPowerPerTier)
   return { shell, denial: null };
 }
 

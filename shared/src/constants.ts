@@ -2035,6 +2035,13 @@ export const CONFIG = {
    */
   armor: {
     k: 100, // the K in K / (K + E) (amendment 86; 5 → 100 by amendment 144 — every 9.7 ratio preserved: Armor 100 = ×0.5)
+    // WEAPON POWER (EXPERIMENT, Eric 2026-11-15 on the balance-sim ledger): a
+    // weapon's damage stays its Tier I base, and each upgrade tier above I adds
+    // this much POWER that applies ONLY to that weapon's hits — E = victim ARMOR
+    // (+ HUNKER) − (attacker POWER + perTier × (weapon tier − 1)). Read live at
+    // impact by the server gate (world.ts weaponPowerOf), so `--tune
+    // armor.weaponPowerPerTier=…` reaches it. Eric named +10 or +15.
+    weaponPowerPerTier: 10,
   },
 
   /**

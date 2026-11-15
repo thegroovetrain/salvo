@@ -70,6 +70,7 @@ import { earliestHitReference, type IslandIndex } from './islandIndex.js';
 import { pointPolygonDistance, segClearOfBox, segPolygonHit, type PolyBox } from './silhouette.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island, ShellFamily } from '../types.js';
+import type { EquipmentId } from './loadout.js';
 
 /** Map is centered at world origin (the boundary clamp treats origin as center). */
 const MAP_CENTER: Vec2 = { x: 0, y: 0 };
@@ -118,6 +119,14 @@ export interface ShellState {
    * reveal's `w` (amendment 89(i), the one declared disclosure widening).
    */
   family: ShellFamily | null;
+  /**
+   * THE WEAPON LINE that fired this projectile (WEAPON POWER experiment, Eric
+   * 2026-11-15) — stamped by the torpedo / star-shell / phosphor launchers so
+   * the server damage gate can add that weapon's own POWER (its upgrade tiers ×
+   * `CONFIG.armor.weaponPowerPerTier`). Server-internal: never on the wire;
+   * absent on the main battery and every damageless shell.
+   */
+  weapon?: EquipmentId;
   /**
    * DIRECT-HIT, NO BURST (Story 8.15 — the MACHINE GUN's shells). A shell that
    * reaches its aim point un-intercepted EXPIRES there (the shooter's `sp`

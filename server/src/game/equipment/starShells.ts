@@ -67,6 +67,7 @@ function fireStarShell(
     family: 'cannon', // Story 8.15: a flare flies a gun-pattern shell — `w: 'cannon'`
     lit: { radius: litRadius, durationMs: stars.litDurationMs },
   });
+  shell.weapon = 'starShells'; // the gate's weapon POWER (CONFIG.armor.weaponPowerPerTier)
   return { shell, denial: null };
 }
 

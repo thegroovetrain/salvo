@@ -706,7 +706,7 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
       'mine.hp -= amount;',
     ]);
     expect(methodBody('damageMine')).toContain('mine.hp -= amount;');
-    const door = WORLD_SRC.indexOf('  damageBeacon(id: string');
+    const door = WORLD_SRC.indexOf('\n  damageBeacon(');
     expect(door).toBeGreaterThan(-1);
     expect(WORLD_SRC.slice(door, WORLD_SRC.indexOf('\n  }\n', door))).toContain('beacon.hp -= dealt;');
   });
