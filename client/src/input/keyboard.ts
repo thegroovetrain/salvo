@@ -641,8 +641,13 @@ export class KeyboardInput {
     return this.hooks.isOverlayFocused?.() === true && !OVERLAY_KEYS.has(code);
   }
 
-  /** A held-state-only key (the arrows' camera pan, Story 11.8). */
+  /** A held-state-only key (the arrows' camera pan, Story 11.8). An OS
+   *  auto-repeat never RE-latches a pan key the set no longer holds (Story
+   *  11.8 review): after `clearKeys` (spectate entry, a blur) a key still
+   *  physically down keeps auto-repeating, and re-latching on that would
+   *  resume a pan the boundary meant to stop. A fresh press latches it. */
   private readonly holdKey = (e: KeyboardEvent): void => {
+    if (e.repeat && !this.keys.has(e.code)) return;
     this.keys.add(e.code);
   };
 

@@ -2,7 +2,8 @@
 title: 'Story 11.8 The Free Camera — strategic zoom, pan, corner brackets, chart icons, splash pegs'
 type: 'feature'
 created: '2026-11-15'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_revision: '2fea27e0'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -94,6 +95,31 @@ warnings: ['oversized']
 - Given a hull drawing 10 px long, then its corner brackets show at full alpha; at 30 px, none.
 - Given an own `sp` and an own `hc`, then a near-white X and an amber X appear at their points and are gone after 15 s; an `hc` of another captain draws nothing.
 - Given `npm run check`, `glBudget.mjs` and `playCheck.mjs`, then all pass.
+
+## Spec Change Log
+
+## Review Triage Log
+
+### 2026-11-15 — Review pass (Blind Hunter + Edge Case Hunter on Fable; Codex gpt-5.6-sol cross-check)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 13 (high 2, medium 6, low 5)
+- defer: 0
+- reject: 4 (pan/zoom gate asymmetry on the start line and while sinking — harmless, spectate entry homes; middle-button autoscroll on Windows — no Windows box, Eric is on macOS, noted for staging; cursor-anchor jump when the solved anchor hits the board rim — the clamp is the ruling; a stale cursor over a console used by X — cosmetic)
+- addressed_findings:
+  - `[high]` `[patch]` Endgame: h = R/2 with R floored at the default span put the FOLLOW ship off-center (even off screen) at default zoom once the ring shrank — both Fable hunters. Fix: h = max(R/2, floor span); when R ≤ h the anchor glides straight to the board center. Orchestrator reading of Eric's overriding "my ship should always be right in the middle unless I have panned" + "like before" (the pre-11.8 slide never started inside the default framing); flagged in the PR for his veto.
+  - `[high]` `[patch]` Fog bake sized to the hole diameter dropped the bake resolution ~3× at ordinary zoom (Blind Hunter) — restore the old resolution, still cover a panned screen.
+  - `[medium]` `[patch]` Respawn / reconnect while PANNED left the new hull unfollowed — Codex AND Blind Hunter: onOwnSpawn homes.
+  - `[medium]` `[patch]` Cancelled middle drags / pose gaps / death replayed a stale pan delta as one jump — Codex AND both hunters: discard on cancel, cancelPanDrag at spectate entry, drain in the null-pose branch, no auto-repeat re-latch.
+  - `[medium]` `[patch]` pan() released the reveal even when it moved nothing — both hunters.
+  - `[medium]` `[patch]` Float residue at the waypoint flipped FOLLOW→PANNED and threw the anchor — epsilon.
+  - `[medium]` `[patch]` Spectate target switch hard-cut — glide over the shipped half-second eased jump.
+  - `[medium]` `[patch]` Zoom easing drew the center one frame stale (cropped first reveal frame at motion: off).
+  - `[low]` `[patch]` X/Z with no cursor dropped FOLLOW — zoom about the anchor.
+  - `[low]` `[patch]` fogField raster flip-flop at the screen edge — hysteresis.
+  - `[low]` `[patch]` Clipped compass stub at a screen edge — hide threshold.
+  - `[low]` `[patch]` Off-screen own-hull consumers (plate, foghorn origin, own screen point) audited.
+  - `[low]` `[patch]` pegs / brackets destroy() for teardown.
 
 ## Design Notes
 

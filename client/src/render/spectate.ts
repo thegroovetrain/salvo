@@ -72,3 +72,39 @@ export function pickSpectateTarget(
   if (killerId !== null && aliveIds.includes(killerId)) return killerId;
   return aliveIds[0] ?? null;
 }
+
+/** Which hull the spectate camera last anchored on (Story 11.8 review). */
+export interface SpectateFollow {
+  id: string | null;
+}
+
+/** The two camera calls `followSpectateTarget` makes (a real Camera in game). */
+export interface FollowCamera {
+  followEased(p: { x: number; y: number }): void;
+  update(dt: number, target: { x: number; y: number } | null): void;
+}
+
+/**
+ * ONE SPECTATE CAMERA FRAME (Story 11.8 review): when the followed hull's id
+ * changes (the killer sank, a hull left the contacts) the center GLIDES onto
+ * the new one over the camera's eased jump (`Camera.followEased`, the ring
+ * feed's half-second glide) instead of cutting; a frame with no sample holds
+ * the last anchor (never a jump to the origin) and forgets the id, so the next
+ * acquisition glides too.
+ */
+export function followSpectateTarget(
+  cam: FollowCamera,
+  follow: SpectateFollow,
+  id: string | null,
+  pose: { x: number; y: number } | null,
+  dt: number,
+): void {
+  if (pose === null) {
+    follow.id = null;
+    cam.update(dt, null);
+    return;
+  }
+  if (id !== follow.id) cam.followEased(pose);
+  follow.id = id;
+  cam.update(dt, pose);
+}

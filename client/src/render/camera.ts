@@ -12,15 +12,17 @@
 //            hull may sail off screen. `home()` (Space) snaps back to FOLLOW.
 // The DRAWN center is a pure function of the anchor and the zoom span
 // (render/cameraSlide.ts `slideCenter`): the anchor until half the ring
-// waypoint, then a glide to the ring center and on to the board center at full
-// zoom-out. Zoom OUT is about the anchor; zoom IN heads for the cursor through
+// waypoint — never inside the waypoint's floor (intel alive, the default
+// framing spectating), so the ship stays dead center late in a match — then a
+// glide to the ring center and on to the board center at full zoom-out (once
+// the ring has closed inside the floor, straight to the board center). Zoom OUT is about the anchor; zoom IN heads for the cursor through
 // the slide's inverse. Event-driven moves of that center (the ring feed, a
 // resize — amendment 208 ruling 10) still ease over about half a second.
 // No Pixi import: render code reads `zoom`, `center`, `shake`, `screenCenter`
 // and applies the transform to the world/chart containers. Fully unit-testable.
 
 import { expDecay, clamp } from '../util/math.js';
-import { anchorGlideT, anchorWeight, boardGlideT, clampToDisc, slideAnchor, slideCenter, type SlideFrame } from './cameraSlide.js';
+import { anchorGlideT, anchorWeight, boardGlideT, clampToDisc, slideAnchor, slideCenter, WEIGHT_EPS, type SlideFrame } from './cameraSlide.js';
 import {
   detentSpanU,
   intelFitSpanU,
@@ -231,13 +233,16 @@ export class Camera {
    * on the ring → board leg, where it has none, the anchor is that world point
    * so continued zooming heads there) and clamped to the board fit — and the
    * camera is PANNED. The exception: in FOLLOW with the cursor within
-   * `homeRadiusPx` of the followed hull, the zoom stays FOLLOW about the hull.
+   * `homeRadiusPx` of the followed hull — or no cursor position known at all —
+   * the zoom stays FOLLOW about the hull.
    */
   private zoomWith(screenX: number, screenY: number, apply: () => void): void {
-    const sc = this.screenCenter;
-    const s = Number.isFinite(screenX) && Number.isFinite(screenY) ? { x: screenX, y: screenY } : sc;
+    const known = Number.isFinite(screenX) && Number.isFinite(screenY);
+    const s = known ? { x: screenX, y: screenY } : this.screenCenter;
     const p = this.screenToWorld(s);
-    const home = this.modeValue === 'follow' && this.withinHome(s);
+    // No cursor known (a key zoom before the pointer ever moved): FOLLOW
+    // zooms about the anchor and stays FOLLOW (Story 11.8 review).
+    const home = this.modeValue === 'follow' && (!known || this.withinHome(s));
     const before = this.zoom;
     apply();
     if (this.zoom > before && !home) this.aimAt(p, s);
@@ -333,14 +338,20 @@ export class Camera {
   tickZoom(dtMs: number, motionScale: number): void {
     const target = this.revealTargetValue;
     if (target === null) return;
+    this.zoomFactorValue = this.revealStep(target, dtMs, motionScale);
+    // The drawn center follows this frame's zoom at once (Story 11.8 review):
+    // a center placed at the old zoom would draw one stale frame — at motion:
+    // off a cropped first frame of the reveal.
+    this.placeCenter();
+  }
+
+  /** The reveal factor after `dtMs` toward `target` (see tickZoom). */
+  private revealStep(target: number, dtMs: number, motionScale: number): number {
     // motion: off (or any degenerate scale) — arrive, do not travel.
-    if (!Number.isFinite(motionScale) || motionScale <= 0) {
-      this.zoomFactorValue = target;
-      return;
-    }
+    if (!Number.isFinite(motionScale) || motionScale <= 0) return target;
     const dt = Number.isFinite(dtMs) ? Math.max(0, dtMs) / 1000 : 0;
     const next = expDecay(this.zoomFactorValue, target, this.revealRateValue / motionScale, dt);
-    this.zoomFactorValue = Math.abs(next - target) < REVEAL_SETTLE_EPS ? target : next;
+    return Math.abs(next - target) < REVEAL_SETTLE_EPS ? target : next;
   }
 
   /** Alive user-zoom factor over the default framing, within userZoomLimits. */
@@ -480,14 +491,16 @@ export class Camera {
 
   /**
    * What the slide reads (Story 11.8): R = the ring waypoint of the driving
-   * zoom (`setSpectating`), the board fit, and the live ring center (null
-   * before the first ring feed).
+   * zoom (`setSpectating`), the board fit, the live ring center (null before
+   * the first ring feed) and F = the floor that waypoint is floored at (the
+   * slide never starts inside it — the endgame-centering ruling).
    */
   private slideFrame(): SlideFrame {
     return {
       ringSpanU: this.spectatingValue ? this.detentSpanU : this.aliveDetentSpanU,
       boardSpanU: this.mapSpanValue,
       ring: Number.isNaN(this.ringSpanValue) ? null : this.ring,
+      floorSpanU: this.spectatingValue ? this.opts.defaultSpanU : this.intelSpanU,
     };
   }
 
@@ -688,6 +701,22 @@ export class Camera {
   }
 
   /**
+   * THE FOLLOWED HULL CHANGED (Story 11.8 review: the spectate target switched
+   * — the killer sank or left the contacts): in FOLLOW the anchor moves to `p`
+   * but the drawn center GLIDES there over the same eased jump the ring feed
+   * uses (amendment 208 ruling 10) instead of cutting. PANNED (the anchor is
+   * the player's) or a non-finite point: a no-op.
+   */
+  followEased(p: Point): void {
+    if (this.modeValue !== 'follow' || !Number.isFinite(p.x + p.y)) return;
+    const before = this.slideTarget();
+    this.anchor.x = p.x;
+    this.anchor.y = p.y;
+    this.addJump(before);
+    this.placeCenter();
+  }
+
+  /**
    * CAMERA HOME (Space, Story 11.8): back to FOLLOW at the same zoom. The snap
    * is instant — any easing center jump is dropped — and the anchor lands on
    * the followed hull at the next `update`.
@@ -695,6 +724,13 @@ export class Camera {
   home(): void {
     this.modeValue = 'follow';
     this.clearJump();
+  }
+
+  /** A SPAWN or a reconnect's re-seat (Story 11.8 review): FOLLOW, snapped onto
+   *  the new hull at once — `snapTo` alone would keep a PANNED anchor. */
+  respawnAt(p: Point): void {
+    this.home();
+    this.snapTo(p);
   }
 
   /** The anchor, clamped inside the board fit (radius = the whole-map fit
@@ -757,16 +793,16 @@ export class Camera {
    * 11.8: held arrows, spectate WASD; `panScreen` for the middle drag). Enters
    * PANNED. The anchor moves by Δ / its weight in the slide (`anchorWeight`,
    * 1 − t) so the view tracks the hand, clamped inside the board fit; on the
-   * ring → board leg (weight 0, full zoom-out) the anchor has no say and the
-   * pan is a no-op — the mode is left as it was. A manual camera action, so
-   * it releases the reveal framing (amendment 25) either way. A non-finite
-   * delta is ignored.
+   * anchor glide's far end (weight ≤ WEIGHT_EPS, full zoom-out) the anchor has
+   * no say and the pan is a no-op: it returns before touching the mode or the
+   * reveal framing. A pan that moves releases the reveal framing (amendment
+   * 25), a manual camera action. A non-finite or zero delta is ignored.
    */
   pan(dx: number, dy: number): void {
-    this.clearRevealTarget();
     if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
     const w = anchorWeight(this.spanU, this.slideFrame());
-    if (!(w > 0)) return;
+    if (!(w > WEIGHT_EPS)) return;
+    this.clearRevealTarget();
     this.modeValue = 'panned';
     this.setAnchor({ x: this.anchor.x + dx / w, y: this.anchor.y + dy / w });
     this.placeCenter();
@@ -795,6 +831,14 @@ export class Camera {
     const tl = this.screenToWorld({ x: 0, y: 0 });
     const br = this.screenToWorld({ x: this.viewW, y: this.viewH });
     return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
+  }
+
+  /** The world rectangle the screen shows WITHOUT the shake offset — the
+   *  steady view an on/off-screen test reads, so a shake jitter is never a
+   *  crossing (Story 11.8 review). */
+  get steadyWorldRect(): ScreenWorldRect {
+    const v = this.worldView;
+    return { x: v.x - v.halfW, y: v.y - v.halfH, w: 2 * v.halfW, h: 2 * v.halfH };
   }
 
   /** Screen point (px) -> world point (inverse of worldToScreen). */

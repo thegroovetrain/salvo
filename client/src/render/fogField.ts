@@ -125,13 +125,26 @@ export function screenReachU(screen: ScreenWorldRect, c: { x: number; y: number 
   return Math.hypot(dx, dy);
 }
 
+/** The off-screen hysteresis band, as a fraction of the on-screen rect's
+ *  short side (Story 11.8 review): the hull must be this far outside to switch
+ *  the raster to the screen, and this far back inside to switch it back. */
+export const OFF_SCREEN_BAND = 0.05;
+
 /**
- * Pure: is the own hull (a finite point) outside the on-screen world rect
- * (Story 11.8 — the free camera pans it away)? False with no hull or no rect.
+ * Pure: is the own hull (a finite point) off the on-screen world rect (Story
+ * 11.8 — the free camera pans it away)? WITH HYSTERESIS (Story 11.8 review):
+ * `wasOff` false → true only once the hull is CLEARLY outside (past the rect
+ * by `OFF_SCREEN_BAND` of its short side); `wasOff` true → stays true until it
+ * is clearly back inside by the same band — so an edge-straddling hull never
+ * re-rasters every frame. Feed the SHAKE-FREE rect (`Camera.steadyWorldRect`):
+ * a shake jitter is no crossing. False with no hull or no rect.
  */
-export function hullOffScreen(eye: { x: number; y: number } | null, screen: ScreenWorldRect | null): boolean {
+export function hullOffScreen(eye: { x: number; y: number } | null, screen: ScreenWorldRect | null, wasOff = false): boolean {
   if (eye === null || !Number.isFinite(eye.x + eye.y) || !finiteRect(screen)) return false;
-  return eye.x < screen.x || eye.x > screen.x + screen.w || eye.y < screen.y || eye.y > screen.y + screen.h;
+  const band = OFF_SCREEN_BAND * Math.min(Math.abs(screen.w), Math.abs(screen.h));
+  // > 0: how far outside the rect (the worst axis); < 0: how deep inside it.
+  const out = Math.max(screen.x - eye.x, eye.x - (screen.x + screen.w), screen.y - eye.y, eye.y - (screen.y + screen.h));
+  return wasOff ? out > -band : out > band;
 }
 
 /**
@@ -295,6 +308,8 @@ export class FogFieldView {
   private readonly source: BufferImageSource;
   /** True while any raster cell is above 0 (the bitmap is "lit"). */
   private lit = false;
+  /** The own hull is off screen (`hullOffScreen`'s hysteresis state). */
+  private hullOff = false;
   private sinceRefresh = Number.POSITIVE_INFINITY;
   private refreshes = 0;
   /** Scratch, mutated in place every frame (no per-frame allocation): the
@@ -409,7 +424,8 @@ export class FogFieldView {
    * looking. ALIVE with no pose yet (the predictor not seeded on the first
    * alive frames) draws NOTHING — never the spectator's unmasked whole-screen
    * raster, which would flash fog the eye cannot see. SPECTATE ignores `own`
-   * and covers the screen unmasked.
+   * and covers the screen unmasked. `steady` = the same rect WITHOUT the
+   * screen shake (the off-screen test's input; defaults to `screen`).
    */
   update(
     dtMs: number,
@@ -418,15 +434,12 @@ export class FogFieldView {
     own: { x: number; y: number } | null = null,
     screen: ScreenWorldRect | null = null,
     mode: FogViewMode = 'alive',
+    steady: ScreenWorldRect | null = screen,
   ): void {
     const frame = this.frameAt(serverNow);
     const spectating = mode === 'spectate';
     const eye = spectating ? null : own;
-    // A PANNED CAMERA (Story 11.8) can put the own hull off screen: the raster
-    // then covers the SCREEN about its centre (the spectator's geometry, so the
-    // cell stays as fine as the view allows) and the halo still masks it to
-    // what the eye reaches.
-    const rasterScreen = spectating || hullOffScreen(eye, screen) ? screen : null;
+    const rasterScreen = this.rasterScreen(spectating, eye, screen, steady);
     const centre = this.centreFor(rasterScreen === null ? eye : null, rasterScreen);
     if (frame === null || centre === null) {
       this.hide();
@@ -435,6 +448,24 @@ export class FogFieldView {
     this.advanceScroll(frame, dtMs, motionOn, centre);
     this.maybeRefresh(frame, dtMs, centre, rasterScreen, screen);
     this.draw(eye, screen);
+  }
+
+  /**
+   * The screen the raster covers, or null for the alive halo square about the
+   * eye. A PANNED CAMERA (Story 11.8) can put the own hull off screen: the
+   * raster then covers the SCREEN about its centre (the spectator's geometry,
+   * so the cell stays as fine as the view allows) and the halo still masks it
+   * to what the eye reaches. The off-screen test runs on the shake-free
+   * `steady` rect with hysteresis (`hullOffScreen`).
+   */
+  private rasterScreen(
+    spectating: boolean,
+    eye: { x: number; y: number } | null,
+    screen: ScreenWorldRect | null,
+    steady: ScreenWorldRect | null,
+  ): ScreenWorldRect | null {
+    this.hullOff = hullOffScreen(eye, steady, this.hullOff);
+    return spectating || this.hullOff ? screen : null;
   }
 
   /** Show the lit raster through the wisps (tile, halo, screen clip), or nothing. */

@@ -633,6 +633,31 @@ describe('MouseInput — the middle drag pans the map (Story 11.8)', () => {
     }
   });
 
+  it('a cancel, a blur, leaving the window or detach DISCARD the pending delta; a plain release keeps it (Story 11.8 review)', () => {
+    const discarders: ((m: MouseInput, canvas: HTMLElement) => void)[] = [
+      () => window.dispatchEvent(new Event('blur')),
+      (_m, c) => fire(c, 'pointercancel'),
+      (_m, c) => fire(c, 'pointerout', { relatedTarget: null }),
+      (m) => m.detach(),
+      (m) => m.cancelPanDrag(),
+    ];
+    for (const end of discarders) {
+      withMouse((m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+        fire(canvas, 'pointermove', { clientX: 160, clientY: 70, buttons: 4 });
+        end(m, canvas);
+        expect(m.panHeld).toBe(false);
+        expect({ ...m.consumePanDrag() }).toEqual({ x: 0, y: 0 });
+      });
+    }
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+      fire(canvas, 'pointermove', { clientX: 160, clientY: 70, buttons: 4 });
+      fire(canvas, 'pointerup', { button: 1, buttons: 0 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 60, y: -30 });
+    });
+  });
+
   it('a middle press chorded during a left hold (a pointermove carrying button 1) opens the drag too', () => {
     withMouse((m, canvas) => {
       fire(canvas, 'pointerdown', { button: 0, buttons: 1, clientX: 50, clientY: 50 });

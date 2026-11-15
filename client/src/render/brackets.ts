@@ -76,6 +76,14 @@ export class HullBrackets {
     g.alpha = a;
   }
 
+  /** Release every pooled bracket Graphics (Story 11.8 review) — the session
+   *  teardown (main.ts's disposers). Idempotent. */
+  destroy(): void {
+    for (const g of this.pool) g.destroy();
+    this.pool.length = 0;
+    this.used = 0;
+  }
+
   private next(): Graphics {
     let g = this.pool[this.used];
     if (g === undefined) {

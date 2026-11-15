@@ -93,11 +93,14 @@ export const BEZEL_MIN_PX = 48;
  *
  * HIDDEN when the own ship is off screen (Story 11.8: the free camera pans it
  * away) — a bezel about a point past the edge would be a stray arc, not a
- * scale. [reading: Story 11.8 — the spec allowed "hidden or sane"]
+ * scale — or closer to an edge than the smallest bezel plus its inset, where
+ * the floored bezel would be clipped into a stub. [reading: Story 11.8 — the spec allowed "hidden or sane"]
  */
 export function compassPlacement(sx: number, sy: number, viewW: number, viewH: number, radarPx: number): CompassPlacement {
   const edge = Math.min(sx, viewW - sx, sy, viewH - sy);
-  if (!(edge >= 0)) return { mode: 'hidden', radiusPx: 0 };
+  // Too near an edge (or past it) for even the smallest bezel: a floored bezel
+  // would draw as a clipped stub at the screen edge (Story 11.8 review).
+  if (!(edge >= BEZEL_MIN_PX + BEZEL_INSET_PX)) return { mode: 'hidden', radiusPx: 0 };
   if (radarPx > 0 && radarPx <= edge) return { mode: 'ring', radiusPx: radarPx };
   const stepped = Math.floor((edge - BEZEL_INSET_PX) / BEZEL_STEP_PX) * BEZEL_STEP_PX;
   return { mode: 'bezel', radiusPx: Math.max(BEZEL_MIN_PX, stepped) };

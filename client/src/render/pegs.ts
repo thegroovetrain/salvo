@@ -115,6 +115,24 @@ export class SplashPegs {
     }
   }
 
+  /**
+   * Release every Graphics (live and spare) and the two shared contexts
+   * (Story 11.8 review) — the session teardown (main.ts's disposers). The
+   * contexts are shared, never owned by a Graphics, so a Pixi app destroy
+   * would not free them. Idempotent; a later `add` would rebuild lazily.
+   */
+  destroy(): void {
+    for (const p of this.live) p.g.destroy();
+    for (const g of this.spare) g.destroy();
+    this.live.length = 0;
+    this.spare.length = 0;
+    if (this.ctx !== null) {
+      this.ctx.miss.destroy();
+      this.ctx.hit.destroy();
+      this.ctx = null;
+    }
+  }
+
   private retire(i: number): void {
     const [p] = this.live.splice(i, 1);
     p.g.removeFromParent();

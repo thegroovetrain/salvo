@@ -139,12 +139,14 @@ describe('the Camera intel waypoint', () => {
 
   // Story 11.8 (Eric 2026-11-15): the slide starts at HALF the ring waypoint —
   // the alive one, floored at intel — not at the intel stop.
-  it('the slide reads the ALIVE ring waypoint: t = (span − R/2) / (R/2), R = aliveDetentSpanU', () => {
-    for (const r of [RING_R, SMALL_R]) {
+  it('the slide reads the ALIVE ring waypoint: from h = max(R/2, intel) to R — or straight to the board when R ≤ h', () => {
+    for (const r of [MAP_R * 0.9, RING_R, SMALL_R]) {
       const c = cam(r);
       const Rw = c.aliveDetentSpanU;
+      const h = Math.max(Rw / 2, c.intelSpanU);
+      const end = Rw > h ? Rw : MAP_SPAN;
       for (const k of [0, 0.25, 0.5, 1]) {
-        c.setUserZoom(Z.defaultSpanU / (Rw / 2 + k * (Rw / 2)));
+        c.setUserZoom(Z.defaultSpanU / (h + k * (end - h)));
         expect(c.slideT, `r ${r} k ${k}`).toBeCloseTo(k, 9);
       }
     }
@@ -155,8 +157,11 @@ describe('the Camera intel waypoint', () => {
     c.setSpectating(true);
     const Rw = c.detentSpanU;
     expect(Rw).toBeLessThan(c.aliveDetentSpanU); // premise: the two differ here
-    c.setZoomFactor(Z.defaultSpanU / (0.75 * Rw));
+    const h = Math.max(Rw / 2, Z.defaultSpanU); // the spectate floor
+    expect(Rw).toBeLessThanOrEqual(h); // the late ring: no ring leg
+    c.setZoomFactor(Z.defaultSpanU / ((h + MAP_SPAN) / 2));
     expect(c.slideT).toBeCloseTo(0.5, 9);
+    expect(c.mapSlideT).toBe(0);
   });
   it('the alive ring detent is never tighter than intel; the spectate detent is unchanged', () => {
     for (const r of [MAP_R, RING_R, MAP_R / 4, SMALL_R, 0]) {
@@ -241,7 +246,7 @@ describe('stepping across the two alive waypoints', () => {
 });
 
 describe('merged waypoints: a late ring fit at or inside intel (amendment 208)', () => {
-  it('one stop; past it the ring → map slide runs from the ring centre to the map centre (Story 11.8)', () => {
+  it('one stop; past it the ship glides straight to the map centre — no ring leg once R ≤ h (Story 11.8 review)', () => {
     const ringC = { x: MAP_R * 0.2, y: MAP_R * 0.1 };
     const c = cam(SMALL_R, { cx: ringC.x, cy: ringC.y });
     const [intel, ring] = c.aliveZoomDetents;
@@ -253,10 +258,10 @@ describe('merged waypoints: a late ring fit at or inside intel (amendment 208)',
     const ship = { x: 200, y: 100 };
     const mid = (c.intelSpanU + MAP_SPAN) / 2;
     settle(c, mid, ship);
-    expect(c.slideT).toBe(1);
-    expect(c.mapSlideT).toBeCloseTo(0.5, 9);
-    expect(c.center.x).toBeCloseTo(ringC.x / 2, 6);
-    expect(c.center.y).toBeCloseTo(ringC.y / 2, 6);
+    expect(c.slideT).toBeCloseTo(0.5, 9);
+    expect(c.mapSlideT).toBe(0);
+    expect(c.center.x).toBeCloseTo(ship.x / 2, 6);
+    expect(c.center.y).toBeCloseTo(ship.y / 2, 6);
   });
 
   it('a captain parked on the ring detent rides it as the ring closes, and lands on intel once it fits inside', () => {
@@ -437,7 +442,9 @@ describe('event-driven center jumps ease (Eric 2026-10-19, ruling 10 — kept by
   it("the player's own zoom stays direct: a zoom step puts the centre straight on the slide; snapTo / home drop a jump", () => {
     const c = parkedOnRing(EASED);
     const Rw = c.aliveDetentSpanU;
-    c.setUserZoom(Z.defaultSpanU / (0.75 * Rw));
+    const h = Math.max(Rw / 2, c.intelSpanU);
+    expect(Rw).toBeGreaterThan(h); // premise: a ring leg exists
+    c.setUserZoom(Z.defaultSpanU / ((h + Rw) / 2));
     const ship = sail(1);
     c.update(DT, ship);
     const t = c.slideT;

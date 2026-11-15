@@ -88,6 +88,8 @@
 // ends on its pointerup, a pointercancel, a blur, the pointer leaving the
 // window, or any move whose `buttons` lacks the middle bit (a release we never
 // heard); a chorded press / release arrives as a pointermove with `button` 1.
+// A pointerup keeps the delta still pending for the next drain; a cancel, a
+// blur, leaving the window and `detach` DISCARD it (`cancelPanDrag`).
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -226,8 +228,23 @@ export class MouseInput {
     this.seen = true;
   }
 
+  /** The drag's own release: the button is up, but the delta it moved this
+   *  frame is real hand motion and stays for the next drain. */
   private panRelease(): void {
     this.panDown = false;
+  }
+
+  /**
+   * END THE DRAG AND DISCARD ITS PENDING DELTA (Story 11.8 review): a
+   * pointercancel, a blur, the pointer leaving the window and `detach` are not
+   * hand motion the player meant to land — and a caller crossing a hard
+   * boundary (spectate entry, a frame with no own pose) drops it too. An
+   * ordinary middle release keeps it (`panRelease`).
+   */
+  cancelPanDrag(): void {
+    this.panDown = false;
+    this.panDelta.x = 0;
+    this.panDelta.y = 0;
   }
 
   /** A button pressed or released DURING another hold arrives as a pointermove
@@ -269,7 +286,7 @@ export class MouseInput {
     if (e.relatedTarget !== null) return;
     this.inside = false;
     this.secRelease();
-    this.panRelease();
+    this.cancelPanDrag();
   };
 
   private readonly onBlur = (): void => {
@@ -282,7 +299,7 @@ export class MouseInput {
     this.pressedSinceSample = false;
     this.secDown = false;
     this.secPressedSinceSample = false;
-    this.panRelease();
+    this.cancelPanDrag();
   };
 
   private readonly onDown = (e: PointerEvent): void => {
@@ -342,7 +359,7 @@ export class MouseInput {
     this.endHold(id);
     this.secDown = false;
     this.secPressedSinceSample = false;
-    this.panRelease();
+    this.cancelPanDrag();
   };
 
   /**
@@ -395,7 +412,7 @@ export class MouseInput {
     this.canvas?.removeEventListener('contextmenu', this.onContextMenu);
     this.canvas?.removeEventListener('mousedown', this.onMouseDown as EventListener);
     this.canvas = null;
-    this.panRelease();
+    this.cancelPanDrag();
   }
 
   /** Is the middle button dragging the map (Story 11.8)? */

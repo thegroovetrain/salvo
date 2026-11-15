@@ -114,7 +114,14 @@ import {
 import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
 import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
-import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
+import {
+  followSpectateTarget,
+  pickSpectateTarget,
+  shouldEngageFreePan,
+  spectatePan,
+  wheelZoom,
+  type SpectateFollow,
+} from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
@@ -437,7 +444,7 @@ interface Game {
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
-  spectate: { visualsSet: boolean; sinkSettled: boolean };
+  spectate: { visualsSet: boolean; sinkSettled: boolean; follow: SpectateFollow };
   /** A trip back to the menu is already scheduled/underway (a reload, or Story
    *  6.3's in-place teardown). Either way this session is over: it is what stops
    *  the socket close behind an exit from starting a second one. */
@@ -2864,7 +2871,7 @@ function buildGame(
     // first frame drawn at a guessed zoom would flash the wrong line weight.
     room: conn.room, mapRadius: map.radius, islands: map.islands, mapChart: buildMap(map, stage.layers, camera.zoom),
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
-    spectate: { visualsSet: false, sinkSettled: false },
+    spectate: { visualsSet: false, sinkSettled: false, follow: { id: null } },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     requeue: makeGameRequeue(() => gRef), disposers: [],
     shake: new ShakeDriver(),
@@ -2924,6 +2931,12 @@ function buildGame(
   g.disposers.push(() => {
     g.whiteout.destroy();
     g.flashBursts.clear();
+  });
+  // Story 11.8 review: the chart marks' pooled / spare Graphics and the pegs'
+  // shared contexts, which an app destroy (children) would not reach.
+  g.disposers.push(() => {
+    g.brackets.destroy();
+    g.pegs.destroy();
   });
   return g;
 }
@@ -3088,7 +3101,9 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
 function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
   return bindRoom(conn, {
     ...g,
-    onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    // A spawn (or a reconnect's re-seat) is always FOLLOW on the new hull:
+    // snapTo alone keeps PANNED (Story 11.8 review).
+    onOwnSpawn: (x, y) => g.camera.respawnAt({ x, y }),
     // Story 4.5: the SPECTATOR foghorn path's vantage point. A spectator's honk
     // arrives as a position (the free camera has no server-known one to take a
     // bearing from), so the bearing is derived from wherever the camera is at
@@ -4473,6 +4488,7 @@ function renderAlive(
     tier1 = ownTier1(g, status, nowMs);
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
+    g.mouse.consumePanDrag(); // no camera pan this gap: the drag's delta is discarded, not banked
     // No frame renders here — the bar must not linger, nor route clicks. This
     // gap is TRANSIENT (the pose returns next frame), so the XP chip's breathing
     // state survives it: a full hide() would reset it and re-arm a decayed
@@ -4532,9 +4548,11 @@ function renderAlive(
   g.smoke.render(now);
   g.fire.render(now); // flames age on the same server clock (cycle 162)
   // The chevron ray originates at the own hull's screen position — same rule
-  // as the fog hole just below, and for the same reason: the camera's forward
-  // lead means screen centre is NOT where the hull sits (review fix).
-  const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  // as the fog hole just below: in a panned or slid view the screen centre is
+  // NOT where the hull sits (review fix). An off-screen hull (Story 11.8's free
+  // camera) is clamped onto the screen first, so every bearing still reaches
+  // the edge on its own side instead of collapsing to the centre.
+  const foghornOrigin = pose ? clampToChevronBox(g, g.camera.worldToScreen(pose)) : g.camera.screenCenter;
   renderFoghorn(g, now, foghornOrigin);
   // ALERTS (Story 9.11): the mines advance the ONE shared alert clock first, so
   // every enemy mine and every other captain's zone below breathes on the same
@@ -4552,7 +4570,7 @@ function renderAlive(
   g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
   // the rain: the density raster refreshed on its cadence from this frame's
   // storm eye, the wisps scrolled (motion-gated); seen by eye only inside the same halo
-  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
+  updateAliveFogField(g, frameDt, now, pose); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4564,6 +4582,13 @@ function renderAlive(
   // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
   g.rainEye = rainEyeFor(g, pose, now, ownZones);
+}
+
+/** The alive rain raster: about the own hull, or the screen once it is panned
+ *  off (the off-screen test reads the shake-free rect — Story 11.8 review). */
+function updateAliveFogField(g: Game, frameDt: number, now: number, pose: RenderPose | null): void {
+  const motionOn = motionIntensity(settings.current.motion) > 0;
+  g.fogField.update(frameDt * 1000, now, motionOn, pose, g.camera.screenWorldRect, 'alive', g.camera.steadyWorldRect);
 }
 
 /**
@@ -4671,6 +4696,7 @@ function enterSpectateVisuals(g: Game): void {
   // Any debounced zoom re-bake still in flight dies with it (fog is off here).
   g.camera.resetUserZoom();
   g.camera.home(); // Story 11.8: spectate starts on the watched ship (FOLLOW)
+  g.mouse.cancelPanDrag(); // ...with no alive-phase drag carried across
   g.camera.setSpectating(true); // ...and slides on the spectate ring waypoint
   cancelZoomFogRebake(g);
   // THE REVEAL FRAMING (Story 5.3, amendment 25). Ordered AFTER resetUserZoom
@@ -4715,7 +4741,8 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
   driveCameraPan(g, frameDt, true);
   const target = pickSpectateTarget(g.state.killerId, [...g.contacts.ids()]);
   const pose = target ? g.contacts.get(target)?.sampleAt(now - CLIENT_CONFIG.net.interpDelayMs) : null;
-  g.camera.update(frameDt, pose ?? null);
+  // A switch of watched hull glides; a missing sample holds (Story 11.8 review).
+  followSpectateTarget(g.camera, g.spectate.follow, target, pose ?? null, frameDt);
 }
 
 /**
@@ -4905,6 +4932,14 @@ function hudHeight(g: Game): number {
  * function — own pose if one rendered this frame, camera centre otherwise
  * (a forceSnap gap); renderSpectate passes the camera centre outright.
  */
+/** `p` clamped into the chevron's inset rectangle (px) — the box every
+ *  chevron ray is cast against, so a clamped origin reaches its own edge. */
+function clampToChevronBox(g: Game, p: ScreenPoint): ScreenPoint {
+  const { width, height } = g.stage.app.screen;
+  const i = Math.min(CLIENT_CONFIG.foghorn.chevron.insetPx, width / 2, height / 2);
+  return { x: Math.max(i, Math.min(width - i, p.x)), y: Math.max(i, Math.min(height - i, p.y)) };
+}
+
 function renderFoghorn(g: Game, now: number, origin: ScreenPoint): void {
   g.foghorn.render(now, origin.x, origin.y, g.stage.app.screen.width, g.stage.app.screen.height);
 }

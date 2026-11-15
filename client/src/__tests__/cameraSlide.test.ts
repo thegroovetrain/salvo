@@ -6,6 +6,7 @@ import {
   clampToDisc,
   slideAnchor,
   slideCenter,
+  WEIGHT_EPS,
   type SlideFrame,
 } from '../render/cameraSlide.js';
 
@@ -133,5 +134,47 @@ describe('clampToDisc — the anchor stays inside the board fit', () => {
     expect(p.x / p.y).toBeCloseTo(300 / 400, 9);
     expect(clampToDisc({ x: 10, y: 10 }, 250)).toEqual({ x: 10, y: 10 });
     expect(clampToDisc({ x: 1e9, y: 0 }, NaN)).toEqual({ x: 1e9, y: 0 });
+  });
+});
+
+describe('the floor (Story 11.8 review): h = max(R / 2, F), no ring leg once R ≤ h', () => {
+  it('the slide never starts inside the floor', () => {
+    const f: SlideFrame = { ...F, floorSpanU: R * 0.75 };
+    for (const s of [100, R / 2, R * 0.75]) expect(slideCenter(A, s, f)).toEqual(A);
+    const mid = slideCenter(A, R * 0.875, f); // halfway from F to R
+    expect(mid.x).toBeCloseTo(A.x + 0.5 * (RING.x - A.x), 9);
+    expect(mid.y).toBeCloseTo(A.y + 0.5 * (RING.y - A.y), 9);
+  });
+
+  it('R at the floor: the anchor glides straight to the board centre over [F, board span], linear', () => {
+    const f: SlideFrame = { ringSpanU: R, boardSpanU: B, ring: RING, floorSpanU: R };
+    for (const k of [0, 0.25, 0.5, 1]) {
+      const c = slideCenter(A, R + k * (B - R), f);
+      expect(c.x).toBeCloseTo(A.x * (1 - k), 9);
+      expect(c.y).toBeCloseTo(A.y * (1 - k), 9);
+      expect(boardGlideT(R + k * (B - R), f)).toBe(0);
+    }
+  });
+
+  it('continuous in span and exactly inverted in both regimes', () => {
+    for (const floor of [R * 0.75, R, R * 1.5]) {
+      const f: SlideFrame = { ...F, floorSpanU: floor };
+      let last = slideCenter(A, 0, f);
+      for (let s = 0; s <= B * 1.2; s += B / 2000) {
+        const c = slideCenter(A, s, f);
+        expect(Math.hypot(c.x - last.x, c.y - last.y), `floor ${floor} span ${s}`).toBeLessThan(50);
+        last = c;
+        const back = slideAnchor(c, s, f);
+        if (back === null) continue;
+        expect(back.x).toBeCloseTo(A.x, 6);
+        expect(back.y).toBeCloseTo(A.y, 6);
+      }
+    }
+  });
+
+  it('weight residue (t within WEIGHT_EPS of 1): the inverse is null, never a thrown anchor', () => {
+    const s = R / 2 + (1 - 1e-9) * (R / 2);
+    expect(anchorWeight(s, F)).toBeLessThanOrEqual(WEIGHT_EPS);
+    expect(slideAnchor({ x: 5, y: 5 }, s, F)).toBeNull();
   });
 });

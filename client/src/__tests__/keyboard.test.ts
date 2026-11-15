@@ -1697,6 +1697,18 @@ describe('KeyboardInput — the camera keys (Story 11.8)', () => {
     expect(kb.arrowPanAxes()).toEqual({ throttle: 0, rudder: 0 });
   });
 
+  it('an OS auto-repeat never re-latches a pan key clearKeys dropped; a fresh press does (Story 11.8 review)', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    press('ArrowUp');
+    kb.clearKeys(); // spectate entry / a blur while the key is still down
+    press('ArrowUp', { repeat: true });
+    expect(kb.arrowPanAxes()).toEqual({ throttle: 0, rudder: 0 });
+    press('ArrowUp'); // a real new press
+    press('ArrowUp', { repeat: true }); // ...whose repeats keep it held
+    expect(kb.arrowPanAxes()).toEqual({ throttle: 1, rudder: 0 });
+  });
+
   it('a focused overlay zeroes the arrow pan', () => {
     let overlay = false;
     kb = new KeyboardInput({ isOverlayFocused: () => overlay });

@@ -217,6 +217,41 @@ describe('splash pegs', () => {
   });
 });
 
+describe('teardown releases the chart marks (Story 11.8 review)', () => {
+  it('SplashPegs.destroy frees live and spare Graphics and both shared contexts', () => {
+    const layer = new Container();
+    const pegs = new SplashPegs(layer);
+    pegs.add('miss', 0, 0, 0);
+    pegs.add('hit', 1, 1, 0);
+    pegs.add('miss', 2, 2, 0);
+    pegs.render(M.pegFadeMs / 2, 1);
+    const live = layer.children.flatMap((c) => c.children) as Graphics[];
+    const contexts = new Set(live.map((g) => g.context));
+    pegs.render(M.pegFadeMs + 1, 1); // all retire to the spare pool
+    pegs.add('hit', 3, 3, M.pegFadeMs + 1); // one live again
+    pegs.destroy();
+    expect(pegs.count).toBe(0);
+    expect(live.every((g) => g.destroyed)).toBe(true);
+    expect(contexts.size).toBe(2);
+    for (const ctx of contexts) expect(ctx.destroyed).toBe(true);
+    expect(layer.children.flatMap((c) => c.children)).toHaveLength(0);
+  });
+
+  it('HullBrackets.destroy frees every pooled bracket', () => {
+    const layer = new Container();
+    const own = new ShipView(OWN_STYLE, DEFAULT_CLASS_ID);
+    own.update(0, 0, 0);
+    const brackets = new HullBrackets(layer);
+    brackets.render(own, [], 10 / CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.length);
+    const pooled = [...layer.children] as Graphics[];
+    expect(pooled).toHaveLength(1);
+    brackets.destroy();
+    expect(pooled[0].destroyed).toBe(true);
+    expect(layer.children).toHaveLength(0);
+    expect(brackets.shown).toBe(0);
+  });
+});
+
 describe('renderChartMarks — one driver per frame', () => {
   it('brackets the hulls, hands the zoom to the icons, and ages the pegs to the frame time', () => {
     const layer = new Container();
