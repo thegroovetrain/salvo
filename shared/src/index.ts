@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  109 — RANDOM BEACON PLACEMENT (2026-11-15, Eric; Story 11.7): no wire
+ *  shape change — the CONFIG the client reads changed: `beacons.counts`
+ *  [8, 4, 2] -> [7, 5, 3], new `beacons.minSpacingU` / `placeAttempts`;
+ *  beacons now land on uniformly random open water (the max-min fleet-anchor
+ *  rule is retired).
  *  108 — RAIN FIRST: THE STORM EYE AND PARTIAL SIGHT (2026-11-14, Eric;
  *  Story 11.6; epic-11 amendment 13; cycle 234, 0.19.28): wire shape — the
  *  schema loses `fogCut` (the coverage-target cut is gone; the rain is a pure
@@ -1110,7 +1115,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 108;
+export const PROTOCOL_VERSION = 109;
 
 // Tunables
 export * from './constants.js';

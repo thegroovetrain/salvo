@@ -122,7 +122,10 @@ describe('ArenaRoom.syncBeacons — the chart on the schema', () => {
     const { room, state } = roomFor(w);
     openCycle(w, beaconCycleStartMs(0, 1) - DT, B.counts.length - 1); // the last tick of the last cycle with beacons
     room.syncBeacons();
-    expect(state.beaconCount).toBe(beaconCountFor(B.counts.length - 1));
+    // Placed on that cycle's LAST tick, the ring has closed: the spacing rule
+    // may fit fewer than the cycle's count (Story 11.7) — but some are charted.
+    expect(state.beaconCount).toBe(w.beaconChart.beacons.length);
+    expect(state.beaconCount).toBeGreaterThan(0);
     w.step();
     room.syncBeacons();
     expect([state.beaconCycle, state.beaconCount]).toEqual([-1, 0]);

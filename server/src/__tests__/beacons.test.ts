@@ -3,11 +3,13 @@
 //
 // What is pinned here is the MECHANISM, read through CONFIG.beacons and the
 // shared model (shared/src/sim/beacons.ts) — never one of Eric's numbers:
-//   * PLACEMENT: at each ring cycle's start the set is replaced by
-//     `beaconCountFor(cycle)` picks on the fleet-anchor rule — inside the live
-//     ring less the edge margin, clear of land, outside every captain's
-//     keep-out disc, each pick entering the next one's `occupied` — on a
-//     ROOM-PRIVATE stream; a cycle with none clears the set.
+//   * PLACEMENT (random since Eric 2026-11-15, Story 11.7): at each ring
+//     cycle's start the set is replaced by `beaconCountFor(cycle)` uniformly
+//     random picks (`pickBeaconSpot`) — inside the live ring less the edge
+//     margin, clear of land, `minSpacingU` apart (hard rules), outside every
+//     captain's keep-out disc (soft: relaxed, then skipped, both logged) — on
+//     a ROOM-PRIVATE stream; a skipped pick keeps ids dense; a cycle with none
+//     clears the set.
 //   * PAYOUT: nothing while charted; the pot at the shared rate split evenly
 //     in integer ms among the afloat hulls in range, the remainder carried;
 //     an empty circle accrues nothing; the sink minute falls; gone pays
@@ -25,11 +27,14 @@ import {
   beaconPolygon,
   beaconStateAt,
   beaconXpMsPerMs,
+  mulberry32,
+  type Rng,
   type Vec2,
 } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BeaconField } from '../game/beacons.js';
-import { SPAWN_ISLAND_CLEARANCE, islandClearance } from '../game/spawn.js';
+import { SPAWN_ISLAND_CLEARANCE, islandClearance, pickBeaconSpot } from '../game/spawn.js';
+import { circleIsland } from './islandFixture.js';
 import { B, DT, GONE_MS, SINK_MS, SURFACE_MS, bareWorld, captain, moveTo, openCycle, run, seatBeacon, xpMsOf } from './beaconFixture.js';
 
 const dist = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.y - b.y);
@@ -61,6 +66,10 @@ describe('radio beacons — placement at each ring cycle (R2, R10)', () => {
         for (const hull of [a, b]) expect(dist(p, hull.state)).toBeGreaterThan(CONFIG.beacons.keepOutU);
         expect(p.sinkT).toBe(0);
       }
+      // Pairwise at least the spacing apart (Story 11.7).
+      chart.beacons.forEach((p, i) => {
+        for (const q of chart.beacons.slice(i + 1)) expect(dist(p, q)).toBeGreaterThanOrEqual(B.minSpacingU);
+      });
     }
   });
 
@@ -109,11 +118,91 @@ describe('radio beacons — placement at each ring cycle (R2, R10)', () => {
   });
 });
 
+describe('pickBeaconSpot — one random spot (Story 11.7)', () => {
+  /** A stream that hands out `draws` in order, then repeats the last one. */
+  const scripted = (draws: readonly number[]): Rng => {
+    let i = 0;
+    const next = (): number => draws[Math.min(i++, draws.length - 1)];
+    return { next, float: (lo, hi) => lo + next() * (hi - lo), int: (lo) => lo, pick: (arr) => arr[0] };
+  };
+  /** The (r, angle) draws that land a spot at polar (frac of radius, turns). */
+  const at = (frac: number, turns: number): number[] => [frac * frac, turns];
+  const cfg = { keepOutU: B.keepOutU, minSpacingU: B.minSpacingU, placeAttempts: B.placeAttempts };
+  const R = 4 * (B.keepOutU + B.minSpacingU); // a disc with room for every case below
+  const O = { x: 0, y: 0 };
+
+  it('happy path: the first draw clearing every rule wins, float32-exact, inside the disc', () => {
+    const spot = pickBeaconSpot(O, R, [], [], [], cfg, mulberry32(5));
+    expect(spot).not.toBeNull();
+    expect(spot!.keepOutRelaxed).toBe(false);
+    expect([spot!.x, spot!.y]).toEqual([Math.fround(spot!.x), Math.fround(spot!.y)]);
+    expect(dist(spot!, O)).toBeLessThanOrEqual(R + 1e-3);
+  });
+
+  it('skips draws on land, inside a captain disc, and short of the spacing, and takes the next good one', () => {
+    const land = { x: R / 2, y: 0 };
+    const captain = { x: -R / 2, y: 0 };
+    const beacon = { x: 0, y: R / 2 };
+    const rng = scripted([...at(0.5, 0), ...at(0.5, 0.5), ...at(0.5, 0.25), ...at(0.5, 0.75)]);
+    const spot = pickBeaconSpot(O, R, [circleIsland(land.x, land.y, 40)], [beacon], [captain], cfg, rng);
+    expect(spot!.keepOutRelaxed).toBe(false);
+    expect(spot!.x).toBeCloseTo(0, 3);
+    expect(spot!.y).toBeCloseTo(-R / 2, 3);
+  });
+
+  it('spacing is a floor: a spot exactly the spacing from a taken beacon is allowed', () => {
+    const beacon = { x: 0, y: 0 };
+    const spot = pickBeaconSpot(O, B.minSpacingU, [], [beacon], [], cfg, scripted(at(1, 0)));
+    expect(spot).not.toBeNull();
+    expect(dist(spot!, beacon)).toBeGreaterThanOrEqual(B.minSpacingU - 1e-3);
+  });
+
+  it('captains crowd the disc: the FIRST draw that met the hard rules is taken, flagged relaxed', () => {
+    const captains = [O]; // its keep-out disc covers the whole domain
+    const r = B.keepOutU / 2;
+    const rng = scripted([...at(0.25, 0), ...at(0.5, 0.5)]);
+    const spot = pickBeaconSpot(O, r, [], [], captains, cfg, rng);
+    expect(spot!.keepOutRelaxed).toBe(true);
+    expect(spot!.x).toBeCloseTo(r * 0.25, 3);
+    expect(spot!.y).toBeCloseTo(0, 3);
+  });
+
+  it('no draw meets the hard rules (the spacing fills the disc): null, never a bad spot', () => {
+    const r = B.minSpacingU / 2;
+    expect(pickBeaconSpot(O, r, [], [O], [], cfg, mulberry32(9))).toBeNull();
+  });
+
+  it('a domain radius at or below zero is null at once, never a throw', () => {
+    expect(pickBeaconSpot(O, 0, [], [], [], cfg, mulberry32(1))).toBeNull();
+    expect(pickBeaconSpot(O, -B.edgeMarginU, [], [], [], cfg, mulberry32(1))).toBeNull();
+  });
+
+  it('draws only `placeAttempts` times before giving up', () => {
+    let draws = 0;
+    const rng = mulberry32(3);
+    const counted: Rng = { ...rng, next: () => (draws++, rng.next()) };
+    pickBeaconSpot(O, B.minSpacingU / 2, [], [O], [], cfg, counted);
+    expect(draws).toBe(2 * B.placeAttempts);
+  });
+});
+
 describe('BeaconField.replace — the placement loop', () => {
   const pickFrom = (seen: Vec2[][]) => (rng: { next(): number }, taken: readonly Vec2[]) => {
     seen.push(taken.map((p) => ({ ...p })));
-    return { x: rng.next() * 1000, y: rng.next() * 1000, fallback: false };
+    return { x: rng.next() * 1000, y: rng.next() * 1000 };
   };
+
+  it('a null pick is SKIPPED: the set is shorter and the ids and slots stay dense', () => {
+    const field = new BeaconField(7);
+    let n = 0;
+    field.replace(0, 1000, (rng, taken) => (n++ === 1 ? null : pickFrom([])(rng, taken)));
+    expect(field.records).toHaveLength(beaconCountFor(0) - 1);
+    field.records.forEach((b, i) => {
+      expect(b.slot).toBe(i);
+      expect(b.id).toBe(`bcn-0-${i}`);
+    });
+    expect(field.chart.beacons).toHaveLength(beaconCountFor(0) - 1);
+  });
 
   it('every pick is handed the beacons ALREADY picked this cycle (each pick enters the next one\'s occupied set)', () => {
     const field = new BeaconField(7);

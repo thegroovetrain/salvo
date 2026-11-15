@@ -221,95 +221,89 @@ function fallbackSpawn(map: MapShape, occupied: readonly Vec2[], offset: number)
 }
 
 // ---------------------------------------------------------------------------
-// ANCHORS (Story 5.6, amendment 37) — the SIBLING placement path. Born as
-// the PvE fleet-wave anchor; since Story 10.8 its one consumer is the RADIO
-// BEACON placement (World.placeBeacons), which keeps the rule and the name.
+// RADIO BEACON SPOTS (Eric 2026-11-15, Story 11.7) — random open water. The
+// fleet-anchor max-min rule that placed beacons since Story 10.8 is retired:
+// it put every match's beacons in the same regular pattern, pushed away from
+// the players.
 // ---------------------------------------------------------------------------
 
-/** Samples drawn per anchor request. One pass, one tick. */
-const FLEET_ANCHOR_SAMPLES = 256;
-
-/** One captain's intel disc — the region an anchor must avoid. */
-export interface IntelDisc {
-  x: number;
-  y: number;
-  /** The captain's EFFECTIVE radar range (stats.radarRange — the one ruler;
-   *  no card writes it today, but the disc still reads it, never the constant). */
-  r: number;
+/** The placement knobs `pickBeaconSpot` reads (`CONFIG.beacons` in play). */
+export interface BeaconSpotConfig {
+  /** Radius of each captain's keep-out disc — the SOFT rule. */
+  readonly keepOutU: number;
+  /** Least distance to every beacon already placed this cycle — a HARD rule. */
+  readonly minSpacingU: number;
+  /** Uniform draws tried before the beacon is given up. */
+  readonly placeAttempts: number;
 }
 
-/** An anchor answer. `fallback` = no sampled point cleared every intel disc,
- *  so this is the plain max-min point instead (the caller accepts it and
- *  LOGS it — the placement always happens, and degrades visibly rather than
- *  silently). */
-export interface FleetAnchor {
+/** A beacon spot. `keepOutRelaxed` = no draw cleared every captain's disc,
+ *  so this is the first draw that met the hard rules (the caller logs it). */
+export interface BeaconSpot {
   x: number;
   y: number;
-  fallback: boolean;
+  keepOutRelaxed: boolean;
 }
 
-/** Is `p` inside ANY captain's intel disc? One predicate, one place, no
- *  second derivation of "already in someone's intel". */
-export function insideIntelDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
-  for (const d of discs) {
-    const dx = p.x - d.x;
-    const dy = p.y - d.y;
-    if (dx * dx + dy * dy <= d.r * d.r) return true;
+/** Is `p` within `r` (inclusive) of any point of `pts`? */
+function withinAny(p: Vec2, pts: readonly Vec2[], r: number): boolean {
+  const r2 = r * r;
+  for (const q of pts) {
+    const dx = p.x - q.x;
+    const dy = p.y - q.y;
+    if (dx * dx + dy * dy <= r2) return true;
   }
   return false;
 }
 
-/**
- * Pick an anchor inside the live ring (Story 5.6, amendment 37; the RADIO
- * BEACON placement rule since Story 10.8).
- *
- * NOT a variant of pickSpawn: that places ONE hull on the spawn RING at match
- * start with no hard constraint at all (`occupied` only scores). This is the
- * first placement in the codebase with a HARD constraint — *outside EVERY
- * captain's intel disc* — over a region (a disc about the live ring's centre,
- * which is offset and shrinking) rather than a circle, and it must be able to
- * report infeasibility rather than silently returning a bad point.
- *
- * Uniform over the disc (sqrt radius), island-clear at the SAME clearance the
- * spawn ring demands, scored max-min against `occupied` exactly as pickSpawn
- * scores. Two bests are tracked in ONE pass: the best point that clears every
- * intel disc, and the best island-clear point regardless — the latter is the
- * ratified fallback, returned with `fallback: true`.
- */
-export function pickFleetAnchor(
-  center: Vec2,
-  maxRadius: number,
-  islands: readonly Island[],
-  occupied: readonly Vec2[],
-  denied: readonly IntelDisc[],
-  rng: Rng,
-): FleetAnchor {
-  let best: Vec2 | null = null;
-  let bestScore = -Infinity;
-  let alt: Vec2 | null = null;
-  let altScore = -Infinity;
-  for (let i = 0; i < FLEET_ANCHOR_SAMPLES; i++) {
-    const a = rng.float(0, TAU);
-    const r = Math.sqrt(rng.next()) * maxRadius; // sqrt => uniform over the disc
-    const p = { x: center.x + Math.cos(a) * r, y: center.y + Math.sin(a) * r };
-    if (islandClearance(p, islands) <= SPAWN_ISLAND_CLEARANCE) continue;
-    const score = minDistTo(p, occupied);
-    if (score > altScore) {
-      alt = p;
-      altScore = score;
-    }
-    if (insideIntelDisc(p, denied)) continue;
-    if (score > bestScore) {
-      best = p;
-      bestScore = score;
-    }
+/** Does `p` meet the hard rules: off land, and at least `minSpacingU` from
+ *  every beacon already taken this cycle? */
+function beaconSpotHardOk(p: Vec2, islands: readonly Island[], taken: readonly Vec2[], minSpacingU: number): boolean {
+  if (islandClearance(p, islands) <= SPAWN_ISLAND_CLEARANCE) return false;
+  const s2 = minSpacingU * minSpacingU;
+  for (const q of taken) {
+    const dx = p.x - q.x;
+    const dy = p.y - q.y;
+    if (dx * dx + dy * dy < s2) return false;
   }
-  if (best) return { x: best.x, y: best.y, fallback: false };
-  // Nothing cleared the discs. The max-min point is the ratified degradation;
-  // a map whose every sample is ashore falls back to the ring centre (the
-  // pickWaypoint precedent — push-out is survivable, no placement is not).
-  if (alt) return { x: alt.x, y: alt.y, fallback: true };
-  return { x: center.x, y: center.y, fallback: true };
+  return true;
+}
+
+/**
+ * Pick one radio beacon's spot (Eric 2026-11-15, Story 11.7). Each draw is
+ * uniform over the disc of `radius` about `center` (sqrt radius), FLOAT32-
+ * exact like the wire value, so every distance test below is the one the
+ * placed beacon really has.
+ *
+ * Hard rules, never broken: inside that disc; clear of land at the spawn
+ * ring's clearance; at least `cfg.minSpacingU` from every point of `taken`.
+ * Soft rule: farther than `cfg.keepOutU` from every point of `captains`.
+ *
+ * Degradation (the placement always happens when it can, and degrades
+ * visibly): the first draw meeting hard + soft wins; else the first draw
+ * that met the hard rules, with `keepOutRelaxed: true`; else null (no
+ * beacon for this slot). A `radius` ≤ 0 is null at once. Never throws.
+ */
+export function pickBeaconSpot(
+  center: Vec2,
+  radius: number,
+  islands: readonly Island[],
+  taken: readonly Vec2[],
+  captains: readonly Vec2[],
+  cfg: BeaconSpotConfig,
+  rng: Rng,
+): BeaconSpot | null {
+  if (!(radius > 0)) return null;
+  let relaxed: Vec2 | null = null;
+  for (let i = 0; i < cfg.placeAttempts; i += 1) {
+    const r = radius * Math.sqrt(rng.next()); // sqrt => uniform over the disc
+    const a = rng.next() * TAU;
+    const p = { x: Math.fround(center.x + Math.cos(a) * r), y: Math.fround(center.y + Math.sin(a) * r) };
+    if (!beaconSpotHardOk(p, islands, taken, cfg.minSpacingU)) continue;
+    if (!withinAny(p, captains, cfg.keepOutU)) return { x: p.x, y: p.y, keepOutRelaxed: false };
+    relaxed ??= p;
+  }
+  return relaxed === null ? null : { x: relaxed.x, y: relaxed.y, keepOutRelaxed: true };
 }
 
 /**

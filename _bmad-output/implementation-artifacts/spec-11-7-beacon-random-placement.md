@@ -2,7 +2,7 @@
 title: 'Story 11.7 Beacon Placement — random open water, 7 / 5 / 3'
 type: 'feature'
 created: '2026-11-15'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'dfbf254bbcca56f9ca9896c6e30e5ce1576e86a4'
 review_loop_iteration: 0
 context:
@@ -64,13 +64,13 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- `counts: [7, 5, 3]`, add `minSpacingU: 1000` and `placeAttempts: 256` with ruling comments; rewrite the COUNTS / PLACEMENT comment (random rule, Eric 2026-11-15, Story 11.7); `keepOutU` comment drops "fleet-anchor" -- the single source of truth.
-- [ ] `shared/src/index.ts` -- `PROTOCOL_VERSION` 109 with a one-line history note in the existing style.
-- [ ] `server/src/game/spawn.ts` -- delete the ANCHORS section; add an exported pure `pickBeaconSpot(center, radius, islands, taken, captains, cfg, rng)` returning `{x, y, keepOutRelaxed: boolean} | null` per the degradation order. Captains are `readonly Vec2[]` with radius `cfg.keepOutU`; spacing is `cfg.minSpacingU`; attempts `cfg.placeAttempts`. -- one pure, testable rule.
-- [ ] `server/src/game/beacons.ts` -- `BeaconPick` returns `Vec2 | null`; `replace` skips a null (calls an optional `onSkip`, or leaves logging to the caller — the implementer's choice, documented) and numbers ids by placed count; update the constructor comment ("max-min placement" → random placement; the seed stays private because the keep-out disc still reads captain positions).
-- [ ] `server/src/game/world.ts` -- `placeBeacons` uses `pickBeaconSpot` and logs `beacon.keepOutRelaxed` / `beacon.placeSkipped`; `captainDiscs` becomes captain positions (or is inlined); docblock rewritten; drop the `pickFleetAnchor` / `IntelDisc` import.
-- [ ] `server/src/__tests__/` -- unit-test `pickBeaconSpot` for every matrix row (fake rng / tiny islands): happy, relaxed, skipped, radius ≤ 0, spacing respected. Real-map loop asserts pairwise ≥ `minSpacingU` and keeps the existing checks; `pickFrom` fakes and `beaconFixture.seatBeacons` adopt the `Vec2 | null` contract; one test for a null pick giving dense ids and a shorter set. Fix any count- or position-sensitive test. Tests read CONFIG — never pin 7/5/3 or 1000.
-- [ ] `server/scripts/rl/worker.ts:53` -- comment names the new log keys.
+- [x] `shared/src/constants.ts` -- `counts: [7, 5, 3]`, add `minSpacingU: 1000` and `placeAttempts: 256` with ruling comments; rewrite the COUNTS / PLACEMENT comment (random rule, Eric 2026-11-15, Story 11.7); `keepOutU` comment drops "fleet-anchor" -- the single source of truth.
+- [x] `shared/src/index.ts` -- `PROTOCOL_VERSION` 109 with a one-line history note in the existing style.
+- [x] `server/src/game/spawn.ts` -- delete the ANCHORS section; add an exported pure `pickBeaconSpot(center, radius, islands, taken, captains, cfg, rng)` returning `{x, y, keepOutRelaxed: boolean} | null` per the degradation order. Captains are `readonly Vec2[]` with radius `cfg.keepOutU`; spacing is `cfg.minSpacingU`; attempts `cfg.placeAttempts`. -- one pure, testable rule.
+- [x] `server/src/game/beacons.ts` -- `BeaconPick` returns `Vec2 | null`; `replace` skips a null (calls an optional `onSkip`, or leaves logging to the caller — the implementer's choice, documented) and numbers ids by placed count; update the constructor comment ("max-min placement" → random placement; the seed stays private because the keep-out disc still reads captain positions).
+- [x] `server/src/game/world.ts` -- `placeBeacons` uses `pickBeaconSpot` and logs `beacon.keepOutRelaxed` / `beacon.placeSkipped`; `captainDiscs` becomes captain positions (or is inlined); docblock rewritten; drop the `pickFleetAnchor` / `IntelDisc` import.
+- [x] `server/src/__tests__/` -- unit-test `pickBeaconSpot` for every matrix row (fake rng / tiny islands): happy, relaxed, skipped, radius ≤ 0, spacing respected. Real-map loop asserts pairwise ≥ `minSpacingU` and keeps the existing checks; `pickFrom` fakes and `beaconFixture.seatBeacons` adopt the `Vec2 | null` contract; one test for a null pick giving dense ids and a shorter set. Fix any count- or position-sensitive test. Tests read CONFIG — never pin 7/5/3 or 1000.
+- [x] `server/scripts/rl/worker.ts:53` -- comment names the new log keys.
 
 **Acceptance Criteria:**
 - Given a real map and a full lobby at cycle 0, when `placeBeacons` runs, then `beaconCountFor(0)` beacons are charted at points satisfying every hard and soft constraint, and two different private seeds give different sets.
