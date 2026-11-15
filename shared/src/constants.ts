@@ -2517,6 +2517,11 @@ export const CONFIG = {
     lifeMsPerCard: 1000, // ms of cloud life per card (R9: 15 s + 1 s a card)
     sizeStepPerCard: 1.1, // × disc radius (r0 AND r1) per card (R9: "each card about 10 % larger")
     sizeAnchorCards: 2, // the card count at which the disc is exactly r0 → r1 (R9)
+    // SIGHT OCCLUSION (Story 11.6, Eric 2026-11-14: smoke works like the rain — a cloud adds
+    // optical depth to every eye line through it, the owner blinded too; never radar).
+    // Page defaults taken (Eric 2026-11-15: "if it sucks i'll just come back and adjust").
+    sightThickness: 3, // density inside the cloud's core, in units of the heaviest rain (density 1)
+    sightSoftFrac: 0.3, // soft rim as a fraction of the disc radius (0 = hard disc)
   },
 
   /**
