@@ -202,7 +202,7 @@ import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
 import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
-import { SPAWN_ISLAND_CLEARANCE, islandClearance, isSpawnClear, pickFleetAnchor, pickSpawn, type IntelDisc } from './spawn.js';
+import { SPAWN_ISLAND_CLEARANCE, islandClearance, isSpawnClear, pickBeaconSpot, pickSpawn } from './spawn.js';
 import { logWarn } from '../log.js';
 import { leadIntercept } from './lead.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
@@ -4417,7 +4417,7 @@ export class World {
     // Story 10.9), after every row that touches a hull, and
     // zone-clock driven: when the clock enters a new ring cycle the set is
     // REPLACED. Last, so the placement reads every hull's settled end-of-tick
-    // position (the max-min spacing and the keep-out discs) and a beacon
+    // position (the captain keep-out discs) and a beacon
     // enters the world at a clean tick boundary — nothing this tick could
     // have paid, hit or rammed it. (The retired PvE wave spawner held this
     // seat for the same reason: a body placed mid-tick would be seen by the
@@ -5700,26 +5700,22 @@ export class World {
   // passes through rather than resolving a no-op hit (the perceivability seam
   // makes it a visible TARGET; nothing makes it a HITTABLE one).
 
-  /** Every afloat PARTICIPANT's denial disc, of radius
-   *  `CONFIG.beacons.keepOutU` — its OWN fact since Story 11.2 (R20: today's
-   *  1,000 u kept; it was `CONFIG.vision.dropout.startU`, Eric 2026-10-13,
-   *  Story 9.8, until the dropout was removed): 16 discs of 1,000 u cover
-   *  ~64 % of the 5,000 u ocean so the lattice seats a placement without the
-   *  fallback. (Before Story 9.8 the disc rode each hull's effective
-   *  `stats.radarRange`.) THE one derivation of the
-   *  denied region, read by the RADIO BEACON placement (Story 10.8; the
-   *  retired PvE fleet anchor read it before).
+  /** Every afloat PARTICIPANT's position — the centres of the captain
+   *  keep-out discs (radius `CONFIG.beacons.keepOutU`, its OWN fact since
+   *  Story 11.2, R20) that the RADIO BEACON placement treats as its soft
+   *  rule (Eric 2026-11-15, Story 11.7). THE one derivation of the keep-out
+   *  region.
    *
    *  KEYED ON THE PARTICIPANT READING (Story 6.3): every hull that contests
-   *  the match denies the water around itself — a 6.4 AI captain denies like
-   *  any other combatant. */
-  private captainDiscs(): IntelDisc[] {
-    const denied: IntelDisc[] = [];
+   *  the match keeps beacons off the water around itself — a 6.4 AI captain
+   *  like any other combatant. */
+  private captainPositions(): Vec2[] {
+    const out: Vec2[] = [];
     for (const s of this.ships.values()) {
       if (!isAfloat(s.lifecycle) || !roleIsParticipant(s)) continue;
-      denied.push({ x: s.state.x, y: s.state.y, r: CONFIG.beacons.keepOutU });
+      out.push({ x: s.state.x, y: s.state.y });
     }
-    return denied;
+    return out;
   }
 
 
@@ -8000,18 +7996,20 @@ export class World {
   }
 
   /**
-   * RADIO BEACON PLACEMENT (Story 10.8, R2 / R10; see the STEP_ORDER row).
-   * When the zone clock is in a ring cycle the field has not placed for, the
-   * set is REPLACED: `beaconCountFor(cycle)` picks by the anchor rule
-   * (`pickFleetAnchor`, inherited from the retired PvE fleet) about the LIVE
-   * ring's centre, no farther out than the
+   * RADIO BEACON PLACEMENT (Story 10.8, R2 / R10; see the STEP_ORDER row;
+   * RANDOM since Eric 2026-11-15, Story 11.7). When the zone clock is in a
+   * ring cycle the field has not placed for, the set is REPLACED: each of
+   * `beaconCountFor(cycle)` beacons goes on a uniformly random spot
+   * (`pickBeaconSpot`) about the LIVE ring's centre, no farther out than the
    * ring's radius minus `CONFIG.beacons.edgeMarginU` (the whole paying circle
-   * inside the ring), clear of land, outside every captain's keep-out disc
-   * (`captainDiscs` — `CONFIG.beacons.keepOutU`), max-min against every
-   * afloat hull AND the beacons already picked this cycle. There is no retry
-   * queue — the ruling is "at 0:00": a pick that cannot clear the discs takes
-   * the rule's max-min fallback at once and is LOGGED. A cycle with no
-   * beacons (sudden death) clears the set.
+   * inside the ring), clear of land, at least `CONFIG.beacons.minSpacingFrac` × that
+   * radius from the beacons already placed this cycle, and — the soft rule —
+   * outside every captain's keep-out disc (`captainPositions`,
+   * `CONFIG.beacons.keepOutU`). There is no retry queue — the ruling is "at
+   * 0:00": a beacon that cannot clear the discs takes the first draw that met
+   * the hard rules and is LOGGED (`beacon.keepOutRelaxed`); one that cannot
+   * meet the hard rules is skipped and LOGGED (`beacon.placeSkipped`). A cycle
+   * with no beacons (sudden death) clears the set.
    */
   private placeBeacons(): void {
     const zoneStartT = this.zoneStartT;
@@ -8020,17 +8018,20 @@ export class World {
     if (cycle === this.beacons.cycle) return;
     const ring = this.zoneLiveRing;
     const centre = { x: ring.cx, y: ring.cy };
-    const maxRadius = Math.max(0, ring.r - CONFIG.beacons.edgeMarginU);
-    const hulls: Vec2[] = [];
-    for (const s of this.ships.values()) {
-      if (isAfloat(s.lifecycle)) hulls.push({ x: s.state.x, y: s.state.y });
-    }
-    const denied = this.captainDiscs();
+    const radius = ring.r - CONFIG.beacons.edgeMarginU;
+    const captains = this.captainPositions();
+    // The spacing scales with the placement radius (`minSpacingFrac`).
+    const spot = { ...CONFIG.beacons, minSpacingU: Math.max(0, radius) * CONFIG.beacons.minSpacingFrac };
+    let request = 0; // the cycle's pick number — distinct per log line even after a skip
     this.beacons.replace(cycle, beaconCycleStartMs(zoneStartT, cycle, this.zoneCfg), (rng, taken) => {
-      const at = pickFleetAnchor(centre, maxRadius, this.map.islands, [...hulls, ...taken], denied, rng);
-      if (at.fallback) {
-        logWarn('beacon.placeFallback', { tick: this.tick, cycle, slot: taken.length, x: Math.round(at.x), y: Math.round(at.y) });
+      const at = pickBeaconSpot(centre, radius, this.map.islands, taken, captains, spot, rng);
+      const slot = taken.length;
+      request += 1;
+      if (at === null) {
+        logWarn('beacon.placeSkipped', { tick: this.tick, cycle, request, slot, attempts: CONFIG.beacons.placeAttempts });
+        return null;
       }
+      if (at.keepOutRelaxed) logWarn('beacon.keepOutRelaxed', { tick: this.tick, cycle, request, slot });
       return at;
     });
   }
