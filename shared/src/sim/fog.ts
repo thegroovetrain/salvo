@@ -39,8 +39,8 @@
 //   `outsideCoverage`. The cut for a coverage comes from the noise's value
 //   distribution, measured ONCE per seed (a quantile table); the layer blend is
 //   variance-normalized so one table holds at every morph phase. Density =
-//   clamp01((n − cut) / edgeBand) × the onset ramp clamp01((t − zoneStartT) /
-//   onsetMs). Zero beyond the ocean rim and before zone start.
+//   clamp01((n − cut) / edgeBand). Zero beyond the ocean rim. Before the zone
+//   starts the field is the ring-0 state (Eric 2026-11-15: no roll-in).
 // • SIGHT: optical depth τ = Σ density × step along a ray (a `marchStepU`
 //   midpoint march). Visibility is V = exp(−extinctionPerU × τ) — evaluated in
 //   sim/fogDepth.ts, never here; a thing is seen while V ≥ sightCutoffV, i.e.
@@ -75,7 +75,6 @@ export interface FogFieldConfig {
   outsideCoverage: number; // solid share out in the storm
   edgeSoftFrac: number; // ρ — width of the edge → outside blend
   spinRadiusFloorU: number; // u — floor on R for the spin
-  onsetMs: number; // ms — the roll-in ramp from zone start
 }
 
 /** A built rain field: two noise layers, the coin flip and the coverage → cut table. */
@@ -97,7 +96,6 @@ export interface FogFrame {
   R: number; // u — the live ring radius from the public ladder (0 once collapsed)
   edgeCov: number; // solid share at the live ring edge
   eyeFrac: number; // ρ — the live clear-eye radius as a fraction of R
-  onset: number; // [0, 1] — the roll-in ramp
   w: number; // layer B's cross-fade weight
   norm: number; // variance normalizer of the blend
   binU: number; // u per twist-table bin
@@ -286,26 +284,28 @@ export function fogCoverageAt(cfg: FogFieldConfig, eyeFrac: number, edgeCov: num
 
 function newFrame(field: FogField): FogFrame {
   return {
-    field, on: false, cx: 0, cy: 0, R: 0, edgeCov: 0, eyeFrac: 0, onset: 0, w: 0, norm: 1, binU: 1,
+    field, on: false, cx: 0, cy: 0, R: 0, edgeCov: 0, eyeFrac: 0, w: 0, norm: 1, binU: 1,
     twistA: new Float64Array(TWIST_BINS), twistB: new Float64Array(TWIST_BINS),
   };
 }
 
 /** Are the frame's inputs ones that can rain? (a started zone, finite clock and eye, a real ocean and beat) */
 function canRain(field: FogField, tMs: number, zoneStartT: number | null, liveCx: number, liveCy: number, zoneCfg: ZoneTimeline): boolean {
-  if (zoneStartT === null || !(field.oceanRadiusU > 0)) return false;
-  if (!Number.isFinite(tMs) || !Number.isFinite(zoneStartT) || !Number.isFinite(liveCx) || !Number.isFinite(liveCy)) return false;
-  return tMs >= zoneStartT && zoneCfg.beatMs > 0 && Number.isFinite(zoneCfg.beatMs);
+  if (!(field.oceanRadiusU > 0)) return false;
+  if (!Number.isFinite(tMs) || !Number.isFinite(liveCx) || !Number.isFinite(liveCy)) return false;
+  if (zoneStartT !== null && !Number.isFinite(zoneStartT)) return false;
+  return zoneCfg.beatMs > 0 && Number.isFinite(zoneCfg.beatMs);
 }
 
 /**
  * Precompute the rain at match time `tMs`: the zone started at `zoneStartT`
- * (null = not started: NO rain), the live ring center is (`liveCx`, `liveCy`)
+ * (null = not started: the ring-0 state, already spinning — Eric 2026-11-15),
+ * the live ring center is (`liveCx`, `liveCy`)
  * (zoneLiveState's current ring — the server frounds it), and the timeline is
  * `zoneCfg` (the radius R(τ), the twist integral and the edge coverage come
  * from its public ladder over the field's ocean radius). Reuses `out`'s tables
- * when given (it must belong to `field`). Pre-zone, a degenerate beat, or any
- * non-finite input returns a frame with `on` false (density 0 everywhere).
+ * when given (it must belong to `field`). A degenerate beat, a zero ocean, or
+ * any non-finite input returns a frame with `on` false (density 0 everywhere).
  */
 export function fogFrameAt(
   field: FogField, tMs: number, zoneStartT: number | null, liveCx: number, liveCy: number,
@@ -316,22 +316,28 @@ export function fogFrameAt(
   f.on = canRain(field, tMs, zoneStartT, liveCx, liveCy, zoneCfg);
   if (!f.on) return f;
   const cfg = field.cfg;
-  const e = tMs - (zoneStartT as number);
+  // RAIN BEFORE THE START (Eric 2026-11-15: "i want the rain bands to exist
+  // before the game starts, not for them to roll in"): with no zone start the
+  // timeline's origin is put just past `tMs`, so every instant of the twist
+  // window reads ring 0 held — exactly the zone's first held beats, so the
+  // field runs on without a jump when the zone starts. The morph phase rides
+  // the MATCH clock (`tMs`), never the zone's, for the same reason.
+  const origin = zoneStartT === null ? tMs + 1 : zoneStartT;
+  const e = tMs - origin;
   const zc: ZoneClock = { radii: zoneRingRadii(field.oceanRadiusU, zoneCfg), zoneCfg, beatMs: zoneCfg.beatMs };
   const P = cfg.morphMs > 0 ? cfg.morphMs : 0;
-  const eB = P > 0 ? Math.floor(e / P) * P : e;
-  const eA = P > 0 ? Math.floor((e - P / 2) / P) * P + P / 2 : e;
-  f.w = morphWeight(e, P);
+  const tB = P > 0 ? Math.floor(tMs / P) * P : tMs;
+  const tA = P > 0 ? Math.floor((tMs - P / 2) / P) * P + P / 2 : tMs;
+  f.w = morphWeight(tMs, P);
   f.norm = 1 / Math.sqrt((1 - f.w) * (1 - f.w) + f.w * f.w);
   f.cx = liveCx;
   f.cy = liveCy;
   f.R = zoneLadderRadiusAt(e, zc.radii, zoneCfg);
   f.edgeCov = fogRingStepAt(cfg.edgeCoverageByRing, e, zoneCfg);
   f.eyeFrac = fogRingStepAt(cfg.eyeRadiusFracByRing, e, zoneCfg);
-  f.onset = cfg.onsetMs > 0 ? clamp01(e / cfg.onsetMs) : 1;
   f.binU = (2 * field.oceanRadiusU + 200) / (TWIST_BINS - 1);
-  layerTwist(field, zc, eA, e, f.binU, f.twistA);
-  layerTwist(field, zc, eB, e, f.binU, f.twistB);
+  layerTwist(field, zc, tA - origin, e, f.binU, f.twistA);
+  layerTwist(field, zc, tB - origin, e, f.binU, f.twistB);
   return f;
 }
 
@@ -385,8 +391,7 @@ function onOcean(field: FogField, x: number, y: number): boolean {
 
 /**
  * Rain density at world (x, y) for `frame`, in [0, 1]: 0 with no rain, beyond
- * the ocean rim, inside the clear eye, or on any non-finite input; scaled by
- * the onset ramp.
+ * the ocean rim, inside the clear eye, or on any non-finite input.
  */
 export function fogDensityAt(frame: FogFrame, x: number, y: number): number {
   if (!frame.on || !onOcean(frame.field, x, y)) return 0;
@@ -397,7 +402,7 @@ export function fogDensityAt(frame: FogFrame, x: number, y: number): number {
   const cov = fogCoverageAt(frame.field.cfg, frame.eyeFrac, frame.edgeCov, rho);
   if (!(cov > 0)) return 0;
   const n = blendedNoise(frame, qx, qy, r);
-  const d = densityOf(n, cutFor(frame.field, cov), frame.field.cfg.edgeBand) * frame.onset;
+  const d = densityOf(n, cutFor(frame.field, cov), frame.field.cfg.edgeBand);
   return d > 0 ? d : 0; // NaN → 0
 }
 

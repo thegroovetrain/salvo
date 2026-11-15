@@ -2548,8 +2548,9 @@ export const CONFIG = {
    *   `edgeCoverageByRing` entry (both stepped by ring, lerped through each
    *   closing beat, held at the last entry through the collapse), then over `edgeSoftFrac` to
    *   `outsideCoverage` out in the storm. Zero beyond the ocean rim.
-   * - Rain starts at zone start and rolls in linearly over `onsetMs`; none
-   *   before.
+   * - Rain is there from the start line (Eric 2026-11-15: "i want the rain
+   *   bands to exist before the game starts"): before the zone starts the
+   *   field is the ring-0 state, already spinning; no roll-in.
    * - SIGHT: optical depth τ = Σ density × `marchStepU` along the ray (no
    *   own-bank exemption — rain you stand in blocks you too); visibility V =
    *   exp(−`extinctionPerU` × τ); a thing is seen while V ≥ `sightCutoffV`,
@@ -2584,7 +2585,6 @@ export const CONFIG = {
     outsideCoverage: 0.7, // solid share out in the storm — "heavy rain with gaps" (Eric 2026-11-14, Story 11.6 bench page)
     edgeSoftFrac: 0.25, // × live ring radius — the edge → outside blend width (Eric 2026-11-14, Story 11.6 bench page)
     spinRadiusFloorU: 250, // u — floor on the ring radius the spin reads; the collapse drives R to 0 (Eric 2026-11-14, Story 11.6 bench page)
-    onsetMs: 15000, // ms — the roll-in ramp from zone start (Eric 2026-11-14, Story 11.6 bench page; today's ~15 s onset kept)
   },
 
   /**

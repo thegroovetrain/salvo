@@ -1,8 +1,8 @@
 // Story 11.6 RAIN — the storm-eye rain field and its optical depth
 // (sim/fog.ts + sim/fogDepth.ts; Eric 2026-11-14 on the rain-sight bench
 // page). Contracts of the pure functions only: the ladder radius matches the
-// zone's own, determinism and the coin flip, no rain before zone start / past
-// the rim, the onset ramp, the clear eye, the coverage profile by ρ (measured
+// zone's own, determinism and the coin flip, rain from the start line (no roll-in) / none past
+// the rim, the clear eye, the coverage profile by ρ (measured
 // against the module's own coverage function and CONFIG's dials — relations,
 // never bare numbers), continuity across every beat edge / morph reset / the
 // collapse, τ's identities (additive, monotone, symmetric — no own bank), the
@@ -103,15 +103,21 @@ describe('makeFogField', () => {
 });
 
 describe('fogFrameAt / fogDensityAt — where it rains', () => {
-  it('no rain before zone start: a null zoneStartT, or a clock before it, is density 0 everywhere', () => {
-    const none = fogFrameAt(field, Z0 + 5 * BEAT, null, 0, 0, ZONE);
-    const early = fogFrameAt(field, Z0 - 1, Z0, 0, 0, ZONE);
-    expect(none.on).toBe(false);
-    expect(early.on).toBe(false);
-    for (const p of COARSE) {
-      expect(fogDensityAt(none, p.x, p.y)).toBe(0);
-      expect(fogDensityAt(early, p.x, p.y)).toBe(0);
+  it('RAIN BEFORE THE START (Eric 2026-11-15): with no zone start the field is the ring-0 state — raining, ring-0 eye and edge — and runs into the zone start without a jump', () => {
+    const pre = fogFrameAt(field, Z0 - 5, null, 0, 0, ZONE);
+    const post = fogFrameAt(field, Z0 + 5, Z0, 0, 0, ZONE);
+    expect(pre.on).toBe(true);
+    expect(pre.eyeFrac).toBe(CFG.eyeRadiusFracByRing[0]);
+    expect(pre.edgeCov).toBe(CFG.edgeCoverageByRing[0]);
+    let solid = 0;
+    let worst = 0;
+    for (const p of FINE) {
+      const d = fogDensityAt(pre, p.x, p.y);
+      if (d >= FOG_SOLID_DENSITY) solid++;
+      worst = Math.max(worst, Math.abs(d - fogDensityAt(post, p.x, p.y)));
     }
+    expect(solid).toBeGreaterThan(0);
+    expect(worst).toBeLessThan(0.02);
   });
 
   it('density lies in [0, 1], and is 0 beyond the ocean rim even in the outer storm', () => {
@@ -131,18 +137,8 @@ describe('fogFrameAt / fogDensityAt — where it rains', () => {
     expect(frameAt(dry, CLOSED + BEAT).on).toBe(false);
   });
 
-  it('rolls in over onsetMs: density is the unramped density × (t − zoneStartT) / onsetMs', () => {
-    const unramped = makeFogField(12345, { ...CFG, onsetMs: 0 }, OCEAN_R);
-    for (const frac of [0.25, 0.5, 0.9]) {
-      const e = CFG.onsetMs * frac;
-      const f = frameAt(field, e);
-      const g = frameAt(unramped, e);
-      for (const p of COARSE) expect(Math.abs(fogDensityAt(f, p.x, p.y) - fogDensityAt(g, p.x, p.y) * frac)).toBeLessThan(1e-12);
-    }
-  });
-
   it('THE EYE IS CLEAR: density is 0 wherever ρ = distance / live R is inside the LIVE eye fraction (the ring\'s eyeRadiusFracByRing step)', () => {
-    for (const e of [CFG.onsetMs + 1, GROUP + BEAT / 2, 2 * GROUP + 3.5 * BEAT, 3 * GROUP + BEAT]) {
+    for (const e of [BEAT, GROUP + BEAT / 2, 2 * GROUP + 3.5 * BEAT, 3 * GROUP + BEAT]) {
       const f = frameAt(field, e);
       const eye = fogRingStepAt(CFG.eyeRadiusFracByRing, e, ZONE);
       expect(f.eyeFrac).toBe(eye);
@@ -263,7 +259,7 @@ describe('continuity — no density pop', () => {
     for (const t of instants) {
       const a = frameAt(field, t - 5);
       const b = frameAt(field, t + 5);
-      if (a.on && b.on) { // zone start: the frame before it is the no-rain frame (the onset ramp carries continuity there)
+      if (a.on && b.on) { // every instant rains now (Eric 2026-11-15: rain from the start line, no roll-in)
         expect(Math.abs(a.eyeFrac - b.eyeFrac)).toBeLessThan(1e-3);
         expect(Math.abs(a.edgeCov - b.edgeCov)).toBeLessThan(1e-3);
       }
@@ -287,7 +283,8 @@ describe('fogDepthAlong — optical depth', () => {
   const step = CFG.marchStepU;
 
   it('is 0 with no rain, for a zero-length ray, and inside the clear eye', () => {
-    const none = fogFrameAt(field, Z0, null, 0, 0, ZONE);
+    const none = fogFrameAt(makeFogField(12345, CFG, 0), Z0, Z0, 0, 0, ZONE); // no ocean: no rain
+    expect(none.on).toBe(false);
     expect(fogDepthAlong(none, -2000, 0, 2000, 0)).toBe(0);
     expect(fogDepthAlong(RAINY, IN_RAIN.x, IN_RAIN.y, IN_RAIN.x, IN_RAIN.y)).toBe(0);
     const f = frameAt(field, BEAT);

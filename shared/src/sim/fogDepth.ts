@@ -36,3 +36,19 @@ export function fogVisibility(tau: number, cfg: FogSightConfig): number {
   if (!(k > 0) || !Number.isFinite(k)) return 1;
   return Math.exp(-k * tau);
 }
+
+/**
+ * DISTANCE HAZE (Story 11.6, Eric 2026-11-15: the anonymous far hull is gone —
+ * a hull is crisp to the class-and-name sight and FADES to gone at the hull
+ * sight): the optical depth distance alone adds on a hull's eye line, in the
+ * same units as rain and smoke — 0 out to `sightU`, rising linearly to
+ * `maxDepth` (= T, the cutoff) at `hullSightU`. Both reaches are the
+ * observer's own (whiteout-scaled). `hullSightU ≤ sightU` is a hard edge at
+ * `sightU`. Non-finite input fails open (0); `d ≥ hullSightU` reads maxDepth.
+ */
+export function fogHazeDepth(d: number, sightU: number, hullSightU: number, maxDepth: number): number {
+  if (!Number.isFinite(d) || !Number.isFinite(sightU) || !Number.isFinite(hullSightU) || !(maxDepth > 0) || !Number.isFinite(maxDepth)) return 0;
+  if (!(d > sightU)) return 0;
+  if (!(hullSightU > sightU) || d >= hullSightU) return maxDepth;
+  return (maxDepth * (d - sightU)) / (hullSightU - sightU);
+}
