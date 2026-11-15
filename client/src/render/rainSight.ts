@@ -13,6 +13,15 @@
 // layout. The rain is public weather, so this is the client re-deriving what
 // the server already used to send the hull; it is presentation only.
 //
+// DISTANCE HAZE (Eric 2026-11-15: the anonymous plain-hull tier is GONE): each
+// point's τ also carries the shared `fogHazeDepth` of its distance from the eye
+// — 0 out to the observer's effective class-and-name sight (`RainEye.sightU`),
+// rising linearly to T (the cutoff) at its effective hull sight
+// (`RainEye.hullSightU`), both whiteout-scaled (sim/sight.ts). A hull clear of
+// rain and smoke is crisp to 200 hm and fades with the A+D look to gone at
+// 350 hm. The own star-shell exemption (`eyeForHull`) and the sent-hull floor
+// cover the haze like the rest of τ.
+//
 // SMOKE (Story 11.6 scope add, Eric 2026-11-14: SMOKE SCREEN clouds occlude
 // sight like rain; the owner is blinded too): each point's τ is the rain τ PLUS
 // the shared `smokeDepthAlong` of the clouds the client holds (`smokeDiscsInto`,
@@ -32,7 +41,9 @@ import {
   fogDensityAt,
   fogDepthAlong,
   fogDepthReach,
+  fogHazeDepth,
   fogHullGrid,
+  fogMaxDepth,
   fogSinCos,
   fogVisibility,
   smokeDepthAlong,
@@ -66,11 +77,16 @@ export const CLEAR_V = 1 - 1 / 512;
 export const SENT_FLOOR_V = CONFIG.fog.sightCutoffV + L.sentFloorMarginV;
 
 /** Who is looking through the weather: the rain frame (null = no rain), the
- *  smoke discs (absent / empty = none), the observer's world point, and the
+ *  smoke discs (absent / empty = none), the observer's world point, its
+ *  effective reaches (absent = no distance haze, every plate in sight) and the
  *  observer's OWN live star-shell lit zones (absent / empty = none). */
 export interface RainEye {
   frame: FogFrame | null;
   smoke?: readonly SmokeDisc[];
+  /** u — the observer's effective CLASS-AND-NAME sight (`effectiveSight`): the haze starts here, and the name tag ends. */
+  sightU?: number;
+  /** u — the observer's effective HULL sight (`effectiveHullSight`): the haze reaches T (gone) here. */
+  hullSightU?: number;
   /** The own live lit zones (render/litZones.ts `ownActiveZones`): a hull whose
    *  center is inside one is LIT FROM ABOVE — the server sends it on the zone
    *  alone (signals.ts `ownZoneCovers`), no eye line — so it gets no rain eye. */
@@ -85,6 +101,19 @@ export function eyeForHull(eye: RainEye | null, x: number, y: number): RainEye |
   if (eye === null || eye.lit === undefined || eye.lit.length === 0) return eye;
   return insideAnyZone({ x, y }, eye.lit) ? null : eye;
 }
+
+/**
+ * Pure: is a hull centered at (x, y) close enough for its NAME TAG (Eric
+ * 2026-11-15) — within the observer's effective class-and-name sight, by
+ * center distance? No eye (a spectator) or no reach on it → yes.
+ */
+export function plateInSight(eye: RainEye | null, x: number, y: number): boolean {
+  if (eye === null || eye.sightU === undefined) return true;
+  return Math.hypot(x - eye.x, y - eye.y) <= eye.sightU;
+}
+
+/** T — the optical depth at the vanish cutoff (the haze's full depth). */
+const MAX_DEPTH = fogMaxDepth(CONFIG.fog);
 
 /** The smoke sight dials (CONFIG.countermeasure). */
 export const SMOKE_SIGHT: SmokeSightConfig = {
@@ -139,7 +168,8 @@ const NO_SMOKE: readonly SmokeDisc[] = [];
 
 /**
  * Pure: V at each of the hull's sight-grid points — the hull at (cx, cy),
- * `heading` (rad, bow), `lengthU` × `beamU` — seen from `eye` (τ = rain + smoke). `pts` is a
+ * `heading` (rad, bow), `lengthU` × `beamU` — seen from `eye` (τ = rain + smoke
+ * + distance haze). `pts` is a
  * scratch of at least 2 × RAIN_GRID_N; `out` receives RAIN_GRID_N values in
  * [0, 1]. Returns `out`.
  */
@@ -153,9 +183,16 @@ export function hullVisGrid(
     const px = pts[2 * i];
     const py = pts[2 * i + 1];
     const rain = eye.frame === null ? 0 : fogDepthAlong(eye.frame, eye.x, eye.y, px, py);
-    out[i] = fogVisibility(rain + smokeDepthAlong(smoke, eye.x, eye.y, px, py, SMOKE_SIGHT), CONFIG.fog);
+    const tau = rain + smokeDepthAlong(smoke, eye.x, eye.y, px, py, SMOKE_SIGHT) + hazeDepth(eye, px, py);
+    out[i] = fogVisibility(tau, CONFIG.fog);
   }
   return floorSentHull(out, n);
+}
+
+/** The distance haze from `eye` to (px, py): 0 without both reaches on the eye. */
+function hazeDepth(eye: RainEye, px: number, py: number): number {
+  if (eye.sightU === undefined || eye.hullSightU === undefined) return 0;
+  return fogHazeDepth(Math.hypot(px - eye.x, py - eye.y), eye.sightU, eye.hullSightU, MAX_DEPTH);
 }
 
 /**
@@ -187,7 +224,7 @@ export function meanVisibility(vis: ArrayLike<number>): number {
 }
 
 /**
- * Pure: the filter on/off decision. No grid (no observer, no rain) or a clear
+ * Pure: the filter on/off decision. No grid (no observer, or lit from above) or a clear
  * grid → 'off' (the hull draws exactly as before, at zero cost); otherwise the
  * A+D filter where it can run, else the plain fade by the mean V.
  */
@@ -220,7 +257,7 @@ export class HullRainVis {
   /**
    * Advance by `dtMs` with the hull at (x, y, heading), `lengthU` × `beamU`,
    * seen from `eye`. Returns the drawn grid, or null with no eye (no observer,
-   * neither rain nor smoke, or the hull lit from above by an own star shell —
+   * or the hull lit from above by an own star shell —
    * the next eye snaps again).
    */
   step(rawEye: RainEye | null, x: number, y: number, heading: number, lengthU: number, beamU: number, dtMs: number): Float32Array | null {

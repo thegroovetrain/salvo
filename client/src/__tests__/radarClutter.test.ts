@@ -32,8 +32,9 @@ const SLICE = CLIENT_CONFIG.blip.heatmap.march.sliceRad;
 const OPTS: RainClutterOpts = { ...RAIN_CLUTTER_DEFAULTS, cellU: CELL };
 const OCEAN = 5000;
 const FIELD = makeFogField(20261114, CONFIG.fog, OCEAN);
-const RAIN: FogFrame = fogFrameAt(FIELD, CONFIG.fog.onsetMs + 60_000, 0, 0, 0, CONFIG.zone);
-const DRY: FogFrame = fogFrameAt(FIELD, CONFIG.fog.onsetMs + 60_000, null, 0, 0, CONFIG.zone);
+const RAIN: FogFrame = fogFrameAt(FIELD, 60_000, 0, 0, 0, CONFIG.zone);
+/** A frame that cannot rain (a non-finite zone start; pre-zone RAINS since Eric 2026-11-15). */
+const DRY: FogFrame = fogFrameAt(FIELD, 60_000, Number.NaN, 0, 0, CONFIG.zone);
 /** Near the ring edge, where the bands are thick (the first ring is the whole ocean). */
 const OUT = { x: RAIN.R * 0.9, y: 0 };
 /** Every tier paints every rained cell: the worst case for the bound. */

@@ -64,8 +64,9 @@
 // that covers the screen around its centre (cell grown so the raster stays
 // ≤ SPECTATOR_CELLS² cells): a spectator sees the whole field.
 //
-// NO RAIN, NO WORK: with no field or a frame that cannot rain (pre-zone, a
-// non-finite input) the body is hidden, the layer unmasked, the bitmap zeroed
+// NO RAIN, NO WORK: with no field or a frame that cannot rain (a non-finite
+// input; since Eric 2026-11-15 the pre-zone ocean RAINS — the ring-0 state)
+// the body is hidden, the layer unmasked, the bitmap zeroed
 // once, and nothing is evaluated.
 // PER FRAME: one `fogFrameAt` into the reused frame (its tables are reused —
 // ~0.05 ms), advance the tile scroll, test the refresh timer and the re-centre
@@ -255,7 +256,7 @@ export class FogFieldView {
   private field: FogField | null = null;
   private seed: number | null = null;
   private oceanRadiusU = -1;
-  /** The live zone the eye rides (`setZone`); null start = no rain. */
+  /** The live zone the eye rides (`setZone`); null start = not started (the ring-0 rain, Eric 2026-11-15). */
   private zoneStartT: number | null = null;
   private zoneCx = 0;
   private zoneCy = 0;
@@ -344,7 +345,7 @@ export class FogFieldView {
 
   /**
    * The live zone the eye rides: the schema's `zoneStartT` (null while the zone
-   * is idle — no rain) and the LIVE ring's center from the client's own zone
+   * is idle — the ring-0 rain, already there from the start line) and the LIVE ring's center from the client's own zone
    * view (sim/zoneView.ts `zoneViewFrom`, the shared zoneLiveState at the same
    * serverNow). Called once per frame before anything reads the rain; a change
    * re-derives the frame on the next read.
@@ -359,9 +360,10 @@ export class FogFieldView {
 
   /**
    * The rain at match time `tMs` (ONE shared frame, re-derived only for a new
-   * instant or zone), or null when nothing can rain — no field yet, pre-zone,
-   * or a non-finite input. The raster, the radar's fan and the hulls' A+D look
-   * (render/rainSight.ts) all read this one frame.
+   * instant or zone), or null when nothing can rain — no field yet or a
+   * non-finite input (pre-zone it rains: the ring-0 state, Eric 2026-11-15).
+   * The raster, the radar's fan and the hulls' A+D look (render/rainSight.ts)
+   * all read this one frame.
    */
   frameAt(tMs: number): FogFrame | null {
     if (this.field === null) return null;
@@ -385,7 +387,7 @@ export class FogFieldView {
     this.castX = Number.NaN;
   }
 
-  /** The match-start edge: the zone back to not started (no rain), the bitmap dark. */
+  /** The match-start edge: the zone back to not started (the ring-0 rain), the bitmap dark until the next refresh. */
   clear(): void {
     this.setZone(null, 0, 0);
     this.hide();

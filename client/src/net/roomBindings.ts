@@ -813,9 +813,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
       deps.onOwnSpawn(f.you.x, f.you.y);
     }
   }
-  // The plain-hull rows (Story 11.2, R3) ride the same push: the store pairs
-  // a hull changing tier across the two lists (net/plainContacts.ts).
-  deps.contacts.pushFrame(f.t, f.contacts, f.pc);
+  deps.contacts.pushFrame(f.t, f.contacts);
   syncContactLike(f, deps);
   cueNewClouds(f, deps, s);
   routeVictimTells(f, deps, s);

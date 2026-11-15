@@ -26,7 +26,7 @@
 // paints' wire-echo slack, which clutter never emits — recycled, so a warm
 // track allocates nothing (a record grows only past its largest step).
 //
-// NO CLUTTER when there is no rain frame (rain off / pre-zone), with no own
+// NO CLUTTER when there is no rain frame (no field yet / a non-finite input), with no own
 // pose (the radar marches nothing; spectate renders the radar pose-less), or
 // for a non-finite input.
 

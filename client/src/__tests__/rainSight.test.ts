@@ -5,7 +5,9 @@
 // untouched), falls back to the mean-V fade without WebGL, and is one filter
 // per view, detached (never destroyed) when the water clears; the re-march
 // runs on its cadence, snaps on first sight and eases between; the noise is
-// equalized and deterministic; the pass padding stays bounded. The own hull is
+// equalized and deterministic; the pass padding stays bounded. Distance haze
+// (Eric 2026-11-15) joins τ: crisp to sight, gone at hull sight, the name tag
+// only within sight. The own hull is
 // never handed an eye, so it never dissolves. No pinned literals: every
 // expectation is derived from the shared functions or CLIENT_CONFIG.
 
@@ -19,6 +21,7 @@ import {
   fogMaxDepth,
   smokeDepthAlong,
   fogFrameAt,
+  fogHazeDepth,
   fogHullGrid,
   fogVisibility,
   makeFogField,
@@ -40,6 +43,7 @@ import {
   floorSentHull,
   meanVisibility,
   needsDissolve,
+  plateInSight,
   rainLookMode,
   smokeDiscsInto,
   type RainEye,
@@ -56,12 +60,11 @@ import {
   setHullDissolveSupport,
 } from '../render/hullDissolve.js';
 import { ShipView } from '../render/ships.js';
-import { PlainHullView } from '../render/plainHull.js';
 import { relationStyle } from '../render/relationColor.js';
 
 const L = CLIENT_CONFIG.rainLook;
 const OCEAN = 5000;
-const T = CONFIG.fog.onsetMs + 45000;
+const T = 45000;
 const FRAME: FogFrame = fogFrameAt(makeFogField(0x1234abcd, CONFIG.fog, OCEAN), T, 0, 0, 0);
 const HULL = CONFIG.shipClasses[DEFAULT_CLASS_ID].hull;
 
@@ -102,7 +105,7 @@ describe('hullVisGrid — V at the shared sight grid', () => {
     const out = new Float32Array(RAIN_GRID_N);
     hullVisGrid(clearEye(), CLEAR_POSE.x, CLEAR_POSE.y, 0, HULL.length, HULL.beam, new Float64Array(2 * RAIN_GRID_N), out);
     expect(out.every((v) => v === 1)).toBe(true);
-    const dry = fogFrameAt(makeFogField(1, CONFIG.fog, OCEAN), T, null, 0, 0);
+    const dry = fogFrameAt(makeFogField(1, CONFIG.fog, OCEAN), T, Number.NaN, 0, 0); // cannot rain
     hullVisGrid({ frame: dry, x: PART.eye.x, y: PART.eye.y }, PART.x, PART.y, 0, HULL.length, HULL.beam, new Float64Array(2 * RAIN_GRID_N), out);
     expect(out.every((v) => v === 1)).toBe(true);
   });
@@ -168,6 +171,64 @@ describe('hullVisGrid — smoke adds its optical depth (τ = rain + smoke)', () 
     smokeDiscsInto([{ x: 5, y: 6, t0: now, ...SIZE }], now, pool, out);
     expect(out[0]).toBe(first); // the slot is reused, not reallocated
     expect(out[0].r).toBe(cloudOutlineRadius(0, SIZE));
+  });
+});
+
+describe('hullVisGrid — the distance haze (crisp to sight, gone at hull sight)', () => {
+  const SIGHT = CONFIG.vision.sight;
+  const HULL_SIGHT = CONFIG.vision.hullSight;
+  const TAU = fogMaxDepth(CONFIG.fog);
+  /** No rain, no smoke: only distance can dim the hull. */
+  const dryEye = (): RainEye => ({ frame: null, smoke: [], sightU: SIGHT, hullSightU: HULL_SIGHT, x: 0, y: 0 });
+  const gridAt = (eye: RainEye, d: number): Float32Array => {
+    const out = new Float32Array(RAIN_GRID_N);
+    return hullVisGrid(eye, d, 0, Math.PI / 2, HULL.length, HULL.beam, new Float64Array(2 * RAIN_GRID_N), out);
+  };
+
+  it('each point is V of the shared haze depth at its own distance (V = 1 inside sight)', () => {
+    const d = (SIGHT + HULL_SIGHT) / 2;
+    const vis = gridAt(dryEye(), d);
+    const pts = new Float64Array(2 * RAIN_GRID_N);
+    fogHullGrid(d, 0, Math.PI / 2, HULL.length, HULL.beam, RAIN_GRID_COLS, RAIN_GRID_ROWS, pts);
+    for (let i = 0; i < RAIN_GRID_N; i++) {
+      const tau = fogHazeDepth(Math.hypot(pts[2 * i], pts[2 * i + 1]), SIGHT, HULL_SIGHT, TAU);
+      expect(vis[i]).toBeCloseTo(fogVisibility(tau, CONFIG.fog), 6);
+    }
+    expect(gridAt(dryEye(), SIGHT / 2).every((v) => v === 1)).toBe(true);
+  });
+
+  it('a hull clear of rain and smoke between sight and hull sight gets the dissolve; inside sight it does not', () => {
+    expect(needsDissolve(gridAt(dryEye(), SIGHT / 2))).toBe(false);
+    const mid = gridAt(dryEye(), (SIGHT + HULL_SIGHT) / 2);
+    expect(needsDissolve(mid)).toBe(true);
+    expect(rainLookMode(mid, true)).toBe('filter');
+  });
+
+  it('at hull sight a sent hull still draws its best part at the floor', () => {
+    const far = gridAt(dryEye(), HULL_SIGHT + HULL.beam);
+    expect(Math.max(...far)).toBeCloseTo(SENT_FLOOR_V, 6);
+  });
+
+  it('the reaches are the eye\'s own: a whiteout-shrunk sight hazes nearer; no reaches on the eye → no haze', () => {
+    const half = { ...dryEye(), sightU: SIGHT / 2, hullSightU: HULL_SIGHT / 2 };
+    expect(needsDissolve(gridAt(half, SIGHT * 0.6))).toBe(true);
+    expect(gridAt({ frame: null, smoke: [], x: 0, y: 0 }, HULL_SIGHT * 2).every((v) => v === 1)).toBe(true);
+  });
+
+  it('an own star-shell zone exempts a hazed hull (lit from above)', () => {
+    const d = (SIGHT + HULL_SIGHT) / 2;
+    const eye: RainEye = { ...dryEye(), lit: [{ x: d, y: 0, r: 200 }] };
+    expect(new HullRainVis(0).step(eye, d, 0, 0, HULL.length, HULL.beam, 16)).toBeNull();
+  });
+});
+
+describe('plateInSight — the name tag only within the class-and-name sight', () => {
+  const eye: RainEye = { frame: null, sightU: 1000, hullSightU: 2000, x: 100, y: 0 };
+  it('is true to the effective sight by center distance, false beyond; no eye or no reach → true', () => {
+    expect(plateInSight(eye, 1100, 0)).toBe(true);
+    expect(plateInSight(eye, 1100.5, 0)).toBe(false);
+    expect(plateInSight(null, 1e9, 0)).toBe(true);
+    expect(plateInSight({ frame: null, x: 0, y: 0 }, 1e9, 0)).toBe(true);
   });
 });
 
@@ -397,23 +458,6 @@ describe('the hull views', () => {
     expect(v.gfx.alpha).toBeCloseTo(clearAlpha * meanVisibility(PART.vis), 6);
     v.setRain(null, 16);
     expect(v.gfx.alpha).toBe(clearAlpha);
-  });
-
-  it('a plain hull wears the filter over its own drawn size, and its lifecycle fade composes with the fallback', () => {
-    setHullDissolveSupport(true);
-    const p = new PlainHullView();
-    p.update(PART.x, PART.y, PART.h);
-    p.setFade(1);
-    p.setRain(PART.eye, 16);
-    expect(p.rainFiltered).toBe(true);
-    p.setRain(null, 16);
-    expect(p.rainFiltered).toBe(false);
-    setHullDissolveSupport(false);
-    p.setFade(0.5);
-    p.setRain(PART.eye, 16);
-    expect(p.gfx.alpha).toBeLessThan(0.5);
-    p.setRain(null, 16);
-    expect(p.gfx.alpha).toBe(0.5);
   });
 });
 

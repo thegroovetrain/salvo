@@ -48,7 +48,6 @@
 import { BufferImageSource, Filter, GlProgram, Matrix, UniformGroup, type Container, type FilterSystem, type Sprite, type Texture } from 'pixi.js';
 import { CONFIG, SHIP_CLASS_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { PLAIN_HULL_BEAM_U, PLAIN_HULL_LENGTH_U } from '../net/plainContacts.js';
 import { RAIN_GRID_COLS, RAIN_GRID_N, RAIN_GRID_ROWS, meanVisibility, rainLookMode } from './rainSight.js';
 
 const L = CLIENT_CONFIG.rainLook;
@@ -201,10 +200,10 @@ export function hullDissolveSupported(): boolean {
 
 // --- the dissolve noise (deterministic, hull-local, histogram-equalized) -------
 
-/** u — the noise texture's extent: the largest hull (four classes + the plain hull) plus the pad, both ways. */
+/** u — the noise texture's extent: the largest class hull plus the pad, both ways. */
 export function noiseExtentU(): { w: number; h: number } {
-  let len = PLAIN_HULL_LENGTH_U;
-  let beam = PLAIN_HULL_BEAM_U;
+  let len = 0;
+  let beam = 0;
   for (const id of SHIP_CLASS_IDS) {
     const h = CONFIG.shipClasses[id].hull;
     len = Math.max(len, h.length);

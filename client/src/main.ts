@@ -22,6 +22,8 @@ import {
   draftedKinematics,
   CATALOG,
   cardBehaviors,
+  effectiveHullSight,
+  effectiveSight,
   effectiveStats,
   equipmentReloadMs,
   hullEnvelope,
@@ -4556,15 +4558,21 @@ function renderAlive(
 }
 
 /**
- * The own hull through this frame's rain and smoke (Story 11.6), or null — no
- * pose, or neither rain nor smoke. `lit` = the own live star-shell zones: a hull
- * inside one is lit from above (the server's `ownZoneCovers`) and gets no eye.
+ * The own hull through this frame's rain, smoke and distance haze (Story 11.6),
+ * or null with no pose. The haze rides the own EFFECTIVE reaches — the shared
+ * whiteout-scaled `effectiveSight` / `effectiveHullSight`, the functions the
+ * server's eye gates call (Eric 2026-11-15: crisp to sight, gone at hull
+ * sight). `lit` = the own live star-shell zones: a hull inside one is lit from
+ * above (the server's `ownZoneCovers`) and gets no eye.
  */
 function rainEyeFor(g: Game, pose: Point | null, now: number, lit: readonly OwnZone[]): RainEye | null {
   if (!pose) return null;
   const frame = g.fogField.frameAt(now);
   const smoke = smokeDiscsInto(g.state.net.clouds ?? [], now, g.smokeDiscPool, g.smokeDiscs);
-  return frame !== null || smoke.length > 0 ? { frame, smoke, lit, x: pose.x, y: pose.y } : null;
+  const until = dazzleUntil(g);
+  const sightU = effectiveSight(g.ownStats, until, now);
+  const hullSightU = effectiveHullSight(g.ownStats, until, now);
+  return { frame, smoke, lit, sightU, hullSightU, x: pose.x, y: pose.y };
 }
 
 /** The radar's eye-reach fan reads the SAME held clouds `rainEyeFor` does (Story 11.6), into its own scratch. */

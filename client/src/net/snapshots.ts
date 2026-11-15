@@ -4,9 +4,8 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { decodeLauncherAngle, decodeTurretAngle, hullEnvelope, type Contact, type HullId, type PlainContact } from '@salvo/shared';
+import { decodeLauncherAngle, decodeTurretAngle, hullEnvelope, type Contact, type HullId } from '@salvo/shared';
 import { SnapshotBuffer } from './snapshotBuffer.js';
-import { HandoffMarks, PlainContactStore, matchHandoff, type TierPoint } from './plainContacts.js';
 
 export { MAX_EXTRAPOLATION_MS, RETENTION_MS, SnapshotBuffer, type Snapshot } from './snapshotBuffer.js';
 
@@ -37,36 +36,13 @@ export class ContactStore {
    */
   private launcherAngles = new Map<string, number[]>();
 
-  /**
-   * THE PLAIN HULL CHANNEL (Story 11.2, R3) — `FrameMsg.pc`, ingested by the
-   * same `pushFrame` call so the TIER HANDOFF sees both lists of one frame
-   * (net/plainContacts.ts). Never part of `ids()`: a plain hull has no roster
-   * id, so it gets no engine voice, no collision body and no targeting.
-   */
-  readonly plain = new PlainContactStore();
-  /** Ids whose view must be born at full alpha (an inward handoff). */
-  private readonly bornByHandoff = new HandoffMarks();
-  /** Ids dropped by an outward handoff: their view goes at once, unfaded. */
-  private readonly retiredByHandoff = new HandoffMarks();
-
-  /**
-   * Ingest one frame at server time `t`: its contact list and its plain-hull
-   * rows (`pc`, omitted = none), then pair the hulls that changed tier on
-   * this frame (`handoff`).
-   */
-  pushFrame(t: number, contacts: readonly Contact[], pc?: readonly PlainContact[]): void {
-    const appeared: TierPoint[] = [];
+  /** Ingest one frame's contact list at server time `t`. */
+  pushFrame(t: number, contacts: readonly Contact[]): void {
     for (const c of contacts) {
       let buf = this.buffers.get(c.id);
       if (!buf) {
         buf = new SnapshotBuffer();
         this.buffers.set(c.id, buf);
-        appeared.push({ key: c.id, x: c.x, y: c.y, t });
-        this.retiredByHandoff.forget(c.id); // back on the wire: a stale retire mark must not kill its new view
-      } else if (this.missedPreviousFrame(c.id)) {
-        // A QUICK RE-ENTRY: the id still holds a TTL buffer from an earlier
-        // disappearance, but for the handoff it is appearing on this frame.
-        appeared.push({ key: c.id, x: c.x, y: c.y, t });
       }
       buf.push({ t, x: c.x, y: c.y, heading: c.heading, speed: c.speed });
       this.lastSeen.set(c.id, t);
@@ -76,70 +52,6 @@ export class ContactStore {
       pushAngles(this.turretAngles, c.id, known ? c.tu : undefined, (i, q) => decodeTurretAngle(c.cls, i, q));
       pushAngles(this.launcherAngles, c.id, known ? c.lu : undefined, (i, q) => decodeLauncherAngle(c.cls, i, q));
     }
-    this.bornByHandoff.expire(t);
-    this.retiredByHandoff.expire(t);
-    const plainAppeared = this.plain.pushFrame(t, pc);
-    this.handoff(t, appeared, plainAppeared);
-    this.prevT = t;
-  }
-
-  /** Server time of the previous frame (undefined before the first). */
-  private prevT: number | undefined;
-
-  /** True when `id` was not on the previous frame (read before this frame's `lastSeen` update). */
-  private missedPreviousFrame(id: string): boolean {
-    const seen = this.lastSeen.get(id);
-    return this.prevT !== undefined && seen !== undefined && seen < this.prevT;
-  }
-
-  /**
-   * THE TIER HANDOFF (Story 11.2): INWARD, a new contact id near a plain
-   * handle that just left → the handle is retired (its view goes at once) and
-   * the contact's view is born at full alpha; OUTWARD, a new plain handle near
-   * a contact that stopped arriving inside the handoff window → the contact is
-   * dropped now (its view goes at once) and the handle's view is born at full
-   * alpha. One hull on screen across the swap, never two. The server swaps
-   * tiers ATOMICALLY, so outward pairs only with a contact that disappeared on
-   * THIS frame. A new plain handle no handoff claimed then tries a PLAIN
-   * RE-ENTRY (a one-frame dropout under a new handle — the view carries over).
-   */
-  private handoff(t: number, appeared: readonly TierPoint[], plainAppeared: readonly TierPoint[]): void {
-    for (const [id, h] of matchHandoff(appeared, this.plain.recentlyDeparted())) {
-      this.plain.retire(h, t);
-      this.bornByHandoff.add(id, t);
-    }
-    const claimed = new Set<string>();
-    for (const [h, id] of matchHandoff(plainAppeared, this.goneThisFrame())) {
-      this.drop(id);
-      this.retiredByHandoff.add(id, t);
-      this.plain.markBornByHandoff(h, t);
-      claimed.add(h);
-    }
-    this.plain.pairReentries(
-      t,
-      plainAppeared.filter((p) => !claimed.has(p.key)),
-    );
-  }
-
-  /** Contacts that were on the previous frame and are missing from this one (newest pose each). */
-  private goneThisFrame(): TierPoint[] {
-    const out: TierPoint[] = [];
-    if (this.prevT === undefined) return out;
-    for (const [id, seen] of this.lastSeen) {
-      const last = seen === this.prevT ? this.buffers.get(id)?.newest : undefined;
-      if (last) out.push({ key: id, x: last.x, y: last.y, t: seen });
-    }
-    return out;
-  }
-
-  /** One-shot: was contact `id` born by a handoff? (its view skips the fade-in) */
-  takeBornByHandoff(id: string): boolean {
-    return this.bornByHandoff.take(id);
-  }
-
-  /** One-shot: was contact `id` dropped by a handoff? (its view goes unfaded) */
-  takeRetiredByHandoff(id: string): boolean {
-    return this.retiredByHandoff.take(id);
   }
 
   /** Forget one contact entirely, now (the prune's removal, for one id). */

@@ -3,7 +3,8 @@
 // rain. The contract: the density raster is the shared field's frame sampled
 // deterministically (seed, time, live zone); the frame is ONE reused object,
 // re-derived only for a new instant or zone; the raster is re-evaluated only on
-// its cadence or a re-centre, never per frame; no rain (pre-zone, no seed) → a
+// its cadence or a re-centre, never per frame; it rains pre-zone (the ring-0
+// state, Eric 2026-11-15); no rain (no seed, a non-finite input) → a
 // dark bitmap and nothing drawn or evaluated; motion off → the wisps hold
 // still, motion on → they ride the spin about the eye; the wisps tile is
 // seamless; the halo mask follows the own hull (a spectator is unmasked); the
@@ -44,9 +45,9 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 const F = CLIENT_CONFIG.fogField;
 const SEED = 0x1234abcd;
 const OCEAN = 5000;
-/** The zone started at match time 0; every test time is past the onset ramp. */
+/** The zone started at match time 0; the test time is 45 s in. */
 const ZONE_T0 = 0;
-const T = CONFIG.fog.onsetMs + 45000;
+const T = 45000;
 const own = { x: 0, y: 0 };
 /** Solid rain on the whole ocean wherever the frame rains (0 past the rim) — the cadence / mask tests' stand-in. */
 const SOLID: FogDensityFn = (frame, x, y) => (frame.on && x * x + y * y <= OCEAN * OCEAN ? 1 : 0);
@@ -81,9 +82,13 @@ describe('fillFogRaster — the shared field, sampled deterministically', () => 
     expect(a.some((v) => v === 0)).toBe(true);
   });
 
-  it('pre-zone (no zone start) fills zeros and reports nothing lit', () => {
+  it('pre-zone (no zone start) RAINS — the ring-0 state (Eric 2026-11-15); a frame that cannot rain fills zeros', () => {
+    const n = 60;
+    const pre = new Float32Array(n * n);
+    expect(fillFogRaster(pre, frameAt(T, 0, 0, null), -OCEAN, -OCEAN, (2 * OCEAN) / (n - 1), n)).toBe(true);
+    expect(pre.some((v) => v > 0)).toBe(true);
     const out = new Float32Array(16).fill(0.5);
-    expect(fillFogRaster(out, frameAt(T, 0, 0, null), 3500, 0, 10, 4)).toBe(false);
+    expect(fillFogRaster(out, frameAt(T, 0, 0, Number.NaN), 3500, 0, 10, 4)).toBe(false);
     expect(out.every((v) => v === 0)).toBe(true);
   });
 
@@ -112,13 +117,15 @@ describe('fillFogRaster — the shared field, sampled deterministically', () => 
 });
 
 describe('frameAt — ONE shared frame', () => {
-  it('is null with no seed, pre-zone, or before the zone starts; a frame once the zone runs', () => {
+  it('is null with no seed or a frame that cannot rain; a raining frame pre-zone (the ring-0 state) and once the zone runs', () => {
     expect(new FogFieldView(new Container()).frameAt(T)).toBeNull();
     const { view } = makeView();
+    view.setZone(Number.NaN, 0, 0);
+    expect(view.frameAt(T)).toBeNull();
     view.setZone(null, 0, 0);
-    expect(view.frameAt(T)).toBeNull();
+    expect(view.frameAt(T)?.on).toBe(true);
     view.setZone(T + 1000, 0, 0);
-    expect(view.frameAt(T)).toBeNull();
+    expect(view.frameAt(T)?.on).toBe(true);
     view.setZone(ZONE_T0, 0, 0);
     expect(view.frameAt(T)?.on).toBe(true);
   });
@@ -199,16 +206,25 @@ describe('the steady state allocates nothing', () => {
 });
 
 describe('no rain → a dark bitmap, nothing drawn, nothing evaluated', () => {
-  it('pre-zone never samples the field and draws nothing', () => {
+  it('a frame that cannot rain never samples the field and draws nothing', () => {
     const { view, layer, calls } = makeView();
-    view.setZone(null, 0, 0);
+    view.setZone(Number.NaN, 0, 0);
     for (let k = 0; k < 30; k++) view.update(100, T + k * 100, true, own);
     expect(calls.n).toBe(0);
     expect(view.drawn).toBe(false);
     expect(layer.mask ?? null).toBeNull();
   });
 
-  it('rain → none zeroes the bitmap; clear() (the match-start edge) does too and stops the rain', () => {
+  it('pre-zone RAINS and draws (Eric 2026-11-15: the bands are there from the start line)', () => {
+    const { view, calls } = makeView();
+    view.setHaloU(750);
+    view.setZone(null, 0, 0);
+    view.update(16, T, false, own);
+    expect(calls.n).toBeGreaterThan(0);
+    expect(view.drawn).toBe(true);
+  });
+
+  it('rain → none zeroes the bitmap; clear() (the match-start edge) darkens it until the ring-0 rain refreshes', () => {
     const { view } = makeView();
     // A halo whose raster stays on the fixture's ocean (Story 11.2: the shipped
     // halo rides the 350 hm muzzle-flash reach, far past it).
@@ -216,7 +232,7 @@ describe('no rain → a dark bitmap, nothing drawn, nothing evaluated', () => {
     view.update(16, T, false, own);
     expect(view.drawn).toBe(true);
     expect(view.raster.density.every((v) => v === 1)).toBe(true);
-    view.setZone(null, 0, 0);
+    view.setZone(Number.NaN, 0, 0);
     view.update(16, T + 16, false, own);
     expect(view.drawn).toBe(false);
     expect(view.raster.density.every((v) => v === 0)).toBe(true);
@@ -224,9 +240,11 @@ describe('no rain → a dark bitmap, nothing drawn, nothing evaluated', () => {
     view.update(16, T + 32, false, own);
     expect(view.drawn).toBe(true);
     view.clear();
-    expect(view.frameAt(T + 48)).toBeNull();
     expect(view.drawn).toBe(false);
     expect(view.raster.density.every((v) => v === 0)).toBe(true);
+    expect(view.frameAt(T + 48)?.on).toBe(true); // the zone back to not started: the ring-0 rain
+    view.update(16, T + 48, false, own);
+    expect(view.drawn).toBe(true);
   });
 
   it('no seed (no welcome yet) draws nothing', () => {
@@ -242,7 +260,7 @@ describe('rainFlowAt — the wisps ride the spin about the eye', () => {
   const out = { x: 0, y: 0 };
 
   it('is zero with no rain', () => {
-    expect(rainFlowAt(frameAt(T, 0, 0, null), 1000, 0, out)).toEqual({ x: 0, y: 0 });
+    expect(rainFlowAt(frameAt(T, 0, 0, Number.NaN), 1000, 0, out)).toEqual({ x: 0, y: 0 }); // a frame that cannot rain
   });
 
   it('is tangential about the live eye, at the edge speed on and outside the ring, slower inside', () => {

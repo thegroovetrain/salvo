@@ -377,8 +377,8 @@ describe('Radar: the fan is cast and baked on a cadence, never per frame', () =>
 describe('FogFieldView.eyeReachFan — the shared depth fan under the sight threshold', () => {
   const SEED = 0x1234abcd;
   const OCEAN = 5000;
-  /** Past the onset ramp: full rain. */
-  const T = CONFIG.fog.onsetMs + 45000;
+  /** 45 s into the match (no onset since Eric 2026-11-15: it rains from the start line). */
+  const T = 45000;
   const view = (startT: number | null): FogFieldView => {
     const v = new FogFieldView(new Container());
     v.setSeed(SEED, OCEAN);
@@ -386,9 +386,10 @@ describe('FogFieldView.eyeReachFan — the shared depth fan under the sight thre
     return v;
   };
 
-  it('returns null before the zone starts (no rain)', () => {
-    expect(view(null).eyeReachFan(3000, 0, SIGHT, T, new Float32Array(RAYS))).toBeNull();
-    expect(view(T + 1000).eyeReachFan(3000, 0, SIGHT, T, new Float32Array(RAYS))).toBeNull();
+  it('casts before the zone starts too (the ring-0 rain, Eric 2026-11-15)', () => {
+    const out = new Float32Array(RAYS);
+    expect(view(null).eyeReachFan(3000, 0, SIGHT, T, out)).toBe(out);
+    expect(view(T + 1000).eyeReachFan(3000, 0, SIGHT, T, out)).toBe(out);
   });
 
   it('returns null before a field exists, and for a non-finite pose', () => {
@@ -416,7 +417,7 @@ describe('FogFieldView.eyeReachFan — the shared depth fan under the sight thre
   });
 
   it('includes the held smoke: no rain + a cloud ahead → a fan shortened on the cloud bearing; neither → null', () => {
-    const v = view(null); // no rain at all
+    const v = view(Number.NaN); // no rain at all (a frame that cannot rain; pre-zone rains)
     const out = new Float32Array(RAYS);
     expect(v.eyeReachFan(0, 0, SIGHT, T, out)).toBeNull();
     let asked = Number.NaN;
