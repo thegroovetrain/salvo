@@ -108,6 +108,12 @@ export interface FogFrame {
 const QUANT_N = 256;
 const TWIST_BINS = 512;
 const CLOSE_STEPS = 12; // midpoint steps per closing-beat segment of the twist integral
+// The most beat segments one twist integral walks. The shipped dials need a
+// handful (a layer's window is at most `morphMs`, 2.5 beats); the cap is what
+// keeps a tuning arm or a dev zone override (`morphMs / beatMs` is unbounded)
+// from pinning a tick — past it the rest of the window is integrated as one
+// held segment (see `addTwist`).
+const TWIST_MAX_SEGMENTS = 256;
 const LAYER_B_OFFSET_U = 1000; // u — layer B's sample offset, so the layers never line up
 const TWO_PI = 6.283185307179586;
 const HALF_PI = 1.5707963267948966;
@@ -188,12 +194,26 @@ interface ZoneClock {
   beatMs: number;
 }
 
-/** out[k] += ∫ turnRate(k × binU, R(τ)) dτ over [e0, e1] (zone-relative ms): held beats exactly, closing beats by midpoints. */
+/**
+ * out[k] += ∫ turnRate(k × binU, R(τ)) dτ over [e0, e1] (zone-relative ms): held beats exactly, closing beats by midpoints.
+ *
+ * ALWAYS FINITE WORK: the walk is one segment per beat boundary, at most
+ * `TWIST_MAX_SEGMENTS` of them. A boundary that does not advance (a
+ * non-integer beat under a clock so large that `(⌊a / beat⌋ + 1) × beat`
+ * rounds back onto `a`) or a window longer than the cap ends the walk with
+ * ONE held segment over the rest at the radius where it stopped — an
+ * approximation only pathological dials ever reach (the shipped ones walk
+ * three segments), never a hang.
+ */
 function addTwist(cfg: FogFieldConfig, zc: ZoneClock, e0: number, e1: number, binU: number, out: Float64Array): void {
   let a = e0;
-  while (a < e1) {
+  for (let seg = 0; a < e1; seg++) {
     const b = Math.min(e1, (Math.floor(a / zc.beatMs) + 1) * zc.beatMs);
     const Ra = zoneLadderRadiusAt(a, zc.radii, zc.zoneCfg);
+    if (!(b > a) || seg >= TWIST_MAX_SEGMENTS) {
+      addRate(cfg, Ra, e1 - a, binU, out); // the rest as ONE held segment — never a hang
+      return;
+    }
     const Rb = zoneLadderRadiusAt(b, zc.radii, zc.zoneCfg);
     if (Ra === Rb) {
       addRate(cfg, Ra, b - a, binU, out);
@@ -232,7 +252,11 @@ function morphWeight(e: number, period: number): number {
  * (clamped to the last), and during a closing beat a linear blend toward group
  * g+1's entry by the SAME progress fraction the ring's radius uses. Held at the
  * last applicable entry once closed (and on a degenerate beat), so the
- * sudden-death collapse holds the last entry. An empty table reads 0.
+ * sudden-death collapse holds the last entry. THE BLEND TARGET IS CLAMPED TO
+ * THE ZONE'S LAST GROUP as well as the table's last entry: a table longer
+ * than the zone has groups never blends toward an entry no group reaches
+ * (the last group's closing beat would ramp to it and then snap back to the
+ * closed value). An empty table reads 0.
  */
 export function fogRingStepAt(tab: readonly number[], e: number, zoneCfg: ZoneTimeline = CONFIG.zone): number {
   const last = tab.length - 1;
@@ -248,7 +272,7 @@ export function fogRingStepAt(tab: readonly number[], e: number, zoneCfg: ZoneTi
   const a = tab[Math.min(g, last)];
   if (beat - g * ZONE_BEATS_PER_GROUP < ZONE_BEATS_PER_GROUP - 1) return a;
   const f = (elapsed - ((g + 1) * ZONE_BEATS_PER_GROUP - 1) * beatMs) / beatMs;
-  return a + (tab[Math.min(g + 1, last)] - a) * clamp01(f);
+  return a + (tab[Math.min(g + 1, groups - 1, last)] - a) * clamp01(f);
 }
 
 /** The solid share at ρ = distance / live ring radius, for the live eye fraction `eyeFrac` and edge coverage `edgeCov`. */

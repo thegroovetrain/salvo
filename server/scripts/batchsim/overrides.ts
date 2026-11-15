@@ -186,7 +186,8 @@ const TUNE_FAMILIES = [
   // index, so an arm can move an entry and never grow or truncate a table) —
   // each entry on CLOSED [0, 1] (FOG_RING_SHARE). `octaves`, `hullGridCols`
   // and `hullGridRows` are COUNTS: integers, the grid capped at
-  // FOG_GRID_CEILING a side (validateFogDials, on the finished CONFIG).
+  // FOG_GRID_CEILING POINTS — cols × rows (validateFogDials, on the finished
+  // CONFIG).
   // READ-ONCE CAVEAT (true of the old field too): a World reads the dials
   // when it is constructed (the quantile table, T, the grid), so an arm is
   // applied before its matches are built — which is how the harness runs.
@@ -831,20 +832,26 @@ function validateCoverBand(): void {
  * THE RAIN DIALS MUST DESCRIBE A FIELD (Story 9.10; Story 11.6): `octaves`,
  * `hullGridCols` and `hullGridRows` are COUNTS — a fractional octave count is
  * a partial fbm loop and a fractional grid side is no grid — so each must be
- * an integer, and the hull grid stays at most FOG_GRID_CEILING a side.
+ * an integer, and the hull grid stays at most FOG_GRID_CEILING POINTS in all
+ * (cols × rows — the PRODUCT, never a per-side cap: 16 × 16 would be 256).
  * Judged on the FINISHED CONFIG — an arm may set several leaves at once.
  */
 function validateFogDials(): void {
   const { octaves, hullGridCols, hullGridRows } = CONFIG.fog;
   if (!Number.isInteger(octaves)) throw new TunableError(`'fog.octaves' must be an integer count of fbm octaves, got '${octaves}'`);
   for (const [name, side] of [['hullGridCols', hullGridCols], ['hullGridRows', hullGridRows]] as const) {
-    if (!Number.isInteger(side) || side > FOG_GRID_CEILING) {
-      throw new TunableError(`'fog.${name}' must be an integer grid side <= ${FOG_GRID_CEILING} (a hidden hull costs one rain walk per grid point per observer), got '${side}'`);
-    }
+    if (!Number.isInteger(side)) throw new TunableError(`'fog.${name}' must be an integer grid side, got '${side}'`);
+  }
+  if (hullGridCols * hullGridRows > FOG_GRID_CEILING) {
+    throw new TunableError(
+      `'fog.hullGridCols' x 'fog.hullGridRows' must be <= ${FOG_GRID_CEILING} grid points (the client's dissolve shader holds one visibility per point in a ${FOG_GRID_CEILING}-slot uniform, and a hidden hull costs one rain walk per point per observer), got ${hullGridCols} x ${hullGridRows}`,
+    );
   }
 }
 
-/** The hull sight grid's ceiling a side: every point is one optical-depth walk per hidden hull per observer per tick. */
+/** The hull sight grid's ceiling in POINTS (cols × rows): the client dissolve
+ *  shader's uniform capacity — one visibility per grid point — and every
+ *  point is one optical-depth walk per hidden hull per observer per tick. */
 const FOG_GRID_CEILING = 16;
 
 /**

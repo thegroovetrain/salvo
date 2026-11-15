@@ -1182,6 +1182,25 @@ export interface ShipRecord {
    */
   plainHandles: Map<string, string>;
   /**
+   * THE CLOUDS THIS OBSERVER HOLDS (Story 11.6 review): the ids of the live
+   * SMOKE SCREEN clouds the `cloud` row has delivered to this observer — at
+   * an earlier tick or THIS one — and that its client therefore draws and
+   * charges on its own eye lines (a client keeps a cloud from the frame that
+   * carries it until the cloud's life ends). A cloud adds optical depth to
+   * this observer's eye lines ONLY while its id is here (`World.smokeRefresh`)
+   * — the server never hides a hull behind smoke the client was never told
+   * about. ORDER: perception's cloud scan writes it BEFORE the same pass's
+   * eye rows run (perception.ts `view`), so a cloud first delivered in a
+   * frame is charged in that frame — the client holds it by the time it
+   * draws that frame — and never a tick earlier. FORGOTTEN at the cloud's
+   * own death (`stepClouds`), at this hull's foundering, respawn and
+   * redeploy, and at a socket drop / resume (`forgetPlainVisits`) — the
+   * `plainHandles` posture. Forgetting only ever charges LESS (the server
+   * then sends a hull the client's own smoke may still cover): it can hide
+   * less, never leak. SERVER-PRIVATE; never on the wire.
+   */
+  heldClouds: Set<string>;
+  /**
    * The ship's equipment loadout — FIVE FIXED-ROLE SLOTS (Story 10.5;
    * shared/src/sim/loadout.ts): `[gun, boost, torpedo, mine, special shell]`,
    * the SAME shape for every captain hull, each slot either
@@ -1595,20 +1614,6 @@ interface SmokeScratchDisc {
   r: number;
 }
 
-/** The smoke dials the sight gate hands the shared `smokeDepthAlong` — a
- *  mirror of `CONFIG.countermeasure.sightThickness` / `sightSoftFrac`,
- *  re-read at every refresh (`World.smokeRefresh`). */
-const SMOKE_SIGHT = { thickness: 0, softFrac: 0 };
-
-/** Bring `SMOKE_SIGHT` up to CONFIG; true when a dial moved. */
-function smokeDialsMoved(): boolean {
-  const { sightThickness, sightSoftFrac } = CONFIG.countermeasure;
-  if (SMOKE_SIGHT.thickness === sightThickness && SMOKE_SIGHT.softFrac === sightSoftFrac) return false;
-  SMOKE_SIGHT.thickness = sightThickness;
-  SMOKE_SIGHT.softFrac = sightSoftFrac;
-  return true;
-}
-
 /** Write cloud `c`'s disc at radius `r` into `discs[n]`; true when that slot changed. */
 function smokeDiscSet(discs: SmokeScratchDisc[], n: number, c: StoredCloud, r: number): boolean {
   const d = discs[n];
@@ -1722,9 +1727,10 @@ export class World {
    * cooldown ability since Story 10.5), born at `bornAt`, deleted by stepClouds once `now >= until`
    * (bornAt + lifeMs). IT OCCLUDES SIGHT LIKE RAIN (Story 11.6, Eric
    * 2026-11-14 — superseding Story 9.3 session 2's "client visual overlay"):
-   * every live cloud adds optical depth to every eye line through its spray
-   * disc (`smokeDiscs` / `fogSightAdmits` below), the owner's lines too; it
-   * never blocks radar. The `cloud` registry row ships each cloud a client
+   * a live cloud adds optical depth to every eye line through its spray disc
+   * of every observer that HOLDS it — one the `cloud` row has delivered it
+   * to (`ShipRecord.heldClouds`; `smokeDiscs` / `fogSightAdmits` below) —
+   * the owner's lines too; it never blocks radar. The `cloud` registry row ships each cloud a client
    * may sense as `{id,x,y,t0,lifeMs,r0,r1}` and the client paints it. WORLD-
    * OWNED, not on the hull: a cloud runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
@@ -2027,6 +2033,12 @@ export class World {
   /** The hull grid's asking order (see `hullGridOrder`) and its point scratch. */
   private readonly fogHullOrder: readonly number[];
   private readonly fogHullPts: Float64Array;
+  /** The hull grid's dims AS BUILT (CONFIG.fog.hullGridCols / Rows, floored,
+   *  at least 1): the scratch and the order above are sized for them, so the
+   *  gate lays the grid with THESE — never a live re-read of the dials, which
+   *  could index past the scratch if one moved under a live World. */
+  private readonly fogHullCols: number;
+  private readonly fogHullRows: number;
   /**
    * THE DENSITY MEMO (Eric: "make it performant"). The server's optical depth
    * IS a cell walk: a fixed world lattice of `marchStepU` (10 u) cells over
@@ -2066,7 +2078,9 @@ export class World {
   /**
    * THE SMOKE THE EYE READS (Story 11.6 scope add, Eric 2026-11-14: "smoke
    * occludes sight like rain", the owner blinded too, never radar): every
-   * cloud in `clouds` as a disc at its radius NOW — the shared
+   * cloud THE ASKING OBSERVER HOLDS (`ShipRecord.heldClouds` — the clouds
+   * its client was sent; a question with no observer reads every live
+   * cloud) as a disc at its radius NOW — the shared
    * `cloudOutlineRadius(now − bornAt, the cloud's own stamp)` — in press
    * order. Rebuilt IN PLACE at the top of every gate question
    * (`smokeRefresh`: a few compares per live cloud, nothing with none), so
@@ -2074,11 +2088,23 @@ export class World {
    * `smokeDepthAlong` integrates it with `CONFIG.countermeasure`'s
    * `sightThickness` / `sightSoftFrac`. `smokeEpoch` advances whenever the
    * set differs from the last question's (a cloud made, grown — every tick
-   * while one lives — or gone, or a dial moved): the one-entry gate memos
-   * key on it beside the rain epoch.
+   * while one lives — or gone, a dial moved, OR THE NEXT OBSERVER HOLDS A
+   * DIFFERENT SET — the comparison is on the discs themselves, so it is
+   * exactly "the smoke this question reads is not the smoke the last one
+   * read"): the one-entry gate memos key on it beside the rain epoch, which
+   * is what makes them observer-specific.
    */
   private readonly smokeDiscs: SmokeScratchDisc[] = [];
   private smokeEpoch = 0;
+  /**
+   * The smoke dials the sight gate hands the shared `smokeDepthAlong` — THIS
+   * World's mirror of `CONFIG.countermeasure.sightThickness` /
+   * `sightSoftFrac`, re-read at every refresh (`smokeRefresh`). Per World,
+   * never module state: each World must notice a moved dial ITSELF and bump
+   * its own `smokeEpoch` (a shared mirror let the first World to ask swallow
+   * the move, leaving every other World's gate memos stale).
+   */
+  private readonly smokeSight = { thickness: 0, softFrac: 0 };
   /** Lattice walks since construction — the gate's work accounting (tests, the tick-cost probe). */
   private fogWalkCount = 0;
   /**
@@ -2336,9 +2362,10 @@ export class World {
     // game/botPort.ts derives the bot's zone readouts from the same public
     // inputs a client holds (it no longer passes `this`).
     this.bots = new BotController(makeBotPort(this, this.zoneCfg), (seed ^ 0xc2b2ae35) >>> 0);
-    // The fog FIELD (Story 9.10): public weather off the map seed under the
-    // same constant (a different mint — the field is derived on both sides
-    // from the welcome's `fogSeed`, so it is not a stream).
+    // The RAIN FIELD's seed (Story 9.10; the storm-eye rain since 11.6):
+    // public weather minted off the map seed under its own constant. Not a
+    // stream — the field is derived on both sides from the welcome's
+    // `fogSeed`, so nothing is ever drawn from it server-side.
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
     this.fogField = makeFogField(this.fogSeed, CONFIG.fog, this.map.radius);
     this.fogOwnFrame = fogFrameAt(this.fogField, 0, null, 0, 0, this.zoneCfg); // no rain until the zone starts
@@ -2346,6 +2373,8 @@ export class World {
     this.fogMaxDepthU = fogMaxDepth(CONFIG.fog);
     const gridCols = Math.max(1, Math.floor(CONFIG.fog.hullGridCols));
     const gridRows = Math.max(1, Math.floor(CONFIG.fog.hullGridRows));
+    this.fogHullCols = gridCols;
+    this.fogHullRows = gridRows;
     this.fogHullOrder = hullGridOrder(gridCols, gridRows);
     this.fogHullPts = new Float64Array(2 * gridCols * gridRows);
     // The density memo lattice — one allocation for the World's life (see fogMemo).
@@ -2439,7 +2468,13 @@ export class World {
    * the drop and again at the resume. An unknown id is a no-op.
    */
   forgetPlainVisits(observerId: string): void {
-    this.ships.get(observerId)?.plainHandles.clear();
+    const ship = this.ships.get(observerId);
+    if (ship === undefined) return;
+    ship.plainHandles.clear();
+    // ...and every cloud it holds (Story 11.6 review — `ShipRecord.heldClouds`):
+    // a client that comes back on a fresh page holds none, so none may be
+    // charged on its eye lines until the cloud row delivers it again.
+    ship.heldClouds.clear();
   }
 
   /** One fresh handle off the keyed counter (see plainHandleFor). */
@@ -2762,7 +2797,7 @@ export class World {
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
       seenBallistics: new Set(), losHints: newLosHints(),
       torpDirs: new Map(),
-      plainHandles: new Map(),
+      plainHandles: new Map(), heldClouds: new Set(),
       loadout,
       // ONE tally (Story 5.6, amendment 38): `kills` counts human captains
       // AND, since Story 6.4 (Eric ruling B3: bots are ordinary combatants),
@@ -3140,6 +3175,7 @@ export class World {
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
     ship.plainHandles.clear(); // Story 11.2: a fresh life starts every plain visit anew
+    ship.heldClouds.clear(); // Story 11.6 review: ...and holds no cloud (the clouds themselves left with clouds.clear())
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -3344,6 +3380,7 @@ export class World {
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
       ship.dazzledUntil = 0; // ...and the flash's dazzle (Story 10.9)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
+      ship.heldClouds.clear(); // Story 11.6 review: the life's held clouds die with it (the next frame is a spectator's)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
       // The land edge dies with the life (Story 9.5); the damage-source
       // stamp, the land bit and the contact tally DO NOT — the harness reads
@@ -4723,33 +4760,61 @@ export class World {
 
   /**
    * THE OPTICAL DEPTH τ of the SMOKE on the ray A → B right now: the shared
-   * `smokeDepthAlong` over every live cloud's disc at its current radius
-   * (`smokeDiscs`) with `CONFIG.countermeasure`'s sight dials — in the rain's
+   * `smokeDepthAlong` over the disc at its current radius of every live
+   * cloud in `held` (an observer's `ShipRecord.heldClouds`; omitted, every
+   * live cloud — `smokeDiscs`) with `CONFIG.countermeasure`'s sight dials — in the rain's
    * own units, so the two add. No observer exemption (a cloud A stands in
    * counts from A to its rim, the owner's included). 0 with no cloud. The
    * sight gate's smoke term, exposed as the reference the gate is held to
    * (`fogGate.test.ts`); never a radar input.
    */
-  smokeDepthAlong(ax: number, ay: number, bx: number, by: number): number {
-    if (this.smokeRefresh() === 0) return 0;
-    return smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, SMOKE_SIGHT);
+  smokeDepthAlong(ax: number, ay: number, bx: number, by: number, held?: ReadonlySet<string>): number {
+    if (this.smokeRefresh(held) === 0) return 0;
+    return smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
   }
 
-  /** Bring `smokeDiscs` up to this instant (see there); returns how many
-   *  clouds are live. With none — and none last time — it is one size read. */
-  private smokeRefresh(): number {
+  /** Bring `smokeSight` up to CONFIG; true when a dial moved. */
+  private smokeDialsMoved(): boolean {
+    const { sightThickness, sightSoftFrac } = CONFIG.countermeasure;
+    const dials = this.smokeSight;
+    if (dials.thickness === sightThickness && dials.softFrac === sightSoftFrac) return false;
+    dials.thickness = sightThickness;
+    dials.softFrac = sightSoftFrac;
+    return true;
+  }
+
+  /**
+   * Bring `smokeDiscs` up to this instant FOR THIS QUESTION'S OBSERVER (see
+   * there); returns how many clouds it reads. `held` is the asking observer's
+   * `ShipRecord.heldClouds` — only those clouds are charged (Story 11.6
+   * review: a cloud the client was never sent hides nothing from it);
+   * omitted, every live cloud is (the observer-less reference the gate tests
+   * and probes ask). With no cloud to read — and none last time — it is a
+   * size read or two.
+   */
+  private smokeRefresh(held?: ReadonlySet<string>): number {
     const discs = this.smokeDiscs;
-    const live = this.clouds.size;
-    if (live === 0 && discs.length === 0) return 0;
-    let changed = smokeDialsMoved() || discs.length !== live;
+    if ((this.clouds.size === 0 || held?.size === 0) && discs.length === 0) return 0;
+    const moved = this.smokeDialsMoved();
+    const rewritten = this.smokeDiscsWrite(held);
+    if (moved || rewritten) this.smokeEpoch += 1;
+    return discs.length;
+  }
+
+  /** Rewrite `smokeDiscs` in place as the live clouds in `held` (every live
+   *  cloud when omitted) at their radii now; true when the set changed. */
+  private smokeDiscsWrite(held: ReadonlySet<string> | undefined): boolean {
+    const discs = this.smokeDiscs;
+    let changed = false;
     let n = 0;
     for (const c of this.clouds.values()) {
+      if (held !== undefined && !held.has(c.id)) continue;
       if (smokeDiscSet(discs, n, c, cloudOutlineRadius(this.now - c.bornAt, c))) changed = true;
       n += 1;
     }
+    if (discs.length !== n) changed = true;
     discs.length = n;
-    if (changed) this.smokeEpoch += 1;
-    return n;
+    return changed;
   }
 
   /**
@@ -4761,7 +4826,10 @@ export class World {
    * perception for a POINT (signals.ts `eyeHolds`, through the context's
    * `fogAdmits` thunk); a hull asks `fogHullAdmits`; the cloud row's own
    * sight arm asks `fogRainAdmits` (smoke never hides smoke). The caller has
-   * already established its range cap and island line of sight.
+   * already established its range cap and island line of sight. `held` is
+   * the asking observer's `ShipRecord.heldClouds` — THE SMOKE IS ONLY THE
+   * CLOUDS THAT OBSERVER HOLDS (Story 11.6 review; see `smokeRefresh`);
+   * omitted, every live cloud (the observer-less reference).
    *
    * THE SMOKE TERM COMES FIRST — it is analytic (a chord per live cloud, the
    * shared `smokeDepthAlong`) — and the rain walk then runs against the
@@ -4783,8 +4851,8 @@ export class World {
    * A walk that neither bound ends runs to the end and takes the reference
    * comparison. Never an approximation.
    */
-  fogSightAdmits(ax: number, ay: number, bx: number, by: number): boolean {
-    const smoky = this.smokeRefresh() > 0;
+  fogSightAdmits(ax: number, ay: number, bx: number, by: number, held?: ReadonlySet<string>): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
     if (!smoky && !this.fogFrame.on) return true;
     const memo = this.fogGateMemo;
     if (this.memoCurrent(memo) && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.seen;
@@ -4830,8 +4898,10 @@ export class World {
    * The caller has already established the tier's range cap and island line
    * of sight on the hull's center. With no rain and no cloud: true, no work.
    */
-  fogHullAdmits(ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number): boolean {
-    const smoky = this.smokeRefresh() > 0;
+  fogHullAdmits(
+    ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number, held?: ReadonlySet<string>,
+  ): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
     if (!smoky && !this.fogFrame.on) return true;
     const q = FOG_HULL_Q;
     q.ax = ax;
@@ -4854,8 +4924,7 @@ export class World {
   /** `fogHullAdmits`, computed (its only caller holds the one-entry memo). */
   private fogHullWalked(q: FogHullQuestion, smoky: boolean): boolean {
     const pts = this.fogHullPts;
-    const cols = Math.max(1, Math.floor(CONFIG.fog.hullGridCols));
-    const n = fogHullGrid(q.cx, q.cy, q.heading, q.lengthU, q.beamU, cols, pts.length / (2 * cols), pts);
+    const n = fogHullGrid(q.cx, q.cy, q.heading, q.lengthU, q.beamU, this.fogHullCols, this.fogHullRows, pts);
     for (const k of this.fogHullOrder) {
       if (k < n && this.fogSightWalked(q.ax, q.ay, pts[2 * k], pts[2 * k + 1], smoky)) return true;
     }
@@ -4928,7 +4997,7 @@ export class World {
     // when the ray touches no cloud (τ_smoke is exactly 0 then).
     let T = this.fogMaxDepthU;
     if (smoky) {
-      const smoke = smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, SMOKE_SIGHT);
+      const smoke = smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
       if (smoke > T) return false; // the smoke alone hides it
       T -= smoke;
     }
@@ -8251,7 +8320,11 @@ export class World {
    */
   private stepClouds(): void {
     for (const [id, cloud] of this.clouds) {
-      if (this.now >= cloud.until) this.clouds.delete(id);
+      if (this.now < cloud.until) continue;
+      this.clouds.delete(id);
+      // Every observer's hold on it dies with it (Story 11.6 review —
+      // `ShipRecord.heldClouds`): no growth, and no stale id.
+      for (const ship of this.ships.values()) ship.heldClouds.delete(id);
     }
   }
 
@@ -8383,6 +8456,7 @@ export class World {
     // standalone-World test, which defaults both flags true.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
+    ship.heldClouds.clear(); // Story 11.6 review: a fresh life holds no cloud until the cloud row delivers one
     // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
     // and removeShip): `kills` persists across the death (only
     // redeployShip zeroes it), so a returning captain may still clear the

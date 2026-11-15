@@ -86,8 +86,10 @@ export interface PerceptionView {
   foulZones: FoulZoneView[];
   /** Per-observer MULTI-SPECTRAL COUNTERMEASURE cloud visibility (Story 9.3
    *  — contact-like, recomputed every tick through the `cloud` row, in press
-   *  order). The cloud's seed alone rides here (`{id,x,y,t0}`); it occludes
-   *  nothing (Story 9.3 session 2 — a client overlay). */
+   *  order). The cloud's seed alone rides here (`{id,x,y,t0,lifeMs,r0,r1}`).
+   *  A cloud delivered here is one the observer HOLDS from this frame on, and
+   *  only a held cloud occludes that observer's eye lines (Story 11.6: smoke
+   *  occludes sight like rain; `ShipRecord.heldClouds`). */
   clouds: CloudView[];
   /** Per-observer AIRDROP visibility (Story 10.9 — contact-like, recomputed
    *  every tick through the `drop` row: spectator always, else the crate's
@@ -126,13 +128,17 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // subjects and nothing else (what a cloud hides is inside the gates below).
     clouds: world.cloudRecords,
     // THE WEATHER GATES (Story 11.6) — the World's bounded optical-depth gate
-    // (rain + every live smoke cloud) on a ray (`fogSightAdmits`, read by
+    // (rain + the smoke this observer holds) on a ray (`fogSightAdmits`, read by
     // every eyeHolds site) and on a hull's sight grid (`fogHullAdmits`, the
     // two hull rows), and the rain alone (`fogRainAdmits`, the cloud row's
     // sight arm). Thunks, so the field itself never rides the context.
-    fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
+    // THE SMOKE HALF IS THIS OBSERVER'S HELD CLOUDS ONLY (`me.heldClouds`,
+    // Story 11.6 review): a cloud its client was never sent hides nothing
+    // from it. `view` runs the cloud scan — the set's one writer — before
+    // any row below asks.
+    fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by, me.heldClouds),
     fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
-    fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
+    fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU, me.heldClouds),
     // Story 11.2 follow-up: the island broadphase index (validated ONCE here,
     // for this whole pass) — the same answers as `islands`, without the work
     // that cannot change them.
@@ -429,15 +435,30 @@ function foulZoneScan(world: World, ctx: SignalContext): FoulZoneView[] {
   return out;
 }
 
-/** Per-observer COUNTERMEASURE cloud visibility (Story 9.3) — contact-like
- *  state exactly like mines, recomputed every tick through the cloud row, in
- *  Map-insertion (press) order. ONLY the seed rides here; a cloud occludes
- *  nothing (Story 9.3 session 2 — the client paints it as an overlay). */
+/**
+ * Per-observer COUNTERMEASURE cloud visibility (Story 9.3) — contact-like
+ * state exactly like mines, recomputed every tick through the cloud row, in
+ * Map-insertion (press) order. ONLY the seed rides here.
+ *
+ * THE ONE WRITER OF THE OBSERVER'S HELD CLOUDS (Story 11.6 review —
+ * `ShipRecord.heldClouds`): on the fogged path every cloud this pass
+ * delivers is marked held, and a cloud occludes this observer's eye lines
+ * only while held (the client charges exactly the clouds it was sent, from
+ * the frame that carries them until they die). `view` therefore runs this
+ * scan FIRST, before any eye row: a cloud first delivered in this frame
+ * already occludes in this frame — the client has it when it draws this
+ * frame — and a cloud never delivered occludes nothing. The row's own gate
+ * never reads smoke (`eyeHoldsThroughRain`), so the order is not circular.
+ * A spectator pass holds nothing (it is unfogged).
+ */
 function cloudScan(world: World, ctx: SignalContext): CloudView[] {
   const out: CloudView[] = [];
   const row = SIGNAL_REGISTRY.cloud;
+  const held = ctx.mode === 'fogged' ? ctx.me.heldClouds : undefined;
   for (const cloud of world.clouds.values()) {
-    if (row.visible(ctx, cloud)) out.push(row.materialize(ctx, cloud));
+    if (!row.visible(ctx, cloud)) continue;
+    out.push(row.materialize(ctx, cloud));
+    held?.add(cloud.id);
   }
   return out;
 }
@@ -550,6 +571,10 @@ function maskBitsOrder(a: readonly number[], b: readonly number[]): number {
  *  subsequence is sorted; its position relative to every other event kind is
  *  unchanged. */
 function view(world: World, ctx: SignalContext): PerceptionView {
+  // THE CLOUD SCAN RUNS FIRST (Story 11.6 review): it marks the clouds this
+  // observer holds, and every eye row below charges exactly those — see
+  // `cloudScan`. The list still rides the view in its historical position.
+  const clouds = cloudScan(world, ctx);
   const { contacts, blips, plain } = shipScan(world, ctx);
   const events = forwardedEvents(world, ctx);
   events.push(...ballisticScan(world, ctx));
@@ -587,7 +612,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     litZones: litZoneScan(world, ctx),
     burnZones: burnZoneScan(world, ctx),
     foulZones: foulZoneScan(world, ctx),
-    clouds: cloudScan(world, ctx),
+    clouds,
     drops: dropScan(world, ctx),
     plain,
   };

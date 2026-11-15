@@ -1680,13 +1680,23 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
       [{ 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/],
       [{ 'fog.hullGridCols': 2.5 }, /'fog\.hullGridCols' must be an integer/],
       [{ 'fog.hullGridRows': 1.5 }, /'fog\.hullGridRows' must be an integer/],
-      [{ 'fog.hullGridCols': 1000 }, /'fog\.hullGridCols' must be an integer grid side <=/],
+      [{ 'fog.hullGridCols': 1000 }, /'fog\.hullGridCols' x 'fog\.hullGridRows' must be <= 16 grid points/],
+      // THE PRODUCT, never a per-side cap: 16 points is the client shader's whole uniform.
+      [{ 'fog.hullGridCols': 16, 'fog.hullGridRows': 2 }, /must be <= 16 grid points/],
+      [{ 'fog.hullGridCols': 5, 'fog.hullGridRows': 4 }, /must be <= 16 grid points/],
+      [{ 'fog.hullGridCols': 9 }, /must be <= 16 grid points/], // 9 x the shipped rows
       [{ 'fog.edgeCoverageByRing.0': 0.2, 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/], // a legal leaf beside a refused one: both rolled back
     ];
     for (const [tune, re] of refused) {
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
       expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
+    }
+    // ...and every grid of exactly 16 points or fewer is an arm, whatever its shape.
+    for (const [cols, rows] of [[16, 1], [8, 2], [4, 4], [1, 16]]) {
+      const undo = applyOverrides({}, { 'fog.hullGridCols': cols, 'fog.hullGridRows': rows });
+      undo();
+      expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
     }
     // A per-ring entry moves by index and restores: the table keeps its length.
     const entry = CONFIG.fog.edgeCoverageByRing[1];

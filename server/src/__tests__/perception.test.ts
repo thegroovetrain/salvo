@@ -235,7 +235,7 @@ import {
   dispersionAxes,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
-import { buildFrame } from '../game/frames.js';
+import { buildFrame as buildFrameRaw } from '../game/frames.js';
 // Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
 // block below — never as a behavior oracle. Every visibility predicate in this
 // file stays independently reimplemented (see the header), so a perception
@@ -398,13 +398,84 @@ function rainAdmits(w: World, a: { x: number; y: number }, b: { x: number; y: nu
 
 const NO_SMOKE: RainDepth = { tau: 0, slack: 0, touched: false };
 
-/** The smoke on one ray, straight off the store at this instant — no memo (a
- *  directed case rewrites the store between frames without stepping the
- *  clock, and a ray that misses every disc costs a projection per cloud). */
-function smokeOracle(w: World, a: { x: number; y: number }, b: { x: number; y: number }): RainDepth {
+// THE HELD CLOUDS (Story 11.6 review): a cloud occludes an observer's eye
+// lines ONLY if that observer HOLDS it — the `cloud` row delivered it to that
+// observer in this frame or an earlier one (a client keeps a cloud until it
+// dies, and charges exactly the clouds it holds). Re-derived here from what
+// the frames actually carried: every frame this suite builds goes through the
+// `buildFrame` wrapper below, which ledgers each fogged frame's cloud ids per
+// (world, viewer) — the client's own memory, kept by the test.
+const DELIVERED = new WeakMap<World, Map<string, Set<string>>>();
+
+function deliveredTo(w: World, viewer: string): Set<string> {
+  let per = DELIVERED.get(w);
+  if (per === undefined) DELIVERED.set(w, (per = new Map()));
+  let got = per.get(viewer);
+  if (got === undefined) per.set(viewer, (got = new Set()));
+  return got;
+}
+
+/** `frames.buildFrame`, with the fogged frame's clouds ledgered as delivered
+ *  to `viewer` (a spectator frame carries every cloud and holds none). */
+function buildFrame(w: World, viewer: string, phase?: MatchPhase): FrameMsg {
+  const f = buildFrameRaw(w, viewer, phase);
+  if (f.spec !== true) for (const c of f.clouds ?? []) deliveredTo(w, viewer).add(c.id);
+  return f;
+}
+
+/** The observer whose eye is at `eye` (its own state object), if any. */
+function observerAt(w: World, eye: { x: number; y: number }): ShipRecord | undefined {
+  for (const s of w.ships.values()) if (s.state === eye) return s;
+  return undefined;
+}
+
+/**
+ * Does `me` hold `cloud` for this side of the dead band? Held = delivered in
+ * a frame so far, OR deliverable right now (`cloudGatePasses` — a premise
+ * asked before the frame is built, and the frame under verification itself:
+ * production runs the cloud scan before the eye rows, so a cloud first
+ * delivered in a frame is charged in that frame).
+ *   'strict' (a subject production MUST deliver): the MOST smoke production
+ *     may have charged — everything ever delivered, plus anything loosely
+ *     deliverable now.
+ *   'loose' (a delivered subject must be admissible): the LEAST — delivered
+ *     AND not since forgotten (production forgets at a death, a respawn, a
+ *     socket gap: forgetting only charges less, and `verifyHeldClouds` pins
+ *     that production never holds what was not delivered), plus anything
+ *     strictly deliverable now.
+ */
+function holdsCloud(w: World, me: ShipRecord, cloud: OracleCloud, bound: Bound): boolean {
+  const delivered = DELIVERED.get(w)?.get(me.id)?.has(cloud.id) === true;
+  if (bound === 'strict') return delivered || cloudGatePasses(w, me, cloud, 'loose');
+  return (delivered && me.heldClouds.has(cloud.id)) || cloudGatePasses(w, me, cloud, 'strict');
+}
+
+/** The smoke on one eye line, straight off the store at this instant — no
+ *  memo (a directed case rewrites the store between frames without stepping
+ *  the clock, and a ray that misses every disc costs a projection per cloud).
+ *  ONLY THE CLOUDS THE OBSERVER AT `a` HOLDS (`holdsCloud`, at the caller's
+ *  side of the dead band); a ray from no observer's eye reads every cloud. */
+function smokeOracle(w: World, a: { x: number; y: number }, b: { x: number; y: number }, bound: Bound = 'loose'): RainDepth {
   if (w.clouds.size === 0) return NO_SMOKE;
-  const discs = [...w.clouds.values()].map((c) => ({ x: c.x, y: c.y, r: cloudOutlineOracle(c, w.now) }));
+  const me = observerAt(w, a);
+  const clouds = [...w.clouds.values()].filter((c) => me === undefined || holdsCloud(w, me, c, bound));
+  if (clouds.length === 0) return NO_SMOKE;
+  const discs = clouds.map((c) => ({ x: c.x, y: c.y, r: cloudOutlineOracle(c, w.now) }));
   return smokeDepthOracle(discs, a, b);
+}
+
+/** THE HELD-SET INVARIANT (Story 11.6 review), on a fogged frame: every cloud
+ *  the frame carries is held from this frame on, and production holds NOTHING
+ *  the observer was never sent — every held id is one some frame delivered to
+ *  this viewer. (Liveness is the directed case's: a directed test may wipe
+ *  the store raw, which no production path does, and the gate only ever
+ *  reads live clouds.) */
+function verifyHeldClouds(w: World, me: ShipRecord, f: FrameMsg): void {
+  for (const c of f.clouds ?? []) expect(me.heldClouds.has(c.id), `${me.id} holds the cloud ${c.id} its frame carries`).toBe(true);
+  const got = DELIVERED.get(w)?.get(me.id);
+  for (const id of me.heldClouds) {
+    expect(got?.has(id) === true, `${me.id} holds only clouds a frame delivered to it (${id})`).toBe(true);
+  }
 }
 
 /** THE WEATHER GATE on one eye line: τ_rain + τ_smoke ≤ T ± (both dead
@@ -412,7 +483,7 @@ function smokeOracle(w: World, a: { x: number; y: number }, b: { x: number; y: n
  *  are 0 — the exact pre-weather test. */
 function lineAdmits(w: World, a: { x: number; y: number }, b: { x: number; y: number }, bound: Bound): boolean {
   const rain = rainOracle(w, a, b);
-  const smoke = smokeOracle(w, a, b);
+  const smoke = smokeOracle(w, a, b, bound);
   const slack = rain.slack + smoke.slack + (smoke.touched ? 1e-6 : 0); // + float dust of production's `τ_rain ≤ T − τ_smoke`
   return rain.tau + smoke.tau <= RAIN_T + (bound === 'loose' ? slack : -slack);
 }
@@ -3388,6 +3459,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // `until`) exist NOWHERE in the frame text — a cloud on the wire is
   // `{id,x,y,t0}` and nothing else.
   for (const v of f.clouds ?? []) verifyCloudShape(w, v);
+  if (f.spec !== true) verifyHeldClouds(w, me, f);
   for (const cloud of w.clouds.values()) {
     if (w.now >= cloud.until) continue;
     const delivered = (f.clouds ?? []).some((v) => v.id === cloud.id);
@@ -3807,10 +3879,23 @@ function beamCrossesDiscOracle(me: ShipRecord, c: { x: number; y: number }, r: n
  *  path. The two ledgers count deliveries ONE sensor alone explains. Since
  *  Story 9.10 the sight arm is fog-tolled (`bound` picks the dead band's
  *  side); the radar arm is fog-blind. */
+type OracleCloud = { id: string; ownerId: string; x: number; y: number; bornAt: number; lifeMs: number; r0: number; r1: number };
+
+/** `cloudGateOracle`'s answer WITHOUT its delivery ledgers — what the held
+ *  set asks (`holdsCloud`): would the cloud row deliver this cloud now? */
+function cloudGatePasses(w: World, me: ShipRecord, cloud: OracleCloud, bound: Bound): boolean {
+  const sight = CLOUD_DELIVERED_BY_SIGHT.n;
+  const radar = CLOUD_DELIVERED_BY_RADAR.n;
+  const pass = cloudGateOracle(w, me, cloud, bound);
+  CLOUD_DELIVERED_BY_SIGHT.n = sight;
+  CLOUD_DELIVERED_BY_RADAR.n = radar;
+  return pass;
+}
+
 function cloudGateOracle(
   w: World,
   me: ShipRecord,
-  cloud: { id: string; ownerId: string; x: number; y: number; bornAt: number; lifeMs: number; r0: number; r1: number },
+  cloud: OracleCloud,
   bound: Bound = 'strict',
 ): boolean {
   if (cloud.ownerId === me.id) return true;
@@ -5794,6 +5879,89 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     const f = buildFrame(w, 'a');
     verifyFrame(w, 'a', f);
     expect(f.events.filter((ev) => ev.k === 'blip')).toHaveLength(1);
+  });
+
+  it('ONLY A CLOUD THE OBSERVER HOLDS HIDES ANYTHING FROM IT: a grown cloud beyond class sight that the beam never swept does not hide the plain hull behind it; the sweep that delivers it hides the hull in that very frame, and it stays hidden — until the cloud dies or the observer forgets it', () => {
+    const w = bareWorld();
+    const me = place(w, 'a', 0, 0); // beam parked zero-width at 0: nothing is swept
+    const r = CLOUD_STAMP.r0 + (CLOUD_STAMP.r1 - CLOUD_STAMP.r0) * 0.95;
+    const hullX = (SIGHT + HULL_SIGHT) / 2; // in the plain band
+    const cloudX = SIGHT + r + 50; // its whole disc beyond class sight, across the line to the hull
+    expect(cloudX + r).toBeLessThan(hullX); // premise: the hull stands behind the cloud, not in it
+    const h = place(w, 'h', hullX, 0, Math.PI / 2, DEFAULT_SHIFT, DEFAULT_CLASS_ID); // beam-on: every grid ray runs through the disc's core
+    cloudAt(w, 'far', 'x', cloudX, 0, 0.95);
+    windowAround(me, Math.PI); // the beam looks the other way
+    const cloudIds = (f: FrameMsg): string[] => (f.clouds ?? []).map((c) => c.id);
+
+    // Never delivered: the client draws no cloud, so the server hides nothing behind it.
+    const unseen = buildFrame(w, 'a');
+    verifyFrame(w, 'a', unseen);
+    expect(cloudIds(unseen)).toEqual([]);
+    expect(plainCount(unseen)).toBe(1);
+    expect(me.heldClouds.size).toBe(0);
+
+    // The sweep crosses the disc: the cloud rides this frame AND already hides the hull in it.
+    windowAround(me, 0);
+    const swept = buildFrame(w, 'a');
+    verifyFrame(w, 'a', swept);
+    expect(cloudIds(swept)).toEqual(['far']);
+    expect(hullSighted(w, me, h, 'loose')).toBe(false); // premise: held, the smoke is past the threshold on every grid ray
+    expect(plainCount(swept)).toBe(0);
+
+    // The beam moves on: no longer delivered, still held, still hiding.
+    windowAround(me, Math.PI);
+    const after = buildFrame(w, 'a');
+    verifyFrame(w, 'a', after);
+    expect(cloudIds(after)).toEqual([]);
+    expect(plainCount(after)).toBe(0);
+    expect([...me.heldClouds]).toEqual(['far']);
+
+    // Another observer that was never sent the cloud is not blinded by it.
+    place(w, 'other', 0, 1);
+    w.ships.get('other')!.sweepAngle = Math.PI;
+    w.ships.get('other')!.prevSweepAngle = Math.PI;
+    const other = buildFrame(w, 'other');
+    verifyFrame(w, 'other', other);
+    expect(cloudIds(other)).toEqual([]);
+    expect(plainCount(other)).toBe(1);
+    // ...and asking for the other observer did not disturb the first one's answer.
+    expect(plainCount(buildFrame(w, 'a'))).toBe(0);
+
+    // A socket gap forgets it (the client may come back on a fresh page).
+    w.forgetPlainVisits('a');
+    expect(me.heldClouds.size).toBe(0);
+    const resumed = buildFrame(w, 'a');
+    verifyFrame(w, 'a', resumed);
+    expect(plainCount(resumed)).toBe(1);
+
+    // Held again, then the cloud's own death ends every hold on it.
+    windowAround(me, 0);
+    expect(plainCount(buildFrame(w, 'a'))).toBe(0);
+    windowAround(me, Math.PI);
+    w.clouds.set('far', { ...w.clouds.get('far')!, until: w.now }); // expires at the next step's cloud sweep
+    w.step();
+    expect(w.clouds.size).toBe(0);
+    expect(me.heldClouds.size).toBe(0);
+  });
+
+  it('a hull forgets the clouds it holds when its life ends and when a new one starts', () => {
+    const w = bareWorld();
+    const me = place(w, 'a', 0, 0);
+    injectCloud(w, 'mine', 'a', 0, 0); // its own cloud: always delivered
+    buildFrame(w, 'a');
+    expect([...me.heldClouds]).toEqual(['mine']);
+    w.respawnEnabled = false;
+    w.sinkShip('a');
+    w.step(CONFIG.ship.sinkingWindowMs); // founder: the life is over
+    expect(isAfloat(me.lifecycle) || isSinking(me.lifecycle)).toBe(false); // premise
+    expect(w.clouds.has('mine')).toBe(true); // premise: the cloud outlives its owner
+    expect(me.heldClouds.size).toBe(0);
+    injectCloud(w, 'again', 'a', me.state.x, me.state.y);
+    me.heldClouds.add('again'); // (as a pass during the death gap would)
+    me.respawnAt = w.now; // the respawn the waiting phase would have armed
+    w.step();
+    expect(isAfloat(me.lifecycle)).toBe(true); // premise: it respawned
+    expect(me.heldClouds.size).toBe(0);
   });
 
   it('SMOKE NEVER HIDES SMOKE: a cloud is delivered to everyone who would see its disc — through another cloud, and from deep inside one — though a flash on the very same ray is withheld', () => {

@@ -67,7 +67,8 @@ export interface MetricsPayload {
    * an ops endpoint could turn into a wallhack. `cloudLivePeak` (Story 8.18 /
    * 9.3 — 8.18's `smokeLivePeak`) is its twin for live MULTI-SPECTRAL
    * COUNTERMEASURE clouds — every cloud is one delivery-gate check per
-   * observer per tick (Story 9.3 session 2: it occludes nothing), so the peak
+   * observer per tick, and since Story 11.6 (smoke occludes sight like rain)
+   * a chord test on every eye line of each observer that holds it, so the peak
    * still says what the perception pass paid for. (Story 9.10's `fogCut` /
    * `fogCoverage` per-scrape gauge retired with the coverage cut in Story
    * 11.6: the storm-eye rain has no cut and no realized-coverage controller

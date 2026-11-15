@@ -1,9 +1,12 @@
 // SMOKE SIGHT — the optical depth a set of SMOKE SCREEN clouds adds to an eye
 // line (Story 11.6 scope add, Eric 2026-11-14: smoke occludes sight like rain;
 // "your own smoke blinds you too"; thickness is HIS dial, set on the bench).
-// Written in the shared/ posture so it ports to `shared/src/sim/` verbatim:
-// pure, deterministic, plain objects, zero I/O, NO TRANSCENDENTALS (Math.sqrt
-// only — no exp / log / pow / trig / random, no clock).
+// The ONE derivation both sides run (the server's sight gate and the client's
+// V grid), in the shared/ posture: pure, deterministic, plain objects, zero
+// I/O, NO TRANSCENDENTALS (Math.sqrt only — no exp / log / pow / trig /
+// random, no clock). WHICH clouds an eye line pays for is the caller's
+// business: the server hands in only the clouds the observer holds (the ones
+// its client was sent), the client the ones it holds.
 //
 // The model in plain words:
 // • A cloud is a stationary disc {x, y, r} (r = `cloudOutlineRadius(age,
@@ -22,7 +25,7 @@
 //   chord with a fixed `SMOKE_CHORD_SAMPLES`-point midpoint rule (the profile
 //   is smooth and the chord short, so a handful of samples is within a few %).
 // • Clouds sum (overlapping smoke is thicker). The observer gets NO exemption:
-//   an eye inside a cloud pays its own smoke out to the rim.
+//   an eye inside a cloud in the set pays its smoke out to the rim.
 // • Total sight depth is rain τ (`fogDepthAlong`) + this, compared against the
 //   ONE threshold `fogMaxDepth` (sim/fogDepth.ts).
 //

@@ -217,6 +217,39 @@ describe('the coverage profile by ρ (solid share = density ≥ ½)', () => {
       expect(fogRingStepAt(tab, CLOSED + 10 * BEAT, ZONE)).toBe(tab[top]);
     }
   });
+
+  it('a per-ring table LONGER than the zone has groups never blends toward an entry no group reaches: the last group\'s closing beat holds its own entry right up to the closed value (no ramp, no snap)', () => {
+    const groups = Math.round(CLOSED / GROUP);
+    const tab = Array.from({ length: groups + 3 }, (_, i) => (i + 1) / (groups + 4)); // strictly rising, three entries past the last group
+    const lastGroup = tab[groups - 1];
+    expect(fogRingStepAt(tab, CLOSED, ZONE)).toBe(lastGroup); // the closed value is the last GROUP's entry
+    for (const f of [0, 0.25, 0.5, 0.75, 0.999]) {
+      expect(fogRingStepAt(tab, (groups - 1) * GROUP + (3 + f) * BEAT, ZONE), `closing beat progress ${f}`).toBe(lastGroup);
+    }
+    // ...while an earlier group's closing beat still blends toward the next group's entry.
+    if (groups >= 2) {
+      expect(fogRingStepAt(tab, (groups - 2) * GROUP + 3.5 * BEAT, ZONE)).toBeCloseTo((tab[groups - 2] + tab[groups - 1]) / 2, 12);
+    }
+  });
+
+  it('THE TWIST INTEGRAL ALWAYS RETURNS: a beat that cannot advance a huge clock, and a morph window thousands of beats long, both build a finite frame', () => {
+    const finite = (f: { on: boolean; twistA: Float64Array; twistB: Float64Array }): boolean =>
+      f.on && f.twistA.every((v) => Number.isFinite(v)) && f.twistB.every((v) => Number.isFinite(v));
+    // (1) A non-integer beat under a clock so large that the next beat
+    // boundary rounds back onto the clock itself: (floor(a / beat) + 1) × beat <= a.
+    const tiny: ZoneTimeline = { ...ZONE, beatMs: 0.1 };
+    const huge = 1e17 + 70000;
+    const stuck = Math.floor(huge / CFG.morphMs) * CFG.morphMs; // where layer B's integral starts
+    expect((Math.floor(stuck / tiny.beatMs) + 1) * tiny.beatMs).toBeLessThanOrEqual(stuck); // premise: that boundary does not advance
+    expect(finite(fogFrameAt(field, huge, 0, 0, 0, tiny))).toBe(true);
+    // (2) A morph window of a billion one-millisecond beats (a tuning arm or a
+    // dev zone override can set either dial): bounded work, not a billion segments.
+    const longMorph = makeFogField(12345, { ...CFG, morphMs: 1e9 }, OCEAN_R);
+    const fast: ZoneTimeline = { ...ZONE, beatMs: 1 };
+    const f = fogFrameAt(longMorph, 0.9e9, 0, 0, 0, fast);
+    expect(finite(f)).toBe(true);
+    expect(Number.isFinite(fogDensityAt(f, OCEAN_R * 0.3, OCEAN_R * 0.2))).toBe(true);
+  });
 });
 
 describe('continuity — no density pop', () => {

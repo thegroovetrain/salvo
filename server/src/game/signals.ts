@@ -54,11 +54,16 @@
 // A SMOKE SCREEN (MULTI-SPECTRAL COUNTERMEASURE) cloud OCCLUDES SIGHT LIKE
 // RAIN (Story 11.6 scope add, Eric 2026-11-14 — superseding Story 9.3
 // session 2's "it hides nothing, just draw it on top of ships"): every live
-// cloud adds optical depth to every eye line through its spray disc, so the
-// weather term of `eyeHolds` / `hullHeld` is τ_rain + τ_smoke ≤ T — one
-// answer from the World's gate (`fogSightAdmits` / `fogHullAdmits`, the
-// shared `smokeDepthAlong`). THE OWNER IS BLINDED TOO (no owner exemption on
-// any eye line). SMOKE NEVER BLOCKS RADAR: no radar, wake, zone-circle or
+// cloud THE OBSERVER HOLDS adds optical depth to every eye line through its
+// spray disc, so the weather term of `eyeHolds` / `hullHeld` is
+// τ_rain + τ_smoke ≤ T — one answer from the World's gate (`fogSightAdmits` /
+// `fogHullAdmits`, the shared `smokeDepthAlong`). HELD = the `cloud` row
+// delivered it to that observer, this tick or an earlier one
+// (`ShipRecord.heldClouds`, written by perception's cloud scan BEFORE the
+// eye rows run): the client charges exactly the clouds it was sent, so the
+// server never hides a hull behind smoke the client cannot draw. THE OWNER
+// IS BLINDED TOO (it always holds its own cloud; no owner exemption on any
+// eye line). SMOKE NEVER BLOCKS RADAR: no radar, wake, zone-circle or
 // foghorn gate reads a cloud, and an owned star-shell zone (`ownZoneCovers`
 // — lit from above) is not an eye line either. THE CLOUD ROW ITSELF is
 // delivered on the rain alone (`eyeHoldsThroughRain`): smoke never hides
@@ -193,7 +198,8 @@ interface SignalContextBase {
    * THE WEATHER GATE on a ray (Story 11.6 — `World.fogSightAdmits` bound by
    * perception.ts): does the eye at A see the point B through the rain AND
    * the smoke right now — total optical depth τ_rain + τ_smoke of A → B at
-   * most T — read by every sight comparison through `eyeHolds`. Rides both
+   * most T, the smoke being the clouds THIS observer holds
+   * (`ShipRecord.heldClouds`) — read by every sight comparison through `eyeHolds`. Rides both
    * paths uniformly; the spectator path never calls it (spectators are
    * unfogged). Never a radar input (amendment 149; smoke never blocks radar).
    */
@@ -391,8 +397,9 @@ function inReachAndClear(field: SightField, me: ShipRecord, p: Vec2, range: numb
  * Story 11.6): is point `p` held by the observer's eye at `range` — within
  * `range` (an unchanged cap, boundary inclusive), on an island-clear ray, AND
  * through the weather: the optical depth τ of the ray observer → p — the
- * rain's plus every live SMOKE SCREEN cloud's (Story 11.6 scope add, Eric
- * 2026-11-14; the observer's own cloud included) — at most T
+ * rain's plus that of every live SMOKE SCREEN cloud the observer holds
+ * (Story 11.6 scope add, Eric 2026-11-14; the observer's own cloud
+ * included) — at most T
  * (`field.fogAdmits`). Every point site calls this — every point reach and
  * the mz/sm halos. A HULL asks `hullHeld` instead; a CLOUD's own disc asks
  * `eyeHoldsThroughRain` (smoke never hides smoke).
@@ -1057,7 +1064,8 @@ const foulZoneSignal: SignalSpec<FoulZone, FoulZoneView> = {
  * mines, in Map-insertion (press) order. This row is only how each client
  * learns there is a cloud to paint; what the cloud HIDES (Story 11.6: it
  * occludes sight like rain) lives in the weather gate (`eyeHolds` /
- * `hullHeld`), never here. THE DELIVERY GATE senses the cloud's SPRAY
+ * `hullHeld`), never here — but a cloud hides things only from an observer
+ * this row has delivered it to (perception's cloud scan marks it held). THE DELIVERY GATE senses the cloud's SPRAY
  * DISC (centre, radius `cloudOutlineRadius(age, cloud)` — the cloud's own
  * STAMPED r0 → r1 over its stamped life, Story 10.6), sensor-based as amendment 51 ruled ("If I can see smoke particles
  * in my sight range, I want them composited … If it's detected by my radar,

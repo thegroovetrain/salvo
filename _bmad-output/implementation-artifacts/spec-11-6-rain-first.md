@@ -2,7 +2,7 @@
 title: 'Story 11.6 Rain First — the storm eye and partial sight'
 type: 'feature'
 created: '2026-11-14'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '0cfdff41309913003df1c87e473bef4c77d09542'
 review_loop_iteration: 0
 context:
@@ -93,6 +93,8 @@ warnings: ['oversized']
 
 - 2026-11-14 (Eric, AskUserQuestion, mid-build): SCOPE ADDS — (1) SMOKE SCREEN clouds occlude sight like rain (cloud optical depth added to the line; same A+D look; owner blinded too; thickness set by Eric on the bench page; smoke never blocks radar — orchestrator reading). (2) RAIN RADAR CLUTTER: grainy band-shaped mush re-rolled each sweep, weak at band edges / medium in band middles / heavy outside the ring, client-drawn from the shared field (no wire, no server); real returns NOT weakened. Supersedes the contract's "Never: Radar … (11.4)" for the clutter only and its smoke-free gate list. Bench page (`bench/rain-sight/`) now ships in this PR as the story's bench (precedent: dispersionBench / reachBench).
 - 2026-11-15 (Eric: "fixing the test page isn't important. go with 3, 11, and 17.5"): clutter amounts 3 / 11 / 17.5 %; smoke 3x rain, soft 0.3 (page defaults); the bench page is REMOVED from the PR (it locks up; kept on branch `worktree-rain-sight-bench` / commit 7398b031) — supersedes the earlier "bench ships in this PR" line.
+- 2026-11-15 (Eric, after review; "Yes, go with it"): the anonymous PLAIN HULL tier (Story 11.2 R3, frame channel `pc`, plain handles) is REMOVED. Hulls are crisp to `sightRange` (200 hm) and FADE with the A+D look to gone at `hullSightRange` (350 hm): a distance HAZE term τ_haze = T × clamp01((d − sight) / (hullSight − sight)) per observer (its whiteout-scaled reaches) joins rain + smoke in the one optical depth; hulls only (point things keep their reaches). Name tag drawn only within `sightRange`. The rain grid uses the hull's TRUE size (with one tier there is no class oracle). Supersedes epic-11 amendment 4(d)/(e) and the review's mean-grid fix.
+- 2026-11-15 (Eric: "i want the rain bands to exist before the game starts, not for them to roll in after 10 seconds"): NO onset — `CONFIG.fog.onsetMs` is deleted; before the zone starts the field is the ring-0 state (the whole ocean, centered at the ring-0 center) at its first eye / edge values, already spinning and morphing on the match clock; it continues without a jump into the zone's first held beat. Supersedes the contract's "rolls in over onsetMs 15000 … none before zone start" and the matrix row "Pre-zone / idle → density 0". Golden frames may change by this ruling only (values re-recorded, each explained).
 
 ## Review Triage Log
 

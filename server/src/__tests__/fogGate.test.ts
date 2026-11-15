@@ -197,6 +197,28 @@ describe('World.fogHullAdmits — a hull is seen while ANY point of its sight gr
     expect(gate.fogHullAdmits(0, 0, gone, 0, 0, length, beam)).toBe(false);
   });
 
+  it('THE GRID IS THE ONE THE WORLD WAS BUILT WITH: a hull-grid dial moved under a live World changes nothing it answers (its scratch and asking order were sized at construction)', () => {
+    const { gate } = pair((w) => uniformRainFrame(w, 1)); // τ = distance
+    const length = 240;
+    const beam = 20;
+    const reachIn = (0.5 - 0.5 / COLS) * length;
+    const partly = T + reachIn / 2; // seen by its near end only (the case above)
+    const gone = T + reachIn + beam;
+    const fog = CONFIG.fog as { hullGridCols: number; hullGridRows: number };
+    try {
+      for (const [cols, rows] of [[1, ROWS], [COLS * 2, ROWS], [COLS, ROWS * 4]]) {
+        fog.hullGridCols = cols;
+        fog.hullGridRows = rows;
+        expect(gate.fogHullAdmits(0, 0, partly, 0, 0, length, beam), `dials ${cols} x ${rows}`).toBe(true);
+        expect(gate.fogHullAdmits(0, 0, gone, 0, 0, length, beam), `dials ${cols} x ${rows}`).toBe(false);
+        expect(gate.fogHullAdmits(0, 0, partly + 1, 0, 0.01, length, beam), `dials ${cols} x ${rows}, a fresh question`).toBe(true);
+      }
+    } finally {
+      fog.hullGridCols = COLS;
+      fog.hullGridRows = ROWS;
+    }
+  });
+
   it('the same hull question asked again in the same epoch walks nothing; a hidden hull costs at most one walk per grid point', () => {
     const { gate } = pair((w) => uniformRainFrame(w, 1));
     const before = gate.fogWalks;
@@ -367,6 +389,51 @@ describe('the smoke term — total optical depth against the one threshold', () 
     gate.clouds.clear();
     expect(gate.fogSightAdmits(...ray)).toBe(true);
     expect(gate.fogHullAdmits(...hull)).toBe(true);
+  });
+
+  it('ONLY THE CLOUDS THE OBSERVER HOLDS: the same ray and hull question read the cloud for an observer that holds it, nothing for one that does not, and every live cloud with no observer named — asked back to back, so no memo answers for the wrong observer', () => {
+    const { gate } = pair(clearFrame);
+    seatCloud(gate, 'c', 0, 0, 0.9);
+    seatCloud(gate, 'elsewhere', gate.map.radius * 0.5, gate.map.radius * 0.5, 0.9);
+    const r = discRadius(0.9);
+    const ray = [-r * 2, 0, r * 2, 0] as const;
+    const hull = [-r * 2, 0, r * 2, 0, 0.3, 100, 16] as const;
+    const holds = new Set(['c']);
+    const holdsOther = new Set(['elsewhere']);
+    const holdsNone = new Set<string>();
+    expect(gate.smokeDepthAlong(...ray, holds)).toBeGreaterThan(T); // premise
+    for (let round = 0; round < 2; round++) {
+      expect(gate.fogSightAdmits(...ray, holds)).toBe(false);
+      expect(gate.fogSightAdmits(...ray, holdsOther)).toBe(true);
+      expect(gate.fogSightAdmits(...ray, holdsNone)).toBe(true);
+      expect(gate.fogSightAdmits(...ray)).toBe(false);
+      expect(gate.fogHullAdmits(...hull, holds)).toBe(false);
+      expect(gate.fogHullAdmits(...hull, holdsOther)).toBe(true);
+      expect(gate.fogHullAdmits(...hull, holdsNone)).toBe(true);
+      expect(gate.fogHullAdmits(...hull)).toBe(false);
+    }
+    expect(gate.smokeDepthAlong(...ray, holdsNone)).toBe(0);
+    expect(gate.smokeDepthAlong(...ray, holdsOther)).toBe(0);
+  });
+
+  it('EVERY WORLD NOTICES A MOVED SMOKE DIAL ITSELF: after the thickness changes, a second World asking first does not leave the first World answering its old ray from a stale memo', () => {
+    const { gate, ref } = pair(clearFrame);
+    for (const w of [gate, ref]) seatCloud(w, 'c', 0, 0, 0.9);
+    const r = discRadius(0.9);
+    const ray = [-r * 2, 0, r * 2, 0] as const;
+    const hull = [-r * 2, 0, r * 2, 0, 0.3, 100, 16] as const;
+    const was = SMOKE.sightThickness;
+    try {
+      expect(gate.fogSightAdmits(...ray)).toBe(false); // both Worlds have read today's dial
+      expect(gate.fogHullAdmits(...hull)).toBe(false);
+      expect(ref.fogSightAdmits(...ray)).toBe(false);
+      (SMOKE as { sightThickness: number }).sightThickness = 0; // smoke that hides nothing
+      expect(ref.fogSightAdmits(...ray)).toBe(true); // the OTHER World asks first...
+      expect(gate.fogSightAdmits(...ray)).toBe(true); // ...and this one still sees the move
+      expect(gate.fogHullAdmits(...hull)).toBe(true);
+    } finally {
+      (SMOKE as { sightThickness: number }).sightThickness = was;
+    }
   });
 
   it('a live cloud grows with the World\'s clock: stepping the world deepens the smoke on a ray inside its final disc', () => {
