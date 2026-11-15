@@ -270,7 +270,7 @@ export const NO_SHIFT_WINDOW: ShiftWindow = WINDOWS[0];
 
 /** Pure: the (shared, frozen) window for the fitted Shift — a window counts
  *  only when that equipment IS the fitted Shift. */
-export function shiftWindowFor(shift: ShiftId, boostOpen: boolean, hunkerOpen: boolean): ShiftWindow {
+export function shiftWindowFor(shift: EquipmentId | null, boostOpen: boolean, hunkerOpen: boolean): ShiftWindow {
   const boost = shift === 'boost' && boostOpen;
   const hunker = shift === 'hunker' && hunkerOpen;
   return WINDOWS[(boost ? 1 : 0) + (hunker ? 2 : 0)];

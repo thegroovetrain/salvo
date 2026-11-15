@@ -2,7 +2,7 @@
 title: 'Ship console shows the Shift bonus: ENGINES under Speed Boost, ARMOR under Hunker'
 type: 'bugfix'
 created: '2026-11-15'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: '08fbe9a2'
 context: []
@@ -65,6 +65,15 @@ warnings: []
 
 ## Review Triage Log
 
+### 2026-11-15 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1 (low 1)
+- defer: 0
+- reject: 9 (medium 1, low 8)
+- addressed_findings:
+  - `[low]` `[patch]` Fitted-Shift gate read the wire's `you.shift`; the Shift button and press prediction read `g.ownSlots[SLOT_BOOST]` — `shiftWindowNow` now reads the slot (`shiftWindowFor` takes `EquipmentId | null`).
+
 ## Design Notes
 
 Assumption made unattended (flag in the PR): the boosted ENGINES figure is floored, following the project's integer-index convention; Eric may prefer rounding.
@@ -74,3 +83,10 @@ Assumption made unattended (flag in the PR): the boosted ENGINES figure is floor
 **Commands:**
 - `npm test -w client` -- expected: all pass incl. new readout tests
 - `npm run check` -- expected: green
+
+## Auto Run Result
+
+- **Change:** the ship console's ENGINES index rises by the Speed Boost factor (floored) and ARMOR by Hunker's `armorBonus` while the fitted Shift's window runs; the hover preview re-folds under the same window. Client only; server untouched; PV unchanged.
+- **Files:** `client/src/render/console/readouts.ts` (`ShiftWindow`, `shiftWindowFor`, `shiftedIndex`, windowed `consoleReadouts` / `shipReadouts`); `client/src/main.ts` (`shiftWindowNow`, memo keys); `client/src/__tests__/consoleReadouts.test.ts` (+6 tests).
+- **Review:** Blind Hunter + Edge Case Hunter (Fable) + Codex. Codex: no bugs. 1 patch applied, 9 rejected (optimistic boost window = the Shift button's existing behaviour; slows/draft out of scope; float floor latent at factor 0.25; no main.ts harness for the memo).
+- **Residual risk:** the floor-vs-round reading (epic-11 amendment 16(b)) is Eric's veto.

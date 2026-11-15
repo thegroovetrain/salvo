@@ -3457,15 +3457,16 @@ function consoleReadoutsNow(g: Game, shiftWin: ShiftWindow): readonly Readout[] 
 
 /**
  * The fitted Shift's running window this frame — the same sources
- * `activeWindows` reads: the prediction-aware `boostUntilNow` for Speed Boost,
- * the server's self-private `you.hunkerUntil` for Hunker. A frozen constant
+ * `activeWindows` reads: the fitted Shift slot, the prediction-aware
+ * `boostUntilNow` for Speed Boost, the server's self-private `you.hunkerUntil`
+ * for Hunker. A frozen constant
  * (`shiftWindowFor`), so the per-frame path allocates nothing.
  */
 function shiftWindowNow(g: Game): ShiftWindow {
   const you = g.state.net.you;
   if (!you) return NO_SHIFT_WINDOW;
   const now = g.clock.serverNow();
-  return shiftWindowFor(you.shift ?? DEFAULT_SHIFT, now < boostUntilNow(g), now < (you.hunkerUntil ?? 0));
+  return shiftWindowFor(g.ownSlots[SLOT_BOOST] ?? null, now < boostUntilNow(g), now < (you.hunkerUntil ?? 0));
 }
 
 /**
