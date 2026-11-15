@@ -6,7 +6,7 @@
 //   * PLACEMENT (random since Eric 2026-11-15, Story 11.7): at each ring
 //     cycle's start the set is replaced by `beaconCountFor(cycle)` uniformly
 //     random picks (`pickBeaconSpot`) — inside the live ring less the edge
-//     margin, clear of land, `minSpacingU` apart (hard rules), outside every
+//     margin, clear of land, `minSpacingFrac` × the radius apart (hard rules), outside every
 //     captain's keep-out disc (soft: relaxed, then skipped, both logged) — on
 //     a ROOM-PRIVATE stream; a skipped pick keeps ids dense; a cycle with none
 //     clears the set.
@@ -68,7 +68,7 @@ describe('radio beacons — placement at each ring cycle (R2, R10)', () => {
       }
       // Pairwise at least the spacing apart (Story 11.7).
       chart.beacons.forEach((p, i) => {
-        for (const q of chart.beacons.slice(i + 1)) expect(dist(p, q)).toBeGreaterThanOrEqual(B.minSpacingU);
+        for (const q of chart.beacons.slice(i + 1)) expect(dist(p, q)).toBeGreaterThanOrEqual((ring.r - B.edgeMarginU) * B.minSpacingFrac);
       });
     }
   });
@@ -87,7 +87,7 @@ describe('radio beacons — placement at each ring cycle (R2, R10)', () => {
         expect(dist(p, { x: ring.cx, y: ring.cy })).toBeLessThanOrEqual(ring.r - B.edgeMarginU);
         expect(islandClearance(p, w.map.islands)).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
         for (const h of hulls) expect(dist(p, h.state)).toBeGreaterThan(B.keepOutU);
-        for (const q of beacons.slice(i + 1)) expect(dist(p, q)).toBeGreaterThanOrEqual(B.minSpacingU);
+        for (const q of beacons.slice(i + 1)) expect(dist(p, q)).toBeGreaterThanOrEqual((ring.r - B.edgeMarginU) * B.minSpacingFrac);
       });
     }
   });
@@ -146,8 +146,9 @@ describe('pickBeaconSpot — one random spot (Story 11.7)', () => {
   };
   /** The (r, angle) draws that land a spot at polar (frac of radius, turns). */
   const at = (frac: number, turns: number): number[] => [frac * frac, turns];
-  const cfg = { keepOutU: B.keepOutU, minSpacingU: B.minSpacingU, placeAttempts: B.placeAttempts };
-  const R = 4 * (B.keepOutU + B.minSpacingU); // a disc with room for every case below
+  const SPACING = 1000; // the picker takes an absolute spacing (World scales `minSpacingFrac` by the radius)
+  const cfg = { keepOutU: B.keepOutU, minSpacingU: SPACING, placeAttempts: B.placeAttempts };
+  const R = 4 * (B.keepOutU + SPACING); // a disc with room for every case below
   const O = { x: 0, y: 0 };
 
   it('happy path: the first draw clearing every rule wins, float32-exact, inside the disc', () => {
@@ -171,9 +172,9 @@ describe('pickBeaconSpot — one random spot (Story 11.7)', () => {
 
   it('spacing is a floor: a spot exactly the spacing from a taken beacon is allowed', () => {
     const beacon = { x: 0, y: 0 };
-    const spot = pickBeaconSpot(O, B.minSpacingU, [], [beacon], [], cfg, scripted(at(1, 0)));
+    const spot = pickBeaconSpot(O, SPACING, [], [beacon], [], cfg, scripted(at(1, 0)));
     expect(spot).not.toBeNull();
-    expect(dist(spot!, beacon)).toBeGreaterThanOrEqual(B.minSpacingU - 1e-3);
+    expect(dist(spot!, beacon)).toBeGreaterThanOrEqual(SPACING - 1e-3);
   });
 
   it('captains crowd the disc: the FIRST draw that met the hard rules is taken, flagged relaxed', () => {
@@ -187,7 +188,7 @@ describe('pickBeaconSpot — one random spot (Story 11.7)', () => {
   });
 
   it('no draw meets the hard rules (the spacing fills the disc): null, never a bad spot', () => {
-    const r = B.minSpacingU / 2;
+    const r = SPACING / 2;
     expect(pickBeaconSpot(O, r, [], [O], [], cfg, mulberry32(9))).toBeNull();
   });
 
@@ -200,7 +201,7 @@ describe('pickBeaconSpot — one random spot (Story 11.7)', () => {
     let draws = 0;
     const rng = mulberry32(3);
     const counted: Rng = { ...rng, next: () => (draws++, rng.next()) };
-    pickBeaconSpot(O, B.minSpacingU / 2, [], [O], [], cfg, counted);
+    pickBeaconSpot(O, SPACING / 2, [], [O], [], cfg, counted);
     expect(draws).toBe(2 * B.placeAttempts);
   });
 });

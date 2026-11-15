@@ -8002,8 +8002,8 @@ export class World {
    * `beaconCountFor(cycle)` beacons goes on a uniformly random spot
    * (`pickBeaconSpot`) about the LIVE ring's centre, no farther out than the
    * ring's radius minus `CONFIG.beacons.edgeMarginU` (the whole paying circle
-   * inside the ring), clear of land, at least `CONFIG.beacons.minSpacingU`
-   * from the beacons already placed this cycle, and — the soft rule —
+   * inside the ring), clear of land, at least `CONFIG.beacons.minSpacingFrac` × that
+   * radius from the beacons already placed this cycle, and — the soft rule —
    * outside every captain's keep-out disc (`captainPositions`,
    * `CONFIG.beacons.keepOutU`). There is no retry queue — the ruling is "at
    * 0:00": a beacon that cannot clear the discs takes the first draw that met
@@ -8020,9 +8020,11 @@ export class World {
     const centre = { x: ring.cx, y: ring.cy };
     const radius = ring.r - CONFIG.beacons.edgeMarginU;
     const captains = this.captainPositions();
+    // The spacing scales with the placement radius (`minSpacingFrac`).
+    const spot = { ...CONFIG.beacons, minSpacingU: Math.max(0, radius) * CONFIG.beacons.minSpacingFrac };
     let request = 0; // the cycle's pick number — distinct per log line even after a skip
     this.beacons.replace(cycle, beaconCycleStartMs(zoneStartT, cycle, this.zoneCfg), (rng, taken) => {
-      const at = pickBeaconSpot(centre, radius, this.map.islands, taken, captains, CONFIG.beacons, rng);
+      const at = pickBeaconSpot(centre, radius, this.map.islands, taken, captains, spot, rng);
       const slot = taken.length;
       request += 1;
       if (at === null) {

@@ -2997,8 +2997,8 @@ export const CONFIG = {
    * where randomness is part of things. I don't mind if there's one or two in
    * the middle."*): each beacon goes on a uniformly random open-water point
    * of the live ring, the whole `rangeU` circle inside it (`edgeMarginU` from
-   * the ring edge), clear of land, at least `minSpacingU` from every beacon
-   * already placed this cycle (hard rules), and outside every afloat
+   * the ring edge), clear of land, at least `minSpacingFrac` × the placement
+   * radius from every beacon already placed this cycle (hard rules), and outside every afloat
    * captain's `keepOutU` disc (the soft rule: when no draw of `placeAttempts`
    * clears it, the first draw that met the hard rules is taken and logged;
    * when none met them, that beacon is skipped and logged). The old
@@ -3019,7 +3019,15 @@ export const CONFIG = {
     killLevels: 2, // levels paid for destroying it, split as a ship kill (R13)
     edgeMarginU: 500, // u — placement: at least this far inside the live ring edge (R10)
     keepOutU: 500, // u — the captain keep-out disc of the placement, the soft rule. Story 11.7 (Eric 2026-11-15, "Solve the problem"): 1000 -> 500 = rangeU, nobody starts a cycle already paid; at 1000 the 16 spawn discs walled off the ring outside ~3,300 u (was 1000 u since Story 11.2, R20)
-    minSpacingU: 1000, // u — placement: at least this far from every beacon already placed this cycle, a hard rule (Eric 2026-11-15, Story 11.7)
+    // × the placement radius (live ring r − edgeMarginU) — the least distance
+    // between two beacons of one cycle, a hard rule. Eric 2026-11-15 after
+    // playing it at a fixed 1000 u: "They need to be spread out from each
+    // other a bit more. They were all clumped together for the first ring."
+    // 0.5 = 2250 / 1500 / 750 u on today's rings: the widest fraction that
+    // never skipped a beacon in 400 simulated cycles per ring (0.6 skipped
+    // 0.9 % of cycle-0 beacons, 0.7 12.6 %). Scales with the ring so a later,
+    // smaller ring still fits its count.
+    minSpacingFrac: 0.5,
     placeAttempts: 256, // uniform draws tried per beacon before it is skipped (never thrown); an implementation knob (Story 11.7)
     // u — circumradius of the regular-octagon body. PROVISIONAL — NOT RULED BY
     // ERIC: pending his yes on the RENDERED candidate (the spec's Block-If).

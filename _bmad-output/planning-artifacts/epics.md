@@ -2963,7 +2963,7 @@ So that weather is the fog of war on every sensor, not just my eyes.
 
 ### Story 11.7: Beacon Midpoint Placement *(lock 6; #94 re-read; supersedes epic-10 amendment 6(g)'s fleet-spawn placement)*
 
-**2026-11-15 — epic-11 amendment 14 (Eric, before the spec step): BUILT AS RANDOM PLACEMENT, NOT MIDPOINTS.** Each beacon is a random open-water point inside the live ring (edge margin, land, a 500 u captain keep-out — shrunk from 1,000 at review), at least 1,000 u from the other beacons; counts 7 / 5 / 3. The pairing, midpoint and 30 s nudge below are superseded unbuilt; the fleet-anchor rule is deleted (beacons were its only consumer). Spec: `spec-11-7-beacon-random-placement.md`.
+**2026-11-15 — epic-11 amendment 14 (Eric, before the spec step): BUILT AS RANDOM PLACEMENT, NOT MIDPOINTS.** Each beacon is a random open-water point inside the live ring (edge margin, land, a 500 u captain keep-out — shrunk from 1,000 at review), at least half the placement radius from the other beacons (2,250 / 1,500 / 750 u); counts 7 / 5 / 3. The pairing, midpoint and 30 s nudge below are superseded unbuilt; the fleet-anchor rule is deleted (beacons were its only consumer). Spec: `spec-11-7-beacon-random-placement.md`.
 
 As a captain at the cycle's 0:00,
 I want the beacon nearest me to be charted between me and my neighbor, nudged toward where the ring will be,

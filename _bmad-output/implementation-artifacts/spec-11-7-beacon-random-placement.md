@@ -23,7 +23,7 @@ warnings: []
 ## Boundaries & Constraints
 
 **Always:**
-- Eric's numbers: `counts: [7, 5, 3]`, `minSpacingU: 1000`; `edgeMarginU` 500 unchanged; `keepOutU` 1000 → 500 (review gate, Eric 2026-11-15). Sudden death still gets none.
+- Eric's numbers: `counts: [7, 5, 3]`, ~~`minSpacingU: 1000`~~ `minSpacingFrac: 0.5` × placement radius (Eric's playtest, see Spec Change Log); `edgeMarginU` 500 unchanged; `keepOutU` 1000 → 500 (review gate, Eric 2026-11-15). Sudden death still gets none.
 - One draw per attempt is uniform over the disc of radius `ring.r − edgeMarginU` about the LIVE ring centre (sqrt radius), on the cycle's existing server-private stream (`BeaconField` seed, `mulberry32(seed ^ imul(cycle+1, …))`). It must never come from the public map seed.
 - Hard constraints (never broken): inside that disc; `islandClearance > SPAWN_ISLAND_CLEARANCE`; distance ≥ `minSpacingU` from every beacon already taken this cycle (float32 positions, as `taken` holds them).
 - Soft constraint: outside every captain disc (`captainDiscs()`, participants afloat, r = `keepOutU`).
@@ -86,6 +86,11 @@ warnings: []
 - **Avoids:** beacons always inside the captain ring at match start; beacons charted with a hull already in the paying circle late game.
 - **KEEP:** `pickBeaconSpot`'s degradation order, dense slot ids, private per-cycle stream, the deleted fleet-anchor code.
 
+### 2026-11-15 — Eric's playtest on the local dev server
+- **Trigger:** *"They need to be spread out from each other a bit more. THey were all clumped together for the first ring."*
+- **Amended:** `minSpacingU` 1000 → `minSpacingFrac` 0.5 × the placement radius (2,250 / 1,500 / 750 u); `World.placeBeacons` hands the picker the scaled distance. The value was the widest fraction with 0 skips in 400 simulated cycles per ring (amendment 14(e)). This supersedes the intent contract's "1000 u" spacing.
+- **KEEP:** everything above; `pickBeaconSpot` still takes an absolute `minSpacingU`.
+
 ## Review Triage Log
 
 ### 2026-11-15 — Review pass (Blind Hunter + Edge Case Hunter on Fable; Codex gpt-5.6-sol)
@@ -115,7 +120,7 @@ The degradation order is deliberately the same posture as today's ratified fallb
 
 **Status: done** (2026-11-15, cycle 235, 0.19.29, PV 108 unchanged, epic-11 amendment 14).
 
-- **Change:** radio beacons are placed at random on open water inside the live ring (500 u edge margin, off land), at least 1,000 u apart, outside every captain's 500 u keep-out (soft: relaxed + logged when impossible; a slot that fails the hard rules is skipped + logged, ids dense). Counts 7 / 5 / 3. The fleet-anchor max-min code is deleted.
+- **Change:** radio beacons are placed at random on open water inside the live ring (500 u edge margin, off land), at least half the placement radius apart (2,250 / 1,500 / 750 u; was 1,000 u until Eric's playtest), outside every captain's 500 u keep-out (soft: relaxed + logged when impossible; a slot that fails the hard rules is skipped + logged, ids dense). Counts 7 / 5 / 3. The fleet-anchor max-min code is deleted.
 - **Files:** `shared/src/constants.ts` (counts, `minSpacingU`, `placeAttempts`, `keepOutU` 500, comments); `server/src/game/spawn.ts` (`pickBeaconSpot` replaces the ANCHORS section); `server/src/game/beacons.ts` (`BeaconPick` → `Vec2 | null`, dense ids); `server/src/game/world.ts` (`placeBeacons`, `captainPositions`, logs); `server/scripts/rl/worker.ts` (log key comment); tests `beacons.test.ts` (+ `pickBeaconSpot` unit cases, spacing, full lobby), `beaconFixture.ts`, `beaconRoom.test.ts`; records: amendment 14, epics.md / GDD stamps, both trackers, VERSION + package.json.
 - **Review:** 4 patches, 0 deferred, 5 rejected, 1 intent gap resolved by Eric in chat (keep-out 500).
 - **Verification:** lint 0 errors; tsc shared / server / client clean; tests shared 1465, server 2988, client 4505; hook test 266/0; `soloSmoke.mjs` green at the implementation wave (up to 7 beacons charted, no skip / relaxed lines). The single `npm run check` invocation timed out at 40 min on a machine at load ~280 (other sessions), so its stages were re-run individually, all exit 0.
