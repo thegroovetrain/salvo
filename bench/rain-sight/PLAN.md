@@ -130,3 +130,19 @@ Orchestrator rulings (engineering):
   Storm / Compare): the scope around the observer with the sweep line, real ship paints, and the
   clutter; sliders for the three clutter tiers (amount, strength). Smoke paint on top stays as
   the game draws it (approximation OK).
+
+## §9 Game view + zoom / pan (Eric 2026-11-14: "I need all of that at the 'A+D combined' view level")
+Orchestrator rulings:
+- New default view GAME (first button): ONE full-size panel, layered as `client/src/render/stage.ts`
+  `CHART_LAYER_ORDER` stacks the layers the bench has: `zone` (live ring line) → `fog` (rain) →
+  `ship` (enemy hulls, A+D under rain + smoke τ) → `cloud` (smoke spray paint) → `blip` (radar paints
+  + rain clutter) → `ownShip` → `sweep`. The game draws radar paints at EVERY distance (amendment 210)
+  but DISPLAYS them at 20 % inside the eye's sight through the near-range dim mask (amendment 181), the
+  ramp sliding inward on a rainy bearing — reproduced with the real `bakeDimMaskTexture` + shared
+  `fogDepthReachFan`. The "rain on top" checkbox applies to Compare / Solo only.
+- Zoom + pan in every view (`src/camera.ts`): wheel zooms smoothly 150 u … whole map (about the cursor
+  when free, about the followed ship / observer while following); left-drag pans and stops following;
+  double-click or Home → own ship at 1320 u. The zoom slider (log scale) drives the active view's camera.
+  Smoke: Shift+click, or Pop smoke then click. Ship views draw the whole-map raster once the view
+  outgrows the observer raster. Test hooks: `__bench.setCam`, `__bench.stepAll`; shoot.mjs `CAM`,
+  `INPUT`, `WAITBEAM`.
