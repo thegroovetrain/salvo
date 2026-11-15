@@ -67,9 +67,10 @@ export function farCornerU(sx: number, sy: number, viewW: number, viewH: number,
 
 /** Where the compass scale sits this frame, in screen px about the own ship. */
 export interface CompassPlacement {
-  /** 'ring' — on the radar-reach ring; 'bezel' — inset at the screen edge. */
-  mode: 'ring' | 'bezel';
-  /** px — the scale's radius about the own ship. */
+  /** 'ring' — on the radar-reach ring; 'bezel' — inset at the screen edge;
+   *  'hidden' — the own ship is off screen (Story 11.8's free camera). */
+  mode: 'ring' | 'bezel' | 'hidden';
+  /** px — the scale's radius about the own ship (0 when hidden). */
   radiusPx: number;
 }
 
@@ -89,9 +90,17 @@ export const BEZEL_MIN_PX = 48;
  * nearest screen edge allows, less the inset, stepped by `BEZEL_STEP_PX` and
  * floored at `BEZEL_MIN_PX`. [reading: Story 11.2 — the bezel is centered on
  * the own ship, not the screen, because a bearing scale is about the observer]
+ *
+ * HIDDEN when the own ship is off screen (Story 11.8: the free camera pans it
+ * away) — a bezel about a point past the edge would be a stray arc, not a
+ * scale — or closer to an edge than the smallest bezel plus its inset, where
+ * the floored bezel would be clipped into a stub. [reading: Story 11.8 — the spec allowed "hidden or sane"]
  */
 export function compassPlacement(sx: number, sy: number, viewW: number, viewH: number, radarPx: number): CompassPlacement {
   const edge = Math.min(sx, viewW - sx, sy, viewH - sy);
+  // Too near an edge (or past it) for even the smallest bezel: a floored bezel
+  // would draw as a clipped stub at the screen edge (Story 11.8 review).
+  if (!(edge >= BEZEL_MIN_PX + BEZEL_INSET_PX)) return { mode: 'hidden', radiusPx: 0 };
   if (radarPx > 0 && radarPx <= edge) return { mode: 'ring', radiusPx: radarPx };
   const stepped = Math.floor((edge - BEZEL_INSET_PX) / BEZEL_STEP_PX) * BEZEL_STEP_PX;
   return { mode: 'bezel', radiusPx: Math.max(BEZEL_MIN_PX, stepped) };

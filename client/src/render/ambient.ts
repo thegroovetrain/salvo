@@ -45,6 +45,7 @@ import { Container, FillGradient, Graphics, Texture, type Sprite } from 'pixi.js
 import { CONFIG, generateMap, paintCoverage, type GameMap, type WakeBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
+import { expDecay } from '../util/math.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera } from './camera.js';
@@ -242,6 +243,8 @@ export class AmbientScene {
   private readonly map: GameMap;
   private readonly world: AmbientWorld;
   private readonly camera: Camera;
+  /** The eased point the backdrop camera rides (A.followRate). */
+  private readonly drift = { x: 0, y: 0 };
   private readonly chart: MapChart;
   private readonly radar: Radar;
   private readonly effects: Effects;
@@ -277,21 +280,19 @@ export class AmbientScene {
     // wrong" is unreproducible by construction.
     console.info(`[home] scene seed ${seeds.mapSeed} (reproduce with ?homeseed=${seeds.mapSeed})`);
     const stats = this.world.stats;
-    // Lead is deliberately zero: the in-match camera throws itself ahead of the
-    // bow, which is right when you are steering and wrong for a backdrop that
-    // must hold a composed picture behind a column of text.
     // The scene frames its own composed span (A.spanU), never radar (Story 9.8):
-    // there is no user zoom and no ring here, so close = default = that span.
+    // there is no user zoom and no ring here, so close = default = that span
+    // (and with no ring and no board fed, the camera never slides).
     this.camera = new Camera({
       defaultSpanU: A.spanU,
       closeSpanU: A.spanU,
       ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-      followRate: A.followRate,
-      leadSeconds: 0,
-      leadMax: 0,
     });
     this.camera.setViewport(this.viewW, this.viewH);
-    this.camera.snapTo(ambientCameraTarget(this.world));
+    const target = ambientCameraTarget(this.world);
+    this.drift.x = target.x;
+    this.drift.y = target.y;
+    this.camera.snapTo(this.drift);
     this.chart = buildMap(this.map, stage.layers, this.camera.zoom);
     // `return` grammar, and no hue resolver: under `return` the scope carries no
     // identity at all (amendments 65/67), so there is nothing for one to answer.
@@ -360,7 +361,12 @@ export class AmbientScene {
     // The camera eases on the MOTION-SCALED step, so `motion: off` stops the
     // drift as well as the fleet (an unscaled dt kept gliding toward a target
     // that never moved again — motion that outlived the setting that forbade it).
-    this.camera.update(tick.travelSec, ambientCameraTarget(this.world));
+    // THE BACKDROP DRIFTS (Story 11.8 moved the ease here: the in-match camera
+    // lost its follow easing, the scene keeps its slow `A.followRate` glide).
+    const target = ambientCameraTarget(this.world);
+    this.drift.x = expDecay(this.drift.x, target.x, A.followRate, tick.travelSec);
+    this.drift.y = expDecay(this.drift.y, target.y, A.followRate, tick.travelSec);
+    this.camera.update(tick.travelSec, this.drift);
     applyCamera(this.camera, this.stage.worldRoot, this.stage.chartRoot, this.stage.layers.plate);
     this.chart.update(this.camera.zoom);
     this.drawHulls(tick);

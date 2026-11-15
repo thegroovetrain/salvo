@@ -202,9 +202,6 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
       defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
       closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
       ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-      followRate: 5,
-      leadSeconds: 4,
-      leadMax: 110,
     });
     cam.setViewport(1600, 900);
     cam.setRing(0, 0, 100_000);

@@ -57,7 +57,7 @@ import type { ShipStyle } from './relationColor.js';
 import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
 import { turretDrawOrder } from './hullArt/shapes.js';
 import { LauncherMounts } from './launcherViews.js';
-import { HullRainVis, type RainEye } from './rainSight.js';
+import { HullRainVis, meanVisibility, type RainEye } from './rainSight.js';
 import { HullDissolve } from './hullDissolve.js';
 
 export type { ShipStyle } from './relationColor.js';
@@ -179,6 +179,18 @@ export function hullFlashIntensity(amount: number, degraded: boolean): number {
   return degraded ? amount * FB.degradeAlphaFactor : amount;
 }
 
+/** What a hull hands the corner brackets each frame (`ShipView.bracketSource`). */
+export interface BracketSource {
+  x: number;
+  y: number;
+  /** The hull's drawn length (u). */
+  lengthU: number;
+  /** The relation stroke color (own cyan, everyone else red). */
+  color: number;
+  /** The alpha the hull itself draws at this frame. */
+  alpha: number;
+}
+
 /** The battleship-art class of a hull id — every hull id is a captain class. */
 function artClass(hullId: HullId): ShipClassId {
   return hullId as ShipClassId;
@@ -220,6 +232,9 @@ export class ShipView {
   private readonly rainVis = new HullRainVis();
   private readonly dissolve: HullDissolve;
   private rainAlpha = 1;
+  /** The drawn rain grid's mean V (1 with no grid) — the corner brackets'
+   *  share of the A+D dissolve (Story 11.8). */
+  private rainMean = 1;
 
   constructor(style: ShipStyle, hullId: HullId = DEFAULT_CLASS_ID) {
     this.gfx = new Container();
@@ -431,6 +446,7 @@ export class ShipView {
     const hull = CONFIG.shipClasses[artClass(this.hullId)].hull;
     const p = this.gfx.position;
     const vis = this.positioned ? this.rainVis.step(eye, p.x, p.y, this.gfx.rotation, hull.length, hull.beam, dtMs) : null;
+    this.rainMean = vis === null ? 1 : meanVisibility(vis);
     const a = this.dissolve.apply(vis, hull.length, hull.beam);
     if (a === this.rainAlpha) return;
     this.rainAlpha = a;
@@ -448,6 +464,25 @@ export class ShipView {
     this.gfx.position.set(x, y);
     this.gfx.rotation = heading;
     this.applyLook();
+  }
+
+  /**
+   * THE CORNER BRACKETS' READ (Story 11.8, render/brackets.ts): writes this
+   * hull's last-applied pose, its drawn LENGTH (u, through the settle's
+   * shrink), its relation stroke and the alpha the hull itself draws at
+   * (sight fade × settle; under the A+D dissolve filter, which leaves the
+   * container alpha alone, × the grid's mean V) into `out`. False — nothing
+   * written — while the view is hidden or has never been posed.
+   */
+  bracketSource(out: BracketSource): boolean {
+    if (!this.positioned || !this.gfx.visible) return false;
+    const p = this.gfx.position;
+    out.x = p.x;
+    out.y = p.y;
+    out.lengthU = CONFIG.shipClasses[artClass(this.hullId)].hull.length * this.gfx.scale.x;
+    out.color = this.style.stroke;
+    out.alpha = this.gfx.alpha * (this.dissolve.active ? this.rainMean : 1);
+    return true;
   }
 
   private applyLook(): void {

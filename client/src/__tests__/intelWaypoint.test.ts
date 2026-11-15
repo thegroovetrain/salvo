@@ -3,13 +3,13 @@
 // out to my entire intel area, which should have a bit of clearance around it
 // so that the hotbar isn't covering it up."
 //
-// The alive zoom stops where the radar disc (radius R × the fit margin m) PLUS
-// the maximum follow lead (ruling 9), around the own ship, has its bottom edge
-// on the HUD bar's top edge at any speed and heading; the ship → ring-center
-// slide starts there; the ring waypoint is floored at it; the own-hull clamp
-// treats the bar's top edge as the view's bottom; event-driven center jumps
-// ease (ruling 10). Every expected span below is derived from that formula on
-// synthetic viewports and insets, never pinned as a number.
+// The alive zoom stops where the radar disc (radius R × the fit margin m),
+// around the own ship, has its bottom edge on the HUD bar's top edge; the ring
+// waypoint is floored at it; event-driven center jumps ease (ruling 10). Story
+// 11.8 retired the follow lead (ruling 9), the own-hull clamp and the slide's
+// start at intel (the slide now starts at half the ring waypoint). Every
+// expected span below is derived from that formula on synthetic viewports and
+// insets, never pinned as a number.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, mapRadius } from '@salvo/shared';
@@ -29,26 +29,18 @@ const MAP_SPAN = ringFitSpanU(MAP_R, M);
 const VW = 1600;
 const VH = 900;
 const INSET = 150; // synthetic real-px bar inset
-const LEAD = CLIENT_CONFIG.camera.leadMax;
-const STILL = { heading: 0, speed: 0 };
-/** A speed that saturates the follow lead at leadMax. */
-const FULL = (2 * LEAD) / CLIENT_CONFIG.camera.leadSeconds;
 
 const BASE: CameraOptions = {
   defaultSpanU: Z.defaultSpanU,
   closeSpanU: Z.closeSpanU,
   ringFitMargin: M,
-  followRate: CLIENT_CONFIG.camera.followRate,
-  leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
-  leadMax: CLIENT_CONFIG.camera.leadMax,
-  keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
 };
 const OPTS: CameraOptions = { ...BASE, intelRadiusU: R };
 const EASED: CameraOptions = { ...OPTS, slideEaseRate: CLIENT_CONFIG.camera.slideEaseRate };
 
 /** The formula, restated here so every expectation is derived, not pinned. */
 function expectedIntelSpan(w: number, h: number, inset: number): number {
-  return (Math.min(w, h) * (R * M + LEAD)) / Math.min(h / 2 - inset, w / 2);
+  return (Math.min(w, h) * (R * M)) / Math.min(h / 2 - inset, w / 2);
 }
 
 /** An intel camera: viewport, inset, the map, and a ring of radius `r`. */
@@ -69,7 +61,7 @@ function cam(
 function settle(c: Camera, span: number, ship: { x: number; y: number }): void {
   c.setUserZoom(Z.defaultSpanU / span);
   c.snapTo(ship);
-  c.update(0.05, { ...ship, ...STILL });
+  c.update(0.05, ship);
 }
 
 const RING_R = MAP_R * 0.6; // a ring fit wider than the intel span (premise below)
@@ -84,16 +76,9 @@ describe('intelFitSpanU: the radar disc above the bar (amendment 208)', () => {
   });
 
   it('landscape: the height above the bar governs; portrait: the half width does', () => {
-    expect(intelFitSpanU(VW, VH, INSET, R, M, LEAD)).toBeCloseTo(expectedIntelSpan(VW, VH, INSET), 9);
-    // Portrait 900×1600: W/2 < H/2 − inset, so the disc + lead spans the width exactly.
-    expect(intelFitSpanU(900, 1600, INSET, R, M, LEAD)).toBeCloseTo(2 * (R * M + LEAD), 9);
-  });
-
-  it('the lead widens the fit by exactly its share of the effective radius (ruling 9)', () => {
-    const still = intelFitSpanU(VW, VH, INSET, R, M);
-    expect(intelFitSpanU(VW, VH, INSET, R, M, LEAD)).toBeCloseTo((still * (R * M + LEAD)) / (R * M), 9);
-    expect(intelFitSpanU(VW, VH, INSET, R, M, -1)).toBeNaN();
-    expect(intelFitSpanU(VW, VH, INSET, R, M, NaN)).toBeNaN();
+    expect(intelFitSpanU(VW, VH, INSET, R, M)).toBeCloseTo(expectedIntelSpan(VW, VH, INSET), 9);
+    // Portrait 900×1600: W/2 < H/2 − inset, so the disc spans the width exactly.
+    expect(intelFitSpanU(900, 1600, INSET, R, M)).toBeCloseTo(2 * (R * M), 9);
   });
 
   it('a taller bar (bigger inset) needs a wider zoom-out', () => {
@@ -151,44 +136,33 @@ describe('the Camera intel waypoint', () => {
     }
   });
 
-  it('AT intel, still: slideT 0, the ship at the exact screen center, the disc clears the bar by (R·(m−1) + lead)·zoom', () => {
-    const c = cam(RING_R, { cx: MAP_R * 0.3, cy: -MAP_R * 0.2 });
-    const ship = { x: 400, y: -250 };
-    settle(c, c.intelSpanU, ship);
-    expect(c.userSpanU).toBeCloseTo(expectedIntelSpan(VW, VH, INSET), 6);
-    expect(c.slideT).toBe(0);
-    expect(c.center.x).toBeCloseTo(ship.x, 9);
-    expect(c.center.y).toBeCloseTo(ship.y, 9);
-    const barTop = VH - INSET;
-    const bottom = c.worldToScreen({ x: ship.x, y: ship.y + R }).y;
-    expect(bottom).toBeCloseTo(barTop - (R * (M - 1) + LEAD) * c.zoom, 6);
-    expect(bottom).toBeLessThan(barTop);
-    expect(c.worldToScreen({ x: ship.x - R, y: ship.y }).x).toBeGreaterThanOrEqual(0);
-    expect(c.worldToScreen({ x: ship.x + R, y: ship.y }).x).toBeLessThanOrEqual(VW);
-  });
 
-  it('INSIDE intel: no slide, the center is the follow point', () => {
-    const c = cam(RING_R, { cx: 900, cy: 900 });
-    const ship = { x: -300, y: 120 };
-    for (const k of [0, 0.5, 0.99]) {
-      settle(c, Z.defaultSpanU + k * (c.intelSpanU - Z.defaultSpanU), ship);
-      expect(c.slideT).toBe(0);
-      expect(c.center.x).toBeCloseTo(ship.x, 9);
-      expect(c.center.y).toBeCloseTo(ship.y, 9);
+  // Story 11.8 (Eric 2026-11-15): the slide starts at HALF the ring waypoint —
+  // the alive one, floored at intel — not at the intel stop.
+  it('the slide reads the ALIVE ring waypoint: from h = max(R/2, intel) to R — or straight to the board when R ≤ h', () => {
+    for (const r of [MAP_R * 0.9, RING_R, SMALL_R]) {
+      const c = cam(r);
+      const Rw = c.aliveDetentSpanU;
+      const h = Math.max(Rw / 2, c.intelSpanU);
+      const end = Rw > h ? Rw : MAP_SPAN;
+      for (const k of [0, 0.25, 0.5, 1]) {
+        c.setUserZoom(Z.defaultSpanU / (h + k * (end - h)));
+        expect(c.slideT, `r ${r} k ${k}`).toBeCloseTo(k, 9);
+      }
     }
   });
 
-  it('BETWEEN intel and ring: slideT = (span − intel)/(ring − intel), linear; 1 at the ring', () => {
-    const c = cam(RING_R);
-    const intel = c.intelSpanU;
-    const ring = ringFitSpanU(RING_R, M);
-    for (const k of [0.25, 0.5, 0.75, 1]) {
-      const span = intel + k * (ring - intel);
-      c.setUserZoom(Z.defaultSpanU / span);
-      expect(c.slideT).toBeCloseTo((span - intel) / (ring - intel), 9);
-    }
+  it('spectating, the slide reads the SPECTATE ring waypoint (floored at the default framing)', () => {
+    const c = cam(SMALL_R);
+    c.setSpectating(true);
+    const Rw = c.detentSpanU;
+    expect(Rw).toBeLessThan(c.aliveDetentSpanU); // premise: the two differ here
+    const h = Math.max(Rw / 2, Z.defaultSpanU); // the spectate floor
+    expect(Rw).toBeLessThanOrEqual(h); // the late ring: no ring leg
+    c.setZoomFactor(Z.defaultSpanU / ((h + MAP_SPAN) / 2));
+    expect(c.slideT).toBeCloseTo(0.5, 9);
+    expect(c.mapSlideT).toBe(0);
   });
-
   it('the alive ring detent is never tighter than intel; the spectate detent is unchanged', () => {
     for (const r of [MAP_R, RING_R, MAP_R / 4, SMALL_R, 0]) {
       const c = cam(r);
@@ -272,7 +246,7 @@ describe('stepping across the two alive waypoints', () => {
 });
 
 describe('merged waypoints: a late ring fit at or inside intel (amendment 208)', () => {
-  it('one stop; slideT ≡ 0; the map slide runs ship → map center from intel to the map fit', () => {
+  it('one stop; past it the ship glides straight to the map centre — no ring leg once R ≤ h (Story 11.8 review)', () => {
     const ringC = { x: MAP_R * 0.2, y: MAP_R * 0.1 };
     const c = cam(SMALL_R, { cx: ringC.x, cy: ringC.y });
     const [intel, ring] = c.aliveZoomDetents;
@@ -284,8 +258,8 @@ describe('merged waypoints: a late ring fit at or inside intel (amendment 208)',
     const ship = { x: 200, y: 100 };
     const mid = (c.intelSpanU + MAP_SPAN) / 2;
     settle(c, mid, ship);
-    expect(c.slideT).toBe(0);
-    expect(c.mapSlideT).toBeCloseTo(0.5, 9);
+    expect(c.slideT).toBeCloseTo(0.5, 9);
+    expect(c.mapSlideT).toBe(0);
     expect(c.center.x).toBeCloseTo(ship.x / 2, 6);
     expect(c.center.y).toBeCloseTo(ship.y / 2, 6);
   });
@@ -323,7 +297,7 @@ describe('resize and UI scale re-fit the intel waypoint (amendment 208)', () => 
       c.setBottomInset(inset);
       expect(c.userSpanU, `${w}×${h} @ ${inset}`).toBeCloseTo(expectedIntelSpan(w, h, inset), 6);
       c.snapTo({ x: 0, y: 0 });
-      c.update(0.05, { x: 0, y: 0, ...STILL });
+      c.update(0.05, { x: 0, y: 0 });
       expect(c.worldToScreen({ x: 0, y: R }).y).toBeLessThan(h - inset);
     }
   });
@@ -350,7 +324,7 @@ describe('an intel fit at or past the whole-map fit is no stop (Story 11.2)', ()
     c.setBottomInset(INSET);
     c.setMapRadius(tinyR);
     c.setRing(0, 0, tinyR);
-    expect(intelFitSpanU(VW, VH, INSET, R, M, LEAD)).toBeGreaterThan(c.mapSpanU); // premise
+    expect(intelFitSpanU(VW, VH, INSET, R, M)).toBeGreaterThan(c.mapSpanU); // premise
     expect(c.intelSpanU).toBe(Z.defaultSpanU);
     expect(c.aliveZoomDetents).toHaveLength(1);
   });
@@ -363,15 +337,15 @@ describe('an intel fit at or past the whole-map fit is no stop (Story 11.2)', ()
       c.setViewport(VW, VH);
       c.setMapRadius(MAP_R);
       c.setRing(ring === MAP_R ? 0 : ringC.x, ring === MAP_R ? 0 : ringC.y, ring);
-      expect(intelFitSpanU(VW, VH, 0, CONFIG.vision.radar, M, LEAD)).toBeGreaterThanOrEqual(c.mapSpanU); // premise
+      expect(intelFitSpanU(VW, VH, 0, CONFIG.vision.radar, M)).toBeGreaterThanOrEqual(c.mapSpanU); // premise
       c.setUserZoom(c.userZoomLimits.min); // fully out: the whole-map fit
       expect(c.userSpanU).toBeCloseTo(c.mapSpanU, 6);
       // A ship under way near the rim, heading across the board.
-      const ship = { x: -MAP_R * 0.8, y: MAP_R * 0.3, heading: 0.4, speed: FULL };
+      const ship = { x: -MAP_R * 0.8, y: MAP_R * 0.3 };
       c.snapTo(ship);
       for (let i = 0; i < 120; i++) {
-        ship.x += Math.cos(ship.heading) * ship.speed * 0.05;
-        ship.y += Math.sin(ship.heading) * ship.speed * 0.05;
+        ship.x += Math.cos(0.4) * 30 * 0.05;
+        ship.y += Math.sin(0.4) * 30 * 0.05;
         c.update(0.05, ship);
       }
       expect(c.center.x, `ring ${ring}`).toBeCloseTo(0, 6);
@@ -394,10 +368,13 @@ describe('spectate is unchanged by an intel-configured camera', () => {
     plain.setViewport(VW, VH);
     plain.setMapRadius(MAP_R);
     plain.setRing(500, -300, r);
-    return [plain, cam(r, { cx: 500, cy: -300 })];
+    const withIntel = cam(r, { cx: 500, cy: -300 });
+    plain.setSpectating(true);
+    withIntel.setSpectating(true);
+    return [plain, withIntel];
   }
 
-  it('zoomDetent, wheel stops, the cursor anchor and the ring ride match a camera without it', () => {
+  it('zoomDetent, wheel stops, the slide and the ring ride match a camera without it', () => {
     for (const r of [RING_R, MAP_R / 4, SMALL_R]) {
       const [a, b] = pair(r);
       expect(b.zoomDetent, `r ${r}`).toBe(a.zoomDetent);
@@ -420,159 +397,68 @@ describe('spectate is unchanged by an intel-configured camera', () => {
   });
 });
 
-describe('the own hull never sits under the bar (amendment 208 clamp reading)', () => {
-  it('at every span from intel out to the map fit, anywhere on the map, hull y ≤ bar top − pad·zoom', () => {
-    const pad = CLIENT_CONFIG.camera.keepInViewPadU;
-    const ringC = { x: MAP_R * 0.3, y: -MAP_R * 0.25 };
-    for (let a = 0; a < 16; a++) {
-      for (const k of [0, 0.5, 0.9, 1]) {
-        const ship = { x: Math.cos(a) * k * MAP_R, y: Math.sin(a) * k * MAP_R };
-        const c = cam(MAP_R * 0.4, { cx: ringC.x, cy: ringC.y });
-        const intel = c.intelSpanU;
-        const ring = c.aliveDetentSpanU;
-        for (const span of [intel, (intel + ring) / 2, ring, (ring + MAP_SPAN) / 2, MAP_SPAN]) {
-          settle(c, span, ship);
-          const tag = `a ${a} k ${k} span ${span.toFixed(0)}`;
-          const s = c.worldToScreen(ship);
-          expect(s.y, tag).toBeLessThanOrEqual(VH - INSET - pad * c.zoom + 1e-6);
-          expect(s.y, tag).toBeGreaterThanOrEqual(pad * c.zoom - 1e-6);
-        }
-      }
-    }
-  });
-});
 
-describe('the follow lead is inside the fit (Eric 2026-10-19, ruling 9)', () => {
-  /** Park at the intel span with the ship at `speed` on `heading`, the follow converged. */
-  function underWay(c: Camera, ship: { x: number; y: number }, heading: number, speed: number): void {
-    c.setUserZoom(Z.defaultSpanU / c.intelSpanU);
-    c.snapTo(ship);
-    for (let i = 0; i < 100; i++) c.update(1, { ...ship, heading, speed });
-  }
-
-  it('at full speed on any heading — lead straight up the screen (the ship pushed toward the bar) or down — and still, the disc clears the bar and the sides', () => {
-    // worldToScreen: screen y grows with world y, so a lead toward −y points UP
-    // the screen and puts the ship BELOW center, toward the bar; +y is DOWN.
-    const headings = [-Math.PI / 2, Math.PI / 2, ...Array.from({ length: 16 }, (_, i) => (i * Math.PI) / 8)];
-    for (const [w, h, inset] of [
-      [VW, VH, INSET],
-      [1280, 614, INSET],
-      [1920, 1080, 154],
-      [900, 1600, INSET],
-    ] as const) {
-      const c = cam(RING_R, { w, h, inset });
-      const ship = { x: 300, y: -200 };
-      for (const heading of headings) {
-        for (const speed of [FULL, -FULL, 0]) {
-          underWay(c, ship, heading, speed);
-          const tag = `${w}×${h} heading ${heading.toFixed(2)} speed ${speed}`;
-          expect(c.slideT, tag).toBe(0);
-          const s = c.worldToScreen(ship);
-          const e = R * M * c.zoom; // the disc × its margin, in px
-          expect(s.y + e, tag).toBeLessThanOrEqual(h - inset + 1e-6);
-          expect(s.y - e, tag).toBeGreaterThanOrEqual(-1e-6);
-          expect(s.x - e, tag).toBeGreaterThanOrEqual(-1e-6);
-          expect(s.x + e, tag).toBeLessThanOrEqual(w + 1e-6);
-        }
-      }
-    }
-  });
-
-  it('the worst heading (lead straight up the screen) puts the disc bottom exactly at the bar top minus the margin', () => {
-    const c = cam(RING_R);
-    const ship = { x: 0, y: 0 };
-    underWay(c, ship, -Math.PI / 2, FULL);
-    const bottom = c.worldToScreen(ship).y + R * M * c.zoom;
-    expect(bottom).toBeCloseTo(VH - INSET, 6);
-  });
-});
-
-describe('event-driven center jumps ease (Eric 2026-10-19, ruling 10)', () => {
+describe('event-driven center jumps ease (Eric 2026-10-19, ruling 10 — kept by Story 11.8)', () => {
   const DT = 1 / 60;
   const dist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
   const RC = { x: 600, y: -400 };
-  const SHIP = { x: RC.x + SMALL_R * 0.5, y: RC.y + SMALL_R * 0.3 };
 
-  /** Parked on the alive ring stop over a still ship, the follow converged. */
+  /** Parked on the alive ring stop (the slide at the ring centre), a ship sailing. */
   function parkedOnRing(camOpts: CameraOptions): Camera {
     const c = cam(RING_R, { cx: RC.x, cy: RC.y }, camOpts);
     c.setUserZoom(c.aliveZoomDetents[1]);
-    c.snapTo(SHIP);
-    for (let i = 0; i < 50; i++) c.update(1, { ...SHIP, ...STILL });
+    c.update(0, sail(0));
     return c;
   }
+  const sail = (t: number): { x: number; y: number } => ({ x: RC.x + 300 + 25 * t, y: RC.y - 200 + 10 * t });
 
-  it('the merge (a parked ring stop drops onto intel) glides the center from the ring center to the ship', () => {
+  it('a ring feed that moves the ring centre glides the drawn centre there instead of popping', () => {
     const c = parkedOnRing(EASED);
     const pre = { ...c.center };
-    expect(dist(pre, RC)).toBeLessThan(1e-6); // parked on the ring stop: the ring center
-    c.setRing(RC.x, RC.y, SMALL_R);
-    expect(c.userZoom).toBe(c.aliveZoomDetents[0]); // merged onto intel: the target is now the ship
-    const jump = dist(pre, SHIP);
-    c.update(DT, { ...SHIP, ...STILL });
+    expect(dist(pre, RC)).toBeLessThan(1e-6); // parked on the ring stop: the ring centre
+    const moved = { x: RC.x + 400, y: RC.y - 300 };
+    c.setRing(moved.x, moved.y, RING_R * 0.9);
+    const jump = dist(pre, moved);
+    c.update(DT, sail(DT));
     expect(dist(c.center, pre)).toBeLessThan(0.15 * jump);
-    let last = dist(c.center, SHIP);
-    for (let i = 1; i < 1.5 / DT; i++) {
-      c.update(DT, { ...SHIP, ...STILL });
-      const d = dist(c.center, SHIP);
-      expect(d).toBeLessThanOrEqual(last);
+    let last = dist(c.center, moved);
+    for (let i = 2; i < 1.5 / DT; i++) {
+      c.update(DT, sail(i * DT));
+      const d = dist(c.center, moved);
+      expect(d).toBeLessThanOrEqual(last + 1e-9);
       last = d;
     }
     expect(last).toBeLessThanOrEqual(0.01 * jump);
   });
 
-  it('without the option the merge lands at once (the pre-ruling behavior)', () => {
+  it('without the option the move lands at once (the pre-ruling behavior)', () => {
     const c = parkedOnRing(OPTS);
-    c.setRing(RC.x, RC.y, SMALL_R);
-    c.update(DT, { ...SHIP, ...STILL });
-    expect(c.center.x).toBeCloseTo(SHIP.x, 9);
-    expect(c.center.y).toBeCloseTo(SHIP.y, 9);
+    c.setRing(RC.x + 400, RC.y - 300, RING_R * 0.9);
+    c.update(DT, sail(DT));
+    expect(c.center.x).toBeCloseTo(RC.x + 400, 9);
+    expect(c.center.y).toBeCloseTo(RC.y - 300, 9);
   });
 
-  it("the player's own zoom stays direct: a zoom step puts the center straight on the slide", () => {
+  it("the player's own zoom stays direct: a zoom step puts the centre straight on the slide; snapTo / home drop a jump", () => {
     const c = parkedOnRing(EASED);
-    const span = (c.intelSpanU + ringFitSpanU(RING_R, M)) / 2;
-    c.setUserZoom(Z.defaultSpanU / span);
-    c.update(DT, { ...SHIP, ...STILL });
+    const Rw = c.aliveDetentSpanU;
+    const h = Math.max(Rw / 2, c.intelSpanU);
+    expect(Rw).toBeGreaterThan(h); // premise: a ring leg exists
+    c.setUserZoom(Z.defaultSpanU / ((h + Rw) / 2));
+    const ship = sail(1);
+    c.update(DT, ship);
     const t = c.slideT;
-    expect(t).toBeGreaterThan(0);
-    expect(t).toBeLessThan(1);
-    expect(c.center.x).toBeCloseTo(SHIP.x + t * (RC.x - SHIP.x), 9);
-    expect(c.center.y).toBeCloseTo(SHIP.y + t * (RC.y - SHIP.y), 9);
-  });
-
-  it('a UI-scale change that moves the slide target between the stops eases too; snapTo drops the jump', () => {
-    const c = parkedOnRing(EASED);
-    c.setUserZoom(Z.defaultSpanU / ((c.intelSpanU + ringFitSpanU(RING_R, M)) / 2));
-    for (let i = 0; i < 50; i++) c.update(1, { ...SHIP, ...STILL });
-    const pre = { ...c.center };
-    c.setBottomInset(INSET * 1.25); // intel widens, so slideT drops and the target moves toward the ship
-    const target = { x: SHIP.x + c.slideT * (RC.x - SHIP.x), y: SHIP.y + c.slideT * (RC.y - SHIP.y) };
-    const jump = dist(pre, target);
-    expect(jump).toBeGreaterThan(1);
-    c.update(DT, { ...SHIP, ...STILL });
-    expect(dist(c.center, pre)).toBeLessThan(0.15 * jump);
-    c.snapTo(SHIP);
-    c.update(DT, { ...SHIP, ...STILL });
-    expect(dist(c.center, target)).toBeLessThan(1e-9);
+    expect(t).toBeCloseTo(0.5, 9);
+    expect(c.center.x).toBeCloseTo(ship.x + t * (RC.x - ship.x), 9);
+    expect(c.center.y).toBeCloseTo(ship.y + t * (RC.y - ship.y), 9);
+    c.setRing(RC.x + 400, RC.y, RING_R); // an eased jump starts...
+    c.home(); // ...and Space drops it: the snap is instant
+    c.update(DT, ship);
+    expect(c.center.x).toBeCloseTo(ship.x + t * (RC.x + 400 - ship.x), 9);
   });
 });
 
 describe('review-gate patches (2026-10-19)', () => {
-  it('a viewport too short for the bar: the bar edge wins, hull y ≤ viewH − inset − pad·zoom', () => {
-    const pad = CLIENT_CONFIG.camera.keepInViewPadU;
-    for (const h of [280, 140]) {
-      const c = cam(RING_R, { h });
-      const ship = { x: 0, y: RING_R * 0.9 };
-      for (const span of [(c.intelSpanU + c.aliveDetentSpanU) / 2, c.aliveDetentSpanU, MAP_SPAN]) {
-        settle(c, span, ship);
-        expect(c.worldToScreen(ship).y, `h ${h} span ${span.toFixed(0)}`).toBeLessThanOrEqual(
-          h - INSET - pad * c.zoom + 1e-6,
-        );
-      }
-    }
-  });
-
   it('a transient degenerate viewport does not move a parked intel zoom (the fallback never rides)', () => {
     const c = cam(RING_R);
     const intel = c.aliveZoomDetents[0];
@@ -587,7 +473,7 @@ describe('review-gate patches (2026-10-19)', () => {
   it('a zoom parked on the ring stop rides a resize that lifts intel over it, onto the merged stop', () => {
     const c = cam(RING_R);
     c.setUserZoom(c.aliveZoomDetents[1]);
-    c.setViewport(1280, 614);
+    c.setViewport(1280, 560);
     expect(c.intelSpanU).toBeGreaterThan(ringFitSpanU(RING_R, M)); // premise: intel lifted over the ring fit
     const [intel, ring] = c.aliveZoomDetents;
     expect(ring).toBe(intel);

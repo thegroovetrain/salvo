@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   Camera,
   canUserZoom,
-  centreSlideT,
   ringFitSpanU,
   spanFactor,
   stepZoom,
@@ -14,8 +13,9 @@ import { CLIENT_CONFIG } from '../config.js';
 // Story 9.8 (epic-9 rulings 127/128): every framing is an ABSOLUTE world span
 // across the viewport's short axis — the default and close framings from
 // CLIENT_CONFIG.zoom, the zoom-out limit the live ring fitted with the reveal's
-// margin — and past the default framing the centre slides to the ring centre.
-// Every expectation below is derived from those config spans, never a literal.
+// margin — and (Story 11.8) from half the ring waypoint the centre slides to
+// the ring centre. Every expectation below is derived from those config spans,
+// never a literal.
 
 const Z = CLIENT_CONFIG.zoom;
 const MARGIN = CLIENT_CONFIG.reveal.mapFitMargin;
@@ -24,10 +24,7 @@ const OPTS: CameraOptions = {
   defaultSpanU: Z.defaultSpanU,
   closeSpanU: Z.closeSpanU,
   ringFitMargin: MARGIN,
-  followRate: 5,
-  leadSeconds: 4,
-  leadMax: 110,
-  keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
+  homeRadiusPx: CLIENT_CONFIG.camera.homeRadiusPx,
 };
 
 function makeCamera(): Camera {
@@ -90,7 +87,7 @@ describe('Camera alive user-zoom limits (ruling 127; ring fallback before the ma
     cam.resetUserZoom();
     expect(cam.zoom).toBeCloseTo(900 / Z.defaultSpanU, 10);
     cam.snapTo({ x: 300, y: -100 });
-    cam.update(0.05, { x: 300, y: -100, heading: 0, speed: 0 });
+    cam.update(0.05, { x: 300, y: -100 });
     expect(cam.center.x).toBeCloseTo(300, 9);
     expect(cam.center.y).toBeCloseTo(-100, 9);
   });
@@ -250,26 +247,30 @@ describe('SPECTATE zoom = the alive range, anchored at the cursor (Eric 2026-10-
     expect(cam.zoomFactor).toBe(reveal);
   });
 
-  it('zoomAbout keeps the world point under the cursor fixed — wheel and key steps, several zooms', () => {
+  // Story 11.8 (Eric 2026-11-15): the spectate zoom takes the STRATEGIC rules —
+  // in toward the cursor (the anchor solved through the slide's inverse), out
+  // about the anchor.
+  it('zoomAbout IN keeps the world point under the cursor fixed and PANS — wheel and key steps, several zooms', () => {
     const cam = ringed(3000, 400, -250);
-    cam.snapTo({ x: 1234, y: -567 });
     cam.shake.x = 3; // shake is part of the mapping and must not break the anchor
     cam.shake.y = -2;
-    const cursors = [{ x: 100, y: 80 }, { x: 1500, y: 820 }, { x: 800, y: 450 }, { x: 0, y: 900 }];
+    const cursors = [{ x: 100, y: 80 }, { x: 1500, y: 820 }, { x: 700, y: 520 }, { x: 0, y: 900 }];
     const steps = [
-      (f: number): number => stepZoom(f, -100 * Z.wheelRate), // one wheel notch out
-      (f: number): number => stepZoom(f, -Z.keyStep), // Z
       (f: number): number => stepZoom(f, Z.keyStep), // X
       (f: number): number => stepZoom(f, 400 * Z.wheelRate), // a wheel spin in
     ];
     for (const start of [0.3, 0.6, 1, 1.4]) {
       for (const s of cursors) {
         for (const step of steps) {
+          cam.snapTo({ x: 1234, y: -567 });
+          cam.home();
           cam.setZoomFactor(start);
+          cam.update(0, { x: 1234, y: -567 });
           const p = cam.screenToWorld(s);
           const before = cam.zoomFactor;
           cam.zoomAbout(s.x, s.y, step(before));
-          expect(cam.zoomFactor).not.toBe(before);
+          expect(cam.zoomFactor).toBeGreaterThan(before);
+          expect(cam.mode).toBe('panned');
           const back = cam.worldToScreen(p);
           expect(back.x).toBeCloseTo(s.x, 6);
           expect(back.y).toBeCloseTo(s.y, 6);
@@ -278,32 +279,53 @@ describe('SPECTATE zoom = the alive range, anchored at the cursor (Eric 2026-10-
     }
   });
 
-  it('zoomAbout at a clamped limit holds the cursor point too (no drift when the zoom cannot move)', () => {
+  it('zoomAbout OUT is about the anchor: FOLLOW stays FOLLOW and the anchor does not move', () => {
+    const cam = ringed(3000, 400, -250);
+    const hull = { x: 1234, y: -567 };
+    cam.update(0, hull);
+    for (const s of [{ x: 100, y: 80 }, { x: 1500, y: 820 }]) {
+      cam.zoomAbout(s.x, s.y, stepZoom(cam.zoomFactor, -Z.keyStep));
+      expect(cam.mode).toBe('follow');
+      expect(cam.anchorPoint).toEqual(hull);
+    }
+  });
+
+  it('zoomAbout at a clamped limit moves nothing (the zoom could not change)', () => {
     const cam = ringed(3000);
     cam.snapTo({ x: 50, y: 60 });
     cam.setZoomFactor(99);
-    const s = { x: 1200, y: 200 };
-    const p = cam.screenToWorld(s);
-    cam.zoomAbout(s.x, s.y, 999);
+    cam.zoomAbout(1200, 200, 999);
     expect(cam.center.x).toBeCloseTo(50, 9);
     expect(cam.center.y).toBeCloseTo(60, 9);
-    expect(cam.worldToScreen(p).x).toBeCloseTo(s.x, 6);
+    expect(cam.mode).toBe('follow');
   });
 
-  it('zoomAbout at the SCREEN CENTRE is a plain zoom about the camera centre; a non-finite cursor anchors there', () => {
+  it('a non-finite cursor is the SCREEN CENTRE; a non-finite zoom is ignored', () => {
     const cam = ringed(3000);
     cam.snapTo({ x: 70, y: -30 });
-    const c = cam.screenCenter;
-    cam.zoomAbout(c.x, c.y, 0.5);
+    cam.setZoomFactor(0.6);
+    cam.zoomAbout(NaN, 10, 0.8); // in, about the screen centre = the hull: FOLLOW stays
+    expect(cam.zoomFactor).toBe(0.8);
+    expect(cam.mode).toBe('follow');
     expect(cam.center.x).toBeCloseTo(70, 9);
     expect(cam.center.y).toBeCloseTo(-30, 9);
-    cam.zoomAbout(NaN, 10, 0.8);
+    cam.zoomAbout(10, 10, NaN);
     expect(cam.zoomFactor).toBe(0.8);
     expect(cam.center.x).toBeCloseTo(70, 9);
-    expect(cam.center.y).toBeCloseTo(-30, 9);
-    cam.zoomAbout(10, 10, NaN); // a non-finite zoom is ignored: nothing moves
-    expect(cam.zoomFactor).toBe(0.8);
-    expect(cam.center.x).toBeCloseTo(70, 9);
+  });
+
+  it('a zoom IN with the cursor within the home radius of the followed hull stays FOLLOW about the hull', () => {
+    const cam = ringed(3000);
+    const hull = { x: -200, y: 150 };
+    cam.update(0, hull);
+    const at = cam.worldToScreen(hull);
+    const r = CLIENT_CONFIG.camera.homeRadiusPx;
+    cam.zoomAbout(at.x + r * 0.9, at.y, 1.3);
+    expect(cam.mode).toBe('follow');
+    expect(cam.anchorPoint).toEqual(hull);
+    cam.setZoomFactor(1);
+    cam.zoomAbout(at.x + r * 1.5, at.y, 1.3);
+    expect(cam.mode).toBe('panned');
   });
 
   it('zoomAbout releases the reveal framing, like every manual camera action', () => {
@@ -313,24 +335,7 @@ describe('SPECTATE zoom = the alive range, anchored at the cursor (Eric 2026-10-
     expect(cam.revealing).toBe(false);
   });
 
-  it('FOLLOW: the anchor holds for the zoom frame, then the eased follow resumes from the new centre', () => {
-    const cam = ringed(3000);
-    const hull = { x: 0, y: 0, heading: 0, speed: 0 };
-    cam.snapTo(hull);
-    cam.zoomAbout(1500, 100, 0.5);
-    const shifted = { ...cam.center };
-    expect(Math.hypot(shifted.x, shifted.y)).toBeGreaterThan(0);
-    cam.update(1 / 60, hull);
-    // One frame of follow eases FROM the shifted centre, never snapping back...
-    expect(Math.hypot(cam.center.x, cam.center.y)).toBeLessThan(Math.hypot(shifted.x, shifted.y));
-    expect(Math.hypot(cam.center.x, cam.center.y)).toBeGreaterThan(0.5 * Math.hypot(shifted.x, shifted.y));
-    // ...and the follow still converges on the hull.
-    for (let i = 0; i < 600; i++) cam.update(1 / 60, hull);
-    expect(cam.center.x).toBeCloseTo(0, 3);
-    expect(cam.center.y).toBeCloseTo(0, 3);
-  });
-
-  it('the alive user zoom is untouched by zoomAbout (the alive camera stays own-ship-anchored)', () => {
+  it('the alive user zoom is untouched by zoomAbout (the spectate factor is its own)', () => {
     const cam = ringed(3000);
     cam.zoomAbout(200, 200, 0.7);
     expect(cam.userZoom).toBe(1);
@@ -359,100 +364,150 @@ describe('stepZoom — the key / wheel step is a LOG step (today\'s feel at the 
   });
 });
 
-describe('THE CENTRE SLIDE (ruling 128)', () => {
+// Story 11.8 (Eric 2026-11-15): the drawn centre is slide(anchor, span) — the
+// anchor until half the ring waypoint, then a glide to the ring centre, then on
+// to the board centre (the pure math: cameraSlide.test.ts). These are the
+// camera-level compositions, with MOVING ships (amendment 208's lesson).
+describe('THE STRATEGIC CAMERA (Story 11.8)', () => {
   const RING = { x: 2000, y: -1000, r: 4000 };
-  const SHIP = { x: -500, y: 400, heading: 0, speed: 0 };
+  /** A ship at 30 u/s heading east-south-east. */
+  const sail = (t: number): { x: number; y: number } => ({ x: -500 + 28 * t, y: 400 + 11 * t });
 
-  function slid(span: number): Camera {
-    const cam = ringed(RING.r, RING.x, RING.y);
-    cam.setUserZoom(Z.defaultSpanU / span);
-    cam.snapTo(SHIP);
-    cam.update(0.05, SHIP);
-    return cam;
+  function cam(span: number, mapRadius?: number): Camera {
+    const c = ringed(RING.r, RING.x, RING.y);
+    if (mapRadius !== undefined) c.setMapRadius(mapRadius);
+    c.setUserZoom(Z.defaultSpanU / span);
+    return c;
   }
 
-  it('t is 0 at and inside the default framing, 1 at the ring fit, linear between', () => {
-    const ringSpan = ringFitSpanU(RING.r, MARGIN);
-    expect(centreSlideT(Z.closeSpanU, Z.defaultSpanU, ringSpan)).toBe(0);
-    expect(centreSlideT(Z.defaultSpanU, Z.defaultSpanU, ringSpan)).toBe(0);
-    expect(centreSlideT((Z.defaultSpanU + ringSpan) / 2, Z.defaultSpanU, ringSpan)).toBeCloseTo(0.5, 12);
-    expect(centreSlideT(ringSpan, Z.defaultSpanU, ringSpan)).toBe(1);
+  it('FOLLOW, span ≤ h: the moving ship sits at the exact screen centre every frame (shake aside)', () => {
+    const c = cam(Z.defaultSpanU);
+    expect(c.userSpanU).toBeLessThanOrEqual(ringFitSpanU(RING.r, MARGIN) / 2); // premise: inside h
+    for (let i = 0; i < 120; i++) {
+      const ship = sail(i / 60);
+      c.update(1 / 60, ship);
+      const s = c.worldToScreen(ship);
+      expect(s.x).toBeCloseTo(800, 9);
+      expect(s.y).toBeCloseTo(450, 9);
+    }
+    c.shake.x = 4;
+    c.shake.y = -3;
+    const s = c.worldToScreen(sail(119 / 60));
+    expect(s.x - 800).toBeCloseTo(4, 9);
+    expect(s.y - 450).toBeCloseTo(-3, 9);
   });
 
-  it('a ring no wider than the default framing (or an unusable one) never slides', () => {
-    expect(centreSlideT(5000, Z.defaultSpanU, Z.defaultSpanU * 0.9)).toBe(0);
-    expect(centreSlideT(5000, Z.defaultSpanU, NaN)).toBe(0);
-  });
-
-  it('at the default framing the SHIP is centred', () => {
-    const cam = slid(Z.defaultSpanU);
-    expect(cam.center.x).toBeCloseTo(SHIP.x, 9);
-    expect(cam.center.y).toBeCloseTo(SHIP.y, 9);
-  });
-
-  it('halfway between default and ring span, the centre is halfway ship → ring centre', () => {
-    const cam = slid((Z.defaultSpanU + ringFitSpanU(RING.r, MARGIN)) / 2);
-    expect(cam.slideT).toBeCloseTo(0.5, 9);
-    expect(cam.center.x).toBeCloseTo((SHIP.x + RING.x) / 2, 9);
-    expect(cam.center.y).toBeCloseTo((SHIP.y + RING.y) / 2, 9);
-  });
-
-  it('at the zoom-out limit the RING CENTRE is centred', () => {
-    const cam = ringed(RING.r, RING.x, RING.y);
-    cam.setUserZoom(0);
-    cam.snapTo(SHIP);
-    cam.update(0.05, SHIP);
-    expect(cam.center.x).toBeCloseTo(RING.x, 9);
-    expect(cam.center.y).toBeCloseTo(RING.y, 9);
-  });
-
-  // F2 (Story 9.8 review gate): at the out limit the centre is the ring
-  // centre, so a captain OUTSIDE the ring in the storm would slide off screen.
-  // The centre is clamped so the hull point stays keepInViewPadU inside every
-  // edge of the view RECT; a captain inside the ring is never touched.
-  it('a captain in the storm at 1.3 × r from the ring centre stays inside the view rect at the out limit', () => {
-    const pad = CLIENT_CONFIG.camera.keepInViewPadU;
-    expect(pad, 'the premise: a real pad').toBeGreaterThan(0);
-    for (const dir of [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: -Math.SQRT1_2, y: -Math.SQRT1_2 }]) {
-      const ship = { x: RING.x + dir.x * 1.3 * RING.r, y: RING.y + dir.y * 1.3 * RING.r, heading: 0, speed: 0 };
-      const cam = ringed(RING.r, RING.x, RING.y);
-      cam.setUserZoom(0);
-      cam.snapTo(ship);
-      cam.update(0.05, ship);
-      const v = cam.worldView;
-      const tag = `dir (${dir.x.toFixed(2)}, ${dir.y.toFixed(2)})`;
-      expect(Math.abs(ship.x - v.x), tag).toBeLessThanOrEqual(v.halfW - pad + 1e-6);
-      expect(Math.abs(ship.y - v.y), tag).toBeLessThanOrEqual(v.halfH - pad + 1e-6);
-      const s = cam.worldToScreen(ship);
-      expect(s.x, tag).toBeGreaterThan(0);
-      expect(s.x, tag).toBeLessThan(1600);
-      expect(s.y, tag).toBeGreaterThan(0);
-      expect(s.y, tag).toBeLessThan(900);
+  it('between h and R the centre glides ship → ring centre (linear in span); at R it IS the ring centre', () => {
+    const R = ringFitSpanU(RING.r, MARGIN);
+    for (const k of [0.25, 0.5, 1]) {
+      const span = R / 2 + k * (R / 2);
+      const c = cam(span);
+      const ship = sail(3);
+      c.update(1 / 60, ship);
+      expect(c.slideT).toBeCloseTo(k, 9);
+      expect(c.center.x).toBeCloseTo(ship.x + k * (RING.x - ship.x), 6);
+      expect(c.center.y).toBeCloseTo(ship.y + k * (RING.y - ship.y), 6);
+      expect(c.mode).toBe('follow');
     }
   });
 
-  it('a captain INSIDE the ring at the out limit is unaffected: the centre is exactly the ring centre', () => {
-    for (const k of [0, 0.5, 0.95]) {
-      const ship = { x: RING.x, y: RING.y + k * RING.r, heading: 0, speed: 0 };
-      const cam = ringed(RING.r, RING.x, RING.y);
-      cam.setUserZoom(0);
-      cam.snapTo(ship);
-      cam.update(0.05, ship);
-      expect(cam.center.x, `k ${k}`).toBe(RING.x);
-      expect(cam.center.y, `k ${k}`).toBe(RING.y);
+  it('at the whole-board span the board centre is centred, still FOLLOW; back inside h the ship is centred again', () => {
+    const c = cam(Z.defaultSpanU, 6000);
+    c.setUserZoom(0); // the out limit: the whole-board fit
+    c.update(1 / 60, sail(1));
+    expect(c.center.x).toBeCloseTo(0, 6);
+    expect(c.center.y).toBeCloseTo(0, 6);
+    expect(c.mode).toBe('follow');
+    c.setUserZoom(1);
+    const ship = sail(1.5);
+    c.update(1 / 60, ship);
+    expect(c.center.x).toBeCloseTo(ship.x, 9);
+    expect(c.center.y).toBeCloseTo(ship.y, 9);
+  });
+
+  it('PANNED holds the water while the ship sails on; Space (home) snaps back at the same zoom', () => {
+    const c = cam(Z.defaultSpanU);
+    c.update(1 / 60, sail(0));
+    c.pan(300, -200);
+    expect(c.mode).toBe('panned');
+    const held = { ...c.center };
+    for (let i = 1; i < 60; i++) c.update(1 / 60, sail(i / 60));
+    expect(c.center).toEqual(held);
+    const zoom = c.zoom;
+    c.home();
+    const ship = sail(1);
+    c.update(1 / 60, ship);
+    expect(c.mode).toBe('follow');
+    expect(c.zoom).toBe(zoom);
+    expect(c.center.x).toBeCloseTo(ship.x, 9);
+    expect(c.center.y).toBeCloseTo(ship.y, 9);
+  });
+
+  it('a pan moves the DRAWN centre by exactly the asked delta at any slide fraction below 1 (Δ / (1 − t))', () => {
+    const R = ringFitSpanU(RING.r, MARGIN);
+    for (const span of [Z.defaultSpanU, R * 0.6, R * 0.9]) {
+      const c = cam(span);
+      c.update(0, sail(0));
+      const before = { ...c.center };
+      c.pan(120, -45);
+      expect(c.center.x - before.x, `span ${span}`).toBeCloseTo(120, 6);
+      expect(c.center.y - before.y, `span ${span}`).toBeCloseTo(-45, 6);
     }
   });
 
-  it('lead + follow smoothing apply to the SHIP term only', () => {
-    const cam = ringed(RING.r, RING.x, RING.y);
-    const span = (Z.defaultSpanU + ringFitSpanU(RING.r, MARGIN)) / 2;
-    cam.setUserZoom(Z.defaultSpanU / span);
-    cam.snapTo({ x: 0, y: 0 });
-    const ship = { x: 100, y: 0, heading: 0, speed: 0 };
-    cam.update(0.05, ship);
-    const followX = 100 * (1 - Math.exp(-0.25)); // one 50ms step at rate 5
-    expect(cam.center.x).toBeCloseTo(followX + (RING.x - followX) * 0.5, 6);
-    expect(cam.center.y).toBeCloseTo(0 + (RING.y - 0) * 0.5, 6);
+  it('the middle drag is 1:1 under the cursor: the world point under it follows the hand', () => {
+    const c = cam(ringFitSpanU(RING.r, MARGIN) * 0.7);
+    c.update(0, sail(0));
+    const s = { x: 400, y: 300 };
+    const p = c.screenToWorld(s);
+    c.panScreen(55, -20);
+    const back = c.worldToScreen(p);
+    expect(back.x).toBeCloseTo(s.x + 55, 6);
+    expect(back.y).toBeCloseTo(s.y - 20, 6);
+  });
+
+  it('at full zoom-out a pan is a no-op (the anchor has no say), and the mode is left alone', () => {
+    const c = cam(Z.defaultSpanU, 6000);
+    c.setUserZoom(0);
+    c.update(0, sail(0));
+    const before = { ...c.center };
+    c.pan(500, 500);
+    expect(c.center).toEqual(before);
+    expect(c.mode).toBe('follow');
+  });
+
+  it('the panned anchor is clamped inside the board fit', () => {
+    const c = cam(Z.defaultSpanU, 6000);
+    c.update(0, sail(0));
+    c.pan(1e7, 0);
+    expect(Math.hypot(c.anchorPoint.x, c.anchorPoint.y)).toBeCloseTo(c.mapSpanU / 2, 6);
+  });
+
+  it('the cursor zoom-in from the whole board heads for the cursor; Space returns FOLLOW at the same zoom', () => {
+    const c = cam(Z.defaultSpanU, 6000);
+    c.setUserZoom(0);
+    const ship = sail(0);
+    c.update(0, ship);
+    const s = { x: 1300, y: 200 };
+    const target = c.screenToWorld(s);
+    const far = Math.hypot(c.center.x - target.x, c.center.y - target.y);
+    for (let i = 0; i < 40; i++) c.zoomUserAbout(s.x, s.y, stepZoom(c.userZoom, Z.keyStep, c.aliveZoomDetents));
+    expect(c.mode).toBe('panned');
+    // The view went TOWARD the point first under the cursor, never toward the ship.
+    expect(Math.hypot(c.center.x - target.x, c.center.y - target.y)).toBeLessThan(far / 2);
+    const zoom = c.zoom;
+    c.home();
+    c.update(0, ship);
+    expect(c.zoom).toBe(zoom);
+    expect(c.mode).toBe('follow');
+  });
+
+  it('no ring and no board known (the lobby scene, a bare camera): nothing ever slides', () => {
+    const c = makeCamera();
+    c.setViewport(1600, 900);
+    c.update(0, { x: 777, y: -333 });
+    expect(c.center.x).toBe(777);
+    expect(c.center.y).toBe(-333);
   });
 });
 
@@ -500,52 +555,16 @@ describe('Camera world<->screen roundtrip', () => {
   });
 });
 
-describe('Camera follow smoothing', () => {
-  it('is deterministic and converges toward ship + lead', () => {
+describe('FOLLOW has no lead and no easing (Story 11.8 retired both)', () => {
+  it('a ship under way at any heading and speed is the centre on the very next frame', () => {
     const cam = makeCamera();
     cam.setViewport(1600, 900);
     cam.snapTo({ x: 0, y: 0 });
-    // Ship stationary at (100, 0): no lead, center approaches (100, 0).
-    const ship = { x: 100, y: 0, heading: 0, speed: 0 };
-    const before = cam.center.x;
-    cam.update(0.05, ship);
-    const after = cam.center.x;
-    // one 50ms step at rate 5: factor = 1 - exp(-0.25) ~= 0.221
-    expect(after).toBeCloseTo(100 * (1 - Math.exp(-0.25)), 6);
-    expect(after).toBeGreaterThan(before);
-    for (let i = 0; i < 400; i++) cam.update(0.05, ship);
-    expect(cam.center.x).toBeCloseTo(100, 4);
-    expect(cam.center.y).toBeCloseTo(0, 4);
-  });
-
-  it('leads ahead by speed * leadSeconds below the cap', () => {
-    const cam = makeCamera();
-    cam.setViewport(1600, 900);
-    // maxSpeed 25 * leadSeconds 4 = 100u, under leadMax 110 (cap not engaged).
-    const ship = { x: 0, y: 0, heading: 0, speed: 25 };
-    cam.snapTo({ x: 0, y: 0 });
-    for (let i = 0; i < 500; i++) cam.update(0.05, ship);
-    expect(cam.center.x).toBeCloseTo(100, 3);
-    expect(cam.center.y).toBeCloseTo(0, 3);
-  });
-
-  it('caps lead at leadMax for over-speed inputs', () => {
-    const cam = makeCamera();
-    cam.setViewport(1600, 900);
-    const ship = { x: 0, y: 0, heading: 0, speed: 40 }; // 40*4 = 160 > 110 cap
-    cam.snapTo({ x: 0, y: 0 });
-    for (let i = 0; i < 500; i++) cam.update(0.05, ship);
-    expect(cam.center.x).toBeCloseTo(110, 3);
-    expect(cam.center.y).toBeCloseTo(0, 3);
-  });
-
-  it('leads astern when reversing', () => {
-    const cam = makeCamera();
-    cam.setViewport(1600, 900);
-    const ship = { x: 0, y: 0, heading: 0, speed: -8 };
-    cam.snapTo({ x: 0, y: 0 });
-    for (let i = 0; i < 500; i++) cam.update(0.05, ship);
-    // travel dir is -x; lead magnitude = 8 * 4 = 32 (< cap)
-    expect(cam.center.x).toBeCloseTo(-32, 3);
+    for (let i = 0; i < 30; i++) {
+      const ship = { x: 40 * i, y: -25 * i };
+      cam.update(0.05, ship);
+      expect(cam.center.x).toBeCloseTo(ship.x, 12);
+      expect(cam.center.y).toBeCloseTo(ship.y, 12);
+    }
   });
 });

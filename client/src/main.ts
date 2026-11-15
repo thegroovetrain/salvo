@@ -66,6 +66,9 @@ import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Drops } from './render/drops.js';
+import { HullBrackets } from './render/brackets.js';
+import { SplashPegs } from './render/pegs.js';
+import { renderChartMarks } from './render/chartMarks.js';
 import { Beacons, BEACON_COLOR } from './render/beacons.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
@@ -111,7 +114,14 @@ import {
 import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
 import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
-import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
+import {
+  followSpectateTarget,
+  pickSpectateTarget,
+  shouldEngageFreePan,
+  spectatePan,
+  wheelZoom,
+  type SpectateFollow,
+} from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
@@ -311,6 +321,9 @@ interface Game {
   /** AIRDROPS (render/drops.ts, Story 10.9) — synced from FrameMsg.drops on the
    *  fogged `dropWorld` layer; sight-only. */
   drops: Drops;
+  /** Story 11.8: corner brackets on small hulls + own splash pegs (render/chartMarks.ts). */
+  brackets: HullBrackets;
+  pegs: SplashPegs;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -431,7 +444,7 @@ interface Game {
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
-  spectate: { freePan: boolean; visualsSet: boolean; sinkSettled: boolean };
+  spectate: { visualsSet: boolean; sinkSettled: boolean; follow: SpectateFollow };
   /** A trip back to the menu is already scheduled/underway (a reload, or Story
    *  6.3's in-place teardown). Either way this session is over: it is what stops
    *  the socket close behind an exit from starting a second one. */
@@ -2228,10 +2241,8 @@ function setupViewport(
     defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: CLIENT_CONFIG.camera.followRate,
-    leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
-    leadMax: CLIENT_CONFIG.camera.leadMax,
-    keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
+    // Story 11.8: a zoom-in this close to the own ship stays FOLLOW.
+    homeRadiusPx: CLIENT_CONFIG.camera.homeRadiusPx,
     // The intel waypoint (epic-9 amendment 208): the radar sweep disc.
     intelRadiusU: CONFIG.vision.radar,
     // Event-driven center jumps glide (amendment 208 ruling 10).
@@ -2471,6 +2482,8 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       const g = getG();
       if (g) handleZoomStep(g, dir);
     },
+    // SPACE — CAMERA HOME (Story 11.8): FOLLOW the own (or watched) ship again.
+    onCameraHome: withG((g) => g.camera.home()),
     onMute: withG(toggleMute),
     // P — THE NETCODE A/B TOGGLE, DEV-ONLY (NFR17, Story 7-8). The keyboard
     // chokepoint drops the binding under the same build-time constant; this is
@@ -2822,6 +2835,8 @@ function buildGame(
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.playCue('mineDrop')),
     drops: new Drops(stage.layers.dropWorld),
+    brackets: new HullBrackets(stage.layers.chartMark),
+    pegs: new SplashPegs(stage.layers.chartMark),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     foulZones: new FoulZones(stage.layers.litZone),
@@ -2856,7 +2871,7 @@ function buildGame(
     // first frame drawn at a guessed zoom would flash the wrong line weight.
     room: conn.room, mapRadius: map.radius, islands: map.islands, mapChart: buildMap(map, stage.layers, camera.zoom),
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
-    spectate: { freePan: false, visualsSet: false, sinkSettled: false },
+    spectate: { visualsSet: false, sinkSettled: false, follow: { id: null } },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     requeue: makeGameRequeue(() => gRef), disposers: [],
     shake: new ShakeDriver(),
@@ -2916,6 +2931,12 @@ function buildGame(
   g.disposers.push(() => {
     g.whiteout.destroy();
     g.flashBursts.clear();
+  });
+  // Story 11.8 review: the chart marks' pooled / spare Graphics and the pegs'
+  // shared contexts, which an app destroy (children) would not reach.
+  g.disposers.push(() => {
+    g.brackets.destroy();
+    g.pegs.destroy();
   });
   return g;
 }
@@ -3080,7 +3101,9 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
 function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
   return bindRoom(conn, {
     ...g,
-    onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    // A spawn (or a reconnect's re-seat) is always FOLLOW on the new hull:
+    // snapTo alone keeps PANNED (Story 11.8 review).
+    onOwnSpawn: (x, y) => g.camera.respawnAt({ x, y }),
     // Story 4.5: the SPECTATOR foghorn path's vantage point. A spectator's honk
     // arrives as a position (the free camera has no server-known one to take a
     // bearing from), so the bearing is derived from wherever the camera is at
@@ -3318,6 +3341,7 @@ function renderOwn(
   g.ownView.setTurretAngles(g.ownBattery.angles()); // Story 10.4: the predicted turrets
   // Story 10.6: the predicted launchers, drawn with the tubes the own stats hold.
   g.ownView.setLaunchers(g.ownLaunchers.angles(), g.ownStats.tubesPerLauncher);
+  driveCameraPan(g, frameDt, false); // Story 11.8: middle drag + held arrows
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
   // EVERY VISIBLE HULL LAYS A WAKE (amendment 199) — own predicted pose plus
@@ -4464,6 +4488,7 @@ function renderAlive(
     tier1 = ownTier1(g, status, nowMs);
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
+    g.mouse.consumePanDrag(); // no camera pan this gap: the drag's delta is discarded, not banked
     // No frame renders here — the bar must not linger, nor route clicks. This
     // gap is TRANSIENT (the pose returns next frame), so the XP chip's breathing
     // state survives it: a full hide() would reset it and re-arm a decayed
@@ -4523,9 +4548,11 @@ function renderAlive(
   g.smoke.render(now);
   g.fire.render(now); // flames age on the same server clock (cycle 162)
   // The chevron ray originates at the own hull's screen position — same rule
-  // as the fog hole just below, and for the same reason: the camera's forward
-  // lead means screen centre is NOT where the hull sits (review fix).
-  const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  // as the fog hole just below: in a panned or slid view the screen centre is
+  // NOT where the hull sits (review fix). An off-screen hull (Story 11.8's free
+  // camera) is clamped onto the screen first, so every bearing still reaches
+  // the edge on its own side instead of collapsing to the centre.
+  const foghornOrigin = pose ? clampToChevronBox(g, g.camera.worldToScreen(pose)) : g.camera.screenCenter;
   renderFoghorn(g, now, foghornOrigin);
   // ALERTS (Story 9.11): the mines advance the ONE shared alert clock first, so
   // every enemy mine and every other captain's zone below breathes on the same
@@ -4543,7 +4570,7 @@ function renderAlive(
   g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
   // the rain: the density raster refreshed on its cadence from this frame's
   // storm eye, the wisps scrolled (motion-gated); seen by eye only inside the same halo
-  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
+  updateAliveFogField(g, frameDt, now, pose); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4555,6 +4582,13 @@ function renderAlive(
   // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
   g.rainEye = rainEyeFor(g, pose, now, ownZones);
+}
+
+/** The alive rain raster: about the own hull, or the screen once it is panned
+ *  off (the off-screen test reads the shake-free rect — Story 11.8 review). */
+function updateAliveFogField(g: Game, frameDt: number, now: number, pose: RenderPose | null): void {
+  const motionOn = motionIntensity(settings.current.motion) > 0;
+  g.fogField.update(frameDt * 1000, now, motionOn, pose, g.camera.screenWorldRect, 'alive', g.camera.steadyWorldRect);
 }
 
 /**
@@ -4661,6 +4695,9 @@ function enterSpectateVisuals(g: Game): void {
   // base framing so the spectate wheel path behaves exactly as it always has.
   // Any debounced zoom re-bake still in flight dies with it (fog is off here).
   g.camera.resetUserZoom();
+  g.camera.home(); // Story 11.8: spectate starts on the watched ship (FOLLOW)
+  g.mouse.cancelPanDrag(); // ...with no alive-phase drag carried across
+  g.camera.setSpectating(true); // ...and slides on the spectate ring waypoint
   cancelZoomFogRebake(g);
   // THE REVEAL FRAMING (Story 5.3, amendment 25). Ordered AFTER resetUserZoom
   // deliberately: that call clears the alive user zoom and must not cancel the
@@ -4688,54 +4725,54 @@ function enterSpectateVisuals(g: Game): void {
 }
 
 /**
- * THE REVEAL FRAMES THE OCEAN, WHICH MEANS THE CENTRE MOVES TOO (review
- * finding). `beginReveal` sets a zoom FACTOR and nothing else, so on its own the
- * camera pulled back while still trailing your killer — and a killer even a few
- * hundred units off-centre cropped a slice of the map straight off the screen,
- * which is not "the whole ocean" by any reading of the AC or mockup F2. The map
- * disc is centred on the origin by construction (`sim/map.ts` spans
- * [-radius, +radius] on both axes), so the reveal's centre target is (0, 0).
+ * THE SPECTATE CAMERA (Story 11.8 — the alive model): FOLLOW the watched ship
+ * (your killer while afloat, else any hull; with nobody to watch the anchor
+ * holds) until the player pans — WASD (the shipped spectate pan), the arrows or
+ * the middle drag — which is PANNED; Space returns to the watched ship.
  *
- * It EASES on the same exponential the follow uses rather than snapping, so the
- * pull-back and the drift to centre are one motion; at `motion: off` the camera
- * arrives immediately, matching the zoom's own snap (amendment 26 — the setting
- * costs the travel, never the framing). Releasing the reveal (any manual wheel
- * or pan) hands the centre straight back to follow-your-killer.
+ * THE REVEAL NEEDS NO CENTRE OF ITS OWN any more (Story 5.3, amendment 25):
+ * it animates the zoom out to the whole-board fit, and the strategic slide
+ * (render/cameraSlide.ts) puts the drawn centre on the board centre at that
+ * span whatever the anchor is, gliding there as the zoom eases — at `motion:
+ * off` the zoom snaps and the centre with it (amendment 26). Any pan or wheel
+ * releases the reveal, exactly as before.
  */
-function updateRevealCamera(g: Game, frameDt: number): void {
-  // speed 0 is load-bearing, not filler: the camera's forward LEAD is derived
-  // from the followed target's speed, and any lead would push the map disc
-  // off-centre — the exact thing this function exists to prevent.
-  const center = { x: 0, y: 0, heading: 0, speed: 0 };
-  if (motionIntensity(settings.current.motion) <= 0) {
-    g.camera.snapTo(center);
-    return;
-  }
-  g.camera.update(frameDt, center);
-}
-
-/** Follow-your-killer by default; any WASD press hands the camera to free pan. */
 function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
-  // Spectate pan reads the HELD WASD state (panAxes), not the driving axes():
-  // its "throttle" is live W/S for up/down panning, not the (reset) telegraph order.
-  //
-  // FREE-PAN IS TESTED BEFORE THE REVEAL, NOT AFTER. Taking the camera by hand
-  // is exactly what releases the reveal (amendment 25), so a WASD press has to
-  // reach `camera.pan` — which is what clears the target. Gating the reveal
-  // first would have made the mode unreleasable by keyboard: the wheel would
-  // still escape it (its own listener calls setZoomFactor) but WASD never would.
-  const axes = g.keyboard.panAxes();
-  if (shouldEngageFreePan(axes)) g.spectate.freePan = true;
-  // Otherwise the reveal owns the camera while it is live — centre included.
-  if (!g.spectate.freePan && g.camera.revealing) return updateRevealCamera(g, frameDt);
-  if (g.spectate.freePan) {
-    const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
-    g.camera.pan(d.dx, d.dy);
-    return;
-  }
+  driveCameraPan(g, frameDt, true);
   const target = pickSpectateTarget(g.state.killerId, [...g.contacts.ids()]);
   const pose = target ? g.contacts.get(target)?.sampleAt(now - CLIENT_CONFIG.net.interpDelayMs) : null;
-  if (pose) g.camera.update(frameDt, pose);
+  // A switch of watched hull glides; a missing sample holds (Story 11.8 review).
+  followSpectateTarget(g.camera, g.spectate.follow, target, pose ?? null, frameDt);
+}
+
+/**
+ * THE CAMERA PAN (Story 11.8, Eric 2026-11-15), once per frame before the
+ * camera update: the middle drag's screen delta (1:1 under the cursor) and the
+ * held pan keys at spectate's shipped screen-constant rate (`spectatePan` over
+ * the composed zoom factor). The arrows pan in both phases; `wasd` adds the
+ * spectate WASD pan (alive, WASD steers). Either enters PANNED (camera.pan).
+ */
+function driveCameraPan(g: Game, frameDt: number, wasd: boolean): void {
+  const drag = g.mouse.consumePanDrag();
+  if (drag.x !== 0 || drag.y !== 0) g.camera.panScreen(drag.x, drag.y);
+  const axes = panKeyAxes(g, wasd);
+  if (!shouldEngageFreePan(axes)) return;
+  const d = spectatePan(axes, frameDt, g.camera.composedFactor);
+  g.camera.pan(d.dx, d.dy);
+}
+
+/** The held pan-key axes: the arrows, plus WASD while spectating, each axis
+ *  clamped to [-1, 1] (W and ↑ together pan at one speed). */
+function panKeyAxes(g: Game, wasd: boolean): Axes {
+  const a = g.keyboard.arrowPanAxes();
+  if (!wasd) return a;
+  const w = g.keyboard.panAxes();
+  return { throttle: unitClamp(a.throttle + w.throttle), rudder: unitClamp(a.rudder + w.rudder) };
+}
+
+/** `v` clamped to [-1, 1]. */
+function unitClamp(v: number): number {
+  return Math.max(-1, Math.min(1, v));
 }
 
 /**
@@ -4895,6 +4932,14 @@ function hudHeight(g: Game): number {
  * function — own pose if one rendered this frame, camera centre otherwise
  * (a forceSnap gap); renderSpectate passes the camera centre outright.
  */
+/** `p` clamped into the chevron's inset rectangle (px) — the box every
+ *  chevron ray is cast against, so a clamped origin reaches its own edge. */
+function clampToChevronBox(g: Game, p: ScreenPoint): ScreenPoint {
+  const { width, height } = g.stage.app.screen;
+  const i = Math.min(CLIENT_CONFIG.foghorn.chevron.insetPx, width / 2, height / 2);
+  return { x: Math.max(i, Math.min(width - i, p.x)), y: Math.max(i, Math.min(height - i, p.y)) };
+}
+
 function renderFoghorn(g: Game, now: number, origin: ScreenPoint): void {
   g.foghorn.render(now, origin.x, origin.y, g.stage.app.screen.width, g.stage.app.screen.height);
 }
@@ -5038,6 +5083,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         plateFrame, g.hullSoftness, g.rainEye,
       );
       feedContactBodies(g, now);
+      renderChartMarks(g, g.camera.zoom, now); // Story 11.8: brackets, chart icons, splash pegs
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);
     },
   };
@@ -5246,24 +5292,26 @@ function bindVisibility(game: Game): () => void {
  * rigid under them. It costs nothing on the anti-cheat side for the same reason
  * it never did — zoom reveals no water the server has not already sent.
  */
-function applyUserZoom(g: Game, next: number): void {
+function applyUserZoom(g: Game, next: number, sx: number, sy: number): void {
   if (!canUserZoom(g.state.spectating, conningNow(g))) return;
   const before = g.camera.userZoom;
-  g.camera.setUserZoom(next);
+  // THE STRATEGIC ZOOM (Story 11.8): out about the anchor, in toward (sx, sy).
+  g.camera.zoomUserAbout(sx, sy, next);
   if (g.camera.userZoom === before) return;
   scheduleZoomFogRebake(g);
 }
 
-/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). While
- *  SPECTATING it zooms at the LAST KNOWN cursor (Eric 2026-10-14), or at the
- *  screen centre before any pointermove has reported one. */
+/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook): at
+ *  the LAST KNOWN cursor (Eric 2026-10-14; alive too since Story 11.8), or at
+ *  the screen centre before any pointermove has reported one (NaN → centre). */
 function handleZoomStep(g: Game, dir: 1 | -1): void {
+  const sx = g.mouse.hasPosition ? g.mouse.screenPos.x : NaN;
+  const sy = g.mouse.hasPosition ? g.mouse.screenPos.y : NaN;
   if (g.state.spectating) {
-    const at = g.mouse.hasPosition ? g.mouse.screenPos : g.camera.screenCenter;
-    spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
+    spectateZoomAt(g, sx, sy, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
     return;
   }
-  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.aliveZoomDetents));
+  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.aliveZoomDetents), sx, sy);
 }
 
 /**
@@ -5271,8 +5319,10 @@ function handleZoomStep(g: Game, dir: 1 | -1): void {
  * spectate mode, as well. In this case, the zoom in/out should be localized
  * around my mouse cursor (since my ship has sunk/is otherwise nonexistent)."*).
  * The range is the alive range (Camera.spectateZoomLimits — close framing in,
- * the whole-map fit out, the ring fit a waypoint — amendment 142) and the world point under (sx, sy) stays put
- * (Camera.zoomAbout). No fog re-bake: the fog is off for the whole spectate.
+ * the whole-map fit out, the ring fit a waypoint — amendment 142) and the
+ * strategic-zoom rules of Story 11.8 apply (Camera.zoomAbout: out about the
+ * anchor, in toward (sx, sy)). No fog re-bake: the fog is off for the whole
+ * spectate.
  */
 function spectateZoomAt(g: Game, sx: number, sy: number, next: number): void {
   g.camera.zoomAbout(sx, sy, next);
@@ -5355,7 +5405,7 @@ function bindWheelZoom(game: Game): () => void {
       return;
     }
     const amount = -e.deltaY * CLIENT_CONFIG.zoom.wheelRate;
-    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.aliveZoomDetents));
+    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.aliveZoomDetents), e.clientX, e.clientY);
   };
   window.addEventListener('wheel', onWheel, { passive: true });
   return () => window.removeEventListener('wheel', onWheel);

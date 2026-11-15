@@ -60,6 +60,7 @@ import type { Fire } from '../render/fire.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { Drops } from '../render/drops.js';
+import { pegKindFor, type SplashPegs } from '../render/pegs.js';
 import { sanitizeDrops } from '../sim/dropView.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
@@ -126,6 +127,10 @@ export interface RoomBindingDeps {
    */
   cameraCenter: () => { x: number; y: number };
   mines: Mines;
+  /** SPLASH PEGS (render/pegs.ts, Story 11.8) — an X wherever an OWN shell
+   *  ended, fed from `sp` / `hc` (own shooter only). Optional: a harness with
+   *  no chart simply lays none. */
+  pegs?: Pick<SplashPegs, 'add'>;
   /** AIRDROPS (render/drops.ts, Story 10.9) — synced contact-like from
    *  FrameMsg.drops every tick (omitted key = none), sanitized fail-closed. */
   drops: Pick<Drops, 'sync'>;
@@ -1432,7 +1437,20 @@ function onOwnLiveHull(x: number, y: number, deps: RoomBindingDeps, t: number): 
  */
 function handleFallOfShot(e: SplashEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
+  layPeg(e, t, deps);
   splashTone(e, s.worldTones.fallOfShot, t, deps, s);
+}
+
+/**
+ * THE SPLASH PEG (Story 11.8): an own `sp` lays a MISS peg, an own `hc` a HIT
+ * peg, at the event's point, stamped with the frame's server time. Both rows
+ * are spectator-public, so another captain's lays nothing (`pegKindFor`).
+ * Not claim-gated: every own shell end is its own peg, even one sharing a
+ * point with a public splash the same frame.
+ */
+function layPeg(e: SplashEvent | HitCallEvent, t: number, deps: RoomBindingDeps): void {
+  const kind = pegKindFor(e, deps.state.net.sessionId);
+  if (kind !== null) deps.pegs?.add(kind, e.x, e.y, t);
 }
 
 /**
@@ -1479,6 +1497,7 @@ function splashTone(
  */
 function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  layPeg(e, f.t, deps);
   if (e.id !== deps.state.net.sessionId) return;
   if (s.hitCallTone.request(f.t)) deps.audio.playCue('hitCall');
 }

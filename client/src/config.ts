@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, type DropKind, type FoghornEvent } from '@salvo/shared';
+import { CONFIG, HULL_IDS, type DropKind, type FoghornEvent } from '@salvo/shared';
 import { hullTopSpeed } from './sim/hullKinematics.js';
 import {
   SURFACE,
@@ -504,7 +504,7 @@ const CHEVRON_EDGE = { size: 13, thickness: 1.8, alpha: 0.5 } as const;
  * u — THE RETIRED BASE SIGHT: 500 u, the twelfths ladder's 4/12 rung (Story
  * 9.8). Story 11.2 (Eric 2026-11-12, R18) moved class-and-name sight to 200 hm
  * (≈ 4,545 u) and the plain-hull sight to 350 hm; the client FEEL knobs that
- * were written as multiples of sight — the camera lead cap, the lobby / ambient
+ * were written as multiples of sight — the lobby / ambient
  * scene's spans and rival bands, the torpedo hum radius, the radar proximity
  * dim ramp — keep TODAY'S ABSOLUTE SIZES by reading this literal (R20 reading,
  * dated 2026-11-12). Never a gameplay reach; nothing on the wire reads it.
@@ -542,31 +542,15 @@ export const CLIENT_CONFIG = {
     fontWaitMs: 1500,
   },
 
-  /** Camera follow + look-ahead lead (the "does it feel like a ship" knobs). */
+  /**
+   * THE CAMERA (Story 11.8, Eric 2026-11-15 — the strategic zoom). The follow
+   * lead, the follow easing and the keep-in-view clamp are RETIRED: in FOLLOW
+   * the own ship is dead center (render/camera.ts).
+   */
   camera: {
-    /** Exponential follow rate (1/s). Larger = camera catches the ship faster. */
-    followRate: 5,
-    /**
-     * Look-ahead time (s). Lead distance = |speed| * leadSeconds, capped at
-     * leadMax. At maxSpeed 25 u/s this reaches ~112.5u (step 11 feel-pass
-     * tuning, up from 4s; flagged for playtest). The cap was set when sight
-     * was 220 u and engaged near top speed; at the twelfths ladder [retired 2026-11-12, Story 11.2]'s 500 u
-     * sight (Story 9.8) it sits at 250 u, so only a boosted/drafted hull ever
-     * reaches it.
-     */
-    leadSeconds: 4.5,
-    /** Lead distance cap (u) = 0.5 × the retired 500 u sight (250 u) — today's
-     *  absolute size kept as a literal (Story 11.2, 2026-11-12: `FEEL_SIGHT_U`). */
-    leadMax: FEEL_SIGHT_U * 0.5,
-    /**
-     * KEEP THE OWN HULL ON SCREEN past the default framing (Story 9.8 review
-     * gate, F2): the centre slide (ruling 128) aims at the ring centre, so a
-     * captain out in the storm beyond the fitted ring would otherwise slide off
-     * the view at the zoom-out limit. The centre is clamped so the hull point
-     * stays at least this far (u) inside every view edge: the LONGEST hull's
-     * half-length plus a small margin (20 u), so the whole silhouette shows.
-     */
-    keepInViewPadU: Math.max(...SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hull.length)) / 2 + 20,
+    /** px — a zoom-IN in FOLLOW with the cursor within this of the own ship's
+     *  screen position stays FOLLOW and zooms about the ship (Eric: 16 px). */
+    homeRadiusPx: 16,
     /**
      * EASED CENTER JUMPS (Eric 2026-10-19, epic-9 amendment 208 ruling 10:
      * "about half a second"): when the ring feed, a window resize or a
@@ -1102,6 +1086,39 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE STRATEGIC-ZOOM CHART MARKS (Story 11.8, Eric 2026-11-15 — numbers are
+   * literal). Every value is SCREEN px at every zoom (render/chartMarks.ts,
+   * brackets.ts, pegs.ts).
+   */
+  chartMarks: {
+    /** Corner brackets show on a hull whose on-screen LENGTH is under this. */
+    bracketThresholdPx: 24,
+    /** The fade band, as a fraction of a threshold, centered on it (brackets
+     *  and chart icons alike): 24 → full ≤ 20.4, zero ≥ 27.6. */
+    bandFrac: 0.3,
+    /** Half-box of the four corner ticks (24 / 2 + 4 → a 32 px square). */
+    bracketHalfPx: 16,
+    /** Length of each corner tick's two arms. */
+    bracketTickPx: 6,
+    bracketLinePx: 1.5,
+    /** Mines, airdrops and salvage wrecks draw their own look at this fixed
+     *  size while their true drawing would be smaller (the beacon handover). */
+    iconPx: 10,
+    iconLinePx: 1.5,
+    /** Splash pegs: an X this many px across, this line, a thin dark halo. */
+    pegPx: 7,
+    pegLinePx: 1.5,
+    /** The halo's total stroke width under the X, and its color / alpha. */
+    pegHaloPx: 3.5,
+    pegHaloColor: 0x050807,
+    pegHaloAlpha: 0.85,
+    /** A peg's alpha falls linearly 1 → 0 over this, then it is removed. */
+    pegFadeMs: 15_000,
+    /** Pool cap: past it the OLDEST peg is recycled. */
+    pegCap: 400,
+  },
+
+  /**
    * THE RADAR DISPLAY (Story 11.2, Eric 2026-11-12, rulings R16 / R19 — FIXED,
    * no settings): own-ship range rings in "style A" (thin crisp white, a number
    * on every ring at N / S / E / W), the radar-reach ring drawn distinct, the
@@ -1562,13 +1579,13 @@ export const CLIENT_CONFIG = {
    *  WHOLE MAP fitted to the short axis with `reveal.mapFitMargin` (Eric
    *  2026-10-14, amendment 142), and the LIVE storm ring fitted the same way is
    *  a WAYPOINT on the way: a step that would cross it lands on it
-   *  (render/camera.ts stepZoom). Past the default framing the centre slides
-   *  from own ship to the ring centre at the waypoint (ruling 128), then on to
-   *  the map centre at the out limit.
+   *  (render/camera.ts stepZoom). From half the ring waypoint the centre
+   *  slides from the camera's anchor to the ring centre at the waypoint, then
+   *  on to the map centre at the out limit (Story 11.8, render/cameraSlide.ts);
+   *  zoom out is about the anchor, zoom in heads for the cursor.
    *  Client-only by design: fog stays server-authoritative, so zoom is never an
    *  information exploit. The spectate zoom (render/spectate.ts) shares this
-   *  range and these steps since Eric's 2026-10-14 ruling, anchored at the
-   *  cursor instead of the own ship (Camera.zoomAbout). */
+   *  range, these steps and these rules (Camera.zoomAbout). */
   zoom: {
     /** Zoom-IN limit (u across the short axis): ruling 127, today's 1.5× close
      *  view written as an absolute span (1,320 / 1.5) — never a factor over
@@ -1611,8 +1628,8 @@ export const CLIENT_CONFIG = {
     /**
      * Exponential approach rate (1/s) handed to Camera.beginReveal(), derived
      * from the authored duration above so there is ONE number to tune. Same
-     * easing vocabulary — and the same units — as `camera.followRate`, which is
-     * how the camera's centre has always been smoothed.
+     * easing vocabulary — and the same units — as `camera.slideEaseRate` (the
+     * eased centre jumps; the retired follow rate before Story 11.8).
      */
     zoomRate: REVEAL_ZOOM_TAUS / (REVEAL_ZOOM_MS / 1000),
     /**

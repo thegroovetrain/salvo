@@ -36,9 +36,6 @@ function camera(spanU: number): Camera {
     defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: 6,
-    leadSeconds: 0,
-    leadMax: 0,
   });
   c.setViewport(1600, 900);
   c.setRing(0, 0, CONFIG.map.baseRadius);

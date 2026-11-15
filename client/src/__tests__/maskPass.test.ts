@@ -17,9 +17,6 @@ function screenAt(viewW: number, viewH: number, spanU: number, cx: number, cy: n
     defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: 6,
-    leadSeconds: 0,
-    leadMax: 0,
   });
   c.setViewport(viewW, viewH);
   c.setRing(0, 0, CONFIG.map.baseRadius);
