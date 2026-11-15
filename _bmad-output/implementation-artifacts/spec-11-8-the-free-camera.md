@@ -2,7 +2,7 @@
 title: 'Story 11.8 The Free Camera — strategic zoom, pan, corner brackets, chart icons, splash pegs'
 type: 'feature'
 created: '2026-11-15'
-status: 'in-review'
+status: 'done'
 baseline_revision: '2fea27e0'
 review_loop_iteration: 0
 context:
@@ -76,17 +76,17 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/render/camera.ts` -- FOLLOW/PANNED state, anchor, pure `slideCenter` + inverse, cursor-anchored alive zoom, anchor clamp, pan with Δ/(1−t); delete lead / follow ease / keep-in-view / old slide math; keep shake and the ring-feed eased glide -- the strategic zoom model
-- [ ] `client/src/input/{keyboard,telegraph,mouse}.ts` -- arrows off steering, arrow pan axes, Space → home hook, middle-drag pan (button 1, canvas-gated, preventDefault, cleared on blur/cancel/out) -- the controls
-- [ ] `client/src/main.ts` + `render/spectate.ts` -- wire wheel/Z/X/pan/Space for alive and spectate (helpers, not inline in `renderOwn`) -- one model both phases
-- [ ] `client/src/render/fog.ts`, `fogField.ts`, `rangeRings.ts` -- cover a panned screen; compass hidden or sane when the ship is off-screen -- no regressions under pan
-- [ ] `client/src/render/` new bracket module + `ships.ts`/`contacts.ts`/`stage.ts` -- corner brackets -- ruled look
-- [ ] `client/src/render/mines.ts`, `drops.ts` -- 10 px chart icon handover -- ruled look
-- [ ] `client/src/render/pegs.ts` (new) + `roomBindings.ts` + layer in `stage.ts` -- splash pegs -- ruled look
-- [ ] `client/src/config.ts` -- the new knobs; retire `keepInViewPadU`, `slideEaseRate` only if unused, lead knobs -- single source
-- [ ] `client/src/ui/settings.ts` + tests -- rows -- ruled copy
+- [x] `client/src/render/camera.ts` -- FOLLOW/PANNED state, anchor, pure `slideCenter` + inverse, cursor-anchored alive zoom, anchor clamp, pan with Δ/(1−t); delete lead / follow ease / keep-in-view / old slide math; keep shake and the ring-feed eased glide -- the strategic zoom model
+- [x] `client/src/input/{keyboard,telegraph,mouse}.ts` -- arrows off steering, arrow pan axes, Space → home hook, middle-drag pan (button 1, canvas-gated, preventDefault, cleared on blur/cancel/out) -- the controls
+- [x] `client/src/main.ts` + `render/spectate.ts` -- wire wheel/Z/X/pan/Space for alive and spectate (helpers, not inline in `renderOwn`) -- one model both phases
+- [x] `client/src/render/fog.ts`, `fogField.ts`, `rangeRings.ts` -- cover a panned screen; compass hidden or sane when the ship is off-screen -- no regressions under pan
+- [x] `client/src/render/` new bracket module + `ships.ts`/`contacts.ts`/`stage.ts` -- corner brackets -- ruled look
+- [x] `client/src/render/mines.ts`, `drops.ts` -- 10 px chart icon handover -- ruled look
+- [x] `client/src/render/pegs.ts` (new) + `roomBindings.ts` + layer in `stage.ts` -- splash pegs -- ruled look
+- [x] `client/src/config.ts` -- the new knobs; retire `keepInViewPadU`, `slideEaseRate` only if unused, lead knobs -- single source
+- [x] `client/src/ui/settings.ts` + tests -- rows -- ruled copy
 - [ ] tests -- pure unit tests for `slideCenter`/inverse (round-trip), bracket alpha, icon handover, peg alpha; camera integration with MOVING ships (amendment 208); update / delete the slide, lead, keep-in-view and arrow-steer tests -- functional pyramid
-- [ ] `client/scripts/playCheck.mjs` -- add middle-drag + arrow pan + Space to its 45 s drive -- the real-match guard
+- [x] `client/scripts/playCheck.mjs` -- add middle-drag + arrow pan + Space to its 45 s drive -- the real-match guard
 
 **Acceptance Criteria:**
 - Given a FOLLOW camera and a moving ship at span ≤ h, when frames advance, then the ship's screen position equals the screen center (± shake).
@@ -131,3 +131,13 @@ Why the inverse matters: zoom-in toward the cursor while the slide is active (h 
 - `npm run check` -- green (lint complexity ≤ 10 included)
 - `npm run build && node client/scripts/glBudget.mjs` -- no over-budget allocation incl. panned views
 - `node client/scripts/playCheck.mjs` -- passes with pan + Space in the drive (bounded with `timeout`)
+
+## Auto Run Result
+
+**Status: done** (2026-11-15; cycle 236, 0.19.30, PV 108 unchanged, epic-11 amendment 15).
+
+- **Built:** strategic zoom — a FOLLOW / PANNED camera (own ship dead center in FOLLOW; zoom out about the anchor with the slide to ring center then board center; cursor zoom-in; waypoint stops kept); middle-drag + arrow-key pan, Space home, arrows off steering, the same in spectate; corner brackets on hulls under 24 px; 10 px chart icons for mines, airdrops and salvage wrecks; X splash pegs (own `sp` / own `hc`, 15 s fade); settings rows; DESIGN.md rows; fog bake / fog field / compass made pan-safe.
+- **Files:** `client/src/render/camera.ts`, new `cameraSlide.ts` / `cameraZoom.ts`, `input/{keyboard,telegraph,mouse}.ts`, `main.ts`, `render/{spectate,fog,fogField,rangeRings,radarDisplay,ambient}.ts`, new `render/{brackets,chartMarks,pegs}.ts`, `render/{ships,contacts,stage,mines,drops}.ts`, `net/roomBindings.ts`, `config.ts`, `ui/settings.ts`, `client/scripts/playCheck.mjs`, tests (new `cameraSlide`, `cameraReview`, `fogBake`, `chartMarks`).
+- **Review:** 13 patches (2 high), 0 deferred, 4 rejected — see the triage log.
+- **Verification:** `npm run check` exit 0 (lint 0 errors / 3 pre-existing length warnings; shared 1465, server 2979, client 176 files all pass; hook test passes); `playCheck.mjs` PASS in Chromium + Firefox at both viewports (drives middle drag, arrows, Space, wheel while panned); `glBudget.mjs` PASS.
+- **Residual risks:** Windows middle-button autoscroll suppression unverified (no Windows machine); the slide-floor reading (amendment 15(f)) is the orchestrator's — Eric's veto; frame cost of the bracket / peg layers is unmeasured on staging (a perf verdict is a staging capture).
