@@ -21,6 +21,7 @@ import {
 } from '../game/signals.js';
 import { observe } from '../game/perception.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
+import { clearWater } from './rainFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
@@ -38,7 +39,7 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // the rows' reaches are under test here, never the weather (a World rains from the start line)
 }
 
 /** Add a ship and teleport it to an exact pose (speed 0 unless overridden). */
@@ -56,9 +57,8 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU), me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (q) => w.fogHullAdmits(q), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
-    plainHandleOf: (id) => w.plainHandleFor(me, id), // Story 11.2: the observer's anonymous per-visit handle
     paintSaltOf: w.paintSaltFor, // Story 11.2 review gate (F1): the room-private paint salt
   };
 }
@@ -67,9 +67,8 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU), me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (q) => w.fogHullAdmits(q), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
-    plainHandleOf: () => '', // Story 11.2: inert on the spectator path
     paintSaltOf: w.paintSaltFor,
   };
 }
@@ -108,7 +107,6 @@ function makeMine(overrides: Partial<MineState> = {}): MineState {
 
 const REGISTRY_KEYS = [
   'contact',
-  'plain', // Story 11.2: the OUTER sight tier — a plain hull under an anonymous handle, {h,x,y,heading,speed}; the frame's `pc`
   'mine',
   'drop', // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner clause, {id,x,y,c}; its radar paint rides the `blip` row (dropPaint), never a row of its own
   'litzone',
@@ -1307,7 +1305,7 @@ describe('SIGNAL_REGISTRY — the named eye reaches (Story 11.2, R4 / R18): mine
     expect((signalFor('sunk')!.materialize(ctx, { k: 'sunk', id: 'n' }) as SunkEvent).seen).toBe(true);
   });
 
-  it('a FLASH SHELLS dazzle (Story 10.9; the WHITEOUT, epic-10 amendment 5) scales EVERY eye reach by one factor — the contact, plain, mine and torpedo rows alike — and lapses at its mark', () => {
+  it('a FLASH SHELLS dazzle (Story 10.9; the WHITEOUT, epic-10 amendment 5) scales EVERY eye reach by one factor — the contact row at both of its reaches, the mine and torpedo rows alike — and lapses at its mark', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
@@ -1315,16 +1313,16 @@ describe('SIGNAL_REGISTRY — the named eye reaches (Story 11.2, R4 / R18): mine
     // Each subject sits between its reach's dazzled circle and its full circle.
     const between = (reachU: number): number => (reachU + reachU * K) / 2;
     const b = place(w, 'b', between(SIGHT), 0);
-    const p = place(w, 'p', 0, -between(CONFIG.vision.hullSight)); // beyond the class reach, inside the hull reach
+    const p = place(w, 'p', 0, -between(CONFIG.vision.hullSight)); // beyond the class reach, inside the hull reach (a fading contact)
     const mine = makeMine({ ownerId: 'z', x: 0, y: between(MINE) });
     const torp = makeShell({ id: 'tw', ownerId: 'z', kind: 'torp', x: -between(TORP), y: 0 });
     const rows = (): boolean[] => [
       SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), b),
-      SIGNAL_REGISTRY.plain.visible(foggedCtx(w, a), p),
+      SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), p),
       SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), mine),
       signalFor('torp')!.visible(foggedCtx(w, a), torp),
     ];
-    expect(between(CONFIG.vision.hullSight)).toBeGreaterThan(SIGHT); // premise: `p` is a plain hull, not a contact
+    expect(between(CONFIG.vision.hullSight)).toBeGreaterThan(SIGHT); // premise: `p` is in the haze band, beyond the class reach
     expect(rows()).toEqual([true, true, true, true]);
     a.dazzledUntil = w.now + FLASH_WINDOW_MS - (rampMs + holdMs + clearMs * K); // hit was ramp + hold + K·clear ago
     expect(rows()).toEqual([false, false, false, false]);

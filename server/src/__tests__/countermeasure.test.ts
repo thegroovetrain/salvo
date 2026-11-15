@@ -44,6 +44,7 @@ import {
   type GameEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { clearWater } from './rainFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
@@ -58,7 +59,7 @@ function bareWorld(seed = 1): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // clear water: these cases are about reaches and the wire, not the weather (a World rains from the start line)
 }
 
 /** A torpedo-boat captain teleported to an exact pose (speed 0, beam parked). */

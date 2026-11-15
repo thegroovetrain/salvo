@@ -1,7 +1,7 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
 // row here: the 18 GameEvent kinds plus the contact-like frame channels
-// (`contact`, `plain` — the outer sight tier, Story 11.2 — `mine`, `litzone`, `burnzone`, `foulzone` and `cloud` — pseudo
+// (`contact`, `mine`, `litzone`, `burnzone`, `foulzone` and `cloud` — pseudo
 // event types: not GameEvents, but the invariant suite iterates them like
 // everything else; the RADAR BUOY's `buoy` channel was deleted with the buoy
 // in Story 8.16, and the DECOY BUOY's `decoy` channel that took its seat was
@@ -40,9 +40,9 @@
 // point is at most T (`SightField.fogAdmits` — the World's `fogSightAdmits`).
 // The reach is an unchanged range CAP — rain never widens anything and no
 // longer adds distance; NO own-bank exemption (rain the observer stands in
-// counts). THE TWO HULL ROWS (`contact`, `plain`) ask it of the hull's sight
-// GRID (`hullHeld` → `SightField.fogHullAdmits`): the hull is held while ANY
-// grid point passes. Radar, zone circles, the foghorn and the storm never
+// counts). THE HULL ROW (`contact`) asks it of the hull's sight GRID
+// (`hullHeld` → `SightField.fogHullAdmits`), with the DISTANCE HAZE added
+// (Eric 2026-11-15): the hull is held while ANY grid point passes. Radar, zone circles, the foghorn and the storm never
 // read the field.
 // ALL island-geometry branching stays inside losClear: no visible()/
 // materialize() row may iterate polygon edges itself, or the rows blow the
@@ -131,9 +131,6 @@ import {
   hullEnvelope,
   effectiveSight,
   whiteoutReach,
-  PLAIN_HULL_BEAM_U,
-  PLAIN_HULL_LENGTH_U,
-  type PlainContact,
   type MineView,
   type MuzzleEvent,
   type BoonFitEvent,
@@ -151,7 +148,7 @@ import {
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
-import type { BurnZone, FoulZone, LitZone, ShipRecord, StoredCloud } from './world.js';
+import type { BurnZone, FoulZone, FogHullQuestion, LitZone, ShipRecord, StoredCloud } from './world.js';
 import { isParticipant } from './participants.js';
 import type { PaintKind } from './paintSalt.js';
 import type { MineState } from './equipment/index.js';
@@ -212,11 +209,12 @@ interface SignalContextBase {
   readonly fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
   /**
    * THE WEATHER GATE on a HULL (Story 11.6 — `World.fogHullAdmits`): does the
-   * eye at A see ANY point of the sight grid of a hull `lengthU × beamU` at
-   * (cx, cy, heading) through the rain and the smoke. Read by the two hull
-   * rows alone (`hullHeld`); inert on the spectator path.
+   * eye see ANY point of the hull's sight grid through the rain, the smoke
+   * and the distance haze (the question carries the eye, the hull's pose and
+   * true size, and the observer's two reaches). Read by the `contact` row
+   * alone (`hullHeld`); inert on the spectator path.
    */
-  readonly fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => boolean;
+  readonly fogHullAdmits: (q: FogHullQuestion) => boolean;
   /**
    * THE ISLAND BROADPHASE INDEX of `islands` (Story 11.2 follow-up — shared
    * sim/islandIndex.ts, `World.islandIndex` taken once per pass by
@@ -240,17 +238,6 @@ interface SignalContextBase {
   // (`dropoutSeed` and `wakeKeyOf`, the radar dropout roll's seed and its
   // wake target key — Story 9.8 — were REMOVED 2026-11-12, Story 11.2, R8:
   // the dropout is gone; Story 11.4's strength model replaces it.)
-  /**
-   * THE PLAIN-HULL HANDLE (Story 11.2, R3): this observer's anonymous handle
-   * for the hull `targetId` while it stays in the observer's outer sight band
-   * — get-or-mint, bound by perception.ts to `World.plainHandleFor(me, id)`.
-   * Per OBSERVER and per VISIT, minted from a room-private keyed source that
-   * takes neither id as input (see game/plainHandle.ts), so it can never be
-   * linked to the roster id or the class. Read by the `plain` row's
-   * materialize and by NOTHING else; '' on the spectator path, where the row
-   * never fires.
-   */
-  plainHandleOf(targetId: string): string;
   /**
    * THE PAINT SALT (Story 11.2 review gate, F1): the room-private salt of
    * one radar paint — a keyed hash of the paint's own inputs (`words` = paint
@@ -362,7 +349,7 @@ export interface SightField {
   /** The rain alone on a ray (see `SignalContextBase.fogRainAdmits`) — the cloud row's sight arm only. */
   readonly fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
   /** The weather gate on a hull's sight grid (see `SignalContextBase.fogHullAdmits`). */
-  readonly fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => boolean;
+  readonly fogHullAdmits: (q: FogHullQuestion) => boolean;
   /** OPTIONAL: the broadphase index of `islands` (see `SignalContextBase.los`). */
   readonly los?: IslandIndex;
 }
@@ -434,25 +421,27 @@ function eyeHoldsThroughRain(field: SightField, me: ShipRecord, p: Vec2, range: 
 
 /**
  * THE one EYE test for a HULL (Story 11.6, Eric 2026-11-14 — "you see the
- * parts of a ship the rain lets through"): is `ship` held by the observer's
- * eye at `range`. RANGE AND ISLAND LINE OF SIGHT ARE THE HULL'S CENTER'S,
- * exactly as before (the tier reaches stay caps on the center, and an island
- * hides a hull by its center ray — no new "half behind an island" rule); THE
- * RAIN AND THE SMOKE (one total optical depth per grid ray) are asked of the
- * hull's sight GRID: held while ANY of the
+ * parts of a ship the rain lets through"; ONE TIER since Eric 2026-11-15 —
+ * the anonymous plain hull is gone, a hull is crisp to the class-and-name
+ * sight and FADES to gone at the hull sight): is `ship` held by the
+ * observer's eye. RANGE AND ISLAND LINE OF SIGHT ARE THE HULL'S CENTER'S:
+ * the cap is the observer's HULL sight (`hullSightU`, inclusive), and an
+ * island hides a hull by its center ray — no "half behind an island" rule.
+ * THE WEATHER is asked of the hull's sight GRID: held while ANY of the
  * `CONFIG.fog.hullGridCols × hullGridRows` points of the shared `fogHullGrid`
- * over the hull's true pose and its class's `hullEnvelope(...).hull` length ×
- * beam (a PLAIN row: the shared mean `PLAIN_HULL_LENGTH_U` × `PLAIN_HULL_BEAM_U`) has τ ≤ T (`field.fogHullAdmits`). The client draws each part from the
- * same grid on the same field. Both hull rows call this at their own reach,
- * so the rain term is one answer for both tiers.
+ * over the hull's true pose and its class's TRUE `hullEnvelope(...).hull`
+ * length × beam has τ = rain + held smoke + DISTANCE HAZE ≤ T
+ * (`field.fogHullAdmits`; haze = the shared `fogHazeDepth` of the eye →
+ * point distance between `sightU` and `hullSightU`). The client draws each
+ * part from the same grid on the same field with the same haze.
  */
-function hullHeld(field: SightField, me: ShipRecord, ship: ShipRecord, range: number, plain = false): boolean {
+function hullHeld(field: SightField, me: ShipRecord, ship: ShipRecord, sightU: number, hullSightU: number): boolean {
   const s = ship.state;
-  if (!inReachAndClear(field, me, s, range)) return false;
-  // A PLAIN row carries no class, so its grid is laid over the ONE shared mean
-  // size the client draws it at — never the true class size (a class hint).
-  const hull = plain ? { length: PLAIN_HULL_LENGTH_U, beam: PLAIN_HULL_BEAM_U } : hullEnvelope(ship.hullId).hull;
-  return field.fogHullAdmits(me.state.x, me.state.y, s.x, s.y, s.heading, hull.length, hull.beam);
+  if (!inReachAndClear(field, me, s, hullSightU)) return false;
+  const hull = hullEnvelope(ship.hullId).hull;
+  return field.fogHullAdmits({
+    ax: me.state.x, ay: me.state.y, cx: s.x, cy: s.y, heading: s.heading, lengthU: hull.length, beamU: hull.beam, sightU, hullSightU,
+  });
 }
 
 /**
@@ -481,10 +470,11 @@ export function sightOf(me: ShipRecord, now: number): number {
 }
 
 /**
- * The observer's EFFECTIVE PLAIN-HULL sight this tick (Story 11.2, R3): the
- * shared `effectiveHullSight` — `stats.hullSightRange` under the SAME
- * whiteout factor as `sightOf`, so the two tiers clear together and the outer
- * one is never under the inner one. Read by the `plain` row alone.
+ * The observer's EFFECTIVE HULL sight this tick (Story 11.2; the one hull
+ * tier since Story 11.6): the shared `effectiveHullSight` —
+ * `stats.hullSightRange` under the SAME whiteout factor as `sightOf`, so the
+ * two reaches clear together and this one is never under the other. THE
+ * RANGE CAP of the `contact` row, and the far end of its distance haze.
  */
 export function hullSightOf(me: ShipRecord, now: number): number {
   return effectiveHullSight(me.stats, me.dazzledUntil, now);
@@ -768,19 +758,21 @@ function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): G
  * Spectators (unfogged) see every such hull — including, in the finished
  * phase, their own.
  *
- * THE INNER TIER (Story 11.2, R3): "sight range" here is the CLASS-AND-NAME
- * reach (`sightOf` — `CONFIG.vision.sight`). A hull the eye has beyond it,
- * out to the plain-hull reach, is the `plain` row's — never this one's.
+ * ONE HULL TIER (Eric 2026-11-15 — the anonymous plain hull of Story 11.2 is
+ * REMOVED): "sight range" for a HULL is the observer's HULL sight
+ * (`hullSightOf` — `CONFIG.vision.hullSight`), and between its class-and-name
+ * sight (`sightOf`) and that reach the hull FADES: a distance haze joins the
+ * rain and the smoke in the one optical depth (`hullHeld`). The payload is
+ * the full contact at every distance; identity-bearing EVENTS (the boom's
+ * victim id, `sunk.seen`, the spawn row) stay on the class-and-name reach.
  */
-/** THE FOGGED FULL-CONTACT PREDICATE — one boolean, two callers (the
- *  `contact` row and the `plain` row's "not already a full contact" term), so
- *  the two tiers can never both claim a hull in one frame. The observer's
- *  own effective CLASS reach (the one derivation) on the hull's center, the
- *  rain asked of the hull's sight grid (`hullHeld`, Story 11.6); the
- *  owned-zone OR is untouched (a flare lights from above). */
+/** THE FOGGED CONTACT PREDICATE: the observer's own effective reaches (the
+ *  one derivation) on the hull's center, the weather and the haze asked of
+ *  the hull's sight grid (`hullHeld`, Story 11.6); the owned-zone OR is
+ *  untouched (a flare lights from above). */
 function fullContactSeen(ctx: FoggedSignalContext, ship: ShipRecord): boolean {
   const me = ctx.me;
-  return hullHeld(ctx, me, ship, sightOf(me, ctx.now)) || ownZoneCovers(ctx, ship.state);
+  return hullHeld(ctx, me, ship, sightOf(me, ctx.now), hullSightOf(me, ctx.now)) || ownZoneCovers(ctx, ship.state);
 }
 
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
@@ -821,51 +813,6 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // seventh exception.
     if (ship.launchers.length === 0) return turreted;
     return { ...turreted, lu: encodeLauncherAngles(ship.launchers) };
-  },
-};
-
-/**
- * `plain` — A PLAIN HULL, THE OUTER SIGHT TIER (Story 11.2, Eric 2026-11-12,
- * R3 / R14 / R18): another hull still on the water (afloat OR sinking — the
- * contact row's rule) that is NOT a full contact for this observer
- * (`fullContactSeen` is false — beyond the class-and-name reach and outside
- * every lit zone the observer owns) and IS within the observer's effective
- * PLAIN-HULL sight (`hullSightOf` — `CONFIG.vision.hullSight` under the same
- * whiteout factor; boundary INCLUSIVE; the same rain gate on the hull's
- * sight grid through `hullHeld`) on an island-clear ray (`sightClear`). The two tiers are
- * DISJOINT by construction: this row's first term is the negation of the
- * contact row's predicate, so no frame carries one hull in both lists, and a
- * hull crossing inward is a `pc` row in one frame and a contact in the next.
- *
- * materialize() emits `{h,x,y,heading,speed}` and NOTHING ELSE — a fresh
- * object every call (KEY ORDER IS LOAD-BEARING, msgpack). NO roster id, NO
- * class, NO turret or launcher angles, no hp, no sinking tell. `h` is the
- * observer's anonymous per-visit handle (`ctx.plainHandleOf` — see
- * game/plainHandle.ts for why it cannot be linked to an id or a class);
- * perception's ship scan owns the handle memory (it forgets a hull the pass
- * did not materialize), the seenBallistics precedent.
- *
- * NOT A SEVENTH EXCEPTION: a channel with its own oracle (the cloud / zone
- * precedent) — it reaches nothing beyond the eye's own outer reach, and the
- * invariant suite re-derives the band independently. WHAT AN OBSERVER CAN
- * STILL INFER (accepted, recorded): a class guess from the speed and turn
- * envelope of a hull it watches for a while, and the trajectory re-link the
- * `World.trackIds` note already owns (a hull that walks out of the inner
- * tier is the same hull one frame later). Spectators get none — they hold
- * every hull as a full contact. Fail-closed on a world-dispatched subject.
- */
-const plainSignal: SignalSpec<ShipRecord, PlainContact> = {
-  eventType: 'plain',
-  visible(ctx, ship) {
-    if (ctx.mode !== 'fogged' || !('state' in ship)) return false;
-    const me = ctx.me;
-    if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || ship.id === me.id) return false;
-    if (fullContactSeen(ctx, ship)) return false;
-    return hullHeld(ctx, me, ship, hullSightOf(me, ctx.now), true);
-  },
-  materialize(ctx, ship) {
-    const s = ship.state;
-    return { h: ctx.plainHandleOf(ship.id), x: s.x, y: s.y, heading: s.heading, speed: s.speed };
   },
 };
 
@@ -1761,9 +1708,10 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  *
  * TWO REACHES SINCE STORY 11.2 (R4 / R18): the boom's POSITION is seen at the
  * splash reach (`splashSeen` — `CONFIG.vision.splashSight`), while the victim
- * id keeps the CLASS reach (`pointSighted`) — so a boom on a PLAIN hull (the
- * outer tier) is an anonymous impact, and no roster id is ever attached to a
- * hull the observer holds only by its anonymous handle.
+ * id keeps the CLASS reach (`pointSighted`) — so a boom on a hull in the
+ * haze band (beyond the class-and-name sight) is a hit-less impact, exactly
+ * as it was under the plain tier (Eric 2026-11-15: identity-bearing events
+ * stay on the center at `sightRange`).
  */
 /**
  * Server-INTERNAL boom subject (Story 11.2 review gate, F4): the wire
@@ -1931,10 +1879,10 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
  *
  * `seen` IS AN IDENTITY FIELD, SO IT STAYS ON THE CLASS REACH (Story 11.2,
  * R3): it says "the hull named `id` went down where you were looking". At
- * the splash reach it would name a PLAIN hull — the roster id of a contact
- * the observer holds only by its anonymous handle. A sinking in the outer
- * band is therefore watched as what it is: the plain contact slows and
- * leaves the list; the public register line arrives without `seen`.
+ * the splash reach it would stamp a hull beyond the class-and-name sight.
+ * A sinking in the haze band is watched as what it is: the fading contact
+ * slows and leaves the list; the public register line arrives without
+ * `seen` (unchanged by the plain tier's removal, Eric 2026-11-15).
  */
 function sunkWitnessed(ctx: SignalContext, e: SunkEvent): boolean {
   if (ctx.mode === 'spectator' || e.id === ctx.me.id) return true;
@@ -2019,10 +1967,9 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
  *
  * THE CLASS REACH, NOT THE SPLASH REACH (Story 11.2): the payload IS a roster
  * id (`SpawnEvent.id` is required on the wire type), so the whole row stays
- * on `pointSighted`. [reading — Story 11.2, confirm with Eric: a hull that
- * spawns in the outer band simply appears as a plain contact; an ANONYMOUS
- * spawn event at the splash reach needs `SpawnEvent.id` to become optional
- * in shared/src/types.ts, a wire change this wave does not own.]
+ * on `pointSighted` (Eric 2026-11-15: the spawn row stays on the center at
+ * `sightRange`); a hull that spawns in the haze band simply appears as a
+ * fading contact.
  */
 const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
@@ -2331,7 +2278,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 19 GameEvent kinds plus
- * the `contact`/`plain`/`mine`/`drop`/`litzone`/`burnzone`/`foulzone`/`cloud`
+ * the `contact`/`mine`/`drop`/`litzone`/`burnzone`/`foulzone`/`cloud`
  * pseudo-types.
  * perception.ts dispatches world events by `e.k` (an emitted kind with no row
  * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/drop/
@@ -2341,11 +2288,6 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
  */
 export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
-  // Story 11.2 (R3): the OUTER sight tier — a plain hull under an anonymous
-  // per-observer handle, `{h,x,y,heading,speed}`, the frame's `pc` channel.
-  // Disjoint from `contact` by construction; a channel with its own oracle,
-  // not a seventh exception.
-  plain: plainSignal,
   mine: mineSignal,
   // Story 10.9: the AIRDROP's sight channel — the mine gate minus the owner
   // clause (a crate has no owner), `{id,x,y,c}`; its radar paint rides the
@@ -2435,7 +2377,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
  * the caller drops the event (nothing spatial leaves the server outside a
  * registry row).
  */
-const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'plain', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud']);
+const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud']);
 
 export function signalFor(kind: string): SignalSpec | undefined {
   // Pseudo-rows never dispatch from world events ('burnzone' joined in

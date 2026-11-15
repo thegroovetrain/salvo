@@ -1246,7 +1246,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
   it('the zone REVEALS NOTHING: a hull inside the firer’s burn zone but outside its sight is not a contact (amendment 135(e))', () => {
     const w = bareWorld();
     // Laid west to east across the board (Story 11.2): the firer one hull
-    // length inside the WEST rim, the click 200 u past its PLAIN-HULL reach —
+    // length inside the WEST rim, the click 200 u past its HULL reach —
     // beyond every eye reach the firer has, and still inside the shell's own.
     const x0 = -(w.map.radius - CONFIG.shipClasses.yamato.hull.length);
     const a = placeBare(w, 'a', x0, 0, 0, 'yamato');
@@ -1261,7 +1261,6 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(hidden.hp).toBeLessThan(hidden.stats.maxHp); // it WAS hit — the zone covers it
     const f = buildFrame(w, 'a');
     expect(f.contacts.map((c) => c.id)).not.toContain('hidden');
-    expect(f.pc).toBeUndefined(); // ...not even as an anonymous plain hull (Story 11.2, R3)
     expect(f.burnZones?.map((z) => z.by)).toEqual(['a']); // ...but the firer sees only the circle
   });
 

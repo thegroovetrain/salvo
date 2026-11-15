@@ -1,15 +1,17 @@
 // STORY 11.2 (Eric 2026-11-12, R3 / R4 / R8 / R18) — READ THIS FIRST; where a
 // paragraph below still speaks of the twelfths ladder, the detect rung or
 // the radar dropout, this one supersedes it:
-//   - TWO EYE TIERS. `sighted` is the CLASS-AND-NAME reach (`CONFIG.vision
-//     .sight`): a full contact. `hullSighted` is the PLAIN-HULL reach
-//     (`CONFIG.vision.hullSight`): between the two a hull is a `pc` row —
-//     exactly {h,x,y,heading,speed} under an anonymous handle. verifyPlain
-//     is that tier's own invariant line (NOT a seventh exception): every row
-//     lies in the band with island LOS clear, names no roster id, never
-//     coexists with a full contact for the same hull, and every hull the
-//     strict band demands is present. PlainLedger pins the handle: stable
-//     within a visit, fresh on every visit, never shared by two observers.
+//   - ONE HULL TIER (Eric 2026-11-15 — the anonymous plain hull, its `pc`
+//     channel and its handle are REMOVED). `sighted` is the CLASS-AND-NAME
+//     reach (`CONFIG.vision.sight`) — the reach of every IDENTITY-BEARING
+//     event. A HULL is a full contact out to the HULL sight
+//     (`CONFIG.vision.hullSight`), and between the two it FADES: a distance
+//     HAZE (0 at the class reach, T at the hull reach) joins the rain and
+//     the smoke in the one optical depth of each sight-grid ray
+//     (`hullSightedFull`). THE HAZE CONTRACT (the plain tier's invariant
+//     line, replaced): no hull beyond the observer's hull sight is ever a
+//     contact (outside an owned lit zone), and every sent hull has some grid
+//     point with rain + held smoke + haze at most T.
 //   - EVERY POINT HAS ITS OWN NAMED EYE REACH (`eyeSeen` at a CONFIG.vision
 //     fact, whiteout-scaled, fog-tolled, island LOS): booms and bursts at
 //     `splashSight`, shells at `shellSight`, torpedoes and their updates at
@@ -122,9 +124,9 @@
 // a subject the oracle demands PRESENT must be inside the STRICT one
 // (τ ≤ T − slack; see `Bound`), and with no rain on the ray both collapse to
 // the exact pre-rain test. NO OWN-BANK EXEMPTION: the rain the observer
-// stands in counts, so the oracle is one τ, not a band. THE TWO HULL ROWS
-// (`contact`, `plain`) ask the rain of the hull's SIGHT GRID — range and
-// island LOS on the hull's center exactly as before, τ on each of the
+// stands in counts, so the oracle is one τ, not a band. THE HULL ROW
+// (`contact`) asks the weather of the hull's SIGHT GRID — the hull-sight cap
+// and island LOS on the hull's center, τ (rain + smoke + haze) on each of the
 // `hullGridCols × hullGridRows` grid points, held while ANY passes
 // (`hullHeldOracle`, the grid re-derived here with real trig). THE RADAR
 // ORACLES ARE WEATHER-BLIND BY RULING (amendment 149) AND HAVE NO INNER EDGE
@@ -195,8 +197,6 @@ import {
   ZONE_BEATS_PER_GROUP,
   fogDepthReach,
   hullEnvelope,
-  PLAIN_HULL_BEAM_U,
-  PLAIN_HULL_LENGTH_U,
   paintSeed,
   segPolygonHit,
   segmentPaintSeed,
@@ -224,7 +224,6 @@ import {
   type MineKind,
   type MineView,
   type OwnShip,
-  type PlainContact,
   type PointEvent,
   type SpawnEvent,
   type SplashEvent,
@@ -252,9 +251,9 @@ const DT = CONFIG.tick.simDtMs;
 const SWEEP_PERIOD = 60000 / CONFIG.vision.sweepRpm; // ms per base revolution
 const SWEEP_DELTA = (TAU * DT) / SWEEP_PERIOD;
 const TICKS_PER_REV = Math.round(SWEEP_PERIOD / DT);
-/** u — the PLAIN-HULL eye reach, the outer sight tier's rim (Story 11.2). */
+/** u — the HULL eye reach: where a contact has faded to gone (Story 11.2; the haze's far end since Story 11.6). */
 const HULL_SIGHT = CONFIG.vision.hullSight;
-/** u — the longest reach ANY eye rule has (the plain hull, the muzzle flash /
+/** u — the longest reach ANY eye rule has (a hull, the muzzle flash /
  *  smoke halo, a splash): beyond it nothing is seen, only painted. */
 const EYE_MAX = Math.max(HULL_SIGHT, CONFIG.vision.muzzleFlash, CONFIG.vision.splashSight);
 /** u — a directed-case placement BEYOND EVERY EYE REACH and inside the radar
@@ -262,9 +261,9 @@ const EYE_MAX = Math.max(HULL_SIGHT, CONFIG.vision.muzzleFlash, CONFIG.vision.sp
  *  name predates amendment 210, which removed the radar's inner edge — there
  *  is no annulus any more). Derived, never a literal. */
 const ANNULUS_D = (EYE_MAX + RADAR) / 2;
-/** u — a directed-case placement in the PLAIN BAND: beyond the
- *  class-and-name reach, inside the plain-hull reach (Story 11.2). */
-const PLAIN_D = (SIGHT + HULL_SIGHT) / 2;
+/** u — a directed-case placement in the HAZE BAND: beyond the
+ *  class-and-name reach, inside the hull reach (a fading contact). */
+const HAZE_D = (SIGHT + HULL_SIGHT) / 2;
 /** u — a placement BEYOND radar range. */
 const BEYOND_RADAR = RADAR + 200;
 /** u — HALF of ANNULUS_D: a directed case that STEPS the world seats its
@@ -504,9 +503,9 @@ function sightedWithin(w: World, me: ShipRecord, p: { x: number; y: number }, ra
  *  `length × beam` rectangle about the hull's center, the length along its
  *  heading. (Production lays the same points with the shared series trig —
  *  under 1e-6 × the hull length away from these, far inside the dead band.) */
-function hullGridOracle(ship: ShipRecord, plain: boolean): Array<{ x: number; y: number }> {
-  // A PLAIN row's grid is the one shared mean size (no class hint); the full row's is the class's.
-  const { length, beam } = plain ? { length: PLAIN_HULL_LENGTH_U, beam: PLAIN_HULL_BEAM_U } : hullEnvelope(ship.hullId).hull;
+function hullGridOracle(ship: ShipRecord): Array<{ x: number; y: number }> {
+  // The hull's TRUE size (one tier: the row carries the class, so there is nothing to hide in the grid).
+  const { length, beam } = hullEnvelope(ship.hullId).hull;
   const cols = CONFIG.fog.hullGridCols;
   const rows = CONFIG.fog.hullGridRows;
   const cos = Math.cos(ship.state.heading);
@@ -522,22 +521,53 @@ function hullGridOracle(ship: ShipRecord, plain: boolean): Array<{ x: number; y:
   return out;
 }
 
-/** THE sight comparison of the two HULL rows (Story 11.6): the hull's CENTER
- *  inside the range cap on an island-clear ray — exactly the point rule — and
- *  ANY point of its sight grid through the rain. */
-function hullHeldWithin(w: World, me: ShipRecord, ship: ShipRecord, range: number, bound: Bound, plain = false, smoke = true): boolean {
+/** The dead band (u of optical depth) on a NON-ZERO haze term: production
+ *  lays the grid with the shared series trig, under 1e-6 × the hull length
+ *  from the oracle's points, and the haze's slope is T / (hull sight − class
+ *  sight) per u — far under this. A zero haze has no band. */
+const HAZE_SLACK = 1e-3;
+
+/** THE DISTANCE HAZE on one eye line of length `d`, re-derived (never the
+ *  shared `fogHazeDepth`): 0 out to the observer's class-and-name sight,
+ *  rising linearly to T at its hull sight; a hull sight not beyond the class
+ *  sight is a hard edge at the class sight. */
+function hazeOracle(d: number, sightU: number, hullSightU: number): number {
+  if (!(d > sightU)) return 0;
+  if (!(hullSightU > sightU)) return RAIN_T;
+  return RAIN_T * Math.min(1, (d - sightU) / (hullSightU - sightU));
+}
+
+/** THE WEATHER GATE on one HULL-GRID line: τ_rain + τ_smoke + τ_haze ≤ T ±
+ *  (the dead bands). `smoke` false: the rain and the haze alone. `haze`
+ *  false: the weather alone (what the eye would hold at any distance). */
+function hullLineAdmits(w: World, me: ShipRecord, p: { x: number; y: number }, reaches: { sightU: number; hullSightU: number }, bound: Bound, smoke = true, haze = true): boolean {
+  const rain = rainOracle(w, me.state, p);
+  const cloud = smoke ? smokeOracle(w, me.state, p, bound) : NO_SMOKE;
+  const hz = haze ? hazeOracle(dist(me.state, p), reaches.sightU, reaches.hullSightU) : 0;
+  const slack = rain.slack + cloud.slack + (cloud.touched ? 1e-6 : 0) + (hz > 0 ? HAZE_SLACK : 0);
+  return rain.tau + cloud.tau + hz <= RAIN_T + (bound === 'loose' ? slack : -slack);
+}
+
+/** THE sight comparison of the HULL row (Story 11.6; one tier since Eric
+ *  2026-11-15): the hull's CENTER inside the HULL-sight cap on an
+ *  island-clear ray — exactly the point rule — and ANY point of its
+ *  true-size sight grid through the rain, the smoke and the distance haze.
+ *  In clear water (no rain, no cloud) the haze alone never hides a point
+ *  (it is at most T): held. */
+function hullHeldWithin(w: World, me: ShipRecord, ship: ShipRecord, reaches: { sightU: number; hullSightU: number }, bound: Bound, smoke = true, haze = true): boolean {
+  const range = reaches.hullSightU;
   if (!(range > 0)) return false;
   if (!(dist(me.state, ship.state) <= range) || !sightClearOracle(w, me, ship.state)) return false;
   if (!w.fogFrameForTest().on && w.clouds.size === 0) return true;
-  return hullGridOracle(ship, plain).some((p) => (smoke ? lineAdmits : rainAdmits)(w, me.state, p, bound));
+  return hullGridOracle(ship).some((p) => hullLineAdmits(w, me, p, reaches, bound, smoke, haze));
 }
 
 /** Non-vacuity ledgers for the rain (the CLOUD_SIGHT_THROUGH idiom).
- *  FOG_HID_CONTACT: (observer, hull) pairs inside the class reach with island
+ *  FOG_HID_CONTACT: (observer, hull) pairs inside the hull reach with island
  *  LOS clear and no owned zone, whose every grid point the rain hides even
  *  loosely — verified ABSENT. FOG_THIN_SEEN: pairs whose rays touch rain yet
  *  some grid point is strictly through it — verified PRESENT.
- *  FOG_PART_SEEN: hulls DELIVERED (a contact or a plain row) whose CENTER the
+ *  FOG_PART_SEEN: hulls DELIVERED whose CENTER the
  *  rain hides even loosely — seen through partial rain by a non-center grid
  *  point (the multi-point rule ran, not only the center ray).
  *  FOG_HID_SM: an `sm` (or `mz`) inside the halo with LOS, hidden by the
@@ -549,8 +579,16 @@ function hullHeldWithin(w: World, me: ShipRecord, ship: ShipRecord, range: numbe
  *  short can reach the threshold at any density; the per-subject checks stay
  *  and bind the day a dial moves.) */
 const FOG_HID_CONTACT = { n: 0 };
+/** Non-vacuity ledgers for the DISTANCE HAZE (Eric 2026-11-15). HAZE_BAND_SEEN:
+ *  contacts DELIVERED beyond the observer's class-and-name sight with no
+ *  owned zone over them — the fading band is live, as full contacts.
+ *  HAZE_HID_CONTACT: (observer, hull) pairs in that band whose weather alone
+ *  (rain + smoke, no haze) strictly shows some grid point, yet with the haze
+ *  no grid point passes even loosely — hid by the haze, verified ABSENT. */
+const HAZE_BAND_SEEN = { n: 0 };
+const HAZE_HID_CONTACT = { n: 0 };
 /** Non-vacuity ledgers for the SMOKE (Story 11.6 scope add).
- *  SMOKE_HID_CONTACT: (observer, hull) pairs inside the class reach with
+ *  SMOKE_HID_CONTACT: (observer, hull) pairs inside the hull reach with
  *  island LOS clear and no owned zone that the RAIN ALONE would strictly
  *  show, whose every grid point the rain + smoke hide even loosely — "hid by
  *  smoke", verified ABSENT. OWN_SMOKE_BLINDED: those of them whose observer
@@ -624,7 +662,7 @@ function effSight(w: World, me: ShipRecord): number {
   return eyeReachOracle(w, me, SIGHT);
 }
 
-/** u — the observer's PLAIN-HULL sight this tick (Story 11.2). */
+/** u — the observer's HULL sight this tick (Story 11.2): the contact row's cap and the haze's far end. */
 function effHullSight(w: World, me: ShipRecord): number {
   return eyeReachOracle(w, me, HULL_SIGHT);
 }
@@ -644,21 +682,21 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }, bound: B
   return sightedWithin(w, me, p, effSight(w, me), bound);
 }
 
-/** THE INNER TIER FOR A HULL (the `contact` row's eye): the class reach on
- *  its center, the rain on its sight grid. */
+/** The observer's two reaches the haze runs between, this tick. */
+function hullReaches(w: World, me: ShipRecord): { sightU: number; hullSightU: number } {
+  return { sightU: effSight(w, me), hullSightU: effHullSight(w, me) };
+}
+
+/** THE EYE FOR A HULL (the `contact` row): the hull reach on its center, the
+ *  rain + smoke + distance haze on its sight grid. */
 function hullSightedFull(w: World, me: ShipRecord, ship: ShipRecord, bound: Bound = 'loose'): boolean {
-  return hullHeldWithin(w, me, ship, effSight(w, me), bound);
+  return hullHeldWithin(w, me, ship, hullReaches(w, me), bound);
 }
 
 /** THE POINT-BY-EYE ORACLE at a NAMED reach (Story 11.2, R4 / R18): `p`
  *  within `reachU` under the whiteout, rain-gated, island LOS clear. */
 function eyeSeen(w: World, me: ShipRecord, p: { x: number; y: number }, reachU: number, bound: Bound = 'loose'): boolean {
   return sightedWithin(w, me, p, eyeReachOracle(w, me, reachU), bound);
-}
-
-/** The OUTER eye tier for a hull: within the plain-hull reach (Story 11.2, R3) on its center, the rain on its sight grid. */
-function hullSighted(w: World, me: ShipRecord, ship: ShipRecord, bound: Bound = 'loose'): boolean {
-  return hullHeldWithin(w, me, ship, effHullSight(w, me), bound, true);
 }
 
 /** A boom or a burst POINT: the splash reach. */
@@ -839,6 +877,10 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
+  // CLEAR WATER: a World rains from the start line (Eric 2026-11-15), so a
+  // directed case that is not about the weather pins the rain off; the ones
+  // that are pin their own frame over this.
+  w.setFogFrameForTest(clearFrame(w));
   return w;
 }
 
@@ -1011,11 +1053,13 @@ describe('perception — sight tier boundaries (exact)', () => {
     ]);
   });
 
-  it('a ship just outside sight range is invisible', () => {
+  it('a ship just outside the HULL sight is invisible; just outside the class-and-name sight it is still a contact (one tier, fading — Eric 2026-11-15)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    place(w, 'b', SIGHT + 0.01, 0);
+    const b = place(w, 'b', HULL_SIGHT + 0.01, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([]);
+    b.state.x = SIGHT + 0.01;
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
   });
 
   it('a ship inside sight but behind an island is invisible (LOS rule)', () => {
@@ -1065,17 +1109,18 @@ describe('perception — sight tier boundaries (exact)', () => {
   });
 });
 
-// ---------- directed cases: the two eye tiers (Story 11.2, R3) ----------------
+// ---------- directed cases: ONE hull tier with a distance fade ----------------
 //
-// Inside the CLASS-AND-NAME reach a hull is a full contact; beyond it and
-// inside the PLAIN-HULL reach it is a `pc` row — its pose under an anonymous
-// per-observer, per-visit handle and nothing else. Every frame below also
-// passes verifyFrame (verifyPlain is its outer-tier line), except where a
-// comment says why not.
+// (Eric 2026-11-15 — the anonymous plain hull of Story 11.2 is REMOVED.) A
+// hull is a FULL contact out to the HULL sight; between the class-and-name
+// sight and the hull sight a distance HAZE joins the rain and the smoke in
+// the one optical depth of each grid ray, so it fades and the weather takes
+// it sooner the farther out it is. Identity-bearing EVENTS stay on the
+// class-and-name reach. Every frame below also passes verifyFrame, except
+// where a comment says why not.
 
-describe('perception — the two eye tiers (Story 11.2, R3)', () => {
-  const PLAIN_KEYS = ['h', 'x', 'y', 'heading', 'speed'];
-  /** A distinctive roster id, longer than any handle, so a text scan for it cannot hit a handle by chance. */
+describe('perception — one hull tier: a full contact to the hull sight, fading with distance (Story 11.6, Eric 2026-11-15)', () => {
+  /** A distinctive roster id. */
   const TARGET = 'target-hull';
 
   /** Build the viewer's frame and run it through the whole invariant. */
@@ -1084,152 +1129,109 @@ describe('perception — the two eye tiers (Story 11.2, R3)', () => {
     verifyFrame(w, viewer, f);
     return f;
   }
+  const ids = (f: FrameMsg): string[] => f.contacts.map((c) => c.id);
 
-  /** The viewer's ONE plain row this tick (the case scripts exactly one hull into the band). */
-  function onePlain(w: World, viewer: string): PlainContact {
-    const f = look(w, viewer);
-    expect(f.pc).toHaveLength(1);
-    return f.pc![0];
-  }
-
-  it('boundaries, exact: a hull at exactly the class reach is a contact; a hair beyond it is ONE plain row — its true pose, no id, no class; at exactly the hull reach still a plain row; a hair beyond, on neither tier', () => {
+  it('boundaries, exact, in clear water: a hull is the SAME full contact — id, class, turret angles, true pose — at the class reach, a hair beyond it, and at exactly the hull reach; a hair beyond the hull reach it is gone; no frame carries a `pc` key', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const t = place(w, TARGET, SIGHT, 0, 1.5);
     t.state.speed = 7;
-    const atClass = look(w, 'a');
-    expect(atClass.contacts.map((c) => c.id)).toEqual([TARGET]);
-    expect('pc' in atClass).toBe(false);
-
-    t.state.x = SIGHT + 0.01;
-    const justPast = look(w, 'a');
-    expect(justPast.contacts).toEqual([]);
-    expect(justPast.pc).toHaveLength(1);
-    const row = justPast.pc![0];
-    expect(Object.keys(row)).toEqual(PLAIN_KEYS);
-    expect({ ...row, h: '' }).toEqual({ h: '', x: t.state.x, y: 0, heading: 1.5, speed: 7 });
-    expect(JSON.stringify(row)).not.toContain(TARGET);
-    expect(JSON.stringify(row)).not.toContain(t.hullId);
-
-    t.state.x = HULL_SIGHT;
-    const atHull = look(w, 'a');
-    expect(atHull.contacts).toEqual([]);
-    expect(atHull.pc?.map((r) => r.x)).toEqual([HULL_SIGHT]);
-
+    const row = (x: number): unknown => ({ id: TARGET, x, y: 0, heading: 1.5, speed: 7, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId) });
+    for (const x of [SIGHT, SIGHT + 0.01, HAZE_D, HULL_SIGHT]) {
+      t.state.x = x;
+      const f = look(w, 'a');
+      expect(f.contacts, `at ${x}`).toEqual([row(x)]);
+      expect('pc' in f).toBe(false);
+    }
     t.state.x = HULL_SIGHT + 0.01;
     const beyond = look(w, 'a');
     expect(beyond.contacts).toEqual([]);
     expect('pc' in beyond).toBe(false);
   });
 
-  it('the plain row\'s rain verdict is class-blind: two hulls of different classes at the same pose under the same rain are held or hidden alike, and both verdicts occur', () => {
-    const cols = CONFIG.fog.hullGridCols;
-    // Uniform rain whose edge, for the shared mean size, sits at PLAIN_D.
-    const density = RAIN_T / (PLAIN_D + 0.5 * PLAIN_HULL_LENGTH_U * (1 - 1 / cols));
-    const classes = [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[SHIP_CLASS_IDS.length - 1]];
-    const held = new Set<boolean>();
-    for (let k = -8; k <= 8; k++) {
-      const d = PLAIN_D + (k * PLAIN_HULL_LENGTH_U) / 8;
-      const verdicts = classes.map((cls) => {
-        const w = bareWorld();
-        // Both on the water (rain is 0 past the rim): the observer near the west edge, the target due east.
-        const x0 = -w.map.radius * 0.8;
-        place(w, 'a', x0, 0);
-        place(w, TARGET, x0 + d, 0, 0, DEFAULT_SHIFT, cls);
-        w.setFogFrameForTest(uniformRainFrame(w, density));
-        const f = look(w, 'a');
-        expect(f.contacts).toEqual([]);
-        return (f.pc ?? []).length === 1;
-      });
-      expect(verdicts[1], `d=${d}`).toBe(verdicts[0]);
-      held.add(verdicts[0]);
-    }
-    expect(held.size).toBe(2);
+  it('THE HAZE IS OPTICAL DEPTH: under the same thin uniform rain a hull inside the class reach is held and a hull at the SAME rain depth plus haze is not — and with the rain off the far hull is held again', () => {
+    const w = bareWorld();
+    // Both hulls on the water (rain is 0 past the rim): the observer near the west edge, the hulls due east.
+    const x0 = -w.map.radius * 0.8;
+    place(w, 'a', x0, 0);
+    const dNear = SIGHT * 0.9;
+    const dFar = HAZE_D; // half way through the band: the haze alone is T / 2
+    const density = (0.7 * T) / dFar; // the rain alone is 0.7 T at the far hull: under T, but not with the haze
+    expect(density).toBeLessThanOrEqual(1); // premise: a density
+    expect(density * (dFar + HULL_REACH)).toBeLessThan(T - RAIN_MARGIN_U); // premise: the rain alone shows the far hull whole
+    place(w, 'near', x0 + dNear, 0);
+    const far = place(w, 'far', x0 + dFar, 0);
+    w.setFogFrameForTest(uniformRainFrame(w, density));
+    const me = w.ships.get('a')!;
+    expect(hullHeldWithin(w, me, far, hullReaches(w, me), 'strict', true, false)).toBe(true); // the independent oracle: weather alone, seen
+    expect(hullSightedFull(w, me, far, 'loose')).toBe(false); // ...with the haze, lost
+    expect(ids(look(w, 'a'))).toEqual(['near']);
+    w.setFogFrameForTest(clearFrame(w));
+    expect(ids(look(w, 'a')).sort()).toEqual(['far', 'near']);
   });
 
-  it('island LOS blocks the plain tier exactly as it blocks contacts: a hull in the band behind a rock is on neither tier, and stepping aside restores the plain row', () => {
+  it('THE HAZE RUNS BETWEEN THE OBSERVER\'S OWN TWO REACHES: under a rain that leaves a haze-band hull a known margin, the hull is held at the distance where rain + haze is under T and lost where it is over — the crossing is where the two sum to T', () => {
+    const density = 0.02;
+    // rain(d) + haze(d) = density × d + T × (d − SIGHT) / (HULL_SIGHT − SIGHT) = T at dEdge.
+    const slope = T / (HULL_SIGHT - SIGHT);
+    const dEdge = (T + slope * SIGHT) / (density + slope);
+    expect(dEdge).toBeGreaterThan(SIGHT + HULL.length); // premise: the edge is inside the band...
+    expect(dEdge).toBeLessThan(HULL_SIGHT - HULL.length);
+    const held = (d: number): boolean => {
+      const w = bareWorld();
+      const x0 = -w.map.radius * 0.8;
+      place(w, 'a', x0, 0);
+      place(w, TARGET, x0 + d, 0, Math.PI / 2); // beam-on: every grid point within half a beam of the center's range
+      w.setFogFrameForTest(uniformRainFrame(w, density));
+      return ids(look(w, 'a')).includes(TARGET);
+    };
+    expect(held(dEdge - HULL.beam - RAIN_MARGIN_U)).toBe(true);
+    expect(held(dEdge + HULL.beam + RAIN_MARGIN_U)).toBe(false);
+  });
+
+  it('island LOS blocks a hull in the haze band exactly as it blocks one up close: behind a rock it is no contact, and stepping aside restores it', () => {
     const w = bareWorld();
-    w.map.islands.push(circleIsland(PLAIN_D / 2, 0, SIGHT / 100)); // squarely on the ray
+    w.map.islands.push(circleIsland(HAZE_D / 2, 0, SIGHT / 100)); // squarely on the ray
     place(w, 'a', 0, 0);
-    const t = place(w, TARGET, PLAIN_D, 0);
-    const blocked = look(w, 'a');
-    expect(blocked.contacts).toEqual([]);
-    expect('pc' in blocked).toBe(false);
+    const t = place(w, TARGET, HAZE_D, 0);
+    expect(look(w, 'a').contacts).toEqual([]);
     t.state.x = 0;
-    t.state.y = PLAIN_D; // the same range, a clear ray
-    expect(onePlain(w, 'a').y).toBe(PLAIN_D);
+    t.state.y = HAZE_D; // the same range, a clear ray
+    expect(ids(look(w, 'a'))).toEqual([TARGET]);
   });
 
-  it('the handle: stable while the hull stays in the band, FRESH after it leaves and returns (moved out, or the observer flashed blind for a frame), different for two observers of the same hull in the same tick, never a ship id', () => {
+  it('a flashed observer loses the haze-band hull with everything else, and holds it again when the mark lifts', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    place(w, 'c', 0, SIGHT / 100); // a second observer beside the first
-    const t = place(w, TARGET, PLAIN_D, 0);
-    const first = onePlain(w, 'a').h;
-    expect(onePlain(w, 'a').h).toBe(first); // the same visit: the same handle, frame after frame
-    expect(onePlain(w, 'a').h).toBe(first);
-    // Visit 2: the hull goes beyond the hull reach for a frame and comes back.
-    t.state.x = HULL_SIGHT + PLAIN_D;
-    expect('pc' in look(w, 'a')).toBe(false);
-    t.state.x = PLAIN_D;
-    const second = onePlain(w, 'a').h;
-    // Visit 3: the observer is flashed blind for a frame (every eye reach 0).
+    place(w, TARGET, HAZE_D, 0);
+    expect(ids(look(w, 'a'))).toEqual([TARGET]);
     a.dazzledUntil = flashMark(w);
-    expect('pc' in look(w, 'a')).toBe(false);
+    expect(look(w, 'a').contacts).toEqual([]);
     a.dazzledUntil = 0;
-    const third = onePlain(w, 'a').h;
-    expect(new Set([first, second, third]).size).toBe(3);
-    // Another observer of the same hull, the same tick: its own handle.
-    const other = look(w, 'c');
-    expect(other.contacts.map((k) => k.id)).toEqual(['a']);
-    expect(other.pc).toHaveLength(1);
-    expect([first, second, third]).not.toContain(other.pc![0].h);
-    for (const h of [first, second, third, other.pc![0].h]) expect(w.ships.has(h)).toBe(false);
+    expect(ids(look(w, 'a'))).toEqual([TARGET]);
   });
 
-  it('the crossing: a hull moved from the band to inside the class reach is a contact and gone from pc in that same frame — never both; moved back out it is a plain row under a NEW handle', () => {
+  it("an OWNED lit zone over a hull the rain + haze hide makes it a contact; someone else's zone leaves it hidden", () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    const t = place(w, TARGET, PLAIN_D, 0);
-    const before = onePlain(w, 'a').h;
-    t.state.x = SIGHT / 2;
-    const inside = look(w, 'a');
-    expect(inside.contacts.map((c) => c.id)).toEqual([TARGET]);
-    expect('pc' in inside).toBe(false);
-    t.state.x = PLAIN_D;
-    const after = look(w, 'a');
-    expect(after.contacts).toEqual([]);
-    expect(after.pc).toHaveLength(1);
-    expect(after.pc![0].h).not.toBe(before);
-  });
-
-  it("an OWNED lit zone over a hull in the band makes it a FULL contact (and no plain row); someone else's zone leaves it a plain row", () => {
-    const w = bareWorld();
-    place(w, 'a', 0, 0);
-    const t = place(w, TARGET, PLAIN_D, 0, 0.9);
-    injectZone(w, 'theirs', 'someone-else', PLAIN_D, 0);
-    const foreign = look(w, 'a');
-    expect(foreign.contacts).toEqual([]);
-    expect(foreign.pc).toHaveLength(1);
+    const x0 = -w.map.radius * 0.8;
+    place(w, 'a', x0, 0);
+    const t = place(w, TARGET, x0 + HAZE_D, 0, 0.9);
+    w.setFogFrameForTest(uniformRainFrame(w, (0.7 * T) / HAZE_D)); // rain 0.7 T + haze 0.5 T: hidden
+    injectZone(w, 'theirs', 'someone-else', t.state.x, 0);
+    expect(look(w, 'a').contacts).toEqual([]);
     w.litZones.clear();
-    injectZone(w, 'mine', 'a', PLAIN_D, 0);
-    const owned = look(w, 'a');
-    expect(owned.contacts).toEqual([
-      { id: TARGET, x: PLAIN_D, y: 0, heading: 0.9, speed: 0, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId) },
+    injectZone(w, 'mine', 'a', t.state.x, 0);
+    expect(look(w, 'a').contacts).toEqual([
+      { id: TARGET, x: t.state.x, y: 0, heading: 0.9, speed: 0, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId) },
     ]);
-    expect('pc' in owned).toBe(false);
   });
 
-  it('spectators: a finished-phase frame lists the plain-band hull as a full contact and carries no pc', () => {
+  it('spectators: a finished-phase frame lists the haze-band hull as the same full contact and carries no pc', () => {
     const w = bareWorld();
-    place(w, TARGET, PLAIN_D, 0);
-    const a = place(w, 'a', 0, 0);
-    expect(look(w, 'a').pc).toHaveLength(1); // the fogged frame holds it as a plain row
-    // (verifyFrame's contact line is the FOGGED one — it rejects the viewer's
-    // own hull, which a finished-phase frame lists — so the unfogged frame
-    // goes through the outer tier's own line.)
+    place(w, TARGET, HAZE_D, 0);
+    place(w, 'a', 0, 0);
+    expect(ids(look(w, 'a'))).toEqual([TARGET]);
     const spec = buildFrame(w, 'a', 'finished');
-    verifyPlain(w, a, spec);
     expect(spec.spec).toBe(true);
     expect(spec.contacts.map((c) => c.id)).toContain(TARGET);
     expect('pc' in spec).toBe(false);
@@ -1253,15 +1255,15 @@ describe('perception — the two eye tiers (Story 11.2, R3)', () => {
       expect(boomsOf(buildFrame(w, TARGET)).find((e) => e.id === 's1')?.hit).toBe(TARGET); // the blow landed
       w.sinkShip(TARGET, 'someone-else');
       w.step();
-      // (verifyFrame's contact line demands an AFLOAT hull, so the in-sight
-      // control — where the sinking hull is still a contact, Story 5.2 — is
-      // read without it.)
+      // (verifyFrame's contact line demands an AFLOAT hull, so wherever the
+      // sinking hull is still a contact — Story 5.2; anywhere inside the hull
+      // sight now — the frame is read without it.)
       const f = verifySunkFrame ? look(w, 'a') : buildFrame(w, 'a');
       return { boom, sunk: f.events.filter((e): e is SunkEvent => e.k === 'sunk'), spawns };
     }
 
-    it('in the plain band: a boom on the hull arrives WITHOUT hit, its sinking is the public row WITHOUT seen, and a spawn at its point does not arrive', () => {
-      const seen = identityAt(PLAIN_D, true);
+    it('in the haze band (the hull itself IS a contact there): a boom on the hull arrives WITHOUT hit, its sinking is the public row WITHOUT seen, and a spawn at its point does not arrive', () => {
+      const seen = identityAt(HAZE_D, false); // the sinking hull is still a contact in the band (see identityAt)
       expect(seen.boom).toBeDefined(); // the splash reach covers the band: the impact is watched...
       expect('hit' in seen.boom!).toBe(false); // ...but it names nobody
       expect(seen.sunk).toEqual([{ k: 'sunk', id: TARGET, by: 'someone-else' }]);
@@ -1276,34 +1278,6 @@ describe('perception — the two eye tiers (Story 11.2, R3)', () => {
     });
   });
 
-  it('order: with three hulls in the band the pc rows are sorted by handle — a payload-only order, never the roster order', () => {
-    const w = bareWorld();
-    place(w, 'a', 0, 0);
-    const hulls = [0, 1, 2].map((i) => place(w, `hull-${i}`, 0, 0));
-    const VISITS = 12;
-    let reordered = 0;
-    for (let visit = 0; visit < VISITS; visit++) {
-      hulls.forEach((hull, i) => {
-        const brg = (i * TAU) / hulls.length;
-        hull.state.x = PLAIN_D * Math.cos(brg);
-        hull.state.y = PLAIN_D * Math.sin(brg);
-      });
-      const rows = look(w, 'a').pc ?? [];
-      expect(rows).toHaveLength(hulls.length);
-      const handles = rows.map((r) => r.h);
-      expect(handles).toEqual([...handles].sort());
-      // Which hull each row is (by pose), against the roster's insertion order.
-      const order = rows.map((r) => hulls.findIndex((hull) => hull.state.x === r.x && hull.state.y === r.y));
-      if (order.join() !== [0, 1, 2].join()) reordered += 1;
-      // Every hull leaves the band for a frame, so the next visit mints fresh handles.
-      for (const hull of hulls) {
-        hull.state.x = 0;
-        hull.state.y = HULL_SIGHT + PLAIN_D;
-      }
-      expect('pc' in look(w, 'a')).toBe(false);
-    }
-    expect(reordered).toBeGreaterThan(0); // non-vacuous: the handle order is not the insertion order
-  });
 });
 
 // ---------- directed cases: radar tier ---------------------------------------
@@ -1759,8 +1733,10 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     expect(boomA).toBeDefined();
     expect(boomA!.hit).toBeUndefined();
     expect('hit' in boomA!).toBe(false); // stripped, not just undefined
-    // a is not otherwise leaking b: b never appears as a contact.
-    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).not.toContain('b');
+    // b itself IS a contact for a (its center is in a's haze band — one hull
+    // tier, Eric 2026-11-15) — and the boom on it still named nobody:
+    // identity-bearing events stay on the class-and-name reach.
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toContain('b');
   });
 
   it('a spawn reaches the spawner, and not an observer beyond the class reach of the point', () => {
@@ -3191,7 +3167,11 @@ function standsInOwnCloud(w: World, me: ShipRecord): boolean {
  *  a grid ray touches a cloud and the rain alone would strictly show the
  *  hull; else hid by the rain. */
 function countHiddenContact(w: World, me: ShipRecord, other: ShipRecord, smoky: boolean): void {
-  if (smoky && hullHeldWithin(w, me, other, effSight(w, me), 'strict', false, false)) {
+  const reaches = hullReaches(w, me);
+  // HID BY THE HAZE: the weather alone would strictly show some grid point.
+  if (hullHeldWithin(w, me, other, reaches, 'strict', true, false)) {
+    HAZE_HID_CONTACT.n += 1;
+  } else if (smoky && hullHeldWithin(w, me, other, reaches, 'strict', false)) {
     SMOKE_HID_CONTACT.n += 1;
     if (standsInOwnCloud(w, me)) OWN_SMOKE_BLINDED.n += 1;
   } else {
@@ -3326,20 +3306,23 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     CLOUD_SIGHT_THROUGH.n += 1;
     expect(f.contacts.some((c) => c.id === other.id), `cloud hid ${other.id} from ${me.id}`).toBe(true);
   }
-  // THE WEATHER HIDES BY OPTICAL DEPTH (Story 11.6): every other afloat hull
-  // inside this observer's class reach with island LOS clear and no owned
-  // zone, whose rays touch rain or smoke, is a contact IFF some point of its
-  // sight grid is through both — PRESENT when one is strictly through
-  // (FOG_THIN_SEEN / SMOKE_THIN_SEEN), ABSENT when none is even loosely
-  // (FOG_HID_CONTACT; SMOKE_HID_CONTACT when the rain alone would strictly
-  // show it — hid by smoke); the dead band between is production's call.
+  // THE WEATHER AND THE HAZE HIDE BY OPTICAL DEPTH (Story 11.6): every other
+  // afloat hull inside this observer's HULL reach with island LOS clear and
+  // no owned zone, whose rays touch rain or smoke or run into the haze band,
+  // is a contact IFF some point of its sight grid is through all three —
+  // PRESENT when one is strictly through (FOG_THIN_SEEN / SMOKE_THIN_SEEN),
+  // ABSENT when none is even loosely (HAZE_HID_CONTACT when the weather
+  // alone would strictly show it; SMOKE_HID_CONTACT when the rain + haze
+  // alone would; else FOG_HID_CONTACT); the dead band between is
+  // production's call.
   for (const other of w.ships.values()) {
     if (!isAfloat(me.lifecycle) || other.id === me.id || !isAfloat(other.lifecycle)) continue;
     if (zoneCovers(w, me, other.state)) continue;
-    if (dist(me.state, other.state) > effSight(w, me) || !clearLos(me.state, other.state, w.map.islands)) continue;
+    if (dist(me.state, other.state) > effHullSight(w, me) || !clearLos(me.state, other.state, w.map.islands)) continue;
     const rainy = rainOracle(w, me.state, other.state).touched;
-    const smoky = hullGridOracle(other, false).some((p) => smokeOracle(w, me.state, p).touched);
-    if (!rainy && !smoky) continue;
+    const smoky = hullGridOracle(other).some((p) => smokeOracle(w, me.state, p).touched);
+    const hazy = dist(me.state, other.state) > effSight(w, me);
+    if (!rainy && !smoky && !hazy) continue;
     const present = f.contacts.some((c) => c.id === other.id);
     if (hullSightedFull(w, me, other, 'strict')) {
       if (rainy) FOG_THIN_SEEN.n += 1;
@@ -3418,11 +3401,20 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('draft' in c).toBe(false); // ...and whether they ride a wake (Story 8.19)
     // Sight tier (dist + LOS) OR the ship's CENTER inside a zone the viewer
     // OWNS (Story 1.7 firer-only truesight parity) — nothing else.
-    expect(hullSightedFull(w, me, target) || zoneCovers(w, me, target.state)).toBe(true);
+    // THE HAZE CONTRACT (Eric 2026-11-15 — the line that replaced the plain
+    // tier's): no hull beyond the observer's HULL sight, and every sent hull
+    // has some grid point under T counting rain + held smoke + haze
+    // (`hullSightedFull` is both halves; the range half is restated so a
+    // failure names it).
+    const zoned = zoneCovers(w, me, target.state);
+    if (!zoned) expect(dist(me.state, target.state), `${c.id} is a contact beyond ${me.id}'s hull sight`).toBeLessThanOrEqual(effHullSight(w, me));
+    expect(hullSightedFull(w, me, target) || zoned, `${c.id} rides ${me.id}'s contacts with no grid point under T`).toBe(true);
+    if (!zoned && dist(me.state, target.state) > effSight(w, me)) HAZE_BAND_SEEN.n += 1;
     expect({ x: c.x, y: c.y }).toEqual({ x: target.state.x, y: target.state.y });
     verifyAggro(c);
   }
-  verifyPlain(w, me, f);
+  // THE PLAIN CHANNEL IS GONE (Eric 2026-11-15): no frame carries `pc`.
+  expect('pc' in f, 'the removed plain-hull channel rides a frame').toBe(false);
   for (const e of f.events) verifyEvent(w, me, e);
   for (const m of f.mines) verifyMine(w, me, m);
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
@@ -3484,124 +3476,6 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   verifyBlipOrdering(w, f);
   verifyBlipCompleteness(w, me, f);
   verifyWakeCompleteness(w, me, f);
-}
-
-// ---------- THE PLAIN-HULL ORACLE (Story 11.2, R3) — the outer tier's line ----
-
-/** Non-vacuity ledgers for the outer tier: `pc` rows verified, and hulls the
- *  STRICT band demanded present that the frame did carry. */
-const PLAIN_SEEN = { n: 0 };
-const PLAIN_DEMANDED = { n: 0 };
-
-/** The hull a `pc` row is a view of: the one on-water hull, never the
- *  observer, at EXACTLY the row's pose (the row carries no id — that is the
- *  point — so the oracle recovers the subject from the world by pose). */
-function plainSubject(w: World, me: ShipRecord, row: PlainContact): ShipRecord | undefined {
-  for (const ship of w.ships.values()) {
-    if (ship.id === me.id || (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle))) continue;
-    const st = ship.state;
-    if (st.x === row.x && st.y === row.y && st.heading === row.heading && st.speed === row.speed) return ship;
-  }
-  return undefined;
-}
-
-/** Is `target` in this observer's PLAIN BAND at the given side of the fog
- *  dead band? In the band = inside the plain-hull reach with island LOS
- *  clear, and NOT a full contact (beyond the class reach, in no owned lit
- *  zone). 'loose' is what a DELIVERED row must satisfy (the hull reach
- *  loose, the class reach not strictly inside); 'strict' is what DEMANDS a
- *  row (the hull reach strict, the class reach not even loosely inside). */
-function inPlainBand(w: World, me: ShipRecord, target: ShipRecord, bound: Bound): boolean {
-  if (zoneCovers(w, me, target.state)) return false;
-  if (bound === 'loose') return hullSighted(w, me, target, 'loose') && !hullSightedFull(w, me, target, 'strict');
-  return hullSighted(w, me, target, 'strict') && !hullSightedFull(w, me, target, 'loose');
-}
-
-/**
- * THE OUTER TIER'S INVARIANT LINE (Story 11.2, R3) — not a seventh exception.
- * Both directions:
- *   - SHAPE: `pc` is omitted, never []; never on a spectator frame; each row
- *     is EXACTLY {h,x,y,heading,speed} in that order — so no class, no roster
- *     id, no turret or launcher angles can ride it;
- *   - THE HANDLE names nobody: a non-empty string that is no roster id, no
- *     two rows of a frame share one, and the rows are ordered by it (a
- *     payload-only order — never the roster's);
- *   - THE BAND: every row is a live view of one on-water hull that lies in
- *     the observer's plain band (loose) — beyond the class reach, inside the
- *     hull reach, island LOS clear;
- *   - ONE TIER PER HULL: no hull is both a contact and a `pc` row;
- *   - COMPLETENESS: every other on-water hull the STRICT band holds is there.
- */
-function verifyPlain(w: World, me: ShipRecord, f: FrameMsg): void {
-  const rows = f.pc ?? [];
-  if ('pc' in f) expect(rows.length, 'pc is omitted, never []').toBeGreaterThan(0);
-  if (f.spec === true) expect('pc' in f, 'a spectator frame carries no pc').toBe(false);
-  const contactIds = new Set(f.contacts.map((c) => c.id));
-  const subjects = new Set<string>();
-  const handles = new Set<string>();
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    expect(Object.keys(row)).toEqual(['h', 'x', 'y', 'heading', 'speed']);
-    expect(typeof row.h).toBe('string');
-    expect(row.h.length).toBeGreaterThan(0);
-    expect(w.ships.has(row.h), `handle ${row.h} is a roster id`).toBe(false);
-    expect(handles.has(row.h), `handle ${row.h} twice in one frame`).toBe(false);
-    handles.add(row.h);
-    if (i > 0) expect(rows[i - 1].h < row.h, 'pc rows are ordered by handle').toBe(true);
-    const target = plainSubject(w, me, row)!;
-    expect(target, `pc row ${row.h} is a live view of a hull`).toBeDefined();
-    expect(subjects.has(target.id), `${target.id} rides pc twice`).toBe(false);
-    subjects.add(target.id);
-    expect(contactIds.has(target.id), `${target.id} is a contact AND a plain contact`).toBe(false);
-    expect(inPlainBand(w, me, target, 'loose'), `${target.id} rides ${me.id}'s pc outside the plain band`).toBe(true);
-    PLAIN_SEEN.n += 1;
-    if (!lineAdmits(w, me.state, target.state, 'loose')) FOG_PART_SEEN.n += 1; // a plain hull seen by a part
-  }
-  if (f.spec === true || !isAfloat(me.lifecycle)) return;
-  for (const other of w.ships.values()) {
-    if (other.id === me.id || !isAfloat(other.lifecycle)) continue;
-    if (!inPlainBand(w, me, other, 'strict')) continue;
-    PLAIN_DEMANDED.n += 1;
-    expect(subjects.has(other.id), `${other.id} is in ${me.id}'s plain band but rides no pc row`).toBe(true);
-  }
-}
-
-/**
- * THE HANDLE LEDGER (Story 11.2, R3) — the anonymity half of the outer tier,
- * across frames and across observers, INDEPENDENTLY of production's memory
- * (`ShipRecord.plainHandles` is never read):
- *   - WITHIN A VISIT (the hull was a `pc` row for this observer on the
- *     previous tick too) the handle is the SAME — the client can follow it;
- *   - A NEW VISIT (it was not) carries a handle NEVER SEEN BEFORE, by anyone:
- *     not this observer's handle for that hull on an earlier visit (per
- *     VISIT), not another observer's handle for it (per OBSERVER — two
- *     colluding clients share no token), not any handle of any other hull.
- * `revisits` counts second-and-later visits (the non-vacuity gate).
- */
-class PlainLedger {
-  private readonly live = new Map<string, { h: string; tick: number }>();
-  private readonly ever = new Set<string>();
-  private readonly visited = new Set<string>();
-  revisits = 0;
-
-  verify(w: World, viewerId: string, f: FrameMsg, tick: number): void {
-    const me = w.ships.get(viewerId)!;
-    for (const row of f.pc ?? []) {
-      const target = plainSubject(w, me, row);
-      if (target === undefined) continue; // verifyPlain already failed the frame
-      const key = `${viewerId}>${target.id}`;
-      const held = this.live.get(key);
-      if (held !== undefined && held.tick === tick - 1) {
-        expect(row.h, `${key}: the handle changed inside one visit`).toBe(held.h);
-      } else {
-        expect(this.ever.has(row.h), `${key}: a new visit reused the handle ${row.h}`).toBe(false);
-        if (this.visited.has(key)) this.revisits += 1;
-        this.visited.add(key);
-        this.ever.add(row.h);
-      }
-      this.live.set(key, { h: row.h, tick });
-    }
-  }
 }
 
 // ---------- THE AIRDROP ORACLE (Story 10.9, epic-10 amendment 18, R3) ---------
@@ -4467,8 +4341,8 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
     return;
   }
   // `seen` IS AN IDENTITY FIELD (Story 11.2): the CLASS reach, never the
-  // splash reach — it must not name a hull the observer holds only as a
-  // plain contact.
+  // splash reach (Eric 2026-11-15: identity-bearing events stay on the
+  // center at the class-and-name sight).
   const witnessed = sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state);
   // In EVERY case: `seen` present ⇒ the sight-or-owned-zone condition holds.
   if (ev.seen !== undefined) {
@@ -5114,9 +4988,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     SMOKE_THIN_SEEN.n = 0;
     SMOKE_HID_HALO.n = 0;
     RADAR_THROUGH_SMOKE.n = 0;
-    PLAIN_SEEN.n = 0;
-    PLAIN_DEMANDED.n = 0;
-    let plainRevisits = 0; // Story 11.2: proves a plain hull left the band and came back under a new handle
+    HAZE_BAND_SEEN.n = 0;
+    HAZE_HID_CONTACT.n = 0;
     DROP_SIGHTED.n = 0;
     DROP_WITHHELD.n = 0;
     DROP_PAINTED.n = 0;
@@ -5519,13 +5392,13 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         scrambleTurrets(pp, prng);
         pp.sweepAngle = prng.float(0, TAU);
       }
-      // THE PLAIN-BAND WATCHER (Story 11.6 scope add): smoke occludes sight
-      // now, and the arena's hulls press SMOKE on ~30 % of their ticks (each
-      // press a cloud on the presser's own hull) beside the clouds seated on
-      // ids[0] — so 'pp''s old watchers are routinely blinded before the
-      // tick-5 re-entry and the plain handle's per-visit clause went vacuous.
-      // One more hull per world, 'pw', never presses: it sits in pp's plain
-      // band on pp's arena side, a little off the pp → ids[0] line, at the
+      // THE HAZE-BAND WATCHER (Story 11.6 scope add; the plain tier it was
+      // seated for is gone — Eric 2026-11-15 — and it now keeps the fading
+      // band populated): smoke occludes sight, and the arena's hulls press
+      // SMOKE on ~30 % of their ticks (each press a cloud on the presser's
+      // own hull) beside the clouds seated on ids[0] — so 'pp''s old watchers
+      // are routinely blinded. One more hull per world, 'pw', never presses:
+      // it sits in pp's haze band on pp's arena side, a little off the pp → ids[0] line, at the
       // first of a few fixed offsets that is on the water with island line of
       // sight to pp. Its own stream, kept out of `ids` (the pp posture).
       const wrng = mulberry32(0x9a7c_0000 + world);
@@ -5542,7 +5415,6 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       }
       const observers = [...ids, 'pp', 'pw'];
       const ledger = new VisitLedger();
-      const plainLedger = new PlainLedger();
       for (let tick = 1; tick <= 6; tick++) {
         w.submitInput('pp', {
           seq: tick, throttle: prng.float(-1, 1), rudder: prng.float(-1, 1), aim: prng.float(-Math.PI, Math.PI),
@@ -5639,16 +5511,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           fSeen += f.events.filter((e) => e.k === 'burst' && 'f' in e).length;
           verifyFrame(w, id, f);
           ledger.verify(w, id, f);
-          plainLedger.verify(w, id, f, tick);
         }
-        // THE PER-VISIT MARKS must be EXERCISED, not vacuous — the ballistic
-        // reveal's (Story 8.13, amendment 78) and the plain hull's handle
-        // (Story 11.2): after tick 2's frames EVERY hull is FLASHED (a fresh
-        // mark — the whiteout holds every eye reach at 0 through ticks 3-4, so
-        // every projectile and every plain hull LEAVES its gate), and after
-        // tick 4's the marks are lifted, so on tick 5 whatever is still live
-        // and still inside RE-ENTERS — a projectile must be revealed again,
-        // a plain hull must come back under a NEW handle. A gate exit, not a
+        // THE PER-VISIT MARK must be EXERCISED, not vacuous — the ballistic
+        // reveal's (Story 8.13, amendment 78): after tick 2's frames EVERY
+        // hull is FLASHED (a fresh mark — the whiteout holds every eye reach
+        // at 0 through ticks 3-4, so every projectile LEAVES its gate), and
+        // after tick 4's the marks are lifted, so on tick 5 whatever is still
+        // live and still inside RE-ENTERS — a projectile must be revealed
+        // again. A gate exit, not a
         // teleport, so every other oracle stays on the same footing. Raw
         // state writes (no rng draw). (HISTORY: Story 9.4 – 11.1 did this
         // with a synthetic `sightRange` write.)
@@ -5656,7 +5526,6 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         if (tick === 4) for (const id of observers) w.ships.get(id)!.dazzledUntil = 0;
       }
       reReveals += ledger.reReveals;
-      plainRevisits += plainLedger.revisits;
     }
     // The ledger values, under the perf pins' opt-in flag (the HC_PERF_LOG
     // idiom) — so a re-lay of the fuzz geometry can be checked for how far
@@ -5667,7 +5536,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           `CLOUD_DELIVERED_BY_SIGHT ${CLOUD_DELIVERED_BY_SIGHT.n} | CLOUD_DELIVERED_BY_RADAR ${CLOUD_DELIVERED_BY_RADAR.n} | ` +
           `COOLDOWN_SEEN ${COOLDOWN_SEEN.n} | ` +
           `DRAFT_SEEN ${DRAFT_SEEN.n} | FOUL_ZONE_DELIVERED ${FOUL_ZONE_DELIVERED.n} | wk ${wkSeen} | reReveals ${reReveals} | ` +
-          `PLAIN_SEEN ${PLAIN_SEEN.n} PLAIN_DEMANDED ${PLAIN_DEMANDED.n} plainRevisits ${plainRevisits} | ` +
+          `HAZE_BAND_SEEN ${HAZE_BAND_SEEN.n} HAZE_HID_CONTACT ${HAZE_HID_CONTACT.n} | ` +
           `FOG_HID_CONTACT ${FOG_HID_CONTACT.n} | FOG_THIN_SEEN ${FOG_THIN_SEEN.n} | FOG_PART_SEEN ${FOG_PART_SEEN.n} | ` +
           `FOG_HID_SM ${FOG_HID_SM.n} | RADAR_THROUGH_FOG ${RADAR_THROUGH_FOG.n} | ` +
           `SMOKE_HID_CONTACT ${SMOKE_HID_CONTACT.n} | OWN_SMOKE_BLINDED ${OWN_SMOKE_BLINDED.n} | SMOKE_THIN_SEEN ${SMOKE_THIN_SEEN.n} | ` +
@@ -5702,12 +5571,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // ...and so must the re-reveal: zero second reveals across 20 shrunk
     // worlds would mean the per-visit mark silently reverted to permanent.
     expect(reReveals).toBeGreaterThan(0);
-    // THE OUTER SIGHT TIER (Story 11.2) must have been EXERCISED: plain rows
-    // verified, hulls the strict band demanded and found, and a hull that
-    // left the band and came back under a fresh handle.
-    expect(PLAIN_SEEN.n).toBeGreaterThan(0);
-    expect(PLAIN_DEMANDED.n).toBeGreaterThan(0);
-    expect(plainRevisits).toBeGreaterThan(0);
+    // THE FADING BAND (Eric 2026-11-15) must have been EXERCISED: hulls
+    // beyond the class-and-name sight delivered as full contacts (each
+    // proved to have a grid point under T counting the haze).
+    expect(HAZE_BAND_SEEN.n).toBeGreaterThan(0);
     // ...and the FOUL ZONE channel (Story 9.4) must have delivered to a
     // NON-owner at least once — the radar-range clause ran, not only the
     // owner clause.
@@ -5757,7 +5624,6 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     injectCloud(w, id, owner, x, y, w.now - CLOUD_LIFE_MS * frac);
   }
   const contactIds = (f: FrameMsg): string[] => f.contacts.map((c) => c.id).sort();
-  const plainCount = (f: FrameMsg): number => (f.pc ?? []).length;
 
   it('smoke thinner than the threshold hides nothing: two hulls whose line only grazes a cloud\'s soft rim see each other', () => {
     const w = bareWorld();
@@ -5773,7 +5639,7 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     }
   });
 
-  it('A HULL BEHIND A CLOUD: partly seen while the cloud is young (its center hidden, a part of it clear of the disc), hidden on both eye tiers once the cloud has grown over every ray', () => {
+  it('A HULL BEHIND A CLOUD: partly seen while the cloud is young (its center hidden, a part of it clear of the disc), hidden once the cloud has grown over every ray', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const D = CLOUD_STAMP.r1 * 4;
@@ -5801,7 +5667,6 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     const grown = buildFrame(w, 'a');
     verifyFrame(w, 'a', grown);
     expect(contactIds(grown)).toEqual([]);
-    expect(plainCount(grown)).toBe(0); // not demoted to the outer tier either: hidden
   });
 
   it('THE OWNER IS BLINDED TOO: an observer inside its own grown cloud sees no hull across it, exactly as inside anyone else\'s — and the hull does not see the observer', () => {
@@ -5881,11 +5746,12 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     expect(f.events.filter((ev) => ev.k === 'blip')).toHaveLength(1);
   });
 
-  it('ONLY A CLOUD THE OBSERVER HOLDS HIDES ANYTHING FROM IT: a grown cloud beyond class sight that the beam never swept does not hide the plain hull behind it; the sweep that delivers it hides the hull in that very frame, and it stays hidden — until the cloud dies or the observer forgets it', () => {
+  it('ONLY A CLOUD THE OBSERVER HOLDS HIDES ANYTHING FROM IT: a grown cloud beyond class sight that the beam never swept does not hide the haze-band hull behind it; the sweep that delivers it hides the hull in that very frame, and it stays hidden — until the cloud dies or the observer forgets it', () => {
     const w = bareWorld();
     const me = place(w, 'a', 0, 0); // beam parked zero-width at 0: nothing is swept
     const r = CLOUD_STAMP.r0 + (CLOUD_STAMP.r1 - CLOUD_STAMP.r0) * 0.95;
-    const hullX = (SIGHT + HULL_SIGHT) / 2; // in the plain band
+    const hullX = (SIGHT + HULL_SIGHT) / 2; // in the haze band (a fading contact)
+    const seesHull = (f: FrameMsg): boolean => f.contacts.some((c) => c.id === 'h');
     const cloudX = SIGHT + r + 50; // its whole disc beyond class sight, across the line to the hull
     expect(cloudX + r).toBeLessThan(hullX); // premise: the hull stands behind the cloud, not in it
     const h = place(w, 'h', hullX, 0, Math.PI / 2, DEFAULT_SHIFT, DEFAULT_CLASS_ID); // beam-on: every grid ray runs through the disc's core
@@ -5897,7 +5763,7 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     const unseen = buildFrame(w, 'a');
     verifyFrame(w, 'a', unseen);
     expect(cloudIds(unseen)).toEqual([]);
-    expect(plainCount(unseen)).toBe(1);
+    expect(seesHull(unseen)).toBe(true);
     expect(me.heldClouds.size).toBe(0);
 
     // The sweep crosses the disc: the cloud rides this frame AND already hides the hull in it.
@@ -5905,15 +5771,15 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     const swept = buildFrame(w, 'a');
     verifyFrame(w, 'a', swept);
     expect(cloudIds(swept)).toEqual(['far']);
-    expect(hullSighted(w, me, h, 'loose')).toBe(false); // premise: held, the smoke is past the threshold on every grid ray
-    expect(plainCount(swept)).toBe(0);
+    expect(hullSightedFull(w, me, h, 'loose')).toBe(false); // premise: held, the smoke is past the threshold on every grid ray
+    expect(seesHull(swept)).toBe(false);
 
     // The beam moves on: no longer delivered, still held, still hiding.
     windowAround(me, Math.PI);
     const after = buildFrame(w, 'a');
     verifyFrame(w, 'a', after);
     expect(cloudIds(after)).toEqual([]);
-    expect(plainCount(after)).toBe(0);
+    expect(seesHull(after)).toBe(false);
     expect([...me.heldClouds]).toEqual(['far']);
 
     // Another observer that was never sent the cloud is not blinded by it.
@@ -5923,20 +5789,20 @@ describe('perception — SMOKE OCCLUDES SIGHT LIKE RAIN (Story 11.6 scope add, E
     const other = buildFrame(w, 'other');
     verifyFrame(w, 'other', other);
     expect(cloudIds(other)).toEqual([]);
-    expect(plainCount(other)).toBe(1);
+    expect(seesHull(other)).toBe(true);
     // ...and asking for the other observer did not disturb the first one's answer.
-    expect(plainCount(buildFrame(w, 'a'))).toBe(0);
+    expect(seesHull(buildFrame(w, 'a'))).toBe(false);
 
     // A socket gap forgets it (the client may come back on a fresh page).
-    w.forgetPlainVisits('a');
+    w.forgetHeldClouds('a');
     expect(me.heldClouds.size).toBe(0);
     const resumed = buildFrame(w, 'a');
     verifyFrame(w, 'a', resumed);
-    expect(plainCount(resumed)).toBe(1);
+    expect(seesHull(resumed)).toBe(true);
 
     // Held again, then the cloud's own death ends every hold on it.
     windowAround(me, 0);
-    expect(plainCount(buildFrame(w, 'a'))).toBe(0);
+    expect(seesHull(buildFrame(w, 'a'))).toBe(false);
     windowAround(me, Math.PI);
     w.clouds.set('far', { ...w.clouds.get('far')!, until: w.now }); // expires at the next step's cloud sweep
     w.step();
@@ -6096,7 +5962,7 @@ function pin(w: World, density: number | null): void {
 }
 
 describe('perception — THE RAIN: sight ends where the optical depth passes T (Story 11.6; amendment 210: radar has no inner edge)', () => {
-  it('FULLY HIDDEN / CLEAR WATER: under density 1 a hull past T — every grid point — is on NEITHER eye tier yet still a BLIP (amendment 210), and one inside T is a full contact; with no rain both are full contacts', () => {
+  it('FULLY HIDDEN / CLEAR WATER: under density 1 a hull past T — every grid point — is NO contact yet still a BLIP (amendment 210), and one inside T is a full contact; with no rain both are full contacts', () => {
     const w = bareWorld();
     expect(D_HIDDEN).toBeLessThan(SIGHT); // premise: clear water makes the far one a full contact
     expect(D_SEEN).toBeGreaterThan(0);
@@ -6147,21 +6013,19 @@ describe('perception — THE RAIN: sight ends where the optical depth passes T (
     expect('pc' in broadside).toBe(false);
   });
 
-  it('THE TIERS ARE UNCHANGED CAPS: through rain thin enough to see across, a hull in the plain band is a PLAIN contact and one inside the class reach a full contact — rain adds no distance, so neither changes tier; thicker rain hides both outright', () => {
+  it('THE REACHES ARE UNCHANGED CAPS: through rain thin enough to see across, a hull in the haze band (rain + haze under T) and one inside the class reach are both full contacts — rain adds no distance; thicker rain hides both outright', () => {
     const w = bareWorld();
-    const dPlain = (SIGHT + HULL_SIGHT) / 2;
+    const dHaze = SIGHT + (HULL_SIGHT - SIGHT) / 4; // a quarter of the way through the band: the haze alone is T / 4
     const dFull = SIGHT / 2;
-    const thin = T / (2 * dPlain); // τ at the plain hull = T / 2
-    expect(thin * (dPlain + HULL_REACH)).toBeLessThan(T - RAIN_MARGIN_U); // premise: the far hull is through the thin rain
+    const thin = T / (4 * dHaze); // τ_rain at the far hull = T / 4
+    expect(thin * (dHaze + HULL_REACH) + (T * (dHaze + HULL_REACH - SIGHT)) / (HULL_SIGHT - SIGHT)).toBeLessThan(T - RAIN_MARGIN_U); // premise: the far hull is through the thin rain AND the haze
     place(w, 'a', 0, 0);
-    const p = place(w, 'p', dPlain, 0, 0.6);
+    place(w, 'p', dHaze, 0, 0.6);
     place(w, 'c', dFull, 0);
     pin(w, thin);
     const f = buildFrame(w, 'a');
     verifyFrame(w, 'a', f);
-    expect(f.contacts.map((k) => k.id)).toEqual(['c']);
-    expect(f.pc?.map((row) => ({ x: row.x, y: row.y }))).toEqual([{ x: p.state.x, y: p.state.y }]);
-    expect(JSON.stringify(f.contacts) + JSON.stringify(f.pc)).not.toContain('"p"'); // the plain row carries no identity
+    expect(f.contacts.map((k) => k.id).sort()).toEqual(['c', 'p']);
     const thick = (2 * T) / dFull; // τ at the near hull = 2 T, more at the far one
     expect(thick).toBeLessThanOrEqual(1); // premise: a density
     expect(thick * (dFull - HULL_REACH)).toBeGreaterThan(T + RAIN_MARGIN_U); // premise: the near hull's whole grid is lost, and the far one's with it
@@ -6169,10 +6033,9 @@ describe('perception — THE RAIN: sight ends where the optical depth passes T (
     const g = buildFrame(w, 'a');
     verifyFrame(w, 'a', g);
     expect(g.contacts).toEqual([]);
-    expect('pc' in g).toBe(false); // lost is lost: a hull the rain takes from the class reach is not demoted to a plain row
   });
 
-  it('OBSERVER INSIDE A BAND — NO OWN-BANK EXEMPTION: two hulls standing in the same unbroken rain past T of each other see NEITHER each other, on either tier; inside T of each other both do', () => {
+  it('OBSERVER INSIDE A BAND — NO OWN-BANK EXEMPTION: two hulls standing in the same unbroken rain past T of each other see NEITHER each other; inside T of each other both do', () => {
     for (const [d, want] of [[D_HIDDEN, [] as string[]], [D_SEEN, ['other']]] as const) {
       const w = bareWorld();
       place(w, 'a', -d / 2, 0);
@@ -6260,26 +6123,18 @@ describe('perception — THE RAIN: sight ends where the optical depth passes T (
     expect('pc' in spec).toBe(false);
   });
 
-  it('FAIL-CLOSED RANGE (the NaN-safe withinSight): an observer whose sightRange is NaN holds NO full contact at 10 u — the hull is at most a nameless plain row — and a NaN hullSightRange closes that tier too; the radar, which never reads sight (amendment 210), fails closed on its OWN range', () => {
+  it('FAIL-CLOSED RANGE (the NaN-safe withinSight): an observer whose hullSightRange is NaN holds NO contact at 10 u, in clear water and in rain; the radar, which never reads sight (amendment 210), fails closed on its OWN range', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 10, 0);
-    a.stats = { ...a.stats, sightRange: NaN };
-    windowAround(a, 0);
-    const f = buildFrame(w, 'a');
-    expect(f.contacts).toEqual([]); // no class, no name
-    // The outer tier reads its OWN stat, so the hull is a plain row: its
-    // pose under an anonymous handle, nothing that names it.
-    expect(f.pc).toHaveLength(1);
-    expect(Object.keys(f.pc![0])).toEqual(['h', 'x', 'y', 'heading', 'speed']);
-    expect(f.pc![0].h).not.toBe(b.id);
-    expect(blipsOf(f)).toHaveLength(1); // a NaN eye does not blind the scope
+    place(w, 'b', 10, 0);
     a.stats = { ...a.stats, hullSightRange: NaN };
     windowAround(a, 0);
     const g = buildFrame(w, 'a');
-    expect(g.contacts).toEqual([]);
-    expect('pc' in g).toBe(false); // both eye tiers closed
-    expect(blipsOf(g)).toHaveLength(1);
+    expect(g.contacts).toEqual([]); // a NaN reach sees nothing, never everything
+    expect(blipsOf(g)).toHaveLength(1); // a NaN eye does not blind the scope
+    pin(w, 0.5);
+    expect(buildFrame(w, 'a').contacts).toEqual([]);
+    pin(w, null);
     a.stats = { ...a.stats, radarRange: NaN };
     windowAround(a, 0);
     expect(blipsOf(buildFrame(w, 'a'))).toEqual([]); // a NaN radar range paints nothing
@@ -6295,9 +6150,9 @@ describe('perception — THE RAIN: sight ends where the optical depth passes T (
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The contact-like pseudo-rows are verified through the contacts/pc/
+  // The contact-like pseudo-rows are verified through the contacts/
   // mines/drops/litZones/burnZones/foulZones/clouds frame channels
-  // (verifyFrame/verifyPlain/verifyMine/verifyDrops/verifyLitZone/
+  // (verifyFrame/verifyMine/verifyDrops/verifyLitZone/
   // verifyBurnZone/verifyFoulZone/cloudGateOracle), not through EVENT_VERIFIERS.
   // The RADAR BUOY's `buoy` row is DELETED (Story 8.16), and the DECOY BUOY's
   // `decoy` row with it in Story 10.5; `burnzone` (Story 8.17) is the PHOSPHOR burning
@@ -6315,11 +6170,10 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // minus the owner clause — with its own oracle (verifyDrops); its radar
   // paint is an anonymous blip the completeness oracle attributes
   // (expectedDropBlips), so the declared exceptions STILL stay at SIX.
-  // `plain` (Story 11.2, R3) is the OUTER SIGHT TIER's channel — a hull
-  // beyond the class-and-name reach and inside the plain-hull reach, as an
-  // anonymous {h,x,y,heading,speed} row in `frame.pc` — with its own oracle
-  // (verifyPlain, inside verifyFrame) and its own handle ledger (PlainLedger).
-  const CONTACT_LIKE = ['contact', 'plain', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud'];
+  // `plain` (Story 11.2's outer sight tier, `frame.pc`) is DELETED — Eric
+  // 2026-11-15: a hull is a full contact out to the hull sight, fading with
+  // the distance haze, and the haze contract rides verifyFrame's contact line.
+  const CONTACT_LIKE = ['contact', 'mine', 'drop', 'litzone', 'burnzone', 'foulzone', 'cloud'];
   // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
@@ -6332,7 +6186,7 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk', 'dp'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the expected channel keys (19 event kinds + contact + plain + mine + drop + litzone + burnzone + foulzone + cloud)', () => {
+  it('has exactly the expected channel keys (19 event kinds + contact + mine + drop + litzone + burnzone + foulzone + cloud)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
     expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(EXPECTED_KEYS.length);
   });
@@ -6343,9 +6197,9 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the contact-like pseudo-rows exist (verified via the contacts/pc/mines/drops/litZones/burnZones/foulZones/clouds channels); fog has no row', () => {
+  it('the contact-like pseudo-rows exist (verified via the contacts/mines/drops/litZones/burnZones/foulZones/clouds channels); fog has no row', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
-    expect(SIGNAL_REGISTRY.plain).toBeDefined(); // Story 11.2 — the outer sight tier (`frame.pc`, verifyPlain)
+    expect('plain' in SIGNAL_REGISTRY).toBe(false); // the plain tier's row is gone (Eric 2026-11-15)
     expect(SIGNAL_REGISTRY.drop).toBeDefined(); // Story 10.9
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();

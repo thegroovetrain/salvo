@@ -9,7 +9,12 @@
  *  shared function of the welcome's `fogSeed`, the zone clock and the live
  *  ring); the set of contacts a client is sent changed (a hull is sent while
  *  any point of its outline grid sees through rain + smoke; rain and smoke
- *  gate every eye row by optical depth).
+ *  gate every eye row by optical depth). FrameMsg LOSES the `pc` channel and
+ *  the `PlainContact` type (Eric 2026-11-15: the anonymous plain-hull tier of
+ *  104 is removed — a hull is a full `Contact` out to the hull sight, fading
+ *  with distance haze between the class-and-name sight and the hull sight),
+ *  and the rain is there from the start line (no onset; the ring-0 state
+ *  before the zone starts).
  *  107 — OWN SHELLS ALWAYS END ON SCREEN; SECONDARIES HIT WHERE THEY LAND
  *  (2026-11-13, Eric; epic-11 amendment 11; cycle 233,
  *  0.19.27): no wire shape change — the SET of events a client is sent

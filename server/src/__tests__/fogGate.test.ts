@@ -4,7 +4,10 @@
 // THE CONTRACT: for every ray the point gate answers exactly `τ ≤ T` for
 // `τ = World.fogDepthAlong(ray)` — the WHOLE cell walk — and it may stop
 // walking only once that answer is decided; the hull gate answers exactly
-// "some point of the shared hull grid passes the point gate". Sight is the
+// "some point of the shared hull grid passes the point gate, with that
+// point's DISTANCE HAZE spent off the threshold first" (Eric 2026-11-15: a
+// hull fades between the observer's class-and-name sight and its hull
+// sight — the shared `fogHazeDepth`). Sight is the
 // anti-cheat boundary: an early "seen" the whole walk would have refused is
 // a leak. The oracle is the whole walk itself, asked on a second World with
 // the identical frame so neither call can warm the other's memo.
@@ -14,18 +17,25 @@
 // `fogDepthAlong(ray) <= T − smokeDepthAlong(ray)` (total optical depth
 // against the one threshold), the hull gate the OR of that over the grid,
 // and `fogRainAdmits` stays the rain alone. A ray that touches no cloud
-// costs what it cost before, and the one-entry memos never serve an answer
-// from a smaller cloud.
+// costs what it cost before, and the point gate's one-entry memo never
+// serves an answer from a smaller cloud.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, fogHullGrid, mulberry32, type FogFrame } from '@salvo/shared';
-import { World } from '../game/world.js';
+import { CONFIG, fogHazeDepth, fogHullGrid, mulberry32, type FogFrame } from '@salvo/shared';
+import { World, type FogHullQuestion } from '../game/world.js';
 import { RAIN_T, clearFrame, smokeDepthOracle, stormFrame, uniformRainFrame } from './rainFixture.js';
 
 const SEED = 31;
 const T = RAIN_T;
 const COLS = CONFIG.fog.hullGridCols;
 const ROWS = CONFIG.fog.hullGridRows;
+
+/** A hull-gate question. The two reaches default to Infinity — an observer
+ *  with no haze band at all (the shared haze reads 0 for a non-finite
+ *  reach), so a case that is about the rain or the smoke asks them alone. */
+function hq(ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number, sightU = Infinity, hullSightU = Infinity): FogHullQuestion {
+  return { ax, ay, cx, cy, heading, lengthU, beamU, sightU, hullSightU };
+}
 
 function pair(build: (w: World) => FogFrame): { gate: World; ref: World } {
   const make = (): World => {
@@ -103,7 +113,7 @@ describe('World.fogSightAdmits — the whole walk\'s answer, decided early', () 
     const { gate } = pair(clearFrame);
     const before = gate.fogWalks;
     expect(gate.fogSightAdmits(-400, 120, 900, -310)).toBe(true);
-    expect(gate.fogHullAdmits(-400, 120, 900, -310, 0.4, 60, 10)).toBe(true);
+    expect(gate.fogHullAdmits(hq(-400, 120, 900, -310, 0.4, 60, 10))).toBe(true);
     expect(gate.fogWalks).toBe(before);
   });
 
@@ -169,7 +179,7 @@ describe('World.fogHullAdmits — a hull is seen while ANY point of its sight gr
         const length = 40 + rng.next() * 160;
         const beam = 8 + rng.next() * 24;
         const want = gridReference(ref, ax, ay, cx, cy, heading, length, beam);
-        expect(gate.fogHullAdmits(ax, ay, cx, cy, heading, length, beam), `${name} hull ${n}`).toBe(want.any);
+        expect(gate.fogHullAdmits(hq(ax, ay, cx, cy, heading, length, beam)), `${name} hull ${n}`).toBe(want.any);
         if (!want.any) hidden += 1;
         else if (want.passing < COLS * ROWS) partial += 1;
         else seen += 1;
@@ -191,10 +201,10 @@ describe('World.fogHullAdmits — a hull is seen while ANY point of its sight gr
     expect(nearCol(partly)).toBeLessThan(T); // premise: its near end is inside the threshold...
     expect(partly).toBeGreaterThan(T); // ...and its center is not
     expect(gate.fogSightAdmits(0, 0, partly, 0)).toBe(false); // the center alone is hidden
-    expect(gate.fogHullAdmits(0, 0, partly, 0, 0, length, beam)).toBe(true);
+    expect(gate.fogHullAdmits(hq(0, 0, partly, 0, 0, length, beam))).toBe(true);
     const gone = T + reachIn + beam;
     expect(nearCol(gone)).toBeGreaterThan(T); // premise: no grid point is inside
-    expect(gate.fogHullAdmits(0, 0, gone, 0, 0, length, beam)).toBe(false);
+    expect(gate.fogHullAdmits(hq(0, 0, gone, 0, 0, length, beam))).toBe(false);
   });
 
   it('THE GRID IS THE ONE THE WORLD WAS BUILT WITH: a hull-grid dial moved under a live World changes nothing it answers (its scratch and asking order were sized at construction)', () => {
@@ -209,9 +219,9 @@ describe('World.fogHullAdmits — a hull is seen while ANY point of its sight gr
       for (const [cols, rows] of [[1, ROWS], [COLS * 2, ROWS], [COLS, ROWS * 4]]) {
         fog.hullGridCols = cols;
         fog.hullGridRows = rows;
-        expect(gate.fogHullAdmits(0, 0, partly, 0, 0, length, beam), `dials ${cols} x ${rows}`).toBe(true);
-        expect(gate.fogHullAdmits(0, 0, gone, 0, 0, length, beam), `dials ${cols} x ${rows}`).toBe(false);
-        expect(gate.fogHullAdmits(0, 0, partly + 1, 0, 0.01, length, beam), `dials ${cols} x ${rows}, a fresh question`).toBe(true);
+        expect(gate.fogHullAdmits(hq(0, 0, partly, 0, 0, length, beam)), `dials ${cols} x ${rows}`).toBe(true);
+        expect(gate.fogHullAdmits(hq(0, 0, gone, 0, 0, length, beam)), `dials ${cols} x ${rows}`).toBe(false);
+        expect(gate.fogHullAdmits(hq(0, 0, partly + 1, 0, 0.01, length, beam)), `dials ${cols} x ${rows}, a fresh question`).toBe(true);
       }
     } finally {
       fog.hullGridCols = COLS;
@@ -219,15 +229,102 @@ describe('World.fogHullAdmits — a hull is seen while ANY point of its sight gr
     }
   });
 
-  it('the same hull question asked again in the same epoch walks nothing; a hidden hull costs at most one walk per grid point', () => {
+  it('a hidden hull costs at most one walk per grid point', () => {
     const { gate } = pair((w) => uniformRainFrame(w, 1));
     const before = gate.fogWalks;
-    expect(gate.fogHullAdmits(0, 0, T * 3, 0, 1.1, 120, 20)).toBe(false);
+    expect(gate.fogHullAdmits(hq(0, 0, T * 3, 0, 1.1, 120, 20))).toBe(false);
     const cost = gate.fogWalks - before;
     expect(cost).toBeGreaterThan(0);
     expect(cost).toBeLessThanOrEqual(COLS * ROWS);
-    expect(gate.fogHullAdmits(0, 0, T * 3, 0, 1.1, 120, 20)).toBe(false);
-    expect(gate.fogWalks - before).toBe(cost);
+  });
+});
+
+describe('World.fogHullAdmits — THE DISTANCE HAZE joins the rain and the smoke in the one optical depth (Eric 2026-11-15)', () => {
+  const SIGHT = CONFIG.vision.sight;
+  const HULL_SIGHT = CONFIG.vision.hullSight;
+
+  it('equals the OR over the shared grid of `fogDepthAlong(eye → point) <= T − fogHazeDepth(|eye → point|)`, for seeded observers, hull poses and reaches (full and whiteout-scaled) under the real storm and uniform rain; held and hidden hulls both occur in the haze band, and hulls the rain alone would show are hidden by the haze', () => {
+    let held = 0;
+    let hidden = 0;
+    let hidByHaze = 0;
+    WEATHERS.forEach(([name, build], wi) => {
+      const { gate, ref } = pair(build);
+      const R = gate.map.radius;
+      const rng = mulberry32(0x4a2e ^ wi);
+      const pts = new Float64Array(2 * COLS * ROWS);
+      for (let n = 0; n < 500; n++) {
+        const scale = n % 4 === 0 ? 0.2 + rng.next() * 0.8 : 1; // a quarter of the questions under a part-cleared whiteout
+        const [sightU, hullSightU] = [SIGHT * scale, HULL_SIGHT * scale];
+        const ax = (rng.next() * 2 - 1) * R * 0.5;
+        const ay = (rng.next() * 2 - 1) * R * 0.5;
+        const ang = rng.next() * 6.283185307179586;
+        const d = sightU * 0.8 + rng.next() * (hullSightU - sightU * 0.8); // from just inside the class reach out to the hull reach
+        const [cx, cy, heading] = [ax + Math.cos(ang) * d, ay + Math.sin(ang) * d, rng.next() * 6.283185307179586];
+        const [length, beam] = [40 + rng.next() * 160, 8 + rng.next() * 24];
+        const count = fogHullGrid(cx, cy, heading, length, beam, COLS, ROWS, pts);
+        let passing = 0;
+        let rainAlone = 0;
+        for (let k = 0; k < count; k++) {
+          const [px, py] = [pts[2 * k], pts[2 * k + 1]];
+          const tau = ref.fogDepthAlong(ax, ay, px, py);
+          if (tau <= T - fogHazeDepth(Math.hypot(px - ax, py - ay), sightU, hullSightU, T)) passing += 1;
+          if (tau <= T) rainAlone += 1;
+        }
+        expect(gate.fogHullAdmits(hq(ax, ay, cx, cy, heading, length, beam, sightU, hullSightU)), `${name} hull ${n}`).toBe(passing > 0);
+        if (passing > 0) held += 1;
+        else hidden += 1;
+        if (passing === 0 && rainAlone > 0) hidByHaze += 1;
+      }
+    });
+    expect(held).toBeGreaterThan(0);
+    expect(hidden).toBeGreaterThan(0);
+    expect(hidByHaze).toBeGreaterThan(0);
+  });
+
+  it('under uniform rain the hull is lost where rain + haze reach T — nearer than the rain alone would lose it — and inside the class reach the haze adds nothing', () => {
+    const density = 0.02;
+    const { gate } = pair((w) => uniformRainFrame(w, density));
+    const x0 = -gate.map.radius * 0.8; // the eye near the west rim, the hull due east: both on the water
+    const slope = T / (HULL_SIGHT - SIGHT);
+    const dEdge = (T + slope * SIGHT) / (density + slope); // density × d + slope × (d − SIGHT) = T
+    expect(dEdge).toBeGreaterThan(SIGHT); // premises: the crossing is in the band...
+    expect(dEdge).toBeLessThan(HULL_SIGHT);
+    expect(density * (dEdge + 200)).toBeLessThan(T); // ...and the rain alone is still under T well past it
+    const ask = (d: number, sightU: number, hullSightU: number): boolean => gate.fogHullAdmits(hq(x0, 0, x0 + d, 0, Math.PI / 2, 100, 16, sightU, hullSightU));
+    expect(ask(dEdge - 50, SIGHT, HULL_SIGHT)).toBe(true);
+    expect(ask(dEdge + 50, SIGHT, HULL_SIGHT)).toBe(false);
+    expect(ask(dEdge + 50, Infinity, Infinity)).toBe(true); // no haze band: the rain alone shows it
+    const dIn = SIGHT * 0.9;
+    expect(density * dIn).toBeLessThan(T - 10); // premise
+    expect(ask(dIn, SIGHT, HULL_SIGHT)).toBe(ask(dIn, Infinity, Infinity));
+  });
+
+  it('the haze alone never hides and never walks: with no rain and no cloud a hull anywhere out to the hull reach is admitted with no lattice walk', () => {
+    const { gate } = pair(clearFrame);
+    const before = gate.fogWalks;
+    for (const d of [SIGHT * 0.5, SIGHT, (SIGHT + HULL_SIGHT) / 2, HULL_SIGHT]) {
+      expect(gate.fogHullAdmits(hq(-d / 2, 0, d / 2, 0, 0.4, 100, 16, SIGHT, HULL_SIGHT)), `at ${d}`).toBe(true);
+    }
+    expect(gate.fogWalks).toBe(before);
+  });
+
+  it('the haze and the smoke add: a thin cloud a near hull is seen through hides the same hull out in the haze band', () => {
+    const { gate } = pair(clearFrame);
+    const y = 0;
+    const near = SIGHT * 0.5;
+    const far = SIGHT + (HULL_SIGHT - SIGHT) * 0.9; // the haze alone is ~0.9 T
+    // A young cloud beside the line, 300 u out: slide it toward the line until its chord passes 0.2 T.
+    for (let off = SMOKE.r0; off > 0; off -= 0.5) {
+      seatCloud(gate, 'c', 300, off, 0);
+      if (gate.smokeDepthAlong(0, y, near, y) > 0.2 * T) break;
+    }
+    const smoke = gate.smokeDepthAlong(0, y, near, y);
+    expect(smoke).toBeGreaterThan(0.2 * T); // premises: such a cloud exists at the shipped dials...
+    expect(smoke).toBeLessThan(0.8 * T); // ...and alone it hides nothing
+    expect(gate.fogHullAdmits(hq(0, y, near, y, Math.PI / 2, 100, 16, SIGHT, HULL_SIGHT))).toBe(true);
+    expect(gate.fogHullAdmits(hq(0, y, far, y, Math.PI / 2, 100, 16, SIGHT, HULL_SIGHT))).toBe(false);
+    gate.clouds.clear();
+    expect(gate.fogHullAdmits(hq(0, y, far, y, Math.PI / 2, 100, 16, SIGHT, HULL_SIGHT))).toBe(true);
   });
 });
 
@@ -316,7 +413,7 @@ describe('the smoke term — total optical depth against the one threshold', () 
           const [px, py] = [pts[2 * k], pts[2 * k + 1]];
           if (ref.fogDepthAlong(ax, ay, px, py) <= T - ref.smokeDepthAlong(ax, ay, px, py)) passing += 1;
         }
-        expect(gate.fogHullAdmits(ax, ay, cx, cy, heading, length, beam), `${name} hull ${n}`).toBe(passing > 0);
+        expect(gate.fogHullAdmits(hq(ax, ay, cx, cy, heading, length, beam)), `${name} hull ${n}`).toBe(passing > 0);
         if (passing === 0) hidden += 1;
         else if (passing < count) partial += 1;
         else seen += 1;
@@ -334,7 +431,7 @@ describe('the smoke term — total optical depth against the one threshold', () 
     const before = gate.fogWalks;
     expect(gate.smokeDepthAlong(-r * 2, 0, r * 2, 0)).toBeGreaterThan(T); // premise: the center chord is past the threshold
     expect(gate.fogSightAdmits(-r * 2, 0, r * 2, 0)).toBe(false);
-    expect(gate.fogHullAdmits(-r * 2, 0, r * 2, 0, 0.3, 100, 16)).toBe(false);
+    expect(gate.fogHullAdmits(hq(-r * 2, 0, r * 2, 0, 0.3, 100, 16))).toBe(false);
     expect(gate.fogSightAdmits(-r * 2, r * 1.5, r * 2, r * 1.5)).toBe(true);
     expect(gate.fogRainAdmits(-r * 2, 0, r * 2, 0)).toBe(true);
     expect(gate.fogWalks).toBe(before);
@@ -381,14 +478,14 @@ describe('the smoke term — total optical depth against the one threshold', () 
     const hull = [-SMOKE.r1 * 2, y, SMOKE.r1 * 2, y, 0, 100, 16] as const;
     seatCloud(gate, 'c', 0, 0, 0);
     expect(gate.fogSightAdmits(...ray)).toBe(true);
-    expect(gate.fogHullAdmits(...hull)).toBe(true);
+    expect(gate.fogHullAdmits(hq(...hull))).toBe(true);
     seatCloud(gate, 'c', 0, 0, 0.99); // the same cloud, grown
     expect(gate.smokeDepthAlong(...ray)).toBeGreaterThan(T); // premise
     expect(gate.fogSightAdmits(...ray)).toBe(false);
-    expect(gate.fogHullAdmits(...hull)).toBe(false);
+    expect(gate.fogHullAdmits(hq(...hull))).toBe(false);
     gate.clouds.clear();
     expect(gate.fogSightAdmits(...ray)).toBe(true);
-    expect(gate.fogHullAdmits(...hull)).toBe(true);
+    expect(gate.fogHullAdmits(hq(...hull))).toBe(true);
   });
 
   it('ONLY THE CLOUDS THE OBSERVER HOLDS: the same ray and hull question read the cloud for an observer that holds it, nothing for one that does not, and every live cloud with no observer named — asked back to back, so no memo answers for the wrong observer', () => {
@@ -407,10 +504,10 @@ describe('the smoke term — total optical depth against the one threshold', () 
       expect(gate.fogSightAdmits(...ray, holdsOther)).toBe(true);
       expect(gate.fogSightAdmits(...ray, holdsNone)).toBe(true);
       expect(gate.fogSightAdmits(...ray)).toBe(false);
-      expect(gate.fogHullAdmits(...hull, holds)).toBe(false);
-      expect(gate.fogHullAdmits(...hull, holdsOther)).toBe(true);
-      expect(gate.fogHullAdmits(...hull, holdsNone)).toBe(true);
-      expect(gate.fogHullAdmits(...hull)).toBe(false);
+      expect(gate.fogHullAdmits(hq(...hull), holds)).toBe(false);
+      expect(gate.fogHullAdmits(hq(...hull), holdsOther)).toBe(true);
+      expect(gate.fogHullAdmits(hq(...hull), holdsNone)).toBe(true);
+      expect(gate.fogHullAdmits(hq(...hull))).toBe(false);
     }
     expect(gate.smokeDepthAlong(...ray, holdsNone)).toBe(0);
     expect(gate.smokeDepthAlong(...ray, holdsOther)).toBe(0);
@@ -425,12 +522,12 @@ describe('the smoke term — total optical depth against the one threshold', () 
     const was = SMOKE.sightThickness;
     try {
       expect(gate.fogSightAdmits(...ray)).toBe(false); // both Worlds have read today's dial
-      expect(gate.fogHullAdmits(...hull)).toBe(false);
+      expect(gate.fogHullAdmits(hq(...hull))).toBe(false);
       expect(ref.fogSightAdmits(...ray)).toBe(false);
       (SMOKE as { sightThickness: number }).sightThickness = 0; // smoke that hides nothing
       expect(ref.fogSightAdmits(...ray)).toBe(true); // the OTHER World asks first...
       expect(gate.fogSightAdmits(...ray)).toBe(true); // ...and this one still sees the move
-      expect(gate.fogHullAdmits(...hull)).toBe(true);
+      expect(gate.fogHullAdmits(hq(...hull))).toBe(true);
     } finally {
       (SMOKE as { sightThickness: number }).sightThickness = was;
     }

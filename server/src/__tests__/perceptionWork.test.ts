@@ -30,7 +30,7 @@
 // (the regression) breaks bound 2 here.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, hullEnvelope, mulberry32, pointInIsland, segCircleHit, type Vec2 } from '@salvo/shared';
+import { CONFIG, fogHazeDepth, hullEnvelope, mulberry32, pointInIsland, segCircleHit, type Vec2 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { observe } from '../game/perception.js';
 import { hullSightOf, losClear, sightOf } from '../game/signals.js';
@@ -41,10 +41,9 @@ const SHELLS = 200;
 /** Walks one hull question may cost: one per point of its sight grid. */
 const GRID = CONFIG.fog.hullGridCols * CONFIG.fog.hullGridRows;
 
-/** The most island-line questions one pass asks about one hull: the `contact`
- *  row, the `plain` row's "not already a full contact" re-ask, and the
- *  `plain` row's own. */
-const HULL_ASKS = 3;
+/** The island-line questions one pass asks about one hull: the `contact`
+ *  row's, once (one hull tier since Eric 2026-11-15). */
+const HULL_ASKS = 1;
 /** ...and about one projectile: its reveal gate, once (the reveal row for an
  *  unseen one, the per-visit clear step for a seen one — never both). */
 const SHELL_ASKS = 1;
@@ -68,7 +67,7 @@ function scene(seed: number): { w: World; ids: string[] } {
   // The real storm: rain bands with clear water between and a clear eye.
   w.setFogFrameForTest(stormFrame(w));
   const ids: string[] = [];
-  // Every hull inside every other's plain-hull reach: a ring a third of that reach across.
+  // Every hull inside every other's hull reach: a ring a third of that reach across.
   const ringR = CONFIG.vision.hullSight / 3;
   for (let k = 0; k < HULLS; k++) {
     const id = `h${k}`;
@@ -126,24 +125,22 @@ function pointQuestion(w: World, me: ShipRecord, p: Vec2, reach: number, asks: n
   need.walks += 1;
 }
 
-/** What a HULL may cost one pass: the island tests of the contact row, the
- *  plain row's re-ask and the plain row's own — and a grid of walks, when
- *  the hull is inside the outer reach on an island-clear center ray and far
- *  enough that rain can decide some grid point. Inside the CLASS reach that is
- *  up to TWO grids: the contact row asks at the hull's true size and, when
- *  rain hides it there, the plain row re-asks at the shared mean size (the
- *  plain tier carries no class, Story 11.6) — a different question the
- *  one-entry hull memo cannot share. Beyond the class reach only the plain
- *  grid is asked. */
+/** What a HULL may cost one pass: the island tests of the contact row — and
+ *  ONE grid of walks, when the hull is inside the hull reach on an
+ *  island-clear center ray and far enough that rain can decide some grid
+ *  point. The distance haze is spent off T before the rain walks (Eric
+ *  2026-11-15), so rain can decide a grid ray once its whole length at
+ *  density 1 passes what the haze leaves of T; both the length and the haze
+ *  are largest at the hull's farthest point. */
 function hullQuestion(w: World, me: ShipRecord, other: ShipRecord, need: Need): void {
-  islandsOf(w, me, other.state, sightOf(me, w.now), 2, need);
-  if (!islandsOf(w, me, other.state, hullSightOf(me, w.now), HULL_ASKS - 2, need)) return;
+  if (!islandsOf(w, me, other.state, hullSightOf(me, w.now), HULL_ASKS, need)) return;
   const d = Math.hypot(other.state.x - me.state.x, other.state.y - me.state.y);
   const hull = hullEnvelope(other.hullId).hull;
   const farthestPoint = d + Math.hypot(hull.length, hull.beam) / 2;
-  if (!rainCanDecide(farthestPoint) || !losClear(me.state, other.state, w.map.islands)) return;
+  const haze = fogHazeDepth(farthestPoint, sightOf(me, w.now), hullSightOf(me, w.now), RAIN_T);
+  if (!rainCanDecide(farthestPoint + haze) || !losClear(me.state, other.state, w.map.islands)) return;
   need.decidable += 1;
-  need.walks += d <= sightOf(me, w.now) ? 2 * GRID : GRID;
+  need.walks += GRID;
 }
 
 /** Everything one fogged pass of `me` may ask, by the rules. */
@@ -195,7 +192,7 @@ describe('perception work per observer pass — bounded by what the rules need, 
 
   it('subjects outside every reach cost nothing, however many there are: an eye far from the fleet asks no island and walks no rain', () => {
     const { w, ids } = scene(7);
-    // Move one hull out past the plain-hull reach of every other hull and
+    // Move one hull out past the hull reach of every other hull and
     // every shell (the fleet sits within a third of that reach of the centre).
     const far = w.ships.get(ids[0])!;
     const out = CONFIG.vision.hullSight * 1.5;

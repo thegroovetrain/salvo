@@ -73,30 +73,87 @@ function wire(ring: ZoneRing): ZoneRing {
 
 /** The frame an honest client builds at the server's epoch clock: the shared
  *  live-ring derivation over the schema's float32 rings (a next ring of
- *  radius 0 is the wire's "unrevealed"), then the shared `fogFrameAt`. */
-function clientFrame(w: World): FogFrame {
+ *  radius 0 is the wire's "unrevealed"), then the shared `fogFrameAt`.
+ *  `zoneStartT` null = the zone has not started: the client holds the idle
+ *  ring (the whole ocean) and the shared field reads its ring-0 state. */
+function clientFrame(w: World, zoneStartT: number | null = 0): FogFrame {
   const cur = wire(w.zoneCurrentRing);
+  if (zoneStartT === null) return fogFrameAt(w.fogFieldForTest(), w.fogEpochT, null, cur.cx, cur.cy, CONFIG.zone);
   const next = w.zoneRevealedNextRing === null ? null : wire(w.zoneRevealedNextRing);
-  const live = zoneLiveState(w.fogEpochT, 0, cur, next !== null && next.r > 0 ? next : null, CONFIG.zone).current;
-  return fogFrameAt(w.fogFieldForTest(), w.fogEpochT, 0, live.cx, live.cy, CONFIG.zone);
+  const live = zoneLiveState(w.fogEpochT, zoneStartT, cur, next !== null && next.r > 0 ? next : null, CONFIG.zone).current;
+  return fogFrameAt(w.fogFieldForTest(), w.fogEpochT, zoneStartT, live.cx, live.cy, CONFIG.zone);
 }
 
-describe('rain field — the pre-start world has no rain (spec: Pre-zone / idle)', () => {
-  it('a world whose zone never starts runs 300 ticks dry: density 0 everywhere, every ray admitted, no walk started, no memo cell evaluated', () => {
+describe('rain field — RAIN FROM THE START LINE: a world whose zone has not started rains its ring-0 state (Eric 2026-11-15)', () => {
+  it('a world whose zone never starts rains from construction and refreshes from its first tick: over 300 ticks every epoch\'s field is bit-identical to the frame an honest client builds with no zone start on the idle ring, with rain and clear water both on the ocean', () => {
     const w = new World(SEED, CONFIG.map.playerCap);
-    for (let i = 0; i < 300; i++) fogTick(w);
-    expect(w.fogLive).toBe(false);
-    for (const p of oceanPoints(w, 50, 1)) expect(w.fogDensityAt(p.x, p.y)).toBe(0);
-    expect(w.fogDepthAlong(-3000, 0, 3000, 0)).toBe(0);
-    expect(w.fogSightAdmits(-3000, 0, 3000, 0)).toBe(true);
-    expect(w.fogHullAdmits(-3000, 0, 3000, 0, 0, 120, 18)).toBe(true);
-    expect(w.fogWalks).toBe(0);
-    expect(w.fogCellEvals).toBe(0);
+    const pts = oceanPoints(w, 50, 1);
+    expect(w.fogLive).toBe(true); // before any tick
+    let epochs = 0;
+    let rained = 0;
+    let clear = 0;
+    let last = -1;
+    for (let i = 0; i < 300; i++) {
+      fogTick(w);
+      if (i === 0) expect(w.fogEpochT).toBe(w.now); // the first tick refreshes at once
+      expect(w.now - w.fogEpochT).toBeLessThan(CONFIG.fog.refreshMs);
+      if (w.fogEpochT === last) continue;
+      last = w.fogEpochT;
+      epochs += 1;
+      const ref = clientFrame(w, null);
+      for (const p of pts) {
+        const d = w.fogDensityAt(p.x, p.y);
+        expect(d).toBe(fogDensityAt(ref, p.x, p.y));
+        if (d > 0) rained += 1;
+        else clear += 1;
+      }
+    }
+    expect(epochs).toBeGreaterThan(1);
+    expect(rained).toBeGreaterThan(0);
+    expect(clear).toBeGreaterThan(0);
+  });
+
+  it('the gates read it: before the zone starts a long ray through the rain is refused and a short one admitted, and the walk is paid', () => {
+    const w = new World(SEED, CONFIG.map.playerCap);
+    fogTick(w);
+    const frame = w.fogFrameForTest();
+    // A seeded ray across the ocean whose shared optical depth is well past T.
+    const R = w.map.radius * 0.9;
+    let long: { ax: number; ay: number; bx: number; by: number } | null = null;
+    for (let k = 0; k < 64 && long === null; k++) {
+      const a = (k / 64) * Math.PI;
+      const ray = { ax: -Math.cos(a) * R, ay: -Math.sin(a) * R, bx: Math.cos(a) * R, by: Math.sin(a) * R };
+      if (fogDepthAlong(frame, ray.ax, ray.ay, ray.bx, ray.by) > RAIN_T * 2) long = ray;
+    }
+    expect(long).not.toBeNull(); // premise: the ring-0 rain does stand across the ocean
+    const before = w.fogWalks;
+    expect(w.fogSightAdmits(long!.ax, long!.ay, long!.bx, long!.by)).toBe(false);
+    expect(w.fogWalks).toBeGreaterThan(before);
+    expect(w.fogSightAdmits(long!.ax, long!.ay, long!.ax + 1, long!.ay)).toBe(true);
+  });
+
+  it('the zone starting changes nothing the eye can tell: the first epoch after `startZone` is bit-identical to the frame a client builds WITH the zone start on the live ring', () => {
+    const w = new World(SEED, CONFIG.map.playerCap);
+    for (let i = 0; i < TICKS_PER_REFRESH * 4 + 3; i++) fogTick(w);
+    const t0 = w.now;
+    w.startZone(t0);
+    const pts = oceanPoints(w, 50, 4);
+    let last = w.fogEpochT;
+    let checked = 0;
+    for (let i = 0; i < TICKS_PER_REFRESH * 3; i++) {
+      fogTick(w);
+      if (w.fogEpochT === last) continue;
+      last = w.fogEpochT;
+      const ref = clientFrame(w, t0);
+      for (const p of pts) expect(w.fogDensityAt(p.x, p.y)).toBe(fogDensityAt(ref, p.x, p.y));
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
 
 describe('rain field — stepFog is the epoch refresh on the live ring', () => {
-  it('refreshes on the first live tick and then exactly every refreshMs: the epoch clock is held between refreshes and never lags the clock by refreshMs or more', () => {
+  it('refreshes on the first tick and then exactly every refreshMs: the epoch clock is held between refreshes and never lags the clock by refreshMs or more', () => {
     const w = liveWorld(1);
     fogTick(w);
     expect(w.fogLive).toBe(true);
@@ -147,11 +204,12 @@ describe('rain field — stepFog is the epoch refresh on the live ring', () => {
     for (const p of pts) expect(Number.isFinite(w.fogDensityAt(p.x, p.y))).toBe(true);
   });
 
-  it('the stepFog row is wired into World.step: a live world rains after its first step', () => {
+  it('the stepFog row is wired into World.step: the first step refreshes the frame at the new clock', () => {
     const w = liveWorld(1);
-    expect(w.fogLive).toBe(false);
+    expect(w.fogEpochT).toBe(0); // the construction frame
     w.step();
     expect(w.fogLive).toBe(true);
+    expect(w.now).toBeGreaterThan(0);
     expect(w.fogEpochT).toBe(w.now);
   });
 });
@@ -299,7 +357,7 @@ describe('rain field — the memo lattice is the OCEAN, and a question is walked
     expect(w.fogWalks).toBe(before + 3);
   });
 
-  it('one observe() pass answers an observer → hull pair ONCE whichever eye tier the hull is in: a hull the rain hides costs at most one walk per grid point per row (a class-size grid, a mean-size grid)', () => {
+  it('one observe() pass answers an observer → hull pair ONCE wherever the hull is inside the hull reach: a hull the rain hides costs at most one walk per grid point', () => {
     const grid = CONFIG.fog.hullGridCols * CONFIG.fog.hullGridRows;
     for (const tier of ['inner', 'outer'] as const) {
       const w = new World(SEED, CONFIG.map.playerCap);
@@ -314,29 +372,33 @@ describe('rain field — the memo lattice is the OCEAN, and a question is walked
       const before = w.fogWalks;
       const view = observe(w, 'me');
       expect(view.contacts).toEqual([]);
-      expect(view.plain).toEqual([]);
       const cost = w.fogWalks - before;
       expect(cost, tier).toBeGreaterThan(0);
-      // The contact row asks the hull's class-size grid; the plain row of a hull
-      // the rain hides asks the shared mean-size grid (no class on that row).
-      expect(cost, tier).toBeLessThanOrEqual(tier === 'inner' ? 2 * grid : grid);
+      expect(cost, tier).toBeLessThanOrEqual(grid); // one row, one true-size grid
     }
   });
 });
 
 describe('rain field — resetForMatchStart and the test seam', () => {
-  it('resetForMatchStart restores no rain, and a world whose zone has not started stays dry', () => {
+  it('resetForMatchStart drops a test pin and puts the World back on its OWN rain, rebuilt at that clock — and it keeps refreshing', () => {
     const w = new World(SEED, CONFIG.map.playerCap);
-    w.setFogFrameForTest(uniformRainFrame(w, 1));
-    expect(w.fogLive).toBe(true);
+    for (let i = 0; i < 7; i++) fogTick(w);
+    const pinned = uniformRainFrame(w, 1);
+    w.setFogFrameForTest(pinned);
+    expect(w.fogDensityAt(100, 100)).toBe(1);
     w.resetForMatchStart();
-    expect(w.fogLive).toBe(false);
+    expect(w.fogFrameForTest()).not.toBe(pinned);
+    expect(w.fogLive).toBe(true);
+    expect(w.fogEpochT).toBe(w.now);
+    const pts = oceanPoints(w, 50, 5);
+    const ref = clientFrame(w, null);
+    for (const p of pts) expect(w.fogDensityAt(p.x, p.y)).toBe(fogDensityAt(ref, p.x, p.y));
+    const epoch = w.fogEpochT;
     for (let i = 0; i < TICKS_PER_REFRESH * 3; i++) fogTick(w);
-    expect(w.fogLive).toBe(false);
-    expect(w.fogDensityAt(100, 100)).toBe(0);
+    expect(w.fogEpochT).toBeGreaterThan(epoch); // not pinned any more: the refresh runs
   });
 
-  it('setFogFrameForTest pins the frame through steps (the refresh leaves it alone) and starts an epoch; null unpins to no rain, and a live zone then rains again on its own frame at the next tick', () => {
+  it('setFogFrameForTest pins the frame through steps (the refresh leaves it alone) and starts an epoch; null unpins to the World\'s own frame, rebuilt at that clock', () => {
     const w = liveWorld(1);
     const pinned = uniformRainFrame(w, 1);
     const epoch = internals(w).fogEpoch;
@@ -346,10 +408,10 @@ describe('rain field — resetForMatchStart and the test seam', () => {
     expect(w.fogFrameForTest()).toBe(pinned);
     expect(w.fogDensityAt(100, 100)).toBe(1);
     w.setFogFrameForTest(null);
-    expect(w.fogLive).toBe(false);
     expect(w.fogFrameForTest()).not.toBe(pinned);
-    fogTick(w);
-    expect(w.fogLive).toBe(true); // the zone is live: the World's own frame is back
+    expect(w.fogLive).toBe(true); // the World's own frame is back at once
     expect(w.fogEpochT).toBe(w.now);
+    const ref = clientFrame(w);
+    for (const p of oceanPoints(w, 50, 6)) expect(w.fogDensityAt(p.x, p.y)).toBe(fogDensityAt(ref, p.x, p.y));
   });
 });

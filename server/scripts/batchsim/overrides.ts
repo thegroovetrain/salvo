@@ -174,8 +174,8 @@ const TUNE_FAMILIES = [
   // and `quantileLattice` are GONE with their leaves). Every numeric leaf of
   // CONFIG.fog is a harness dial. Floors: the generic 0 for `edgeBand` (a
   // hard edge), `extinctionPerU` (0 = rain that hides nothing), `edgeSpeedU`
-  // (a still storm), `centerTurnFrac`, `spiralWindRad`, `edgeSoftFrac` and
-  // `onsetMs` (0 = no roll-in) — each a real arm; every length, clock and
+  // (a still storm), `centerTurnFrac`, `spiralWindRad` and `edgeSoftFrac`
+  // — each a real arm (`onsetMs` left with the roll-in, Eric 2026-11-15); every length, clock and
   // count that divides or sizes at 1 (TUNE_MIN_ONE_KEYS), `marchStepU` and
   // `refreshMs` at their SERVER floors (FOG_SERVER_FLOORS); `gain` on (0, 1]
   // (FOG_GAIN_KEY — fbm persistence); `sightCutoffV` and `outsideCoverage` on

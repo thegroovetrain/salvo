@@ -27,9 +27,13 @@
 // HMAC per paint a recovered salt reveals nothing about the key or about any
 // other paint's salt.
 //
-// THE KEY is derived from the room's `dispersionKey` under its own label —
-// the plain-handle key's precedent (game/plainHandle.ts): standard key
-// separation, never XOR, no material shared with another observable stream
+// (HISTORY: the plain-hull tier this was written against was removed by
+// Story 11.6 — Eric 2026-11-15; a hull's contact now carries its class at
+// every distance. The salt stays: a mask is still never replayable from
+// public inputs, and a wake's source is never a contact.)
+//
+// THE KEY is derived from the room's `dispersionKey` under its own label:
+// standard key separation, never XOR, no material shared with another observable stream
 // (the Story 11.1 review rule). OFFLINE runs (tests, batch sims, the RL env)
 // get the seed-derived key and replay every mask exactly.
 //

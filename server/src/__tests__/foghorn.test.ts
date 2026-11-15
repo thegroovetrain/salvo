@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_HORN_ID, HORN_IDS, type FoghornEvent, type GameEvent, type HornId } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type FogHullQuestion, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
 import { signalFor, type FoggedSignalContext, type SpectatorSignalContext } from '../game/signals.js';
@@ -71,12 +71,10 @@ const radarCtx = (w: World) => ({
   clouds: w.cloudRecords,
   fogAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogSightAdmits(ax, ay, bx, by), // the weather gate thunks (the fh row never calls them — the horn is weather-blind)
   fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogRainAdmits(ax, ay, bx, by),
-  fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
+  fogHullAdmits: (q: FogHullQuestion) => w.fogHullAdmits(q),
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,
-  // Story 11.2: the plain-hull handle resolver; the fh row never reads it.
-  plainHandleOf: () => '',
   // Story 11.2 review gate (F1): the paint salt; the fh row never reads it.
   paintSaltOf: w.paintSaltFor,
 });

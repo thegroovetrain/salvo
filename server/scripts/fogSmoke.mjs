@@ -13,13 +13,17 @@
 // rain field), and every distance is derived from the folded stats / `CONFIG` —
 // no reach is a literal here.
 //
-// THE RAIN IS LIVE in a sandbox room (Story 11.6 — the storm eye: the zone
-// starts at the 2nd join and the weather rolls in with it). THERE IS NO CUT ANY
-// MORE: the whole field is a pure function of PUBLIC inputs — the welcome's
+// THE RAIN IS LIVE in a sandbox room FROM THE START (Story 11.6 — the storm
+// eye; Eric 2026-11-15: no roll-in, the bands are there before the zone starts;
+// the zone itself starts at the 2nd join). THERE IS NO CUT ANY MORE: the whole field is a pure function of PUBLIC inputs — the welcome's
 // `fogSeed`, the schema's zone clock and revealed rings, and the time — so this
 // smoke evaluates it exactly as a client does (`fogFrameAt` on the live ring,
 // `fogDepthAlong` for a ray's optical depth tau, `fogHullGrid` for a hull's
-// sight grid) and a thing is seen while tau <= T (`fogMaxDepth`). The server
+// sight grid) and a thing is seen while tau <= T (`fogMaxDepth`). A HULL ALSO
+// PAYS DISTANCE HAZE (Eric 2026-11-15 — the anonymous plain hull and its
+// `frame.pc` channel are gone): `fogHazeDepth` adds 0 out to the class-and-name
+// sight and T at the hull sight, so a hull is a full contact that fades out
+// between the two. The server
 // gates on its EPOCH frame (at most `refreshMs` old) and the clouds drift while
 // a phase watches, so every claim about the EYE is TIME-BRACKETED: a pair is
 // picked only when the claim holds, by a margin, at every sampled instant from
@@ -28,33 +32,32 @@
 // subject.
 //
 // Phases (each line: what it proves — how it is posed):
-//   0 FAR      — beyond radar there is nothing: no contact, no plain hull, no
-//                blip. Two anchors on a diameter, a pose clearance inside the
-//                rim (the board is wider than the radar reach); they stay for
-//                the whole run and keep the room and its weather alive.
+//   0 FAR      — beyond radar there is nothing: no contact, no blip. Two
+//                anchors on a diameter, a pose clearance inside the rim (the
+//                board is wider than the radar reach); they stay for the whole
+//                run and keep the room and its weather alive.
 //   1 RAIN     — rain HIDES: a hull inside class sight on an island-clear ray
-//                is NOT a contact — and not a plain hull either: a hull the
-//                rain takes is gone from both eye tiers — when every point of
-//                its sight grid is past T; radar — weather-blind — still
-//                paints it every sweep.
-//   2 PLAIN    — the middle band (Story 11.2): between class sight and
-//                plain-hull sight on a clear ray the rain lets through, a hull
-//                is a `frame.pc` row — keys exactly h,x,y,heading,speed, `h` an
-//                anonymous per-visit handle (never a roster id) — and NOT a
-//                contact; radar paints it too.
+//                is NOT a contact when every point of its sight grid is past
+//                T; radar — weather-blind — still paints it every sweep.
+//   2 HAZE     — the fading band (Eric 2026-11-15): between class sight and
+//                hull sight, on a clear ray where the rain plus the distance
+//                haze leave every grid point under T, a hull is a FULL contact
+//                (its roster id and class on the row) — and no frame carries
+//                a `pc` key any more; radar paints it too. Past the hull
+//                sight it is hidden: phase 5.
 //   3 SIGHT    — inside class sight on a clear ray the rain lets through: a
-//                contact both ways, never also a plain hull, and radar STILL
-//                paints (amendment 210: no inner edge).
+//                contact both ways, and radar STILL paints (amendment 210: no
+//                inner edge).
 //   4 ISLAND   — (a) HARD cover inside class sight (rain would not have hidden
-//                it): no contact, no plain hull, no blip. (b) LOW cover inside
-//                class sight (coastline on the ray, but the height-aware radar
-//                shadow sees over it): still no contact and no plain hull — the
-//                eye keeps binary island LOS — yet radar paints. (c) hard cover
-//                in the radar band: radar stays blind.
-//   5 BAND     — the radar band: beyond EVERY eye reach (plain-hull sight,
-//                muzzle flash, splash) and inside radar on a clear radar line:
-//                no contact, no plain hull, one blip per sweep revolution each
-//                way, landing on the hull.
+//                it): no contact, no blip. (b) LOW cover inside class sight
+//                (coastline on the ray, but the height-aware radar shadow sees
+//                over it): still no contact — the eye keeps binary island LOS
+//                — yet radar paints. (c) hard cover in the radar band: radar
+//                stays blind.
+//   5 BAND     — the radar band: beyond EVERY eye reach (the hull sight —
+//                where the haze has taken the hull — muzzle flash, splash)
+//                and inside radar on a clear radar line: no contact, one blip
+//                per sweep revolution each way, landing on the hull.
 //   6 SHELL    — from that same band pose (inside the firer's gun reach) A
 //                fires on B: A (owner) gets its shell at launch; B gets the
 //                SAME shell id only once it enters B's shell-sight reach,
@@ -64,10 +67,11 @@
 //                confirmation leak).
 //
 // HISTORY: until Story 11.6 phase 1 was "fog SHORTENS sight" (a toll in extra
-// distance, which could push a hull from the class tier into the plain one,
-// and was directional — the observer's own bank was free), and the weather was
-// read off a schema `fogCut` the smoke waited to settle. All of that is gone
-// with the cut: rain gates by optical depth, the same from either end.
+// distance, directional — the observer's own bank was free), the weather was
+// read off a schema `fogCut` the smoke waited to settle, phase 2 was the PLAIN
+// tier (an anonymous `frame.pc` row between the two sights), and the rain
+// rolled in after the zone start. All of that is gone: rain gates by optical
+// depth, the same from either end, from the first tick.
 //
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
 // with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride,
@@ -87,6 +91,7 @@ import {
   effectiveStats,
   fogDepthAlong,
   fogFrameAt,
+  fogHazeDepth,
   fogHullGrid,
   fogMaxDepth,
   generateMap,
@@ -104,12 +109,12 @@ const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 // Every hull here is the default class with nothing fitted, so the folded
 // stats are the reaches the server gates on (one derivation, both sides).
 const STATS = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []);
-const SIGHT = STATS.sightRange; // class-and-name reach — a full Contact
-const HULL_SIGHT = STATS.hullSightRange; // plain-hull reach — a PlainContact in frame.pc
+const SIGHT = STATS.sightRange; // class-and-name reach — a hull is crisp out to here
+const HULL_SIGHT = STATS.hullSightRange; // hull sight — a contact fades to gone here (the distance haze)
 const RADAR = STATS.radarRange;
 const GUN = STATS.equipment.mainBattery;
 // The farthest any EYE reaches a hull or what it does: beyond this a hull is
-// radar's alone (no plain hull, no muzzle flash, no splash).
+// radar's alone (no contact, no muzzle flash, no splash).
 const EYE_MAX = Math.max(HULL_SIGHT, CONFIG.vision.muzzleFlash, CONFIG.vision.splashSight);
 const PERIOD = STATS.sweepPeriodMs; // ms per radar revolution
 // mapSeed 265 (dev-only pin): the latencyHarness scan winner (fewest islands
@@ -118,8 +123,7 @@ const PERIOD = STATS.sweepPeriodMs; // ms per radar revolution
 const MAP_SEED = 265;
 // Slack on the any-hull sight bounds (checkEye). Both sides of the comparison
 // come from the SAME frame, so the true slack is zero; this only absorbs a
-// frame that carried contacts but no `you`, and is the radius a `pc` row is
-// attributed to its (seated, stationary) subject within.
+// frame that carried contacts but no `you`.
 const SIGHT_TOL = 15;
 // A seated hull must land on its pose (the dev door honored `spawnOverride`).
 const POSE_TOL = 2;
@@ -158,7 +162,10 @@ const RAIN_SAMPLES = 6;
 const HULL = hullEnvelope(DEFAULT_CLASS_ID).hull;
 const GRID_COLS = CONFIG.fog.hullGridCols;
 const GRID_ROWS = CONFIG.fog.hullGridRows;
-const ROLL_IN_BUDGET_MS = 60000;
+const ZONE_START_BUDGET_MS = 60000;
+// The HAZE phase's band: from just past class sight to this share of the way
+// to the hull sight (the haze is this share of T there, so the rain has room).
+const HAZE_BAND_FRAC = 0.5;
 const FIND_TRIES = 60000;
 const MIN_FRAMES = 20;
 // A shell's reveal may sit this many ticks of flight off the boundary.
@@ -243,13 +250,12 @@ function onFrame(ctx, f) {
     ctx.frames.push({
       t: f.t,
       contactIds: f.contacts.map((c) => c.id),
-      // EVERY contact's / plain hull's range from the observer's OWN pose in
-      // the SAME frame (perception materializes at the live sim pose, and
-      // `you` is the same tick's pose), which is what lets checkEye police the
-      // any-hull bounds. `off` is the row's distance from the SUBJECT — a `pc`
-      // row has no id, so attribution to the seated subject is geometric.
-      contactD: f.contacts.map((c) => ({ id: c.id, d: dist(c, ctx.you) })),
-      plain: (f.pc ?? []).map((p) => ({ h: p.h, keys: Object.keys(p).join(','), d: dist(p, ctx.you), off: dist(p, ctx.other.you) })),
+      // EVERY contact's range from the observer's OWN pose in the SAME frame
+      // (perception materializes at the live sim pose, and `you` is the same
+      // tick's pose), which is what lets checkEye police the any-hull bound;
+      // and whether the row is a FULL contact (its class on it).
+      contactD: f.contacts.map((c) => ({ id: c.id, d: dist(c, ctx.you), cls: c.cls })),
+      hasPc: 'pc' in f, // the removed plain-hull channel: never on a frame again
     });
   }
 }
@@ -353,22 +359,28 @@ function makeBoard(map, fogSeed, anchor) {
     },
     /**
      * The optical depth from an eye at `p` to a HULL seated at `q` on
-     * `heading`, over its sight grid and the bracket: `nearest` — the least
-     * depth any grid point ever has (the hull is LOST when even that is past
-     * T), `farthest` — the most any grid point ever has (the WHOLE hull is
-     * through the rain when even that is under T).
+     * `heading`, over its sight grid and the bracket — the RAIN on each grid
+     * ray PLUS that point's DISTANCE HAZE (the shared `fogHazeDepth` between
+     * the two sights; 0 inside class sight): `nearest` — the least depth any
+     * grid point ever has (the hull is LOST when even that is past T),
+     * `farthest` — the most any grid point ever has (the WHOLE hull is
+     * through when even that is under T), `haze` — the largest haze term.
      */
     hullDepth(view, p, q, heading) {
       const pts = [];
       const n = fogHullGrid(q.x, q.y, heading, HULL.length, HULL.beam, GRID_COLS, GRID_ROWS, pts);
       let nearest = Infinity;
       let farthest = 0;
+      let haze = 0;
       for (let k = 0; k < n; k++) {
-        const d = board.depth(view, p, { x: pts[2 * k], y: pts[2 * k + 1] });
-        nearest = Math.min(nearest, d.min);
-        farthest = Math.max(farthest, d.max);
+        const pt = { x: pts[2 * k], y: pts[2 * k + 1] };
+        const h = fogHazeDepth(dist(p, pt), SIGHT, HULL_SIGHT, RAIN_T);
+        const d = board.depth(view, p, pt);
+        nearest = Math.min(nearest, d.min + h);
+        farthest = Math.max(farthest, d.max + h);
+        haze = Math.max(haze, h);
       }
-      return { nearest, farthest };
+      return { nearest, farthest, haze };
     },
     /** Both hulls of a pair facing each other (as `seat` poses them), each
      *  from the other's eye: the pair's { nearest, farthest } over both. */
@@ -376,7 +388,7 @@ function makeBoard(map, fogSeed, anchor) {
       const toQ = bearing(p, q);
       const ab = board.hullDepth(view, p, q, toQ + Math.PI);
       const ba = board.hullDepth(view, q, p, toQ);
-      return { nearest: Math.min(ab.nearest, ba.nearest), farthest: Math.max(ab.farthest, ba.farthest) };
+      return { nearest: Math.min(ab.nearest, ba.nearest), farthest: Math.max(ab.farthest, ba.farthest), haze: Math.max(ab.haze, ba.haze) };
     },
     /** May a hull be seated at `p`? Inside the rim and off every island by the
      *  pose clearance, and clear of every hull already in the room. */
@@ -452,40 +464,24 @@ const rosterIds = (ctx) => {
 
 /**
  * THE EYE, one direction: over every recorded frame of observer `me`, is the
- * subject a contact (`want.contact`), a plain hull (`want.plain`), or neither —
- * exactly as wanted, in EVERY frame (the hulls are seated and stationary, so
- * nothing is in transit). Scoped to the subject — a contact by id, a `pc` row
- * by position — because other seated hulls (the anchors) legitimately sit in
- * someone's reach. Plus the any-hull bounds that scoping would otherwise drop:
- * NO contact beyond class sight and NO plain hull beyond plain-hull sight, for
- * any id, in any frame (rain only ever hides; neither client fires a
- * star shell, so the lit-zone parity path cannot arise).
+ * subject a contact — exactly as wanted, in EVERY frame (the hulls are seated
+ * and stationary, so nothing is in transit) — and, when it is, a FULL one (its
+ * class on the row: there is one hull tier). Scoped to the subject by id,
+ * because other seated hulls (the anchors) legitimately sit in someone's reach.
+ * Plus the bounds that scoping would otherwise drop: NO contact beyond the
+ * hull sight, for any id, in any frame (rain and haze only ever hide; neither
+ * client fires a star shell, so the lit-zone parity path cannot arise), and no
+ * frame carries the removed `pc` channel.
  */
 function checkEye(label, frames, me, subject, want) {
   assert(frames.length > MIN_FRAMES, `${label}: only ${frames.length} frames recorded`);
   const id = subject.room.sessionId;
-  const nContact = frames.filter((f) => f.contactIds.includes(id)).length;
-  const mine = frames.map((f) => f.plain.filter((p) => p.off < SIGHT_TOL));
-  const nPlain = mine.filter((rows) => rows.length > 0).length;
-  assert(nContact === (want.contact ? frames.length : 0), `${label}: contact in ${nContact}/${frames.length} frames (want ${want.contact ? 'all' : 'none'})`);
-  assert(nPlain === (want.plain ? frames.length : 0), `${label}: plain hull in ${nPlain}/${frames.length} frames (want ${want.plain ? 'all' : 'none'})`);
-  if (want.plain) {
-    const handles = new Set();
-    for (const rows of mine) {
-      assert(rows.length === 1, `${label}: ${rows.length} plain rows on the subject in one frame`);
-      assert(rows[0].keys === 'h,x,y,heading,speed', `${label}: plain row keys [${rows[0].keys}] (want h,x,y,heading,speed)`);
-      handles.add(rows[0].h);
-    }
-    const roster = rosterIds(me);
-    for (const h of handles) {
-      assert(typeof h === 'string' && h.length > 0, `${label}: plain handle ${JSON.stringify(h)}`);
-      assert(h !== id && !roster.includes(h), `${label}: plain handle ${h} is a roster id`);
-    }
-    assert(handles.size === 1, `${label}: ${handles.size} handles for one unbroken visit (want 1)`);
-  }
+  const rows = frames.map((f) => f.contactD.find((c) => c.id === id)).filter((c) => c !== undefined);
+  assert(rows.length === (want.contact ? frames.length : 0), `${label}: contact in ${rows.length}/${frames.length} frames (want ${want.contact ? 'all' : 'none'})`);
+  for (const c of rows) assert(c.cls === DEFAULT_CLASS_ID, `${label}: the contact row carries class ${JSON.stringify(c.cls)} (want a full contact: ${DEFAULT_CLASS_ID})`);
   for (const f of frames) {
-    for (const c of f.contactD) assert(c.d <= SIGHT + SIGHT_TOL, `${label}: contact ${c.id} at ${c.d.toFixed(0)}u > class sight ${SIGHT.toFixed(0)}u`);
-    for (const p of f.plain) assert(p.d <= HULL_SIGHT + SIGHT_TOL, `${label}: plain hull at ${p.d.toFixed(0)}u > plain-hull sight ${HULL_SIGHT.toFixed(0)}u`);
+    assert(!f.hasPc, `${label}: a frame carries the removed 'pc' channel`);
+    for (const c of f.contactD) assert(c.d <= HULL_SIGHT + SIGHT_TOL, `${label}: contact ${c.id} at ${c.d.toFixed(0)}u > hull sight ${HULL_SIGHT.toFixed(0)}u`);
   }
   return frames.length;
 }
@@ -521,8 +517,8 @@ function checkRadar(label, me, subject, w0, w1, paints) {
 
 /** Both sensors, both ways, for a seated pair. */
 function checkPair(label, obs, x, y, want) {
-  const n = checkEye(`${label}/A`, obs.a, x, y, { contact: want.contact, plain: want.plain });
-  checkEye(`${label}/B`, obs.b, y, x, { contact: want.contact, plain: want.plain });
+  const n = checkEye(`${label}/A`, obs.a, x, y, { contact: want.contact });
+  checkEye(`${label}/B`, obs.b, y, x, { contact: want.contact });
   const ba = checkRadar(`${label}/A`, x, y, obs.w0.a, obs.w1.a, want.paints);
   const bb = checkRadar(`${label}/B`, y, x, obs.w0.b, obs.w1.b, want.paints);
   return { frames: n, blips: `A=${ba.length} B=${bb.length}` };
@@ -547,18 +543,18 @@ async function phaseFar(a, b, log) {
   const d0 = dist(a.you, b.you);
   precondition(d0 > RADAR + SIGHT_TOL, `far: anchors ${d0.toFixed(0)}u apart <= radar ${RADAR.toFixed(0)}u`);
   const obs = await observe(a, b, 1.5);
-  checkPair('far', obs, a, b, { contact: false, plain: false, paints: false });
-  log.push(`far: dist=${d0.toFixed(0)}u > radar ${RADAR.toFixed(0)}u — no contact, no plain hull, no blip over ${(PERIOD * 1.5) / 1000}s (${obs.a.length}f)`);
+  checkPair('far', obs, a, b, { contact: false, paints: false });
+  log.push(`far: dist=${d0.toFixed(0)}u > radar ${RADAR.toFixed(0)}u — no contact, no blip over ${(PERIOD * 1.5) / 1000}s (${obs.a.length}f)`);
 }
 
-/** The roll-in is over once the clock is `onsetMs` past the zone start (the
- *  shared field's onset ramp is then 1) — read off the schema, as a client. */
-async function rainRolledIn(anchor) {
+/** The zone is running (the anchors' 2nd join started it) — read off the
+ *  schema, as a client: from here the eye rides the live ring. The rain itself
+ *  needs no wait: it is there from the first tick. */
+async function zoneRunning(anchor) {
   const start = Date.now();
   for (;;) {
-    const zoneStartT = anchor.room.state.zoneStartT;
-    if (anchor.room.state.zoneState !== 'idle' && anchor.now >= zoneStartT + CONFIG.fog.onsetMs) return anchor.now - zoneStartT;
-    precondition(Date.now() - start < ROLL_IN_BUDGET_MS, `rain: the zone never started / the roll-in never finished (zone ${anchor.room.state.zoneState})`);
+    if (anchor.room.state.zoneState !== 'idle') return anchor.now - anchor.room.state.zoneStartT;
+    precondition(Date.now() - start < ZONE_START_BUDGET_MS, `rain: the zone never started (zone ${anchor.room.state.zoneState})`);
     await sleep(CONFIG.fog.refreshMs);
   }
 }
@@ -569,8 +565,9 @@ function rainHeld(board, view, label) {
   precondition(now <= view.until, `${label}: the phase outran its weather window (${((now - view.t) / 1000).toFixed(1)}s > ${(RAIN_HORIZON_MS / 1000).toFixed(1)}s)`);
 }
 
-/** Is the rain surely NOT what hides anything on this pair: even the deepest
- *  grid point of either hull, at any sampled instant, is under T by the margin. */
+/** Is the weather surely NOT what hides anything on this pair: even the
+ *  deepest grid point of either hull (rain + distance haze), at any sampled
+ *  instant, is under T by the margin. */
 const rainLetsThrough = (board, view, p, q) => {
   if (board.depth(view, p, q).max > RAIN_T - RAIN_MARGIN) return false; // the cheap center ray first
   return board.pairDepth(view, p, q).farthest <= RAIN_T - RAIN_MARGIN;
@@ -580,9 +577,8 @@ const rainLetsThrough = (board, view, p, q) => {
  * RAIN HIDES. The pair: inside class sight, an island-clear ray both ways and
  * a clear radar line — so with no rain it is the SIGHT phase's contact — and
  * enough rain on it that EVERY point of each hull's sight grid, from the
- * other's eye and at every sampled instant, is past T by the margin. A hull
- * the rain takes is gone from BOTH eye tiers (rain adds no distance, so it is
- * never demoted to a plain hull); radar paints it all the same.
+ * other's eye and at every sampled instant, is past T by the margin. Radar
+ * paints it all the same.
  */
 async function phaseRain(board, roomId, log) {
   const view = board.rainView();
@@ -596,25 +592,38 @@ async function phaseRain(board, roomId, log) {
   const [x, y] = await seat(board, roomId, 'RAIN', found, pred);
   const obs = await observe(x, y, 1.5);
   rainHeld(board, view, 'rain');
-  const got = checkPair('rain', obs, x, y, { contact: false, plain: false, paints: true });
-  log.push(`rain: dist=${found.d.toFixed(0)}u < class sight ${SIGHT.toFixed(0)}u, ray island-clear, optical depth >= ${found.info.nearest.toFixed(0)} at every grid point over the window (T ${RAIN_T.toFixed(0)}) — no contact, no plain hull either way (${got.frames}f); radar paints through (${got.blips})`);
+  const got = checkPair('rain', obs, x, y, { contact: false, paints: true });
+  log.push(`rain: dist=${found.d.toFixed(0)}u < class sight ${SIGHT.toFixed(0)}u, ray island-clear, optical depth >= ${found.info.nearest.toFixed(0)} at every grid point over the window (T ${RAIN_T.toFixed(0)}) — no contact either way (${got.frames}f); radar paints through (${got.blips})`);
   await leave(x, y);
 }
 
-/** The middle band: a plain hull, not a contact. */
-async function phasePlain(board, roomId, log) {
+/**
+ * THE FADING BAND (Eric 2026-11-15): beyond class sight, inside the hull
+ * sight, on an island-clear ray where rain + distance haze leave every grid
+ * point of each hull under T by the margin at every sampled instant — a FULL
+ * contact both ways (checkEye pins the class on the row and that no frame
+ * carries `pc`), and radar paints it too. The pair is taken from the near
+ * half of the band so the haze leaves the rain room. Past the hull sight the
+ * haze alone is T: that hull is the BAND phase's (no contact).
+ */
+async function phaseHaze(board, roomId, log) {
   const view = board.rainView();
-  const pred = (p, q) => board.los(p, q) && board.radarClear(p, q) && rainLetsThrough(board, view, p, q);
-  const found = board.findPair('plain', SIGHT + HULL.length, HULL_SIGHT - HULL.length, pred);
-  const [x, y] = await seat(board, roomId, 'PLAIN', found, pred);
+  const pred = (p, q) => {
+    if (!board.los(p, q) || !board.radarClear(p, q)) return false;
+    if (board.depth(view, p, q).max > RAIN_T - RAIN_MARGIN) return false; // the cheap center ray first
+    const depth = board.pairDepth(view, p, q);
+    return depth.haze > 0 && depth.farthest <= RAIN_T - RAIN_MARGIN ? depth : false;
+  };
+  const found = board.findPair('haze', SIGHT + HULL.length, lerp(SIGHT, HULL_SIGHT, HAZE_BAND_FRAC), pred);
+  const [x, y] = await seat(board, roomId, 'HAZE', found, pred);
   const obs = await observe(x, y, 1.5);
-  rainHeld(board, view, 'plain');
-  const got = checkPair('plain', obs, x, y, { contact: false, plain: true, paints: true });
-  log.push(`plain: dist=${found.d.toFixed(0)}u in (${SIGHT.toFixed(0)}, ${HULL_SIGHT.toFixed(0)}]u — frame.pc row {h,x,y,heading,speed}, anonymous handle, never a contact (${got.frames}f); blips ${got.blips}`);
+  rainHeld(board, view, 'haze');
+  const got = checkPair('haze', obs, x, y, { contact: true, paints: true });
+  log.push(`haze: dist=${found.d.toFixed(0)}u in (class sight ${SIGHT.toFixed(0)}, hull sight ${HULL_SIGHT.toFixed(0)}]u — a FULL contact both ways (id + class), fading: distance haze up to ${found.info.haze.toFixed(0)} + rain <= ${found.info.farthest.toFixed(0)} of T ${RAIN_T.toFixed(0)} at every grid point over the window; no frame.pc (${got.frames}f); blips ${got.blips}`);
   await leave(x, y);
 }
 
-/** Inside class sight: a contact, never also a plain hull; radar still paints. */
+/** Inside class sight: a contact; radar still paints. */
 async function phaseSight(board, roomId, log) {
   const view = board.rainView();
   // Longer than T, so the rain COULD have hidden it — and does not.
@@ -623,8 +632,8 @@ async function phaseSight(board, roomId, log) {
   const [x, y] = await seat(board, roomId, 'SIGHT', found, pred);
   const obs = await observe(x, y, 1.5);
   rainHeld(board, view, 'sight');
-  const got = checkPair('sight', obs, x, y, { contact: true, plain: false, paints: true });
-  log.push(`sight: dist=${found.d.toFixed(0)}u < class sight — contact both ways, not in frame.pc (${got.frames}f); radar still paints (${got.blips})`);
+  const got = checkPair('sight', obs, x, y, { contact: true, paints: true });
+  log.push(`sight: dist=${found.d.toFixed(0)}u < class sight — contact both ways (${got.frames}f); radar still paints (${got.blips})`);
   await leave(x, y);
 }
 
@@ -646,15 +655,15 @@ async function phaseIsland(board, roomId, log) {
   let [x, y] = await seat(board, roomId, 'ROCK', hard, hardPred);
   let obs = await observe(x, y, 1.5);
   rainHeld(board, view, 'island-hard');
-  const gotHard = checkPair('island-hard', obs, x, y, { contact: false, plain: false, paints: false });
-  log.push(`island: hard cover at ${hard.d.toFixed(0)}u (inside class sight): no contact, no plain hull, no blip (${gotHard.frames}f)`);
+  const gotHard = checkPair('island-hard', obs, x, y, { contact: false, paints: false });
+  log.push(`island: hard cover at ${hard.d.toFixed(0)}u (inside class sight): no contact, no blip (${gotHard.frames}f)`);
   await leave(x, y);
 
   const lowPred = near(board.radarClear);
   const low = board.findPair('island-low', HULL.length, SIGHT - HULL.length, lowPred);
   [x, y] = await seat(board, roomId, 'SHOAL', low, lowPred);
   obs = await observe(x, y, 1.5);
-  const gotLow = checkPair('island-low', obs, x, y, { contact: false, plain: false, paints: true });
+  const gotLow = checkPair('island-low', obs, x, y, { contact: false, paints: true });
   log.push(`island: low cover at ${low.d.toFixed(0)}u (inside class sight): the eye is blocked (${gotLow.frames}f), radar sees over it (${gotLow.blips})`);
   await leave(x, y);
 
@@ -663,7 +672,7 @@ async function phaseIsland(board, roomId, log) {
   const far = board.findPair('island-band', lerp(EYE_MAX, RADAR, 1 / 3), lerp(EYE_MAX, RADAR, 2 / 3), farPred);
   [x, y] = await seat(board, roomId, 'LEE', far, farPred);
   obs = await observe(x, y, 2.2);
-  const gotFar = checkPair('island-band', obs, x, y, { contact: false, plain: false, paints: false });
+  const gotFar = checkPair('island-band', obs, x, y, { contact: false, paints: false });
   log.push(`island: hard cover at ${far.d.toFixed(0)}u (radar band): no blip over ${(PERIOD * 2.2) / 1000}s (${gotFar.frames}f)`);
   await leave(x, y);
 }
@@ -682,8 +691,8 @@ async function phaseBandAndShell(board, roomId, log) {
   const [a, b] = await seat(board, roomId, 'BAND', found, pred);
 
   const obs = await observe(a, b, 2.5);
-  const got = checkPair('band', obs, a, b, { contact: false, plain: false, paints: true });
-  log.push(`band: dist=${found.d.toFixed(0)}u in (${EYE_MAX.toFixed(0)}, ${RADAR.toFixed(0)}]u — no contact, no plain hull (${got.frames}f); one blip per ${PERIOD}ms sweep each way (${got.blips})`);
+  const got = checkPair('band', obs, a, b, { contact: false, paints: true });
+  log.push(`band: dist=${found.d.toFixed(0)}u in (${EYE_MAX.toFixed(0)}, ${RADAR.toFixed(0)}]u — past the hull sight ${HULL_SIGHT.toFixed(0)}u the haze has taken the hull: no contact (${got.frames}f); one blip per ${PERIOD}ms sweep each way (${got.blips})`);
 
   await phaseShellReveal(a, b, log);
   await leave(a, b);
@@ -767,12 +776,12 @@ async function main() {
   const board = makeBoard(map, a.welcome.fogSeed, a);
 
   await phaseFar(a, b, log);
-  // The anchors' join started the zone and the weather; every later pair is
-  // picked against the rolled-in field, each inside its own time bracket.
-  const since = await rainRolledIn(a);
-  log.push(`weather: rain rolled in ${(since / 1000).toFixed(1)}s after zone start (seed ${a.welcome.fogSeed}, T ${RAIN_T.toFixed(0)})`);
+  // The anchors' join started the zone; the rain was there before it. Every
+  // later pair is picked against the live field, each inside its own bracket.
+  const since = await zoneRunning(a);
+  log.push(`weather: raining from the start line; zone running ${(since / 1000).toFixed(1)}s (seed ${a.welcome.fogSeed}, T ${RAIN_T.toFixed(0)})`);
   await phaseRain(board, roomId, log);
-  await phasePlain(board, roomId, log);
+  await phaseHaze(board, roomId, log);
   await phaseSight(board, roomId, log);
   await phaseIsland(board, roomId, log);
   await phaseBandAndShell(board, roomId, log);

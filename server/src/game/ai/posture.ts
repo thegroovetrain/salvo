@@ -321,7 +321,7 @@ function peerFactor(sit: BotSituation, target: BotTrack): number {
  *  `battery.reachFrac`, the zero-card fold (Story 11.2, R2 / R9: reach is a
  *  fact on the hull's battery; the retired RANGE index and the unmounted
  *  `gun` row are not read) — memoized per class. An unclassed plot — a radar
- *  paint or a PLAIN hull of the outer sight tier — is a peer: own reach. */
+ *  paint — is a peer: own reach. */
 const BASE_REACH = new Map<HullId, number>();
 export function targetReachU(sit: BotSituation, target: BotTrack): number {
   if (target.cls === null) return ownReachU(sit);

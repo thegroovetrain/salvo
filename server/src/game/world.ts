@@ -108,6 +108,7 @@ import {
   isOutside,
   makeFogField,
   fogFrameAt,
+  fogHazeDepth,
   fogMaxDepth,
   zoneLiveState,
   fogHullGrid,
@@ -196,7 +197,6 @@ import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
 import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
 import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
-import { plainHandle, plainHandleKey } from './plainHandle.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
@@ -1171,17 +1171,6 @@ export interface ShipRecord {
    */
   torpDirs: Map<string, number>;
   /**
-   * Per-observer PLAIN-HULL handle memory (Story 11.2, R3): target ship id →
-   * the anonymous handle this observer currently holds for it, for as long
-   * as that hull stays a `PlainContact` in this observer's frames (the outer
-   * sight tier). PER VISIT: perception's ship scan drops an entry the first
-   * pass its hull is not materialized as a plain contact, so a re-entry
-   * mints a fresh handle (`World.plainHandleFor`). SERVER-PRIVATE — only the
-   * handle string ever rides the wire, and it is a keyed hash of a counter
-   * (game/plainHandle.ts), never of either ship id.
-   */
-  plainHandles: Map<string, string>;
-  /**
    * THE CLOUDS THIS OBSERVER HOLDS (Story 11.6 review): the ids of the live
    * SMOKE SCREEN clouds the `cloud` row has delivered to this observer — at
    * an earlier tick or THIS one — and that its client therefore draws and
@@ -1194,8 +1183,8 @@ export interface ShipRecord {
    * frame is charged in that frame — the client holds it by the time it
    * draws that frame — and never a tick earlier. FORGOTTEN at the cloud's
    * own death (`stepClouds`), at this hull's foundering, respawn and
-   * redeploy, and at a socket drop / resume (`forgetPlainVisits`) — the
-   * `plainHandles` posture. Forgetting only ever charges LESS (the server
+   * redeploy, and at a socket drop / resume (`forgetHeldClouds`).
+   * Forgetting only ever charges LESS (the server
    * then sends a hull the client's own smoke may still cover): it can hide
    * less, never leak. SERVER-PRIVATE; never on the wire.
    */
@@ -1628,8 +1617,10 @@ function smokeDiscSet(discs: SmokeScratchDisc[], n: number, c: StoredCloud, r: n
   return true;
 }
 
-/** The one-entry hull-gate memo's key (see `World.fogHullAdmits`). */
-interface FogHullQuestion {
+/** One hull-gate question (`World.fogHullAdmits`): the eye, the hull's pose
+ *  and TRUE size, and the observer's two reaches the distance haze runs
+ *  between (its class-and-name sight and its hull sight, whiteout-scaled). */
+export interface FogHullQuestion {
   ax: number;
   ay: number;
   cx: number;
@@ -1637,14 +1628,9 @@ interface FogHullQuestion {
   heading: number;
   lengthU: number;
   beamU: number;
+  sightU: number;
+  hullSightU: number;
 }
-
-function sameHullQuestion(m: FogHullQuestion, q: FogHullQuestion): boolean {
-  return m.ax === q.ax && m.ay === q.ay && m.cx === q.cx && m.cy === q.cy && m.heading === q.heading && m.lengthU === q.lengthU && m.beamU === q.beamU;
-}
-
-/** The hull-gate question scratch (one question at a time). */
-const FOG_HULL_Q: FogHullQuestion = { ax: 0, ay: 0, cx: 0, cy: 0, heading: 0, lengthU: 0, beamU: 0 };
 
 /**
  * The order the hull grid's points are asked in: the columns nearest the
@@ -1967,15 +1953,6 @@ export class World {
   // seed and its wake target keys, Story 9.8 — were REMOVED 2026-11-12,
   // Story 11.2, R8, with the dropout itself.)
   /**
-   * THE PLAIN-HULL HANDLE KEY AND MINT COUNTER (Story 11.2, R3): every
-   * `PlainContact.h` is `plainHandle(plainKey, plainSeq++)` — a keyed hash of
-   * a room-wide counter, so a handle names nothing (game/plainHandle.ts has
-   * the full argument). The key is derived from `dispersionKey` under its own
-   * label; the counter never leaves the server.
-   */
-  private readonly plainKey: Buffer;
-  private plainSeq = 0;
-  /**
    * THE PAINT-SALT KEY (Story 11.2 review gate, F1): every wire-bound radar
    * mask (`blip`, `wk`) is fuzzed on a seed salted with
    * `paintSalt(paintKey, kind, the paint's own words)` so the fuzz cannot be
@@ -2016,8 +1993,9 @@ export class World {
   private cloudSeq = 0;
   /**
    * THE RAIN FRAME — the shared field precomputed at the current EPOCH's
-   * clock and live ring center (`fogFrameAt`; `on` false = no rain: before
-   * the zone starts and on the practice water). Refreshed by stepFog every
+   * clock and eye center (`fogFrameAt`). RAIN FROM THE START LINE (Eric
+   * 2026-11-15): before the zone starts it is the ring-0 state, already
+   * raining; `on` is false only for a degenerate field. Refreshed by stepFog every
    * `CONFIG.fog.refreshMs`; every density the server reads — the memo's
    * cells, the bots' cover read — comes from this one frame.
    */
@@ -2026,7 +2004,7 @@ export class World {
   private readonly fogOwnFrame: FogFrame;
   /** TEST-ONLY: `setFogFrameForTest` pinned a frame — stepFog leaves it alone. */
   private fogFramePinned = false;
-  /** Server ms of the next frame + epoch refresh (0 = on the first live tick). */
+  /** Server ms of the next frame + epoch refresh (0 = on the next tick). */
   private fogNextRefreshAt = 0;
   /** T — the optical depth at which a thing vanishes (`fogMaxDepth(CONFIG.fog)`, read once per World). */
   private readonly fogMaxDepthU: number;
@@ -2067,14 +2045,6 @@ export class World {
    * re-asks the previous row's ray pays a compare instead of a walk.
    */
   private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, smoke: -1, seen: false };
-  /**
-   * The one-entry HULL-GATE memo: `fogHullAdmits`' last question and answer.
-   * For a hull inside the class reach the ship scan asks about the one
-   * observer → hull pair in a row (the `contact` row, then the `plain` row's
-   * "not a full contact" term and its own outer-tier term), so the repeats
-   * are a compare instead of up to a whole grid of walks.
-   */
-  private readonly fogHullMemo = { ax: NaN, ay: NaN, cx: NaN, cy: NaN, heading: NaN, lengthU: NaN, beamU: NaN, epoch: 0, smoke: -1, seen: false };
   /**
    * THE SMOKE THE EYE READS (Story 11.6 scope add, Eric 2026-11-14: "smoke
    * occludes sight like rain", the owner blinded too, never radar): every
@@ -2341,7 +2311,6 @@ export class World {
     // A copy, so the caller's buffer cannot be mutated under the World; the
     // seed-derived key is the OFFLINE fallback only (see WorldOptions).
     this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
-    this.plainKey = plainHandleKey(this.dispersionKey);
     this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
@@ -2368,7 +2337,7 @@ export class World {
     // `fogSeed`, so nothing is ever drawn from it server-side.
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
     this.fogField = makeFogField(this.fogSeed, CONFIG.fog, this.map.radius);
-    this.fogOwnFrame = fogFrameAt(this.fogField, 0, null, 0, 0, this.zoneCfg); // no rain until the zone starts
+    this.fogOwnFrame = fogFrameAt(this.fogField, 0, null, 0, 0, this.zoneCfg); // the ring-0 state at clock 0: raining from the start line
     this.fogFrame = this.fogOwnFrame;
     this.fogMaxDepthU = fogMaxDepth(CONFIG.fog);
     const gridCols = Math.max(1, Math.floor(CONFIG.fog.hullGridCols));
@@ -2429,24 +2398,6 @@ export class World {
   }
 
   /**
-   * THE PLAIN-HULL HANDLE `observer` holds for the hull `targetId` (Story
-   * 11.2, R3) — get-or-mint. The ONE writer of `ShipRecord.plainHandles`
-   * besides perception's per-pass forget. A fresh handle is the next
-   * `plainHandle(plainKey, plainSeq)`; it is re-drawn on the (astronomically
-   * unlikely) collision with a ship id or with a handle this observer
-   * already holds, so a frame's handles are distinct and never a roster id.
-   * `World.pseudonymFor` is NOT this: that id is stable for the match and
-   * shared by every observer.
-   */
-  plainHandleFor(observer: ShipRecord, targetId: string): string {
-    const held = observer.plainHandles.get(targetId);
-    if (held !== undefined) return held;
-    const fresh = this.mintPlainHandle(observer);
-    observer.plainHandles.set(targetId, fresh);
-    return fresh;
-  }
-
-  /**
    * THE SALT of one radar paint (Story 11.2 review gate, F1): a keyed hash
    * of the paint's own inputs (`words` = paint time + exact pose) under this
    * room's private paint key — see game/paintSalt.ts. Bound into the signal
@@ -2458,36 +2409,15 @@ export class World {
   readonly paintSaltFor = (kind: PaintKind, words: readonly number[]): number => paintSalt(this.paintKey, kind, words);
 
   /**
-   * END EVERY PLAIN VISIT of one observer (Story 11.2 review gate, F3): drop
-   * every plain-hull handle `observerId` holds, so each hull in its outer
-   * band is minted a fresh one on the next pass. Perception forgets a handle
-   * only DURING a pass, and a captain in reconnect grace gets no pass (frames
-   * are built for connected clients) — so without this, a hull that left the
-   * band and came back while the socket was down would keep its old handle
-   * and the two visits could be linked across the gap. The room calls it at
-   * the drop and again at the resume. An unknown id is a no-op.
+   * FORGET EVERY CLOUD one observer holds (Story 11.6 review —
+   * `ShipRecord.heldClouds`): a client that comes back on a fresh page holds
+   * none, so none may be charged on its eye lines until the cloud row
+   * delivers it again. A captain in reconnect grace gets no perception pass
+   * (frames are built for connected clients), so the room calls this at the
+   * drop and again at the resume. An unknown id is a no-op.
    */
-  forgetPlainVisits(observerId: string): void {
-    const ship = this.ships.get(observerId);
-    if (ship === undefined) return;
-    ship.plainHandles.clear();
-    // ...and every cloud it holds (Story 11.6 review — `ShipRecord.heldClouds`):
-    // a client that comes back on a fresh page holds none, so none may be
-    // charged on its eye lines until the cloud row delivers it again.
-    ship.heldClouds.clear();
-  }
-
-  /** One fresh handle off the keyed counter (see plainHandleFor). */
-  private mintPlainHandle(observer: ShipRecord): string {
-    for (;;) {
-      const h = plainHandle(this.plainKey, this.plainSeq++);
-      if (this.ships.has(h)) continue;
-      let taken = false;
-      for (const existing of observer.plainHandles.values()) {
-        if (existing === h) { taken = true; break; }
-      }
-      if (!taken) return h;
-    }
+  forgetHeldClouds(observerId: string): void {
+    this.ships.get(observerId)?.heldClouds.clear();
   }
 
   /**
@@ -2797,7 +2727,7 @@ export class World {
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
       seenBallistics: new Set(), losHints: newLosHints(),
       torpDirs: new Map(),
-      plainHandles: new Map(), heldClouds: new Set(),
+      heldClouds: new Set(),
       loadout,
       // ONE tally (Story 5.6, amendment 38): `kills` counts human captains
       // AND, since Story 6.4 (Eric ruling B3: bots are ordinary combatants),
@@ -3055,7 +2985,7 @@ export class World {
     this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
     this.drops.clear(); // ...nor a practice-field airdrop / wreck pickup (Story 10.9, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
-    this.fogClear(); // ...nor any rain (the practice water has none; the frame, its test pin and the memo epoch reset)
+    this.fogClear(); // the rain's test pin and memo epoch reset; the World's own frame is rebuilt at this clock
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -3174,7 +3104,6 @@ export class World {
     // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
-    ship.plainHandles.clear(); // Story 11.2: a fresh life starts every plain visit anew
     ship.heldClouds.clear(); // Story 11.6 review: ...and holds no cloud (the clouds themselves left with clouds.clear())
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.deaths = 0;
@@ -4340,9 +4269,9 @@ export class World {
     { name: 'stepClouds', run: (w) => w.stepClouds() },
     // THE RAIN FIELD (Story 9.10; the storm eye since Story 11.6) — weather
     // beside weather, DIRECTLY after stepClouds: once per refreshMs the rain
-    // frame is rebuilt at this clock on the live ring center (live match
-    // only; no rain before the zone starts) and a new density-memo epoch
-    // begins. Before applyStorm and every later row; perception gates its
+    // frame is rebuilt at this clock — FROM THE FIRST TICK (Eric 2026-11-15:
+    // rain from the start line): the ring-0 state before the zone starts,
+    // the live ring center after — and a new density-memo epoch begins. Before applyStorm and every later row; perception gates its
     // sight rays against this epoch's frame through observe() (frames.ts's
     // buildFrame, outside STEP_ORDER, the same tick).
     { name: 'stepFog', run: (w) => w.stepFog() },
@@ -4707,9 +4636,10 @@ export class World {
     return [...this.clouds.values()];
   }
 
-  /** Is it raining anywhere right now (the current frame is live)? False
-   *  before the zone starts and on the practice water. A boolean, never a
-   *  position — the tick-cost probe's end-state line. */
+  /** Is the rain frame live? True from construction on (rain from the start
+   *  line, Eric 2026-11-15); false only for a degenerate field or a test's
+   *  pinned clear frame. A boolean, never a position — the tick-cost probe's
+   *  end-state line. */
   get fogLive(): boolean {
     return this.fogFrame.on;
   }
@@ -4735,7 +4665,7 @@ export class World {
    * Rain density at (x, y) on the current epoch's frame, in [0, 1]: the
    * shared `fogDensityAt` — the exact field the gate's memo samples. Public
    * weather — read by the bots' cover search, the harness readouts and
-   * tests. 0 everywhere before the zone starts and beyond the ocean's rim.
+   * tests. 0 beyond the ocean's rim.
    */
   fogDensityAt(x: number, y: number): number {
     return fieldDensityAt(this.fogFrame, x, y);
@@ -4889,44 +4819,39 @@ export class World {
 
   /**
    * THE EYE'S QUESTION FOR A HULL (Story 11.6 — "you see the parts of a
-   * ship the rain lets through"): does the eye at A see ANY point of the
-   * hull's sight grid — the shared `fogHullGrid`, `CONFIG.fog.hullGridCols ×
-   * hullGridRows` cell centers of the hull's `lengthU × beamU` rectangle at
-   * its true pose — through the rain and the smoke: the point gate's own
-   * answer (`fogSightAdmits(A → point)`) for at least one point. Asked
-   * middle columns first (`hullGridOrder`), the first passing point wins.
-   * The caller has already established the tier's range cap and island line
-   * of sight on the hull's center. With no rain and no cloud: true, no work.
+   * ship the rain lets through"; the DISTANCE HAZE since Eric 2026-11-15):
+   * does the eye at A see ANY point of the hull's sight grid — the shared
+   * `fogHullGrid`, `CONFIG.fog.hullGridCols × hullGridRows` cell centers of
+   * the hull's TRUE `lengthU × beamU` rectangle at its true pose — through
+   * the HAZE, the smoke and the rain: for at least one point P,
+   *
+   *     fogDepthAlong(A → P) <= (T − haze(P)) − smokeDepthAlong(A → P)
+   *
+   * with haze(P) = the shared `fogHazeDepth(|A → P|, sightU, hullSightU, T)`
+   * — 0 out to the observer's class-and-name sight, rising linearly to T at
+   * its hull sight (both reaches the observer's own, whiteout-scaled). The
+   * haze is spent off the budget FIRST (it is one subtraction), then the
+   * smoke, then the rain walks against what is left — the point gate's own
+   * machinery (`fogSightWalked`). Asked middle columns first
+   * (`hullGridOrder`), the first passing point wins. The caller has already
+   * established the range cap (the hull sight) and island line of sight on
+   * the hull's center. The haze alone never hides a point (it is at most T),
+   * so with no rain and no cloud: true, no work.
    */
-  fogHullAdmits(
-    ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number, held?: ReadonlySet<string>,
-  ): boolean {
+  fogHullAdmits(q: FogHullQuestion, held?: ReadonlySet<string>): boolean {
     const smoky = this.smokeRefresh(held) > 0;
     if (!smoky && !this.fogFrame.on) return true;
-    const q = FOG_HULL_Q;
-    q.ax = ax;
-    q.ay = ay;
-    q.cx = cx;
-    q.cy = cy;
-    q.heading = heading;
-    q.lengthU = lengthU;
-    q.beamU = beamU;
-    const memo = this.fogHullMemo;
-    if (this.memoCurrent(memo) && sameHullQuestion(memo, q)) return memo.seen;
-    const seen = this.fogHullWalked(q, smoky);
-    Object.assign(memo, q);
-    memo.epoch = this.fogEpoch;
-    memo.smoke = this.smokeEpoch;
-    memo.seen = seen;
-    return seen;
-  }
-
-  /** `fogHullAdmits`, computed (its only caller holds the one-entry memo). */
-  private fogHullWalked(q: FogHullQuestion, smoky: boolean): boolean {
     const pts = this.fogHullPts;
+    const T = this.fogMaxDepthU;
     const n = fogHullGrid(q.cx, q.cy, q.heading, q.lengthU, q.beamU, this.fogHullCols, this.fogHullRows, pts);
     for (const k of this.fogHullOrder) {
-      if (k < n && this.fogSightWalked(q.ax, q.ay, pts[2 * k], pts[2 * k + 1], smoky)) return true;
+      if (k >= n) continue;
+      const px = pts[2 * k];
+      const py = pts[2 * k + 1];
+      const dx = px - q.ax;
+      const dy = py - q.ay;
+      const haze = fogHazeDepth(Math.sqrt(dx * dx + dy * dy), q.sightU, q.hullSightU, T);
+      if (this.fogSightWalked(q.ax, q.ay, px, py, smoky, haze)) return true;
     }
     return false;
   }
@@ -4989,13 +4914,15 @@ export class World {
     return true;
   }
 
-  /** `fogSightAdmits`, computed (no memo — the point gate and the hull gate
-   *  each hold their own). `smoky`: add the live clouds' depth (the caller
-   *  refreshed `smokeDiscs`); false reads the rain alone. */
-  private fogSightWalked(ax: number, ay: number, bx: number, by: number, smoky: boolean): boolean {
-    // THE BUDGET the rain may spend: T less the smoke on the ray. Exactly T
-    // when the ray touches no cloud (τ_smoke is exactly 0 then).
-    let T = this.fogMaxDepthU;
+  /** `fogSightAdmits`, computed (no memo — the point gate holds its own).
+   *  `smoky`: add the live clouds' depth (the caller refreshed `smokeDiscs`);
+   *  false reads the rain alone. `haze`: optical depth already spent on this
+   *  ray (the hull gate's distance haze; 0 for a point). */
+  private fogSightWalked(ax: number, ay: number, bx: number, by: number, smoky: boolean, haze = 0): boolean {
+    // THE BUDGET the rain may spend: T less the haze, less the smoke on the
+    // ray. Exactly T for a point whose ray touches no cloud (haze is 0 and
+    // τ_smoke is exactly 0 then).
+    let T = this.fogMaxDepthU - haze;
     if (smoky) {
       const smoke = smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
       if (smoke > T) return false; // the smoke alone hides it
@@ -5080,7 +5007,7 @@ export class World {
    * and start a fresh epoch at `now`. While pinned, stepFog never rebuilds
    * the frame (the zone gate and the refresh cadence are skipped) until
    * resetForMatchStart or `setFogFrameForTest(null)`, which returns the
-   * World to its own frame with no rain until the next live refresh. The
+   * World to its own frame, rebuilt at the current clock. The
    * frame is held BY REFERENCE and read lazily through the memo: do not
    * mutate it after the call (pin again instead). Production NEVER calls it —
    * stepFog is the only production writer of the frame.
@@ -8330,24 +8257,30 @@ export class World {
 
   /**
    * THE RAIN FIELD — the `stepFog` STEP_ORDER row (directly after
-   * stepClouds: weather beside weather), THE EPOCH REFRESH. (1) No zone
-   * timeline yet → no rain (`fogClear`, once; the practice water never
-   * rains). (2) Otherwise, once per `refreshMs`: rebuild the frame with the
-   * shared `fogFrameAt` at this clock on the LIVE ring center and start a new
-   * density-memo EPOCH (see `fogMemo`). Nothing else — the field is pure math
-   * over the seed, the zone clock and the public rings, and the memo fills
-   * lazily as rays touch it. A test-pinned frame is left alone.
+   * stepClouds: weather beside weather), THE EPOCH REFRESH: once per
+   * `refreshMs`, FROM THE FIRST TICK (rain from the start line, Eric
+   * 2026-11-15 — there is no "no rain until the zone starts" any more),
+   * rebuild the frame (`fogRefresh`). Nothing else — the field is pure math
+   * over the seed, the clock, the zone clock and the public rings, and the
+   * memo fills lazily as rays touch it. A test-pinned frame is left alone.
    */
   private stepFog(): void {
     if (this.fogFramePinned) return;
-    const zoneStartT = this.zoneStartT;
-    if (zoneStartT === null) {
-      if (this.fogFrame.on) this.fogClear();
-      return;
-    }
     if (this.now < this.fogNextRefreshAt) return;
+    this.fogRefresh();
+  }
+
+  /**
+   * Rebuild the World's own frame with the shared `fogFrameAt` at this clock
+   * and start a new density-memo EPOCH (see `fogMemo`). THE EYE: before the
+   * zone starts, the ring-0 state — `zoneStartT` null and the idle ring's
+   * center (the whole ocean, as the schema's float32 mirror carries it);
+   * after, the LIVE ring a client derives (`fogEyeRing`).
+   */
+  private fogRefresh(): void {
     this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
-    const eye = this.fogEyeRing(zoneStartT);
+    const zoneStartT = this.zoneStartT;
+    const eye = zoneStartT === null ? froundRing(this.zoneCurrentRing) : this.fogEyeRing(zoneStartT);
     fogFrameAt(this.fogField, this.now, zoneStartT, eye.cx, eye.cy, this.zoneCfg, this.fogOwnFrame);
     this.fogBumpEpoch();
   }
@@ -8369,16 +8302,13 @@ export class World {
     return zoneLiveState(this.now, zoneStartT, froundRing(this.zoneCurrentRing), revealed, this.zoneCfg).current;
   }
 
-  /** Back to "no rain": the World's own frame goes dark, a test pin is
-   *  dropped, the refresh clock resets and a fresh epoch starts
-   *  (resetForMatchStart, the pre-start tick after a live frame, and the
-   *  test seam's unpin). */
+  /** Back to the World's OWN rain: a test pin is dropped and the own frame
+   *  is rebuilt at this clock under a fresh epoch (resetForMatchStart and
+   *  the test seam's unpin). */
   private fogClear(): void {
     this.fogFramePinned = false;
     this.fogFrame = this.fogOwnFrame;
-    this.fogFrame.on = false;
-    this.fogNextRefreshAt = 0;
-    this.fogBumpEpoch();
+    this.fogRefresh();
   }
 
   /**

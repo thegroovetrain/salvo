@@ -24,18 +24,17 @@
 // zone clock and the revealed rings, so nothing per-observer about rain rides
 // a frame.
 //
-// TWO EYE TIERS SINCE STORY 11.2 (Eric 2026-11-12, R3): "sight" is the
-// CLASS-AND-NAME reach — inside it a hull is a full `Contact`; between it and
-// the PLAIN-HULL reach the same eye, under the same rain gate and island LOS,
-// holds only a `PlainContact` — pose under an anonymous per-observer,
-// per-visit handle, in the frame's `pc` channel (`PerceptionView.plain`). The
-// two lists are disjoint by construction (the `plain` row's first term is the
-// negation of the contact row's predicate). Explosions, shells, torpedoes,
-// mines and crate kinds each ride their own named eye reach (signals.ts);
-// every identity-bearing field stays on the class reach.
+// ONE HULL TIER (Eric 2026-11-15 — Story 11.2's anonymous plain hull and its
+// `pc` channel are REMOVED): a hull is a full `Contact` out to the
+// observer's HULL sight, crisp to its class-and-name sight and fading beyond
+// it — a distance haze joins the rain and the smoke in the hull gate's one
+// optical depth. Explosions, shells, torpedoes, mines and crate kinds each
+// ride their own named eye reach (signals.ts); every identity-bearing EVENT
+// field (the boom's victim id, `sunk.seen`, the spawn row) stays on the
+// class-and-name reach.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 19 GameEvent kinds plus the contact/plain/mine/drop/litzone/burnzone/foulzone/cloud
+// the 19 GameEvent kinds plus the contact/mine/drop/litzone/burnzone/foulzone/cloud
 // frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
@@ -53,9 +52,7 @@
 // have de-anonymized them; that decoy is DELETED (Story 7-5 wave 2) and the
 // sort is DELIBERATELY KEPT — a payload-only order can never leak.
 // Contacts, mines and lit zones keep their Map-insertion iteration order in
-// their own frame channels. PLAIN CONTACTS are sorted by their HANDLE — a
-// keyed hash of a counter, so the order is public payload only and carries no
-// roster order (Map-insertion order would line `pc` rows up with the roster).
+// their own frame channels.
 //
 // OBSERVER MODEL: an observer with a ship record observes from its position,
 // alive or sunk — a fresh wreck keeps seeing its surroundings for the 3s
@@ -65,7 +62,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DropView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type PlainContact, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DropView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, ballisticGateOpen, dropPaint, signalFor, sweepMayCrossWake, type FoggedSignalContext, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -98,14 +95,6 @@ export interface PerceptionView {
    *  blip in `events`, never here. Bots read this list for the same crates a
    *  human sees (human parity, no wider port). */
   drops: DropView[];
-  /** PLAIN HULLS — the OUTER sight tier (Story 11.2, R3): every hull the
-   *  observer's eye holds beyond the class-and-name reach and inside the
-   *  plain-hull reach, through the `plain` row: `{h,x,y,heading,speed}` under
-   *  an anonymous per-observer, per-visit handle — no id, no class, no
-   *  turrets. Disjoint from `contacts`; sorted by handle; always empty on the
-   *  spectator path. The frame's `pc` channel; bots fold it as a class-less
-   *  live track (human parity, no wider port). */
-  plain: PlainContact[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -130,7 +119,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // THE WEATHER GATES (Story 11.6) — the World's bounded optical-depth gate
     // (rain + the smoke this observer holds) on a ray (`fogSightAdmits`, read by
     // every eyeHolds site) and on a hull's sight grid (`fogHullAdmits`, the
-    // two hull rows), and the rain alone (`fogRainAdmits`, the cloud row's
+    // `contact` row — with its distance haze), and the rain alone (`fogRainAdmits`, the cloud row's
     // sight arm). Thunks, so the field itself never rides the context.
     // THE SMOKE HALF IS THIS OBSERVER'S HELD CLOUDS ONLY (`me.heldClouds`,
     // Story 11.6 review): a cloud its client was never sent hides nothing
@@ -138,7 +127,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // any row below asks.
     fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by, me.heldClouds),
     fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
-    fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU, me.heldClouds),
+    fogHullAdmits: (q) => world.fogHullAdmits(q, me.heldClouds),
     // Story 11.2 follow-up: the island broadphase index (validated ONCE here,
     // for this whole pass) — the same answers as `islands`, without the work
     // that cannot change them.
@@ -148,9 +137,6 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     wakes: world.wakeRibbons,
     // The pseudonym resolver (radar realism cycle), threaded from the World.
     pseudonymOf: (id: string) => world.pseudonymFor(id),
-    // Story 11.2 (R3): this observer's anonymous per-visit handle for a hull
-    // in its outer sight band — get-or-mint in the observer's own memory.
-    plainHandleOf: (id: string) => world.plainHandleFor(me, id),
     // Story 11.2 review gate (F1): the room-private salt of one radar paint.
     paintSaltOf: world.paintSaltFor, // the World's one stable function (the mask memos key on it)
   };
@@ -178,16 +164,13 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // call a sight site); ride uniformly so the context stays one shape.
     fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
     fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
-    fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
+    fogHullAdmits: (q) => world.fogHullAdmits(q),
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
     // Inert on this path (spectators get live contacts, never blips) — rides
     // uniformly so the context stays one shape.
     pseudonymOf: (id: string) => world.pseudonymFor(id),
-    // Story 11.2: INERT on this path (the `plain` row never fires unfogged —
-    // a spectator holds every hull as a full contact) and it mints nothing.
-    plainHandleOf: () => '',
     // INERT on this path (spectators have no radar); rides uniformly.
     paintSaltOf: world.paintSaltFor, // the World's one stable function (the mask memos key on it)
   };
@@ -202,56 +185,16 @@ function spectatorContext(world: World, observerId: string): SignalContext {
  * hides from the eye may still blip. (HISTORY: until amendment 210 the blip
  * row was offered only the ships that failed the contact row.)
  */
-function shipScan(world: World, ctx: SignalContext): { contacts: Contact[]; blips: BlipEvent[]; plain: PlainContact[] } {
+function shipScan(world: World, ctx: SignalContext): { contacts: Contact[]; blips: BlipEvent[] } {
   const contacts: Contact[] = [];
   const blips: BlipEvent[] = [];
-  const plain: PlainContact[] = [];
-  const held: string[] = []; // the ship ids materialized as plain contacts this pass
   const contactRow = SIGNAL_REGISTRY.contact;
-  const plainRow = SIGNAL_REGISTRY.plain;
   const blipRow = SIGNAL_REGISTRY.blip;
   for (const ship of world.ships.values()) {
     if (contactRow.visible(ctx, ship)) contacts.push(contactRow.materialize(ctx, ship));
-    // THE OUTER EYE TIER (Story 11.2, R3) — disjoint from the contact row by
-    // the row's own first term, tested independently of the blip row (a
-    // plain hull the beam crosses this tick also paints).
-    if (plainRow.visible(ctx, ship)) {
-      plain.push(plainRow.materialize(ctx, ship));
-      held.push(ship.id);
-    }
     if (blipRow.visible(ctx, ship)) blips.push(blipRow.materialize(ctx, ship));
   }
-  forgetPlainExits(ctx, held);
-  // BY HANDLE, never by roster (Map-insertion) order — see the header.
-  plain.sort(plainOrder);
-  return { contacts, blips, plain };
-}
-
-/** The plain-contact order: the handle string — public payload only. Handles
- *  are distinct within one observer's frame (World.plainHandleFor), so the
- *  order is total. */
-function plainOrder(a: PlainContact, b: PlainContact): number {
-  if (a.h === b.h) return 0;
-  return a.h < b.h ? -1 : 1;
-}
-
-/**
- * THE PER-VISIT HALF OF THE PLAIN-HULL HANDLE (Story 11.2, R3 — the
- * seenBallistics per-visit precedent): every handle this observer holds for
- * a hull the pass did NOT materialize as a plain contact is forgotten — the
- * hull left the band outward, crossed into the full tier, went behind an
- * island or into fog, sank, or left the room — so its next visit mints a
- * fresh handle and the two visits cannot be linked by it. `held` is this
- * pass's materialized ship ids. Fogged path only (a spectator pass holds and
- * mints nothing). Map deletion during iteration is safe.
- */
-function forgetPlainExits(ctx: SignalContext, held: readonly string[]): void {
-  if (ctx.mode !== 'fogged') return;
-  const handles = ctx.me.plainHandles;
-  if (handles.size === held.length) return; // every held handle was re-used this pass
-  for (const id of handles.keys()) {
-    if (!held.includes(id)) handles.delete(id);
-  }
+  return { contacts, blips };
 }
 
 /**
@@ -575,7 +518,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   // observer holds, and every eye row below charges exactly those — see
   // `cloudScan`. The list still rides the view in its historical position.
   const clouds = cloudScan(world, ctx);
-  const { contacts, blips, plain } = shipScan(world, ctx);
+  const { contacts, blips } = shipScan(world, ctx);
   const events = forwardedEvents(world, ctx);
   events.push(...ballisticScan(world, ctx));
   // Homing-track updates (Story 2.8) sit AFTER the reveals (an update can
@@ -614,7 +557,6 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     foulZones: foulZoneScan(world, ctx),
     clouds,
     drops: dropScan(world, ctx),
-    plain,
   };
 }
 
@@ -627,7 +569,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
   return view(world, foggedContext(world, me));
 }
 

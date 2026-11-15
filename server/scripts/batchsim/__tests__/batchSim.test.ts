@@ -1629,7 +1629,7 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
       for (const key of keys) expect(() => parseArgs(['--tune', key]), key).not.toThrow();
     }
     for (const key of [
-      'fog.edgeBand=0', 'fog.extinctionPerU=0', 'fog.edgeSpeedU=0', 'fog.centerTurnFrac=0', 'fog.spiralWindRad=0', 'fog.edgeSoftFrac=0', 'fog.onsetMs=0',
+      'fog.edgeBand=0', 'fog.extinctionPerU=0', 'fog.edgeSpeedU=0', 'fog.centerTurnFrac=0', 'fog.spiralWindRad=0', 'fog.edgeSoftFrac=0',
       'fog.outsideCoverage=0', 'fog.outsideCoverage=1', 'fog.sightCutoffV=0', 'fog.sightCutoffV=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1',
       'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.hullGridCols=1', 'fog.hullGridRows=1', 'fog.spinRadiusFloorU=1',
       'fog.eyeRadiusFracByRing.0=0', 'fog.eyeRadiusFracByRing.0=1', 'fog.edgeCoverageByRing.0=0', 'fog.edgeCoverageByRing.0=1',
@@ -1649,7 +1649,7 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
     for (const key of ['fog.refreshMs=0', 'fog.refreshMs=50', 'fog.refreshMs=249']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 250/);
     }
-    for (const key of ['fog.edgeBand=-0.1', 'fog.extinctionPerU=-1', 'fog.edgeSpeedU=-1', 'fog.centerTurnFrac=-0.1', 'fog.spiralWindRad=-1', 'fog.edgeSoftFrac=-0.1', 'fog.onsetMs=-1']) {
+    for (const key of ['fog.edgeBand=-0.1', 'fog.extinctionPerU=-1', 'fog.edgeSpeedU=-1', 'fog.centerTurnFrac=-0.1', 'fog.spiralWindRad=-1', 'fog.edgeSoftFrac=-0.1']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
     }
     for (const key of [

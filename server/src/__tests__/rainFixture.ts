@@ -15,36 +15,52 @@ export const RAIN_T = fogMaxDepth(CONFIG.fog);
 
 /**
  * A REAL storm frame over `w`'s own field: the zone started at 0, the clock at
- * `tMs` (default: one second past the roll-in, so the onset ramp is 1 and the
- * first ring still stands), the eye at (`cx`, `cy`) (default: the ocean
- * center). Real rain with real gaps and a clear eye.
+ * `tMs` (default: a few seconds in — the first ring still stands), the eye at
+ * (`cx`, `cy`) (default: the ocean center). Real rain with real gaps and a
+ * clear eye.
  */
-export function stormFrame(w: World, tMs: number = CONFIG.fog.onsetMs + 1000, cx = 0, cy = 0): FogFrame {
+export function stormFrame(w: World, tMs = 16000, cx = 0, cy = 0): FogFrame {
   return fogFrameAt(w.fogFieldForTest(), tMs, 0, cx, cy, CONFIG.zone);
 }
 
 /**
- * UNIFORM rain: density exactly `density` at every point of `w`'s ocean (0
- * past the rim, as always). Built from the shared functions over a field
- * whose cut sits below every noise value — hard edge, coverage 1, no roll-in,
- * the ring collapsed so the whole ocean is "outside" — with the frame's onset
- * factor standing in for the density. So τ along a ray on the ocean is
- * `density × its length`, exactly, and a directed test can place a subject a
- * known optical depth away.
+ * UNIFORM rain: density `density` at every point of `w`'s ocean (0 past the
+ * rim, as always). Built from the shared functions: the frame's noise is
+ * switched off (its blend normalizer is 0, so the noise reads 0 everywhere),
+ * the edge band is 1 wide, coverage 1, the ring collapsed so the whole ocean
+ * is "outside", and every cut is put at −density — so the shared
+ * `clamp01((noise − cut) / edgeBand)` reads `density` at every point. So τ
+ * along a ray on the ocean is `density × its length`, and a directed test can
+ * place a subject a known optical depth away.
  */
 export function uniformRainFrame(w: World, density: number): FogFrame {
-  const cfg = { ...CONFIG.fog, edgeBand: 0, outsideCoverage: 1, onsetMs: 0 };
+  const cfg = { ...CONFIG.fog, edgeBand: 1, outsideCoverage: 1 };
   const built = makeFogField(w.fogSeed, cfg, w.map.radius);
-  const field = { ...built, quant: new Float64Array(built.quant.length).fill(-10) }; // every cut is −10: under all noise
+  // cut = quantile − edgeBand / 2 = −density
+  const field = { ...built, quant: new Float64Array(built.quant.length).fill(0.5 - density) };
   const frame = fogFrameAt(field, 0, 0, 0, 0, CONFIG.zone);
   frame.R = 0; // collapsed: the whole ocean reads the outside coverage
-  frame.onset = density;
+  frame.norm = 0; // no noise: the density is the cut alone
   return frame;
 }
 
-/** No rain at all (the pre-zone frame). */
+/** No rain at all: a frame that is OFF (a non-finite clock can never rain).
+ *  Since Eric 2026-11-15 a World rains from the start line, so a test that
+ *  wants clear water pins this. */
 export function clearFrame(w: World): FogFrame {
-  return fogFrameAt(w.fogFieldForTest(), 0, null, 0, 0, CONFIG.zone);
+  return fogFrameAt(w.fogFieldForTest(), Number.NaN, null, 0, 0, CONFIG.zone);
+}
+
+/**
+ * Pin CLEAR WATER on `w` and hand it back: a World rains from the start line
+ * (Eric 2026-11-15), so a directed test that is not about the weather — one
+ * that seats hulls a named reach apart and asks what the eye holds — turns
+ * the rain off through the one test seam. The pin survives `step()` (stepFog
+ * leaves a pinned frame alone) and is dropped by `resetForMatchStart`.
+ */
+export function clearWater(w: World): World {
+  w.setFogFrameForTest(clearFrame(w));
+  return w;
 }
 
 /** One ray's optical depth by the oracle: τ, the dead band around it, and whether the ray touches rain at all. */

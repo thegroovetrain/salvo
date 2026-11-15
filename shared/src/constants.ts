@@ -891,8 +891,9 @@ export const CONFIG = {
    *   ------------------   ----   -------------------------------------------
    *   radar                400    the radar sweep (and the foghorn's reach —
    *                               the listener's own radar, today's rule)
-   *   hullSight            350    a PLAIN HULL by eye (R3: hull-down, upper
-   *                               works only — pose, no class, no identity)
+   *   hullSight            350    where the distance haze has taken a hull by
+   *                               eye (Story 11.6: crisp to `sight`, fading to
+   *                               gone here)
    *   muzzleFlash          350    muzzle flash + wounded smoke + the
    *                               countermeasure haze halo
    *   splashSight          350    splashes, bursts and sinkings seen by eye
@@ -933,11 +934,11 @@ export const CONFIG = {
     // read; it no longer derives from radar (radar / 3 retired with the
     // ladder). Was 500 u, the 4/12 rung (Story 9.8).
     sight: hmToU(200),
-    // u — A PLAIN HULL BY EYE (Story 11.2, R3 / R14 / R18: 350 hm — hull-down,
-    // upper works only). Between `sight` and this a hull is a PLAIN CONTACT:
-    // true position, heading and speed under an anonymous per-observer handle
-    // — no class, no roster id, no turret or launcher angles (types.ts
-    // `PlainContact`). Seeds `stats.hullSightRange`. Never under `sight`.
+    // u — WHERE THE HAZE TAKES A HULL (Story 11.2's 350 hm reach; since Story
+    // 11.6, Eric 2026-11-15, the anonymous plain tier is gone): between `sight`
+    // and this a hull is a full contact that FADES with distance (`fogHazeDepth`,
+    // sim/fogDepth.ts — crisp at `sight`, gone here); identity-bearing events
+    // stay on `sight`. Seeds `stats.hullSightRange`. Never under `sight`.
     hullSight: hmToU(350),
     // `muzzleFlashFactor` (0.5 — the flash as a fraction of `radarRange`,
     // Story 9.8's 6/12) — RETIRED 2026-11-12, Story 11.2, epic-11 amendment

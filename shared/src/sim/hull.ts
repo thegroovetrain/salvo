@@ -2,20 +2,6 @@
 // every heal channel must agree on, held here so they cannot drift apart.
 // Pure and I/O-free like every shared/ sim module.
 
-import { CONFIG, SHIP_CLASS_IDS } from '../constants.js';
-
-/**
- * u — the ONE length every plain (anonymous, long-range) hull is drawn at AND
- * gated at: the mean of the four hull lengths (computed from CONFIG, never
- * typed in). A plain hull's class is not on the wire, so neither its drawn
- * size nor the server's rain gate over it may hint at one.
- */
-export const PLAIN_HULL_LENGTH_U =
-  SHIP_CLASS_IDS.reduce((s, id) => s + CONFIG.shipClasses[id].hull.length, 0) / SHIP_CLASS_IDS.length;
-
-/** u — the mean of the four hull beams (the plain hull's one beam). */
-export const PLAIN_HULL_BEAM_U =
-  SHIP_CLASS_IDS.reduce((s, id) => s + CONFIG.shipClasses[id].hull.beam, 0) / SHIP_CLASS_IDS.length;
 
 /**
  * IS THIS HULL FULL? — under 1 hp missing (epic-8 amendment 53, Eric ruling
