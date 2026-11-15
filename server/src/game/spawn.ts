@@ -299,6 +299,8 @@ export function pickBeaconSpot(
     const r = radius * Math.sqrt(rng.next()); // sqrt => uniform over the disc
     const a = rng.next() * TAU;
     const p = { x: Math.fround(center.x + Math.cos(a) * r), y: Math.fround(center.y + Math.sin(a) * r) };
+    // The float32 rounding can push a rim draw a hair outside the disc.
+    if (Math.hypot(p.x - center.x, p.y - center.y) > radius) continue;
     if (!beaconSpotHardOk(p, islands, taken, cfg.minSpacingU)) continue;
     if (!withinAny(p, captains, cfg.keepOutU)) return { x: p.x, y: p.y, keepOutRelaxed: false };
     relaxed ??= p;

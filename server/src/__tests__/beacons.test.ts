@@ -73,6 +73,25 @@ describe('radio beacons — placement at each ring cycle (R2, R10)', () => {
     }
   });
 
+  it('a FULL lobby at cycle 0 on the real map gets its whole count, every rule held (Story 11.7)', () => {
+    for (const seed of [4200, 4201, 4202]) {
+      const w = new World(seed);
+      const hulls = Array.from({ length: CONFIG.map.playerCap }, (_, i) =>
+        w.addShip(`c${i}`, `C${i}`, 'captain', i % 2 === 0 ? 'bismarck' : 'yamato', undefined, undefined),
+      );
+      openCycle(w, 0, 0);
+      const beacons = w.beaconChart.beacons;
+      expect(beacons, `seed ${seed}`).toHaveLength(beaconCountFor(0));
+      const ring = w.zoneLiveRing;
+      beacons.forEach((p, i) => {
+        expect(dist(p, { x: ring.cx, y: ring.cy })).toBeLessThanOrEqual(ring.r - B.edgeMarginU);
+        expect(islandClearance(p, w.map.islands)).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
+        for (const h of hulls) expect(dist(p, h.state)).toBeGreaterThan(B.keepOutU);
+        for (const q of beacons.slice(i + 1)) expect(dist(p, q)).toBeGreaterThanOrEqual(B.minSpacingU);
+      });
+    }
+  });
+
   it('a cycle with no beacons CLEARS the set — entered cold, and stepped into from the last cycle that had some', () => {
     const cold = bareWorld(4200);
     openCycle(cold, 0, EMPTY_CYCLE);

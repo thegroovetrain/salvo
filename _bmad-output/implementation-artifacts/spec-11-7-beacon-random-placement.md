@@ -17,19 +17,19 @@ warnings: []
 
 **Problem:** Radio beacons are placed by the fleet-anchor max-min rule (`spawn.ts` `pickFleetAnchor`): as far as possible from every hull and from each other. Every match they fall into the same regular "weird square" pattern, pushed away from players. Story 11.7 as written (forge lock 6) proposed neighbor-pair midpoints plus a 30 s inward nudge. Eric, 2026-11-15, before the spec step: *"we are overthinking this … I just don't want them all clustered in basically a weird square like they are now. Its a game where randomness is part of things. I don't mind if there's one or two in the middle."*
 
-**Approach (Eric's rulings, 2026-11-15, chat):** At each ring cycle's 0:00, every beacon goes on a **uniformly random** open-water point inside the live ring, `edgeMarginU` (500 u) in from the edge and clear of land as today. It stays outside every afloat captain's `keepOutU` (1000 u) disc, as today. It is **at least 1000 u from every beacon already placed this cycle** (new `CONFIG.beacons.minSpacingU`). **Counts become `[7, 5, 3]`** (*"Just to keep it odd lol"*). The midpoint, pairing, nudge and fleet-anchor rule are all RETIRED.
+**Approach (Eric's rulings, 2026-11-15, chat):** At each ring cycle's 0:00, every beacon goes on a **uniformly random** open-water point inside the live ring, `edgeMarginU` (500 u) in from the edge and clear of land as today. It stays outside every afloat captain's `keepOutU` disc (1000 u at the spec step; **500 u from the review gate — Eric 2026-11-15: "Solve the problem. If its wrong we can change it."**, amendment 14(d)). It is **at least 1000 u from every beacon already placed this cycle** (new `CONFIG.beacons.minSpacingU`). **Counts become `[7, 5, 3]`** (*"Just to keep it odd lol"*). The midpoint, pairing, nudge and fleet-anchor rule are all RETIRED.
 
 ## Boundaries & Constraints
 
 **Always:**
-- Eric's numbers: `counts: [7, 5, 3]`, `minSpacingU: 1000`; `edgeMarginU` 500 and `keepOutU` 1000 unchanged. Sudden death still gets none.
+- Eric's numbers: `counts: [7, 5, 3]`, `minSpacingU: 1000`; `edgeMarginU` 500 unchanged; `keepOutU` 1000 → 500 (review gate, Eric 2026-11-15). Sudden death still gets none.
 - One draw per attempt is uniform over the disc of radius `ring.r − edgeMarginU` about the LIVE ring centre (sqrt radius), on the cycle's existing server-private stream (`BeaconField` seed, `mulberry32(seed ^ imul(cycle+1, …))`). It must never come from the public map seed.
 - Hard constraints (never broken): inside that disc; `islandClearance > SPAWN_ISLAND_CLEARANCE`; distance ≥ `minSpacingU` from every beacon already taken this cycle (float32 positions, as `taken` holds them).
 - Soft constraint: outside every captain disc (`captainDiscs()`, participants afloat, r = `keepOutU`).
 - Attempt budget is `CONFIG.beacons.placeAttempts: 256` (the old `FLEET_ANCHOR_SAMPLES`; an implementation knob, mirroring `CONFIG.drops.placeAttempts`).
 - **Reading (for Eric's veto) — degradation order, "the placement always happens, degrades visibly" (as today):** (1) return the first draw meeting hard + soft; (2) else the first draw that met the hard constraints, LOGGED `beacon.keepOutRelaxed`; (3) else no beacon for that slot, LOGGED `beacon.placeSkipped`. The cycle simply has fewer beacons, the same spirit as "the count falls when the ring is too small".
 - Slot ids stay dense: a skipped slot does not leave a hole (`bcn-${cycle}-${n}` numbered by placed beacons).
-- `PROTOCOL_VERSION` 108 → 109: the client reads the `CONFIG.beacons` block (CLAUDE.md block rule). Counts stay ≤ `BEACON_WIRE_SLOTS` 8.
+- `PROTOCOL_VERSION` stays 108 (review gate: no wire shape change and the client reads none of the changed fields; the story text said unchanged). Counts stay ≤ `BEACON_WIRE_SLOTS` 8.
 - Server-only behavior. The schema shape is unchanged; bots farm as today (count- and placement-agnostic).
 
 **Block If:**
@@ -65,7 +65,7 @@ warnings: []
 
 **Execution:**
 - [x] `shared/src/constants.ts` -- `counts: [7, 5, 3]`, add `minSpacingU: 1000` and `placeAttempts: 256` with ruling comments; rewrite the COUNTS / PLACEMENT comment (random rule, Eric 2026-11-15, Story 11.7); `keepOutU` comment drops "fleet-anchor" -- the single source of truth.
-- [x] `shared/src/index.ts` -- `PROTOCOL_VERSION` 109 with a one-line history note in the existing style.
+- [x] `shared/src/index.ts` -- ~~`PROTOCOL_VERSION` 109~~ reverted at the review gate: stays 108 (see Spec Change Log).
 - [x] `server/src/game/spawn.ts` -- delete the ANCHORS section; add an exported pure `pickBeaconSpot(center, radius, islands, taken, captains, cfg, rng)` returning `{x, y, keepOutRelaxed: boolean} | null` per the degradation order. Captains are `readonly Vec2[]` with radius `cfg.keepOutU`; spacing is `cfg.minSpacingU`; attempts `cfg.placeAttempts`. -- one pure, testable rule.
 - [x] `server/src/game/beacons.ts` -- `BeaconPick` returns `Vec2 | null`; `replace` skips a null (calls an optional `onSkip`, or leaves logging to the caller — the implementer's choice, documented) and numbers ids by placed count; update the constructor comment ("max-min placement" → random placement; the seed stays private because the keep-out disc still reads captain positions).
 - [x] `server/src/game/world.ts` -- `placeBeacons` uses `pickBeaconSpot` and logs `beacon.keepOutRelaxed` / `beacon.placeSkipped`; `captainDiscs` becomes captain positions (or is inlined); docblock rewritten; drop the `pickFleetAnchor` / `IntelDisc` import.
@@ -79,7 +79,25 @@ warnings: []
 
 ## Spec Change Log
 
+### 2026-11-15 — review gate (Eric-ruled, not a re-derivation)
+- **Trigger:** Blind Hunter measured that at `keepOutU` 1000 the 16 spawn discs wall off radius ~3,300–4,500 u at 0:00 (beacons never in the outer band), and that relaxed placement hits 12–29 % of beacons at the 8:00 cycle with 6–8 survivors. Eric: *"I don't care. Solve the problem. If its wrong we can change it."*
+- **Amended:** `keepOutU` 1000 → 500 (= `rangeU`); `PROTOCOL_VERSION` bump reverted (the client reads no changed field). The code was patched in place; no loopback was needed.
+- **Avoids:** beacons always inside the captain ring at match start; beacons charted with a hull already in the paying circle late game.
+- **KEEP:** `pickBeaconSpot`'s degradation order, dense slot ids, private per-cycle stream, the deleted fleet-anchor code.
+
 ## Review Triage Log
+
+### 2026-11-15 — Review pass (Blind Hunter + Edge Case Hunter on Fable; Codex gpt-5.6-sol)
+- intent_gap: 1 (high 1): the keep-out geometry, resolved by Eric in chat (above)
+- bad_spec: 0
+- patch: 4 (medium 1, low 3)
+- defer: 0
+- reject: 5 (low 5): relaxed draw ignores captain distance (rare at 500 u; spec order kept); NaN / 0 `placeAttempts` via `--tune` (`beacons.*` is not tunable); `beaconPerception` seed fragility (passes; positions read from the chart); oracle-comment wording; the keep-out "leak" (pre-existing, unchanged)
+- addressed_findings:
+  - `[medium]` `[patch]` full-lobby AC untested → new real-map test with 16 captains on three seeds (`beacons.test.ts`)
+  - `[low]` `[patch]` float32 rounding could put a rim draw outside the disc (Codex + Edge Case Hunter) → rounded point re-checked (`spawn.ts`)
+  - `[low]` `[patch]` consecutive skips logged the same slot → `request` counter on both log lines (`world.ts`)
+  - `[low]` `[patch]` tautological assertion in `beaconRoom.test.ts` removed; PV note was wrong → bump reverted
 
 ## Design Notes
 

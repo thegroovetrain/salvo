@@ -8020,14 +8020,16 @@ export class World {
     const centre = { x: ring.cx, y: ring.cy };
     const radius = ring.r - CONFIG.beacons.edgeMarginU;
     const captains = this.captainPositions();
+    let request = 0; // the cycle's pick number — distinct per log line even after a skip
     this.beacons.replace(cycle, beaconCycleStartMs(zoneStartT, cycle, this.zoneCfg), (rng, taken) => {
       const at = pickBeaconSpot(centre, radius, this.map.islands, taken, captains, CONFIG.beacons, rng);
       const slot = taken.length;
+      request += 1;
       if (at === null) {
-        logWarn('beacon.placeSkipped', { tick: this.tick, cycle, slot, attempts: CONFIG.beacons.placeAttempts });
+        logWarn('beacon.placeSkipped', { tick: this.tick, cycle, request, slot, attempts: CONFIG.beacons.placeAttempts });
         return null;
       }
-      if (at.keepOutRelaxed) logWarn('beacon.keepOutRelaxed', { tick: this.tick, cycle, slot });
+      if (at.keepOutRelaxed) logWarn('beacon.keepOutRelaxed', { tick: this.tick, cycle, request, slot });
       return at;
     });
   }

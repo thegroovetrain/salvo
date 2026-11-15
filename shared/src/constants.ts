@@ -3018,7 +3018,7 @@ export const CONFIG = {
     armor: 100, // ARMOR index — the damage gate AND the ram mass (R5, R7)
     killLevels: 2, // levels paid for destroying it, split as a ship kill (R13)
     edgeMarginU: 500, // u — placement: at least this far inside the live ring edge (R10)
-    keepOutU: 1000, // u — the captain keep-out disc of the placement, the soft rule (Story 11.2, R20: today's 1000 u as its own fact; was `vision.dropout.startU`)
+    keepOutU: 500, // u — the captain keep-out disc of the placement, the soft rule. Story 11.7 (Eric 2026-11-15, "Solve the problem"): 1000 -> 500 = rangeU, nobody starts a cycle already paid; at 1000 the 16 spawn discs walled off the ring outside ~3,300 u (was 1000 u since Story 11.2, R20)
     minSpacingU: 1000, // u — placement: at least this far from every beacon already placed this cycle, a hard rule (Eric 2026-11-15, Story 11.7)
     placeAttempts: 256, // uniform draws tried per beacon before it is skipped (never thrown); an implementation knob (Story 11.7)
     // u — circumradius of the regular-octagon body. PROVISIONAL — NOT RULED BY
