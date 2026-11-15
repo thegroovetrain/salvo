@@ -1102,6 +1102,39 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE STRATEGIC-ZOOM CHART MARKS (Story 11.8, Eric 2026-11-15 — numbers are
+   * literal). Every value is SCREEN px at every zoom (render/chartMarks.ts,
+   * brackets.ts, pegs.ts).
+   */
+  chartMarks: {
+    /** Corner brackets show on a hull whose on-screen LENGTH is under this. */
+    bracketThresholdPx: 24,
+    /** The fade band, as a fraction of a threshold, centered on it (brackets
+     *  and chart icons alike): 24 → full ≤ 20.4, zero ≥ 27.6. */
+    bandFrac: 0.3,
+    /** Half-box of the four corner ticks (24 / 2 + 4 → a 32 px square). */
+    bracketHalfPx: 16,
+    /** Length of each corner tick's two arms. */
+    bracketTickPx: 6,
+    bracketLinePx: 1.5,
+    /** Mines, airdrops and salvage wrecks draw their own look at this fixed
+     *  size while their true drawing would be smaller (the beacon handover). */
+    iconPx: 10,
+    iconLinePx: 1.5,
+    /** Splash pegs: an X this many px across, this line, a thin dark halo. */
+    pegPx: 7,
+    pegLinePx: 1.5,
+    /** The halo's total stroke width under the X, and its color / alpha. */
+    pegHaloPx: 3.5,
+    pegHaloColor: 0x050807,
+    pegHaloAlpha: 0.85,
+    /** A peg's alpha falls linearly 1 → 0 over this, then it is removed. */
+    pegFadeMs: 15_000,
+    /** Pool cap: past it the OLDEST peg is recycled. */
+    pegCap: 400,
+  },
+
+  /**
    * THE RADAR DISPLAY (Story 11.2, Eric 2026-11-12, rulings R16 / R19 — FIXED,
    * no settings): own-ship range rings in "style A" (thin crisp white, a number
    * on every ring at N / S / E / W), the radar-reach ring drawn distinct, the

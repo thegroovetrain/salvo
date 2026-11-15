@@ -25,12 +25,19 @@
 // `Drops` adapter: one Graphics per id, add/remove reconcile exactly like
 // `Mines.sync` (the shared `reconcileLitZones` diff), placed once at spawn (a
 // drop never moves).
+//
+// STORY 11.8 — THE CHART ICON (Eric 2026-11-15, render/chartMarks.ts). Zoomed
+// out, while the crate's true square would draw under 10 px, the SAME crate
+// (glow, square, glyph, in its kind's color) is drawn at a fixed 10 px
+// (`drawCrateIcon`, screen size, created on first need), cross-fading with
+// the true-size crate over the shared 30 % band — the salvage wreck too.
 
 import { Graphics, type Container } from 'pixi.js';
 import { CONFIG, type DropKind, type DropView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { reconcileLitZones } from './litZones.js';
 import { drawEquipmentIcon } from './equipmentIcons.js';
+import { chartIconAlpha, screenScale } from './chartMarks.js';
 
 /** What a kind of crate is drawn with: its color and the glyph id
  *  `drawEquipmentIcon` answers (an index stat's own line id, or `'wreck'`). */
@@ -50,26 +57,49 @@ const LINE_W = 1.5;
 /** The glyph box: 70 % of the disc's inscribed square. */
 const GLYPH_FRAC = 0.7;
 
-/** Draw a crate of `kind` onto `g` (cleared first) at (0, 0) in WORLD units:
- *  the glow under the square, then the square body and the kind's glyph, all
- *  in the kind's color. */
-export function drawCrate(g: Graphics, kind: DropKind, alpha: number = CLIENT_CONFIG.drops.glyphAlpha): void {
+/** u — the crate's true square side (the pickup disc's inscribed square). */
+export const CRATE_SIDE_U = CONFIG.drops.radiusU * Math.SQRT2;
+
+/** Paint a crate `side` across with `lineW` linework, its glow reach scaled
+ *  by `glowScale` (1 = the world-unit glow), centered at (0, 0). */
+function paintCrate(g: Graphics, kind: DropKind, side: number, lineW: number, glowScale: number, alpha: number): void {
   const { color, glyphId } = crateStyleFor(kind);
-  const stroke = { width: LINE_W, color, alpha };
-  const side = CONFIG.drops.radiusU * Math.SQRT2;
+  const stroke = { width: lineW, color, alpha };
   const glow = CLIENT_CONFIG.drops.glow;
   g.clear();
   // The glow: the full reach at half alpha, then half the reach at full alpha.
   for (const [reach, a] of [[glow.widthU, glow.alpha / 2], [glow.widthU / 2, glow.alpha]] as const) {
-    g.rect(-side / 2, -side / 2, side, side).stroke({ width: LINE_W + 2 * reach, color, alpha: a });
+    g.rect(-side / 2, -side / 2, side, side).stroke({ width: lineW + 2 * reach * glowScale, color, alpha: a });
   }
   g.rect(-side / 2, -side / 2, side, side).stroke(stroke);
   drawEquipmentIcon(g, glyphId, 0, 0, side * GLYPH_FRAC, stroke);
 }
 
+/** Draw a crate of `kind` onto `g` (cleared first) at (0, 0) in WORLD units:
+ *  the glow under the square, then the square body and the kind's glyph, all
+ *  in the kind's color. */
+export function drawCrate(g: Graphics, kind: DropKind, alpha: number = CLIENT_CONFIG.drops.glyphAlpha): void {
+  paintCrate(g, kind, CRATE_SIDE_U, LINE_W, 1, alpha);
+}
+
+/** THE CHART ICON (Story 11.8): the same crate in SCREEN px — `iconPx`
+ *  across, `iconLinePx` linework, the glow shrunk in proportion — for a
+ *  Graphics scaled `1 / zoom`. */
+export function drawCrateIcon(g: Graphics, kind: DropKind, alpha: number = CLIENT_CONFIG.drops.glyphAlpha): void {
+  const px = CLIENT_CONFIG.chartMarks.iconPx;
+  paintCrate(g, kind, px, CLIENT_CONFIG.chartMarks.iconLinePx, px / CRATE_SIDE_U, alpha);
+}
+
+/** One crate's sprites: the true-size crate and its chart icon (lazy). */
+interface CrateSprite {
+  g: Graphics;
+  kind: DropKind;
+  icon: Graphics | null;
+}
+
 /** The thin adapter: one crate per drop id on the fogged `dropWorld` layer. */
 export class Drops {
-  private readonly sprites = new Map<string, Graphics>();
+  private readonly sprites = new Map<string, CrateSprite>();
 
   constructor(private readonly layer: Container) {}
 
@@ -85,9 +115,44 @@ export class Drops {
    *  renderer contract. */
   render(_nowSec: number): void {}
 
+  /**
+   * Per render frame (Story 11.8): the chart-icon handover at `zoom` px per
+   * u — the true crate wears `1 − a`, the 10 px icon `a`.
+   */
+  renderIcons(zoom: number): void {
+    const a = chartIconAlpha(CRATE_SIDE_U * zoom);
+    const scale = screenScale(zoom);
+    for (const s of this.sprites.values()) {
+      s.g.alpha = 1 - a;
+      s.g.visible = a < 1;
+      if (a > 0) this.showIcon(s, a, scale);
+      else if (s.icon !== null) s.icon.visible = false;
+    }
+  }
+
   /** The sprite held for an id (test seam), or null. */
   spriteOf(id: string): Graphics | null {
-    return this.sprites.get(id) ?? null;
+    return this.sprites.get(id)?.g ?? null;
+  }
+
+  /** The chart icon's alpha for an id (0 while none shows; test seam), or
+   *  null for an id we hold no sprite for. */
+  iconAlphaAt(id: string): number | null {
+    const s = this.sprites.get(id);
+    if (!s) return null;
+    return s.icon?.visible ? s.icon.alpha : 0;
+  }
+
+  private showIcon(s: CrateSprite, a: number, scale: number): void {
+    if (s.icon === null) {
+      s.icon = new Graphics();
+      drawCrateIcon(s.icon, s.kind);
+      s.icon.position.copyFrom(s.g.position);
+      this.layer.addChild(s.icon);
+    }
+    s.icon.visible = true;
+    s.icon.alpha = a;
+    s.icon.scale.set(scale);
   }
 
   destroy(): void {
@@ -100,13 +165,14 @@ export class Drops {
     drawCrate(g, v.c);
     g.position.set(v.x, v.y);
     this.layer.addChild(g);
-    this.sprites.set(v.id, g);
+    this.sprites.set(v.id, { g, kind: v.c, icon: null });
   }
 
   private despawn(id: string): void {
-    const g = this.sprites.get(id);
-    if (!g) return;
-    g.destroy();
+    const s = this.sprites.get(id);
+    if (!s) return;
+    s.g.destroy();
+    s.icon?.destroy();
     this.sprites.delete(id);
   }
 }

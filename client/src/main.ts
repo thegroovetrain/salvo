@@ -66,6 +66,9 @@ import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Drops } from './render/drops.js';
+import { HullBrackets } from './render/brackets.js';
+import { SplashPegs } from './render/pegs.js';
+import { renderChartMarks } from './render/chartMarks.js';
 import { Beacons, BEACON_COLOR } from './render/beacons.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
@@ -311,6 +314,9 @@ interface Game {
   /** AIRDROPS (render/drops.ts, Story 10.9) — synced from FrameMsg.drops on the
    *  fogged `dropWorld` layer; sight-only. */
   drops: Drops;
+  /** Story 11.8: corner brackets on small hulls + own splash pegs (render/chartMarks.ts). */
+  brackets: HullBrackets;
+  pegs: SplashPegs;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -2822,6 +2828,8 @@ function buildGame(
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.playCue('mineDrop')),
     drops: new Drops(stage.layers.dropWorld),
+    brackets: new HullBrackets(stage.layers.chartMark),
+    pegs: new SplashPegs(stage.layers.chartMark),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     foulZones: new FoulZones(stage.layers.litZone),
@@ -5038,6 +5046,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         plateFrame, g.hullSoftness, g.rainEye,
       );
       feedContactBodies(g, now);
+      renderChartMarks(g, g.camera.zoom, now); // Story 11.8: brackets, chart icons, splash pegs
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);
     },
   };

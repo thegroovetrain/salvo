@@ -127,6 +127,13 @@ export class ContactViews {
     return this.views.size;
   }
 
+  /** Every live contact hull view, fading ones included — the corner
+   *  brackets' read (Story 11.8, render/brackets.ts). Hulls only: a radar
+   *  paint is never a view here, so it never wears a bracket. */
+  *shipViews(): IterableIterator<ShipView> {
+    for (const fv of this.views.values()) yield fv.view;
+  }
+
   /** Brief hit flash on a contact (no-op if not currently viewed). */
   flash(id: string): void {
     this.views.get(id)?.view.flash();
