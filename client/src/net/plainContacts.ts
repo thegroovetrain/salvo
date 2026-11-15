@@ -22,21 +22,11 @@
 // Pure data, no Pixi. net → render one-way: the views read this store.
 
 import type { PlainContact } from '@salvo/shared';
-import { CONFIG, SHIP_CLASS_IDS } from '@salvo/shared';
+import { CONFIG, PLAIN_HULL_BEAM_U, PLAIN_HULL_LENGTH_U } from '@salvo/shared';
 import { RETENTION_MS, SnapshotBuffer, type Snapshot } from './snapshotBuffer.js';
 
-/**
- * u — the ONE length every plain hull is drawn at: the mean of the four hull
- * lengths (computed from CONFIG, never typed in). A plain hull's class is not
- * on the wire, so its size must not hint at one either. Also the tolerance the
- * tier handoff pairs a disappearing hull with an appearing one inside.
- */
-export const PLAIN_HULL_LENGTH_U =
-  SHIP_CLASS_IDS.reduce((s, id) => s + CONFIG.shipClasses[id].hull.length, 0) / SHIP_CLASS_IDS.length;
-
-/** u — the mean of the four hull beams (the plain hull's one beam). */
-export const PLAIN_HULL_BEAM_U =
-  SHIP_CLASS_IDS.reduce((s, id) => s + CONFIG.shipClasses[id].hull.beam, 0) / SHIP_CLASS_IDS.length;
+// The plain hull's one drawn size lives in shared (the server's rain gate uses it too).
+export { PLAIN_HULL_LENGTH_U, PLAIN_HULL_BEAM_U };
 
 /**
  * ms — how long a hull that left one channel stays pairable with a hull that

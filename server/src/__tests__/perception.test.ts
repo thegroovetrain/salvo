@@ -180,6 +180,8 @@ import {
   ZONE_BEATS_PER_GROUP,
   fogDepthReach,
   hullEnvelope,
+  PLAIN_HULL_BEAM_U,
+  PLAIN_HULL_LENGTH_U,
   paintSeed,
   segPolygonHit,
   segmentPaintSeed,
@@ -383,8 +385,9 @@ function sightedWithin(w: World, me: ShipRecord, p: { x: number; y: number }, ra
  *  `length × beam` rectangle about the hull's center, the length along its
  *  heading. (Production lays the same points with the shared series trig —
  *  under 1e-6 × the hull length away from these, far inside the dead band.) */
-function hullGridOracle(ship: ShipRecord): Array<{ x: number; y: number }> {
-  const { length, beam } = hullEnvelope(ship.hullId).hull;
+function hullGridOracle(ship: ShipRecord, plain: boolean): Array<{ x: number; y: number }> {
+  // A PLAIN row's grid is the one shared mean size (no class hint); the full row's is the class's.
+  const { length, beam } = plain ? { length: PLAIN_HULL_LENGTH_U, beam: PLAIN_HULL_BEAM_U } : hullEnvelope(ship.hullId).hull;
   const cols = CONFIG.fog.hullGridCols;
   const rows = CONFIG.fog.hullGridRows;
   const cos = Math.cos(ship.state.heading);
@@ -403,11 +406,11 @@ function hullGridOracle(ship: ShipRecord): Array<{ x: number; y: number }> {
 /** THE sight comparison of the two HULL rows (Story 11.6): the hull's CENTER
  *  inside the range cap on an island-clear ray — exactly the point rule — and
  *  ANY point of its sight grid through the rain. */
-function hullHeldWithin(w: World, me: ShipRecord, ship: ShipRecord, range: number, bound: Bound): boolean {
+function hullHeldWithin(w: World, me: ShipRecord, ship: ShipRecord, range: number, bound: Bound, plain = false): boolean {
   if (!(range > 0)) return false;
   if (!(dist(me.state, ship.state) <= range) || !sightClearOracle(w, me, ship.state)) return false;
   if (!w.fogFrameForTest().on) return true;
-  return hullGridOracle(ship).some((p) => rainAdmits(w, me.state, p, bound));
+  return hullGridOracle(ship, plain).some((p) => rainAdmits(w, me.state, p, bound));
 }
 
 /** Non-vacuity ledgers for the rain (the CLOUD_SIGHT_THROUGH idiom).
@@ -518,7 +521,7 @@ function eyeSeen(w: World, me: ShipRecord, p: { x: number; y: number }, reachU: 
 
 /** The OUTER eye tier for a hull: within the plain-hull reach (Story 11.2, R3) on its center, the rain on its sight grid. */
 function hullSighted(w: World, me: ShipRecord, ship: ShipRecord, bound: Bound = 'loose'): boolean {
-  return hullHeldWithin(w, me, ship, effHullSight(w, me), bound);
+  return hullHeldWithin(w, me, ship, effHullSight(w, me), bound, true);
 }
 
 /** A boom or a burst POINT: the splash reach. */
@@ -980,6 +983,31 @@ describe('perception — the two eye tiers (Story 11.2, R3)', () => {
     const beyond = look(w, 'a');
     expect(beyond.contacts).toEqual([]);
     expect('pc' in beyond).toBe(false);
+  });
+
+  it('the plain row\'s rain verdict is class-blind: two hulls of different classes at the same pose under the same rain are held or hidden alike, and both verdicts occur', () => {
+    const cols = CONFIG.fog.hullGridCols;
+    // Uniform rain whose edge, for the shared mean size, sits at PLAIN_D.
+    const density = RAIN_T / (PLAIN_D + 0.5 * PLAIN_HULL_LENGTH_U * (1 - 1 / cols));
+    const classes = [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[SHIP_CLASS_IDS.length - 1]];
+    const held = new Set<boolean>();
+    for (let k = -8; k <= 8; k++) {
+      const d = PLAIN_D + (k * PLAIN_HULL_LENGTH_U) / 8;
+      const verdicts = classes.map((cls) => {
+        const w = bareWorld();
+        // Both on the water (rain is 0 past the rim): the observer near the west edge, the target due east.
+        const x0 = -w.map.radius * 0.8;
+        place(w, 'a', x0, 0);
+        place(w, TARGET, x0 + d, 0, 0, DEFAULT_SHIFT, cls);
+        w.setFogFrameForTest(uniformRainFrame(w, density));
+        const f = look(w, 'a');
+        expect(f.contacts).toEqual([]);
+        return (f.pc ?? []).length === 1;
+      });
+      expect(verdicts[1], `d=${d}`).toBe(verdicts[0]);
+      held.add(verdicts[0]);
+    }
+    expect(held.size).toBe(2);
   });
 
   it('island LOS blocks the plain tier exactly as it blocks contacts: a hull in the band behind a rock is on neither tier, and stepping aside restores the plain row', () => {

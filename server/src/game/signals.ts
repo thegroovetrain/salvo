@@ -119,6 +119,8 @@ import {
   hullEnvelope,
   effectiveSight,
   whiteoutReach,
+  PLAIN_HULL_BEAM_U,
+  PLAIN_HULL_LENGTH_U,
   type PlainContact,
   type MineView,
   type MuzzleEvent,
@@ -400,14 +402,16 @@ function eyeHolds(field: SightField, me: ShipRecord, p: Vec2, range: number): bo
  * RAIN is asked of the hull's sight GRID: held while ANY of the
  * `CONFIG.fog.hullGridCols × hullGridRows` points of the shared `fogHullGrid`
  * over the hull's true pose and its class's `hullEnvelope(...).hull` length ×
- * beam has τ ≤ T (`field.fogHullAdmits`). The client draws each part from the
+ * beam (a PLAIN row: the shared mean `PLAIN_HULL_LENGTH_U` × `PLAIN_HULL_BEAM_U`) has τ ≤ T (`field.fogHullAdmits`). The client draws each part from the
  * same grid on the same field. Both hull rows call this at their own reach,
  * so the rain term is one answer for both tiers.
  */
-function hullHeld(field: SightField, me: ShipRecord, ship: ShipRecord, range: number): boolean {
+function hullHeld(field: SightField, me: ShipRecord, ship: ShipRecord, range: number, plain = false): boolean {
   const s = ship.state;
   if (!inReachAndClear(field, me, s, range)) return false;
-  const hull = hullEnvelope(ship.hullId).hull;
+  // A PLAIN row carries no class, so its grid is laid over the ONE shared mean
+  // size the client draws it at — never the true class size (a class hint).
+  const hull = plain ? { length: PLAIN_HULL_LENGTH_U, beam: PLAIN_HULL_BEAM_U } : hullEnvelope(ship.hullId).hull;
   return field.fogHullAdmits(me.state.x, me.state.y, s.x, s.y, s.heading, hull.length, hull.beam);
 }
 
@@ -816,7 +820,7 @@ const plainSignal: SignalSpec<ShipRecord, PlainContact> = {
     const me = ctx.me;
     if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || ship.id === me.id) return false;
     if (fullContactSeen(ctx, ship)) return false;
-    return hullHeld(ctx, me, ship, hullSightOf(me, ctx.now));
+    return hullHeld(ctx, me, ship, hullSightOf(me, ctx.now), true);
   },
   materialize(ctx, ship) {
     const s = ship.state;

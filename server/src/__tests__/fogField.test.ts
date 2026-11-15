@@ -299,7 +299,7 @@ describe('rain field — the memo lattice is the OCEAN, and a question is walked
     expect(w.fogWalks).toBe(before + 3);
   });
 
-  it('one observe() pass answers an observer → hull pair ONCE whichever eye tier the hull is in: a hull the rain hides costs at most one walk per grid point, though the contact row and the plain row both ask', () => {
+  it('one observe() pass answers an observer → hull pair ONCE whichever eye tier the hull is in: a hull the rain hides costs at most one walk per grid point per row (a class-size grid, a mean-size grid)', () => {
     const grid = CONFIG.fog.hullGridCols * CONFIG.fog.hullGridRows;
     for (const tier of ['inner', 'outer'] as const) {
       const w = new World(SEED, CONFIG.map.playerCap);
@@ -317,7 +317,9 @@ describe('rain field — the memo lattice is the OCEAN, and a question is walked
       expect(view.plain).toEqual([]);
       const cost = w.fogWalks - before;
       expect(cost, tier).toBeGreaterThan(0);
-      expect(cost, tier).toBeLessThanOrEqual(grid);
+      // The contact row asks the hull's class-size grid; the plain row of a hull
+      // the rain hides asks the shared mean-size grid (no class on that row).
+      expect(cost, tier).toBeLessThanOrEqual(tier === 'inner' ? 2 * grid : grid);
     }
   });
 });

@@ -29,6 +29,7 @@ import {
   RAIN_GRID_N,
   RAIN_GRID_ROWS,
   hullVisGrid,
+  floorSentHull,
   meanVisibility,
   needsDissolve,
   rainLookMode,
@@ -93,6 +94,25 @@ describe('hullVisGrid — V at the shared sight grid', () => {
     const dry = fogFrameAt(makeFogField(1, CONFIG.fog, OCEAN), T, null, 0, 0);
     hullVisGrid({ frame: dry, x: PART.eye.x, y: PART.eye.y }, PART.x, PART.y, 0, HULL.length, HULL.beam, new Float64Array(2 * RAIN_GRID_N), out);
     expect(out.every((v) => v === 1)).toBe(true);
+  });
+});
+
+describe('floorSentHull — a sent hull is never drawn fully gone', () => {
+  it('raises only the best part to the cutoff when every part is below it', () => {
+    const cut = CONFIG.fog.sightCutoffV;
+    const v = Float32Array.from({ length: RAIN_GRID_N }, (_, i) => (cut / 10) * (1 + i / RAIN_GRID_N));
+    const before = Float32Array.from(v);
+    const best = before.indexOf(Math.max(...before));
+    floorSentHull(v);
+    for (let i = 0; i < v.length; i++) expect(v[i]).toBe(i === best ? Math.fround(cut) : before[i]);
+  });
+
+  it('leaves a grid with any part at or above the cutoff untouched', () => {
+    const v = new Float32Array(RAIN_GRID_N).fill(0);
+    v[3] = CONFIG.fog.sightCutoffV;
+    const before = Float32Array.from(v);
+    floorSentHull(v);
+    expect(Array.from(v)).toEqual(Array.from(before));
   });
 });
 

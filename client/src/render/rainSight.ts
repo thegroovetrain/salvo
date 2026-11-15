@@ -60,6 +60,19 @@ export function hullVisGrid(
     const tau = fogDepthAlong(eye.frame, eye.x, eye.y, pts[2 * i], pts[2 * i + 1]);
     out[i] = fogVisibility(tau, CONFIG.fog);
   }
+  return floorSentHull(out, n);
+}
+
+/**
+ * Pure, in place: THE FLOOR for a hull the server SENT. The server held it, so
+ * the client must never draw it fully gone on a timing or cell difference: if
+ * every part's V is below `CONFIG.fog.sightCutoffV`, the BEST part is raised
+ * to the cutoff (the others stay). Returns `out`.
+ */
+export function floorSentHull(out: Float32Array, n: number = out.length): Float32Array {
+  let best = 0;
+  for (let i = 1; i < n; i++) if (out[i] > out[best]) best = i;
+  if (n > 0 && out[best] < CONFIG.fog.sightCutoffV) out[best] = CONFIG.fog.sightCutoffV;
   return out;
 }
 
