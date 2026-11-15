@@ -1582,9 +1582,9 @@ export interface FoulZoneView {
 /**
  * A MULTI-SPECTRAL COUNTERMEASURE cloud visible to this viewer (Story 9.3;
  * replaces 8.18's SmokeView), synced as CONTACT-LIKE state (not an event):
- * FrameMsg.clouds is recomputed per observer every tick. A CLIENT VISUAL
- * OVERLAY (Story 9.3 session 2, Eric 2026-10-12): the server hides nothing
- * behind or inside a cloud; the client paints it as smoke over the ships.
+ * FrameMsg.clouds is recomputed per observer every tick. The client paints it
+ * as smoke over the ships; since Story 11.6 (Eric 2026-11-14) the server's eye
+ * gates also pay its optical depth (sim/smokeDepth.ts) — sight only, never radar.
  * Delivered to the owner always, to spectators, and to any other observer
  * whose SENSORS reach its spray disc (radius `cloudOutlineRadius(age)`):
  * SIGHTED — the disc's nearest point within sight with island line of sight

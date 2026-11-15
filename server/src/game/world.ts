@@ -112,6 +112,8 @@ import {
   zoneLiveState,
   fogHullGrid,
   fogDensityAt as fieldDensityAt,
+  smokeDepthAlong,
+  cloudOutlineRadius,
   islandIndexFor,
   newLosHints,
   polyBox,
@@ -1585,6 +1587,42 @@ function fogDecided(bounds: FogBounds, sum: number, tDone: number, len: number):
   return false;
 }
 
+/** One live cloud as the sight gate reads it this instant (a shared
+ *  `SmokeDisc`, kept mutable so the per-question refresh allocates nothing). */
+interface SmokeScratchDisc {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** The smoke dials the sight gate hands the shared `smokeDepthAlong` — a
+ *  mirror of `CONFIG.countermeasure.sightThickness` / `sightSoftFrac`,
+ *  re-read at every refresh (`World.smokeRefresh`). */
+const SMOKE_SIGHT = { thickness: 0, softFrac: 0 };
+
+/** Bring `SMOKE_SIGHT` up to CONFIG; true when a dial moved. */
+function smokeDialsMoved(): boolean {
+  const { sightThickness, sightSoftFrac } = CONFIG.countermeasure;
+  if (SMOKE_SIGHT.thickness === sightThickness && SMOKE_SIGHT.softFrac === sightSoftFrac) return false;
+  SMOKE_SIGHT.thickness = sightThickness;
+  SMOKE_SIGHT.softFrac = sightSoftFrac;
+  return true;
+}
+
+/** Write cloud `c`'s disc at radius `r` into `discs[n]`; true when that slot changed. */
+function smokeDiscSet(discs: SmokeScratchDisc[], n: number, c: StoredCloud, r: number): boolean {
+  const d = discs[n];
+  if (d === undefined) {
+    discs[n] = { x: c.x, y: c.y, r };
+    return true;
+  }
+  if (d.x === c.x && d.y === c.y && d.r === r) return false;
+  d.x = c.x;
+  d.y = c.y;
+  d.r = r;
+  return true;
+}
+
 /** The one-entry hull-gate memo's key (see `World.fogHullAdmits`). */
 interface FogHullQuestion {
   ax: number;
@@ -1682,10 +1720,12 @@ export class World {
    * by id (`cl${n}`), in PRESS order. Each is a stationary cloud made at its
    * owner's centre by a SMOKE press (makeCloud — ONE per press; the press is a
    * cooldown ability since Story 10.5), born at `bornAt`, deleted by stepClouds once `now >= until`
-   * (bornAt + lifeMs). A CLIENT VISUAL OVERLAY (Story 9.3 session 2, Eric
-   * 2026-10-12): it occludes NO sensor on the server; the `cloud` registry
-   * row ships each cloud a client may sense as `{id,x,y,t0}` and the client
-   * paints it. WORLD-
+   * (bornAt + lifeMs). IT OCCLUDES SIGHT LIKE RAIN (Story 11.6, Eric
+   * 2026-11-14 — superseding Story 9.3 session 2's "client visual overlay"):
+   * every live cloud adds optical depth to every eye line through its spray
+   * disc (`smokeDiscs` / `fogSightAdmits` below), the owner's lines too; it
+   * never blocks radar. The `cloud` registry row ships each cloud a client
+   * may sense as `{id,x,y,t0,lifeMs,r0,r1}` and the client paints it. WORLD-
    * OWNED, not on the hull: a cloud runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
    * outlives its owner); only resetForMatchStart clears the map (the mines
@@ -2014,7 +2054,7 @@ export class World {
    * its answer — the gate is a pure function of (ray, epoch), so a row that
    * re-asks the previous row's ray pays a compare instead of a walk.
    */
-  private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, seen: false };
+  private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, smoke: -1, seen: false };
   /**
    * The one-entry HULL-GATE memo: `fogHullAdmits`' last question and answer.
    * For a hull inside the class reach the ship scan asks about the one
@@ -2022,7 +2062,23 @@ export class World {
    * "not a full contact" term and its own outer-tier term), so the repeats
    * are a compare instead of up to a whole grid of walks.
    */
-  private readonly fogHullMemo = { ax: NaN, ay: NaN, cx: NaN, cy: NaN, heading: NaN, lengthU: NaN, beamU: NaN, epoch: 0, seen: false };
+  private readonly fogHullMemo = { ax: NaN, ay: NaN, cx: NaN, cy: NaN, heading: NaN, lengthU: NaN, beamU: NaN, epoch: 0, smoke: -1, seen: false };
+  /**
+   * THE SMOKE THE EYE READS (Story 11.6 scope add, Eric 2026-11-14: "smoke
+   * occludes sight like rain", the owner blinded too, never radar): every
+   * cloud in `clouds` as a disc at its radius NOW — the shared
+   * `cloudOutlineRadius(now − bornAt, the cloud's own stamp)` — in press
+   * order. Rebuilt IN PLACE at the top of every gate question
+   * (`smokeRefresh`: a few compares per live cloud, nothing with none), so
+   * the gate can never read a stale set whoever wrote the store; the shared
+   * `smokeDepthAlong` integrates it with `CONFIG.countermeasure`'s
+   * `sightThickness` / `sightSoftFrac`. `smokeEpoch` advances whenever the
+   * set differs from the last question's (a cloud made, grown — every tick
+   * while one lives — or gone, or a dial moved): the one-entry gate memos
+   * key on it beside the rain epoch.
+   */
+  private readonly smokeDiscs: SmokeScratchDisc[] = [];
+  private smokeEpoch = 0;
   /** Lattice walks since construction — the gate's work accounting (tests, the tick-cost probe). */
   private fogWalkCount = 0;
   /**
@@ -4606,8 +4662,8 @@ export class World {
   /**
    * Every live COUNTERMEASURE cloud as a read-only array (Story 9.3). THE
    * reader: perception (once per observer context — `SignalContextBase.clouds`,
-   * the `cloud` channel's subjects; a cloud occludes nothing since Story 9.3
-   * session 2). A fresh snapshot per call, so a caller can never mutate the
+   * the `cloud` channel's subjects; what a cloud hides is the sight gate's
+   * business — `fogSightAdmits`). A fresh snapshot per call, so a caller can never mutate the
    * store through it.
    */
   get cloudRecords(): readonly StoredCloud[] {
@@ -4666,53 +4722,117 @@ export class World {
   }
 
   /**
-   * THE EYE'S RAIN QUESTION, ANSWERED WITHOUT THE WHOLE WALK WHEN THE ANSWER
-   * IS ALREADY DECIDED: does the eye at A see the point B through the rain —
-   * exactly `fogDepthAlong(ax, ay, bx, by) <= T`. THE one entry of the rain
-   * into perception for a POINT (signals.ts `eyeHolds`, through the context's
-   * `fogAdmits` thunk); a hull asks `fogHullAdmits`. The caller has already
-   * established its range cap and island line of sight.
+   * THE OPTICAL DEPTH τ of the SMOKE on the ray A → B right now: the shared
+   * `smokeDepthAlong` over every live cloud's disc at its current radius
+   * (`smokeDiscs`) with `CONFIG.countermeasure`'s sight dials — in the rain's
+   * own units, so the two add. No observer exemption (a cloud A stands in
+   * counts from A to its rim, the owner's included). 0 with no cloud. The
+   * sight gate's smoke term, exposed as the reference the gate is held to
+   * (`fogGate.test.ts`); never a radar input.
+   */
+  smokeDepthAlong(ax: number, ay: number, bx: number, by: number): number {
+    if (this.smokeRefresh() === 0) return 0;
+    return smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, SMOKE_SIGHT);
+  }
+
+  /** Bring `smokeDiscs` up to this instant (see there); returns how many
+   *  clouds are live. With none — and none last time — it is one size read. */
+  private smokeRefresh(): number {
+    const discs = this.smokeDiscs;
+    const live = this.clouds.size;
+    if (live === 0 && discs.length === 0) return 0;
+    let changed = smokeDialsMoved() || discs.length !== live;
+    let n = 0;
+    for (const c of this.clouds.values()) {
+      if (smokeDiscSet(discs, n, c, cloudOutlineRadius(this.now - c.bornAt, c))) changed = true;
+      n += 1;
+    }
+    discs.length = n;
+    if (changed) this.smokeEpoch += 1;
+    return n;
+  }
+
+  /**
+   * THE EYE'S QUESTION, ANSWERED WITHOUT THE WHOLE WALK WHEN THE ANSWER IS
+   * ALREADY DECIDED: does the eye at A see the point B through the rain AND
+   * THE SMOKE — exactly `fogDepthAlong(ray) <= T − smokeDepthAlong(ray)`
+   * (total optical depth τ_rain + τ_smoke against the one threshold T; Story
+   * 11.6 scope add, Eric 2026-11-14). THE one entry of the weather into
+   * perception for a POINT (signals.ts `eyeHolds`, through the context's
+   * `fogAdmits` thunk); a hull asks `fogHullAdmits`; the cloud row's own
+   * sight arm asks `fogRainAdmits` (smoke never hides smoke). The caller has
+   * already established its range cap and island line of sight.
    *
-   * τ is a sum of non-negative terms over one cell walk, so two bounds decide
-   * early and EXACTLY:
+   * THE SMOKE TERM COMES FIRST — it is analytic (a chord per live cloud, the
+   * shared `smokeDepthAlong`) — and the rain walk then runs against the
+   * budget it leaves, `T − τ_smoke`. A ray that touches no cloud has
+   * τ_smoke = 0 exactly, so its budget is T and its walk is the rain-only
+   * walk, step for step; with no cloud alive the smoke term is not computed
+   * at all.
+   *
+   * The rain's τ is a sum of non-negative terms over one cell walk, so two
+   * bounds decide early and EXACTLY:
    *   - a density is at most 1, so τ is at most the ray's length on the
-   *     lattice: a ray no longer than T (less FOG_DECIDE_SLACK, which
-   *     swallows the walk's float dust many times over) is seen with no walk
-   *     at all, and the same bound over the cells still ahead ends a walk the
-   *     moment the rest cannot matter;
-   *   - the running sum never decreases, so the moment it is past T the
-   *     answer is "no" (checked with the final comparison's own expression,
-   *     so it cannot disagree with it).
+   *     lattice: a ray no longer than the budget (less FOG_DECIDE_SLACK,
+   *     which swallows the walk's float dust many times over) is seen with no
+   *     walk at all, and the same bound over the cells still ahead ends a
+   *     walk the moment the rest cannot matter;
+   *   - the running sum never decreases, so the moment it is past the budget
+   *     the answer is "no" (checked with the final comparison's own
+   *     expression, so it cannot disagree with it).
    * A walk that neither bound ends runs to the end and takes the reference
    * comparison. Never an approximation.
    */
   fogSightAdmits(ax: number, ay: number, bx: number, by: number): boolean {
-    if (!this.fogFrame.on) return true;
+    const smoky = this.smokeRefresh() > 0;
+    if (!smoky && !this.fogFrame.on) return true;
     const memo = this.fogGateMemo;
-    if (memo.epoch === this.fogEpoch && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.seen;
-    const seen = this.fogSightWalked(ax, ay, bx, by);
+    if (this.memoCurrent(memo) && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.seen;
+    const seen = this.fogSightWalked(ax, ay, bx, by, smoky);
     memo.ax = ax;
     memo.ay = ay;
     memo.bx = bx;
     memo.by = by;
     memo.epoch = this.fogEpoch;
+    memo.smoke = this.smokeEpoch;
     memo.seen = seen;
     return seen;
   }
 
+  /** Was a one-entry gate memo written under the current rain epoch AND the
+   *  current smoke set? (A live cloud grows every tick, so the smoke epoch
+   *  moves with it.) */
+  private memoCurrent(memo: { epoch: number; smoke: number }): boolean {
+    return memo.epoch === this.fogEpoch && memo.smoke === this.smokeEpoch;
+  }
+
   /**
-   * THE EYE'S RAIN QUESTION FOR A HULL (Story 11.6 — "you see the parts of a
+   * THE RAIN ALONE: does the eye at A see the point B through the rain,
+   * whatever smoke lies on the line — exactly `fogDepthAlong(ray) <= T`.
+   * Read by ONE row: the `cloud` channel's sight arm (signals.ts
+   * `discSighted` — Story 11.6: a cloud's own visibility is never occluded
+   * by smoke; you can always see a smoke cloud you would otherwise see). No
+   * memo (a handful of rays per observer).
+   */
+  fogRainAdmits(ax: number, ay: number, bx: number, by: number): boolean {
+    if (!this.fogFrame.on) return true;
+    return this.fogSightWalked(ax, ay, bx, by, false);
+  }
+
+  /**
+   * THE EYE'S QUESTION FOR A HULL (Story 11.6 — "you see the parts of a
    * ship the rain lets through"): does the eye at A see ANY point of the
    * hull's sight grid — the shared `fogHullGrid`, `CONFIG.fog.hullGridCols ×
    * hullGridRows` cell centers of the hull's `lengthU × beamU` rectangle at
-   * its true pose — through the rain: `fogSightAdmits(A → point)` for at
-   * least one point. Asked middle columns first (`hullGridOrder`), the first
-   * passing point wins. The caller has already established the tier's range
-   * cap and island line of sight on the hull's center. With no rain: true,
-   * no work.
+   * its true pose — through the rain and the smoke: the point gate's own
+   * answer (`fogSightAdmits(A → point)`) for at least one point. Asked
+   * middle columns first (`hullGridOrder`), the first passing point wins.
+   * The caller has already established the tier's range cap and island line
+   * of sight on the hull's center. With no rain and no cloud: true, no work.
    */
   fogHullAdmits(ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number): boolean {
-    if (!this.fogFrame.on) return true;
+    const smoky = this.smokeRefresh() > 0;
+    if (!smoky && !this.fogFrame.on) return true;
     const q = FOG_HULL_Q;
     q.ax = ax;
     q.ay = ay;
@@ -4722,21 +4842,22 @@ export class World {
     q.lengthU = lengthU;
     q.beamU = beamU;
     const memo = this.fogHullMemo;
-    if (memo.epoch === this.fogEpoch && sameHullQuestion(memo, q)) return memo.seen;
-    const seen = this.fogHullWalked(q);
+    if (this.memoCurrent(memo) && sameHullQuestion(memo, q)) return memo.seen;
+    const seen = this.fogHullWalked(q, smoky);
     Object.assign(memo, q);
     memo.epoch = this.fogEpoch;
+    memo.smoke = this.smokeEpoch;
     memo.seen = seen;
     return seen;
   }
 
   /** `fogHullAdmits`, computed (its only caller holds the one-entry memo). */
-  private fogHullWalked(q: FogHullQuestion): boolean {
+  private fogHullWalked(q: FogHullQuestion, smoky: boolean): boolean {
     const pts = this.fogHullPts;
     const cols = Math.max(1, Math.floor(CONFIG.fog.hullGridCols));
     const n = fogHullGrid(q.cx, q.cy, q.heading, q.lengthU, q.beamU, cols, pts.length / (2 * cols), pts);
     for (const k of this.fogHullOrder) {
-      if (k < n && this.fogSightWalked(q.ax, q.ay, pts[2 * k], pts[2 * k + 1])) return true;
+      if (k < n && this.fogSightWalked(q.ax, q.ay, pts[2 * k], pts[2 * k + 1], smoky)) return true;
     }
     return false;
   }
@@ -4800,11 +4921,19 @@ export class World {
   }
 
   /** `fogSightAdmits`, computed (no memo — the point gate and the hull gate
-   *  each hold their own). */
-  private fogSightWalked(ax: number, ay: number, bx: number, by: number): boolean {
-    if (!this.fogSpan(ax, ay, bx, by)) return true; // τ = 0
+   *  each hold their own). `smoky`: add the live clouds' depth (the caller
+   *  refreshed `smokeDiscs`); false reads the rain alone. */
+  private fogSightWalked(ax: number, ay: number, bx: number, by: number, smoky: boolean): boolean {
+    // THE BUDGET the rain may spend: T less the smoke on the ray. Exactly T
+    // when the ray touches no cloud (τ_smoke is exactly 0 then).
+    let T = this.fogMaxDepthU;
+    if (smoky) {
+      const smoke = smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, SMOKE_SIGHT);
+      if (smoke > T) return false; // the smoke alone hides it
+      T -= smoke;
+    }
+    if (!this.fogFrame.on || !this.fogSpan(ax, ay, bx, by)) return true; // no rain on the ray
     const span = FOG_SPAN;
-    const T = this.fogMaxDepthU;
     const len = Math.sqrt(span.dx * span.dx + span.dy * span.dy);
     // In the walk's own units (Σ density × fraction of the span, at most 1)
     // the gate reads `sum × len <= T`: `room` is the sum the gate can absorb,

@@ -51,13 +51,20 @@
 // march (visibilityTo over the height raster) rather than binary island LOS —
 // see blipGate.
 //
-// A MULTI-SPECTRAL COUNTERMEASURE cloud HIDES NOTHING (Story 9.3 session 2,
-// Eric ruling 2026-10-12: "rather than fucking with whether I can see
-// something, just draw it on top of ships"): it is a CLIENT VISUAL OVERLAY.
-// The server only places and times it and delivers {id,x,y,t0} through the
-// `cloud` row; no sight, flare, radar or wake gate reads a cloud. (History:
-// Story 8.18's smoke and cycle 174's pixel cloud blocked sight and radar —
-// both rules are retired.)
+// A SMOKE SCREEN (MULTI-SPECTRAL COUNTERMEASURE) cloud OCCLUDES SIGHT LIKE
+// RAIN (Story 11.6 scope add, Eric 2026-11-14 — superseding Story 9.3
+// session 2's "it hides nothing, just draw it on top of ships"): every live
+// cloud adds optical depth to every eye line through its spray disc, so the
+// weather term of `eyeHolds` / `hullHeld` is τ_rain + τ_smoke ≤ T — one
+// answer from the World's gate (`fogSightAdmits` / `fogHullAdmits`, the
+// shared `smokeDepthAlong`). THE OWNER IS BLINDED TOO (no owner exemption on
+// any eye line). SMOKE NEVER BLOCKS RADAR: no radar, wake, zone-circle or
+// foghorn gate reads a cloud, and an owned star-shell zone (`ownZoneCovers`
+// — lit from above) is not an eye line either. THE CLOUD ROW ITSELF is
+// delivered on the rain alone (`eyeHoldsThroughRain`): smoke never hides
+// smoke. The server still places and times the cloud and delivers
+// {id,x,y,t0,lifeMs,r0,r1} through the `cloud` row. (History: Story 8.18's
+// smoke and cycle 174's pixel cloud blocked sight AND radar — retired.)
 //
 // Rows see a NARROW SignalContext (the ActivationContext pattern from
 // equipment/index.ts) — the observer's ship record, tick time, islands for LOS,
@@ -177,22 +184,31 @@ interface SignalContextBase {
   foulZones: ReadonlyMap<string, FoulZone>;
   /** Every LIVE MULTI-SPECTRAL COUNTERMEASURE cloud this tick (Story 9.3 —
    *  World.clouds, snapshotted by perception per observer pass): the `cloud`
-   *  channel's scan subjects and NOTHING else — a cloud occludes no sensor
-   *  (Eric 2026-10-12: it is a client overlay). Rides both paths uniformly. */
+   *  channel's scan subjects and NOTHING else. What a cloud HIDES (Story
+   *  11.6, Eric 2026-11-14: smoke occludes sight like rain, the owner's too,
+   *  never radar) is not read from this list: it is inside `fogAdmits` /
+   *  `fogHullAdmits` below. Rides both paths uniformly. */
   readonly clouds: readonly StoredCloud[];
   /**
-   * THE RAIN GATE on a ray (Story 11.6 — `World.fogSightAdmits` bound by
-   * perception.ts): does the eye at A see the point B through the rain right
-   * now — optical depth τ(A → B) ≤ T — read by every sight comparison through
-   * `eyeHolds`. Rides both paths uniformly; the spectator path never calls
-   * it (spectators are unfogged). Never a radar input (amendment 149).
+   * THE WEATHER GATE on a ray (Story 11.6 — `World.fogSightAdmits` bound by
+   * perception.ts): does the eye at A see the point B through the rain AND
+   * the smoke right now — total optical depth τ_rain + τ_smoke of A → B at
+   * most T — read by every sight comparison through `eyeHolds`. Rides both
+   * paths uniformly; the spectator path never calls it (spectators are
+   * unfogged). Never a radar input (amendment 149; smoke never blocks radar).
    */
   readonly fogAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
   /**
-   * THE RAIN GATE on a HULL (Story 11.6 — `World.fogHullAdmits`): does the
+   * THE RAIN ALONE on a ray (`World.fogRainAdmits`): `fogAdmits` without the
+   * smoke term. Read by ONE site — the `cloud` row's sight arm
+   * (`discSighted`): a cloud's own visibility is never occluded by smoke.
+   */
+  readonly fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
+  /**
+   * THE WEATHER GATE on a HULL (Story 11.6 — `World.fogHullAdmits`): does the
    * eye at A see ANY point of the sight grid of a hull `lengthU × beamU` at
-   * (cx, cy, heading) through the rain. Read by the two hull rows alone
-   * (`hullHeld`); inert on the spectator path.
+   * (cx, cy, heading) through the rain and the smoke. Read by the two hull
+   * rows alone (`hullHeld`); inert on the spectator path.
    */
   readonly fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => boolean;
   /**
@@ -315,11 +331,11 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
  * THE sight predicate: may observer `me` see point `b` optically? Iff no
  * island coastline lies on the segment (losClear from the observer's own
  * state). Every sight-tier gate calls this — the contact row, pointSighted,
- * the named point reaches, shipSees, the mz/sm halos and the foghorn muffle. No cloud term (Story 9.3 session
- * 2, Eric 2026-10-12: the countermeasure is a client overlay — cycle 174's
- * pixel occlusion and Story 8.18's smoke clamp are retired). No rain term
- * EITHER: rain is its own gate — it lives in `eyeHolds` beside this, never
- * here (a ray lost in rain is still island-clear). Takes
+ * the named point reaches, shipSees, the mz/sm halos and the foghorn muffle. No cloud term and no rain term
+ * HERE: the weather (rain, and since Story 11.6 the SMOKE SCREEN clouds) is
+ * its own gate — it lives in `eyeHolds` beside this, never here (a ray lost
+ * in rain or smoke is still island-clear, and the foghorn muffle reads the
+ * islands alone). Takes
  * the RECORD, not a Vec2, so every caller threads the observer's own state
  * the same way.
  */
@@ -335,9 +351,11 @@ export function sightClear(me: ShipRecord, b: Vec2, islands: readonly Island[]):
  */
 export interface SightField {
   readonly islands: readonly Island[];
-  /** The rain gate on a ray: τ(A → B) ≤ T (see `SignalContextBase.fogAdmits`). The observer is ALWAYS the A end. */
+  /** The weather gate on a ray: τ_rain + τ_smoke of A → B ≤ T (see `SignalContextBase.fogAdmits`). The observer is ALWAYS the A end. */
   readonly fogAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
-  /** The rain gate on a hull's sight grid (see `SignalContextBase.fogHullAdmits`). */
+  /** The rain alone on a ray (see `SignalContextBase.fogRainAdmits`) — the cloud row's sight arm only. */
+  readonly fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
+  /** The weather gate on a hull's sight grid (see `SignalContextBase.fogHullAdmits`). */
   readonly fogHullAdmits: (ax: number, ay: number, cx: number, cy: number, heading: number, lengthU: number, beamU: number) => boolean;
   /** OPTIONAL: the broadphase index of `islands` (see `SignalContextBase.los`). */
   readonly los?: IslandIndex;
@@ -372,10 +390,12 @@ function inReachAndClear(field: SightField, me: ShipRecord, p: Vec2, range: numb
  * THE one EYE test for a POINT (Story 9.10; Story 11.2; the rain gate since
  * Story 11.6): is point `p` held by the observer's eye at `range` — within
  * `range` (an unchanged cap, boundary inclusive), on an island-clear ray, AND
- * through the rain: the optical depth τ of the ray observer → p at most T
- * (`field.fogAdmits`). Every point site calls this — every point reach,
- * discSighted (to the nearest rim point) and the mz/sm halos. A HULL asks
- * `hullHeld` instead.
+ * through the weather: the optical depth τ of the ray observer → p — the
+ * rain's plus every live SMOKE SCREEN cloud's (Story 11.6 scope add, Eric
+ * 2026-11-14; the observer's own cloud included) — at most T
+ * (`field.fogAdmits`). Every point site calls this — every point reach and
+ * the mz/sm halos. A HULL asks `hullHeld` instead; a CLOUD's own disc asks
+ * `eyeHoldsThroughRain` (smoke never hides smoke).
  *
  * CHEAPEST REJECT FIRST, EXACT WORK LAST (Story 11.2 follow-up — the three
  * terms are a pure AND, so the order changes the cost and never the answer):
@@ -394,12 +414,25 @@ function eyeHolds(field: SightField, me: ShipRecord, p: Vec2, range: number): bo
 }
 
 /**
+ * `eyeHolds` with the RAIN ALONE as the weather term (`field.fogRainAdmits`)
+ * — the same range cap and island line of sight, no smoke. ONE caller: the
+ * `cloud` row's sight arm (`discSighted`). Ruling (Story 11.6): a cloud's own
+ * visibility is not occluded by smoke — you can always see a smoke cloud you
+ * would otherwise see (its own depth, or a nearer cloud's, never hides it).
+ */
+function eyeHoldsThroughRain(field: SightField, me: ShipRecord, p: Vec2, range: number): boolean {
+  if (!inReachAndClear(field, me, p, range)) return false;
+  return field.fogRainAdmits(me.state.x, me.state.y, p.x, p.y);
+}
+
+/**
  * THE one EYE test for a HULL (Story 11.6, Eric 2026-11-14 — "you see the
  * parts of a ship the rain lets through"): is `ship` held by the observer's
  * eye at `range`. RANGE AND ISLAND LINE OF SIGHT ARE THE HULL'S CENTER'S,
  * exactly as before (the tier reaches stay caps on the center, and an island
  * hides a hull by its center ray — no new "half behind an island" rule); THE
- * RAIN is asked of the hull's sight GRID: held while ANY of the
+ * RAIN AND THE SMOKE (one total optical depth per grid ray) are asked of the
+ * hull's sight GRID: held while ANY of the
  * `CONFIG.fog.hullGridCols × hullGridRows` points of the shared `fogHullGrid`
  * over the hull's true pose and its class's `hullEnvelope(...).hull` length ×
  * beam (a PLAIN row: the shared mean `PLAIN_HULL_LENGTH_U` × `PLAIN_HULL_BEAM_U`) has τ ≤ T (`field.fogHullAdmits`). The client draws each part from the
@@ -526,8 +559,9 @@ function muzzleFlashReach(): number {
  * dist(p, zone center) ≤ zone radius, boundary INCLUSIVE. "Lit from above" —
  * deliberately NO island-LOS term on any zone path (an island between the
  * observer and a lit point never blocks the reveal; the flare hangs over the
- * water), and no cloud term (Story 9.3 session 2, Eric 2026-10-12: a cloud
- * hides nothing — amendment 142's flare-blinding term is retired with it).
+ * water), and no cloud term (amendment 142's flare-blinding term stays
+ * retired; Story 11.6's smoke occlusion is on EYE LINES only, and a zone
+ * lit from above is not one).
  * FIRER-ONLY by construction: only zones whose ownerId is the observer
  * count, so a non-owner NEVER gains contacts/mines/ballistics from someone
  * else's zone. Feeds the contact/mine/ballistic rows as an OR beside their
@@ -589,8 +623,8 @@ function sweptDiscThisTick(me: ShipRecord, c: Vec2, r: number): boolean {
  * raster replaced binary island LOS on this one gate; a partially shadowed
  * hull still returns something and is therefore disclosed, and only vis = 0 —
  * past the residual reach, or behind hard cover ≥ mast height — deletes the
- * blip). No cloud term (Story 9.3 session 2, Eric 2026-10-12: a cloud hides
- * nothing — 8.18's in-bubble smoke clause and cycle 174's radarClear are
+ * blip). No cloud term (smoke NEVER blocks radar — Story 9.3 session 2, kept
+ * by Story 11.6; 8.18's in-bubble smoke clause and cycle 174's radarClear are
  * retired; the gate is byte-identical to pre-8.18). The march is the SAME
  * shared function the client's beam march runs (the story's one-
  * implementation constraint), which is what keeps the scope and the gate
@@ -1020,10 +1054,10 @@ const foulZoneSignal: SignalSpec<FoulZone, FoulZoneView> = {
 /**
  * `cloud` — the MULTI-SPECTRAL COUNTERMEASURE cloud (Story 9.3 — 8.18's
  * `smoke` seat): contact-like state (NOT events), recomputed every tick like
- * mines, in Map-insertion (press) order. A cloud is a CLIENT VISUAL OVERLAY
- * (Story 9.3 session 2, Eric ruling 2026-10-12: "just draw it on top of
- * ships") — it hides nothing on the server; this row is only how each client
- * learns there is one to paint. THE DELIVERY GATE senses the cloud's SPRAY
+ * mines, in Map-insertion (press) order. This row is only how each client
+ * learns there is a cloud to paint; what the cloud HIDES (Story 11.6: it
+ * occludes sight like rain) lives in the weather gate (`eyeHolds` /
+ * `hullHeld`), never here. THE DELIVERY GATE senses the cloud's SPRAY
  * DISC (centre, radius `cloudOutlineRadius(age, cloud)` — the cloud's own
  * STAMPED r0 → r1 over its stamped life, Story 10.6), sensor-based as amendment 51 ruled ("If I can see smoke particles
  * in my sight range, I want them composited … If it's detected by my radar,
@@ -1066,16 +1100,18 @@ function nearestRimPoint(o: Vec2, c: Vec2, r: number): Vec2 {
 
 /** Clause (a): the disc's nearest point within sight on an island-clear
  *  segment. `d` is the observer→centre distance, `r` the disc radius.
- *  The segment to the nearest rim point passes the rain gate (eyeHolds —
- *  its plain test is the old `d − r ≤ sightOf`), observer first like every
- *  other ray (Story 11.6: no own-bank exemption — an observer standing in
- *  rain pays for it on that segment too). */
+ *  The segment to the nearest rim point passes the RAIN gate
+ *  (`eyeHoldsThroughRain` — its plain test is the old `d − r ≤ sightOf`),
+ *  observer first like every other ray (Story 11.6: no own-bank exemption —
+ *  an observer standing in rain pays for it on that segment too). THE RAIN
+ *  ALONE — never the smoke (Story 11.6 ruling): a cloud's own visibility is
+ *  not occluded by smoke, its own or another's. */
 function discSighted(ctx: FoggedSignalContext, cloud: StoredCloud, d: number, r: number): boolean {
   const me = ctx.me;
   const sight = sightOf(me, ctx.now);
   if (d - r > sight) return false;
   const rim = nearestRimPoint(me.state, cloud, r);
-  return eyeHolds(ctx, me, rim, sight);
+  return eyeHoldsThroughRain(ctx, me, rim, sight);
 }
 
 /** Clause (b): the disc's nearest point within radar range, its bearing span
@@ -1133,8 +1169,8 @@ const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
  * zone the observer OWNS paints too (amendment 210 ruling (a) — the entire
  * sweep; the old "already a FULL contact — never doubled" exclusion of
  * Story 1.7 is retired, so the zone has no term in this row). No cloud term
- * anywhere (Story 9.3 session 2: a cloud hides nothing — a hull inside
- * anyone's cloud paints like any hull). The row is self-contained: the scan
+ * on the radar half (smoke never blocks radar — a hull inside anyone's
+ * cloud paints like any hull; the contact half's eye gate reads the smoke). The row is self-contained: the scan
  * tests contact and blip independently. Spectators get live contacts
  * instead, never blips.
  *
@@ -1393,8 +1429,8 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
  * bound (`wakeInnerBound` — sight for ship water, detect for torpedo water,
  * cycle-69 review gate P2) and the in-bubble torpedo-water clause that used
  * the eye's binary LOS + weather gate are retired; in-bubble water is a radar
- * return like any other. No cloud term (Story 9.3 session 2, Eric
- * 2026-10-12: a cloud hides nothing). Clause order is blipGate's cost order.
+ * return like any other. No cloud term (smoke never blocks radar). Clause
+ * order is blipGate's cost order.
  */
 function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   const me = ctx.me;
@@ -2318,9 +2354,9 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   foulzone: foulZoneSignal,
   // Story 9.3 (8.18's `smoke` seat): the MULTI-SPECTRAL COUNTERMEASURE
   // cloud's contact-like frame channel (owner always / spectators / its
-  // spray disc SIGHTED or RADAR-DETECTED). A cloud hides nothing (Story 9.3
-  // session 2, Eric 2026-10-12 — a client overlay); this row is only how
-  // the cloud itself ({id,x,y,t0}) reaches the client.
+  // spray disc SIGHTED — through the rain alone — or RADAR-DETECTED). This
+  // row is only how the cloud itself reaches the client; its occlusion of
+  // sight (Story 11.6) is inside the weather gate.
   cloud: cloudSignal,
   // RAIN HAS NO ROW (Story 9.10; Story 11.6) — the field is public weather
   // (welcome seed + the zone clock) and its hiding is the optical-depth gate

@@ -8,11 +8,19 @@
 // anti-cheat boundary: an early "seen" the whole walk would have refused is
 // a leak. The oracle is the whole walk itself, asked on a second World with
 // the identical frame so neither call can warm the other's memo.
+//
+// THE SMOKE TERM (Story 11.6 scope add, Eric 2026-11-14 — smoke occludes
+// sight like rain): with clouds alive the point gate answers exactly
+// `fogDepthAlong(ray) <= T − smokeDepthAlong(ray)` (total optical depth
+// against the one threshold), the hull gate the OR of that over the grid,
+// and `fogRainAdmits` stays the rain alone. A ray that touches no cloud
+// costs what it cost before, and the one-entry memos never serve an answer
+// from a smaller cloud.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, fogHullGrid, mulberry32, type FogFrame } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { RAIN_T, clearFrame, stormFrame, uniformRainFrame } from './rainFixture.js';
+import { RAIN_T, clearFrame, smokeDepthOracle, stormFrame, uniformRainFrame } from './rainFixture.js';
 
 const SEED = 31;
 const T = RAIN_T;
@@ -198,5 +206,210 @@ describe('World.fogHullAdmits — a hull is seen while ANY point of its sight gr
     expect(cost).toBeLessThanOrEqual(COLS * ROWS);
     expect(gate.fogHullAdmits(0, 0, T * 3, 0, 1.1, 120, 20)).toBe(false);
     expect(gate.fogWalks - before).toBe(cost);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE SMOKE TERM
+// ---------------------------------------------------------------------------
+
+const SMOKE = CONFIG.countermeasure;
+
+/** Seat a cloud on `w` as a press would store it, `frac` of the way through its life (its disc that far from r0 to r1). */
+function seatCloud(w: World, id: string, x: number, y: number, frac: number): void {
+  const bornAt = w.now - SMOKE.lifeMs * frac;
+  w.clouds.set(id, { id, ownerId: 'x', x, y, bornAt, until: bornAt + SMOKE.lifeMs, lifeMs: SMOKE.lifeMs, r0: SMOKE.r0, r1: SMOKE.r1 });
+}
+
+/** The disc radius of a cloud `frac` through its life (the stamp's own linear growth). */
+const discRadius = (frac: number): number => SMOKE.r0 + (SMOKE.r1 - SMOKE.r0) * frac;
+
+interface Seat { x: number; y: number; frac: number }
+
+/** The same seeded clouds on both Worlds of a pair; returns them. */
+function seedClouds(worlds: World[], seed: number, n: number, spread: number): Seat[] {
+  const rng = mulberry32(seed);
+  const seats: Seat[] = Array.from({ length: n }, () => ({ x: (rng.next() * 2 - 1) * spread, y: (rng.next() * 2 - 1) * spread, frac: rng.next() * 0.99 }));
+  for (const w of worlds) seats.forEach((c, i) => seatCloud(w, `cl${i}`, c.x, c.y, c.frac));
+  return seats;
+}
+
+/** Every weather the smoke term is held under: the four rains above, and no rain at all. */
+const SMOKE_WEATHERS: ReadonlyArray<[string, (w: World) => FogFrame]> = [...WEATHERS, ['no rain', clearFrame]];
+
+describe('the smoke term — total optical depth against the one threshold', () => {
+  it('the point gate equals `fogDepthAlong(ray) <= T − smokeDepthAlong(ray)` for seeded rays through seeded clouds under every weather and none; rays HID BY SMOKE (the rain alone would show them) and rays seen through smoke both occur, and the rain-only gate never reads the smoke', () => {
+    let hidBySmoke = 0;
+    let seenThroughSmoke = 0;
+    let untouched = 0;
+    SMOKE_WEATHERS.forEach(([name, build], wi) => {
+      const { gate, ref } = pair(build);
+      const spread = gate.map.radius * 0.25;
+      const seats = seedClouds([gate, ref], 0x5310c ^ wi, 12, spread);
+      const rng = mulberry32(0x7a9 ^ wi);
+      for (let n = 0; n < 500; n++) {
+        // Most rays start near a cloud (inside it, beside it) and run a few cloud widths; some run long.
+        const from = seats[n % seats.length];
+        const ax = from.x + (rng.next() * 2 - 1) * SMOKE.r1 * 2;
+        const ay = from.y + (rng.next() * 2 - 1) * SMOKE.r1 * 2;
+        const ang = rng.next() * 6.283185307179586;
+        const len = n % 5 === 0 ? 300 + rng.next() * 6000 : 20 + rng.next() * SMOKE.r1 * 4;
+        const bx = ax + Math.cos(ang) * len;
+        const by = ay + Math.sin(ang) * len;
+        const smoke = ref.smokeDepthAlong(ax, ay, bx, by);
+        const rainOnly = ref.fogDepthAlong(ax, ay, bx, by) <= T;
+        const want = ref.fogDepthAlong(ax, ay, bx, by) <= T - smoke;
+        expect(gate.fogSightAdmits(ax, ay, bx, by), `${name} ray ${n}`).toBe(want);
+        expect(gate.fogRainAdmits(ax, ay, bx, by), `${name} ray ${n}, the rain alone`).toBe(rainOnly);
+        if (smoke === 0) untouched += 1;
+        else if (want) seenThroughSmoke += 1;
+        else if (rainOnly) hidBySmoke += 1;
+      }
+    });
+    expect(hidBySmoke).toBeGreaterThan(0);
+    expect(seenThroughSmoke).toBeGreaterThan(0);
+    expect(untouched).toBeGreaterThan(0);
+  });
+
+  it('the hull gate equals the OR of the point rule over the shared `fogHullGrid`; hulls wholly hidden by smoke, partly seen past a cloud\'s edge and wholly seen all occur', () => {
+    let seen = 0;
+    let hidden = 0;
+    let partial = 0;
+    SMOKE_WEATHERS.forEach(([name, build], wi) => {
+      const { gate, ref } = pair(build);
+      const seats = seedClouds([gate, ref], 0xc10d ^ wi, 10, gate.map.radius * 0.2);
+      const rng = mulberry32(0x4a77 ^ wi);
+      const pts = new Float64Array(2 * COLS * ROWS);
+      for (let n = 0; n < 300; n++) {
+        const from = seats[n % seats.length];
+        const ax = from.x + (rng.next() * 2 - 1) * SMOKE.r1 * 3;
+        const ay = from.y + (rng.next() * 2 - 1) * SMOKE.r1 * 3;
+        const ang = rng.next() * 6.283185307179586;
+        const d = 40 + rng.next() * SMOKE.r1 * 4;
+        const [cx, cy, heading] = [ax + Math.cos(ang) * d, ay + Math.sin(ang) * d, rng.next() * 6.283185307179586];
+        const [length, beam] = [40 + rng.next() * 160, 8 + rng.next() * 24];
+        const count = fogHullGrid(cx, cy, heading, length, beam, COLS, ROWS, pts);
+        let passing = 0;
+        for (let k = 0; k < count; k++) {
+          const [px, py] = [pts[2 * k], pts[2 * k + 1]];
+          if (ref.fogDepthAlong(ax, ay, px, py) <= T - ref.smokeDepthAlong(ax, ay, px, py)) passing += 1;
+        }
+        expect(gate.fogHullAdmits(ax, ay, cx, cy, heading, length, beam), `${name} hull ${n}`).toBe(passing > 0);
+        if (passing === 0) hidden += 1;
+        else if (passing < count) partial += 1;
+        else seen += 1;
+      }
+    });
+    expect(seen).toBeGreaterThan(0);
+    expect(hidden).toBeGreaterThan(0);
+    expect(partial).toBeGreaterThan(0);
+  });
+
+  it('with no rain the smoke alone decides, with no lattice walk: a ray through a grown cloud is hidden, the ray beside it is seen', () => {
+    const { gate } = pair(clearFrame);
+    seatCloud(gate, 'c', 0, 0, 0.9);
+    const r = discRadius(0.9);
+    const before = gate.fogWalks;
+    expect(gate.smokeDepthAlong(-r * 2, 0, r * 2, 0)).toBeGreaterThan(T); // premise: the center chord is past the threshold
+    expect(gate.fogSightAdmits(-r * 2, 0, r * 2, 0)).toBe(false);
+    expect(gate.fogHullAdmits(-r * 2, 0, r * 2, 0, 0.3, 100, 16)).toBe(false);
+    expect(gate.fogSightAdmits(-r * 2, r * 1.5, r * 2, r * 1.5)).toBe(true);
+    expect(gate.fogRainAdmits(-r * 2, 0, r * 2, 0)).toBe(true);
+    expect(gate.fogWalks).toBe(before);
+  });
+
+  it('NO OBSERVER EXEMPTION: the smoke on a ray from inside a cloud counts from the eye out, whoever owns the cloud — the depth is the same with either hull named the owner', () => {
+    const { gate, ref } = pair(clearFrame);
+    for (const [w, owner] of [[gate, 'me'], [ref, 'them']] as const) {
+      const bornAt = w.now - SMOKE.lifeMs * 0.9;
+      w.clouds.set('c', { id: 'c', ownerId: owner, x: 0, y: 0, bornAt, until: bornAt + SMOKE.lifeMs, lifeMs: SMOKE.lifeMs, r0: SMOKE.r0, r1: SMOKE.r1 });
+    }
+    const out = discRadius(0.9) * 2;
+    expect(gate.smokeDepthAlong(0, 0, out, 0)).toBeGreaterThan(0);
+    expect(gate.smokeDepthAlong(0, 0, out, 0)).toBe(ref.smokeDepthAlong(0, 0, out, 0));
+    expect(gate.fogSightAdmits(0, 0, out, 0)).toBe(ref.fogSightAdmits(0, 0, out, 0));
+  });
+
+  it('a ray that touches no cloud costs exactly what it cost with no cloud alive: the same answers and the same number of lattice walks', () => {
+    const { gate, ref } = pair((w) => stormFrame(w));
+    const R = gate.map.radius;
+    seatCloud(gate, 'far', R * 0.6, R * 0.6, 0.9); // a grown cloud in one corner; `ref` has none
+    const rng = mulberry32(0xc057);
+    let asked = 0;
+    for (let n = 0; n < 400; n++) {
+      // Rays confined to the opposite half: none can reach the cloud.
+      const ax = -rng.next() * R * 0.6;
+      const ay = -rng.next() * R * 0.6;
+      const bx = -rng.next() * R * 0.6;
+      const by = -rng.next() * R * 0.6;
+      expect(gate.smokeDepthAlong(ax, ay, bx, by)).toBe(0); // premise
+      expect(gate.fogSightAdmits(ax, ay, bx, by)).toBe(ref.fogSightAdmits(ax, ay, bx, by));
+      asked += 1;
+    }
+    expect(asked).toBeGreaterThan(0);
+    expect(gate.fogWalks).toBeGreaterThan(0);
+    expect(gate.fogWalks).toBe(ref.fogWalks);
+  });
+
+  it('THE MEMOS FOLLOW THE CLOUD: the same ray and the same hull question, asked again after the cloud has grown across them, get the new answer — and again once the cloud is gone', () => {
+    const { gate } = pair(clearFrame);
+    // A ray passing the young disc's edge: clear of r0, deep inside r1.
+    const y = (SMOKE.r0 + SMOKE.r1) / 2;
+    const ray = [-SMOKE.r1 * 2, y, SMOKE.r1 * 2, y] as const;
+    const hull = [-SMOKE.r1 * 2, y, SMOKE.r1 * 2, y, 0, 100, 16] as const;
+    seatCloud(gate, 'c', 0, 0, 0);
+    expect(gate.fogSightAdmits(...ray)).toBe(true);
+    expect(gate.fogHullAdmits(...hull)).toBe(true);
+    seatCloud(gate, 'c', 0, 0, 0.99); // the same cloud, grown
+    expect(gate.smokeDepthAlong(...ray)).toBeGreaterThan(T); // premise
+    expect(gate.fogSightAdmits(...ray)).toBe(false);
+    expect(gate.fogHullAdmits(...hull)).toBe(false);
+    gate.clouds.clear();
+    expect(gate.fogSightAdmits(...ray)).toBe(true);
+    expect(gate.fogHullAdmits(...hull)).toBe(true);
+  });
+
+  it('a live cloud grows with the World\'s clock: stepping the world deepens the smoke on a ray inside its final disc', () => {
+    const { gate } = pair(clearFrame);
+    seatCloud(gate, 'c', 0, 0, 0);
+    const y = (SMOKE.r0 + SMOKE.r1) / 2;
+    const depths: number[] = [];
+    for (let k = 0; k < 4; k++) {
+      depths.push(gate.smokeDepthAlong(-SMOKE.r1 * 2, y, SMOKE.r1 * 2, y));
+      for (let t = 0; t < Math.ceil(SMOKE.lifeMs / 5 / CONFIG.tick.simDtMs); t++) gate.step();
+    }
+    expect(depths[0]).toBe(0); // premise: the young disc does not reach the ray
+    for (let k = 1; k < depths.length; k++) expect(depths[k]).toBeGreaterThanOrEqual(depths[k - 1]);
+    expect(depths[depths.length - 1]).toBeGreaterThan(depths[0]);
+  });
+});
+
+describe('the perception suite\'s smoke oracle is an honest band around production', () => {
+  it('for seeded rays through seeded clouds, production\'s smoke depth lies within the independent integral ± its own slack; a ray that misses every cloud reads exactly 0 on both, with no slack', () => {
+    const { gate } = pair(clearFrame);
+    const seats = seedClouds([gate], 0x0c1e, 10, gate.map.radius * 0.2);
+    const discs = seats.map((c) => ({ x: c.x, y: c.y, r: discRadius(c.frac) }));
+    const rng = mulberry32(0xb4d);
+    let touched = 0;
+    let missed = 0;
+    for (let n = 0; n < 20000; n++) {
+      const from = seats[n % seats.length];
+      const a = { x: from.x + (rng.next() * 2 - 1) * SMOKE.r1 * 2, y: from.y + (rng.next() * 2 - 1) * SMOKE.r1 * 2 };
+      const ang = rng.next() * 6.283185307179586;
+      const len = 10 + rng.next() * SMOKE.r1 * 5;
+      const b = { x: a.x + Math.cos(ang) * len, y: a.y + Math.sin(ang) * len };
+      const got = gate.smokeDepthAlong(a.x, a.y, b.x, b.y);
+      const want = smokeDepthOracle(discs, a, b);
+      const gap = Math.abs(got - want.tau);
+      expect(gap, `ray ${n}`).toBeLessThanOrEqual(want.slack + 1e-6);
+      if (!want.touched) {
+        expect(got).toBe(0);
+        missed += 1;
+      } else {
+        touched += 1;
+      }
+    }
+    expect(touched).toBeGreaterThan(0);
+    expect(missed).toBeGreaterThan(0);
   });
 });

@@ -56,7 +56,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU), me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     plainHandleOf: (id) => w.plainHandleFor(me, id), // Story 11.2: the observer's anonymous per-visit handle
     paintSaltOf: w.paintSaltFor, // Story 11.2 review gate (F1): the room-private paint salt
@@ -67,7 +67,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU), me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => w.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     plainHandleOf: () => '', // Story 11.2: inert on the spectator path
     paintSaltOf: w.paintSaltFor,

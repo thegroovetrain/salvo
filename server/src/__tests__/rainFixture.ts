@@ -7,7 +7,7 @@
 // field, a zone clock and an eye center. Nothing here reads a production
 // gate: the oracle re-integrates the SHARED density itself.
 
-import { CONFIG, fogDensityAt, fogFrameAt, fogMaxDepth, makeFogField, type FogFrame } from '@salvo/shared';
+import { CONFIG, SMOKE_CHORD_SAMPLES, fogDensityAt, fogFrameAt, fogMaxDepth, makeFogField, type FogFrame } from '@salvo/shared';
 import type { World } from '../game/world.js';
 
 /** T — the optical depth at which a thing vanishes (the one threshold every eye gate compares against). */
@@ -119,4 +119,116 @@ export function rainDepthOracle(frame: FogFrame, a: { x: number; y: number }, b:
   }
   if (!(sum > 0) && !(oscSum > 0)) return NO_RAIN;
   return { tau: sum * step, slack: Math.SQRT2 * oscSum * step + step * tv + 0.5, touched: true };
+}
+
+// ---------- THE SMOKE oracle (Story 11.6 scope add; independently re-derived) ----------
+
+/** One cloud as the smoke oracle reads it: a disc at its radius right now. */
+export interface SmokeOracleDisc {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** The smoke oracle's sample spacing along a chord (u). */
+export const SMOKE_ORACLE_STEP_U = 0.5;
+/** ...and never fewer than this many samples on a chord, however short (the
+ *  slope variation below is read off second differences — a sliver of rim
+ *  needs them resolved too). */
+const SMOKE_ORACLE_MIN_SAMPLES = 64;
+/** The margin on the measured slope variation (a sampled second difference
+ *  reads a little under the true variation of the slope). */
+const SLOPE_MARGIN = 1.1;
+
+/** The edge profile at distance `d` from the center of a disc of radius `r`:
+ *  1 in the core, a smoothstep down across the soft rim (`soft` × r wide), 0
+ *  beyond the rim. Re-derived (never the shared module's). */
+function smokeProfileOracle(d: number, r: number, soft: number): number {
+  if (!(d < r)) return 0;
+  const w = r * soft;
+  if (!(w > 0) || d <= r - w) return 1;
+  const u = (r - d) / w;
+  return u * u * (3 - 2 * u);
+}
+
+/** One cloud's ∫ profile ds along the ray from `a` on the unit direction
+ *  (ux, uy) for `len`, and the dead band on it; null when the ray misses. */
+function cloudDepthOracle(c: SmokeOracleDisc, a: { x: number; y: number }, ux: number, uy: number, len: number, soft: number): { tau: number; slack: number } | null {
+  // The foot of the cloud's center on the ray (as a distance along it) and
+  // the center's offset from the ray's line: the chord is foot ± half.
+  const foot = (c.x - a.x) * ux + (c.y - a.y) * uy;
+  const off = Math.abs((c.x - a.x) * uy - (c.y - a.y) * ux);
+  if (!(off < c.r)) return null;
+  const half = Math.sqrt(c.r * c.r - off * off);
+  const t0 = Math.max(0, foot - half);
+  const t1 = Math.min(len, foot + half);
+  if (!(t1 > t0)) return null;
+  const chord = t1 - t0;
+  const n = Math.max(SMOKE_ORACLE_MIN_SAMPLES, Math.ceil(chord / SMOKE_ORACLE_STEP_U));
+  const step = chord / n;
+  const h = chord / SMOKE_CHORD_SAMPLES; // production's quadrature spacing on this chord
+  let sum = 0;
+  let bend = 0; // Σ |second difference| of the sampled profile: the slope's variation × step
+  let kernel = 0; // the same sum, each term weighted by production's midpoint-rule kernel where it falls
+  let p1 = 0;
+  let p2 = 0;
+  for (let i = 0; i < n; i++) {
+    const f = smokeProfileOracle(Math.hypot(t0 + (i + 0.5) * step - foot, off), c.r, soft);
+    sum += f;
+    if (i >= 2) {
+      const d2 = Math.abs(f - 2 * p1 + p2); // centered on sample i − 1
+      const cell = ((i - 0.5) * step) / h; // where that sample falls among production's intervals
+      const edge = 0.5 - Math.abs(cell - Math.floor(cell) - 0.5); // its distance to the interval's nearer END, in intervals
+      bend += d2;
+      kernel += (d2 * (edge * h) * (edge * h)) / 2;
+    }
+    p2 = p1;
+    p1 = f;
+  }
+  return { tau: sum * step, slack: ((kernel + (bend * step * step) / 8) / step) * SLOPE_MARGIN };
+}
+
+/**
+ * THE SMOKE ORACLE: the optical depth the clouds add on A → B, re-integrated
+ * here — the chord by projection (real `Math.hypot`, never the shared
+ * quadratic), the edge profile re-derived, a midpoint sum at ≤ 0.5 u — never
+ * the shared `smokeDepthAlong` production calls. `slack` is the honest dead
+ * band between the two integrations of the one profile:
+ *
+ *   production integrates each cloud's profile over its chord with a
+ *   `SMOKE_CHORD_SAMPLES`-point midpoint rule (intervals of h = chord /
+ *   samples, read at their middles). For a function whose slope is
+ *   continuous — the smoothstep rim is, the core boundary and the rim
+ *   included — the midpoint rule's error on one interval is exactly
+ *   ∫ f″(t) K(t) dt with the Peano kernel K(t) = (distance from t to the
+ *   interval's nearer end)² / 2 (at most h² / 8), so the whole error is at
+ *   most ∫ |f″| K. The oracle measures |f″| dt from its own fine samples
+ *   (|second difference| / step), weights each by K where it falls among
+ *   production's intervals, and adds a 10 % margin (a sampled second
+ *   difference reads a little under the true variation); its own midpoint
+ *   error rides the same bound at its own step.
+ *
+ * A HARD disc (softFrac 0) has profile 1 along the whole chord: production
+ * and the oracle are both exact and the slack is 0. A ray that touches no
+ * cloud reads τ 0, slack 0, `touched` false — the exact smoke-free test.
+ * `fogGate.test.ts` holds production inside this band on seeded rays.
+ */
+export function smokeDepthOracle(clouds: readonly SmokeOracleDisc[], a: { x: number; y: number }, b: { x: number; y: number }): RainDepth {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const k = CONFIG.countermeasure.sightThickness;
+  if (!(len > 0) || !Number.isFinite(len) || !(k > 0)) return NO_RAIN;
+  const ux = (b.x - a.x) / len;
+  const uy = (b.y - a.y) / len;
+  const soft = Math.min(1, Math.max(0, CONFIG.countermeasure.sightSoftFrac));
+  let tau = 0;
+  let slack = 0;
+  let touched = false;
+  for (const c of clouds) {
+    const got = c.r > 0 ? cloudDepthOracle(c, a, ux, uy, len, soft) : null;
+    if (got === null) continue;
+    touched = true;
+    tau += got.tau;
+    slack += got.slack;
+  }
+  return touched ? { tau: tau * k, slack: slack * k, touched } : NO_RAIN;
 }

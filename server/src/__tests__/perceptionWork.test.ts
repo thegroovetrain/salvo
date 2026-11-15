@@ -127,9 +127,14 @@ function pointQuestion(w: World, me: ShipRecord, p: Vec2, reach: number, asks: n
 }
 
 /** What a HULL may cost one pass: the island tests of the contact row, the
- *  plain row's re-ask and the plain row's own — and ONE grid of walks, when
+ *  plain row's re-ask and the plain row's own — and a grid of walks, when
  *  the hull is inside the outer reach on an island-clear center ray and far
- *  enough that rain can decide some grid point (the rows share the answer). */
+ *  enough that rain can decide some grid point. Inside the CLASS reach that is
+ *  up to TWO grids: the contact row asks at the hull's true size and, when
+ *  rain hides it there, the plain row re-asks at the shared mean size (the
+ *  plain tier carries no class, Story 11.6) — a different question the
+ *  one-entry hull memo cannot share. Beyond the class reach only the plain
+ *  grid is asked. */
 function hullQuestion(w: World, me: ShipRecord, other: ShipRecord, need: Need): void {
   islandsOf(w, me, other.state, sightOf(me, w.now), 2, need);
   if (!islandsOf(w, me, other.state, hullSightOf(me, w.now), HULL_ASKS - 2, need)) return;
@@ -138,7 +143,7 @@ function hullQuestion(w: World, me: ShipRecord, other: ShipRecord, need: Need): 
   const farthestPoint = d + Math.hypot(hull.length, hull.beam) / 2;
   if (!rainCanDecide(farthestPoint) || !losClear(me.state, other.state, w.map.islands)) return;
   need.decidable += 1;
-  need.walks += GRID;
+  need.walks += d <= sightOf(me, w.now) ? 2 * GRID : GRID;
 }
 
 /** Everything one fogged pass of `me` may ask, by the rules. */

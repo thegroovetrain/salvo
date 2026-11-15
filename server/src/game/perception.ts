@@ -123,13 +123,15 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     burnZones: world.burnZones, // Story 8.17: the burnzone channel's subjects (a circle, never a reveal source)
     foulZones: world.foulZones, // Story 9.4: the foulzone channel's subjects (a circle, never a reveal source)
     // Story 9.3: every live COUNTERMEASURE cloud — the cloud channel's
-    // subjects and nothing else (a cloud occludes no sensor).
+    // subjects and nothing else (what a cloud hides is inside the gates below).
     clouds: world.cloudRecords,
-    // THE RAIN GATES (Story 11.6) — the World's bounded optical-depth gate
-    // on a ray (`fogSightAdmits`, read by every eyeHolds site) and on a
-    // hull's sight grid (`fogHullAdmits`, the two hull rows). Thunks, so the
-    // field itself never rides the context.
+    // THE WEATHER GATES (Story 11.6) — the World's bounded optical-depth gate
+    // (rain + every live smoke cloud) on a ray (`fogSightAdmits`, read by
+    // every eyeHolds site) and on a hull's sight grid (`fogHullAdmits`, the
+    // two hull rows), and the rain alone (`fogRainAdmits`, the cloud row's
+    // sight arm). Thunks, so the field itself never rides the context.
     fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
+    fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
     fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
     // Story 11.2 follow-up: the island broadphase index (validated ONCE here,
     // for this whole pass) — the same answers as `islands`, without the work
@@ -169,6 +171,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // The rain gate thunks — INERT on this path (the spectator rows never
     // call a sight site); ride uniformly so the context stays one shape.
     fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
+    fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
     fogHullAdmits: (ax, ay, cx, cy, heading, lengthU, beamU) => world.fogHullAdmits(ax, ay, cx, cy, heading, lengthU, beamU),
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.

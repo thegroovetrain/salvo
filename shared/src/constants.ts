@@ -2479,8 +2479,11 @@ export const CONFIG = {
    *   three are the OWNER's `EffectiveStats.smoke` at the press, stamped on
    *   the cloud (Story 10.6, I6).
    * - It is a picture, not a wall (Eric 2026-10-12: "rather than fucking with
-   *   whether I can see something, just draw it on top of ships"): the
-   *   server hides NOTHING behind or inside it — no sight, no radar. Each
+   *   whether I can see something, just draw it on top of ships") —
+   *   SUPERSEDED for SIGHT by Story 11.6 (Eric 2026-11-14): a cloud now adds
+   *   optical depth to every eye line through it (`sightThickness` /
+   *   `sightSoftFrac` below, sim/smokeDepth.ts), the owner blinded too; it
+   *   still never blocks radar. Each
    *   client paints it as spray-painted smoke on top of the ships (your own
    *   ship stays on top of it; radar paints stay above it). The spray look
    *   and how fast each paint fades are client feel knobs (CLIENT_CONFIG),
