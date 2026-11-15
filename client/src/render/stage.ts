@@ -263,6 +263,11 @@ export interface StageLayers {
    *  same reason the reticle lives above the fog. Only `burst`-kind effects
    *  route here; muzzle/spark/splash/sink/wake stay in the fogged world. */
   burstFx: Container;
+  /** THE STRATEGIC-ZOOM CHART MARKS (Story 11.8): the corner brackets on
+   *  small hulls (render/brackets.ts) and the splash pegs (render/pegs.ts) —
+   *  screen-size marks, fog-immune, above every hull and the burst rings so a
+   *  zoomed-out frame or peg is never buried; below the sweep line. */
+  chartMark: Container;
   sweep: Container;
   // screen-space
   /** Out-of-zone STORM vignette (render/zone.ts) — dimensional purple since the
@@ -328,6 +333,7 @@ export const CHART_LAYER_ORDER = [
   'ownShip',
   'aim',
   'burstFx',
+  'chartMark',
   'sweep',
 ] as const;
 /** hudRoot, bottom → top: the vignette wash, the HUD, then the foghorn chevrons
