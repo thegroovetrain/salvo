@@ -2,8 +2,9 @@
 title: 'Story 11.6 Rain First — the storm eye and partial sight'
 type: 'feature'
 created: '2026-11-14'
-status: 'in-review'
+status: 'done'
 baseline_revision: '0cfdff41309913003df1c87e473bef4c77d09542'
+final_revision: 'f26d66f9fe0867fec4de40d29210074b7a356152'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -98,6 +99,30 @@ warnings: ['oversized']
 
 ## Review Triage Log
 
+### 2026-11-15 — Review pass (Blind Hunter + Edge Case Hunter on Fable; Codex challenge mode)
+- intent_gap: 1 (high 1) — the two-tier rain grid leaked class (both models); resolved by Eric's ruling, not a code patch: the anonymous plain tier is REMOVED and distance fades (Spec Change Log 2026-11-15)
+- bad_spec: 0
+- patch: 11 (high 2, medium 4, low 5)
+- defer: 1 (low 1) — `zoneOverride` dev rooms run different rain on server and client (deferred-work)
+- reject: 9
+- addressed_findings:
+  - `[high]` `[patch]` an observer's eye lines charged smoke clouds it was never sent (all three reviewers) — now only the clouds it HOLDS
+  - `[high]` `[patch]` a sent hull could draw fully invisible (floor at exactly the shader's vanish edge) — floored to cutoff + margin, also after easing
+  - `[medium]` `[patch]` hulls in the observer's own star-shell zone were dissolved — exempt
+  - `[medium]` `[patch]` an unbounded twist walk (a missing loop guard hung a test overnight) — bounded, regression-tested
+  - `[medium]` `[patch]` hull filter rendered at resolution 1 — `resolution: 'inherit'`
+  - `[medium]` `[patch]` per-World smoke dials (a module-level memo key shared across rooms)
+  - `[low]` `[patch]` smoke shortens the radar's near dim fan; ring-step blend clamped to the zone's groups; grid dims as built; harness grid product ≤ 16; stale comments
+
+### 2026-11-15 — Second pass (Codex on the final wave `ecbd9dd4..HEAD`)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 0
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - none (verdict: build-on-it)
+
 ## Design Notes
 
 Orchestrator readings for Eric's veto (stated in the PR): point things (shells, torpedoes, flashes, mines…) pop at the cutoff and draw as today — only hulls dissolve; the ~15 s onset at zone start is kept as a ramp; bots treat density ≥ 0.5 as cover as before (now both ways blind); the client's rain drawing (wisps tile + density mask, Eric-approved on the page) is kept; the server's field is evaluated at the memo epoch (≤ 500 ms) as today. Supersedes epics.md 11.6's "sight cut … as today", its radar/ghost/knob clauses and its welcome weather roll (amendment at PR time).
@@ -109,3 +134,11 @@ Orchestrator readings for Eric's veto (stated in the PR): point things (shells, 
 - `node server/scripts/tickCost.mjs` (old vs new, same machine) -- new mean ≤ 2× old, numbers in PR.
 - `node client/scripts/glBudget.mjs`, `node client/scripts/playCheck.mjs` -- pass.
 - `HC_DEV_OPTIONS=1` server + `weaponsSmoke.mjs`, `matchSmoke.mjs`, `fogSmoke.mjs` -- first-try pass.
+
+## Auto Run Result
+
+Status: done (PR to `development`). Rain is the eye of a closing hurricane anchored to the live ring (true eye 0.10→0.40, edge 45→60 %, outside 70 %, coin-flip spin, raining from the start line); sight through rain, held smoke and distance is optical depth with Eric's A+D per-part dissolve; the anonymous plain tier is gone (crisp to 200 hm, fading to gone at 350 hm, name tag within 200 hm); smoke screens occlude sight (owner too, never radar); rain radar clutter 3 / 11 / 17.5 % may cover weaker returns and skips island shadow. PV 108, 0.19.28, cycle 234, epic-11 amendment 13.
+
+Verification: `npm run check` green (shared 1465, server 2979, client 171 files / 4505 after the shadow change, hooks 266); tickCost 16 hulls 3.79 → 3.67 ms (seed 7), 3.26 → 3.50 ms (seed 11); `glBudget.mjs` PASS; `playCheck.mjs` PASS (Chromium + Firefox, 2x); `weaponsSmoke`, `matchSmoke`, `fogSmoke` first-try PASS; golden frames 10/185 re-recorded by ruling, each explained.
+
+Residual risks: bots self-blind in their own smoke and seek rain "cover" that now blinds both ways (11.9); the clutter reaches ~2,830 u around the own hull (cost cap); How-to-Play / GDD / DESIGN.md stale until 11.11; the rain bench page (branch `worktree-rain-sight-bench`) locks up when zoomed to the whole map (abandoned).
