@@ -221,7 +221,6 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
    
     clouds: [],
     drops: [],
-    plain: [],
   };
 }
 
@@ -773,7 +772,7 @@ describe('steering — the priority order is the policy', () => {
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const view = (own: boolean | null): BotMind['view'] => ({
       contacts: [], events: [], mines: own === null ? [] : [{ id: 'm1', x: 60, y: 20, by: 'enemy', own }],
-      litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [],
+      litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [],
     });
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     // RE-STATED (Story 9.13, amendment 202): the idle bearing is a patrol
@@ -1212,7 +1211,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const { botX, plotX: far } = astride(w, rec.stats.equipment.mainBattery.rangeU + 100);
     rec.state.x = botX;
     const litView = (by: string): BotMind['view'] => ({
-      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [],
+      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], clouds: [], drops: [],
       litZones: [{ id: 'z', x: far, y: 0, r: CONFIG.starShells.litRadius, until: port.now + 5000, by }],
     });
     const mind = mkMind('bulwark');
@@ -2392,7 +2391,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
     mind.viewAt = now;
   }
 

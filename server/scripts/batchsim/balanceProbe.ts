@@ -260,7 +260,7 @@ function reachBlock(): void {
   }
   console.log(`  fouling shell   fixed  ${fmt(CONFIG.foulingShell.rangeU).padStart(7)}`);
   console.log(
-    `  radar ${fmt(CONFIG.vision.radar)}u | class-and-name sight ${fmt(CONFIG.vision.sight)}u | plain-hull sight ${fmt(CONFIG.vision.hullSight)}u`,
+    `  radar ${fmt(CONFIG.vision.radar)}u | class-and-name sight ${fmt(CONFIG.vision.sight)}u | hull sight (faded out) ${fmt(CONFIG.vision.hullSight)}u`,
   );
   console.log('');
 }

@@ -100,11 +100,12 @@
 // place the reticle under the fog. Fonts are preloaded before any Text is
 // created.
 
-import { Application, Container } from 'pixi.js';
+import { Application, Container, RendererType } from 'pixi.js';
 import { containAppRender } from '../app/loop.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from './camera.js';
 import { watchContextRestore, type RestoreRenderer } from './contextRestore.js';
+import { setHullDissolveSupport } from './hullDissolve.js';
 
 /**
  * Push the camera's world transform onto the world + chart containers — THE one
@@ -512,6 +513,9 @@ export async function createStage(): Promise<Stage> {
   // A lost-and-restored WebGL context brings every layer back except the text,
   // which Pixi never re-draws on its own (Story 11.2 follow-up, G3).
   watchContextRestore(app.canvas, app.renderer as unknown as RestoreRenderer);
+  // The hulls' A+D rain filter is a GL program only: any other renderer gets
+  // its plain fade fallback (render/hullDissolve.ts, Story 11.6).
+  setHullDissolveSupport(app.renderer.type === RendererType.WEBGL);
   // Pixi's own per-frame render runs guarded: a throw in it costs one frame,
   // never the ticker (app/loop.ts header, Story 11.2 follow-up 3).
   containAppRender(app);

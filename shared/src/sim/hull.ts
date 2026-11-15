@@ -2,6 +2,7 @@
 // every heal channel must agree on, held here so they cannot drift apart.
 // Pure and I/O-free like every shared/ sim module.
 
+
 /**
  * IS THIS HULL FULL? — under 1 hp missing (epic-8 amendment 53, Eric ruling
  * 2026-09-17).

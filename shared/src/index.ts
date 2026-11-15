@@ -3,6 +3,18 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  108 — RAIN FIRST: THE STORM EYE AND PARTIAL SIGHT (2026-11-14, Eric;
+ *  Story 11.6; epic-11 amendment 13; cycle 234, 0.19.28): wire shape — the
+ *  schema loses `fogCut` (the coverage-target cut is gone; the rain is a pure
+ *  shared function of the welcome's `fogSeed`, the zone clock and the live
+ *  ring); the set of contacts a client is sent changed (a hull is sent while
+ *  any point of its outline grid sees through rain + smoke; rain and smoke
+ *  gate every eye row by optical depth). FrameMsg LOSES the `pc` channel and
+ *  the `PlainContact` type (Eric 2026-11-15: the anonymous plain-hull tier of
+ *  104 is removed — a hull is a full `Contact` out to the hull sight, fading
+ *  with distance haze between the class-and-name sight and the hull sight),
+ *  and the rain is there from the start line (no onset; the ring-0 state
+ *  before the zone starts).
  *  107 — OWN SHELLS ALWAYS END ON SCREEN; SECONDARIES HIT WHERE THEY LAND
  *  (2026-11-13, Eric; epic-11 amendment 11; cycle 233,
  *  0.19.27): no wire shape change — the SET of events a client is sent
@@ -1098,7 +1110,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 107;
+export const PROTOCOL_VERSION = 108;
 
 // Tunables
 export * from './constants.js';
@@ -1164,6 +1176,8 @@ export * from './sim/terrainBlock.js';
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';
+export * from './sim/fogDepth.js';
+export * from './sim/smokeDepth.js';
 export * from './sim/zone.js';
 export * from './sim/beacons.js';
 export * from './sim/drops.js';

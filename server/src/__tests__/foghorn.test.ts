@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_HORN_ID, HORN_IDS, type FoghornEvent, type GameEvent, type HornId } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type FogHullQuestion, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
 import { signalFor, type FoggedSignalContext, type SpectatorSignalContext } from '../game/signals.js';
@@ -67,14 +67,14 @@ const subject = (x: number, y: number, id: string): FoghornEvent =>
 const radarCtx = (w: World) => ({
   pseudonymOf: (id: string) => w.pseudonymFor(id),
   // Story 9.3: the live countermeasure clouds (the context field; the fh
-  // row's muffle never reads them — a cloud hides nothing, session 2).
+  // row's muffle never reads them).
   clouds: w.cloudRecords,
-  fogToll: (ax: number, ay: number, bx: number, by: number) => w.fogTollAlong(ax, ay, bx, by), // Story 9.10: the fog toll thunk (the fh row never calls it — the horn is fog-blind)
+  fogAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogSightAdmits(ax, ay, bx, by), // the weather gate thunks (the fh row never calls them — the horn is weather-blind)
+  fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogRainAdmits(ax, ay, bx, by),
+  fogHullAdmits: (q: FogHullQuestion) => w.fogHullAdmits(q),
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,
-  // Story 11.2: the plain-hull handle resolver; the fh row never reads it.
-  plainHandleOf: () => '',
   // Story 11.2 review gate (F1): the paint salt; the fh row never reads it.
   paintSaltOf: w.paintSaltFor,
 });

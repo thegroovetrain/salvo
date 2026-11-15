@@ -1,380 +1,473 @@
-// Story 9.10 FOG — the rolling fog density field and its sight toll
-// (sim/fog.ts; Eric 2026-10-15 "no discs", epic-9 amendments 163–164,
-// 167–170; 2026-10-16 amendment 179: the own bank is free, no fog past the
-// rim). Contracts only: determinism, the wind, drift and morph, the
-// density's range, soft edge and ocean clip, the toll's identities and the
-// own-bank rule, the coverage quantile, the lattice, and the
+// Story 11.6 RAIN — the storm-eye rain field and its optical depth
+// (sim/fog.ts + sim/fogDepth.ts; Eric 2026-11-14 on the rain-sight bench
+// page). Contracts of the pure functions only: the ladder radius matches the
+// zone's own, determinism and the coin flip, rain from the start line (no roll-in) / none past
+// the rim, the clear eye, the coverage profile by ρ (measured
+// against the module's own coverage function and CONFIG's dials — relations,
+// never bare numbers), continuity across every beat edge / morph reset / the
+// collapse, τ's identities (additive, monotone, symmetric — no own bank), the
+// reach inverting τ, the hull grid, fail-open on non-finite input, and the
 // no-transcendentals source guard.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  FOG_NO_CUT, FOG_SOLID_DENSITY, fogCutForTarget, fogDensityAt, fogEyeReach, fogEyeReachFan, fogLattice, fogNoiseAt, fogSinCos,
-  fogTollAlong, makeFogField, type FogFieldConfig,
+  FOG_SOLID_DENSITY, fogCoverageAt, fogDensityAt, fogDepthAlong, fogDepthReach, fogDepthReachFan, fogRingStepAt,
+  fogFrameAt, fogHullGrid, fogSinCos, makeFogField, type FogField, type FogFrame,
 } from '../sim/fog.js';
-import { CONFIG } from '../constants.js';
+import { fogMaxDepth, fogVisibility } from '../sim/fogDepth.js';
+import { CONFIG, mapRadius } from '../constants.js';
+import {
+  rollZoneRings, zoneClosedAtMs, zoneLadderRadiusAt, zoneRingRadii, zoneStateAt, ZONE_BEATS_PER_GROUP, type ZoneTimeline,
+} from '../sim/zone.js';
 
 const SRC = readFileSync(fileURLToPath(new URL('../sim/fog.ts', import.meta.url)), 'utf8');
 
-// Synthetic dials — the tests exercise the functions, not CONFIG's values.
-const CFG: FogFieldConfig = {
-  sightCostPerU: 2, wavelengthU: 600, octaves: 3, gain: 0.5,
-  windU: 12, spinRimU: 30, spinShear: 0.5, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
-};
-const OCEAN_R = 5000;
-const FULL = -2; // a cut below every noise value: density 1 on the whole ocean (0 past the rim, amendment 179)
+const CFG = CONFIG.fog;
+const ZONE: ZoneTimeline = CONFIG.zone;
+const OCEAN_R = mapRadius(CONFIG.map.playerCap);
+const RINGS = rollZoneRings(OCEAN_R, ZONE, [101, 202, 303, 404, 505]);
+const Z0 = 7000; // ms — the match clock at zone start (arbitrary, non-zero)
+const BEAT = ZONE.beatMs;
+const GROUP = ZONE_BEATS_PER_GROUP * BEAT;
+const CLOSED = zoneClosedAtMs(ZONE);
+const T_MAX = fogMaxDepth(CFG);
+
+/** The frame at zone-relative `e` ms on RINGS (the live center from the zone's own derivation). */
+function frameAt(field: FogField, e: number, rings = RINGS): FogFrame {
+  const cur = zoneStateAt(Z0 + e, Z0, rings, ZONE).current;
+  return fogFrameAt(field, Z0 + e, Z0, cur.cx, cur.cy, ZONE);
+}
+
+/** Lattice points over the ocean (cell `cellU`). */
+function lattice(cellU: number): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (let y = -OCEAN_R + cellU / 2; y < OCEAN_R; y += cellU) {
+    for (let x = -OCEAN_R + cellU / 2; x < OCEAN_R; x += cellU) if (x * x + y * y <= OCEAN_R * OCEAN_R) out.push({ x, y });
+  }
+  return out;
+}
+
+const COARSE = lattice(250);
+const FINE = lattice(60);
 const field = makeFogField(12345, CFG, OCEAN_R);
 
-/** A deterministic 100-point sweep over a 5,000 u square. */
-const SWEEP = Array.from({ length: 100 }, (_, i) => ({ x: (i % 10) * 517 - 2500, y: Math.floor(i / 10) * 491 - 2500 }));
+describe('zoneLadderRadiusAt (the public R(τ) the spin integrates)', () => {
+  it('equals zoneStateAt\'s live radius exactly across the whole timeline, collapse included, and with sudden death off', () => {
+    for (const cfg of [ZONE, { ...ZONE, suddenDeath: false }]) {
+      const rings = rollZoneRings(OCEAN_R, cfg, [9, 8, 7, 6]);
+      const radii = zoneRingRadii(OCEAN_R, cfg);
+      const end = zoneClosedAtMs(cfg) + 2 * BEAT;
+      const ts = [-1000, 0];
+      for (let t = 0; t <= end; t += 997) ts.push(t);
+      for (let k = 0; k * BEAT <= end; k++) ts.push(k * BEAT - 1, k * BEAT, k * BEAT + 1);
+      for (const t of ts) expect(zoneLadderRadiusAt(t, radii, cfg), `t ${t}`).toBe(zoneStateAt(Z0 + t, Z0, rings, cfg).current.r);
+    }
+  });
+});
 
 describe('makeFogField', () => {
-  it('is deterministic: the same seed builds identical layers and wind', () => {
+  it('is deterministic per seed: identical layers, table, coin flip and density', () => {
     const a = makeFogField(777, CFG, OCEAN_R);
     const b = makeFogField(777, CFG, OCEAN_R);
     expect(Array.from(a.layerA)).toEqual(Array.from(b.layerA));
     expect(Array.from(a.layerB)).toEqual(Array.from(b.layerB));
-    expect([a.windX, a.windY]).toEqual([b.windX, b.windY]);
+    expect(Array.from(a.quant)).toEqual(Array.from(b.quant));
+    expect(a.spinSign).toBe(b.spinSign);
+    const fa = frameAt(a, 5 * BEAT + 1234);
+    const fb = frameAt(b, 5 * BEAT + 1234);
+    for (const p of COARSE) expect(fogDensityAt(fa, p.x, p.y)).toBe(fogDensityAt(fb, p.x, p.y));
   });
 
-  it('a different seed draws a different wind', () => {
-    const a = makeFogField(777, CFG, OCEAN_R);
-    const b = makeFogField(778, CFG, OCEAN_R);
-    expect(a.windX === b.windX && a.windY === b.windY).toBe(false);
+  it('a different seed is different weather', () => {
+    const fa = frameAt(makeFogField(777, CFG, OCEAN_R), 5 * BEAT);
+    const fb = frameAt(makeFogField(778, CFG, OCEAN_R), 5 * BEAT);
+    expect(COARSE.some((p) => fogDensityAt(fa, p.x, p.y) !== fogDensityAt(fb, p.x, p.y))).toBe(true);
   });
 
-  it('the wind speed is windU per second, in u per ms', () => {
-    for (const seed of [1, 2, 3, 99999, 0xffffffff]) {
-      const f = makeFogField(seed, CFG, OCEAN_R);
-      expect(Math.abs(Math.sqrt(f.windX ** 2 + f.windY ** 2) - CFG.windU / 1000)).toBeLessThan(1e-9);
+  it('the spin direction is a per-seed coin flip: both faces come up, and flipping it negates every twist', () => {
+    const signs = new Set<number>();
+    for (let seed = 1; seed <= 64; seed++) signs.add(makeFogField(seed, CFG, OCEAN_R).spinSign);
+    expect(signs).toEqual(new Set([1, -1]));
+    const flipped: FogField = { ...field, spinSign: field.spinSign === 1 ? -1 : 1 };
+    const e = 6 * BEAT + 4321;
+    const f = frameAt(field, e);
+    const g = frameAt(flipped, e);
+    expect(f.twistA.some((v) => v !== 0)).toBe(true);
+    for (let k = 0; k < f.twistA.length; k++) {
+      expect(g.twistA[k]).toBe(-f.twistA[k]);
+      expect(g.twistB[k]).toBe(-f.twistB[k]);
     }
   });
 });
 
-describe('fogNoiseAt', () => {
-  it('is finite and bounded over a sweep, and identical for identical inputs', () => {
-    for (const p of SWEEP) {
-      const n = fogNoiseAt(field, p.x, p.y, 4321);
-      expect(Number.isFinite(n)).toBe(true);
-      expect(Math.abs(n)).toBeLessThanOrEqual(1.5);
-      expect(fogNoiseAt(field, p.x, p.y, 4321)).toBe(n);
+describe('fogFrameAt / fogDensityAt — where it rains', () => {
+  it('RAIN BEFORE THE START (Eric 2026-11-15): with no zone start the field is the ring-0 state — raining, ring-0 eye and edge — and runs into the zone start without a jump', () => {
+    const pre = fogFrameAt(field, Z0 - 5, null, 0, 0, ZONE);
+    const post = fogFrameAt(field, Z0 + 5, Z0, 0, 0, ZONE);
+    expect(pre.on).toBe(true);
+    expect(pre.eyeFrac).toBe(CFG.eyeRadiusFracByRing[0]);
+    expect(pre.edgeCov).toBe(CFG.edgeCoverageByRing[0]);
+    let solid = 0;
+    let worst = 0;
+    for (const p of FINE) {
+      const d = fogDensityAt(pre, p.x, p.y);
+      if (d >= FOG_SOLID_DENSITY) solid++;
+      worst = Math.max(worst, Math.abs(d - fogDensityAt(post, p.x, p.y)));
     }
+    expect(solid).toBeGreaterThan(0);
+    expect(worst).toBeLessThan(0.02);
   });
 
-  it('drifts with time and morphs over half a morph period', () => {
-    const at = (t: number) => SWEEP.map((p) => fogNoiseAt(field, p.x, p.y, t));
-    expect(at(10000)).not.toEqual(at(0));
-    // Same wind offset removed: sample the moving frame so only the morph differs.
-    const half = CFG.morphMs / 2;
-    const moving = (t: number) => SWEEP.map((p) => fogNoiseAt(field, p.x + field.windX * t, p.y + field.windY * t, t));
-    expect(moving(half)).not.toEqual(moving(0));
+  it('density lies in [0, 1], and is 0 beyond the ocean rim even in the outer storm', () => {
+    const f = frameAt(field, CLOSED + BEAT); // collapsed: the whole map is storm
+    let solid = 0;
+    for (const p of FINE) {
+      const d = fogDensityAt(f, p.x, p.y);
+      expect(d >= 0 && d <= 1).toBe(true);
+      if (d >= FOG_SOLID_DENSITY) solid++;
+    }
+    expect(solid).toBeGreaterThan(0);
+    for (let k = 0; k < 64; k++) {
+      const a = (k * 2 * Math.PI) / 64;
+      expect(fogDensityAt(f, Math.cos(a) * OCEAN_R * 1.001, Math.sin(a) * OCEAN_R * 1.001)).toBe(0);
+    }
+    const dry = makeFogField(12345, CFG, 0);
+    expect(frameAt(dry, CLOSED + BEAT).on).toBe(false);
   });
 
-  it('a non-finite input reads 0', () => {
-    expect(fogNoiseAt(field, NaN, 0, 0)).toBe(0);
-    expect(fogNoiseAt(field, 0, Infinity, 0)).toBe(0);
-    expect(fogNoiseAt(field, 0, 0, NaN)).toBe(0);
-  });
-});
-
-describe('fogDensityAt', () => {
-  it('lies in [0, 1]; 0 at the no-fog cut; 1 at a cut below every value', () => {
-    for (const p of SWEEP) {
-      for (const cut of [-0.3, 0, 0.2, 0.5]) {
-        const d = fogDensityAt(field, p.x, p.y, 1000, cut);
-        expect(d).toBeGreaterThanOrEqual(0);
-        expect(d).toBeLessThanOrEqual(1);
+  it('THE EYE IS CLEAR: density is 0 wherever ρ = distance / live R is inside the LIVE eye fraction (the ring\'s eyeRadiusFracByRing step)', () => {
+    for (const e of [BEAT, GROUP + BEAT / 2, 2 * GROUP + 3.5 * BEAT, 3 * GROUP + BEAT]) {
+      const f = frameAt(field, e);
+      const eye = fogRingStepAt(CFG.eyeRadiusFracByRing, e, ZONE);
+      expect(f.eyeFrac).toBe(eye);
+      let inEye = 0;
+      for (const p of FINE) {
+        if (Math.sqrt((p.x - f.cx) ** 2 + (p.y - f.cy) ** 2) / f.R >= eye) continue;
+        inEye++;
+        expect(fogDensityAt(f, p.x, p.y)).toBe(0);
       }
-      expect(fogDensityAt(field, p.x, p.y, 1000, FOG_NO_CUT)).toBe(0);
-      expect(fogDensityAt(field, p.x, p.y, 1000, FULL)).toBe(1);
+      expect(inEye).toBeGreaterThan(0);
     }
-  });
-
-  it('is monotone non-increasing in the cut', () => {
-    for (const p of SWEEP) {
-      let prev = 1;
-      for (let cut = -1.5; cut <= 1.5; cut += 0.05) {
-        const d = fogDensityAt(field, p.x, p.y, 2000, cut);
-        expect(d).toBeLessThanOrEqual(prev);
-        prev = d;
-      }
-    }
-  });
-
-  it('the soft edge: half an edge band above the cut reads one half', () => {
-    const n = fogNoiseAt(field, 123, -456, 7000);
-    expect(fogDensityAt(field, 123, -456, 7000, n - CFG.edgeBand / 2)).toBeCloseTo(0.5, 9);
-    expect(fogDensityAt(field, 123, -456, 7000, n + 0.01)).toBe(0);
-    expect(fogDensityAt(field, 123, -456, 7000, n - CFG.edgeBand - 0.01)).toBe(1);
-  });
-
-  it('a non-finite cut reads 0', () => {
-    expect(fogDensityAt(field, 0, 0, 0, NaN)).toBe(0);
-  });
-
-  it('NO FOG PAST THE RIM (amendment 179): density is 0 beyond the ocean radius whatever the cut, 1 just inside it under the full cut; a radius-0 field is unbounded', () => {
-    expect(field.oceanRadiusU).toBe(OCEAN_R);
-    const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, 0.8], [-0.6, -0.8]];
-    for (const [ux, uy] of dirs) {
-      expect(fogDensityAt(field, ux * (OCEAN_R + 1), uy * (OCEAN_R + 1), 1000, FULL)).toBe(0);
-      expect(fogDensityAt(field, ux * (OCEAN_R + 1), uy * (OCEAN_R + 1), 1000, -0.5)).toBe(0);
-      expect(fogDensityAt(field, ux * OCEAN_R, uy * OCEAN_R, 1000, FULL)).toBe(1); // the rim itself is ocean
-      expect(fogDensityAt(field, ux * (OCEAN_R - 1), uy * (OCEAN_R - 1), 1000, FULL)).toBe(1);
-    }
-    // a hand-built field with no radius has no rim
-    const open = makeFogField(12345, CFG, 0);
-    expect(open.oceanRadiusU).toBe(0);
-    expect(fogDensityAt(open, 50000, -50000, 1000, FULL)).toBe(1);
-    // the clip is about the spin center
-    const off = makeFogField(12345, CFG, 100, 1000, 1000);
-    expect(fogDensityAt(off, 1000, 1000, 1000, FULL)).toBe(1);
-    expect(fogDensityAt(off, 0, 0, 1000, FULL)).toBe(0);
   });
 });
 
-describe('fogTollAlong', () => {
+/** Solid share and the module's expected coverage, per ρ bin, pooled over seeds. */
+function profile(e: number, bins: readonly [number, number][], seeds: readonly number[]): { got: number; want: number; n: number }[] {
+  const acc = bins.map(() => ({ solid: 0, want: 0, n: 0 }));
+  for (const seed of seeds) {
+    const f = frameAt(makeFogField(seed, CFG, OCEAN_R), e);
+    for (const p of FINE) {
+      const rho = f.R > 0 ? Math.sqrt((p.x - f.cx) ** 2 + (p.y - f.cy) ** 2) / f.R : Infinity; // R 0 = collapsed: everywhere is outside
+      const b = bins.findIndex(([lo, hi]) => rho >= lo && (rho < hi || hi === Infinity));
+      if (b < 0) continue;
+      acc[b].n++;
+      acc[b].want += fogCoverageAt(CFG, f.eyeFrac, f.edgeCov, rho);
+      if (fogDensityAt(f, p.x, p.y) >= FOG_SOLID_DENSITY) acc[b].solid++;
+    }
+  }
+  return acc.map((a) => ({ got: a.solid / a.n, want: a.want / a.n, n: a.n }));
+}
+
+describe('the coverage profile by ρ (solid share = density ≥ ½)', () => {
+  const SEEDS = [1, 2, 3, 4];
+
+  it('rises from the eye to the ring edge, each band near the module\'s coverage there (ring 0 held)', () => {
+    const eye = fogRingStepAt(CFG.eyeRadiusFracByRing, BEAT + BEAT / 2, ZONE);
+    const w = (1 - eye) / 4;
+    const bins: [number, number][] = [0, 1, 2, 3].map((i) => [eye + i * w, eye + (i + 1) * w]);
+    const prof = profile(BEAT + BEAT / 2, bins, SEEDS);
+    for (let i = 0; i < prof.length; i++) {
+      expect(prof[i].n).toBeGreaterThan(100);
+      expect(Math.abs(prof[i].got - prof[i].want), `bin ${i}`).toBeLessThan(0.1);
+      if (i > 0) expect(prof[i].got).toBeGreaterThan(prof[i - 1].got);
+    }
+  });
+
+  it('out in the storm (ρ past the soft edge) the share matches outsideCoverage', () => {
+    const [out] = profile(3 * GROUP + BEAT / 2, [[1 + CFG.edgeSoftFrac, Infinity]], SEEDS);
+    expect(out.n).toBeGreaterThan(1000);
+    expect(Math.abs(out.got - CFG.outsideCoverage)).toBeLessThan(0.08);
+  });
+
+  it('once collapsed (R = 0) the whole ocean is at outsideCoverage and stays finite', () => {
+    const f = frameAt(field, CLOSED + 1000);
+    expect(f.R).toBe(0);
+    const [all] = profile(CLOSED + 1000, [[0, Infinity]], SEEDS);
+    expect(Math.abs(all.got - CFG.outsideCoverage)).toBeLessThan(0.08);
+  });
+
+  it('a per-ring dial (edge coverage, eye radius) reads each group\'s entry while held, blends through the closing beat by its progress, and holds the last entry through the collapse and after', () => {
+    for (const tab of [CFG.edgeCoverageByRing, CFG.eyeRadiusFracByRing]) {
+      const top = tab.length - 1;
+      for (let g = 0; g < 4; g++) {
+        const a = tab[Math.min(g, top)];
+        const b = tab[Math.min(g + 1, top)];
+        expect(fogRingStepAt(tab, g * GROUP + BEAT / 2, ZONE)).toBe(a);
+        for (const f of [0.25, 0.5, 0.75]) {
+          expect(Math.abs(fogRingStepAt(tab, g * GROUP + (3 + f) * BEAT, ZONE) - (a + (b - a) * f))).toBeLessThan(1e-12);
+        }
+      }
+      expect(fogRingStepAt(tab, CLOSED, ZONE)).toBe(tab[top]);
+      expect(fogRingStepAt(tab, CLOSED + 10 * BEAT, ZONE)).toBe(tab[top]);
+    }
+  });
+
+  it('a per-ring table LONGER than the zone has groups never blends toward an entry no group reaches: the last group\'s closing beat holds its own entry right up to the closed value (no ramp, no snap)', () => {
+    const groups = Math.round(CLOSED / GROUP);
+    const tab = Array.from({ length: groups + 3 }, (_, i) => (i + 1) / (groups + 4)); // strictly rising, three entries past the last group
+    const lastGroup = tab[groups - 1];
+    expect(fogRingStepAt(tab, CLOSED, ZONE)).toBe(lastGroup); // the closed value is the last GROUP's entry
+    for (const f of [0, 0.25, 0.5, 0.75, 0.999]) {
+      expect(fogRingStepAt(tab, (groups - 1) * GROUP + (3 + f) * BEAT, ZONE), `closing beat progress ${f}`).toBe(lastGroup);
+    }
+    // ...while an earlier group's closing beat still blends toward the next group's entry.
+    if (groups >= 2) {
+      expect(fogRingStepAt(tab, (groups - 2) * GROUP + 3.5 * BEAT, ZONE)).toBeCloseTo((tab[groups - 2] + tab[groups - 1]) / 2, 12);
+    }
+  });
+
+  it('THE TWIST INTEGRAL ALWAYS RETURNS: a beat that cannot advance a huge clock, and a morph window thousands of beats long, both build a finite frame', () => {
+    const finite = (f: { on: boolean; twistA: Float64Array; twistB: Float64Array }): boolean =>
+      f.on && f.twistA.every((v) => Number.isFinite(v)) && f.twistB.every((v) => Number.isFinite(v));
+    // (1) A non-integer beat under a clock so large that the next beat
+    // boundary rounds back onto the clock itself: (floor(a / beat) + 1) × beat <= a.
+    const tiny: ZoneTimeline = { ...ZONE, beatMs: 0.1 };
+    const huge = 1e17 + 70000;
+    const stuck = Math.floor(huge / CFG.morphMs) * CFG.morphMs; // where layer B's integral starts
+    expect((Math.floor(stuck / tiny.beatMs) + 1) * tiny.beatMs).toBeLessThanOrEqual(stuck); // premise: that boundary does not advance
+    expect(finite(fogFrameAt(field, huge, 0, 0, 0, tiny))).toBe(true);
+    // (2) A morph window of a billion one-millisecond beats (a tuning arm or a
+    // dev zone override can set either dial): bounded work, not a billion segments.
+    const longMorph = makeFogField(12345, { ...CFG, morphMs: 1e9 }, OCEAN_R);
+    const fast: ZoneTimeline = { ...ZONE, beatMs: 1 };
+    const f = fogFrameAt(longMorph, 0.9e9, 0, 0, 0, fast);
+    expect(finite(f)).toBe(true);
+    expect(Number.isFinite(fogDensityAt(f, OCEAN_R * 0.3, OCEAN_R * 0.2))).toBe(true);
+  });
+});
+
+describe('continuity — no density pop', () => {
+  it('max |Δdensity| over 10 ms is tiny at every beat edge, morph reset, zone start and the collapse (the stepped eye and edge dials included)', () => {
+    const P = CFG.morphMs;
+    const instants = [0, CLOSED];
+    for (let k = 1; k * BEAT <= CLOSED; k++) instants.push(k * BEAT);
+    for (let k = 1; (k * P) / 2 <= CLOSED + P; k++) instants.push((k * P) / 2);
+    let worst = 0;
+    let seenSolid = false;
+    for (const t of instants) {
+      const a = frameAt(field, t - 5);
+      const b = frameAt(field, t + 5);
+      if (a.on && b.on) { // every instant rains now (Eric 2026-11-15: rain from the start line, no roll-in)
+        expect(Math.abs(a.eyeFrac - b.eyeFrac)).toBeLessThan(1e-3);
+        expect(Math.abs(a.edgeCov - b.edgeCov)).toBeLessThan(1e-3);
+      }
+      for (const p of COARSE) {
+        const da = fogDensityAt(a, p.x, p.y);
+        const db = fogDensityAt(b, p.x, p.y);
+        if (db >= FOG_SOLID_DENSITY) seenSolid = true;
+        worst = Math.max(worst, Math.abs(da - db));
+      }
+    }
+    expect(seenSolid).toBe(true);
+    expect(worst).toBeLessThan(0.02);
+  });
+});
+
+/** A rainy frame (late in the match) and a point standing in solid rain on it. */
+const RAINY = frameAt(field, 3 * GROUP + BEAT / 2);
+const IN_RAIN = FINE.find((p) => fogDensityAt(RAINY, p.x, p.y) >= 0.9) as { x: number; y: number };
+
+describe('fogDepthAlong — optical depth', () => {
   const step = CFG.marchStepU;
-  const cost = CFG.sightCostPerU;
 
-  it('is 0 at the no-fog cut and for a zero-length segment', () => {
-    expect(fogTollAlong(field, 0, 0, 500, 0, 0, FOG_NO_CUT)).toBe(0);
-    expect(fogTollAlong(field, 40, 40, 40, 40, 0, FULL)).toBe(0);
+  it('is 0 with no rain, for a zero-length ray, and inside the clear eye', () => {
+    const none = fogFrameAt(makeFogField(12345, CFG, 0), Z0, Z0, 0, 0, ZONE); // no ocean: no rain
+    expect(none.on).toBe(false);
+    expect(fogDepthAlong(none, -2000, 0, 2000, 0)).toBe(0);
+    expect(fogDepthAlong(RAINY, IN_RAIN.x, IN_RAIN.y, IN_RAIN.x, IN_RAIN.y)).toBe(0);
+    const f = frameAt(field, BEAT);
+    const r = f.eyeFrac * f.R * 0.9;
+    expect(fogDepthAlong(f, f.cx - r, f.cy, f.cx + r, f.cy)).toBe(0);
   });
 
-  it('is never negative and always finite, including on non-finite input', () => {
-    for (const p of SWEEP) {
-      const t = fogTollAlong(field, p.x, p.y, p.x + 300, p.y - 200, 500, 0.1);
-      expect(t).toBeGreaterThanOrEqual(0);
-      expect(Number.isFinite(t)).toBe(true);
+  it('NO OWN BANK: an observer standing in solid rain pays for it, and the ray costs the same both ways', () => {
+    const bx = IN_RAIN.x + 40 * step;
+    const there = fogDepthAlong(RAINY, IN_RAIN.x, IN_RAIN.y, bx, IN_RAIN.y);
+    const back = fogDepthAlong(RAINY, bx, IN_RAIN.y, IN_RAIN.x, IN_RAIN.y);
+    expect(there).toBeGreaterThan(0);
+    expect(fogDepthAlong(RAINY, IN_RAIN.x, IN_RAIN.y, IN_RAIN.x + step, IN_RAIN.y)).toBeGreaterThan(0.9 * step * 0.5);
+    expect(Math.abs(there - back)).toBeLessThan(1e-9 * (1 + there));
+  });
+
+  it('is symmetric A ↔ B on whole-step rays across the field', () => {
+    for (let i = 0; i < 40; i++) {
+      const ax = ((i * 739) % 6000) - 3000;
+      const ay = ((i * 421) % 6000) - 3000;
+      const n = 20 + ((i * 7) % 60);
+      const ang = i * 0.37;
+      const bx = ax + Math.cos(ang) * n * step;
+      const by = ay + Math.sin(ang) * n * step;
+      const there = fogDepthAlong(RAINY, ax, ay, bx, by);
+      expect(Math.abs(there - fogDepthAlong(RAINY, bx, by, ax, ay))).toBeLessThan(1e-6 * (1 + there));
     }
-    expect(fogTollAlong(field, NaN, 0, 10, 10, 0, FULL)).toBe(0);
   });
 
-  it('from CLEAR WATER into density 1 the toll is the fogged length × sightCostPerU: an observer just past the rim looking in (amendment 179 makes the rim the one exact clear/solid edge)', () => {
-    // A at (R + 10, 0) is off the ocean (density 0); the ray runs 310 u inward along the axis; the
-    // midpoint samples at R + 5 (clear) then R − 5, R − 15, … (solid): 30 steps × 10 u pay.
-    expect(Math.abs(fogTollAlong(field, OCEAN_R + 10, 0, OCEAN_R - 300, 0, 0, FULL) - 300 * cost)).toBeLessThan(1e-9);
-    // and a short ray that never reaches the ocean pays nothing
-    expect(fogTollAlong(field, OCEAN_R + 10, 0, OCEAN_R + 3.5, 0, 0, FULL)).toBe(0);
-  });
-
-  it('THE OWN BANK IS FREE (amendment 179, "like grass patches in League"): under density 1 an observer ON the ocean pays nothing to anywhere — the whole ocean is one bank — and sees OUT past the rim for free', () => {
-    const len = Math.sqrt(300 * 300 + 400 * 400);
-    expect(len).toBeGreaterThan(0); // premise: a real ray
-    expect(fogTollAlong(field, 0, 0, 300, 400, 0, FULL)).toBe(0);
-    expect(fogTollAlong(field, 0, 0, 3.5, 0, 0, FULL)).toBe(0);
-    for (const p of SWEEP) expect(fogTollAlong(field, p.x, p.y, p.x + 123, p.y - 321, 5000, FULL)).toBe(0);
-    // out of the bank into clear water: the solid run is free, the clear water costs nothing anyway
-    expect(fogTollAlong(field, OCEAN_R - 100, 0, OCEAN_R + 300, 0, 0, FULL)).toBe(0);
-  });
-
-  it('is DIRECTIONAL (amendment 179): from clear water into the bank pays, from the bank out to the same clear point pays nothing', () => {
-    const inward = fogTollAlong(field, OCEAN_R + 10, 0, OCEAN_R - 300, 0, 0, FULL);
-    const outward = fogTollAlong(field, OCEAN_R - 300, 0, OCEAN_R + 10, 0, 0, FULL);
-    expect(inward).toBeGreaterThan(0);
-    expect(outward).toBe(0);
-  });
-
-  it('the run ends at the first sample thinner than FOG_SOLID_DENSITY and never restarts: a second bank across thin or clear water pays full price (the rule written out against the density samples)', () => {
-    // The reference re-implemented in the open: every midpoint sample along the ray; iff A stands
-    // in solid fog, the first step (the observer's own ground) and then the leading solid run are
-    // free; everything after the run is paid.
-    const spelledOut = (ax: number, ay: number, bx: number, by: number, t: number, cut: number): number => {
-      const n = Math.ceil(Math.hypot(bx - ax, by - ay) / step);
-      let free = fogDensityAt(field, ax, ay, t, cut) >= FOG_SOLID_DENSITY;
-      let sum = 0;
-      for (let i = 0; i < n; i++) {
-        const f = (i + 0.5) / n;
-        const d = fogDensityAt(field, ax + (bx - ax) * f, ay + (by - ay) * f, t, cut);
-        if (free && (i === 0 || d >= FOG_SOLID_DENSITY)) continue;
-        free = false;
-        sum += d;
-      }
-      return (sum * Math.hypot(bx - ax, by - ay)) / n * cost;
-    };
-    let ownBankRays = 0;
-    let secondBankRays = 0;
-    for (const p of SWEEP) {
-      const [ax, ay, bx, by] = [p.x, p.y, p.x + 640, p.y - 270];
-      const got = fogTollAlong(field, ax, ay, bx, by, 4000, 0);
-      expect(Math.abs(got - spelledOut(ax, ay, bx, by, 4000, 0))).toBeLessThan(1e-9);
-      if (fogDensityAt(field, ax, ay, 4000, 0) >= FOG_SOLID_DENSITY) {
-        ownBankRays += 1;
-        if (got > 0) secondBankRays += 1; // the ray left the bank and met more fog: that fog was paid
-      }
+  it('is additive over a split at a whole step, and monotone non-decreasing in length', () => {
+    const ax = IN_RAIN.x - 300;
+    const ay = IN_RAIN.y - 200;
+    const ux = 0.6;
+    const uy = 0.8;
+    for (const k of [7, 30, 55]) {
+      const bx = ax + ux * k * step;
+      const by = ay + uy * k * step;
+      const cx = ax + ux * 90 * step;
+      const cy = ay + uy * 90 * step;
+      const whole = fogDepthAlong(RAINY, ax, ay, cx, cy);
+      expect(Math.abs(whole - (fogDepthAlong(RAINY, ax, ay, bx, by) + fogDepthAlong(RAINY, bx, by, cx, cy)))).toBeLessThan(1e-6 * (1 + whole));
     }
-    expect(ownBankRays).toBeGreaterThan(5); // the sweep is not vacuous: observers inside banks...
-    expect(secondBankRays).toBeGreaterThan(0); // ...and some of their rays reach a second bank
+    let prev = 0;
+    for (let d = 1; d < 1500; d += 3.7) {
+      const t = fogDepthAlong(RAINY, ax, ay, ax + ux * d, ay + uy * d);
+      expect(t).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = t;
+    }
+    expect(prev).toBeGreaterThan(0);
   });
 
-  it('is additive over a split segment within one step of tolerance per piece when the observer is in clear water (an observer in a bank starts a free run the pieces cannot share)', () => {
-    let checked = 0;
-    for (const p of SWEEP) {
-      if (fogDensityAt(field, p.x, p.y, 0, 0) >= FOG_SOLID_DENSITY) continue;
-      const ax = p.x, ay = p.y, bx = p.x + 700, by = p.y + 250;
-      const mx = ax + (bx - ax) * 0.37, my = ay + (by - ay) * 0.37;
-      if (fogDensityAt(field, mx, my, 0, 0) >= FOG_SOLID_DENSITY) continue; // the second piece would start its own free run
-      const whole = fogTollAlong(field, ax, ay, bx, by, 0, 0);
-      const parts = fogTollAlong(field, ax, ay, mx, my, 0, 0) + fogTollAlong(field, mx, my, bx, by, 0, 0);
-      expect(Math.abs(whole - parts)).toBeLessThanOrEqual(2 * step * cost);
-      checked += 1;
+  it('a non-finite input fails open to 0, and the result is always finite and non-negative', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(fogDepthAlong(RAINY, bad, 0, 100, 0)).toBe(0);
+      expect(fogDepthAlong(RAINY, 0, 0, 100, bad)).toBe(0);
     }
-    expect(checked).toBeGreaterThan(20);
-  });
-
-  it('is symmetric A ↔ B when neither end stands in solid fog (the own-bank rule is the only asymmetry)', () => {
-    let checked = 0;
-    for (const p of SWEEP) {
-      const [ax, ay, bx, by] = [p.x, p.y, p.x - 420, p.y + 610];
-      if (fogDensityAt(field, ax, ay, 3000, 0) >= FOG_SOLID_DENSITY || fogDensityAt(field, bx, by, 3000, 0) >= FOG_SOLID_DENSITY) continue;
-      expect(Math.abs(fogTollAlong(field, ax, ay, bx, by, 3000, 0) - fogTollAlong(field, bx, by, ax, ay, 3000, 0))).toBeLessThan(1e-9);
-      checked += 1;
+    for (const p of COARSE) {
+      const t = fogDepthAlong(RAINY, 0, 0, p.x, p.y);
+      expect(Number.isFinite(t) && t >= 0).toBe(true);
     }
-    expect(checked).toBeGreaterThan(20);
   });
 });
 
-describe('fogEyeReach / fogEyeReachFan (the eye\'s reach per bearing — Eric 2026-10-21, amendment 210)', () => {
-  const RANGE = CONFIG.vision.sight;
-  const BEARINGS = Array.from({ length: 16 }, (_, k) => (k * 2 * Math.PI) / 16);
-  const at = (ox: number, oy: number, a: number, d: number): [number, number] => [ox + Math.cos(a) * d, oy + Math.sin(a) * d];
+describe('fogDepthReach / fogDepthReachFan — the eye\'s reach per bearing', () => {
+  const RANGE = 3000;
+  const SC = { s: 0, c: 0 };
 
-  it('with no fog the eye reaches the full range on every bearing', () => {
-    for (const p of SWEEP.slice(0, 20)) {
-      for (const a of BEARINGS) expect(fogEyeReach(field, p.x, p.y, a, RANGE, 1000, FOG_NO_CUT)).toBe(RANGE);
-    }
-  });
-
-  it('from clear water a solid bank ahead shortens the reach, and the reach is where d + fogTollAlong(observer → d) fills the range (within one march step of toll)', () => {
-    // just past the rim, looking inward under density 1 (amendment 179 makes the rim an exact clear/solid edge)
-    const ox = OCEAN_R + 10;
-    expect(fogDensityAt(field, ox, 0, 0, FULL)).toBe(0); // premise: the observer is in clear water
-    const r = fogEyeReach(field, ox, 0, Math.PI, RANGE, 0, FULL);
-    expect(r).toBeLessThan(RANGE);
-    expect(Math.abs(r + fogTollAlong(field, ox, 0, ox - r, 0, 0, FULL) - RANGE)).toBeLessThanOrEqual(CFG.marchStepU * CFG.sightCostPerU);
-    // the same identity over a sweep of real banks (cut 0), clear-water observers only
+  it('inverts fogDepthAlong: a shortened reach is where τ hits fogMaxDepth; a full reach never exceeds it', () => {
     let shortened = 0;
-    for (const p of SWEEP) {
-      if (fogDensityAt(field, p.x, p.y, 2000, 0) >= FOG_SOLID_DENSITY) continue;
-      for (const a of BEARINGS) {
-        const reach = fogEyeReach(field, p.x, p.y, a, RANGE, 2000, 0);
-        if (reach >= RANGE) continue;
-        shortened += 1;
-        const [bx, by] = at(p.x, p.y, a, reach);
-        expect(Math.abs(reach + fogTollAlong(field, p.x, p.y, bx, by, 2000, 0) - RANGE)).toBeLessThanOrEqual(CFG.marchStepU * CFG.sightCostPerU);
-      }
-    }
-    expect(shortened).toBeGreaterThan(10); // the sweep is not vacuous
-  });
-
-  it('THE OWN BANK IS FREE: an observer in solid fog whose whole ray stays in that bank sees the full range', () => {
-    expect(fogDensityAt(field, 0, 0, 0, FULL)).toBeGreaterThanOrEqual(FOG_SOLID_DENSITY); // premise
-    for (const a of BEARINGS) expect(fogEyeReach(field, 0, 0, a, RANGE, 0, FULL)).toBe(RANGE);
-  });
-
-  it('non-finite pose, clock or cut reads "no shortening"; a non-positive range reaches nothing', () => {
-    expect(fogEyeReach(field, NaN, 0, 0, RANGE, 0, FULL)).toBe(RANGE);
-    expect(fogEyeReach(field, OCEAN_R + 10, NaN, Math.PI, RANGE, 0, FULL)).toBe(RANGE);
-    expect(fogEyeReach(field, OCEAN_R + 10, 0, NaN, RANGE, 0, FULL)).toBe(RANGE);
-    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, RANGE, NaN, FULL)).toBe(RANGE);
-    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, RANGE, 0, NaN)).toBe(RANGE);
-    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, NaN, 0, FULL)).toBeNaN();
-    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, 0, 0, FULL)).toBe(0);
-    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, -RANGE, 0, FULL)).toBe(0);
-  });
-
-  it('is monotone non-decreasing in range and never exceeds it', () => {
-    const ranges = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3].map((f) => f * RANGE);
-    for (const p of SWEEP.slice(0, 40)) {
-      for (const a of BEARINGS) {
-        let prev = 0;
-        for (const range of ranges) {
-          const r = fogEyeReach(field, p.x, p.y, a, range, 3000, 0);
-          expect(r).toBeGreaterThanOrEqual(prev);
-          expect(r).toBeLessThanOrEqual(range);
-          prev = r;
+    for (const o of [IN_RAIN, { x: 0, y: 0 }, { x: -2500, y: 1800 }, { x: RAINY.cx, y: RAINY.cy }]) {
+      for (let k = 0; k < 24; k++) {
+        const ang = (k * 2 * Math.PI) / 24 + 0.01;
+        fogSinCos(ang, SC);
+        const reach = fogDepthReach(RAINY, o.x, o.y, ang, RANGE, T_MAX);
+        expect(reach).toBeLessThanOrEqual(RANGE);
+        const tau = fogDepthAlong(RAINY, o.x, o.y, o.x + SC.c * reach, o.y + SC.s * reach);
+        if (reach < RANGE) {
+          shortened++;
+          expect(Math.abs(tau - T_MAX)).toBeLessThan(1e-6 * T_MAX);
+        } else {
+          expect(tau).toBeLessThanOrEqual(T_MAX + 1e-9);
         }
       }
     }
+    expect(shortened).toBeGreaterThan(0);
   });
 
-  it('a ray no longer than one march step is ONE step, as in fogTollAlong: no free "own" step, its thin sample is charged', () => {
-    // walk +x in 1 u steps to the last solid point before a bank's thin edge: the observer stands in solid fog
-    // and the one step's midpoint (range / 2 ahead) is thinner than solid — the own-step rule is the only free pass
-    const range = CFG.marchStepU / 2;
-    let ox = Number.NaN;
-    for (let x = -2500; x < 2500 && Number.isNaN(ox); x += 1) {
-      const solidHere = fogDensityAt(field, x, 0, 0, 0) >= FOG_SOLID_DENSITY;
-      const mid = fogDensityAt(field, x + range / 2, 0, 0, 0);
-      if (solidHere && mid < FOG_SOLID_DENSITY && mid > 0) ox = x;
-    }
-    expect(Number.isNaN(ox), 'premise: the walk found a solid observer facing a thin first step').toBe(false);
-    const r = fogEyeReach(field, ox, 0, 0, range, 0, 0);
-    expect(r).toBeLessThan(range);
-    // the one step is read at its midpoint and charged: eye spent per unit = 1 + density × cost
-    const dens = fogDensityAt(field, ox + range / 2, 0, 0, 0);
-    expect(r).toBeCloseTo(range / (1 + dens * CFG.sightCostPerU), 9);
-    // fogTollAlong over that same single step charges it too (no free own step on a one-step ray)
-    expect(fogTollAlong(field, ox, 0, ox + range, 0, 0, 0)).toBeCloseTo(dens * range * CFG.sightCostPerU, 9);
-  });
-
-  it('a non-finite sight cost reads "no fog" (the toll clamps it to 0), never a blind eye', () => {
-    const inf = makeFogField(12345, { ...CFG, sightCostPerU: Number.POSITIVE_INFINITY }, OCEAN_R);
-    expect(fogEyeReach(inf, OCEAN_R + 10, 0, Math.PI, RANGE, 0, FULL)).toBe(RANGE);
-    expect(fogTollAlong(inf, OCEAN_R + 10, 0, 0, 0, 0, FULL)).toBe(0);
-  });
-
-  it('the fan fills every slot of `out` at k × 2π / length and returns the same array', () => {
-    const out = new Float32Array(64);
-    const ox = OCEAN_R + 10;
-    expect(fogEyeReachFan(field, ox, 0, RANGE, 0, FULL, out)).toBe(out);
-    expect(out[0]).toBe(Math.fround(fogEyeReach(field, ox, 0, 0, RANGE, 0, FULL)));
-    expect(out[32]).toBe(Math.fround(fogEyeReach(field, ox, 0, (32 * 2 * Math.PI) / 64, RANGE, 0, FULL)));
-    expect(out[32]).toBeLessThan(RANGE); // the inward bearing is the shortened one
-  });
-});
-
-describe('fogCutForTarget', () => {
-  const side = 48;
-  const pts = fogLattice(0, 0, 5000, side);
-
-  it('the realized SOLID share (density ≥ ½) over the lattice lands on the target (amendment 178)', () => {
-    for (const t of [0, 25000, 90000]) {
-      for (const target of [0.05, 0.22]) {
-        const cut = fogCutForTarget(field, t, pts, target);
-        const solid = pts.filter((p) => fogDensityAt(field, p.x, p.y, t, cut) >= FOG_SOLID_DENSITY).length;
-        expect(Math.abs(solid / pts.length - target)).toBeLessThanOrEqual(2 / (side * side));
-        // ...and the cut sits half an edge band under the plain quantile, so every point above the quantile is solid
-        const above = pts.filter((p) => fogNoiseAt(field, p.x, p.y, t) > cut + CFG.edgeBand / 2).length;
-        expect(Math.abs(above / pts.length - target)).toBeLessThanOrEqual(2 / (side * side));
+  it('is monotone non-decreasing in range and never exceeds it', () => {
+    for (let k = 0; k < 12; k++) {
+      let prev = 0;
+      for (let r = 5; r < 2500; r += 17.3) {
+        const reach = fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, k * 0.52, r, T_MAX);
+        expect(reach).toBeLessThanOrEqual(r);
+        expect(reach).toBeGreaterThanOrEqual(prev);
+        prev = reach;
       }
     }
   });
 
-  it('target 0 or no points → the no-fog cut; target 1 → a cut below every value', () => {
-    expect(fogCutForTarget(field, 0, pts, 0)).toBe(FOG_NO_CUT);
-    expect(fogCutForTarget(field, 0, [], 0.05)).toBe(FOG_NO_CUT);
-    const full = fogCutForTarget(field, 0, pts, 1);
-    for (const p of pts.slice(0, 200)) expect(fogDensityAt(field, p.x, p.y, 0, full)).toBe(1);
+  it('fails open: no rain, a NaN depth or a non-finite pose reach the full range; range ≤ 0 reaches 0; a non-finite range returns itself', () => {
+    const none = fogFrameAt(field, Z0, null, 0, 0, ZONE);
+    expect(fogDepthReach(none, IN_RAIN.x, IN_RAIN.y, 0, RANGE, T_MAX)).toBe(RANGE);
+    expect(fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, 0, RANGE, NaN)).toBe(RANGE);
+    expect(fogDepthReach(RAINY, NaN, IN_RAIN.y, 0, RANGE, T_MAX)).toBe(RANGE);
+    expect(fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, NaN, RANGE, T_MAX)).toBe(RANGE);
+    expect(fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, 0, 0, T_MAX)).toBe(0);
+    expect(fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, 0, -5, T_MAX)).toBe(0);
+    expect(fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, 0, Infinity, T_MAX)).toBe(Infinity);
+  });
+
+  it('the fan fills every slot of `out` at k × 2π / length and returns the same array', () => {
+    const out = new Float32Array(36);
+    expect(fogDepthReachFan(RAINY, IN_RAIN.x, IN_RAIN.y, RANGE, T_MAX, out)).toBe(out);
+    for (let k = 0; k < out.length; k++) {
+      expect(out[k]).toBe(Math.fround(fogDepthReach(RAINY, IN_RAIN.x, IN_RAIN.y, (k * 2 * Math.PI) / out.length, RANGE, T_MAX)));
+    }
   });
 });
 
-describe('fogLattice', () => {
-  it('keeps about π/4 of the side² cell centers, all inside the disc', () => {
-    const pts = fogLattice(100, -200, 5000, 48);
-    expect(Math.abs(pts.length / (48 * 48) - 0.7853981633974483)).toBeLessThan(0.05);
-    for (const p of pts) expect((p.x - 100) ** 2 + (p.y + 200) ** 2).toBeLessThanOrEqual(5000 * 5000);
+describe('fogMaxDepth / fogVisibility (sim/fogDepth.ts)', () => {
+  it('visibility at the max depth is the cutoff; clear water is 1; deeper is dimmer', () => {
+    expect(Math.abs(fogVisibility(T_MAX, CFG) - CFG.sightCutoffV)).toBeLessThan(1e-12);
+    expect(fogVisibility(0, CFG)).toBe(1);
+    expect(fogVisibility(NaN, CFG)).toBe(1);
+    expect(fogVisibility(T_MAX * 2, CFG)).toBeLessThan(CFG.sightCutoffV);
   });
 
-  it('reuses the out array and its points', () => {
-    const out = fogLattice(0, 0, 5000, 48);
-    const first = out[0];
-    const again = fogLattice(10, 10, 4000, 48, out);
-    expect(again).toBe(out);
-    expect(again[0]).toBe(first);
-    const small = fogLattice(0, 0, 100, 8, out);
-    expect(small.length).toBeLessThan(64);
+  it('degenerate dials fail open', () => {
+    expect(fogMaxDepth({ extinctionPerU: 0, sightCutoffV: 0.05 })).toBe(Infinity);
+    expect(fogMaxDepth({ extinctionPerU: NaN, sightCutoffV: 0.05 })).toBe(Infinity);
+    expect(fogMaxDepth({ extinctionPerU: 0.01, sightCutoffV: 0 })).toBe(Infinity);
+    expect(fogMaxDepth({ extinctionPerU: 0.01, sightCutoffV: 1 })).toBe(0);
+  });
+});
+
+describe('fogHullGrid', () => {
+  it('lays cols × rows cell centers over the hull rectangle, bow along the heading, centered on the hull', () => {
+    const cols = CFG.hullGridCols;
+    const rows = CFG.hullGridRows;
+    const L = 180;
+    const B = 24;
+    for (const h of [0, 0.7, Math.PI / 2, 2.5, -2]) {
+      const out = new Float64Array(2 * cols * rows);
+      expect(fogHullGrid(100, -50, h, L, B, cols, rows, out)).toBe(cols * rows);
+      const fx = Math.cos(h);
+      const fy = Math.sin(h);
+      let mx = 0;
+      let my = 0;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const i = 2 * (r * cols + c);
+          const dx = out[i] - 100;
+          const dy = out[i + 1] + 50;
+          mx += dx;
+          my += dy;
+          const along = dx * fx + dy * fy;
+          const across = -dx * fy + dy * fx;
+          expect(Math.abs(along)).toBeLessThan(L / 2);
+          expect(Math.abs(across)).toBeLessThan(B / 2);
+          if (c > 0) expect(along - ((out[i - 2] - 100) * fx + (out[i - 1] + 50) * fy)).toBeCloseTo(L / cols, 4); // stern → bow (fogSinCos is good to 1e-6)
+          if (r > 0) {
+            const j = i - 2 * cols;
+            expect(across - (-(out[j] - 100) * fy + (out[j + 1] + 50) * fx)).toBeCloseTo(B / rows, 4);
+          }
+        }
+      }
+      expect(Math.abs(mx / (cols * rows))).toBeLessThan(1e-6);
+      expect(Math.abs(my / (cols * rows))).toBeLessThan(1e-6);
+    }
+  });
+
+  it('a non-positive count writes nothing', () => {
+    expect(fogHullGrid(0, 0, 0, 10, 5, 0, 2, [])).toBe(0);
+  });
+});
+
+describe('non-finite input fails open', () => {
+  it('a NaN clock, start or eye center is a no-rain frame; a NaN point reads 0', () => {
+    expect(fogFrameAt(field, NaN, Z0, 0, 0, ZONE).on).toBe(false);
+    expect(fogFrameAt(field, Z0 + BEAT, NaN, 0, 0, ZONE).on).toBe(false);
+    expect(fogFrameAt(field, Z0 + BEAT, Z0, NaN, 0, ZONE).on).toBe(false);
+    expect(fogDensityAt(RAINY, NaN, 0)).toBe(0);
+    expect(fogDensityAt(RAINY, 0, Infinity)).toBe(0);
   });
 });
 
@@ -388,116 +481,30 @@ const FORBIDDEN_MATH = [
 ];
 
 describe('sim/fog.ts source guard', () => {
-  it('uses no transcendental, no unseeded randomness and no clock', () => {
+  it('uses no transcendental, no unseeded randomness and no clock — and reaches the transcendental sight math only through sim/fogDepth.ts', () => {
     for (const fn of FORBIDDEN_MATH) {
       expect(new RegExp(`Math\\.${fn}\\s*\\(`).test(SRC), `Math.${fn}( is forbidden`).toBe(false);
     }
     expect(/Date\.now\s*\(/.test(SRC), 'Date.now( is forbidden').toBe(false);
+    expect(/\bnew Date\b/.test(SRC), 'new Date is forbidden').toBe(false);
+    expect(/performance\.now\s*\(/.test(SRC), 'performance.now( is forbidden').toBe(false);
     expect(/\bMath\.PI\b/.test(SRC), 'Math.PI is forbidden').toBe(false);
-  });
-});
-
-describe('the spin (Eric 2026-10-16, amendment 177)', () => {
-  /** Shear and wind off: the pattern is a rigid turn about the ocean center. */
-  const still: FogFieldConfig = { ...CFG, windU: 0, spinShear: 0 };
-
-  it('with shear 0 and no wind the pattern is a rigid rotation about the ocean center: noise at a point turned by the rim angle equals noise at rest (a morph-phase-0 instant)', () => {
-    for (const seed of [11, 12, 13]) {
-      const f = makeFogField(seed, still, OCEAN_R);
-      const t = still.morphMs; // morph weight 0: layer A only
-      const th = (f.spinSign * (still.spinRimU / 1000) * t) / OCEAN_R; // rim speed over radius
-      const c = Math.cos(th);
-      const s = Math.sin(th);
-      for (const p of SWEEP) {
-        const rx = p.x * c - p.y * s;
-        const ry = p.x * s + p.y * c;
-        expect(Math.abs(fogNoiseAt(f, rx, ry, t) - fogNoiseAt(f, p.x, p.y, 0))).toBeLessThan(1e-3);
-      }
-    }
+    expect(/\*\*/.test(SRC.replace(/\/\*\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), 'the ** operator is forbidden').toBe(false);
+    expect(/from '\.\/fogDepth\.js'/.test(SRC), 'fog.ts must not import fogDepth.ts').toBe(false);
   });
 
-  it('the direction is a per-seed coin flip and both faces come up', () => {
-    const signs = new Set<number>();
-    for (let seed = 1; seed <= 64; seed++) signs.add(makeFogField(seed, CFG, OCEAN_R).spinSign);
-    expect(signs).toEqual(new Set([1, -1]));
-    expect(makeFogField(42, CFG, OCEAN_R).spinSign).toBe(makeFogField(42, CFG, OCEAN_R).spinSign);
-  });
-
-  it('a non-positive or NaN ocean radius disables the spin instead of spinning a 1 u disc', () => {
-    for (const bad of [0, -5, NaN]) {
-      const f = makeFogField(5, CFG, bad);
-      expect(f.spinRadiusU).toBe(0);
-      const g = makeFogField(5, { ...CFG, spinRimU: 0 }, OCEAN_R);
-      for (const p of SWEEP) expect(fogNoiseAt(f, p.x, p.y, 777)).toBe(fogNoiseAt(g, p.x, p.y, 777));
-    }
-  });
-
-  it('spinRimU 0 is no spin: in the wind frame, two morph-phase-0 instants read the same noise', () => {
-    const f = makeFogField(5, { ...CFG, spinRimU: 0 }, OCEAN_R);
-    const tm = CFG.morphMs * 2;
-    for (const p of SWEEP) {
-      expect(Math.abs(fogNoiseAt(f, p.x + f.windX * tm, p.y + f.windY * tm, tm) - fogNoiseAt(f, p.x, p.y, 0))).toBeLessThan(1e-9);
-    }
-  });
-
-  it('each layer\'s shear is measured from its own last reset, not from t = 0 (the bound that keeps stretch to one morphMs)', () => {
-    // Just after t = 10·P layer B (reset there, invisible at phase 0) weighs ~1e-5: the field is layer A
-    // alone, with P/2 + 1 ms of shear since A's reset at 9.5·P — exactly A's state at t = 1 ms (A's reset at
-    // −P/2) — rotated rigidly by the rim angle for the 10·P in between. Were tA measured from 0, A's shear
-    // angle at the centre would differ by w0·spinShear·10·P ≈ 3.9 rad and the readings would not match.
-    // Symmetric for layer B just after 10.5·P (A invisible; B reset at 10·P) against t = P/2 + 1 ms.
-    const cfg = { ...CFG, windU: 0 };
-    const P = cfg.morphMs;
-    for (const seed of [21, 22]) {
-      const f = makeFogField(seed, cfg, OCEAN_R);
-      for (const [tLate, tEarly] of [[10 * P + 1, 1], [10 * P + P / 2 + 1, P / 2 + 1]]) {
-        const th = (f.spinSign * (cfg.spinRimU / 1000) * (tLate - tEarly)) / OCEAN_R; // the rigid turn in between
-        const c = Math.cos(th);
-        const sn = Math.sin(th);
-        for (const p of SWEEP) {
-          if (p.x * p.x + p.y * p.y > OCEAN_R * OCEAN_R) continue;
-          const rx = p.x * c - p.y * sn;
-          const ry = p.x * sn + p.y * c;
-          expect(Math.abs(fogNoiseAt(f, rx, ry, tLate) - fogNoiseAt(f, p.x, p.y, tEarly))).toBeLessThan(2e-3);
-        }
-      }
-    }
-  });
-
-  it('the noise is continuous across both reset instants (the resetting layer is invisible there)', () => {
-    const f = makeFogField(99, CFG, OCEAN_R);
-    for (const tReset of [CFG.morphMs, CFG.morphMs / 2, 3 * CFG.morphMs]) {
-      for (const p of SWEEP) {
-        expect(Math.abs(fogNoiseAt(f, p.x, p.y, tReset + 1e-3) - fogNoiseAt(f, p.x, p.y, tReset - 1e-3))).toBeLessThan(1e-4);
-      }
-    }
-  });
-
-  it('fogSinCos matches Math.sin / Math.cos within 1e-6 across the folds, at the fold points and at match-scale angles', () => {
+  it('fogSinCos matches Math.sin / Math.cos within 1e-6 across the folds and at match-scale angles', () => {
     const out = { s: 0, c: 0 };
-    const angles = [0, -0, 0.3, -0.3, Math.PI / 2, -Math.PI / 2, Math.PI / 2 + 1e-9, Math.PI / 2 - 1e-9, 2, -2, Math.PI, -Math.PI,
-      3 * Math.PI / 2, 5, -5, 2 * Math.PI, 7, 100.5, -100.5, 56.5, 1e4 + 0.1, -1e4 - 0.1];
-    for (const a of angles) {
-      fogSinCos(a, out);
-      expect(Math.abs(out.s - Math.sin(a)), `sin ${a}`).toBeLessThan(1e-6);
-      expect(Math.abs(out.c - Math.cos(a)), `cos ${a}`).toBeLessThan(1e-6);
-    }
     for (let i = 0; i < 2000; i++) {
       const a = (i - 1000) * 0.0123457;
       fogSinCos(a, out);
       expect(Math.abs(out.s - Math.sin(a))).toBeLessThan(1e-6);
       expect(Math.abs(out.c - Math.cos(a))).toBeLessThan(1e-6);
     }
-  });
-
-  it('a sheared field stays finite and bounded deep into a match', () => {
-    const f = makeFogField(7, CFG, OCEAN_R);
-    for (const t of [1, 2 * CFG.morphMs + 1, 1800000]) {
-      for (const p of SWEEP) {
-        const n = fogNoiseAt(f, p.x, p.y, t);
-        expect(Number.isFinite(n)).toBe(true);
-        expect(Math.abs(n)).toBeLessThanOrEqual(1.5);
-      }
+    for (const a of [0, Math.PI / 2, -Math.PI / 2, Math.PI, -Math.PI, 1e4 + 0.1, -1e4 - 0.1]) {
+      fogSinCos(a, out);
+      expect(Math.abs(out.s - Math.sin(a))).toBeLessThan(1e-6);
+      expect(Math.abs(out.c - Math.cos(a))).toBeLessThan(1e-6);
     }
   });
 });

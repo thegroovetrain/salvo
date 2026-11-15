@@ -105,7 +105,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
 }
 
 function view(events: GameEvent[]): PerceptionView {
-  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], plain: [] };
+  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
 }
 
 /** The lattice cell centre the fold will derive for a one-cell rect at (x, y). */
@@ -939,13 +939,12 @@ describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a 
 
 
 // ---------------------------------------------------------------------------
-// Story 11.2 review gate (F5): ONE HULL, ONE TRACK ACROSS A SIGHT-TIER CHANGE.
-// A hull crossing between the plain band and the class reach changes its
-// track KEY (anonymous handle to roster id and back, or a fresh handle on a
-// new visit); the fold retires the stale twin under the hull it now holds by
-// eye.
+// Story 11.2 review gate (F5), kept when the plain tier was removed (Eric
+// 2026-11-15): ONE HULL, ONE TRACK. A hull first held as an identity-free
+// plot and then sighted opens a track under its roster id; the fold retires
+// the stale twin under the hull it now holds by eye.
 // ---------------------------------------------------------------------------
-describe('foldView — a hull that changes sight tier is ONE track, never a dead-reckoned twin (Story 11.2 review gate, F5)', () => {
+describe('foldView — a plotted hull that comes into sight is ONE track, never a dead-reckoned twin (Story 11.2 review gate, F5)', () => {
   const TICK = CONFIG.tick.simDtMs;
   const SPEED = FASTEST_HULL_SPEED;
   /** A hull steaming east from (2000, 300): its pose `n` ticks on. */
@@ -953,22 +952,14 @@ describe('foldView — a hull that changes sight tier is ONE track, never a dead
   const eyes = (over: Partial<PerceptionView>): PerceptionView => ({ ...view([]), ...over });
   const full = (n: number, id = 'e1'): PerceptionView['contacts'][number] => ({ id, cls: SHIP_CLASS_IDS[0], ...poseAt(n) }) as PerceptionView['contacts'][number];
 
-  it('INBOUND (plain to full contact), OUTBOUND (full to plain) and a NEW VISIT (a fresh handle): every time, exactly one track stands where the hull is, and it is live', () => {
-    const crossings: [string, PerceptionView, PerceptionView][] = [
-      ['inbound', eyes({ plain: [{ h: 'H1', ...poseAt(0) }] }), eyes({ contacts: [full(1)] })],
-      ['outbound', eyes({ contacts: [full(0)] }), eyes({ plain: [{ h: 'H1', ...poseAt(1) }] })],
-      ['new visit', eyes({ plain: [{ h: 'H1', ...poseAt(0) }] }), eyes({ plain: [{ h: 'H2', ...poseAt(1) }] })],
-    ];
-    for (const [label, first, second] of crossings) {
-      const m = mkMind();
-      foldView(m, first, NOW);
-      expect(m.contacts.size, label).toBe(1);
-      foldView(m, second, NOW + TICK);
-      const tracks = [...m.contacts.values()];
-      expect(tracks, label).toHaveLength(1);
-      expect(tracks[0].live, label).toBe(true);
-      expect(tracks[0], label).toMatchObject({ x: poseAt(1).x, y: poseAt(1).y });
-    }
+  it('an identity-free plot standing where a hull is now sighted is retired the same fold: exactly one track stands there, and it is live', () => {
+    const m = mkMind();
+    m.contacts.set('a:plot', anon({ ...poseAt(0), heading: null, speed: null, seenAt: NOW - TICK }));
+    foldView(m, eyes({ contacts: [full(1)] }), NOW);
+    const tracks = [...m.contacts.values()];
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].live).toBe(true);
+    expect(tracks[0]).toMatchObject({ id: 'e1', x: poseAt(1).x, y: poseAt(1).y });
   });
 
   it('retires ONLY the twin: a plot farther than a hull length from every sighted hull survives, and so does a wreck\'s own track under a live hull', () => {

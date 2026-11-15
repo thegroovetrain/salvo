@@ -800,34 +800,6 @@ export interface Contact {
   lu?: number[];
 }
 
-/**
- * A PLAIN HULL — THE OUTER SIGHT TIER (Story 11.2, Eric 2026-11-12, R3): a
- * hull seen by eye beyond the class-and-name reach (`stats.sightRange`,
- * `CONFIG.vision.sight`) and inside the plain-hull reach
- * (`stats.hullSightRange`, `CONFIG.vision.hullSight`), island LOS clear. It
- * is LIVE — one generic shape at the hull's true position, heading and speed
- * — and carries NOTHING ELSE.
- *
- * `h` is an ANONYMOUS PER-OBSERVER HANDLE: stable only while that hull stays
- * in this observer's outer band (a fresh handle on every visit), never the
- * roster id and never derivable from it — a stable handle would link a hull
- * to its class after one close pass. The server mints it.
- *
- * ANTI-CHEAT — deliberately omitted: the class (`cls`), the roster id, the
- * turret and launcher angles (`tu` / `lu`) and any other identity channel.
- * A hull crossing inward becomes a full `Contact` and leaves this list in the
- * same frame (the client shows one hull, never both). Not a seventh
- * perception exception: it rides its own invariant line. KEY ORDER IS
- * LOAD-BEARING (msgpack): h,x,y,heading,speed.
- */
-export interface PlainContact {
-  h: string; // the anonymous per-observer handle — never a roster id
-  x: number; // u
-  y: number; // u
-  heading: number; // rad
-  speed: number; // u/s
-}
-
 // --- GameEvent union (discriminated on `k`) --------------------------------
 
 /**
@@ -1582,9 +1554,9 @@ export interface FoulZoneView {
 /**
  * A MULTI-SPECTRAL COUNTERMEASURE cloud visible to this viewer (Story 9.3;
  * replaces 8.18's SmokeView), synced as CONTACT-LIKE state (not an event):
- * FrameMsg.clouds is recomputed per observer every tick. A CLIENT VISUAL
- * OVERLAY (Story 9.3 session 2, Eric 2026-10-12): the server hides nothing
- * behind or inside a cloud; the client paints it as smoke over the ships.
+ * FrameMsg.clouds is recomputed per observer every tick. The client paints it
+ * as smoke over the ships; since Story 11.6 (Eric 2026-11-14) the server's eye
+ * gates also pay its optical depth (sim/smokeDepth.ts) — sight only, never radar.
  * Delivered to the owner always, to spectators, and to any other observer
  * whose SENSORS reach its spray disc (radius `cloudOutlineRadius(age)`):
  * SIGHTED — the disc's nearest point within sight with island line of sight
@@ -1704,13 +1676,6 @@ export interface FrameMsg {
   // per-observer AIRDROP visibility (Story 10.9 — sight-gated, contact-like;
   // omitted when none, the litZones rule). Radar sees a drop only as a blip.
   drops?: DropView[];
-  /**
-   * PLAIN HULLS (Story 11.2, R3): hulls seen by eye beyond the class-and-name
-   * reach and inside the plain-hull reach — pose under an anonymous
-   * per-observer handle only (see `PlainContact`). Omitted when none (the
-   * litZones rule).
-   */
-  pc?: PlainContact[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

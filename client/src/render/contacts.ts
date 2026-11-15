@@ -23,6 +23,14 @@
 // launchers (Story 10.6) point along `Contact.lu` (`launcherAnglesOf`), drawn
 // as the generic housing; none on the wire draws none.
 //
+// THE RAIN LOOK (Story 11.6, Eric's A+D — render/rainSight.ts): `render`'s
+// `rain` is the frame's eye (the own hull through this frame's rain, smoke and
+// distance haze; null for a spectator), handed to every hull view after its
+// pose, so each dissolves by what lies between the observer and its own parts.
+// THE NAME TAG (Eric 2026-11-15): drawn only while the hull's center is within
+// the observer's effective class-and-name sight (`RainEye.sightU`); beyond it
+// the hull draws, fading, with no plate (`plateInSight`).
+//
 // Story 1.13 (Class Silhouettes): each contact also floats a truesight nameplate
 // (render/nameplates.ts). The plate rides this view's SAME snapshot sample (its
 // last-applied world pose) projected to screen space, and its alpha is this
@@ -39,7 +47,7 @@ import { ShipView } from './ships.js';
 import { relationStroke, relationStyle, type Relation } from './relationColor.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
 import { Fader } from './fade.js';
-import { PlainHullViews } from './plainHullViews.js';
+import { plateInSight, type RainEye } from './rainSight.js';
 
 /** Start a contact's fade-out once unseen for this much FRAME time (ms) — read
  *  against `ServerClock.frameNow()`, never `serverNow()` (see `render`). */
@@ -102,9 +110,8 @@ const NO_ANGLES: readonly number[] = [];
 
 export class ContactViews {
   private views = new Map<string, FadingView>();
-  /** THE PLAIN HULLS (Story 11.2, R3) — the outer sight tier's generic hulls,
-   *  drawn into the same layer from the store's `plain` channel. */
-  private readonly plainViews: PlainHullViews;
+  /** This frame's rain eye (`render`'s argument), read by `updateView`. */
+  private rain: RainEye | null = null;
 
   constructor(
     private readonly layer: Container,
@@ -113,14 +120,7 @@ export class ContactViews {
      *  countermeasure.ts `coverAt`, Story 9.3). A plate under paint at least
      *  `plateHideAlpha` thick is hidden — never the hull. Defaults to no cover. */
     private readonly coverAt: (x: number, y: number) => number = () => 0,
-  ) {
-    this.plainViews = new PlainHullViews(layer);
-  }
-
-  /** How many plain-hull views are live, including fading ones (tests/debug). */
-  get plainCount(): number {
-    return this.plainViews.count;
-  }
+  ) {}
 
   /** How many contact views are live, including fading ones (tests/debug). */
   get count(): number {
@@ -185,8 +185,10 @@ export class ContactViews {
     relationOf: RelationFor,
     plates: PlateFrame,
     softness: HullSoftness = NO_SOFTENING,
+    rain: RainEye | null = null,
   ): void {
     store.prune(staleNow, CONTACT_STALE_MS);
+    this.rain = rain;
     // Only start/keep a view for ids whose buffer can actually produce a pose.
     // A respawn's frame-contacts push can land in the same tick as the spawn
     // event's buffer clear (see net/roomBindings.ts), leaving a briefly empty
@@ -198,17 +200,12 @@ export class ContactViews {
       if (buf && buf.size > 0) this.viewFor(id, store, relationOf).fader.show();
     }
     for (const [id, fv] of this.views) {
-      // An OUTWARD tier handoff (Story 11.2) takes the hull off at once: its
-      // plain view is born at full alpha on this same frame, so a fade here
-      // would draw the one hull twice.
-      const handedOff = store.takeRetiredByHandoff(id);
-      if (handedOff || this.updateView(id, fv, store, renderTime, dtMs, relationOf, plates, softness)) {
+      if (this.updateView(id, fv, store, renderTime, dtMs, relationOf, plates, softness)) {
         this.nameplates.remove(id);
         fv.view.destroy();
         this.views.delete(id);
       }
     }
-    this.plainViews.render(store.plain, renderTime, dtMs);
   }
 
   /** Advance one view (recolor probe, pose, fade, nameplate); returns true once
@@ -238,6 +235,7 @@ export class ContactViews {
     // rather than snapping to full strength for its last 150ms.
     const p = fv.view.gfx.position;
     fv.view.setFade(fv.fader.update(dtMs) * softness(p.x, p.y));
+    fv.view.setRain(this.rain, dtMs);
     this.drivePlate(id, fv, plates, softness);
     return fv.fader.hidden;
   }
@@ -289,7 +287,10 @@ export class ContactViews {
     // want someone's nameplate sticking out from behind the smoke, that gives it
     // away"). Sampled at the hull pose like the feather; the hull itself is
     // never hidden here — the overlay already shows partials.
-    const shown = this.coverAt(gp.x, gp.y) >= CLIENT_CONFIG.countermeasure.plateHideAlpha ? 0 : 1;
+    // ...and BEYOND THE CLASS-AND-NAME SIGHT the name goes too (Story 11.6,
+    // Eric 2026-11-15): the hull still draws there, fading in the haze.
+    const covered = this.coverAt(gp.x, gp.y) >= CLIENT_CONFIG.countermeasure.plateHideAlpha;
+    const shown = !covered && plateInSight(this.rain, gp.x, gp.y) ? 1 : 0;
     this.nameplates.place(id, sc.x, y, fv.fader.alpha * softness(gp.x, gp.y) * shown);
   }
 
@@ -312,9 +313,7 @@ export class ContactViews {
       const hullId = store.classOf(id) ?? DEFAULT_CLASS_ID;
       const relation = relationOf(id);
       const style = relationStyle(relation);
-      // An INWARD tier handoff (Story 11.2) is born at full alpha: its plain
-      // view went at once on this frame, so a fade-in would blink the hull.
-      const fader = new Fader(store.takeBornByHandoff(id));
+      const fader = new Fader();
       fv = { view: new ShipView(style, hullId), fader, hull: hullId, relation, plated: false };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);

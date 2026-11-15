@@ -22,6 +22,8 @@ import {
   draftedKinematics,
   CATALOG,
   cardBehaviors,
+  effectiveHullSight,
+  effectiveSight,
   effectiveStats,
   equipmentReloadMs,
   hullEnvelope,
@@ -30,7 +32,6 @@ import {
   equipmentMaxAmmo,
   isOutside,
   slotsWithCards,
-  FOG_NO_CUT,
   type Island,
   type InputMsg,
   type ContactBody,
@@ -72,6 +73,7 @@ import { FoulZones } from './render/foulZones.js';
 import { Smoke } from './render/smoke.js';
 import { Countermeasure } from './render/countermeasure.js';
 import { FogFieldView } from './render/fogField.js';
+import { smokeDiscsInto, type RainEye, type SmokeDiscSlot } from './render/rainSight.js';
 import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
@@ -346,9 +348,10 @@ interface Game {
    *  layer (above contact hulls, below radar paints and the own hull — Eric
    *  2026-10-12); one spraypaint bitmap per cloud, advanced per render frame. */
   countermeasure: Countermeasure;
-  /** THE FOG FIELD (render/fogField.ts, Story 9.10) — the rolling fog drawn
-   *  on the `fog` chart layer (under every hull) from the welcome's `fogSeed`
-   *  and the schema's `fogCut`; masked by the flash-rung halo + island LOS. */
+  /** THE FOG FIELD (render/fogField.ts, Story 9.10; the storm-eye rain since
+   *  Story 11.6) — drawn on the `fog` chart layer (under every hull) from the
+   *  welcome's `fogSeed`, the schema's `zoneStartT` and the live zone ring;
+   *  masked by the flash-rung halo + island LOS. */
   fogField: FogFieldView;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
@@ -654,6 +657,19 @@ interface Game {
    * at `NO_SOFTENING` for the frames before either has run.
    */
   hullSoftness: HullSoftness;
+  /**
+   * THIS FRAME'S RAIN EYE (Story 11.6, render/rainSight.ts) — the observer the
+   * contact hulls' A+D look marches the rain from: the own hull's pose through
+   * this frame's rain AND the held smoke clouds (Eric 2026-11-14: smoke
+   * occludes like rain, the owner blinded too), or null (no pose, neither rain
+   * nor smoke, or spectating). A per-frame field for the same reason as
+   * `hullSoftness`; both renderers set it.
+   */
+  rainEye: RainEye | null;
+  /** The smoke discs `rainEye` carries, refilled in place each frame from the
+   *  held clouds (render/rainSight.ts `smokeDiscsInto`), and their slot pool. */
+  smokeDiscs: SmokeDiscSlot[];
+  smokeDiscPool: SmokeDiscSlot[];
   /**
    * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
    * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
@@ -1136,9 +1152,6 @@ interface PublicState extends BeaconPlane {
   zoneNextCx?: number;
   zoneNextCy?: number;
   zoneNextR?: number;
-  /** THE FOG CUT (Story 9.10) — match-wide weather: the noise threshold the
-   *  fog field is drawn at; FOG_NO_CUT (9) = no fog. Never spatial. */
-  fogCut?: number;
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
@@ -1528,7 +1541,7 @@ function updateMatchAudioCues(g: Game, now: number): void {
     g.state.net.heldClouds.clear();
     g.state.net.clouds = [];
     g.countermeasure.clear();
-    g.fogField.clear(); // the server's resetForMatchStart resets its cut to no fog too
+    g.fogField.clear(); // the zone is idle again at match start: no rain until it starts
   }
 }
 
@@ -2759,6 +2772,9 @@ function buildGame(
   // path (radar.render(null, ...)) never casts.
   const fogField = new FogFieldView(stage.layers.fog);
   radar.setEyeReachSource(fogField);
+  // ...and its rain clutter reads the same frame (Story 11.6): each march step
+  // paints the swept sector's clutter under the real returns (render/radarClutter.ts).
+  radar.setClutterSource(fogField);
   // A far cloud's radar-delivery hold ages by FRAME time (net/clock.ts frameNow),
   // so a lagging server never blinks a return it is still delivering.
   const clock = new ServerClock();
@@ -2852,7 +2868,7 @@ function buildGame(
     audio, portal,
     engineMix: new EngineMix(audio),
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
-    hullSoftness: NO_SOFTENING,
+    hullSoftness: NO_SOFTENING, rainEye: null, smokeDiscs: [], smokeDiscPool: [],
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownPlated: false, // unresolved until the roster syncs the own name (1.13)
@@ -2863,6 +2879,7 @@ function buildGame(
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
   };
   gRef = g;
+  armSmokeReach(g);
   armWorldFlashBudget(g, camera, flashBudget);
   // Coast returns (amendment 69) read the HEIGHT RASTER the client already
   // rebuilt from the map seed — pure presentation, never on the wire. It is the
@@ -2879,7 +2896,7 @@ function buildGame(
   // 2026-10-12: "if I can't see it because of an island … don't render it").
   g.countermeasure.setIslands(g.islands);
   g.fogField.setIslands(g.islands); // ...and so does the fog haze (Story 9.10)
-  g.fogField.setSeed(welcome.fogSeed, welcome.mapRadius); // the shared fog field, derived from the welcome's seed, spinning about the ocean center over the SERVER's radius (the wire value, not the regenerated map's — equal by construction, authoritative here)
+  g.fogField.setSeed(welcome.fogSeed, welcome.mapRadius); // the shared rain field, derived from the welcome's seed over the SERVER's radius (the wire value, not the regenerated map's — equal by construction, authoritative here); its eye rides the live ring (setZone, per frame)
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -4524,9 +4541,8 @@ function renderAlive(
   // marched it above, through setCloudSource, as one more return source) —
   // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
   g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
-  // the rolling fog: the schema's cut eased, the density raster refreshed on its
-  // cadence, the wisps scrolled (motion-gated); seen by eye only inside the same halo
-  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
+  // the rain: the density raster refreshed on its cadence from this frame's
+  // storm eye, the wisps scrolled (motion-gated); seen by eye only inside the same halo
   g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
@@ -4538,6 +4554,32 @@ function renderAlive(
   // zones the two lines above use, so the surfaces cannot disagree about where
   // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
+  g.rainEye = rainEyeFor(g, pose, now, ownZones);
+}
+
+/**
+ * The own hull through this frame's rain, smoke and distance haze (Story 11.6),
+ * or null with no pose. The haze rides the own EFFECTIVE reaches — the shared
+ * whiteout-scaled `effectiveSight` / `effectiveHullSight`, the functions the
+ * server's eye gates call (Eric 2026-11-15: crisp to sight, gone at hull
+ * sight). `lit` = the own live star-shell zones: a hull inside one is lit from
+ * above (the server's `ownZoneCovers`) and gets no eye.
+ */
+function rainEyeFor(g: Game, pose: Point | null, now: number, lit: readonly OwnZone[]): RainEye | null {
+  if (!pose) return null;
+  const frame = g.fogField.frameAt(now);
+  const smoke = smokeDiscsInto(g.state.net.clouds ?? [], now, g.smokeDiscPool, g.smokeDiscs);
+  const until = dazzleUntil(g);
+  const sightU = effectiveSight(g.ownStats, until, now);
+  const hullSightU = effectiveHullSight(g.ownStats, until, now);
+  return { frame, smoke, lit, sightU, hullSightU, x: pose.x, y: pose.y };
+}
+
+/** The radar's eye-reach fan reads the SAME held clouds `rainEyeFor` does (Story 11.6), into its own scratch. */
+function armSmokeReach(g: Game): void {
+  const pool: SmokeDiscSlot[] = [];
+  const out: SmokeDiscSlot[] = [];
+  g.fogField.setSmokeSource((tMs) => smokeDiscsInto(g.state.net.clouds ?? [], tMs, pool, out));
 }
 
 // --- spectate rendering ----------------------------------------------------------
@@ -4739,6 +4781,9 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // now rides the same product) draws at full strength, exactly as it did before
   // either moved above the fog.
   g.hullSoftness = NO_SOFTENING;
+  // ...and no observer to see through the rain from: a spectator's frames are
+  // unfogged and the reveal follows no captain, so no hull dissolves (Story 11.6).
+  g.rainEye = null;
   // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
@@ -4790,7 +4835,6 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud
-  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
   g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, null, g.camera.screenWorldRect, 'spectate'); // ...and the whole fog field, unmasked
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
@@ -4959,6 +5003,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const nowMs = performance.now();
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
+      g.fogField.setZone(zv.state === 'idle' ? null : zv.startT, zv.cur.cx, zv.cur.cy); // the rain's eye rides the live ring (Story 11.6)
       const mu = matchUxFromRoom(g, now);
       updateMatchEpoch(g); // score epoch + the start line's release edge
       updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
@@ -4990,7 +5035,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         // whichever of the two renderers above just ran (this cycle: hulls draw
         // ABOVE the fog now, so they carry its feather themselves). Kept on one
         // line so this callback stays inside its line budget.
-        plateFrame, g.hullSoftness,
+        plateFrame, g.hullSoftness, g.rainEye,
       );
       feedContactBodies(g, now);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);

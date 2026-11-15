@@ -891,8 +891,9 @@ export const CONFIG = {
    *   ------------------   ----   -------------------------------------------
    *   radar                400    the radar sweep (and the foghorn's reach —
    *                               the listener's own radar, today's rule)
-   *   hullSight            350    a PLAIN HULL by eye (R3: hull-down, upper
-   *                               works only — pose, no class, no identity)
+   *   hullSight            350    where the distance haze has taken a hull by
+   *                               eye (Story 11.6: crisp to `sight`, fading to
+   *                               gone here)
    *   muzzleFlash          350    muzzle flash + wounded smoke + the
    *                               countermeasure haze halo
    *   splashSight          350    splashes, bursts and sinkings seen by eye
@@ -933,11 +934,11 @@ export const CONFIG = {
     // read; it no longer derives from radar (radar / 3 retired with the
     // ladder). Was 500 u, the 4/12 rung (Story 9.8).
     sight: hmToU(200),
-    // u — A PLAIN HULL BY EYE (Story 11.2, R3 / R14 / R18: 350 hm — hull-down,
-    // upper works only). Between `sight` and this a hull is a PLAIN CONTACT:
-    // true position, heading and speed under an anonymous per-observer handle
-    // — no class, no roster id, no turret or launcher angles (types.ts
-    // `PlainContact`). Seeds `stats.hullSightRange`. Never under `sight`.
+    // u — WHERE THE HAZE TAKES A HULL (Story 11.2's 350 hm reach; since Story
+    // 11.6, Eric 2026-11-15, the anonymous plain tier is gone): between `sight`
+    // and this a hull is a full contact that FADES with distance (`fogHazeDepth`,
+    // sim/fogDepth.ts — crisp at `sight`, gone here); identity-bearing events
+    // stay on `sight`. Seeds `stats.hullSightRange`. Never under `sight`.
     hullSight: hmToU(350),
     // `muzzleFlashFactor` (0.5 — the flash as a fraction of `radarRange`,
     // Story 9.8's 6/12) — RETIRED 2026-11-12, Story 11.2, epic-11 amendment
@@ -2479,8 +2480,11 @@ export const CONFIG = {
    *   three are the OWNER's `EffectiveStats.smoke` at the press, stamped on
    *   the cloud (Story 10.6, I6).
    * - It is a picture, not a wall (Eric 2026-10-12: "rather than fucking with
-   *   whether I can see something, just draw it on top of ships"): the
-   *   server hides NOTHING behind or inside it — no sight, no radar. Each
+   *   whether I can see something, just draw it on top of ships") —
+   *   SUPERSEDED for SIGHT by Story 11.6 (Eric 2026-11-14): a cloud now adds
+   *   optical depth to every eye line through it (`sightThickness` /
+   *   `sightSoftFrac` below, sim/smokeDepth.ts), the owner blinded too; it
+   *   still never blocks radar. Each
    *   client paints it as spray-painted smoke on top of the ships (your own
    *   ship stays on top of it; radar paints stay above it). The spray look
    *   and how fast each paint fades are client feel knobs (CLIENT_CONFIG),
@@ -2517,68 +2521,71 @@ export const CONFIG = {
     lifeMsPerCard: 1000, // ms of cloud life per card (R9: 15 s + 1 s a card)
     sizeStepPerCard: 1.1, // × disc radius (r0 AND r1) per card (R9: "each card about 10 % larger")
     sizeAnchorCards: 2, // the card count at which the disc is exactly r0 → r1 (R9)
+    // SIGHT OCCLUSION (Story 11.6, Eric 2026-11-14: smoke works like the rain — a cloud adds
+    // optical depth to every eye line through it, the owner blinded too; never radar).
+    // Page defaults taken (Eric 2026-11-15: "if it sucks i'll just come back and adjust").
+    sightThickness: 3, // density inside the cloud's core, in units of the heaviest rain (density 1)
+    sightSoftFrac: 0.3, // soft rim as a fraction of the disc radius (0 = hard disc)
   },
 
   /**
-   * FOG BANKS (Story 9.10; Eric 2026-10-14, epic-9 amendments 149–150 and
-   * 163–164, 167–170; and 2026-10-15: "no discs — it won't look like realistic
-   * rolling fog" + "make it performant"). Fog is a continuous DENSITY FIELD
-   * over the whole ocean that eats EYESIGHT only. In plain words:
-   * - Density in [0, 1] comes from the island generator's transcendental-free
-   *   noise (sim/fog.ts): two fbm layers drifting with a fixed per-match wind
-   *   and cross-fading on a triangle wave (`morphMs`), so banks roll AND change
-   *   shape. A soft step `(noise − cut) / edgeBand` makes thin edges thin and
-   *   bank hearts solid.
-   * - `cut` is the COVERAGE threshold: the server re-estimates it every
-   *   `refreshMs` as the (1 − target) quantile of the noise over a
-   *   `quantileLattice`² lattice inside the live ring (so the fogged share of
-   *   the ring IS the target), slews it at most `cutRatePerS`, and redraws the
-   *   target in [coverageMin, coverageMax] every `targetPeriodMs` (150).
-   * - A ray from an observer to a point pays `sightCostPerU × density` extra
-   *   units of distance per unit of its length (sim/fog.ts `fogTollAlong`, a
-   *   `marchStepU` midpoint march); the sight test compares `d + toll` against
-   *   its range (164). Fog never widens anything. THE OWN BANK IS FREE (Eric
-   *   2026-10-16, amendment 179 — "like grass patches in League"): an observer
-   *   standing in solid fog (density ≥ ½) pays nothing until the ray first
-   *   leaves solid fog, full price after — so from inside a bank you see out
-   *   normally and see everyone in your bank, while a second bank across clear
-   *   water still hides. Looking INTO a bank from clear water is unchanged.
-   * - Fog exists only on the ocean (inside the map radius, where islands could
-   *   be — amendment 179): density is 0 in the storm water beyond the rim.
-   * - NO RADAR TERM, EVER (149): the radar paints its ENTIRE sweep at every
-   *   distance (Eric 2026-10-21, amendment 210; 163's "dark to both" is
-   *   superseded), so a hull fog hides from the eye still paints on radar
-   *   wherever it is. The client's near-range radar dim follows, per bearing,
-   *   where the fog-tolled eye ends (sim/fog.ts `fogEyeReach`). The muzzle flash and wounded
-   *   smoke halo pay the toll; zone circles, the foghorn and the storm never
-   *   do (167). (168 / 170 fogged the PvE drones and left their avoidance
-   *   unfogged; the drones retired at Story 10.8, 2026-11-06.) (169's "a fogged plot is not a miss" is
-   *   SUPERSEDED by amendment 210: the radar paints through fog, so a bot's
-   *   empty sweep over a fogged spot IS evidence now.)
-   * - `rasterCellU` sizes the server's coarse quick-reject raster (rays whose
-   *   cells all read 0 skip the march).
-   * The CLIENT READS THIS BLOCK: the field is derived on BOTH sides from
-   * `fogSeed` (rides the welcome), the match clock and these dials, and the
-   * live `fogCut` rides the Colyseus schema. Nothing here touches movement or
-   * prediction. Every leaf is a `--tune fog.*` harness dial.
+   * RAIN — THE STORM EYE (Story 11.6; Eric 2026-11-14 on the rain-sight bench
+   * page: the battle is in "the eye of a closing hurricane", and rain occludes
+   * "in a realistic way" — you see the PARTS of a ship the rain lets through).
+   * Replaces the Story 9.10 fog banks (the coverage-target cut, the free own
+   * bank and the extra-distance toll are gone). In plain words:
+   * - Density in [0, 1] is a pure function (sim/fog.ts) of `fogSeed`, these
+   *   dials, the ocean radius, `zoneStartT`, the clock, the public ring-radius
+   *   ladder and the LIVE ring center: two fbm layers (`wavelengthU`,
+   *   `octaves`, `gain`) sampled in the eye's frame, cross-fading on a
+   *   triangle wave of `morphMs`, spinning about the eye (`edgeSpeedU` at the
+   *   ring edge, `centerTurnFrac` of the edge's turn rate at the center, a
+   *   per-match coin flip for direction), each layer laid down pre-wound by
+   *   `spiralWindRad` so spiral bands read. A soft step (`edgeBand`) makes edges
+   *   thin and hearts solid.
+   * - The share of area at solid rain (density ≥ ½) is set by ρ = distance /
+   *   live ring radius: 0 in the clear eye (ρ ≤ the ring's
+   *   `eyeRadiusFracByRing` entry), rising to the ring edge's
+   *   `edgeCoverageByRing` entry (both stepped by ring, lerped through each
+   *   closing beat, held at the last entry through the collapse), then over `edgeSoftFrac` to
+   *   `outsideCoverage` out in the storm. Zero beyond the ocean rim.
+   * - Rain is there from the start line (Eric 2026-11-15: "i want the rain
+   *   bands to exist before the game starts"): before the zone starts the
+   *   field is the ring-0 state, already spinning; no roll-in.
+   * - SIGHT: optical depth τ = Σ density × `marchStepU` along the ray (no
+   *   own-bank exemption — rain you stand in blocks you too); visibility V =
+   *   exp(−`extinctionPerU` × τ); a thing is seen while V ≥ `sightCutoffV`,
+   *   i.e. τ ≤ fogMaxDepth (sim/fogDepth.ts). A hull is seen while ANY point
+   *   of a `hullGridCols` × `hullGridRows` grid over its outline passes; point
+   *   things pass or fail on one ray. Every eye reach stays an unchanged range
+   *   cap — rain never adds distance.
+   * - NO RADAR TERM: radar, zone circles, horns and the storm never read this.
+   * - `refreshMs` is the server's memo-epoch cadence (its field trails the
+   *   client's by at most this).
+   * The CLIENT READS THIS BLOCK: the field is derived on BOTH sides from public
+   * inputs; nothing rides the wire but `fogSeed`. Nothing here touches movement
+   * or prediction.
    */
   fog: {
-    sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple; the observer's own solid bank is exempt (amendment 179)
-    coverageMin: 0.1, // the share of the live ring's area at SOLID fog (density ≥ ½) the cut aims at (target redrawn in [min, max]; Eric 2026-10-17 on staging: "20-25% seems too high" — was 0.20–0.25 (amendment 177), before that 0.02–0.08; since amendment 178 the share counts the solid half of the soft edge, not every point above the cut)
-    coverageMax: 0.15,
-    targetPeriodMs: 120000, // ms between coverage-target redraws
-    wavelengthU: 900, // u — base feature size of the noise (broad banks; Eric 2026-10-15 on the live field page: "Bigger, slower banks" — was 600)
+    wavelengthU: 900, // u — base feature size of the noise (Eric 2026-10-15: "Bigger, slower banks")
     octaves: 3, // fbm octaves
     gain: 0.5, // fbm persistence
-    windU: 1, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric 2026-10-16 on staging, second look: "Still too fast. Turn it down to 1 u/s" — was 3.5, 8, 12)
-    spinRimU: 1, // u/s — the spin carries the pattern at this speed at the ocean's rim (slower inward; the turn rate is spinRimU / oceanRadius — one turn in ~8.7 h on a 5,000 u ocean); direction is a per-match coin flip (Eric 2026-10-16, amendments 177–178; was spinPeriodMs 1200000 ≈ 26 u/s at the rim — "still too fast"); 0 = no spin
-    spinShear: 0.5, // the center's extra turn rate as a fraction of the rim's (differential rotation: banks curl and stretch; each noise layer's extra turn is measured from its last invisible morph instant, so it builds to at most spinRimU / oceanRadius × spinShear × morphMs radians and rebuilds every morphMs — at 1 u/s on a 5,000 u ocean that is ≈ 0.9°, so the curl is invisible at Eric's crawl; it was ≈ 22° at the 26 u/s rim of cycle 192); 0 = rigid
-    morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (Eric: slower — was 90000)
     edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)
-    cutRatePerS: 0.04, // noise units per second the server may slew the cut (onset ≈ 15 s from clear to a 20–25 % cut; Eric 2026-10-16: "the onset roll-in should be faster" — was 0.02)
-    refreshMs: 500, // ms — server memo-epoch + quantile refresh cadence (was 1000; halved at the cycle-192 gate when the rim moved ≈ 26 u/s; kept at 500 since the 1 u/s dials of cycle 193 — the server's field trails the client's by at most this)
-    marchStepU: 10, // u — the toll's midpoint march step
-    quantileLattice: 48, // samples per side of the coverage lattice inside the live ring
+    morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (each layer's spin twist resets at its invisible instant)
+    refreshMs: 500, // ms — the server's memo-epoch cadence
+    marchStepU: 10, // u — the optical-depth midpoint march step
+    extinctionPerU: 0.006, // per u at density 1 — V = exp(−k × τ) (Eric 2026-11-14, Story 11.6 bench page)
+    sightCutoffV: 0.05, // visibility below which a thing vanishes (Eric 2026-11-14, Story 11.6 bench page)
+    hullGridCols: 6, // hull sight grid points along the length (Eric 2026-11-14, Story 11.6 bench page)
+    hullGridRows: 2, // hull sight grid points across the beam (Eric 2026-11-14, Story 11.6 bench page)
+    edgeSpeedU: 10, // u/s — cloud speed at the ring edge, held outside it (Eric 2026-11-14, Story 11.6 bench page)
+    centerTurnFrac: 0.5, // turn rate at the eye's center as a fraction of the edge's (Eric 2026-11-14, Story 11.6 bench page)
+    spiralWindRad: 4, // rad — trailing spiral pre-wind at the ring edge (Eric 2026-11-14, Story 11.6 bench page)
+    eyeRadiusFracByRing: [0.1, 0.2, 0.3, 0.4], // × live ring radius — the clear eye, by ring group, lerped through each closing beat, the last held through the collapse (Eric 2026-11-14, Story 11.6 bench page; supersedes the page's flat 0.40)
+    edgeCoverageByRing: [0.45, 0.5, 0.55, 0.6], // solid share at the ring edge, by ring group (Eric 2026-11-14, Story 11.6 bench page)
+    outsideCoverage: 0.7, // solid share out in the storm — "heavy rain with gaps" (Eric 2026-11-14, Story 11.6 bench page)
+    edgeSoftFrac: 0.25, // × live ring radius — the edge → outside blend width (Eric 2026-11-14, Story 11.6 bench page)
+    spinRadiusFloorU: 250, // u — floor on the ring radius the spin reads; the collapse drives R to 0 (Eric 2026-11-14, Story 11.6 bench page)
   },
 
   /**

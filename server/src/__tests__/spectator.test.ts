@@ -31,13 +31,14 @@ import { World, type ShipRecord } from '../game/world.js';
 import { wirePaint } from './paintFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { clearWater } from './rainFixture.js';
 
 const TAU = Math.PI * 2;
 // The named reaches (Story 11.2 — each its own hectometer fact in CONFIG).
 const SIGHT = CONFIG.vision.sight; // class and name by eye — the IDENTITY reach
-const HULL_SIGHT = CONFIG.vision.hullSight; // a plain hull by eye — the outer tier (`pc`)
+const HULL_SIGHT = CONFIG.vision.hullSight; // a hull by eye — where a contact has faded to gone
 const RADAR = CONFIG.vision.radar;
-/** Beyond EVERY eye tier of a fogged observer: no contact, no plain hull. */
+/** Beyond EVERY eye reach of a fogged observer: no contact. */
 const UNSEEN = HULL_SIGHT + 500;
 
 // ---------- test-local visibility reimplementation ---------------------------
@@ -73,7 +74,7 @@ function bareWorld(seed = 1): World {
   const w = new World(seed);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // this file's oracles are range + island LOS: the rain is pinned off (a World rains from the start line)
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
@@ -287,7 +288,6 @@ describe('spectator frames — phase gating', () => {
     expect(f.spec).toBeUndefined();
     expect(f.you).toBeDefined();
     expect(f.contacts).toEqual([]); // b is beyond sight — still fogged
-    expect('pc' in f).toBe(false); // ...and beyond the plain-hull reach too
   });
 
   it('finished phase: EVERYONE spectates, the alive winner included', () => {
@@ -360,37 +360,13 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     expect(keys).toEqual(withTu ? [...base, 'tu'].sort() : base);
     if (withTu) expect(c.tu).toEqual(encodeTurretAngles(target.turrets, target.hullId));
     expect(c.id).not.toBe(me.id);
-    expect(sighted(w, me, target.state)).toBe(true);
+    expect(seenWithin(w, me, target.state, HULL_SIGHT)).toBe(true); // a hull is a contact out to the hull sight (one tier)
   }
-  verifyPlainRows(w, me, f);
+  expect('pc' in f).toBe(false); // the plain-hull channel is gone
   for (const e of f.events) verifyFoggedEvent(w, me, e);
   for (const m of f.mines) {
     const mine = w.mines.get(m.id)!;
     if (mine.ownerId !== me.id) expect(seenWithin(w, me, mine, CONFIG.vision.mineSight)).toBe(true);
-  }
-}
-
-/** THE OUTER EYE TIER (Story 11.2): every `pc` row is EXACTLY
- *  {h,x,y,heading,speed} — no id, no class, no turret angles — under a handle
- *  that is no roster id, and is the live pose of some OTHER hull still on the
- *  water, inside the plain-hull reach on an island-clear ray, that this frame
- *  does not also carry as a full contact (the two tiers are disjoint). */
-function verifyPlainRows(w: World, me: ShipRecord, f: FrameMsg): void {
-  const named = new Set(f.contacts.map((c) => c.id));
-  const handles = new Set<string>();
-  for (const p of f.pc ?? []) {
-    expect(Object.keys(p)).toEqual(['h', 'x', 'y', 'heading', 'speed']);
-    expect(w.ships.has(p.h)).toBe(false);
-    expect(handles.has(p.h)).toBe(false); // one row per hull, one handle per row
-    handles.add(p.h);
-    const match = [...w.ships.values()].some((target) => {
-      if (target.id === me.id || named.has(target.id)) return false;
-      if (!(isAfloat(target.lifecycle) || isSinking(target.lifecycle))) return false;
-      const s = target.state;
-      if (s.x !== p.x || s.y !== p.y || s.heading !== p.heading || s.speed !== p.speed) return false;
-      return seenWithin(w, me, s, HULL_SIGHT);
-    });
-    expect(match).toBe(true);
   }
 }
 

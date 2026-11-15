@@ -106,20 +106,23 @@ import {
   stormDpsFor,
   zoneStateAt,
   isOutside,
-  FOG_NO_CUT,
   makeFogField,
-  FOG_SOLID_DENSITY,
+  fogFrameAt,
+  fogHazeDepth,
+  fogMaxDepth,
+  zoneLiveState,
+  fogHullGrid,
   fogDensityAt as fieldDensityAt,
+  smokeDepthAlong,
+  cloudOutlineRadius,
   islandIndexFor,
   newLosHints,
   polyBox,
   type PolyBox,
   type IslandIndex,
   type LosHints,
-  fogNoiseAt,
-  fogCutForTarget,
-  fogLattice,
   type FogField,
+  type FogFrame,
   type BallisticEvent,
   type BoonBehaviorEffect,
   type Catalog,
@@ -194,7 +197,6 @@ import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
 import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
 import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
-import { plainHandle, plainHandleKey } from './plainHandle.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
@@ -1169,16 +1171,24 @@ export interface ShipRecord {
    */
   torpDirs: Map<string, number>;
   /**
-   * Per-observer PLAIN-HULL handle memory (Story 11.2, R3): target ship id →
-   * the anonymous handle this observer currently holds for it, for as long
-   * as that hull stays a `PlainContact` in this observer's frames (the outer
-   * sight tier). PER VISIT: perception's ship scan drops an entry the first
-   * pass its hull is not materialized as a plain contact, so a re-entry
-   * mints a fresh handle (`World.plainHandleFor`). SERVER-PRIVATE — only the
-   * handle string ever rides the wire, and it is a keyed hash of a counter
-   * (game/plainHandle.ts), never of either ship id.
+   * THE CLOUDS THIS OBSERVER HOLDS (Story 11.6 review): the ids of the live
+   * SMOKE SCREEN clouds the `cloud` row has delivered to this observer — at
+   * an earlier tick or THIS one — and that its client therefore draws and
+   * charges on its own eye lines (a client keeps a cloud from the frame that
+   * carries it until the cloud's life ends). A cloud adds optical depth to
+   * this observer's eye lines ONLY while its id is here (`World.smokeRefresh`)
+   * — the server never hides a hull behind smoke the client was never told
+   * about. ORDER: perception's cloud scan writes it BEFORE the same pass's
+   * eye rows run (perception.ts `view`), so a cloud first delivered in a
+   * frame is charged in that frame — the client holds it by the time it
+   * draws that frame — and never a tick earlier. FORGOTTEN at the cloud's
+   * own death (`stepClouds`), at this hull's foundering, respawn and
+   * redeploy, and at a socket drop / resume (`forgetHeldClouds`).
+   * Forgetting only ever charges LESS (the server
+   * then sends a hull the client's own smoke may still cover): it can hide
+   * less, never leak. SERVER-PRIVATE; never on the wire.
    */
-  plainHandles: Map<string, string>;
+  heldClouds: Set<string>;
   /**
    * The ship's equipment loadout — FIVE FIXED-ROLE SLOTS (Story 10.5;
    * shared/src/sim/loadout.ts): `[gun, boost, torpedo, mine, special shell]`,
@@ -1478,15 +1488,12 @@ const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
 // ---------------------------------------------------------------------------
 
 /** Water the memo lattice extends past the ocean's radius on every side (u):
- *  ONE CELL (Story 11.2 review gate, F2). Fog exists only on the ocean — the
- *  shared `fogDensityAt` reads 0 at every point beyond the rim (amendment
- *  179) — so the part of ANY ray outside the ocean's bounding square pays
- *  nothing wherever its ends lie, and `fogTollAlong` clips the ray to the
- *  lattice before walking it: no margin is needed for exactness, and the one
- *  cell only keeps a rim-straddling cell whole. HISTORY: the margin was the
- *  longest tolled eye ray (750 u; then 350 hm = 7,955 u under Story 11.2's
- *  first cut, a 2,591² lattice of ~54 MB per World that tolled nothing the
- *  1,002² one does not). */
+ *  ONE CELL (Story 11.2 review gate, F2). Rain exists only on the ocean — the
+ *  shared `fogDensityAt` reads 0 at every point beyond the rim — so the part
+ *  of ANY ray outside the ocean's bounding square adds no optical depth
+ *  wherever its ends lie, and the walk clips the ray to the lattice first: no
+ *  margin is needed for exactness, and the one cell only keeps a
+ *  rim-straddling cell whole. */
 const FOG_MEMO_MARGIN_U = CONFIG.fog.marchStepU;
 
 /** The memo lattice: `side × side` cells of `cell` u from (ox, oy); `dens`
@@ -1499,15 +1506,6 @@ interface FogMemo {
   readonly side: number;
   readonly dens: Float32Array;
   readonly epoch: Uint32Array;
-}
-
-/** Move `from` toward `to` by at most `maxStep` (a non-positive step holds). */
-function clampStep(from: number, to: number, maxStep: number): number {
-  if (!(maxStep > 0)) return from;
-  const d = to - from;
-  if (d > maxStep) return from + maxStep;
-  if (d < -maxStep) return from - maxStep;
-  return to;
 }
 
 /** One axis of the DDA: the cell step (−1 / 0 / +1), the ray parameter per
@@ -1549,34 +1547,32 @@ const FOG_DDA_X: DdaAxis = { step: 0, tDelta: 0, tMax: 0 };
 const FOG_DDA_Y: DdaAxis = { step: 0, tDelta: 0, tMax: 0 };
 const FOG_CLIP = { t0: 0, t1: 1 };
 const FOG_SPAN = { sx: 0, sy: 0, dx: 0, dy: 0 };
-const FOG_RUN = { free: false, first: true };
 
 /**
- * The sight gate's early exits for one fog walk (`World.fogSightAdmits`).
- * `acceptBelow`: the gate holds whenever the walk's FINAL sum (Σ density ×
- * fraction of the span) is at most this — already less FOG_DECIDE_SLACK.
- * `d` / `range`: the final comparison's own operands, for the reject.
- * `verdict` is the walk's answer when it stopped early: +1 seen, −1 not,
- * 0 undecided (the walk ran to its end).
+ * The sight gate's early exits for one rain walk (`World.fogSightAdmits`).
+ * The walk sums `density × fraction of the span` (so τ = sum × len).
+ * `acceptBelow`: the gate holds whenever the walk's FINAL sum is at most this
+ * — (T − FOG_DECIDE_SLACK) / len. `maxDepth`: T, the final comparison's own
+ * operand, for the reject. `verdict` is the walk's answer when it stopped
+ * early: +1 seen, −1 not, 0 undecided (the walk ran to its end).
  */
 interface FogBounds {
   acceptBelow: number;
-  d: number;
-  range: number;
+  maxDepth: number;
   verdict: number;
 }
 
-/** The toll's bounds: nothing ever decides early. */
-const FOG_NO_BOUNDS: FogBounds = { acceptBelow: -Infinity, d: 0, range: Infinity, verdict: 0 };
+/** The reference depth's bounds: nothing ever decides early. */
+const FOG_NO_BOUNDS: FogBounds = { acceptBelow: -Infinity, maxDepth: Infinity, verdict: 0 };
 /** The gate's bounds scratch (one walk at a time). */
-const FOG_BOUNDS: FogBounds = { acceptBelow: 0, d: 0, range: 0, verdict: 0 };
+const FOG_BOUNDS: FogBounds = { acceptBelow: 0, maxDepth: 0, verdict: 0 };
 
 /**
- * Slack (u) the sight gate's "seen whatever the rest of the fog" bound keeps
- * under `range`: the walk's float dust is ~1e-9 u at board scale (a few
- * hundred additions of terms ≤ 1e4 u), so 1e-6 u makes the early "seen"
- * strictly safe — a ray that close to the edge simply walks to the end and
- * takes the reference comparison.
+ * Slack (u of optical depth) the sight gate's "seen whatever the rest of the
+ * rain" bound keeps under T: the walk's float dust is ~1e-9 u at board scale
+ * (a few hundred additions of terms ≤ 1e4 u), so 1e-6 u makes the early
+ * "seen" strictly safe — a ray that close to the edge simply walks to the end
+ * and takes the reference comparison.
  */
 const FOG_DECIDE_SLACK = 1e-6;
 
@@ -1584,29 +1580,75 @@ const FOG_DECIDE_SLACK = 1e-6;
  * Has the gate's answer been decided after the cells up to span fraction
  * `tDone`, with `sum` so far? Seen: even at density 1 over the whole
  * remainder the final sum stays under `acceptBelow`. Not seen: the running
- * toll alone (`sum × len × cost`, the final comparison's own expression in
- * its own operation order — and the sum only grows) already puts the ray
- * past `range`; `scale` (= len × cost) is only the cheap pre-test that
- * guards it. Sets `bounds.verdict`.
+ * depth alone (`sum × len`, the final comparison's own expression — and the
+ * sum only grows) is already past T. Sets `bounds.verdict`.
  */
-function fogDecided(bounds: FogBounds, sum: number, tDone: number, len: number, scale: number): boolean {
+function fogDecided(bounds: FogBounds, sum: number, tDone: number, len: number): boolean {
   if (sum + (1 - tDone) <= bounds.acceptBelow) {
     bounds.verdict = 1;
     return true;
   }
-  if (sum > 0 && bounds.d + sum * scale > bounds.range && bounds.d + sum * len * CONFIG.fog.sightCostPerU > bounds.range) {
+  if (sum * len > bounds.maxDepth) {
     bounds.verdict = -1;
     return true;
   }
   return false;
 }
 
-/** Is (ax, ay, bx, by, d, range) the question the gate memo holds? */
-function sameGateQuestion(
-  memo: { ax: number; ay: number; bx: number; by: number; d: number; range: number },
-  ax: number, ay: number, bx: number, by: number, d: number, range: number,
-): boolean {
-  return memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by && memo.d === d && memo.range === range;
+/** One live cloud as the sight gate reads it this instant (a shared
+ *  `SmokeDisc`, kept mutable so the per-question refresh allocates nothing). */
+interface SmokeScratchDisc {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** Write cloud `c`'s disc at radius `r` into `discs[n]`; true when that slot changed. */
+function smokeDiscSet(discs: SmokeScratchDisc[], n: number, c: StoredCloud, r: number): boolean {
+  const d = discs[n];
+  if (d === undefined) {
+    discs[n] = { x: c.x, y: c.y, r };
+    return true;
+  }
+  if (d.x === c.x && d.y === c.y && d.r === r) return false;
+  d.x = c.x;
+  d.y = c.y;
+  d.r = r;
+  return true;
+}
+
+/** One hull-gate question (`World.fogHullAdmits`): the eye, the hull's pose
+ *  and TRUE size, and the observer's two reaches the distance haze runs
+ *  between (its class-and-name sight and its hull sight, whiteout-scaled). */
+export interface FogHullQuestion {
+  ax: number;
+  ay: number;
+  cx: number;
+  cy: number;
+  heading: number;
+  lengthU: number;
+  beamU: number;
+  sightU: number;
+  hullSightU: number;
+}
+
+/**
+ * The order the hull grid's points are asked in: the columns nearest the
+ * hull's middle first (an order of asking only — the gate is an OR over every
+ * point, so the order changes the cost and never the answer). Point (c, r) is
+ * index `r × cols + c`, the shared `fogHullGrid` layout.
+ */
+function hullGridOrder(cols: number, rows: number): number[] {
+  const mid = (cols - 1) / 2;
+  const colOrder = Array.from({ length: cols }, (_, c) => c).sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b);
+  const out: number[] = [];
+  for (const c of colOrder) for (let r = 0; r < rows; r++) out.push(r * cols + c);
+  return out;
+}
+
+/** `ring` with every field rounded to float32 — the copy a client holds off the schema. */
+function froundRing(ring: ZoneRing): ZoneRing {
+  return { cx: Math.fround(ring.cx), cy: Math.fround(ring.cy), r: Math.fround(ring.r) };
 }
 
 /** Liang–Barsky on one axis: narrow [t0, t1] to where `a + d·t` lies in [lo, hi]. */
@@ -1617,12 +1659,6 @@ function clipAxis(a: number, d: number, lo: number, hi: number, t: { t0: number;
   t.t0 = Math.max(t.t0, Math.min(tA, tB));
   t.t1 = Math.min(t.t1, Math.max(tA, tB));
   return t.t0 <= t.t1;
-}
-
-/** The coverage lattice's radius for `ring`: never below one bank's size
- *  (`wavelengthU`), so the final close cannot shrink the quantile to a point. */
-function fogLatticeRadius(ring: ZoneRing): number {
-  return Math.max(ring.r, CONFIG.fog.wavelengthU);
 }
 
 /** The cell index of coordinate `v` on an axis from `origin`, clamped into [0, side). */
@@ -1675,10 +1711,13 @@ export class World {
    * by id (`cl${n}`), in PRESS order. Each is a stationary cloud made at its
    * owner's centre by a SMOKE press (makeCloud — ONE per press; the press is a
    * cooldown ability since Story 10.5), born at `bornAt`, deleted by stepClouds once `now >= until`
-   * (bornAt + lifeMs). A CLIENT VISUAL OVERLAY (Story 9.3 session 2, Eric
-   * 2026-10-12): it occludes NO sensor on the server; the `cloud` registry
-   * row ships each cloud a client may sense as `{id,x,y,t0}` and the client
-   * paints it. WORLD-
+   * (bornAt + lifeMs). IT OCCLUDES SIGHT LIKE RAIN (Story 11.6, Eric
+   * 2026-11-14 — superseding Story 9.3 session 2's "client visual overlay"):
+   * a live cloud adds optical depth to every eye line through its spray disc
+   * of every observer that HOLDS it — one the `cloud` row has delivered it
+   * to (`ShipRecord.heldClouds`; `smokeDiscs` / `fogSightAdmits` below) —
+   * the owner's lines too; it never blocks radar. The `cloud` registry row ships each cloud a client
+   * may sense as `{id,x,y,t0,lifeMs,r0,r1}` and the client paints it. WORLD-
    * OWNED, not on the hull: a cloud runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
    * outlives its owner); only resetForMatchStart clears the map (the mines
@@ -1686,27 +1725,23 @@ export class World {
    */
   readonly clouds = new Map<string, StoredCloud>();
   /**
-   * THE FOG FIELD (Story 9.10; Eric 2026-10-14/15 — "no discs, it won't look
-   * like realistic rolling fog", "make it performant"; epic-9 amendments
-   * 149–150, 163–164, 167–170, 172–173). Fog is a continuous DENSITY FIELD
-   * over the whole ocean (shared sim/fog.ts — the ONE derivation both sides
-   * run): two wind-advected fbm layers cross-faded on a slow triangle wave,
-   * mapped to density by a soft step over `edgeBand` above a COVERAGE CUT.
-   * PUBLIC WEATHER: `fogSeed` rides the welcome and the cut rides the schema
-   * (`ArenaState.fogCut`), so a client evaluates the same field — where fog
-   * is, never where hulls are. Nothing per-observer about fog is ever on the
-   * wire (the declared perception exceptions are SIX — amendment 162 is
-   * MOOT); fog reaches a client only as the TOLL inside every sight predicate
-   * (`fogTollAlong` below, through signals.ts `eyeHolds`): a ray pays
-   * `sightCostPerU × density` extra sight distance per unit crossed, so a
-   * hull inside the geometric bubble that fog hides is no contact — but radar
-   * has no inner edge (amendment 210, superseding 163's "dark to both"), so
-   * the beam still paints it. Radar,
-   * zone circles, the foghorn and the storm never read the field. THE OWN
-   * BANK IS FREE (Eric 2026-10-16, amendment 179 — "like grass patches in
-   * League"): an observer standing in solid fog pays nothing along the ray
-   * until it first leaves solid fog, full price after; and the field is 0
-   * beyond the ocean's rim (fog only where islands could be).
+   * THE RAIN FIELD (Story 11.6; Eric 2026-11-14 — "the eye of a closing
+   * hurricane"; the Story 9.10 fog banks, their coverage cut and the free own
+   * bank are GONE). Rain is a continuous DENSITY FIELD over the whole ocean
+   * (shared sim/fog.ts — the ONE derivation both sides run), anchored to the
+   * LIVE zone ring. PUBLIC WEATHER: `fogSeed` rides the welcome and every
+   * other input (the zone clock, the revealed rings, CONFIG) is already
+   * public, so a client evaluates the same field — where rain is, never where
+   * hulls are. Nothing per-observer about rain is ever on the wire (the
+   * declared perception exceptions are SIX); rain reaches a client only as
+   * the OPTICAL-DEPTH GATE inside every sight predicate (`fogSightAdmits` /
+   * `fogHullAdmits` below, through signals.ts `eyeHolds`): a ray is seen
+   * while τ = ∫ density along it stays ≤ T (`fogMaxDepth(CONFIG.fog)`), inside
+   * its unchanged range cap. NO OWN-BANK EXEMPTION: rain the observer stands
+   * in counts. Radar has no inner edge (amendment 210), so the beam still
+   * paints a hull the rain hides. Radar, zone circles, the foghorn and the
+   * storm never read the field; it is 0 beyond the ocean's rim and before the
+   * zone starts.
    *
    * The seed is the map seed under its own constant — the client-known map
    * seed is fine here: the field is weather, not a hull position.
@@ -1918,15 +1953,6 @@ export class World {
   // seed and its wake target keys, Story 9.8 — were REMOVED 2026-11-12,
   // Story 11.2, R8, with the dropout itself.)
   /**
-   * THE PLAIN-HULL HANDLE KEY AND MINT COUNTER (Story 11.2, R3): every
-   * `PlainContact.h` is `plainHandle(plainKey, plainSeq++)` — a keyed hash of
-   * a room-wide counter, so a handle names nothing (game/plainHandle.ts has
-   * the full argument). The key is derived from `dispersionKey` under its own
-   * label; the counter never leaves the server.
-   */
-  private readonly plainKey: Buffer;
-  private plainSeq = 0;
-  /**
    * THE PAINT-SALT KEY (Story 11.2 review gate, F1): every wire-bound radar
    * mask (`blip`, `wk`) is fuzzed on a seed salted with
    * `paintSalt(paintKey, kind, the paint's own words)` so the fuzz cannot be
@@ -1966,85 +1992,90 @@ export class World {
   private foulZoneSeq = 0;
   private cloudSeq = 0;
   /**
-   * THE COVERAGE CUT — the noise threshold the live field is cut at:
-   * `FOG_NO_CUT` (9, a value no fbm reaches → density 0 everywhere) before
-   * the zone timeline starts, and the shared `fogCutForTarget` — the
-   * (1 − target) quantile of the noise over a lattice inside the live ring
-   * minus half the edge band, so the SOLID share (density ≥ ½) of the
-   * ring's area IS the target at every ring size (amendment 178; the thin
-   * edge below ½ is extra, about ten points of the ring at a 22 % dial) —
-   * slewed at most `cutRatePerS` between refreshes (the FIRST live refresh
-   * snaps straight to its goal — a slew-in is a staging call for Eric).
-   * Match-wide weather like the zone rings: mirrored onto `ArenaState.fogCut`
-   * by the room, never per-ship, never spatial. Read through `fogCut`.
+   * THE RAIN FRAME — the shared field precomputed at the current EPOCH's
+   * clock and eye center (`fogFrameAt`). RAIN FROM THE START LINE (Eric
+   * 2026-11-15): before the zone starts it is the ring-0 state, already
+   * raining; `on` is false only for a degenerate field. Refreshed by stepFog every
+   * `CONFIG.fog.refreshMs`; every density the server reads — the memo's
+   * cells, the bots' cover read — comes from this one frame.
    */
-  private fogCutValue = FOG_NO_CUT;
-  /** TEST-ONLY: `setFogCutForTest` pinned the cut — stepFog leaves it alone. */
-  private fogCutPinned = false;
-  /** The controller's coverage target (share of the live ring's area),
-   *  redrawn on `fogRng` every `CONFIG.fog.targetPeriodMs`; 0 until the first live refresh. */
-  private fogTarget = 0;
-  /** Server ms the coverage target is next redrawn (0 = on the first live refresh). */
-  private fogNextTargetAt = 0;
-  /** Server ms of the next cut + epoch refresh (0 = on the first live tick). */
+  private fogFrame: FogFrame;
+  /** The World's own frame object (the tables `fogFrameAt` refills in place); `fogFrame` is this unless a test pinned another. */
+  private readonly fogOwnFrame: FogFrame;
+  /** TEST-ONLY: `setFogFrameForTest` pinned a frame — stepFog leaves it alone. */
+  private fogFramePinned = false;
+  /** Server ms of the next frame + epoch refresh (0 = on the next tick). */
   private fogNextRefreshAt = 0;
-  /** The quantile lattice (fogLattice's reusable `out` — allocated once, refilled per refresh). */
-  private readonly fogLatticePts: { x: number; y: number }[] = [];
-  /** The lattice's points ON THE OCEAN (references into `fogLatticePts`, amendment 179 — see `fogControllerLattice`). */
-  private readonly fogOceanPts: { x: number; y: number }[] = [];
-  /** The realized fogged share over the last lattice (points at density ≥ FOG_SOLID_DENSITY / points), for metrics + tests. */
-  private fogCoverageShare = 0;
+  /** T — the optical depth at which a thing vanishes (`fogMaxDepth(CONFIG.fog)`, read once per World). */
+  private readonly fogMaxDepthU: number;
+  /** The hull grid's asking order (see `hullGridOrder`) and its point scratch. */
+  private readonly fogHullOrder: readonly number[];
+  private readonly fogHullPts: Float64Array;
+  /** The hull grid's dims AS BUILT (CONFIG.fog.hullGridCols / Rows, floored,
+   *  at least 1): the scratch and the order above are sized for them, so the
+   *  gate lays the grid with THESE — never a live re-read of the dials, which
+   *  could index past the scratch if one moved under a live World. */
+  private readonly fogHullCols: number;
+  private readonly fogHullRows: number;
   /**
-   * THE DENSITY MEMO (Eric: "make it performant"; the review gate's EXACT
-   * re-cut of the heuristic quick-reject raster). The server's toll IS a
-   * cell walk: a fixed world lattice of `marchStepU` (10 u) cells over the
-   * ocean's bounding square (+ FOG_MEMO_MARGIN_U, one cell, each side —
+   * THE DENSITY MEMO (Eric: "make it performant"). The server's optical depth
+   * IS a cell walk: a fixed world lattice of `marchStepU` (10 u) cells over
+   * the ocean's bounding square (+ FOG_MEMO_MARGIN_U, one cell, each side —
    * 1,002² ≈ 1.0 M cells at a 5,000 u radius, ~8 MB of Float32 + Uint32;
-   * zero pages until a ray first touches them, allocated ONCE
-   * in the constructor), and `fogTollAlong` sums `density(cell centre) × length of
-   * the ray inside the cell × sightCostPerU` over the cells an
-   * Amanatides–Woo DDA visits. A cell's density is MEMOIZED per EPOCH: first
-   * touch in the current epoch evaluates the shared `fogDensityAt` at the
-   * epoch's clock and cut and stores it; later rays reuse it. There is no
-   * "reject vs march" to disagree — every ray reads the same lattice, and a
-   * narrow peak between samples cannot hide (every 10 u cell the ray
-   * crosses is read). THE OWN BANK (amendment 179): the walk is directional
-   * — when the shared density at the observer's exact position is solid,
-   * the observer's own cell and the leading run of solid cells are read but
-   * not charged (`fogPayCell`); the first thinner cell ends the run. The
-   * EPOCH advances at every fog refresh (`refreshMs`,
-   * when the cut may slew): `fogEpochT` is that refresh's clock, so the
-   * field the server tolls is at most `refreshMs` old. Since the spin
-   * (amendments 177–178) the pattern moves `spinRimU` (1 u/s) at the rim
-   * plus the wind (1 u/s), so at `refreshMs` 500 the server's field trails
-   * the client's by at most a unit or so (the cycle-192 sizing was for a
-   * 26 u/s rim; the epoch is kept at 500 ms). The shared midpoint march
-   * (`fogTollAlong` in sim/fog.ts) stays the REFERENCE the client and the
-   * tests integrate; the server walk agrees with it to one cell's
-   * quantization at each end (fogField.test.ts).
+   * zero pages until a ray first touches them, allocated ONCE in the
+   * constructor), and a ray's τ is the sum of `density(cell centre) × length
+   * of the ray inside the cell` over the cells an Amanatides–Woo DDA visits.
+   * A cell's density is MEMOIZED per EPOCH: first touch in the current epoch
+   * evaluates the shared `fogDensityAt` on the epoch's frame and stores it;
+   * later rays reuse it. Every ray reads the same lattice, and a narrow peak
+   * between samples cannot hide (every 10 u cell the ray crosses is read).
+   * The EPOCH advances at every refresh (`refreshMs`): `fogEpochT` is that
+   * refresh's clock, so the field the server gates on is at most `refreshMs`
+   * old (the clouds move `edgeSpeedU` 10 u/s at the ring edge — at most 5 u
+   * behind a client's live field). The shared midpoint march (`fogDepthAlong`
+   * in sim/fog.ts) stays the REFERENCE the client and the tests integrate;
+   * the server walk agrees with it to the cell quantization (fogField.test.ts).
    */
   private readonly fogMemo: FogMemo;
   /** The current fog epoch (starts at 1; `fogMemo.epoch` 0 = never evaluated). */
   private fogEpoch = 1;
-  /** The one-entry own-bank memo (see `fogObserverInSolidFog`): the last observer position asked about, in which epoch, and the answer. */
-  private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
   /**
-   * The one-entry TOLL memo (Story 11.2 review gate, F2): the last ray
-   * tolled, in which epoch, and its toll. For a hull inside the class reach
-   * the ship scan asks about the one observer → target ray twice in a row
-   * (the `contact` row, then the `plain` row's "not a full contact" term) —
-   * the toll is a pure function of (ray, epoch), so the repeat is a compare
-   * instead of a lattice walk (2 walks → 1 per inner-tier pair per pass; an
-   * outer-tier pair was already 1).
+   * The one-entry GATE memo: `fogSightAdmits`' last ray, in which epoch, and
+   * its answer — the gate is a pure function of (ray, epoch), so a row that
+   * re-asks the previous row's ray pays a compare instead of a walk.
    */
-  private readonly fogTollMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, toll: 0 };
+  private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, smoke: -1, seen: false };
   /**
-   * The one-entry GATE memo (Story 11.2 follow-up): `fogSightAdmits`' last
-   * question and its answer — the toll memo's job on the sight path, where
-   * the `plain` row re-asks the `contact` row's question for the same pair.
+   * THE SMOKE THE EYE READS (Story 11.6 scope add, Eric 2026-11-14: "smoke
+   * occludes sight like rain", the owner blinded too, never radar): every
+   * cloud THE ASKING OBSERVER HOLDS (`ShipRecord.heldClouds` — the clouds
+   * its client was sent; a question with no observer reads every live
+   * cloud) as a disc at its radius NOW — the shared
+   * `cloudOutlineRadius(now − bornAt, the cloud's own stamp)` — in press
+   * order. Rebuilt IN PLACE at the top of every gate question
+   * (`smokeRefresh`: a few compares per live cloud, nothing with none), so
+   * the gate can never read a stale set whoever wrote the store; the shared
+   * `smokeDepthAlong` integrates it with `CONFIG.countermeasure`'s
+   * `sightThickness` / `sightSoftFrac`. `smokeEpoch` advances whenever the
+   * set differs from the last question's (a cloud made, grown — every tick
+   * while one lives — or gone, a dial moved, OR THE NEXT OBSERVER HOLDS A
+   * DIFFERENT SET — the comparison is on the discs themselves, so it is
+   * exactly "the smoke this question reads is not the smoke the last one
+   * read"): the one-entry gate memos key on it beside the rain epoch, which
+   * is what makes them observer-specific.
    */
-  private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, d: NaN, range: NaN, epoch: 0, seen: false };
-  /** Lattice walks since construction — the toll memo's accounting (tests). */
+  private readonly smokeDiscs: SmokeScratchDisc[] = [];
+  private smokeEpoch = 0;
+  /**
+   * The smoke dials the sight gate hands the shared `smokeDepthAlong` — THIS
+   * World's mirror of `CONFIG.countermeasure.sightThickness` /
+   * `sightSoftFrac`, re-read at every refresh (`smokeRefresh`). Per World,
+   * never module state: each World must notice a moved dial ITSELF and bump
+   * its own `smokeEpoch` (a shared mirror let the first World to ask swallow
+   * the move, leaving every other World's gate memos stale).
+   */
+  private readonly smokeSight = { thickness: 0, softFrac: 0 };
+  /** Lattice walks since construction — the gate's work accounting (tests, the tick-cost probe). */
   private fogWalkCount = 0;
   /**
    * THE ISLAND BROADPHASE INDEX (Story 11.2 follow-up — shared
@@ -2079,16 +2110,6 @@ export class World {
   private readonly trackIds = new Map<string, string>();
   /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
   private readonly pseudonymRng: Rng;
-  /**
-   * THE FOG STREAM (Story 9.10): the coverage TARGET's wander — the one fog
-   * draw left (the field itself is seeded, never drawn). ROOM-PRIVATE
-   * entropy like the beacon stream: it rides `opts.pseudonymSeed` (the
-   * TEST-ONLY map-seed fallback otherwise) under its own constant 0x3c6ef372
-   * (unused by any other stream mint in the codebase — 0x7f4a7c15 is the bot
-   * SPEND_STREAM_K), so a client holding the wire map seed cannot predict
-   * where the coverage band is heading. NEVER Math.random().
-   */
-  private readonly fogRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -2290,7 +2311,6 @@ export class World {
     // A copy, so the caller's buffer cannot be mutated under the World; the
     // seed-derived key is the OFFLINE fallback only (see WorldOptions).
     this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
-    this.plainKey = plainHandleKey(this.dispersionKey);
     this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
@@ -2311,13 +2331,21 @@ export class World {
     // game/botPort.ts derives the bot's zone readouts from the same public
     // inputs a client holds (it no longer passes `this`).
     this.bots = new BotController(makeBotPort(this, this.zoneCfg), (seed ^ 0xc2b2ae35) >>> 0);
-    // Fog stream (Story 9.10): room-private entropy, its own constant — see the field.
-    this.fogRng = mulberry32((priv ^ 0x3c6ef372) >>> 0);
-    // The fog FIELD (Story 9.10): public weather off the map seed under the
-    // same constant (a different mint — the field is derived on both sides
-    // from the welcome's `fogSeed`, so it is not a stream).
+    // The RAIN FIELD's seed (Story 9.10; the storm-eye rain since 11.6):
+    // public weather minted off the map seed under its own constant. Not a
+    // stream — the field is derived on both sides from the welcome's
+    // `fogSeed`, so nothing is ever drawn from it server-side.
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
     this.fogField = makeFogField(this.fogSeed, CONFIG.fog, this.map.radius);
+    this.fogOwnFrame = fogFrameAt(this.fogField, 0, null, 0, 0, this.zoneCfg); // the ring-0 state at clock 0: raining from the start line
+    this.fogFrame = this.fogOwnFrame;
+    this.fogMaxDepthU = fogMaxDepth(CONFIG.fog);
+    const gridCols = Math.max(1, Math.floor(CONFIG.fog.hullGridCols));
+    const gridRows = Math.max(1, Math.floor(CONFIG.fog.hullGridRows));
+    this.fogHullCols = gridCols;
+    this.fogHullRows = gridRows;
+    this.fogHullOrder = hullGridOrder(gridCols, gridRows);
+    this.fogHullPts = new Float64Array(2 * gridCols * gridRows);
     // The density memo lattice — one allocation for the World's life (see fogMemo).
     const memoCell = CONFIG.fog.marchStepU;
     const memoHalf = this.map.radius + FOG_MEMO_MARGIN_U;
@@ -2370,24 +2398,6 @@ export class World {
   }
 
   /**
-   * THE PLAIN-HULL HANDLE `observer` holds for the hull `targetId` (Story
-   * 11.2, R3) — get-or-mint. The ONE writer of `ShipRecord.plainHandles`
-   * besides perception's per-pass forget. A fresh handle is the next
-   * `plainHandle(plainKey, plainSeq)`; it is re-drawn on the (astronomically
-   * unlikely) collision with a ship id or with a handle this observer
-   * already holds, so a frame's handles are distinct and never a roster id.
-   * `World.pseudonymFor` is NOT this: that id is stable for the match and
-   * shared by every observer.
-   */
-  plainHandleFor(observer: ShipRecord, targetId: string): string {
-    const held = observer.plainHandles.get(targetId);
-    if (held !== undefined) return held;
-    const fresh = this.mintPlainHandle(observer);
-    observer.plainHandles.set(targetId, fresh);
-    return fresh;
-  }
-
-  /**
    * THE SALT of one radar paint (Story 11.2 review gate, F1): a keyed hash
    * of the paint's own inputs (`words` = paint time + exact pose) under this
    * room's private paint key — see game/paintSalt.ts. Bound into the signal
@@ -2399,30 +2409,15 @@ export class World {
   readonly paintSaltFor = (kind: PaintKind, words: readonly number[]): number => paintSalt(this.paintKey, kind, words);
 
   /**
-   * END EVERY PLAIN VISIT of one observer (Story 11.2 review gate, F3): drop
-   * every plain-hull handle `observerId` holds, so each hull in its outer
-   * band is minted a fresh one on the next pass. Perception forgets a handle
-   * only DURING a pass, and a captain in reconnect grace gets no pass (frames
-   * are built for connected clients) — so without this, a hull that left the
-   * band and came back while the socket was down would keep its old handle
-   * and the two visits could be linked across the gap. The room calls it at
-   * the drop and again at the resume. An unknown id is a no-op.
+   * FORGET EVERY CLOUD one observer holds (Story 11.6 review —
+   * `ShipRecord.heldClouds`): a client that comes back on a fresh page holds
+   * none, so none may be charged on its eye lines until the cloud row
+   * delivers it again. A captain in reconnect grace gets no perception pass
+   * (frames are built for connected clients), so the room calls this at the
+   * drop and again at the resume. An unknown id is a no-op.
    */
-  forgetPlainVisits(observerId: string): void {
-    this.ships.get(observerId)?.plainHandles.clear();
-  }
-
-  /** One fresh handle off the keyed counter (see plainHandleFor). */
-  private mintPlainHandle(observer: ShipRecord): string {
-    for (;;) {
-      const h = plainHandle(this.plainKey, this.plainSeq++);
-      if (this.ships.has(h)) continue;
-      let taken = false;
-      for (const existing of observer.plainHandles.values()) {
-        if (existing === h) { taken = true; break; }
-      }
-      if (!taken) return h;
-    }
+  forgetHeldClouds(observerId: string): void {
+    this.ships.get(observerId)?.heldClouds.clear();
   }
 
   /**
@@ -2732,7 +2727,7 @@ export class World {
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
       seenBallistics: new Set(), losHints: newLosHints(),
       torpDirs: new Map(),
-      plainHandles: new Map(),
+      heldClouds: new Set(),
       loadout,
       // ONE tally (Story 5.6, amendment 38): `kills` counts human captains
       // AND, since Story 6.4 (Eric ruling B3: bots are ordinary combatants),
@@ -2855,9 +2850,10 @@ export class World {
         // The bot's OWN most recent cloud's expiry (Story 9.3 — a self-read).
         cloudUntil: ship.cloudUntil,
         observe: () => observe(this, ship.id),
-        // Story 9.10 (amendment 169): the public fog density — so a plot whose
-        // predicted spot sits in fog is never read as a sweep miss. Weather
-        // only (where fog is), bound here so ai/ never holds the field.
+        // The public rain density at the current epoch's frame (Story 9.10,
+        // amendment 169; the storm-eye field since Story 11.6) — the cover
+        // search's read. Weather only (where rain is), bound here so ai/
+        // never holds the field.
         fogAt: (x: number, y: number) => this.fogDensityAt(x, y),
       });
     }
@@ -2989,7 +2985,7 @@ export class World {
     this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
     this.drops.clear(); // ...nor a practice-field airdrop / wreck pickup (Story 10.9, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
-    this.fogClear(); // ...nor any fog (Story 9.10 — the practice water has none; the cut, clocks and memo epoch reset)
+    this.fogClear(); // the rain's test pin and memo epoch reset; the World's own frame is rebuilt at this clock
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -3108,7 +3104,7 @@ export class World {
     // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
-    ship.plainHandles.clear(); // Story 11.2: a fresh life starts every plain visit anew
+    ship.heldClouds.clear(); // Story 11.6 review: ...and holds no cloud (the clouds themselves left with clouds.clear())
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -3313,6 +3309,7 @@ export class World {
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
       ship.dazzledUntil = 0; // ...and the flash's dazzle (Story 10.9)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
+      ship.heldClouds.clear(); // Story 11.6 review: the life's held clouds die with it (the next frame is a spectator's)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
       // The land edge dies with the life (Story 9.5); the damage-source
       // stamp, the land bit and the contact tally DO NOT — the harness reads
@@ -4270,12 +4267,13 @@ export class World {
     // (the AI rows next tick read the store through observe(); frames.ts's
     // buildFrame, outside STEP_ORDER, ships the survivors the same tick).
     { name: 'stepClouds', run: (w) => w.stepClouds() },
-    // THE FOG FIELD (Story 9.10) — weather beside weather, DIRECTLY after
-    // stepClouds: once per refreshMs the coverage controller re-cuts the
-    // field (live match only; no fog before the zone starts) and a new
-    // density-memo epoch begins. Before applyStorm and every later row;
-    // perception tolls its sight rays against this tick's cut through
-    // observe() (frames.ts's buildFrame, outside STEP_ORDER, the same tick).
+    // THE RAIN FIELD (Story 9.10; the storm eye since Story 11.6) — weather
+    // beside weather, DIRECTLY after stepClouds: once per refreshMs the rain
+    // frame is rebuilt at this clock — FROM THE FIRST TICK (Eric 2026-11-15:
+    // rain from the start line): the ring-0 state before the zone starts,
+    // the live ring center after — and a new density-memo epoch begins. Before applyStorm and every later row; perception gates its
+    // sight rays against this epoch's frame through observe() (frames.ts's
+    // buildFrame, outside STEP_ORDER, the same tick).
     { name: 'stepFog', run: (w) => w.stepFog() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
@@ -4630,120 +4628,232 @@ export class World {
   /**
    * Every live COUNTERMEASURE cloud as a read-only array (Story 9.3). THE
    * reader: perception (once per observer context — `SignalContextBase.clouds`,
-   * the `cloud` channel's subjects; a cloud occludes nothing since Story 9.3
-   * session 2). A fresh snapshot per call, so a caller can never mutate the
+   * the `cloud` channel's subjects; what a cloud hides is the sight gate's
+   * business — `fogSightAdmits`). A fresh snapshot per call, so a caller can never mutate the
    * store through it.
    */
   get cloudRecords(): readonly StoredCloud[] {
     return [...this.clouds.values()];
   }
 
-  /** The live COVERAGE CUT (Story 9.10) — `FOG_NO_CUT` = no fog. Mirrored
-   *  onto `ArenaState.fogCut` by the room; a number, never a position. */
-  get fogCut(): number {
-    return this.fogCutValue;
+  /** Is the rain frame live? True from construction on (rain from the start
+   *  line, Eric 2026-11-15); false only for a degenerate field or a test's
+   *  pinned clear frame. A boolean, never a position — the tick-cost probe's
+   *  end-state line. */
+  get fogLive(): boolean {
+    return this.fogFrame.on;
   }
 
-  /** The realized fogged share of the live ring over the last quantile
-   *  lattice (Story 9.10) — the `/metrics` and harness readout. A share,
-   *  never a position. 0 with no fog. */
-  get fogCoverageEstimate(): number {
-    return this.fogCoverageShare;
+  /** T — the optical depth at which a thing vanishes behind rain
+   *  (`fogMaxDepth(CONFIG.fog)`): every eye gate is `τ ≤ T`. */
+  get fogMaxDepth(): number {
+    return this.fogMaxDepthU;
   }
 
-  /** The clock the server's fog view is evaluated at (Story 9.10): the last
-   *  refresh's `now` — the field the toll reads is at most `refreshMs` old.
-   *  The perception oracle integrates the shared density at this clock. */
+  /** The clock the server's rain view is evaluated at: the last refresh's
+   *  `now` — the field the gate reads is at most `refreshMs` old. */
   get fogEpochT(): number {
     return this.fogEpochTValue;
   }
 
-  /** Memo cells evaluated since construction (Story 9.10 perf accounting). */
+  /** Memo cells evaluated since construction (perf accounting). */
   get fogCellEvals(): number {
     return this.fogCellEvalCount;
   }
 
   /**
-   * Fog density at (x, y) under the live cut at the epoch's clock, in [0, 1]
-   * (Story 9.10): the shared `fogDensityAt` over this world's field — the
-   * same view the toll walks. Public weather — read by the bots' sweep-miss
-   * rule (amendment 169), the own-bank decision of the toll (179), metrics
-   * and tests. 0 everywhere before the zone starts and beyond the ocean's rim.
+   * Rain density at (x, y) on the current epoch's frame, in [0, 1]: the
+   * shared `fogDensityAt` — the exact field the gate's memo samples. Public
+   * weather — read by the bots' cover search, the harness readouts and
+   * tests. 0 beyond the ocean's rim.
    */
   fogDensityAt(x: number, y: number): number {
-    return fieldDensityAt(this.fogField, x, y, this.fogEpochTValue, this.fogCutValue);
+    return fieldDensityAt(this.fogFrame, x, y);
   }
 
   /**
-   * THE FOG TOLL on the ray A → B, A THE OBSERVER (Story 9.10, amendments
-   * 164 and 179): the extra sight distance the ray pays crossing fog — Σ over
-   * the memo cells the segment crosses of `density(cell) × length inside the
-   * cell`, times `sightCostPerU` (see `fogMemo`) — LESS THE OBSERVER'S OWN
-   * BANK: when the shared density at A itself is solid (≥ FOG_SOLID_DENSITY,
-   * one exact evaluation, memoized per observer position and epoch because
-   * observe() tolls every ray of one observer in a row), the leading run of
-   * solid cells pays nothing; the run ends at the first thinner cell and
-   * never restarts (Eric 2026-10-16: "if you are in it, you should be able
-   * to see out of it normally … like grass patches in League" — clear water
-   * between you and a second bank makes that bank pay). Directional: the
-   * reverse ray may cost more or less. THE one entry of the fog cost into
-   * perception: signals.ts `eyeHolds` adds it to the ray's length through
-   * the `SightField.fogToll` thunk the contexts bind to this method. 0 with no fog (no walk). The segment is CLIPPED to the lattice
-   * square first (fog beyond the ocean's rim + margin is irrelevant — and
-   * since amendment 179 the shared density is 0 past the rim anyway); a ray
-   * wholly outside pays 0.
+   * THE OPTICAL DEPTH τ of the rain on the ray A → B on the current epoch's
+   * frame: Σ over the memo cells the segment crosses of `density(cell) ×
+   * length inside the cell` (see `fogMemo`), the WHOLE walk — the reference
+   * the bounded gate below is held equal to (`fogGate.test.ts`). No own-bank
+   * exemption: the rain A stands in counts. 0 with no rain (no walk). The
+   * segment is CLIPPED to the lattice square first (the shared density is 0
+   * past the rim); a ray wholly outside reads 0. Production's gates call
+   * `fogSightAdmits`, never this.
    */
-  fogTollAlong(ax: number, ay: number, bx: number, by: number): number {
-    if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    const memo = this.fogTollMemo;
-    if (memo.epoch === this.fogEpoch && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.toll;
-    const toll = this.fogTollWalked(ax, ay, bx, by);
-    memo.ax = ax;
-    memo.ay = ay;
-    memo.bx = bx;
-    memo.by = by;
-    memo.epoch = this.fogEpoch;
-    memo.toll = toll;
-    return toll;
+  fogDepthAlong(ax: number, ay: number, bx: number, by: number): number {
+    if (!this.fogFrame.on || !this.fogSpan(ax, ay, bx, by)) return 0;
+    this.fogWalkCount += 1;
+    const span = FOG_SPAN;
+    return this.fogWalk(span.sx, span.sy, span.dx, span.dy, FOG_NO_BOUNDS);
   }
 
   /**
-   * THE SIGHT GATE'S FOG QUESTION, ANSWERED WITHOUT THE WHOLE WALK WHEN THE
-   * ANSWER IS ALREADY DECIDED (Story 11.2 follow-up): does the ray A → B
-   * (A the observer), `d` long, stay inside `range` once its toll is added —
-   * exactly `toll <= 0 || d + toll <= range` for `toll = fogTollAlong(ax, ay,
-   * bx, by)`, the comparison signals.ts ran on the full toll. The caller has
-   * already established `d <= range` (the plain squared test).
+   * THE OPTICAL DEPTH τ of the SMOKE on the ray A → B right now: the shared
+   * `smokeDepthAlong` over the disc at its current radius of every live
+   * cloud in `held` (an observer's `ShipRecord.heldClouds`; omitted, every
+   * live cloud — `smokeDiscs`) with `CONFIG.countermeasure`'s sight dials — in the rain's
+   * own units, so the two add. No observer exemption (a cloud A stands in
+   * counts from A to its rim, the owner's included). 0 with no cloud. The
+   * sight gate's smoke term, exposed as the reference the gate is held to
+   * (`fogGate.test.ts`); never a radar input.
+   */
+  smokeDepthAlong(ax: number, ay: number, bx: number, by: number, held?: ReadonlySet<string>): number {
+    if (this.smokeRefresh(held) === 0) return 0;
+    return smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
+  }
+
+  /** Bring `smokeSight` up to CONFIG; true when a dial moved. */
+  private smokeDialsMoved(): boolean {
+    const { sightThickness, sightSoftFrac } = CONFIG.countermeasure;
+    const dials = this.smokeSight;
+    if (dials.thickness === sightThickness && dials.softFrac === sightSoftFrac) return false;
+    dials.thickness = sightThickness;
+    dials.softFrac = sightSoftFrac;
+    return true;
+  }
+
+  /**
+   * Bring `smokeDiscs` up to this instant FOR THIS QUESTION'S OBSERVER (see
+   * there); returns how many clouds it reads. `held` is the asking observer's
+   * `ShipRecord.heldClouds` — only those clouds are charged (Story 11.6
+   * review: a cloud the client was never sent hides nothing from it);
+   * omitted, every live cloud is (the observer-less reference the gate tests
+   * and probes ask). With no cloud to read — and none last time — it is a
+   * size read or two.
+   */
+  private smokeRefresh(held?: ReadonlySet<string>): number {
+    const discs = this.smokeDiscs;
+    if ((this.clouds.size === 0 || held?.size === 0) && discs.length === 0) return 0;
+    const moved = this.smokeDialsMoved();
+    const rewritten = this.smokeDiscsWrite(held);
+    if (moved || rewritten) this.smokeEpoch += 1;
+    return discs.length;
+  }
+
+  /** Rewrite `smokeDiscs` in place as the live clouds in `held` (every live
+   *  cloud when omitted) at their radii now; true when the set changed. */
+  private smokeDiscsWrite(held: ReadonlySet<string> | undefined): boolean {
+    const discs = this.smokeDiscs;
+    let changed = false;
+    let n = 0;
+    for (const c of this.clouds.values()) {
+      if (held !== undefined && !held.has(c.id)) continue;
+      if (smokeDiscSet(discs, n, c, cloudOutlineRadius(this.now - c.bornAt, c))) changed = true;
+      n += 1;
+    }
+    if (discs.length !== n) changed = true;
+    discs.length = n;
+    return changed;
+  }
+
+  /**
+   * THE EYE'S QUESTION, ANSWERED WITHOUT THE WHOLE WALK WHEN THE ANSWER IS
+   * ALREADY DECIDED: does the eye at A see the point B through the rain AND
+   * THE SMOKE — exactly `fogDepthAlong(ray) <= T − smokeDepthAlong(ray)`
+   * (total optical depth τ_rain + τ_smoke against the one threshold T; Story
+   * 11.6 scope add, Eric 2026-11-14). THE one entry of the weather into
+   * perception for a POINT (signals.ts `eyeHolds`, through the context's
+   * `fogAdmits` thunk); a hull asks `fogHullAdmits`; the cloud row's own
+   * sight arm asks `fogRainAdmits` (smoke never hides smoke). The caller has
+   * already established its range cap and island line of sight. `held` is
+   * the asking observer's `ShipRecord.heldClouds` — THE SMOKE IS ONLY THE
+   * CLOUDS THAT OBSERVER HOLDS (Story 11.6 review; see `smokeRefresh`);
+   * omitted, every live cloud (the observer-less reference).
    *
-   * The toll is a sum of non-negative terms over the same cell walk, so two
+   * THE SMOKE TERM COMES FIRST — it is analytic (a chord per live cloud, the
+   * shared `smokeDepthAlong`) — and the rain walk then runs against the
+   * budget it leaves, `T − τ_smoke`. A ray that touches no cloud has
+   * τ_smoke = 0 exactly, so its budget is T and its walk is the rain-only
+   * walk, step for step; with no cloud alive the smoke term is not computed
+   * at all.
+   *
+   * The rain's τ is a sum of non-negative terms over one cell walk, so two
    * bounds decide early and EXACTLY:
-   *   - a density is at most 1, so the toll is at most `sightCostPerU` × the
-   *     ray's length on the lattice: when `d` + that bound is inside `range`
-   *     (less FOG_DECIDE_SLACK, which swallows the walk's float dust many
-   *     times over) the ray is seen with no walk at all — every point inside
-   *     `range / (1 + sightCostPerU)` of the eye — and the same bound over
-   *     the cells still ahead ends a walk the moment the rest cannot matter;
-   *   - the running sum never decreases, so the moment `d + tollSoFar` is
-   *     past `range` the answer is "no" (checked with the final comparison's
-   *     own expression, so it cannot disagree with it).
+   *   - a density is at most 1, so τ is at most the ray's length on the
+   *     lattice: a ray no longer than the budget (less FOG_DECIDE_SLACK,
+   *     which swallows the walk's float dust many times over) is seen with no
+   *     walk at all, and the same bound over the cells still ahead ends a
+   *     walk the moment the rest cannot matter;
+   *   - the running sum never decreases, so the moment it is past the budget
+   *     the answer is "no" (checked with the final comparison's own
+   *     expression, so it cannot disagree with it).
    * A walk that neither bound ends runs to the end and takes the reference
-   * comparison. Never an approximation: `fogGate.test.ts` holds it equal to
-   * the full toll's answer.
+   * comparison. Never an approximation.
    */
-  fogSightAdmits(ax: number, ay: number, bx: number, by: number, d: number, range: number): boolean {
-    if (this.fogCutValue >= FOG_NO_CUT) return true;
+  fogSightAdmits(ax: number, ay: number, bx: number, by: number, held?: ReadonlySet<string>): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
+    if (!smoky && !this.fogFrame.on) return true;
     const memo = this.fogGateMemo;
-    if (memo.epoch === this.fogEpoch && sameGateQuestion(memo, ax, ay, bx, by, d, range)) return memo.seen;
-    const seen = this.fogSightWalked(ax, ay, bx, by, d, range);
+    if (this.memoCurrent(memo) && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.seen;
+    const seen = this.fogSightWalked(ax, ay, bx, by, smoky);
     memo.ax = ax;
     memo.ay = ay;
     memo.bx = bx;
     memo.by = by;
-    memo.d = d;
-    memo.range = range;
     memo.epoch = this.fogEpoch;
+    memo.smoke = this.smokeEpoch;
     memo.seen = seen;
     return seen;
+  }
+
+  /** Was a one-entry gate memo written under the current rain epoch AND the
+   *  current smoke set? (A live cloud grows every tick, so the smoke epoch
+   *  moves with it.) */
+  private memoCurrent(memo: { epoch: number; smoke: number }): boolean {
+    return memo.epoch === this.fogEpoch && memo.smoke === this.smokeEpoch;
+  }
+
+  /**
+   * THE RAIN ALONE: does the eye at A see the point B through the rain,
+   * whatever smoke lies on the line — exactly `fogDepthAlong(ray) <= T`.
+   * Read by ONE row: the `cloud` channel's sight arm (signals.ts
+   * `discSighted` — Story 11.6: a cloud's own visibility is never occluded
+   * by smoke; you can always see a smoke cloud you would otherwise see). No
+   * memo (a handful of rays per observer).
+   */
+  fogRainAdmits(ax: number, ay: number, bx: number, by: number): boolean {
+    if (!this.fogFrame.on) return true;
+    return this.fogSightWalked(ax, ay, bx, by, false);
+  }
+
+  /**
+   * THE EYE'S QUESTION FOR A HULL (Story 11.6 — "you see the parts of a
+   * ship the rain lets through"; the DISTANCE HAZE since Eric 2026-11-15):
+   * does the eye at A see ANY point of the hull's sight grid — the shared
+   * `fogHullGrid`, `CONFIG.fog.hullGridCols × hullGridRows` cell centers of
+   * the hull's TRUE `lengthU × beamU` rectangle at its true pose — through
+   * the HAZE, the smoke and the rain: for at least one point P,
+   *
+   *     fogDepthAlong(A → P) <= (T − haze(P)) − smokeDepthAlong(A → P)
+   *
+   * with haze(P) = the shared `fogHazeDepth(|A → P|, sightU, hullSightU, T)`
+   * — 0 out to the observer's class-and-name sight, rising linearly to T at
+   * its hull sight (both reaches the observer's own, whiteout-scaled). The
+   * haze is spent off the budget FIRST (it is one subtraction), then the
+   * smoke, then the rain walks against what is left — the point gate's own
+   * machinery (`fogSightWalked`). Asked middle columns first
+   * (`hullGridOrder`), the first passing point wins. The caller has already
+   * established the range cap (the hull sight) and island line of sight on
+   * the hull's center. The haze alone never hides a point (it is at most T),
+   * so with no rain and no cloud: true, no work.
+   */
+  fogHullAdmits(q: FogHullQuestion, held?: ReadonlySet<string>): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
+    if (!smoky && !this.fogFrame.on) return true;
+    const pts = this.fogHullPts;
+    const T = this.fogMaxDepthU;
+    const n = fogHullGrid(q.cx, q.cy, q.heading, q.lengthU, q.beamU, this.fogHullCols, this.fogHullRows, pts);
+    for (const k of this.fogHullOrder) {
+      if (k >= n) continue;
+      const px = pts[2 * k];
+      const py = pts[2 * k + 1];
+      const dx = px - q.ax;
+      const dy = py - q.ay;
+      const haze = fogHazeDepth(Math.sqrt(dx * dx + dy * dy), q.sightU, q.hullSightU, T);
+      if (this.fogSightWalked(q.ax, q.ay, px, py, smoky, haze)) return true;
+    }
+    return false;
   }
 
   /**
@@ -4774,17 +4884,17 @@ export class World {
     return this.fogMemo.side * this.fogMemo.cell;
   }
 
-  /** Lattice walks since construction (Story 11.2 review gate, F2 — the toll
-   *  memo's accounting: a ray re-asked in the same epoch walks nothing; since
-   *  the follow-up, neither does a ray the length bound decides). */
+  /** Lattice walks since construction — the gate's accounting: a ray
+   *  re-asked in the same epoch walks nothing, and neither does a ray the
+   *  length bound decides. */
   get fogWalks(): number {
     return this.fogWalkCount;
   }
 
   /** The clipped lattice span of the ray A → B as `FOG_SPAN` (start point and
    *  delta), or false when the ray is degenerate or misses the lattice — then
-   *  it pays nothing. Shared by the toll and the gate, so both walk the very
-   *  same segment. */
+   *  it crosses no rain. Shared by the reference depth and the gate, so both
+   *  walk the very same segment. */
   private fogSpan(ax: number, ay: number, bx: number, by: number): boolean {
     const dx = bx - ax;
     const dy = by - ay;
@@ -4804,81 +4914,58 @@ export class World {
     return true;
   }
 
-  /** The toll of one ray, walked (see `fogTollAlong`, its only caller). */
-  private fogTollWalked(ax: number, ay: number, bx: number, by: number): number {
-    if (!this.fogSpan(ax, ay, bx, by)) return 0;
-    const ownBank = this.fogObserverInSolidFog(ax, ay);
-    this.fogWalkCount += 1;
+  /** `fogSightAdmits`, computed (no memo — the point gate holds its own).
+   *  `smoky`: add the live clouds' depth (the caller refreshed `smokeDiscs`);
+   *  false reads the rain alone. `haze`: optical depth already spent on this
+   *  ray (the hull gate's distance haze; 0 for a point). */
+  private fogSightWalked(ax: number, ay: number, bx: number, by: number, smoky: boolean, haze = 0): boolean {
+    // THE BUDGET the rain may spend: T less the haze, less the smoke on the
+    // ray. Exactly T for a point whose ray touches no cloud (haze is 0 and
+    // τ_smoke is exactly 0 then).
+    let T = this.fogMaxDepthU - haze;
+    if (smoky) {
+      const smoke = smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
+      if (smoke > T) return false; // the smoke alone hides it
+      T -= smoke;
+    }
+    if (!this.fogFrame.on || !this.fogSpan(ax, ay, bx, by)) return true; // no rain on the ray
     const span = FOG_SPAN;
-    return this.fogWalk(span.sx, span.sy, span.dx, span.dy, ownBank, FOG_NO_BOUNDS) * CONFIG.fog.sightCostPerU;
-  }
-
-  /** `fogSightAdmits`, computed (its only caller holds the one-entry memo). */
-  private fogSightWalked(ax: number, ay: number, bx: number, by: number, d: number, range: number): boolean {
-    if (!this.fogSpan(ax, ay, bx, by)) return true; // toll 0
-    const span = FOG_SPAN;
-    const cost = CONFIG.fog.sightCostPerU;
     const len = Math.sqrt(span.dx * span.dx + span.dy * span.dy);
     // In the walk's own units (Σ density × fraction of the span, at most 1)
-    // the gate reads `d + sum × len × cost <= range`: `room` is the sum the
-    // gate can absorb, less the slack.
-    const room = (range - FOG_DECIDE_SLACK - d) / (len * cost);
-    if (room >= 1) return true; // seen whatever the fog: no walk
-    const ownBank = this.fogObserverInSolidFog(ax, ay);
+    // the gate reads `sum × len <= T`: `room` is the sum the gate can absorb,
+    // less the slack.
+    const room = (T - FOG_DECIDE_SLACK) / len;
+    if (room >= 1) return true; // seen whatever the rain: no walk
     this.fogWalkCount += 1;
     const bounds = FOG_BOUNDS;
     bounds.acceptBelow = room;
-    bounds.d = d;
-    bounds.range = range;
+    bounds.maxDepth = T;
     bounds.verdict = 0;
-    const toll = this.fogWalk(span.sx, span.sy, span.dx, span.dy, ownBank, bounds) * cost;
+    const tau = this.fogWalk(span.sx, span.sy, span.dx, span.dy, bounds);
     if (bounds.verdict !== 0) return bounds.verdict > 0;
-    return toll <= 0 || d + toll <= range;
-  }
-
-  /** Does the observer at (x, y) stand in solid fog (the exact shared density
-   *  at that point, not a memo cell — so the own-bank decision is the same on
-   *  the reference march and the invariant oracle)? One-entry memo keyed on
-   *  the position and the epoch: observe() asks for every ray of one observer
-   *  in a row, so there the second and later rays cost nothing here; a miss
-   *  is one shared density evaluation (≈ 0.3 µs), within the perf pin. */
-  private fogObserverInSolidFog(x: number, y: number): boolean {
-    const o = this.fogObserverMemo;
-    if (o.x !== x || o.y !== y || o.epoch !== this.fogEpoch) {
-      o.x = x;
-      o.y = y;
-      o.epoch = this.fogEpoch;
-      o.solid = this.fogDensityAt(x, y) >= FOG_SOLID_DENSITY;
-    }
-    return o.solid;
+    return tau <= T;
   }
 
   /** The DDA over the memo from (sx, sy) along (dx, dy) (already clipped to
-   *  the lattice): Σ density × length inside each visited cell — skipping the
-   *  observer's own bank when `ownBank`: the leading run of solid cells
-   *  (density ≥ FOG_SOLID_DENSITY) is free, and the first thinner cell ends
-   *  the run for good (amendment 179). `bounds` is the sight gate's early
-   *  exit (`fogSightAdmits`): when it sets `bounds.verdict` the walk stopped
-   *  early and the returned sum is partial; the toll passes FOG_NO_BOUNDS,
-   *  which never fires, so toll and gate read the very same sum. */
-  private fogWalk(sx: number, sy: number, dx: number, dy: number, ownBank: boolean, bounds: FogBounds): number {
+   *  the lattice): Σ density × length inside each visited cell = τ. `bounds`
+   *  is the sight gate's early exit (`fogSightWalked`): when it sets
+   *  `bounds.verdict` the walk stopped early and the returned sum is partial;
+   *  the reference depth passes FOG_NO_BOUNDS, which never fires, so depth
+   *  and gate read the very same sum. */
+  private fogWalk(sx: number, sy: number, dx: number, dy: number, bounds: FogBounds): number {
     const m = this.fogMemo;
     const len = Math.sqrt(dx * dx + dy * dy);
     let i = memoIndex(m.ox, m.cell, m.side, sx);
     let j = memoIndex(m.oy, m.cell, m.side, sy);
     const X = ddaAxis(m.ox, m.cell, i, sx, dx, FOG_DDA_X);
     const Y = ddaAxis(m.oy, m.cell, j, sy, dy, FOG_DDA_Y);
-    const scale = len * CONFIG.fog.sightCostPerU;
     let sum = 0;
     let tCur = 0;
-    const run = FOG_RUN;
-    run.free = ownBank;
-    run.first = true;
     for (let n = 2 * m.side + 2; n > 0; n--) {
       const tNext = Math.min(X.tMax, Y.tMax, 1);
-      if (tNext > tCur) sum += this.fogPayCell(i, j, run) * (tNext - tCur);
+      if (tNext > tCur) sum += this.fogCellDensity(i, j) * (tNext - tCur);
       if (tNext >= 1) break;
-      if (fogDecided(bounds, sum, tNext, len, scale)) break;
+      if (fogDecided(bounds, sum, tNext, len)) break;
       tCur = tNext;
       if (X.tMax < Y.tMax) {
         X.tMax += X.tDelta;
@@ -4892,63 +4979,57 @@ export class World {
     return sum * len;
   }
 
-  /** The density cell (i, j) CHARGES the walk: 0 while the observer's own
-   *  bank runs (`run.free` and the cell is solid — or it is the observer's
-   *  OWN cell, `run.first`: they stand in solid fog by the exact evaluation,
-   *  and a cell centre up to 7 u away, possibly behind them, must not end the
-   *  run before it starts); the first thinner cell after that ends the run
-   *  for good and every cell from there pays its density. */
-  private fogPayCell(i: number, j: number, run: { free: boolean; first: boolean }): number {
-    const d = this.fogCellDensity(i, j);
-    const own = run.first;
-    run.first = false;
-    if (run.free && (own || d >= FOG_SOLID_DENSITY)) return 0;
-    run.free = false;
-    return d;
-  }
-
   /** The memoized density of cell (i, j) in the current epoch — evaluated on
-   *  first touch with the shared `fogDensityAt` at the epoch's clock and cut. */
+   *  first touch with the shared `fogDensityAt` on the epoch's frame. */
   private fogCellDensity(i: number, j: number): number {
     const m = this.fogMemo;
     const idx = j * m.side + i;
     if (m.epoch[idx] !== this.fogEpoch) {
       const cx = m.ox + (i + 0.5) * m.cell;
       const cy = m.oy + (j + 0.5) * m.cell;
-      m.dens[idx] = fieldDensityAt(this.fogField, cx, cy, this.fogEpochTValue, this.fogCutValue);
+      m.dens[idx] = fieldDensityAt(this.fogFrame, cx, cy);
       m.epoch[idx] = this.fogEpoch;
       this.fogCellEvalCount += 1;
     }
     return m.dens[idx];
   }
 
-  /** Start a new fog epoch at `now`: every memo cell is stale until touched. */
+  /** Start a new rain epoch at `now`: every memo cell is stale until touched. */
   private fogBumpEpoch(): void {
     this.fogEpoch += 1;
     this.fogEpochTValue = this.now;
   }
 
   /**
-   * TEST-ONLY seam (Story 9.10): PIN the cut (stepFog then never moves it —
-   * the zone gate, the target and the slew are all skipped until
-   * resetForMatchStart; the epoch keeps bumping on its cadence) and start a
-   * fresh epoch at `now`. −2 is density 1 on the whole ocean (0 past the
-   * rim, amendment 179 — an observer on the ocean then stands in one
-   * ocean-wide bank and pays nothing; one just past the rim pays for the
-   * ocean part of its ray); `FOG_NO_CUT` is no fog. Production NEVER calls
-   * it — the controller in stepFog is the only production writer of the cut.
+   * TEST-ONLY seam (replaces Story 9.10's `setFogCutForTest`): PIN the rain
+   * to `frame` — a `FogFrame` the test built with the shared `fogFrameAt`
+   * (over `fogFieldForTest()`, or over a field of its own with other dials) —
+   * and start a fresh epoch at `now`. While pinned, stepFog never rebuilds
+   * the frame (the zone gate and the refresh cadence are skipped) until
+   * resetForMatchStart or `setFogFrameForTest(null)`, which returns the
+   * World to its own frame, rebuilt at the current clock. The
+   * frame is held BY REFERENCE and read lazily through the memo: do not
+   * mutate it after the call (pin again instead). Production NEVER calls it —
+   * stepFog is the only production writer of the frame.
    */
-  setFogCutForTest(cut: number): void {
-    this.fogCutPinned = true;
-    this.fogCutValue = cut;
-    this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
+  setFogFrameForTest(frame: FogFrame | null): void {
+    if (frame === null) {
+      this.fogClear();
+      return;
+    }
+    this.fogFramePinned = true;
+    this.fogFrame = frame;
     this.fogBumpEpoch();
-    this.fogCoverageShare = this.fogMeasureCoverage(this.zoneLiveRing);
   }
 
-  /** TEST-ONLY seam (Story 9.10): the built field, so an oracle can integrate the shared density itself. */
+  /** TEST-ONLY seam: the built field, so a test can build frames over it. */
   fogFieldForTest(): FogField {
     return this.fogField;
+  }
+
+  /** TEST-ONLY seam: the current epoch's frame, so an oracle can integrate the shared density itself. */
+  fogFrameForTest(): FogFrame {
+    return this.fogFrame;
   }
 
   /**
@@ -8166,133 +8247,68 @@ export class World {
    */
   private stepClouds(): void {
     for (const [id, cloud] of this.clouds) {
-      if (this.now >= cloud.until) this.clouds.delete(id);
+      if (this.now < cloud.until) continue;
+      this.clouds.delete(id);
+      // Every observer's hold on it dies with it (Story 11.6 review —
+      // `ShipRecord.heldClouds`): no growth, and no stale id.
+      for (const ship of this.ships.values()) ship.heldClouds.delete(id);
     }
   }
 
   /**
-   * THE FOG FIELD (Story 9.10) — the `stepFog` STEP_ORDER row (directly
-   * after stepClouds: weather beside weather). (1) No zone timeline yet →
-   * no fog (`fogClear`; the practice water never fogs). (2) Otherwise, once
-   * per `refreshMs`: redraw the coverage target when its period is up, cut
-   * the field at `fogCutForTarget` (the solid-share quantile) over the
-   * lattice inside the live ring (slewed at most `cutRatePerS`; the first
-   * live refresh rolls in from the lattice maximum, amendment 175) and
-   * start a new density-memo EPOCH at this clock (see `fogMemo`). Nothing
-   * else — the field itself is pure math over the seed and the clock, and
-   * the memo fills lazily as rays touch it.
+   * THE RAIN FIELD — the `stepFog` STEP_ORDER row (directly after
+   * stepClouds: weather beside weather), THE EPOCH REFRESH: once per
+   * `refreshMs`, FROM THE FIRST TICK (rain from the start line, Eric
+   * 2026-11-15 — there is no "no rain until the zone starts" any more),
+   * rebuild the frame (`fogRefresh`). Nothing else — the field is pure math
+   * over the seed, the clock, the zone clock and the public rings, and the
+   * memo fills lazily as rays touch it. A test-pinned frame is left alone.
    */
   private stepFog(): void {
-    if (!this.fogCutPinned && this.zoneStartT === null) {
-      this.fogClear();
-      return;
-    }
+    if (this.fogFramePinned) return;
     if (this.now < this.fogNextRefreshAt) return;
+    this.fogRefresh();
+  }
+
+  /**
+   * Rebuild the World's own frame with the shared `fogFrameAt` at this clock
+   * and start a new density-memo EPOCH (see `fogMemo`). THE EYE: before the
+   * zone starts, the ring-0 state — `zoneStartT` null and the idle ring's
+   * center (the whole ocean, as the schema's float32 mirror carries it);
+   * after, the LIVE ring a client derives (`fogEyeRing`).
+   */
+  private fogRefresh(): void {
     this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
+    const zoneStartT = this.zoneStartT;
+    const eye = zoneStartT === null ? froundRing(this.zoneCurrentRing) : this.fogEyeRing(zoneStartT);
+    fogFrameAt(this.fogField, this.now, zoneStartT, eye.cx, eye.cy, this.zoneCfg, this.fogOwnFrame);
     this.fogBumpEpoch();
-    if (!this.fogCutPinned) this.fogRefreshCut(this.zoneLiveRing);
   }
 
-  /** Back to "no fog": the cut, the pin, the clocks and the share reset and
-   *  a fresh epoch starts (resetForMatchStart and the pre-start tick). The
-   *  target wander keeps its stream position — it is a stream, not a clock. */
+  /**
+   * The storm eye's ring at this clock AS A CLIENT DERIVES IT: the shared
+   * `zoneLiveState` over the schema's float32 mirror of ring g and of the
+   * REVEALED next ring (`froundRing` — the copy a client holds; a next ring
+   * of radius 0 is the wire's "unrevealed", so it reads null exactly as the
+   * client's `schemaRings` reads it and the shared function synthesizes the
+   * concentric collapse ring) — never the double-precision rings and never
+   * an unrevealed one. So the frame's center is bit-identical to an honest
+   * client's at the same clock.
+   */
+  private fogEyeRing(zoneStartT: number): ZoneRing {
+    const next = this.zoneRevealedNextRing;
+    const next32 = next === null ? null : froundRing(next);
+    const revealed = next32 !== null && next32.r > 0 ? next32 : null;
+    return zoneLiveState(this.now, zoneStartT, froundRing(this.zoneCurrentRing), revealed, this.zoneCfg).current;
+  }
+
+  /** Back to the World's OWN rain: a test pin is dropped and the own frame
+   *  is rebuilt at this clock under a fresh epoch (resetForMatchStart and
+   *  the test seam's unpin). */
   private fogClear(): void {
-    this.fogCutValue = FOG_NO_CUT;
-    this.fogCutPinned = false;
-    this.fogTarget = 0;
-    this.fogNextTargetAt = 0;
-    this.fogNextRefreshAt = 0;
-    this.fogCoverageShare = 0;
-    this.fogBumpEpoch();
-  }
-
-  /**
-   * THE COVERAGE CONTROLLER (amendment 165's band, re-cut on the field):
-   * the target wanders in [coverageMin, coverageMax) every targetPeriodMs
-   * (the first draw on the first live refresh); the goal cut is the shared
-   * `fogCutForTarget` (the solid-share quantile, amendment 178) over the
-   * `quantileLattice`² lattice inside the live ring at THIS instant; the
-   * cut steps toward it by at most `cutRatePerS × refreshMs / 1000`. THE
-   * ONSET (Eric 2026-10-15: "roll in over ~1 min", then 2026-10-16
-   * "faster" — ≈ 15 s since amendment 177): the first live refresh sets the cut to the lattice's
-   * MAXIMUM noise + edgeBand — density 0 at every lattice point — and the
-   * cut then slews DOWN toward the goal, so banks grow in from their hearts
-   * outward (≈ 15 s from a max near 1.0 to a 20–25 % cut at 0.04/s —
-   * Eric 2026-10-16 "the onset roll-in should be faster", amendment 177;
-   * was ≈ 35 s to a 5 % cut at 0.02/s).
-   * The ONE snap: a goal of FOG_NO_CUT (target 0 — fog off) clears at once,
-   * never a crawl toward 9. Then the realized share is re-measured for the
-   * readouts.
-   *
-   * THE FINAL CLOSE (review gate): the live ring's radius falls to 0 at the
-   * last close, where a lattice degenerates to one point and the quantile
-   * to one noise value. The lattice radius is therefore never below
-   * `wavelengthU` (`fogLatticeRadius` — coverage control below one bank's
-   * size is meaningless), and once `ring.r < wavelengthU / 2` the cut is
-   * HELD at its last value: no goal is refreshed (the epoch still bumps in
-   * stepFog, so the field keeps rolling under the held cut).
-   */
-  private fogRefreshCut(ring: ZoneRing): void {
-    const cfg = CONFIG.fog;
-    if (this.now >= this.fogNextTargetAt) {
-      this.fogTarget = this.fogRng.float(cfg.coverageMin, cfg.coverageMax);
-      this.fogNextTargetAt = this.now + cfg.targetPeriodMs;
-    }
-    if (ring.r < cfg.wavelengthU / 2) return; // the final close: hold the cut
-    const lattice = this.fogControllerLattice(ring);
-    const goal = fogCutForTarget(this.fogField, this.now, lattice, this.fogTarget);
-    const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
-    if (goal >= FOG_NO_CUT) this.fogCutValue = FOG_NO_CUT; // fog off: at once
-    else if (this.fogCutValue >= FOG_NO_CUT) this.fogCutValue = this.fogOnsetCut(lattice); // the onset: roll in from no fog
-    else this.fogCutValue = clampStep(this.fogCutValue, goal, maxStep);
-    this.fogCoverageShare = this.fogMeasureCoverage(ring);
-  }
-
-  /**
-   * The coverage controller's lattice for `ring`: `fogLattice` over the ring
-   * (floored at one bank's radius, `fogLatticeRadius`) KEPT TO THE OCEAN —
-   * points past the map radius are dropped in place (amendment 179: the
-   * shared density is 0 there, so a point past the rim would count toward the
-   * quantile's raw noise but never toward the realized solid share; a small
-   * last ring centered near the rim could then under-read its target — the
-   * cycle-194 gate, Codex). Allocation-free after the first call: the kept
-   * points are the SAME objects, referenced from a second reusable array, so
-   * `fogLatticePts` is never truncated and `fogLattice` never re-mints a
-   * dropped point on the next refresh (the Edge Case Hunter's reading).
-   */
-  private fogControllerLattice(ring: ZoneRing): { x: number; y: number }[] {
-    const pts = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
-    const kept = this.fogOceanPts;
-    const r2 = this.map.radius * this.map.radius;
-    let k = 0;
-    for (const p of pts) {
-      if (p.x * p.x + p.y * p.y > r2) continue;
-      kept[k] = p;
-      k += 1;
-    }
-    kept.length = k;
-    return kept;
-  }
-
-  /** The onset cut: the lattice's maximum noise + edgeBand, so density is 0
-   *  at every lattice point and the slew down grows the banks in. */
-  private fogOnsetCut(lattice: readonly { x: number; y: number }[]): number {
-    let max = -Infinity;
-    for (const p of lattice) max = Math.max(max, fogNoiseAt(this.fogField, p.x, p.y, this.now));
-    return (Number.isFinite(max) ? max : 0) + CONFIG.fog.edgeBand;
-  }
-
-  /** The realized fogged share over the lattice inside `ring` under the live
-   *  cut: points at SOLID fog (density ≥ FOG_SOLID_DENSITY — what the
-   *  quantile controls since amendment 178) over all points. 0 with no fog
-   *  or an empty lattice. */
-  private fogMeasureCoverage(ring: ZoneRing): number {
-    if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    const lattice = this.fogControllerLattice(ring);
-    if (lattice.length === 0) return 0;
-    let fogged = 0;
-    for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) >= FOG_SOLID_DENSITY) fogged += 1;
-    return fogged / lattice.length;
+    this.fogFramePinned = false;
+    this.fogFrame = this.fogOwnFrame;
+    this.fogRefresh();
   }
 
   /**
@@ -8370,6 +8386,7 @@ export class World {
     // standalone-World test, which defaults both flags true.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
+    ship.heldClouds.clear(); // Story 11.6 review: a fresh life holds no cloud until the cloud row delivers one
     // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
     // and removeShip): `kills` persists across the death (only
     // redeployShip zeroes it), so a returning captain may still clear the

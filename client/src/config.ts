@@ -2502,8 +2502,10 @@ export const CLIENT_CONFIG = {
    * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts +
    * render/cloudPaint.ts, Story 9.3) — FEEL ONLY: knobs Eric may re-tune on
    * staging; the server reads none of them. Since 2026-10-12 ("smoke is
-   * paint") a cloud hides nothing on the server — it is purely a visual
-   * overlay the client paints from the wire's {id,x,y,t0}. Eric: "imagine if
+   * paint") a cloud hides nothing from RADAR — the paint is a visual overlay
+   * the client paints from the wire's {id,x,y,t0}. Since Story 11.6 (epic-11
+   * amendment 13(d)) a cloud DOES occlude SIGHT, like rain, by the shared
+   * `CONFIG.countermeasure` sight dials (render/rainSight.ts) — not these. Eric: "imagine if
    * someone was using the spraypaint tool on a bitmap … the radius of that
    * tool gets slightly bigger over time … each 'paint' itself fades to 0
    * alpha (similarly to the phosphor decay). It's smoke." The spray runs the
@@ -2601,9 +2603,10 @@ export const CLIENT_CONFIG = {
    * Eric's pick B "Wisps" applied to the shared density field: a world-anchored
    * density raster (sim/fog.ts `fogDensityAt`, refreshed on a cadence) masks a
    * pre-baked tiling texture of soft overlapping pale-grey puffs that rolls
-   * with the field's wind. Every value here is a FEEL knob — Eric may re-tune
-   * on staging; the field itself (where fog is) comes from `CONFIG.fog`, the
-   * welcome's `fogSeed` and the schema's `fogCut`, never from here.
+   * with the field's spin. Every value here is a FEEL knob — Eric may re-tune
+   * on staging; the field itself (where rain is — Story 11.6's storm eye)
+   * comes from `CONFIG.fog`, the welcome's `fogSeed`, the schema's
+   * `zoneStartT` and the live zone ring, never from here.
    * The halo + island line-of-sight mask deliberately reads
    * `countermeasure.{haloFeatherU, losRays, losRecastMoveU}` (not a copy) so
    * the fog and the countermeasure haze end at the same edge.
@@ -2620,9 +2623,6 @@ export const CLIENT_CONFIG = {
     /** Alpha at full density over a fully opaque puff texel: final alpha =
      *  density × puff × maxAlpha. */
     maxAlpha: 0.6,
-    /** Noise units per second the drawn cut eases toward the schema's
-     *  `fogCut` (faster than the server's own `cutRatePerS`, so it follows). */
-    cutEasePerS: 0.05,
     /** px — the square puff tile's side (it tiles seamlessly). */
     puffTilePx: 512,
     /** px per u — the tile's scale on the water (0.5 → 2 u per texel; a 512 px tile spans 1,024 u). */
@@ -2639,6 +2639,52 @@ export const CLIENT_CONFIG = {
      *  from [shadeMin, shadeMax] (channels clamp at 255). */
     shadeMin: 0.95,
     shadeMax: 1.06,
+  },
+
+  /**
+   * THE RAIN LOOK ON HULLS (Story 11.6 — render/rainSight.ts + hullDissolve.ts;
+   * Eric 2026-11-14, Story 11.6 bench page, look "A+D": "that looks goddamn
+   * fucking perfect"). Each sighted hull wears the visibility V = exp(−k·τ) of
+   * the rain between the own hull and each point of its shared sight grid
+   * (`CONFIG.fog.hullGridCols × hullGridRows`): a hull-locked fine dissolve
+   * keeps the pixels whose noise is under V (A), and the survivors also fade by
+   * mix(1, V, dStrength) and blur by (1 − V) × blurU × dStrength (D). Where V
+   * is 1 everywhere the hull draws exactly as before, with no filter. The
+   * vanish cutoff and the grid are `CONFIG.fog` (gameplay); these are the look.
+   */
+  rainLook: {
+    /** u — the dissolve noise's grain (Eric 2026-11-14, Story 11.6 bench page). */
+    grainU: 2,
+    /** u — the blur radius at V = 0, before `dStrength` (Eric 2026-11-14, Story 11.6 bench page). */
+    blurU: 6,
+    /** D's share in A+D: the survivors' fade and blur scale (Eric 2026-11-14, Story 11.6 bench page). */
+    dStrength: 0.4,
+    /** px — THE FAR FALLBACK (Eric 2026-11-14, Story 11.6 bench page): a grain
+     *  under `farFromPx` screen pixels cannot read (and would alias), so the
+     *  dissolve blends to D's plain fade between `farFromPx` and `farToPx`
+     *  pixels per grain (the page's smoothstep(1, 2.5, grain px)). */
+    farFromPx: 1,
+    farToPx: 2.5,
+    /** u — margin of the dissolve-noise texture past the largest hull (the
+     *  page's bake pad: the outline's width plus the blur's spill). */
+    noisePadU: 10,
+    /** ms — a hull's V grid is re-marched this often (frame time, staggered
+     *  per hull): 12 optical-depth marches per hull are too dear every frame.
+     *  Presentation only — the server gates sight on its own march. */
+    visRefreshMs: 100,
+    /** ms — the drawn V eases toward the latest march with this time constant,
+     *  so a re-march never steps the dissolve (a newly seen hull snaps). */
+    visEaseMs: 100,
+    /** px (logical) — the most padding the filter pass carries for the blur's
+     *  spill: the pass is the hull's screen bounds ∩ the viewport plus this,
+     *  so it stays inside the GPU budget (epic-11 amendment 6). */
+    maxPadPx: 32,
+    /** V — THE SENT-HULL FLOOR'S MARGIN (Story 11.6 review): a hull the server
+     *  sent always shows its best part at V ≥ `CONFIG.fog.sightCutoffV` + this.
+     *  The shader's vanish edge is smoothstep(cutoff, cutoff + 0.004, V) — 0 AT
+     *  the cutoff — so a floor of exactly the cutoff drew the hull invisible;
+     *  this clears that edge with a visibly present part (orchestrator pick). */
+    sentFloorMarginV: 0.05,
   },
 
   /**
@@ -2911,6 +2957,21 @@ export const CLIENT_CONFIG = {
          * regimes.
          */
         catchUpRad: 0.4,
+      },
+      /**
+       * RAIN CLUTTER'S COST BOUND (Story 11.6 scope add — render/radarClutter.ts).
+       * Each march step also paints rain clutter for its sector, out to the radar
+       * range cut to the farthest corner of the camera view grown by
+       * `viewPadFrac`, and cut again so one step's wedge holds at most
+       * `maxCellsPerStep` lattice cells (each a shared density query). 2,500
+       * cells at the 0.0505 rad quantum is a ~2,830 u disc: the whole screen at
+       * the default framing; zoomed far out, clutter stays a disc around the own
+       * hull. Feel/perf knobs, not gameplay; the look's amounts and strengths are
+       * `RAIN_CLUTTER_DEFAULTS` (Eric's).
+       */
+      rainClutter: {
+        maxCellsPerStep: 2500,
+        viewPadFrac: 0.1,
       },
       /**
        * THE PHYSICAL RETURN MODEL (Story 4.10, amendments 105-106, 118, 127-136;
@@ -3395,7 +3456,7 @@ export const CLIENT_CONFIG = {
        *
        * ON A FOGGED BEARING THE RAMP SLIDES INWARD (amendment 210, Eric
        * 2026-10-21): the look above stays, but each bearing's ramp starts where
-       * the observer's fog-tolled EYE actually ends on it, by `fogLift` — so a
+       * the observer's EYE actually ends on it through rain and smoke, by `fogLift` — so a
        * return the fog hid from the eye is not muted as though it were in plain
        * sight. Baked as a fan of `reachRays` wedges on the fog refresh cadence
        * (or a move past `reachRecastMoveU`), never per frame.
@@ -3448,8 +3509,8 @@ export const CLIENT_CONFIG = {
         spanU: CONFIG.vision.radar * 1.25,
         /**
          * THE FOG SLIDE (epic-9 amendment 210, Eric 2026-10-21) — ERIC'S STAGING
-         * DIAL, 0..1. On a bearing where the observer's fog-tolled eye ends at
-         * `reach` < sight (shared sim/fog.ts `fogEyeReach`), the whole ramp slides
+         * DIAL, 0..1. On a bearing where the observer's eye (through rain and smoke) ends at
+         * `reach` < sight (since Story 11.6, where the rain's + the held smoke's optical depth reaches the sight threshold `fogMaxDepth` — render/rainSight.ts `eyeReachFanInto`), the whole ramp slides
          * inward by `(sight − reach) × fogLift`: 1 = the floor ends exactly where
          * the fogged eye ends (with the shipped innerFactor 1; in general the floor
          * ends at innerU − (sight − reach)) and full strength begins one ramp-width later, so a

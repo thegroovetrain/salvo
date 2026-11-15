@@ -27,6 +27,14 @@
 // draws its tubes, a sighted enemy one generic housing (its tube count is not
 // on the wire).
 //
+// THE RAIN LOOK (Story 11.6, Eric's A+D — render/rainSight.ts +
+// hullDissolve.ts): a CONTACT view is handed the frame's rain eye
+// (`setRain`), marches its class's shared sight grid from the observer, and
+// wears the A+D filter on the whole container (deck, turrets, launchers,
+// outline) while any part reads below clear water — or, with no WebGL, a
+// plain fade by the grid's mean V, folded into the alpha below. The OWN view
+// is never handed an eye, so it is never dissolved.
+//
 // The render polygon is the shared local-frame silhouette VERBATIM (bow at +x,
 // origin-centered, world units) — no independent geometry, so what you see is
 // the collision/hit-test hull. The view is added to a camera-transformed layer,
@@ -34,6 +42,7 @@
 
 import { Container, Graphics } from 'pixi.js';
 import {
+  CONFIG,
   DEFAULT_CLASS_ID,
   turretMounts,
   turretRest,
@@ -48,6 +57,8 @@ import type { ShipStyle } from './relationColor.js';
 import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
 import { turretDrawOrder } from './hullArt/shapes.js';
 import { LauncherMounts } from './launcherViews.js';
+import { HullRainVis, type RainEye } from './rainSight.js';
+import { HullDissolve } from './hullDissolve.js';
 
 export type { ShipStyle } from './relationColor.js';
 
@@ -204,9 +215,15 @@ export class ShipView {
   private positioned = false;
   private hullId: HullId;
   private style: ShipStyle;
+  /** The rain look (Story 11.6): the drawn V grid, the filter, and the
+   *  no-WebGL fade multiplier (1 unless that fallback is in force). */
+  private readonly rainVis = new HullRainVis();
+  private readonly dissolve: HullDissolve;
+  private rainAlpha = 1;
 
   constructor(style: ShipStyle, hullId: HullId = DEFAULT_CLASS_ID) {
     this.gfx = new Container();
+    this.dissolve = new HullDissolve(this.gfx);
     this.hull = new Graphics();
     this.outline = new Graphics();
     this.gfx.addChild(this.hull, this.outline);
@@ -405,6 +422,26 @@ export class ShipView {
     this.applyLook();
   }
 
+  /**
+   * THE RAIN LOOK (Story 11.6): per frame, AFTER `update`, with this frame's
+   * rain eye (null = no observer or no rain — the hull draws as before). The
+   * grid is the class's CONFIG length × beam at the last-applied pose.
+   */
+  setRain(eye: RainEye | null, dtMs: number): void {
+    const hull = CONFIG.shipClasses[artClass(this.hullId)].hull;
+    const p = this.gfx.position;
+    const vis = this.positioned ? this.rainVis.step(eye, p.x, p.y, this.gfx.rotation, hull.length, hull.beam, dtMs) : null;
+    const a = this.dissolve.apply(vis, hull.length, hull.beam);
+    if (a === this.rainAlpha) return;
+    this.rainAlpha = a;
+    this.applyLook();
+  }
+
+  /** Is the A+D filter on this hull right now? (tests/debug) */
+  get rainFiltered(): boolean {
+    return this.dissolve.active;
+  }
+
   /** Position + orient the hull from a world pose, applying tint/alpha state. */
   update(x: number, y: number, heading: number): void {
     this.positioned = true;
@@ -414,13 +451,14 @@ export class ShipView {
   }
 
   private applyLook(): void {
-    const look = hullLook(this.flashIntensityAt(), this.sink, this.fade);
+    const look = hullLook(this.flashIntensityAt(), this.sink, this.fade * this.rainAlpha);
     this.gfx.tint = look.tint;
     this.gfx.alpha = look.alpha;
     this.gfx.scale.set(look.scale);
   }
 
   destroy(): void {
+    this.dissolve.detach(); // the filter (and the noise it binds) outlives the view, never destroyed
     this.gfx.destroy({ children: true });
   }
 }

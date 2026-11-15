@@ -2,12 +2,13 @@
 // (the orchestrator's rulings F1, F3, F4). Each case names the leak it closes
 // and fails with its fix removed.
 //
-//   F1  A radar paint's fuzz is salted from a room-private key, so the mask
-//       of a hull an observer holds only as a PLAIN contact (exact pose, no
-//       class) cannot be replayed for each hull id to read the class — and
-//       likewise a wake's glint for the source's beam.
-//   F3  A plain-hull handle never survives a gap in the observer's passes
-//       (a disconnect): `World.forgetPlainVisits`.
+//   F1  A radar paint's fuzz is salted from a room-private key, so a mask
+//       cannot be replayed from a pose the eye discloses — and likewise a
+//       wake's glint for the source's beam. (Written against the PLAIN
+//       contact — exact pose, no class — which Story 11.6 removed, Eric
+//       2026-11-15; the salt stays, and the replay is run here from the
+//       full contact's pose.)
+//   F3  (the plain-hull handle's disconnect rule) left with the handle.
 //   F4  A torpedo that merely runs out of run is seen ending only where a
 //       torpedo is seen (plus its owner), never at the splash reach.
 //
@@ -34,18 +35,16 @@ import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { SIGNAL_REGISTRY, type FoggedSignalContext, type WakeSubject } from '../game/signals.js';
 import { flatRaster } from './islandFixture.js';
+import { clearWater } from './rainFixture.js';
 import { wirePaint, wireWakePaint } from './paintFixture.js';
 
 const CELL = CONFIG.vision.radarCellU;
 const V = CONFIG.vision;
-/** The middle of the PLAIN band: seen by eye as a hull, class withheld. */
-const PLAIN_D = (V.sight + V.hullSight) / 2;
-
 function bareWorld(seed: number, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // clear water: the eye must hold every seated hull (a World rains from the start line)
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: HullId = SHIP_CLASS_IDS[0]): ShipRecord {
@@ -66,8 +65,8 @@ const boomsOf = (f: FrameMsg): BoomEvent[] => f.events.filter((e): e is BoomEven
 const maskOf = (e: { gx: number; gy: number; w: number; h: number; bits: number[] }): HullCoverage => ({ gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits });
 const same = (a: HullCoverage, b: HullCoverage): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-/** A spread of exact (fractional) poses in the plain band around the origin. */
-function plainPoses(n: number, seed: number): { x: number; y: number; heading: number; cls: HullId }[] {
+/** A spread of exact (fractional) poses in the haze band (beyond class sight, inside hull sight) around the origin. */
+function bandPoses(n: number, seed: number): { x: number; y: number; heading: number; cls: HullId }[] {
   const g = mulberry32(seed);
   return Array.from({ length: n }, (_, i) => {
     const ang = g.float(0, 2 * Math.PI);
@@ -76,31 +75,30 @@ function plainPoses(n: number, seed: number): { x: number; y: number; heading: n
   });
 }
 
-/** One plain-band hull painted for observer `a` at the origin: the frame's
- *  plain contact (what the eye gives) and blip (what the radar gives). */
-function paintOne(w: World, pose: { x: number; y: number; heading: number; cls: HullId }): { pc: NonNullable<FrameMsg['pc']>[number]; blip: BlipEvent } {
+/** One haze-band hull painted for observer `a` at the origin: the frame's
+ *  contact (what the eye gives) and blip (what the radar gives). */
+function paintOne(w: World, pose: { x: number; y: number; heading: number; cls: HullId }): { seen: FrameMsg['contacts'][number]; blip: BlipEvent } {
   const a = w.ships.get('a') ?? place(w, 'a', 0, 0);
   w.removeShip('t');
   const t = place(w, 't', pose.x, pose.y, pose.heading, pose.cls);
   sweepOnto(a, t.state);
   const f = buildFrame(w, 'a');
-  expect(f.contacts).toHaveLength(0); // premise: the class is NOT disclosed by eye
-  expect(f.pc).toHaveLength(1);
+  expect(f.contacts).toHaveLength(1); // premise: the eye holds it (its exact pose is disclosed)
   const blips = blipsOf(f);
   expect(blips).toHaveLength(1);
-  return { pc: f.pc![0], blip: blips[0] };
+  return { seen: f.contacts[0], blip: blips[0] };
 }
 
-describe('F1 — the radar paint of a plain hull does not give up its class to a replay', () => {
+describe('F1 — the radar paint of a hull the eye holds cannot be replayed from its disclosed pose', () => {
   const SAMPLES = 48;
 
-  it('THE REPLAY ATTACK FAILS: from a plain contact\'s exact pose and the blip\'s own `t`, the public (unsalted) pipeline run for every hull id reproduces the wire mask for almost no paint — while the server\'s own salted pipeline reproduces every one', () => {
+  it('THE REPLAY FAILS: from a contact\'s exact pose and the blip\'s own `t`, the public (unsalted) pipeline run for every hull id reproduces the wire mask for almost no paint — while the server\'s own salted pipeline reproduces every one', () => {
     const w = bareWorld(71);
     let replayed = 0;
-    for (const pose of plainPoses(SAMPLES, 0xa11)) {
-      const { pc, blip } = paintOne(w, pose);
-      // Everything a modified client holds: pc.x / pc.y / pc.heading, blip.t, the lattice, the four hulls.
-      const guesses = SHIP_CLASS_IDS.filter((cls) => same(paintCoverage(cls, pc.x, pc.y, pc.heading, CELL, blip.t), maskOf(blip)));
+    for (const pose of bandPoses(SAMPLES, 0xa11)) {
+      const { seen, blip } = paintOne(w, pose);
+      // Everything a modified client holds: the contact's x / y / heading, blip.t, the lattice, the four hulls.
+      const guesses = SHIP_CLASS_IDS.filter((cls) => same(paintCoverage(cls, seen.x, seen.y, seen.heading, CELL, blip.t), maskOf(blip)));
       if (guesses.length > 0) replayed += 1;
       // The wiring: the wire mask IS the shared pipeline under this room's salt.
       expect(maskOf(blip)).toEqual(wirePaint(w, pose.cls, pose.x, pose.y, pose.heading));
@@ -112,7 +110,7 @@ describe('F1 — the radar paint of a plain hull does not give up its class to a
     const keyed = (byte: number): World => bareWorld(72, { dispersionKey: new Uint8Array(32).fill(byte) });
     const [w1, w2, w1again] = [keyed(1), keyed(2), keyed(1)];
     let differ = 0;
-    for (const pose of plainPoses(SAMPLES, 0xb22)) {
+    for (const pose of bandPoses(SAMPLES, 0xb22)) {
       const m1 = maskOf(paintOne(w1, pose).blip);
       const m2 = maskOf(paintOne(w2, pose).blip); // interleaved: the mask memo must not leak across rooms
       expect(maskOf(paintOne(w1again, pose).blip)).toEqual(m1);
@@ -146,27 +144,6 @@ describe('F1 — the radar paint of a plain hull does not give up its class to a
     }
     expect(glinted).toBeGreaterThan(SAMPLES / 2); // premise: these segments DO scintillate
     expect(replayed).toBeLessThan(glinted / 2);
-  });
-});
-
-describe('F3 — a plain-hull handle does not link a sighting before a gap in the observer\'s passes to one after it', () => {
-  it('forgetPlainVisits ends every plain visit of that observer: the same hull, still in the band, comes back under a fresh handle — and another observer\'s handle is untouched', () => {
-    const w = bareWorld(74);
-    place(w, 'a', 0, 0);
-    place(w, 'c', 0, 40);
-    place(w, 't', PLAIN_D, 0);
-    const handleFor = (id: string): string => {
-      const f = buildFrame(w, id);
-      expect(f.pc).toHaveLength(1);
-      return f.pc![0].h;
-    };
-    const before = { a: handleFor('a'), c: handleFor('c') };
-    expect(handleFor('a')).toBe(before.a); // within a visit the handle holds
-    // The captain's socket drops: no frame — so no perception pass — is built for 'a' until it resumes.
-    w.forgetPlainVisits('a');
-    expect(handleFor('a')).not.toBe(before.a);
-    expect(handleFor('c')).toBe(before.c);
-    expect(() => w.forgetPlainVisits('nobody')).not.toThrow();
   });
 });
 

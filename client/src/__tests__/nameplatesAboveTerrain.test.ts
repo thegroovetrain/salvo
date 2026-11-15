@@ -560,3 +560,32 @@ describe('a nameplate under thick countermeasure paint is hidden; the hull never
     expect(drive(1).hull).toEqual(drive(0).hull);
   });
 });
+
+// Story 11.6 (Eric 2026-11-15): the NAME TAG is drawn only while the hull's
+// center is within the observer's effective class-and-name sight (the eye's
+// `sightU`); beyond it the hull still draws, fading in the distance haze.
+describe('a nameplate beyond the class-and-name sight is hidden; the hull still draws', () => {
+  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
+  const SIGHT = CONFIG.vision.sight;
+  const eye = { frame: null, smoke: [], sightU: SIGHT, hullSightU: CONFIG.vision.hullSight, x: 0, y: 0 };
+
+  const drive = (x: number) => {
+    textLog.length = 0;
+    const shipLayer = new Container();
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()));
+    const store = new ContactStore();
+    store.pushFrame(0, [{ id: 'f1', x, y: 0, heading: 0, speed: 0, cls: 'bismarck' }]);
+    views.render(store, 0, 0, 16, () => 'enemy', plateFrame, undefined, eye);
+    return { plate: textLog[0], hull: shipLayer.children[0] };
+  };
+
+  it('inside sight the plate shows; past it the plate is at alpha 0 while the hull is still drawn', () => {
+    expect(drive(SIGHT * 0.9).plate.alpha).toBeGreaterThan(0);
+    const far = drive(SIGHT * 1.2);
+    expect(far.plate.alpha).toBe(0);
+    expect(far.plate.visible).toBe(false);
+    expect(far.hull.visible).toBe(true);
+    expect(far.hull.alpha).toBeGreaterThan(0);
+  });
+});

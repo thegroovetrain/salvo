@@ -332,7 +332,7 @@ describe('deferred teardown (grace window)', () => {
 // and stub allowReconnection with a spy returning a controllable promise.
 
 interface WiringRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void; forgetPlainVisits: (id: string) => void };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void; forgetHeldClouds: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
@@ -351,7 +351,7 @@ function wiringRoom(opts: {
   const room = new ArenaRoom() as unknown as WiringRoom;
   const ships = new Map<string, { lifecycle: ShipLifecycle }>();
   if (opts.ship) ships.set('a', opts.ship);
-  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'], forgetPlainVisits: forget as unknown as WiringRoom['world']['forgetPlainVisits'] };
+  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'], forgetHeldClouds: forget as unknown as WiringRoom['world']['forgetHeldClouds'] };
   room.match = { phase: opts.phase };
   room.lastResults = opts.lastResults ?? null;
   room.allowReconnection = allow as unknown as WiringRoom['allowReconnection'];

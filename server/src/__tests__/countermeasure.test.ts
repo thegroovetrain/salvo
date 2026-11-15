@@ -1,7 +1,8 @@
 // MULTI-SPECTRAL COUNTERMEASURE — the server half of Story 9.3 (Eric rulings
 // 2026-10-11, epic-9 amendments 40–47; SMOKE SCREEN's 8.18 seat), re-cut by
-// Story 9.3 session 2 (Eric 2026-10-12: "just draw it on top of ships" — the
-// cloud is a CLIENT VISUAL OVERLAY; the server hides nothing):
+// Story 9.3 session 2 (Eric 2026-10-12) and again by Story 11.6 (Eric
+// 2026-11-14: smoke OCCLUDES SIGHT like rain, the owner blinded too; never
+// radar):
 //
 //   • the PRESS — the SMOKE ability on `V` since Story 10.5 (2026-11-05,
 //     epic-10 amendment 11, R2): a press makes ONE stationary cloud at the
@@ -11,8 +12,10 @@
 //     cloud at the hull's new position (46); a SINKING press is refused
 //     `blocked`, no cooldown, and clouds already made live out their life
 //     (amendment 127); a non-finite pose makes none;
-//   • a cloud HIDES NOTHING: a fresh cloud between two hulls hides neither
-//     (contacts, radar paints, the owner inside its own cloud alike);
+//   • a cloud HIDES BY OPTICAL DEPTH: a grown cloud across the line hides two
+//     hulls from each other whoever owns it, a line that only grazes its soft
+//     rim is seen through, and radar paints through it (the gate's own
+//     contract is fogGate.test.ts; the oracle and the fuzz perception.test.ts);
 //   • the `clouds` CHANNEL's own gate over the spray DISC (centre, radius
 //     cloudOutlineRadius(age)): SIGHTED — the disc's nearest point within
 //     sight with island LOS to it — or RADAR-DETECTED — the nearest point
@@ -33,6 +36,7 @@ import {
   abilitySlot,
   baseSmokeStats,
   cloudOutlineRadius,
+  fogMaxDepth,
   islandBlocksSegment,
   isSinking,
   wrapPositive,
@@ -40,6 +44,7 @@ import {
   type GameEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { clearWater } from './rainFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
@@ -54,7 +59,7 @@ function bareWorld(seed = 1): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // clear water: these cases are about reaches and the wire, not the weather (a World rains from the start line)
 }
 
 /** A torpedo-boat captain teleported to an exact pose (speed 0, beam parked). */
@@ -221,18 +226,30 @@ describe('SMOKE — the press (rulings 43 / 46, amendment 127; the cooldown abil
 });
 
 // ---------------------------------------------------------------------------
-// A cloud hides NOTHING (Story 9.3 session 2, Eric 2026-10-12)
+// A cloud occludes SIGHT like rain, never radar (Story 11.6, Eric 2026-11-14)
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — a cloud hides nothing (Story 9.3 session 2: a client overlay)', () => {
-  it('a fresh cloud centred between two hulls 150 u apart hides neither from the other — whoever owns it', () => {
+describe('COUNTERMEASURE — a cloud occludes sight by optical depth, whoever owns it; never radar (Story 11.6)', () => {
+  const T = fogMaxDepth(CONFIG.fog);
+
+  it('a grown cloud centred between two hulls hides each from the other — whoever owns it; a cloud whose soft rim the line only grazes hides neither', () => {
+    const R1 = cloudOutlineRadius(SMOKE0.lifeMs, SMOKE0);
     for (const owner of ['a', 'b', 'z']) {
       const w = bareWorld();
       place(w, 'a', 0, 0);
-      place(w, 'b', 150, 0);
-      injectCloud(w, 'mid', owner, 75, 0);
-      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}`).toEqual(['b']);
-      expect(contactIds(buildFrame(w, 'b')), `owner ${owner}`).toEqual(['a']);
+      place(w, 'b', R1 * 4, 0);
+      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}, no cloud`).toEqual(['b']);
+      injectCloud(w, 'graze', owner, R1 * 2, R1 * 0.95, w.now - SMOKE0.lifeMs * 0.999);
+      const thin = w.smokeDepthAlong(0, 0, R1 * 4, 0);
+      expect(thin).toBeGreaterThan(0); // premises: the line crosses smoke...
+      expect(thin).toBeLessThan(T / 2); // ...well under the threshold
+      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}, grazed`).toEqual(['b']);
+      expect(contactIds(buildFrame(w, 'b')), `owner ${owner}, grazed`).toEqual(['a']);
+      w.clouds.clear();
+      injectCloud(w, 'mid', owner, R1 * 2, 0, w.now - SMOKE0.lifeMs * 0.999);
+      expect(w.smokeDepthAlong(0, 0, R1 * 4 - R1 / 2, 0)).toBeGreaterThan(T * 1.5); // premise: far past it, short of the hull's near end
+      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}, across`).toEqual([]);
+      expect(contactIds(buildFrame(w, 'b')), `owner ${owner}, across`).toEqual([]);
     }
   });
 

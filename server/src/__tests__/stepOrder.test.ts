@@ -50,8 +50,9 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // seat — AFTER the founder edge and BEFORE the storm (see the row
       // comment).
       'stepClouds',
-      // Story 9.10's FOG FIELD — weather beside weather, directly after the
-      // cloud sweep: the coverage controller's re-cut + a new density-memo
+      // THE RAIN FIELD (Story 9.10's seat; the storm eye since Story 11.6) —
+      // weather beside weather, directly after the cloud sweep: the epoch
+      // refresh — the frame rebuilt on the live ring + a new density-memo
       // epoch once per refresh (see the row comment in world.ts).
       'stepFog',
       'applyStorm',

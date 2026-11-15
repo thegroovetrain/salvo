@@ -38,7 +38,8 @@
 // than `fadeMs` contributes exactly nothing — which is what makes the catch-up
 // in `advanceField` exact rather than an approximation, and caps its work.
 //
-// PURELY VISUAL: the server hides nothing behind a cloud (2026-10-12), so the
+// PURELY VISUAL: the paint's look feeds nothing (the sight occlusion of Story
+// 11.6 reads the cloud's shared disc, never this field), so the
 // RNG is the caller's (Math.random in the game) and never shared with anyone.
 
 import { CATALOG, CONFIG, SHIP_CLASS_IDS, cloudOutlineRadius, effectiveStats, type CloudSize } from '@salvo/shared';

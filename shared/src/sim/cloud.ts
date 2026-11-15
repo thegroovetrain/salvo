@@ -1,8 +1,9 @@
 // MULTI-SPECTRAL COUNTERMEASURE cloud geometry (Story 9.3; re-cut by Story
-// 9.3 session 2, Eric ruling 2026-10-12). The cloud is a CLIENT VISUAL
-// OVERLAY — "just draw it on top of ships": the server hides nothing behind
-// or inside it. The server only PLACES the cloud (at the pressing hull's
-// centre) and TIMES it; each client paints it as smoke sprayed into a bitmap.
+// 9.3 session 2, Eric ruling 2026-10-12). Each client paints it as smoke
+// sprayed into a bitmap. Since Story 11.6 (Eric 2026-11-14) it also OCCLUDES
+// SIGHT: its disc adds optical depth to every eye line through it
+// (sim/smokeDepth.ts; never radar). The server places it at the pressing
+// hull's centre and times it.
 //
 // What both sides read here is the SPRAY DISC: its radius grows linearly from
 // `r0` at birth to `r1` at `lifeMs` (`cloudOutlineRadius`). The server's

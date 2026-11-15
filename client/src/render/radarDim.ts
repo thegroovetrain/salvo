@@ -39,8 +39,10 @@
 // fog, or when I am detecting something in the fog that I would otherwise have
 // seen visually, the returns are NOT muted (or at least muted less)"). Both
 // cases are one rule: on each bearing the ramp TRANSLATES inward to where the
-// observer's fog-tolled EYE actually ends on that bearing (shared sim/fog.ts
-// `fogEyeReach`, ≤ sight, = sight with no fog), scaled by Eric's staging dial
+// observer's EYE actually ends on that bearing — since Story 11.6, where the
+// rain's optical depth from the observer reaches the sight threshold (shared
+// `fogDepthReach` under `fogMaxDepth`, ≤ sight, = sight with no rain) — scaled
+// by Eric's staging dial
 // `dim.fogLift`:
 //     scale(θ, d) = radial(d + (sight − reach(θ)) × fogLift)
 // where `radial` is the curve above. The ramp's WIDTH never changes, only where
@@ -65,7 +67,7 @@ export function dimRadii(sightU: number): { innerU: number; outerU: number } {
  * The displayed fraction of a return's painted opacity at `distU` from own hull,
  * for an observer with `sightU` of effective truesight: flat at `minScale`
  * across the whole bubble, linear to 1 at the flash rung (6/12), flat at 1 beyond.
- * `reachU` (default `sightU` = no fog) is where the fog-tolled eye ends on this
+ * `reachU` (default `sightU` = no fog) is where the eye (through rain and smoke) ends on this
  * bearing: the whole curve slides inward by `dimSlideU(sightU, reachU)`.
  *
  * IT FAILS TOWARD A FULLY VISIBLE SCOPE, and that is this file's inherited rule
@@ -94,7 +96,7 @@ function fogLift(): number {
 }
 
 /**
- * How far (u) the ramp slides INWARD on a bearing whose fog-tolled eye ends at
+ * How far (u) the ramp slides INWARD on a bearing whose eye (through rain and smoke) ends at
  * `reachU`, for an observer with `sightU` of effective truesight:
  * `(sightU − reachU) × fogLift`. A reach that is non-finite, negative or not
  * below the bubble (at float32 precision — the fan's storage — so a clear

@@ -1,6 +1,5 @@
-// One entity's snapshot ring (split out of net/snapshots.ts in Story 11.2 so
-// the plain-hull channel, net/plainContacts.ts, shares it without an import
-// cycle). The renderer samples at serverNow() - interpDelay with lerp
+// One entity's snapshot ring (split out of net/snapshots.ts in Story 11.2).
+// The renderer samples at serverNow() - interpDelay with lerp
 // (shortest-arc heading), dead-reckons up to MAX_EXTRAPOLATION_MS on
 // underrun, then freezes.
 

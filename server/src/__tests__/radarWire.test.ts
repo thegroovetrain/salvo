@@ -21,6 +21,7 @@ import {
   type HullCoverage,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { clearWater } from './rainFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 import { wirePaint } from './paintFixture.js';
@@ -33,7 +34,7 @@ function bareWorld(seed = 50, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // clear water: these cases are about reaches and the wire, not the weather (a World rains from the start line)
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'bismarck'): ShipRecord {
@@ -165,33 +166,28 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('the gate: a ship paints only when swept, at any range — a swept sighted ship is a contact AND a blip (amendment 210)', () => {
     const w = bareWorld(56);
     // The placements, off the named reaches (Story 11.2): RADAR_ONLY is past
-    // both eye tiers and inside radar; PLAIN is the outer eye tier (a plain
-    // hull); NEAR is deep inside the class-and-name reach. The observer sits
+    // the hull sight and inside radar; BAND is the haze band (a fading
+    // contact); NEAR is deep inside the class-and-name reach. The observer sits
     // half of RADAR_ONLY west of the origin so every seat is on the board.
     const V = CONFIG.vision;
     const RADAR_ONLY = (V.hullSight + V.radar) / 2;
-    const PLAIN = (V.sight + V.hullSight) / 2;
+    const BAND = (V.sight + V.hullSight) / 2;
     const NEAR = V.sight / 4;
     const OFF = 0.3; // rad — a bearing well outside the paint window
     expect(RADAR_ONLY / 2).toBeLessThan(w.map.radius); // premise: on the water
     const ax = -RADAR_ONLY / 2;
     const a = place(w, 'a', ax, 0);
-    const at = { in: { x: ax + RADAR_ONLY, y: 0 }, out: { x: ax + RADAR_ONLY * Math.cos(OFF), y: RADAR_ONLY * Math.sin(OFF) }, mid: { x: ax + PLAIN, y: 0 }, near: { x: ax + NEAR, y: 0 } };
-    place(w, 'in', at.in.x, at.in.y, 0.3); // beyond both eye tiers, swept — paints
-    place(w, 'out', at.out.x, at.out.y, 0.3); // beyond both eye tiers, unswept — silent
-    place(w, 'mid', at.mid.x, at.mid.y, 0.3); // the plain-hull tier, swept — a `pc` row AND a blip
+    const at = { in: { x: ax + RADAR_ONLY, y: 0 }, out: { x: ax + RADAR_ONLY * Math.cos(OFF), y: RADAR_ONLY * Math.sin(OFF) }, mid: { x: ax + BAND, y: 0 }, near: { x: ax + NEAR, y: 0 } };
+    place(w, 'in', at.in.x, at.in.y, 0.3); // beyond the hull sight, swept — paints
+    place(w, 'out', at.out.x, at.out.y, 0.3); // beyond the hull sight, unswept — silent
+    place(w, 'mid', at.mid.x, at.mid.y, 0.3); // the haze band, swept — a contact AND a blip
     place(w, 'near', at.near.x, at.near.y, 0.3); // inside the class reach, swept — contact AND blip
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     const blips = blipsOf(f);
     expect(blips).toHaveLength(3);
-    expect(f.contacts.map((c) => c.id)).toEqual(['near']);
-    // The eye's outer tier holds exactly the one plain hull — pose under an
-    // anonymous handle, nothing that names it — and never the radar-only two.
-    expect(f.pc).toHaveLength(1);
-    expect(Object.keys(f.pc![0])).toEqual(['h', 'x', 'y', 'heading', 'speed']);
-    expect(f.pc![0]).toMatchObject({ x: at.mid.x, y: at.mid.y });
-    expect(w.ships.has(f.pc![0].h)).toBe(false);
+    // The eye holds the two hulls inside its hull sight — never the radar-only two.
+    expect(f.contacts.map((c) => c.id).sort()).toEqual(['mid', 'near']);
     // The three footprints are exactly the three swept hulls' rasters, and
     // the unswept ship leaks nowhere.
     const expected = [at.in, at.mid, at.near].map((p) => wirePaint(w, 'bismarck', p.x, p.y, 0.3));
