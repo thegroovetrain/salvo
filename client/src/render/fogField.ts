@@ -126,6 +126,15 @@ export function screenReachU(screen: ScreenWorldRect, c: { x: number; y: number 
 }
 
 /**
+ * Pure: is the own hull (a finite point) outside the on-screen world rect
+ * (Story 11.8 — the free camera pans it away)? False with no hull or no rect.
+ */
+export function hullOffScreen(eye: { x: number; y: number } | null, screen: ScreenWorldRect | null): boolean {
+  if (eye === null || !Number.isFinite(eye.x + eye.y) || !finiteRect(screen)) return false;
+  return eye.x < screen.x || eye.x > screen.x + screen.w || eye.y < screen.y || eye.y > screen.y + screen.h;
+}
+
+/**
  * Pure: the ALIVE raster's cell count and cell size (Story 11.2). The raster is
  * the halo square — but the halo rides the muzzle-flash reach, 350 hm since
  * Story 11.2, ~16,000 u across, which at the 18 u cell is ~900² samples of
@@ -413,13 +422,18 @@ export class FogFieldView {
     const frame = this.frameAt(serverNow);
     const spectating = mode === 'spectate';
     const eye = spectating ? null : own;
-    const centre = this.centreFor(eye, spectating ? screen : null);
+    // A PANNED CAMERA (Story 11.8) can put the own hull off screen: the raster
+    // then covers the SCREEN about its centre (the spectator's geometry, so the
+    // cell stays as fine as the view allows) and the halo still masks it to
+    // what the eye reaches.
+    const rasterScreen = spectating || hullOffScreen(eye, screen) ? screen : null;
+    const centre = this.centreFor(rasterScreen === null ? eye : null, rasterScreen);
     if (frame === null || centre === null) {
       this.hide();
       return;
     }
     this.advanceScroll(frame, dtMs, motionOn, centre);
-    this.maybeRefresh(frame, dtMs, centre, spectating ? screen : null, screen);
+    this.maybeRefresh(frame, dtMs, centre, rasterScreen, screen);
     this.draw(eye, screen);
   }
 

@@ -113,20 +113,25 @@ export const FOG_BAKE_MAX_PX = 2048;
 /**
  * Pure: the fog bake's logical size (px) and its resolution scale (≤ 1).
  *
- * THE BAKE COVERS THE SCREEN FROM ANY ON-SCREEN HULL (Story 11.2). The hole is
- * the plain-hull reach — thousands of u — so at the zoom-out framings the hole
- * is wider than the old viewport + lead margin, and the flat strips around a
- * sliding sprite (`fogFrameRects`) would paint fog over water inside the hole.
- * The sprite is centered on the own hull, and the camera keeps the hull on
- * screen (`keepInViewPadU`), so a sprite of 2 × the viewport (+ the shake
- * margin each side) covers every screen pixel wherever the hull sits; the
- * strips stay as the fallback and never fire in play. The canvas is capped at
+ * THE BAKE COVERS THE SCREEN FROM ANY ON-SCREEN HULL (Story 11.2): the sprite
+ * is centered on the own hull, so a sprite of 2 × the viewport (+ the shake
+ * margin each side) covers every screen pixel wherever on screen the hull sits.
+ *
+ * AND THE WHOLE HOLE FROM AN OFF-SCREEN ONE (Story 11.8): the free camera pans
+ * the hull off screen, past any viewport-sized sprite, and the flat strips
+ * around it (`fogFrameRects`) would then paint fog over on-screen water inside
+ * the hole. So each side is also at least the hole's diameter (`holeRadiusPx`,
+ * + the margin): everything outside the sprite is then outside the hole, and
+ * the strips are exactly right wherever the hull is. The canvas is capped at
  * `FOG_BAKE_MAX_PX` on its longer side by the returned `scale` — the WORST
- * CASE canvas is FOG_BAKE_MAX_PX on the long side at any zoom and viewport.
+ * CASE canvas is FOG_BAKE_MAX_PX on the long side at any zoom and viewport (the
+ * fill is flat and the feather a quarter of the hole, so a coarser bake reads
+ * the same). A non-finite or negative hole radius adds nothing.
  */
-export function fogBakeSize(viewW: number, viewH: number): { w: number; h: number; scale: number } {
-  const w = Math.max(1, 2 * viewW + 2 * EXTRA_MARGIN_PX);
-  const h = Math.max(1, 2 * viewH + 2 * EXTRA_MARGIN_PX);
+export function fogBakeSize(viewW: number, viewH: number, holeRadiusPx = 0): { w: number; h: number; scale: number } {
+  const hole = Number.isFinite(holeRadiusPx) && holeRadiusPx > 0 ? 2 * holeRadiusPx + 2 * EXTRA_MARGIN_PX : 0;
+  const w = Math.max(1, 2 * viewW + 2 * EXTRA_MARGIN_PX, hole);
+  const h = Math.max(1, 2 * viewH + 2 * EXTRA_MARGIN_PX, hole);
   const scale = Math.min(1, FOG_BAKE_MAX_PX / Math.max(w, h));
   return { w, h, scale };
 }
@@ -161,7 +166,7 @@ export interface FogHole {
 }
 
 /**
- * Extra bake margin (px) beyond camera lead: shake headroom (step 11) + slack.
+ * Extra bake margin (px): shake headroom (step 11) + slack.
  * Exported so render/shake.ts can clamp its peak magnitude to the same budget
  * — the fog overlay must never expose a screen edge, however hard the hit.
  */
@@ -300,8 +305,9 @@ export class Fog {
     this.viewW = viewW;
     this.viewH = viewH;
     const old = this.sprite.texture;
-    const { w, h, scale } = fogBakeSize(viewW, viewH);
-    this.sprite.texture = bakeFogTexture(Math.ceil(w * scale), Math.ceil(h * scale), this.holeRadiusU() * zoom * scale, 0);
+    const holePx = this.holeRadiusU() * zoom;
+    const { w, h, scale } = fogBakeSize(viewW, viewH, holePx);
+    this.sprite.texture = bakeFogTexture(Math.ceil(w * scale), Math.ceil(h * scale), holePx * scale, 0);
     this.sprite.scale.set(1 / scale);
     if (old !== Texture.EMPTY) old.destroy(true);
   }

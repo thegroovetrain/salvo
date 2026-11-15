@@ -24,6 +24,7 @@ import {
   packDensityRgba,
   rainFlowAt,
   screenReachU,
+  hullOffScreen,
   type FogDensityFn,
 } from '../render/fogField.js';
 import { bakePuffTile } from '../render/fogPuffTile.js';
@@ -520,5 +521,18 @@ describe('aliveRasterGeometry — the alive raster is bounded at every halo and 
   it('screenReachU is the farthest screen corner from the centre', () => {
     expect(screenReachU({ x: -30, y: -40, w: 60, h: 80 }, { x: 0, y: 0 })).toBeCloseTo(50, 9);
     expect(screenReachU({ x: 0, y: 0, w: 60, h: 80 }, { x: 0, y: 0 })).toBeCloseTo(100, 9);
+  });
+});
+
+describe('hullOffScreen — the panned camera (Story 11.8)', () => {
+  const screen = { x: -100, y: -50, w: 200, h: 100 };
+  it('true only for a finite hull outside the on-screen rect', () => {
+    expect(hullOffScreen({ x: 0, y: 0 }, screen)).toBe(false);
+    expect(hullOffScreen({ x: 100, y: 50 }, screen)).toBe(false); // on the edge
+    expect(hullOffScreen({ x: 101, y: 0 }, screen)).toBe(true);
+    expect(hullOffScreen({ x: 0, y: -51 }, screen)).toBe(true);
+    expect(hullOffScreen(null, screen)).toBe(false);
+    expect(hullOffScreen({ x: NaN, y: 0 }, screen)).toBe(false);
+    expect(hullOffScreen({ x: 1e6, y: 0 }, null)).toBe(false);
   });
 });

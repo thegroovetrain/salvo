@@ -12,8 +12,9 @@
 // (NODE_ENV=production so the server serves the BUILT client from client/dist,
 // HC_DEV_OPTIONS=1), opens the real client, enters SOLO VS AI, waits for the
 // buzzer, then for at least RUN_S seconds: presses W, holds A / D in turn,
-// wheel-zooms out in bursts to the whole board and back in, and works the X / Z
-// zoom keys. It FAILS (exit 1) on
+// wheel-zooms out in bursts to the whole board and back in, works the X / Z
+// zoom keys, pans the camera with a middle drag and the held arrows and snaps
+// it home with Space (Story 11.8). It FAILS (exit 1) on
 //   - any `pageerror` or console error;
 //   - a lost game WebGL context, an incomplete framebuffer, or a GPU allocation
 //     over the GL budget (glProbe.mjs, the glBudget.mjs rules);
@@ -163,11 +164,27 @@ function timeline(page, vp) {
     tl.push([s + 7, 'wheel burst in 40', () => burst(-120, 40)]);
     tl.push([s + 9, 'Z x40 (out)', () => keys('KeyZ', 40)]);
     tl.push([s + 12, 'X x60 (in)', () => keys('KeyX', 60)]);
+    // Story 11.8: the free camera — a middle drag and held arrows pan the map
+    // (the hull may leave the screen; the fog and rain must cover a panned
+    // view), the wheel then zooms out and in PANNED, and Space snaps home.
+    tl.push([s + 14, 'middle drag + arrows pan', async () => {
+      await page.mouse.move(cx, cy);
+      await page.mouse.down({ button: 'middle' });
+      for (let i = 1; i <= 10; i++) { await page.mouse.move(cx - 40 * i, cy - 25 * i); await page.waitForTimeout(30); }
+      await page.mouse.up({ button: 'middle' });
+      await page.keyboard.down('ArrowLeft');
+      await page.waitForTimeout(500);
+      await page.keyboard.up('ArrowLeft');
+      await page.keyboard.down('ArrowUp');
+      await page.waitForTimeout(400);
+      await page.keyboard.up('ArrowUp');
+    }]);
     tl.push([s + 15, 'A up, D down', async () => { await page.keyboard.up('KeyA'); await page.keyboard.down('KeyD'); }]);
     tl.push([s + 16, 'wheel out x8, in x8', async () => {
       for (let i = 0; i < 8; i++) { await wheel(120); await page.waitForTimeout(100); }
       for (let i = 0; i < 8; i++) { await wheel(-120); await page.waitForTimeout(100); }
     }]);
+    tl.push([s + 18, 'Space (camera home)', () => page.keyboard.press('Space')]);
     tl.push([s + 19, 'D up', () => page.keyboard.up('KeyD')]);
   }
   return tl.filter((e) => e[0] < RUN_S).sort((a, b) => a[0] - b[0]);

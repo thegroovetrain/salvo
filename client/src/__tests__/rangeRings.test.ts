@@ -103,6 +103,13 @@ describe('compassPlacement — on the reach ring when it fits, else the bezel', 
     }
   });
 
+  it('HIDDEN while the own ship is off screen (Story 11.8: the free camera pans it away)', () => {
+    for (const [sx, sy] of [[-5, 400], [1005, 400], [500, -1], [500, 900], [-3000, -3000]] as const) {
+      expect(compassPlacement(sx, sy, 1000, 800, 300), `${sx},${sy}`).toEqual({ mode: 'hidden', radiusPx: 0 });
+    }
+    expect(compassPlacement(0, 400, 1000, 800, 300).mode).toBe('bezel'); // on the edge is still on screen
+  });
+
   it('the bezel radius moves in steps, so a drifting hull does not rebuild it every pixel', () => {
     const a = compassPlacement(500, 400, 1000, 800, 5000).radiusPx;
     const b = compassPlacement(501, 400, 1000, 800, 5000).radiusPx;

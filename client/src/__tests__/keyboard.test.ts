@@ -67,6 +67,7 @@ import {
 import {
   rudderFrom,
   panAxesFrom,
+  arrowPanAxesFrom,
   nextPrimedSlot,
   slotHoldsAbility,
   textEntryFocused,
@@ -102,11 +103,11 @@ describe('rudderFrom (held A/D)', () => {
     expect(rudderFrom(new Set())).toBe(0);
   });
 
-  it('D = right (+1), A = left (-1), with arrow aliases', () => {
+  it('D = right (+1), A = left (-1); the arrows no longer steer (Story 11.8)', () => {
     expect(rudderFrom(new Set(['KeyD']))).toBe(1);
     expect(rudderFrom(new Set(['KeyA']))).toBe(-1);
-    expect(rudderFrom(new Set(['ArrowRight']))).toBe(1);
-    expect(rudderFrom(new Set(['ArrowLeft']))).toBe(-1);
+    expect(rudderFrom(new Set(['ArrowRight']))).toBe(0);
+    expect(rudderFrom(new Set(['ArrowLeft']))).toBe(0);
   });
 
   it('opposing keys cancel; W/S and unrelated keys are ignored', () => {
@@ -119,7 +120,7 @@ describe('panAxesFrom (spectator held-WASD, both axes)', () => {
   it('reads held W/S as throttle and A/D as rudder', () => {
     expect(panAxesFrom(new Set(['KeyW', 'KeyD']))).toEqual({ throttle: 1, rudder: 1 });
     expect(panAxesFrom(new Set(['KeyS', 'KeyA']))).toEqual({ throttle: -1, rudder: -1 });
-    expect(panAxesFrom(new Set(['ArrowUp', 'ArrowLeft']))).toEqual({ throttle: 1, rudder: -1 });
+    expect(panAxesFrom(new Set(['ArrowUp', 'ArrowLeft']))).toEqual({ throttle: 0, rudder: 0 });
   });
 
   it('opposing keys cancel on both axes', () => {
@@ -1184,7 +1185,7 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     expect(log).toEqual(['esc', 'enter', 'mute']);
 
     // ...while the ARROWS stay NATIVE so the slider can still be nudged (they
-    // are the rudder binding, and preventDefault-ing them froze the control).
+    // are a bound key, and preventDefault-ing them froze the control).
     for (const code of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW']) {
       expect(press(code), code).toBe(false);
     }
@@ -1666,5 +1667,55 @@ describe('KeyboardInput — C / V press the cooldown abilities (Story 10.5)', ()
     kb = new KeyboardInput({ isModalOpen: () => true, onAbility: (id) => presses.push(id) });
     kb.abilityAction('repair');
     expect(presses).toEqual(['smoke']); // suspended exactly as the key is
+  });
+});
+
+// --- Story 11.8: the free camera's keys ---------------------------------------
+
+describe('arrowPanAxesFrom (the held-arrow camera pan, Story 11.8)', () => {
+  it('↑ / ↓ are the throttle axis, → / ← the rudder axis — the WASD pan convention; opposing keys cancel', () => {
+    expect(arrowPanAxesFrom(new Set(['ArrowUp', 'ArrowRight']))).toEqual({ throttle: 1, rudder: 1 });
+    expect(arrowPanAxesFrom(new Set(['ArrowDown', 'ArrowLeft']))).toEqual({ throttle: -1, rudder: -1 });
+    expect(arrowPanAxesFrom(new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']))).toEqual({ throttle: 0, rudder: 0 });
+    expect(arrowPanAxesFrom(new Set(['KeyW', 'KeyD']))).toEqual({ throttle: 0, rudder: 0 }); // WASD is the helm
+  });
+});
+
+describe('KeyboardInput — the camera keys (Story 11.8)', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => kb?.detach());
+
+  it('held arrows pan (arrowPanAxes) and never steer or step the telegraph; keyup releases them', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    expect(press('ArrowUp')).toBe(true);
+    expect(press('ArrowLeft')).toBe(true);
+    expect(kb.arrowPanAxes()).toEqual({ throttle: 1, rudder: -1 });
+    expect(kb.axes()).toEqual({ throttle: 0, rudder: 0 });
+    release('ArrowUp');
+    release('ArrowLeft');
+    expect(kb.arrowPanAxes()).toEqual({ throttle: 0, rudder: 0 });
+  });
+
+  it('a focused overlay zeroes the arrow pan', () => {
+    let overlay = false;
+    kb = new KeyboardInput({ isOverlayFocused: () => overlay });
+    kb.attach();
+    press('ArrowRight');
+    overlay = true;
+    expect(kb.arrowPanAxes()).toEqual({ throttle: 0, rudder: 0 });
+  });
+
+  it('Space is CAMERA HOME: one call per physical press, prevented, swallowed by a focused overlay', () => {
+    let homes = 0;
+    let overlay = false;
+    kb = new KeyboardInput({ onCameraHome: () => homes++, isOverlayFocused: () => overlay });
+    kb.attach();
+    expect(press('Space')).toBe(true);
+    expect(press('Space', { repeat: true })).toBe(true);
+    expect(homes).toBe(1);
+    overlay = true;
+    press('Space');
+    expect(homes).toBe(1);
   });
 });

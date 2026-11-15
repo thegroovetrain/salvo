@@ -26,9 +26,6 @@ function makeCamera(): Camera {
     defaultSpanU: DEFAULT_SPAN,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: 5,
-    leadSeconds: 4,
-    leadMax: 110,
   });
   c.setViewport(1600, 900); // short axis 900
   // The live ring the spectate clamp fits (Eric 2026-10-14: the spectate range

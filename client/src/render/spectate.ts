@@ -3,8 +3,9 @@
 // wheel / X-Z zoom. SINCE ERIC'S 2026-10-14 RULING (*"The full zoom-out needs to
 // apply to spectate mode, as well … localized around my mouse cursor"*) the
 // spectate zoom range IS the alive range (Camera.spectateZoomLimits = the close
-// framing in, the live ring fit out) and every spectate zoom anchors at the
-// cursor (Camera.zoomAbout); the old fixed 2,640–1,320 u spans are gone.
+// framing in, the live ring fit out); since Story 11.8 both phases share the
+// strategic-zoom rules (Camera.zoomAbout: in toward the cursor, out about the
+// anchor), and `spectatePan`'s rate is the alive arrow pan's too.
 //
 // THESE TWO ARE THE MANUAL-CONTROL SEAM (Story 5.3, amendment 25). Both feed a
 // Camera mutator — `wheelZoom` → `Camera.zoomAbout` (→ setZoomFactor),
@@ -47,13 +48,13 @@ export function wheelZoom(current: number, deltaY: number, detent?: number): num
 }
 
 /**
- * Whether this frame's driving axes should latch spectate into free-pan mode.
+ * Whether this frame's held pan axes pan the camera at all (any nonzero axis).
+ * Since Story 11.8 a pan puts the camera in PANNED (Camera.pan) — alive with
+ * the arrows, spectating with WASD + the arrows — and Space returns it home.
  * Callers MUST clear the keyboard's held-key set on the death -> spectate
  * transition (KeyboardInput.clearKeys, wired from main.ts's onSpectate hook)
- * before reading axes() here — otherwise WASD held at the moment of death
- * reads as nonzero on the very first spectate frame and this latches
- * permanently, defeating the follow-your-killer default (see FINDING 1).
- * This predicate itself is intentionally dumb: any nonzero axis latches.
+ * — otherwise WASD held at the moment of death reads as a pan on the very
+ * first spectate frame, defeating the follow-your-killer default (FINDING 1).
  */
 export function shouldEngageFreePan(axes: Axes): boolean {
   return axes.throttle !== 0 || axes.rudder !== 0;

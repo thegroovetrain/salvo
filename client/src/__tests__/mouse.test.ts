@@ -16,9 +16,6 @@ const opts = {
   defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
   closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
   ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-  followRate: 5,
-  leadSeconds: 4,
-  leadMax: 110,
 };
 
 describe('worldAim', () => {
@@ -582,6 +579,66 @@ describe('MouseInput — the right button with a readied weapon (Story 10.5, ame
       expect(m.consumeSec()).toBe(true);
       fire(canvas, 'pointerup', { button: 2, buttons: 0 });
       expect(m.consumeSec()).toBe(false);
+    });
+  });
+});
+
+describe('MouseInput — the middle drag pans the map (Story 11.8)', () => {
+  it('a canvas middle press opens the drag: each move adds its delta, drained once by consumePanDrag; the release ends it', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 100, clientY: 100 });
+      fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+      expect(m.panHeld).toBe(true);
+      fire(canvas, 'pointermove', { clientX: 130, clientY: 90, buttons: 4 });
+      fire(canvas, 'pointermove', { clientX: 140, clientY: 80, buttons: 4 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 40, y: -20 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 0, y: 0 });
+      fire(canvas, 'pointerup', { button: 1, buttons: 0 });
+      expect(m.panHeld).toBe(false);
+      fire(canvas, 'pointermove', { clientX: 200, clientY: 200 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 0, y: 0 });
+      expect(m.clickCount).toBe(0); // the middle button never fires
+    });
+  });
+
+  it('only a CANVAS press opens it, and never over a console', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(document.body, 'pointerdown', { button: 1, buttons: 4 });
+        expect(m.panHeld).toBe(false);
+        fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 5, clientY: 5 });
+        expect(m.panHeld).toBe(false);
+      },
+      undefined,
+      undefined,
+      undefined,
+      (p) => p.x < 10,
+    );
+  });
+
+  it('a blur, a pointercancel, leaving the window, or a move without the middle bit ends the drag', () => {
+    const enders: ((canvas: HTMLElement) => void)[] = [
+      () => window.dispatchEvent(new Event('blur')),
+      (c) => fire(c, 'pointercancel'),
+      (c) => fire(c, 'pointerout', { relatedTarget: null }),
+      (c) => fire(c, 'pointermove', { clientX: 120, clientY: 100, buttons: 0 }),
+    ];
+    for (const end of enders) {
+      withMouse((m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+        expect(m.panHeld).toBe(true);
+        end(canvas);
+        expect(m.panHeld).toBe(false);
+      });
+    }
+  });
+
+  it('a middle press chorded during a left hold (a pointermove carrying button 1) opens the drag too', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1, clientX: 50, clientY: 50 });
+      fire(canvas, 'pointermove', { button: 1, buttons: 5, clientX: 50, clientY: 50 });
+      expect(m.panHeld).toBe(true);
+      expect(m.isHeld).toBe(true);
     });
   });
 });

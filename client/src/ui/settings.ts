@@ -107,9 +107,9 @@ export interface BindingRow {
  * keys because it is a conning-position action, not chrome.
  *
  * Story 7-3 (Eric ruling 2026-08-19): this list disagreed with keyboard.ts on
- * three points and is now reconciled — W/S and A/D alias the arrows
- * (`THROTTLE_AHEAD`/`THROTTLE_ASTERN` in telegraph.ts, `LEFT`/`RIGHT` in
- * keyboard.ts), the refit digit row disagreed about the digits themselves, and
+ * three points and is now reconciled — W/S and A/D aliased the arrows then
+ * (Story 11.8 took the arrows off the helm: they pan the camera,
+ * `PAN_KEY_CODES`, and Space is CAMERA HOME), the refit digit row disagreed about the digits themselves, and
  * the gun (slot 0) had no row at all even
  * though it is the permanently-selected default reachable ONLY by clicking
  * its hotbar tile — Q/E/R are the OTHER slots, never the gun's key. `P`
@@ -138,8 +138,8 @@ export interface BindingRow {
  */
 export function bindingRows(): BindingRow[] {
   return [
-    { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
-    { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
+    { keys: 'W / S', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
+    { keys: 'A / D', action: 'RUDDER — HELD' },
     { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
     // Story 10.5 (2026-11-05, epic-10 amendment 11): the three family slots, the
     // two cooldown abilities and the digits' one meaning.
@@ -153,6 +153,9 @@ export function bindingRows(): BindingRow[] {
     { keys: 'TAB + 1 – 4 (+ NUMPAD)', action: 'TAKE AN UPGRADE' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
     { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
+    // Story 11.8 (Eric 2026-11-15): the free camera — the arrows left the helm.
+    { keys: 'MIDDLE DRAG / ARROWS', action: 'PAN MAP' },
+    { keys: 'SPACE', action: 'CAMERA HOME' },
     { keys: 'M', action: 'MUTE' },
     { keys: 'ENTER', action: 'CONFIRM THE TOPMOST SURFACE' },
   ];

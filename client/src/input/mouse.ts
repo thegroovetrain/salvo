@@ -78,6 +78,16 @@
 // (released outside the window, a native context menu on chrome) cannot stream
 // forever: any pointermove whose `buttons` lacks the secondary bit, or the
 // pointer leaving the WINDOW, ends the level.
+//
+// Story 11.8 adds the MIDDLE DRAG on button 1 (the camera pan, Eric
+// 2026-11-15): a canvas-target press opens a drag (prevented — no browser
+// autoscroll), every pointermove while it is open adds its screen delta, and
+// main.ts drains the total once per frame (`consumePanDrag`). A middle press
+// over a console is swallowed (the side-effect-free `overConsole`). It is
+// neither lockout-gated nor a click: panning the map is not combat. The drag
+// ends on its pointerup, a pointercancel, a blur, the pointer leaving the
+// window, or any move whose `buttons` lacks the middle bit (a release we never
+// heard); a chorded press / release arrives as a pointermove with `button` 1.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -135,6 +145,11 @@ export class MouseInput {
   private secDown = false;
   /** A right press was accepted since the last `consumeSec()` (the tap latch). */
   private secPressedSinceSample = false;
+  /** The middle button is dragging the map (Story 11.8). */
+  private panDown = false;
+  /** Screen px dragged since the last `consumePanDrag()`. */
+  private readonly panDelta: ScreenPoint = { x: 0, y: 0 };
+  private readonly drained: ScreenPoint = { x: 0, y: 0 };
   private canvas: EventTarget | null = null;
   /**
    * Is the pointer currently INSIDE the window? Deliberately separate from
@@ -179,12 +194,41 @@ export class MouseInput {
   ) {}
 
   private readonly onMove = (e: PointerEvent): void => {
+    if (this.panDown && this.seen) {
+      this.panDelta.x += e.clientX - this.pos.x;
+      this.panDelta.y += e.clientY - this.pos.y;
+    }
     this.pos.x = e.clientX;
     this.pos.y = e.clientY;
     this.inside = true;
     this.seen = true;
     this.onChord(e);
+    this.onPanChord(e);
   };
+
+  /** The middle button's chord edges (a press / release during another hold
+   *  arrives as a pointermove carrying `button` 1), and the end of a drag whose
+   *  release we never heard (a move without the middle bit). */
+  private onPanChord(e: PointerEvent): void {
+    if (e.button === 1 && (e.buttons & 4) !== 0) this.panPress(e);
+    else if (this.panDown && (e.buttons & 4) === 0) this.panRelease();
+  }
+
+  /** Accept a middle press on the canvas (not over a console): the drag opens
+   *  at the press point. Prevented, so the browser starts no autoscroll. */
+  private panPress(e: PointerEvent): void {
+    if (e.target !== this.canvas) return;
+    if (this.overConsole({ x: e.clientX, y: e.clientY })) return;
+    e.preventDefault();
+    this.panDown = true;
+    this.pos.x = e.clientX;
+    this.pos.y = e.clientY;
+    this.seen = true;
+  }
+
+  private panRelease(): void {
+    this.panDown = false;
+  }
 
   /** A button pressed or released DURING another hold arrives as a pointermove
    *  carrying that `button` (Pointer Events chords). A left chord edge always
@@ -225,6 +269,7 @@ export class MouseInput {
     if (e.relatedTarget !== null) return;
     this.inside = false;
     this.secRelease();
+    this.panRelease();
   };
 
   private readonly onBlur = (): void => {
@@ -237,11 +282,16 @@ export class MouseInput {
     this.pressedSinceSample = false;
     this.secDown = false;
     this.secPressedSinceSample = false;
+    this.panRelease();
   };
 
   private readonly onDown = (e: PointerEvent): void => {
     if (e.button === 2) {
       this.secPress(e);
+      return;
+    }
+    if (e.button === 1) {
+      this.panPress(e);
       return;
     }
     if (e.button !== 0) return;
@@ -272,6 +322,10 @@ export class MouseInput {
       this.secRelease();
       return;
     }
+    if (e.button === 1) {
+      this.panRelease();
+      return;
+    }
     if (e.button !== 0) return;
     this.releases += 1;
     this.endHold(pointerIdOf(e));
@@ -288,6 +342,7 @@ export class MouseInput {
     this.endHold(id);
     this.secDown = false;
     this.secPressedSinceSample = false;
+    this.panRelease();
   };
 
   /**
@@ -307,6 +362,12 @@ export class MouseInput {
     e.preventDefault();
   };
 
+  /** A middle mousedown on the canvas is prevented too: some engines start
+   *  their autoscroll on the compatibility mousedown, not the pointerdown. */
+  private readonly onMouseDown = (e: MouseEvent): void => {
+    if (e.button === 1) e.preventDefault();
+  };
+
   /**
    * Attach window listeners + the canvas contextmenu suppression. Call once on
    * boot with the game canvas — the ONLY element whose pointerdowns fire.
@@ -320,6 +381,7 @@ export class MouseInput {
     window.addEventListener('pointerout', this.onOut);
     window.addEventListener('blur', this.onBlur);
     canvas.addEventListener('contextmenu', this.onContextMenu);
+    canvas.addEventListener('mousedown', this.onMouseDown as EventListener);
   }
 
   /** Detach window + canvas listeners. */
@@ -331,7 +393,25 @@ export class MouseInput {
     window.removeEventListener('pointerout', this.onOut);
     window.removeEventListener('blur', this.onBlur);
     this.canvas?.removeEventListener('contextmenu', this.onContextMenu);
+    this.canvas?.removeEventListener('mousedown', this.onMouseDown as EventListener);
     this.canvas = null;
+    this.panRelease();
+  }
+
+  /** Is the middle button dragging the map (Story 11.8)? */
+  get panHeld(): boolean {
+    return this.panDown;
+  }
+
+  /** The screen px the middle drag moved since the last call (Story 11.8) —
+   *  drained once per frame by the camera; zero when nothing was dragged.
+   *  Returns a reused scratch point (no per-frame allocation). */
+  consumePanDrag(): Readonly<ScreenPoint> {
+    this.drained.x = this.panDelta.x;
+    this.drained.y = this.panDelta.y;
+    this.panDelta.x = 0;
+    this.panDelta.y = 0;
+    return this.drained;
   }
 
   /** Current cursor screen position (px) — the aim source; NEVER cleared. */
