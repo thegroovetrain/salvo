@@ -56,9 +56,9 @@ export type ClutterTierId = -1 | 0 | 1 | 2;
  * below the red band (0.7) so a hull's solid red return always stands out.
  */
 export const RAIN_CLUTTER_DEFAULTS: Omit<RainClutterOpts, 'cellU'> = {
-  weak: { amount: 0.06, strength: 0.17 },
-  medium: { amount: 0.22, strength: 0.3 },
-  heavy: { amount: 0.35, strength: 0.42 },
+  weak: { amount: 0.03, strength: 0.17 },
+  medium: { amount: 0.11, strength: 0.3 },
+  heavy: { amount: 0.175, strength: 0.42 },
   midDensity: FOG_SOLID_DENSITY,
   grain: 0.3,
 };
