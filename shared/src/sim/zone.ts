@@ -518,6 +518,34 @@ export function zoneStateAt(
 }
 
 /**
+ * The LIVE ring's RADIUS at `elapsedMs` from zone start, from the public radii
+ * ladder alone (`radii` = `zoneRingRadii(mapRadius, cfg)`, collapse 0 included)
+ * — no rolled center needed. Equal to `zoneStateAt(startT + elapsedMs, startT,
+ * rings, cfg).current.r` on any rings rolled from the same ladder: the held
+ * beats read ring g, the closing beat the same linear blend toward ring g+1,
+ * the closed state (and a degenerate beat) the ladder's last entry. A negative
+ * elapsed reads 0 (ring 0), as zoneStateAt clamps it. The storm-eye rain
+ * (sim/fog.ts, Story 11.6) integrates its spin over this — the ladder is public,
+ * so both sides reach the identical R(τ) for any past τ.
+ */
+export function zoneLadderRadiusAt(elapsedMs: number, radii: readonly number[], cfg: ZoneTimeline = CONFIG.zone): number {
+  const last = radii[radii.length - 1] ?? 0;
+  const beatMs = beatMsOf(cfg);
+  if (beatMs === null) return last;
+  const elapsed = Math.max(0, elapsedMs);
+  const beat = Math.floor(elapsed / beatMs);
+  const group = Math.floor(beat / ZONE_BEATS_PER_GROUP);
+  if (!(group < zoneGroups(cfg))) return last;
+  const cur = radii[group] ?? last;
+  if (beat - group * ZONE_BEATS_PER_GROUP < ZONE_BEATS_PER_GROUP - 1) return cur;
+  const next = radii[group + 1];
+  if (next === undefined) return cur;
+  const groupEndMs = (group + 1) * ZONE_BEATS_PER_GROUP * beatMs;
+  const f = (elapsed - (groupEndMs - beatMs)) / beatMs;
+  return cur + (next - cur) * f;
+}
+
+/**
  * Is `pos` outside the circle centered (cx, cy) with radius r? CENTER-AWARE
  * (rings are offset circles as of Story 3.1). Boundary is INCLUSIVE-SAFE: a
  * point exactly ON the ring is INSIDE (not outside), so storm damage requires

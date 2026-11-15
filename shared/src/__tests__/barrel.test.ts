@@ -98,14 +98,21 @@ import {
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 describe('shared barrel', () => {
-  it('exposes the blow, dispersion, mount-angle and fog-field functions and the FOG_NO_CUT sentinel — and no dropout (Story 11.2, R8)', () => {
+  it('exposes the blow, dispersion, mount-angle and storm-eye rain functions — and no dropout (Story 11.2, R8) and no fog-bank cut machinery (Story 11.6)', () => {
     for (const fn of [shared.flakRimFactor, shared.settleBlow, shared.dispersedPoint, shared.dispersedLanding, shared.dispersionAxes, shared.turretAngle, shared.launcherAngle]) {
       expect(typeof fn).toBe('function');
     }
-    for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice, shared.fogEyeReach, shared.fogEyeReachFan]) {
+    for (const fn of [
+      shared.makeFogField, shared.fogFrameAt, shared.fogDensityAt, shared.fogDepthAlong, shared.fogDepthReach, shared.fogDepthReachFan,
+      shared.fogHullGrid, shared.fogMaxDepth, shared.fogVisibility, shared.fogSinCos, shared.fogCoverageAt, shared.fogRingStepAt,
+      shared.zoneLadderRadiusAt,
+    ]) {
       expect(typeof fn).toBe('function');
     }
-    expect(shared.FOG_NO_CUT).toBe(9);
+    expect(typeof shared.FOG_SOLID_DENSITY).toBe('number');
+    for (const gone of ['FOG_NO_CUT', 'fogNoiseAt', 'fogTollAlong', 'fogCutForTarget', 'fogLattice', 'fogEyeReach', 'fogEyeReachFan']) {
+      expect(gone in shared, gone).toBe(false);
+    }
     for (const gone of ['dropoutPaintP', 'dropoutRoll', 'dropoutPaints']) {
       expect(gone in shared, gone).toBe(false);
     }

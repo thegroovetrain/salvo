@@ -2,7 +2,8 @@
 title: 'Story 11.6 Rain First — the storm eye and partial sight'
 type: 'feature'
 created: '2026-11-14'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '0cfdff41309913003df1c87e473bef4c77d09542'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -87,6 +88,8 @@ warnings: ['oversized']
 - Given `tickCost.mjs`, `glBudget.mjs`, `playCheck.mjs`, `weaponsSmoke`, `matchSmoke`, `fogSmoke`, when run before the PR, then each passes and the tick cost old vs new is in the PR.
 
 ## Spec Change Log
+
+- 2026-11-14 (Eric, mid-implementation): eye radius is STEPPED per ring like the edge coverage — `eyeRadiusFracByRing` 0.10 / 0.20 / 0.30 / 0.40 (start, after 1st, 2nd, 3rd close), lerped across each closing beat, held at 0.40 through the collapse. Supersedes the contract's single "eye radius 0.40 × live R". KEEP everything else.
 
 ## Review Triage Log
 

@@ -1164,6 +1164,7 @@ export * from './sim/terrainBlock.js';
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';
+export * from './sim/fogDepth.js';
 export * from './sim/zone.js';
 export * from './sim/beacons.js';
 export * from './sim/drops.js';

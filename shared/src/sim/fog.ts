@@ -1,129 +1,121 @@
-// FOG — the rolling fog density field and its sight toll (Story 9.10; Eric
-// 2026-10-14, epic-9 amendments 149–150, 163–164, 167–170; and 2026-10-15:
-// "no discs — it won't look like realistic rolling fog", "make it performant").
+// RAIN — the storm-eye rain field and its optical depth (Story 11.6; Eric
+// 2026-11-14 on the rain-sight bench page: "the eye of a closing hurricane",
+// and rain must occlude "in a realistic way" — you see the PARTS of a ship the
+// rain lets through). Ported from the approved bench module
+// (`bench/rain-sight/src/stormField.ts`, branch worktree-rain-sight-bench).
+// The old fog banks (a coverage-target cut, a free own bank, a sight toll in
+// extra distance) are GONE.
 //
-// This module is the ONE derivation of the fog field and its toll. Server and
-// client evaluate it identically from `(fogSeed, t, cut, CONFIG.fog)`: the
-// seed rides the welcome, the cut rides the schema, `t` is the match clock.
-// The perception invariant oracle deliberately re-integrates the density at a
-// finer step rather than calling `fogTollAlong`, so the two check each other.
+// This module is the ONE derivation of the rain. Server and client evaluate it
+// identically from PUBLIC inputs only: `fogSeed` (rides the welcome), CONFIG,
+// the ocean radius, `zoneStartT`, the clock, the public ring-radius LADDER
+// (`zoneRingRadii` on the public beat timeline) and the LIVE ring center
+// (`zoneLiveState` — never the unrevealed next ring; the server frounds it so
+// it matches the client's float32 schema copy).
 //
-// The field in plain words: noise `n(x, y, t)` is two fbm layers SPINNING
-// about the ocean center (the rim moves `spinRimU` u/s, faster toward the
-// middle by `spinShear` so banks curl and stretch; the turn's direction is a
-// per-match coin flip — Eric 2026-10-16, amendments 177–178),
-// drifting with a fixed per-match wind, and cross-faded by a triangle wave of
-// period `morphMs` (so banks roll AND change shape). Density = clamp01((n − cut) / edgeBand):
-// zero below the cut, a soft edge `edgeBand` wide, solid above — and ZERO
-// beyond the ocean's rim (Eric 2026-10-16: fog only where islands could be,
-// never out in the storm water; amendment 179). A ray pays `sightCostPerU ×
-// density` extra sight units per unit of its length (a midpoint march) —
-// EXCEPT inside the observer's own bank: a ray that starts in solid fog
-// (density ≥ `FOG_SOLID_DENSITY`) pays nothing until it first leaves solid
-// fog, and full price after that (Eric 2026-10-16: "if you are in it, you
-// should be able to see out of it normally … like grass patches in League";
-// amendment 179 — so the toll is DIRECTIONAL: A is the observer). Sight only:
-// radar, zone circles, the foghorn and the storm never read this file.
+// The field in plain words:
+// • The storm's EYE is the live zone ring: noise is sampled in the eye's frame
+//   (point minus the live center), so the clouds travel with the eye. No wind.
+// • The clouds SPIN about the eye: linear speed 0 at the center, `edgeSpeedU`
+//   at the ring edge (turn rate inside = edge rate × (centerTurnFrac + (1 −
+//   centerTurnFrac) × ρ), ρ = r / R); outside the ring the linear speed holds
+//   at `edgeSpeedU` (turn rate edgeSpeedU / r — the shear that lays out trailing
+//   spiral bands). Direction: a per-match coin flip from the seed. R is floored
+//   at `spinRadiusFloorU` for the spin (the collapse drives R to 0).
+// • BOUNDED SHEAR: two fbm layers cross-fade on a triangle wave of period
+//   `morphMs`; each layer's twist is measured from its last INVISIBLE instant
+//   (weight 0), where it is laid down PRE-WOUND by a trailing spiral of
+//   `spiralWindRad` at the ring edge (θ₀ = −wind × 2ρ / (1 + ρ)). A parcel keeps
+//   its eye-frame radius, so the twist since reset is the time integral of the
+//   turn rate at that radius over R(τ) — held beats in closed form, closing
+//   beats by a fixed midpoint rule — tabulated once per frame over radius.
+// • DENSITY by ρ through a coverage → cut map (coverage = the share of area at
+//   solid rain, density ≥ ½): 0 inside the eye (ρ ≤ the live eye fraction,
+//   `eyeRadiusFracByRing` stepped by ring like the edge coverage — Eric
+//   2026-11-14, superseding the bench's flat 0.40), a smoothstep
+//   up to the live edge coverage at the ring edge (`edgeCoverageByRing`, lerped
+//   through each closing beat by its progress, held at the last entry through
+//   the collapse), then a smoothstep over `edgeSoftFrac` (in ρ) to
+//   `outsideCoverage`. The cut for a coverage comes from the noise's value
+//   distribution, measured ONCE per seed (a quantile table); the layer blend is
+//   variance-normalized so one table holds at every morph phase. Density =
+//   clamp01((n − cut) / edgeBand) × the onset ramp clamp01((t − zoneStartT) /
+//   onsetMs). Zero beyond the ocean rim and before zone start.
+// • SIGHT: optical depth τ = Σ density × step along a ray (a `marchStepU`
+//   midpoint march). Visibility is V = exp(−extinctionPerU × τ) — evaluated in
+//   sim/fogDepth.ts, never here; a thing is seen while V ≥ sightCutoffV, i.e.
+//   τ ≤ fogMaxDepth(cfg). NO own-bank exemption: rain you stand in blocks your
+//   sight. Radar never reads this file.
 //
 // PURE, DETERMINISTIC, ZERO I/O, plain objects. NO TRANSCENDENTALS (the
 // map-gen posture): `Math.sqrt` only — no hypot, trig, pow, exp/log, random,
 // and no clock (time arrives as an argument). A shared test guards the source.
 
+import { CONFIG } from '../constants.js';
 import { fbm, makeLayer, type NoiseLayer } from './noise.js';
 import { mulberry32 } from '../math/rng.js';
+import { ZONE_BEATS_PER_GROUP, zoneGroups, zoneLadderRadiusAt, zoneRingRadii, type ZoneTimeline } from './zone.js';
 
-/** A cut no fbm value reaches: density 0 everywhere — the "no fog" state (what the schema carries before the match goes live). */
-export const FOG_NO_CUT = 9;
-
-/** A cut below every fbm value: density 1 everywhere. */
-const FOG_FULL_CUT = -2;
-
-/** The density level `fogCutForTarget` controls the share of: ≥ this is "fogged" —
- *  SOLID fog, the fog a captain stands IN (amendments 178–179: the coverage dial
- *  and the own-bank rule read the same line). */
+/** Density ≥ this is SOLID rain — the share the coverage dials count, and what the bots call cover. */
 export const FOG_SOLID_DENSITY = 0.5;
-
-/** Offset (u, both axes) between layer A's and layer B's sample points, so the two layers never line up. */
-const LAYER_B_OFFSET_U = 1000;
 
 /** The slice of `CONFIG.fog` the field math reads (CONFIG.fog fits). */
 export interface FogFieldConfig {
-  sightCostPerU: number;
-  wavelengthU: number;
+  wavelengthU: number; // u — noise base feature size
   octaves: number;
   gain: number;
-  windU: number;
-  spinRimU: number; // u/s the spin carries the pattern at the ocean's rim (0 = no spin); the turn rate is spinRimU / oceanRadius
-  spinShear: number; // extra turn rate at the center as a fraction of the rim's (0 = rigid)
-  morphMs: number;
-  edgeBand: number;
-  marchStepU: number;
+  edgeBand: number; // noise units over which density ramps 0 → 1 above the cut
+  morphMs: number; // ms — two-layer cross-fade period (and the shear reset)
+  marchStepU: number; // u — the optical-depth march step
+  edgeSpeedU: number; // u/s — cloud speed at the ring edge (held outside it)
+  centerTurnFrac: number; // turn rate at the center as a fraction of the edge's
+  spiralWindRad: number; // rad — trailing spiral pre-wind at the ring edge, laid at each layer's invisible instant
+  eyeRadiusFracByRing: readonly number[]; // ρ — the clear eye's radius as a fraction of the live ring, per ring group (held at the last entry past it)
+  edgeCoverageByRing: readonly number[]; // solid share at the ring edge, per ring group (held at the last entry past it)
+  outsideCoverage: number; // solid share out in the storm
+  edgeSoftFrac: number; // ρ — width of the edge → outside blend
+  spinRadiusFloorU: number; // u — floor on R for the spin
+  onsetMs: number; // ms — the roll-in ramp from zone start
 }
 
-/** A built fog field: two noise layers, the wind (u per ms) and the dials. */
+/** A built rain field: two noise layers, the coin flip and the coverage → cut table. */
 export interface FogField {
   readonly layerA: NoiseLayer;
   readonly layerB: NoiseLayer;
-  readonly windX: number; // u/ms
-  readonly windY: number; // u/ms
-  readonly spinSign: 1 | -1; // the per-match coin flip: +1 turns one way, -1 the other
-  readonly spinCx: number; // u — the spin center (the ocean center)
-  readonly spinCy: number;
-  readonly spinRadiusU: number; // u — the ocean radius: the turn rate is spinRimU / this and shear reads 1 - r / this, 0 at and beyond the rim; 0 = no spin
-  readonly oceanRadiusU: number; // u — fog exists only inside this disc about (spinCx, spinCy): density is 0 beyond it (amendment 179); 0 = unbounded (a hand-built field). Always equal to spinRadiusU through makeFogField — two names for two roles (the spin's rim speed reference, the fog's extent), so a reader of either never has to know about the other
+  readonly spinSign: 1 | -1; // the per-match coin flip
+  readonly oceanRadiusU: number; // u — rain only inside this disc about the origin (0 = no rain)
+  readonly quant: Float64Array; // QUANT_N + 1 quantiles of the blended noise; [QUANT_N] = max + edgeBand
   readonly cfg: FogFieldConfig;
 }
 
-/** A unit vector drawn from `seed` without trig: rejection-sample the unit disc, normalize. */
-function windDirection(seed: number): { x: number; y: number } {
-  const rng = mulberry32((seed ^ 0x85ebca6b) >>> 0);
-  for (;;) {
-    const u = rng.next() * 2 - 1;
-    const v = rng.next() * 2 - 1;
-    const m2 = u * u + v * v;
-    if (m2 > 1e-6 && m2 <= 1) {
-      const m = Math.sqrt(m2);
-      return { x: u / m, y: v / m };
-    }
-  }
+/** One instant of the rain, precomputed once and shared by every sample at that instant. */
+export interface FogFrame {
+  field: FogField;
+  on: boolean; // false = no rain anywhere (pre-zone, non-finite input, no ocean)
+  cx: number; // u — the live ring (eye) center
+  cy: number;
+  R: number; // u — the live ring radius from the public ladder (0 once collapsed)
+  edgeCov: number; // solid share at the live ring edge
+  eyeFrac: number; // ρ — the live clear-eye radius as a fraction of R
+  onset: number; // [0, 1] — the roll-in ramp
+  w: number; // layer B's cross-fade weight
+  norm: number; // variance normalizer of the blend
+  binU: number; // u per twist-table bin
+  twistA: Float64Array; // rad — layer A's forward rotation at radius k × binU from the eye
+  twistB: Float64Array;
 }
 
-/** The spin's coin flip, drawn from `seed` (its own stream, so the wind draw is untouched). */
-function spinSign(seed: number): 1 | -1 {
-  return mulberry32((seed ^ 0x27d4eb2f) >>> 0).next() < 0.5 ? 1 : -1;
-}
-
-/**
- * Build the fog field for `seed` over an ocean of radius `spinRadiusU` about
- * (`spinCx`, `spinCy`) — the spin's radius AND the fog's extent (density is 0
- * beyond it). Deterministic: same seed + cfg + ocean → identical field.
- */
-export function makeFogField(seed: number, cfg: FogFieldConfig, spinRadiusU: number, spinCx = 0, spinCy = 0): FogField {
-  const s = seed >>> 0;
-  const dir = windDirection(s);
-  const perMs = cfg.windU / 1000;
-  return {
-    layerA: makeLayer(s),
-    layerB: makeLayer((s ^ 0x9e3779b9) >>> 0),
-    windX: dir.x * perMs,
-    windY: dir.y * perMs,
-    spinSign: spinSign(s),
-    spinCx,
-    spinCy,
-    spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 0, // a non-positive or NaN radius disables the spin (never a 1 u radius turning at spinRimU)
-    oceanRadiusU: spinRadiusU > 0 ? spinRadiusU : 0, // ...and leaves the fog unbounded
-    cfg,
-  };
-}
-
+const QUANT_N = 256;
+const TWIST_BINS = 512;
+const CLOSE_STEPS = 12; // midpoint steps per closing-beat segment of the twist integral
+const LAYER_B_OFFSET_U = 1000; // u — layer B's sample offset, so the layers never line up
 const TWO_PI = 6.283185307179586;
 const HALF_PI = 1.5707963267948966;
 
 /**
  * sin and cos of `a` radians by plain arithmetic (no Math.sin/cos: the
  * map-gen posture — byte-identical on every JS engine). Range-reduce to
- * [-π/2, π/2] with Math.floor, then an odd degree-11 series: error < 1e-6,
- * which is a sub-unit displacement at the ocean's rim.
+ * [-π/2, π/2] with Math.floor, then an odd degree-11 series: error < 1e-6.
  */
 export function fogSinCos(a: number, out: { s: number; c: number }): void {
   const q = a / TWO_PI;
@@ -139,292 +131,364 @@ export function fogSinCos(a: number, out: { s: number; c: number }): void {
   out.c = flip === 0 ? cs : -cs;
 }
 
+const clamp01 = (v: number): number => (v <= 0 ? 0 : v >= 1 ? 1 : v);
+const smooth = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
+
+/** The quantile table of fbm on `layer` (a lattice far from integer alignment). */
+function quantiles(layer: NoiseLayer, cfg: FogFieldConfig): Float64Array {
+  const side = 200;
+  const step = 0.3719;
+  const vals = new Float64Array(side * side);
+  let k = 0;
+  for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) vals[k++] = fbm(i * step + 0.13, j * step + 0.71, layer, cfg.octaves, cfg.gain);
+  vals.sort();
+  const q = new Float64Array(QUANT_N + 1);
+  for (let i = 0; i < QUANT_N; i++) q[i] = vals[Math.floor((i / QUANT_N) * (vals.length - 1))];
+  q[QUANT_N] = vals[vals.length - 1] + (cfg.edgeBand > 0 ? cfg.edgeBand : 0);
+  return q;
+}
+
+/**
+ * Build the rain field for `seed` over an ocean of radius `oceanRadiusU` about
+ * the origin. Deterministic: same seed + cfg + ocean → identical field. Holds
+ * `cfg` by reference; the quantile table reads octaves / gain / edgeBand ONCE
+ * (rebuild the field when those change). A non-positive or NaN radius builds a
+ * field with no rain anywhere.
+ */
+export function makeFogField(seed: number, cfg: FogFieldConfig, oceanRadiusU: number): FogField {
+  const s = seed >>> 0;
+  const layerA = makeLayer((s ^ 0x5bd1e995) >>> 0);
+  return {
+    layerA,
+    layerB: makeLayer((s ^ 0x9e3779b9) >>> 0),
+    spinSign: mulberry32((s ^ 0x27d4eb2f) >>> 0).next() < 0.5 ? 1 : -1,
+    oceanRadiusU: oceanRadiusU > 0 && Number.isFinite(oceanRadiusU) ? oceanRadiusU : 0,
+    quant: quantiles(layerA, cfg),
+    cfg,
+  };
+}
+
+/** rad/ms — the turn rate at distance `r` from the eye when the ring's radius is `R`. */
+function turnRate(cfg: FogFieldConfig, r: number, R: number): number {
+  const Rs = R > cfg.spinRadiusFloorU ? R : cfg.spinRadiusFloorU;
+  const v = cfg.edgeSpeedU / 1000;
+  if (r < Rs) return (v / Rs) * (cfg.centerTurnFrac + (1 - cfg.centerTurnFrac) * (r / Rs));
+  return v / r;
+}
+
+/** out[k] += turnRate(k × binU, R) × dt for every bin. */
+function addRate(cfg: FogFieldConfig, R: number, dt: number, binU: number, out: Float64Array): void {
+  for (let k = 0; k < out.length; k++) out[k] += turnRate(cfg, k * binU, R) * dt;
+}
+
+/** What the twist integral reads of the zone: the ladder and the beat. */
+interface ZoneClock {
+  radii: readonly number[];
+  zoneCfg: ZoneTimeline;
+  beatMs: number;
+}
+
+/** out[k] += ∫ turnRate(k × binU, R(τ)) dτ over [e0, e1] (zone-relative ms): held beats exactly, closing beats by midpoints. */
+function addTwist(cfg: FogFieldConfig, zc: ZoneClock, e0: number, e1: number, binU: number, out: Float64Array): void {
+  let a = e0;
+  while (a < e1) {
+    const b = Math.min(e1, (Math.floor(a / zc.beatMs) + 1) * zc.beatMs);
+    const Ra = zoneLadderRadiusAt(a, zc.radii, zc.zoneCfg);
+    const Rb = zoneLadderRadiusAt(b, zc.radii, zc.zoneCfg);
+    if (Ra === Rb) {
+      addRate(cfg, Ra, b - a, binU, out);
+    } else {
+      const h = (b - a) / CLOSE_STEPS;
+      for (let m = 0; m < CLOSE_STEPS; m++) addRate(cfg, Ra + (Rb - Ra) * ((m + 0.5) / CLOSE_STEPS), h, binU, out); // R is linear inside one beat
+    }
+    a = b;
+  }
+}
+
+/** One layer's twist table: the pre-wind laid at `eReset` (invisible), plus the spin integrated to `e`. */
+function layerTwist(field: FogField, zc: ZoneClock, eReset: number, e: number, binU: number, out: Float64Array): void {
+  const cfg = field.cfg;
+  const R0 = zoneLadderRadiusAt(eReset, zc.radii, zc.zoneCfg);
+  const Rs = R0 > cfg.spinRadiusFloorU ? R0 : cfg.spinRadiusFloorU;
+  for (let k = 0; k < out.length; k++) {
+    const rho = (k * binU) / Rs;
+    out[k] = -cfg.spiralWindRad * ((2 * rho) / (1 + rho));
+  }
+  addTwist(cfg, zc, eReset, e, binU, out);
+  for (let k = 0; k < out.length; k++) out[k] *= field.spinSign;
+}
+
+/** Triangle wave in [0, 1]: 0 at phase 0, 1 at phase ½. A non-positive period reads 0. */
+function morphWeight(e: number, period: number): number {
+  if (!(period > 0)) return 0;
+  const q = e / period;
+  const p = q - Math.floor(q);
+  return p < 0.5 ? 2 * p : 2 - 2 * p;
+}
+
+/**
+ * A per-ring dial's live value at `e` ms from zone start (the edge coverage and
+ * the eye radius are both stepped by ring): ring group g's entry of `tab`
+ * (clamped to the last), and during a closing beat a linear blend toward group
+ * g+1's entry by the SAME progress fraction the ring's radius uses. Held at the
+ * last applicable entry once closed (and on a degenerate beat), so the
+ * sudden-death collapse holds the last entry. An empty table reads 0.
+ */
+export function fogRingStepAt(tab: readonly number[], e: number, zoneCfg: ZoneTimeline = CONFIG.zone): number {
+  const last = tab.length - 1;
+  if (last < 0) return 0;
+  const groups = zoneGroups(zoneCfg);
+  const beatMs = zoneCfg.beatMs;
+  const closed = tab[Math.min(groups - 1, last)];
+  if (!(beatMs > 0) || !Number.isFinite(beatMs)) return closed;
+  const elapsed = e > 0 ? e : 0;
+  const beat = Math.floor(elapsed / beatMs);
+  const g = Math.floor(beat / ZONE_BEATS_PER_GROUP);
+  if (!(g < groups)) return closed;
+  const a = tab[Math.min(g, last)];
+  if (beat - g * ZONE_BEATS_PER_GROUP < ZONE_BEATS_PER_GROUP - 1) return a;
+  const f = (elapsed - ((g + 1) * ZONE_BEATS_PER_GROUP - 1) * beatMs) / beatMs;
+  return a + (tab[Math.min(g + 1, last)] - a) * clamp01(f);
+}
+
+/** The solid share at ρ = distance / live ring radius, for the live eye fraction `eyeFrac` and edge coverage `edgeCov`. */
+export function fogCoverageAt(cfg: FogFieldConfig, eyeFrac: number, edgeCov: number, rho: number): number {
+  const e = eyeFrac;
+  if (!(rho > e)) return 0;
+  if (rho <= 1) return edgeCov * smooth(e < 1 ? (rho - e) / (1 - e) : 1);
+  const u = cfg.edgeSoftFrac > 0 ? (rho - 1) / cfg.edgeSoftFrac : 1;
+  return edgeCov + (cfg.outsideCoverage - edgeCov) * smooth(u);
+}
+
+function newFrame(field: FogField): FogFrame {
+  return {
+    field, on: false, cx: 0, cy: 0, R: 0, edgeCov: 0, eyeFrac: 0, onset: 0, w: 0, norm: 1, binU: 1,
+    twistA: new Float64Array(TWIST_BINS), twistB: new Float64Array(TWIST_BINS),
+  };
+}
+
+/** Are the frame's inputs ones that can rain? (a started zone, finite clock and eye, a real ocean and beat) */
+function canRain(field: FogField, tMs: number, zoneStartT: number | null, liveCx: number, liveCy: number, zoneCfg: ZoneTimeline): boolean {
+  if (zoneStartT === null || !(field.oceanRadiusU > 0)) return false;
+  if (!Number.isFinite(tMs) || !Number.isFinite(zoneStartT) || !Number.isFinite(liveCx) || !Number.isFinite(liveCy)) return false;
+  return tMs >= zoneStartT && zoneCfg.beatMs > 0 && Number.isFinite(zoneCfg.beatMs);
+}
+
+/**
+ * Precompute the rain at match time `tMs`: the zone started at `zoneStartT`
+ * (null = not started: NO rain), the live ring center is (`liveCx`, `liveCy`)
+ * (zoneLiveState's current ring — the server frounds it), and the timeline is
+ * `zoneCfg` (the radius R(τ), the twist integral and the edge coverage come
+ * from its public ladder over the field's ocean radius). Reuses `out`'s tables
+ * when given (it must belong to `field`). Pre-zone, a degenerate beat, or any
+ * non-finite input returns a frame with `on` false (density 0 everywhere).
+ */
+export function fogFrameAt(
+  field: FogField, tMs: number, zoneStartT: number | null, liveCx: number, liveCy: number,
+  zoneCfg: ZoneTimeline = CONFIG.zone, out?: FogFrame,
+): FogFrame {
+  const f = out ?? newFrame(field);
+  f.field = field;
+  f.on = canRain(field, tMs, zoneStartT, liveCx, liveCy, zoneCfg);
+  if (!f.on) return f;
+  const cfg = field.cfg;
+  const e = tMs - (zoneStartT as number);
+  const zc: ZoneClock = { radii: zoneRingRadii(field.oceanRadiusU, zoneCfg), zoneCfg, beatMs: zoneCfg.beatMs };
+  const P = cfg.morphMs > 0 ? cfg.morphMs : 0;
+  const eB = P > 0 ? Math.floor(e / P) * P : e;
+  const eA = P > 0 ? Math.floor((e - P / 2) / P) * P + P / 2 : e;
+  f.w = morphWeight(e, P);
+  f.norm = 1 / Math.sqrt((1 - f.w) * (1 - f.w) + f.w * f.w);
+  f.cx = liveCx;
+  f.cy = liveCy;
+  f.R = zoneLadderRadiusAt(e, zc.radii, zoneCfg);
+  f.edgeCov = fogRingStepAt(cfg.edgeCoverageByRing, e, zoneCfg);
+  f.eyeFrac = fogRingStepAt(cfg.eyeRadiusFracByRing, e, zoneCfg);
+  f.onset = cfg.onsetMs > 0 ? clamp01(e / cfg.onsetMs) : 1;
+  f.binU = (2 * field.oceanRadiusU + 200) / (TWIST_BINS - 1);
+  layerTwist(field, zc, eA, e, f.binU, f.twistA);
+  layerTwist(field, zc, eB, e, f.binU, f.twistB);
+  return f;
+}
+
+/** The cut whose solid share is `cov` (the quantile of 1 − cov, less half the edge band). */
+function cutFor(field: FogField, cov: number): number {
+  const q = field.quant;
+  const p = (1 - clamp01(cov)) * QUANT_N;
+  const i = Math.min(QUANT_N - 1, Math.floor(p));
+  const v = q[i] + (q[i + 1] - q[i]) * (p - i);
+  return v - (field.cfg.edgeBand > 0 ? field.cfg.edgeBand : 0) / 2;
+}
+
+function twistAt(table: Float64Array, g: number): number {
+  const n = table.length - 1;
+  if (!(g < n)) return table[n];
+  const i = Math.floor(g);
+  return table[i] + (table[i + 1] - table[i]) * (g - i);
+}
+
 const SC = { s: 0, c: 0 };
 
-/**
- * The sample point for one layer: the pattern spins about the ocean center
- * at `spinRimU` u/s at the rim, faster toward the center by
- * `spinShear` (differential rotation — banks curl and stretch), and drifts
- * on the wind. Spin and drift are isometries and may accumulate all match;
- * the SHEAR is measured from `tResetMs`, the last instant this layer's morph
- * weight was 0 (invisible), so a layer never carries more than one
- * `morphMs` of stretch (with a non-positive `morphMs` there is no morph and
- * no reset: the shear then accumulates all match — a hand-built config, the
- * harness floor is 1 ms); `shearF` is the sample's shear factor (computed once
- * for both layers). Writes (x, y) in noise-space into `out`.
- */
-function layerSample(field: FogField, x: number, y: number, tMs: number, tResetMs: number, shearF: number, out: { x: number; y: number }): void {
-  const c = field.cfg;
-  const px = x - field.spinCx;
-  const py = y - field.spinCy;
-  let rx = px;
-  let ry = py;
-  if (c.spinRimU > 0 && field.spinRadiusU > 0) {
-    const w0 = c.spinRimU / 1000 / field.spinRadiusU; // rad/ms at the rim (rim speed over radius)
-    const ang = -field.spinSign * (w0 * tMs + w0 * shearF * (tMs - tResetMs)); // look back in time: the pattern turns forward
-    fogSinCos(ang, SC);
-    rx = px * SC.c - py * SC.s;
-    ry = px * SC.s + py * SC.c;
-  }
-  out.x = (rx + field.spinCx - field.windX * tMs) / c.wavelengthU;
-  out.y = (ry + field.spinCy - field.windY * tMs) / c.wavelengthU;
-}
-
-const PA = { x: 0, y: 0 };
-const PB = { x: 0, y: 0 };
-
-/** Triangle wave of `t / period` in [0, 1] (0 at phase 0, 1 at phase ½). A non-positive period reads 0. */
-function morphWeight(tMs: number, period: number): number {
-  if (!(period > 0)) return 0;
-  const q = tMs / period;
-  const phase = q - Math.floor(q);
-  return phase < 0.5 ? 2 * phase : 2 - 2 * phase;
-}
-
-/**
- * The raw fog noise at (x, y) at match time `tMs`, roughly in [-1, 1].
- * Any non-finite input reads 0 (with a sane cut that is density 0 or an edge
- * value — never NaN).
- */
-export function fogNoiseAt(field: FogField, x: number, y: number, tMs: number): number {
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(tMs)) return 0;
-  const c = field.cfg;
-  const off = LAYER_B_OFFSET_U / c.wavelengthU;
-  // n = a + (b - a)·w: layer B is invisible at morph phase 0 (t = k·morphMs), layer A at phase ½
-  const period = c.morphMs > 0 ? c.morphMs : 0;
-  const tB = period > 0 ? Math.floor(tMs / period) * period : 0;
-  const tA = period > 0 ? Math.floor((tMs - period / 2) / period) * period + period / 2 : 0;
-  // the shear factor, once per sample: spinShear × (1 − r / radius), 0 at and beyond the rim (continuous there)
-  const px = x - field.spinCx;
-  const py = y - field.spinCy;
-  const r = Math.sqrt(px * px + py * py);
-  const shearF = !(r < field.spinRadiusU) ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
-  layerSample(field, x, y, tMs, tA, shearF, PA);
-  layerSample(field, x, y, tMs, tB, shearF, PB);
-  const a = fbm(PA.x, PA.y, field.layerA, c.octaves, c.gain);
-  const b = fbm(PB.x + off, PB.y + off, field.layerB, c.octaves, c.gain);
-  const n = a + (b - a) * morphWeight(tMs, c.morphMs);
-  return Number.isFinite(n) ? n : 0;
+/** The variance-normalized blend of the two twisted layers at eye-frame offset (qx, qy), distance r. */
+function blendedNoise(frame: FogFrame, qx: number, qy: number, r: number): number {
+  const field = frame.field;
+  const cfg = field.cfg;
+  const g = r / frame.binU;
+  const inv = 1 / cfg.wavelengthU;
+  fogSinCos(-twistAt(frame.twistA, g), SC);
+  const ax = (qx * SC.c - qy * SC.s) * inv;
+  const ay = (qx * SC.s + qy * SC.c) * inv;
+  fogSinCos(-twistAt(frame.twistB, g), SC);
+  const off = LAYER_B_OFFSET_U * inv;
+  const bx = (qx * SC.c - qy * SC.s) * inv + off;
+  const by = (qx * SC.s + qy * SC.c) * inv + off;
+  const a = fbm(ax, ay, field.layerA, cfg.octaves, cfg.gain);
+  const b = fbm(bx, by, field.layerB, cfg.octaves, cfg.gain);
+  return (a + (b - a) * frame.w) * frame.norm;
 }
 
 /** Map noise to density with the soft edge: clamp01((n − cut) / edgeBand); edgeBand ≤ 0 → a hard step. */
 function densityOf(n: number, cut: number, edgeBand: number): number {
   if (!(edgeBand > 0)) return n > cut ? 1 : 0;
-  const d = (n - cut) / edgeBand;
-  return d <= 0 ? 0 : d >= 1 ? 1 : d;
+  return clamp01((n - cut) / edgeBand);
 }
 
-/** Is (x, y) on the ocean — inside `oceanRadiusU` of the center (boundary inclusive)? An unbounded field (radius 0) is all ocean. */
+/** Is (x, y) a finite point on the ocean (inside the rim, boundary inclusive)? */
 function onOcean(field: FogField, x: number, y: number): boolean {
-  const R = field.oceanRadiusU;
-  if (!(R > 0)) return true;
-  const px = x - field.spinCx;
-  const py = y - field.spinCy;
-  return px * px + py * py <= R * R;
+  const M = field.oceanRadiusU;
+  return x * x + y * y <= M * M; // NaN compares false
 }
 
 /**
- * Fog density at (x, y) at match time `tMs` under `cut`, in [0, 1].
- * A non-finite cut or a cut ≥ FOG_NO_CUT reads 0 without evaluating noise,
- * and so does any point beyond the ocean's rim (amendment 179: fog only
- * where islands could be — the storm water outside the ocean is clear).
+ * Rain density at world (x, y) for `frame`, in [0, 1]: 0 with no rain, beyond
+ * the ocean rim, inside the clear eye, or on any non-finite input; scaled by
+ * the onset ramp.
  */
-export function fogDensityAt(field: FogField, x: number, y: number, tMs: number, cut: number): number {
-  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !onOcean(field, x, y)) return 0;
-  return densityOf(fogNoiseAt(field, x, y, tMs), cut, field.cfg.edgeBand);
+export function fogDensityAt(frame: FogFrame, x: number, y: number): number {
+  if (!frame.on || !onOcean(frame.field, x, y)) return 0;
+  const qx = x - frame.cx;
+  const qy = y - frame.cy;
+  const r = Math.sqrt(qx * qx + qy * qy);
+  const rho = frame.R > 0 ? r / frame.R : Infinity;
+  const cov = fogCoverageAt(frame.field.cfg, frame.eyeFrac, frame.edgeCov, rho);
+  if (!(cov > 0)) return 0;
+  const n = blendedNoise(frame, qx, qy, r);
+  const d = densityOf(n, cutFor(frame.field, cov), frame.field.cfg.edgeBand) * frame.onset;
+  return d > 0 ? d : 0; // NaN → 0
 }
 
 function allFinite(a: number, b: number, c: number, d: number): boolean {
   return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d);
 }
 
-/**
- * Σ paying density at the midpoints of `n` equal steps along A → B. With
- * `ownBank` (A stands in solid fog) the first step and then the leading run
- * of samples at or above `FOG_SOLID_DENSITY` are the observer's own bank and
- * pay nothing; the run ends at the first thinner sample and never restarts
- * (clear water, or even the thin edge, between you and a second bank makes
- * that bank pay full price — amendment 179, the League-bush rule).
- */
-function marchDensity(
-  field: FogField, ax: number, ay: number, dx: number, dy: number, n: number, tMs: number, cut: number, ownBank: boolean,
-): number {
-  let sum = 0;
-  let free = ownBank;
-  for (let i = 0; i < n; i++) {
-    const f = (i + 0.5) / n;
-    const d = fogDensityAt(field, ax + dx * f, ay + dy * f, tMs, cut);
-    if (free && ((i === 0 && n > 1) || d >= FOG_SOLID_DENSITY)) continue; // the first step is the observer's own ground: free whenever they stand in solid fog (a one-step ray — shorter than a step, or a non-positive marchStepU — has no "own" step: it is read)
-    free = false;
-    sum += d;
-  }
-  return sum;
+/** The march step for a ray of length `len` (a non-positive step dial marches the ray as ONE slot). */
+function stepFor(frame: FogFrame, len: number): number {
+  const s = frame.field.cfg.marchStepU;
+  return s > 0 ? s : len;
 }
 
 /**
- * The extra sight distance the ray A → B pays crossing the fog at `tMs`
- * under `cut`, A being THE OBSERVER: Σ density(midpoint_i) × step ×
- * sightCostPerU over n = ceil(len / marchStepU) equal steps — minus the
- * observer's own bank (see `marchDensity`: when the density AT A is solid,
- * the leading solid run is free). Directional: swap A and B and the toll may
- * differ. Always ≥ 0 and finite; 0 for the no-fog cut, a zero-length segment
+ * Optical depth τ of the rain along A → B for `frame`: the ray is cut into
+ * SLOTS of `marchStepU` laid from A; each full slot pays its midpoint density ×
+ * the step, the last partial slot pays ITS SLOT's midpoint density × the
+ * partial length (so τ(d) is piecewise linear in the distance d from A —
+ * exactly what `fogDepthReach` inverts). No own-bank exemption: the rain A
+ * stands in counts. Always ≥ 0 and finite; 0 with no rain, a zero-length ray
  * or any non-finite input.
  */
-export function fogTollAlong(
-  field: FogField, ax: number, ay: number, bx: number, by: number, tMs: number, cut: number,
-): number {
-  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !allFinite(ax, ay, bx, by)) return 0;
+export function fogDepthAlong(frame: FogFrame, ax: number, ay: number, bx: number, by: number): number {
+  if (!frame.on || !allFinite(ax, ay, bx, by)) return 0;
   const dx = bx - ax;
   const dy = by - ay;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (!(len > 0) || !Number.isFinite(len)) return 0;
-  const stepU = field.cfg.marchStepU > 0 ? field.cfg.marchStepU : len;
-  const n = Math.max(1, Math.ceil(len / stepU));
-  const ownBank = fogDensityAt(field, ax, ay, tMs, cut) >= FOG_SOLID_DENSITY;
-  const toll = marchDensity(field, ax, ay, dx, dy, n, tMs, cut, ownBank) * (len / n) * field.cfg.sightCostPerU;
-  return Number.isFinite(toll) && toll > 0 ? toll : 0;
-}
-
-/**
- * Does the eye-reach march have fog to read? (a real cut, a positive FINITE
- * cost, a finite pose and clock). A non-finite cost reads "no fog" — the
- * reach is the full range — exactly as `fogTollAlong` clamps the non-finite
- * toll such a cost produces to 0, so the eye and the server's sight gate
- * agree on the degenerate dial instead of the eye going blind on its own.
- */
-function reachHasFog(field: FogField, ox: number, oy: number, angle: number, tMs: number, cut: number): boolean {
-  const cost = field.cfg.sightCostPerU;
-  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !(cost > 0) || !Number.isFinite(cost)) return false;
-  return allFinite(ox, oy, angle, tMs);
-}
-
-/** `marchDensity`'s own-bank rule for step `i`: is this step still in the observer's free solid run? */
-function stillFree(free: boolean, i: number, multi: boolean, dens: number): boolean {
-  return free && ((i === 0 && multi) || dens >= FOG_SOLID_DENSITY);
+  const ux = dx / len;
+  const uy = dy / len;
+  const step = stepFor(frame, len);
+  let tau = 0;
+  for (let d0 = 0; d0 < len; d0 += step) {
+    const mid = d0 + step / 2;
+    const seg = d0 + step <= len ? step : len - d0;
+    tau += fogDensityAt(frame, ax + ux * mid, ay + uy * mid) * seg;
+  }
+  return Number.isFinite(tau) && tau > 0 ? tau : 0;
 }
 
 const RSC = { s: 0, c: 0 };
 
-/**
- * How far the observer's EYE reaches along bearing `angle` (radians, world
- * axes: dx = cos, dy = sin) for a sight `range` through the fog at `tMs`
- * under `cut`: the first distance `d` where `d + toll(d) ≥ range`, toll(d)
- * being the toll of the ray observer → the point at `d` with the SAME
- * accounting as `fogTollAlong` (a `marchStepU` midpoint march, density ×
- * step × sightCostPerU, the observer's own solid bank free — first step,
- * then the leading solid run, never restarting). Linear inside the step
- * that fills. The march is laid from the observer independent of `range`,
- * so the result is monotone non-decreasing in `range` (above one march step;
- * a range of at most one step is a single charged step, as in
- * `fogTollAlong`) and never exceeds it.
- * Presentation helper (the client's near-range radar dim mask, Eric
- * 2026-10-21, amendment 210) — the server's sight gate stays `fogTollAlong`.
- * Fail-safe "no shortening": no fog, a non-positive or non-finite cost, or any non-finite
- * pose / clock / cut returns `range`; a non-finite `range` returns itself;
- * `range ≤ 0` returns 0.
- */
-export function fogEyeReach(
-  field: FogField, ox: number, oy: number, angle: number, range: number, tMs: number, cut: number,
-): number {
-  if (!Number.isFinite(range)) return range;
-  if (range <= 0) return 0;
-  if (!reachHasFog(field, ox, oy, angle, tMs, cut)) return range;
-  fogSinCos(angle, RSC);
-  const ux = RSC.c;
-  const uy = RSC.s;
-  // A non-positive step, or a range no longer than one step, is ONE step over the whole ray: read, never
-  // "own" — `fogTollAlong` marches ceil(len / step) = 1 step there and charges it (as in marchDensity).
-  const multi = field.cfg.marchStepU > 0 && range > field.cfg.marchStepU;
-  const step = multi ? field.cfg.marchStepU : range;
-  const cost = field.cfg.sightCostPerU;
-  let free = fogDensityAt(field, ox, oy, tMs, cut) >= FOG_SOLID_DENSITY;
-  let d0 = 0;
-  let toll = 0;
-  for (let i = 0; d0 + toll < range; i++) {
+/** The distance from (ox, oy) along unit (ux, uy) where τ first reaches `maxDepth`, capped at `range`. */
+function marchReach(frame: FogFrame, ox: number, oy: number, ux: number, uy: number, range: number, maxDepth: number): number {
+  const step = stepFor(frame, range);
+  let tau = 0;
+  for (let d0 = 0; d0 < range; d0 += step) {
     const mid = d0 + step / 2;
-    const dens = fogDensityAt(field, ox + ux * mid, oy + uy * mid, tMs, cut);
-    free = stillFree(free, i, multi, dens);
-    const rate = 1 + (free ? 0 : dens * cost); // eye distance spent per unit travelled in this step
-    const left = range - d0 - toll;
-    if (step * rate >= left) return d0 + left / rate;
-    d0 += step;
-    toll += step * (rate - 1);
+    const dens = fogDensityAt(frame, ox + ux * mid, oy + uy * mid);
+    if (dens > 0 && tau + dens * step >= maxDepth) {
+      const d = d0 + (maxDepth - tau) / dens;
+      return d < range ? d : range;
+    }
+    tau += dens * step;
   }
-  return range; // unreachable: the step that fills returns inside the loop
+  return range;
 }
 
 /**
- * `fogEyeReach` on `out.length` evenly spaced bearings — `out[k]` at
+ * How far an eye at (ox, oy) sees along bearing `angle` (radians, world axes:
+ * dx = cos, dy = sin) through the rain of `frame`: the first distance where the
+ * optical depth `fogDepthAlong` from the observer reaches `maxDepth`
+ * (fogMaxDepth(cfg)), capped at `range`. Linear inside the slot that fills;
+ * the march is laid from the observer independent of `range`, so the result is
+ * monotone non-decreasing in `range` and never exceeds it. Fail-open "no
+ * shortening": no rain, a NaN `maxDepth` or a non-finite pose returns `range`;
+ * a non-finite `range` returns itself; `range ≤ 0` returns 0; a negative
+ * `maxDepth` returns 0.
+ */
+export function fogDepthReach(frame: FogFrame, ox: number, oy: number, angle: number, range: number, maxDepth: number): number {
+  if (!Number.isFinite(range)) return range;
+  if (range <= 0) return 0;
+  if (!frame.on || Number.isNaN(maxDepth) || !allFinite(ox, oy, angle, 0)) return range;
+  if (maxDepth < 0) return 0;
+  fogSinCos(angle, RSC);
+  return marchReach(frame, ox, oy, RSC.c, RSC.s, range, maxDepth);
+}
+
+/**
+ * `fogDepthReach` on `out.length` evenly spaced bearings — `out[k]` at
  * `k × 2π / out.length` — so the client casts its mask's fan in one call.
  * Returns `out`.
  */
-export function fogEyeReachFan(
-  field: FogField, ox: number, oy: number, range: number, tMs: number, cut: number, out: Float32Array,
+export function fogDepthReachFan(
+  frame: FogFrame, ox: number, oy: number, range: number, maxDepth: number, out: Float32Array,
 ): Float32Array {
   const n = out.length;
-  for (let k = 0; k < n; k++) out[k] = fogEyeReach(field, ox, oy, (k * TWO_PI) / n, range, tMs, cut);
+  for (let k = 0; k < n; k++) out[k] = fogDepthReach(frame, ox, oy, (k * TWO_PI) / n, range, maxDepth);
   return out;
 }
 
-/**
- * The cut whose fogged share over `points` is `target`, where "fogged" is
- * density ≥ ½ (the solid half of the soft edge — what a captain calls fog):
- * the (1 − target) quantile of the noise at those points minus half the
- * edge band, so the half-density contour encloses the target share
- * (amendment 178 — the quantile alone put only ~14 % at half density for a
- * 22 % dial, the rest being thin edge). target ≤ 0 (or NaN) or no points →
- * FOG_NO_CUT; target ≥ 1 → a cut below every noise value (density 1
- * everywhere). Pure — the caller picks the points (the server: a lattice
- * inside the live ring).
- */
-export function fogCutForTarget(
-  field: FogField, tMs: number, points: readonly { x: number; y: number }[], target: number,
-): number {
-  const n = points.length;
-  if (!(target > 0) || n === 0) return FOG_NO_CUT;
-  const band = field.cfg.edgeBand > 0 ? field.cfg.edgeBand : 0;
-  // target ≥ 1: below every value AND its whole soft edge, so density is 1 everywhere whatever the
-  // band (cycle-193 gate: with a huge harness edgeBand the bare −2 sat ABOVE the regular path's cut)
-  if (target >= 1) return FOG_FULL_CUT - band;
-  const vals = new Float64Array(n);
-  for (let i = 0; i < n; i++) vals[i] = fogNoiseAt(field, points[i].x, points[i].y, tMs);
-  vals.sort();
-  const idx = Math.floor((1 - target) * n);
-  const q = vals[idx < 0 ? 0 : idx > n - 1 ? n - 1 : idx];
-  return q - band / 2;
-}
+const HSC = { s: 0, c: 0 };
 
 /**
- * `side × side` cell centers over the bounding square of the disc (cx, cy, r),
- * keeping only those inside the disc. Reuses `out` (and its point objects)
- * when given, so a refresh allocates nothing after the first.
+ * The hull's sight grid: `cols × rows` world points at the cell centers of the
+ * hull's local `lengthU × beamU` rectangle about (cx, cy), the bow along
+ * `heading` (rad, 0 = +x, CCW — the ship convention). Columns run stern → bow,
+ * rows starboard → port (local +y is port); point (col c, row r) is written at
+ * `out[2 × (r × cols + c)]` (x) and the next slot (y). Both sides use this one
+ * grid. Returns the point count (0 for a non-positive count).
  */
-export function fogLattice(
-  cx: number, cy: number, r: number, side: number, out: { x: number; y: number }[] = [],
-): { x: number; y: number }[] {
-  let k = 0;
-  const cell = (2 * r) / side;
-  const r2 = r * r;
-  for (let j = 0; j < side; j++) {
-    const y = cy - r + (j + 0.5) * cell;
-    for (let i = 0; i < side; i++) {
-      const x = cx - r + (i + 0.5) * cell;
-      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r2) continue;
-      k = pushPoint(out, k, x, y);
+export function fogHullGrid(
+  cx: number, cy: number, heading: number, lengthU: number, beamU: number, cols: number, rows: number,
+  out: Float64Array | number[],
+): number {
+  if (!(cols >= 1) || !(rows >= 1)) return 0;
+  fogSinCos(heading, HSC);
+  for (let r = 0; r < rows; r++) {
+    const v = ((r + 0.5) / rows - 0.5) * beamU;
+    for (let c = 0; c < cols; c++) {
+      const u = ((c + 0.5) / cols - 0.5) * lengthU;
+      const i = 2 * (r * cols + c);
+      out[i] = cx + u * HSC.c - v * HSC.s;
+      out[i + 1] = cy + u * HSC.s + v * HSC.c;
     }
   }
-  out.length = k;
-  return out;
-}
-
-/** Write (x, y) into slot `k` of `out`, reusing an existing point object; returns k + 1. */
-function pushPoint(out: { x: number; y: number }[], k: number, x: number, y: number): number {
-  const p = out[k];
-  if (p) {
-    p.x = x;
-    p.y = y;
-  } else {
-    out.push({ x, y });
-  }
-  return k + 1;
+  return cols * rows;
 }
