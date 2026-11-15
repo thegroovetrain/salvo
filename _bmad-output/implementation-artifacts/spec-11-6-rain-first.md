@@ -92,6 +92,7 @@ warnings: ['oversized']
 - 2026-11-14 (Eric, mid-implementation): eye radius is STEPPED per ring like the edge coverage — `eyeRadiusFracByRing` 0.10 / 0.20 / 0.30 / 0.40 (start, after 1st, 2nd, 3rd close), lerped across each closing beat, held at 0.40 through the collapse. Supersedes the contract's single "eye radius 0.40 × live R". KEEP everything else.
 
 - 2026-11-14 (Eric, AskUserQuestion, mid-build): SCOPE ADDS — (1) SMOKE SCREEN clouds occlude sight like rain (cloud optical depth added to the line; same A+D look; owner blinded too; thickness set by Eric on the bench page; smoke never blocks radar — orchestrator reading). (2) RAIN RADAR CLUTTER: grainy band-shaped mush re-rolled each sweep, weak at band edges / medium in band middles / heavy outside the ring, client-drawn from the shared field (no wire, no server); real returns NOT weakened. Supersedes the contract's "Never: Radar … (11.4)" for the clutter only and its smoke-free gate list. Bench page (`bench/rain-sight/`) now ships in this PR as the story's bench (precedent: dispersionBench / reachBench).
+- 2026-11-15 (Eric: "fixing the test page isn't important. go with 3, 11, and 17.5"): clutter amounts 3 / 11 / 17.5 %; smoke 3x rain, soft 0.3 (page defaults); the bench page is REMOVED from the PR (it locks up; kept on branch `worktree-rain-sight-bench` / commit 7398b031) — supersedes the earlier "bench ships in this PR" line.
 
 ## Review Triage Log
 

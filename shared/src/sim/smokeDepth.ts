@@ -93,6 +93,11 @@ function discDepth(c: SmokeDisc, ax: number, ay: number, ux: number, uy: number,
   return softChord(px, py, ux, uy, t0, t1, r, soft > 1 ? 1 : soft);
 }
 
+/** Are all four numbers finite? */
+function allFinite4(a: number, b: number, c: number, d: number): boolean {
+  return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d);
+}
+
 /**
  * Optical depth the clouds add along A → B, in rain-density units × u (the
  * same units as `fogDepthAlong`). Always ≥ 0 and finite. No observer
@@ -102,8 +107,7 @@ export function smokeDepthAlong(
   clouds: readonly SmokeDisc[], ax: number, ay: number, bx: number, by: number, cfg: SmokeSightConfig,
 ): number {
   const k = cfg.thickness;
-  if (!(k > 0) || clouds.length === 0) return 0;
-  if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) return 0;
+  if (!(k > 0) || clouds.length === 0 || !allFinite4(ax, ay, bx, by)) return 0;
   const dx = bx - ax;
   const dy = by - ay;
   const len = Math.sqrt(dx * dx + dy * dy);
