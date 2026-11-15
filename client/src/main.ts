@@ -71,7 +71,7 @@ import { FoulZones } from './render/foulZones.js';
 import { Smoke } from './render/smoke.js';
 import { Countermeasure } from './render/countermeasure.js';
 import { FogFieldView } from './render/fogField.js';
-import type { RainEye } from './render/rainSight.js';
+import { smokeDiscsInto, type RainEye, type SmokeDiscSlot } from './render/rainSight.js';
 import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
@@ -658,10 +658,16 @@ interface Game {
   /**
    * THIS FRAME'S RAIN EYE (Story 11.6, render/rainSight.ts) — the observer the
    * contact hulls' A+D look marches the rain from: the own hull's pose through
-   * this frame's rain, or null (no pose, no rain, or spectating). A per-frame
-   * field for the same reason as `hullSoftness`; both renderers set it.
+   * this frame's rain AND the held smoke clouds (Eric 2026-11-14: smoke
+   * occludes like rain, the owner blinded too), or null (no pose, neither rain
+   * nor smoke, or spectating). A per-frame field for the same reason as
+   * `hullSoftness`; both renderers set it.
    */
   rainEye: RainEye | null;
+  /** The smoke discs `rainEye` carries, refilled in place each frame from the
+   *  held clouds (render/rainSight.ts `smokeDiscsInto`), and their slot pool. */
+  smokeDiscs: SmokeDiscSlot[];
+  smokeDiscPool: SmokeDiscSlot[];
   /**
    * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
    * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
@@ -2764,6 +2770,9 @@ function buildGame(
   // path (radar.render(null, ...)) never casts.
   const fogField = new FogFieldView(stage.layers.fog);
   radar.setEyeReachSource(fogField);
+  // ...and its rain clutter reads the same frame (Story 11.6): each march step
+  // paints the swept sector's clutter under the real returns (render/radarClutter.ts).
+  radar.setClutterSource(fogField);
   // A far cloud's radar-delivery hold ages by FRAME time (net/clock.ts frameNow),
   // so a lagging server never blinks a return it is still delivering.
   const clock = new ServerClock();
@@ -2857,7 +2866,7 @@ function buildGame(
     audio, portal,
     engineMix: new EngineMix(audio),
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
-    hullSoftness: NO_SOFTENING, rainEye: null,
+    hullSoftness: NO_SOFTENING, rainEye: null, smokeDiscs: [], smokeDiscPool: [],
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownPlated: false, // unresolved until the roster syncs the own name (1.13)
@@ -4545,10 +4554,12 @@ function renderAlive(
   g.rainEye = rainEyeFor(g, pose, now);
 }
 
-/** The own hull through this frame's rain (Story 11.6), or null — no pose or no rain. */
+/** The own hull through this frame's rain and smoke (Story 11.6), or null — no pose, or neither rain nor smoke. */
 function rainEyeFor(g: Game, pose: Point | null, now: number): RainEye | null {
-  const frame = pose ? g.fogField.frameAt(now) : null;
-  return frame && pose ? { frame, x: pose.x, y: pose.y } : null;
+  if (!pose) return null;
+  const frame = g.fogField.frameAt(now);
+  const smoke = smokeDiscsInto(g.state.net.clouds ?? [], now, g.smokeDiscPool, g.smokeDiscs);
+  return frame !== null || smoke.length > 0 ? { frame, smoke, x: pose.x, y: pose.y } : null;
 }
 
 // --- spectate rendering ----------------------------------------------------------

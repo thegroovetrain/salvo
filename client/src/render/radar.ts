@@ -157,6 +157,7 @@ import {
   sampleHeight,
   wrapPositive,
   type BlipEvent,
+  type FogFrame,
   type HeightRaster,
   type HullCoverage,
   type WakeBlipEvent,
@@ -199,6 +200,8 @@ import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './clou
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 import { dimFanSlides } from './radarDim.js';
 import { maskPassRect, usableScreen, viewAsScreen } from './maskPass.js';
+import { ClutterTrack, clutterReachU, type ClutterFrameSource } from './radarClutter.js';
+import { RAIN_CLUTTER_DEFAULTS } from './rainClutter.js';
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -458,6 +461,17 @@ export class Radar {
    * no cloud held) leaves the field exactly as it was.
    */
   private cloudSource: CloudReturnSource | null = null;
+  /**
+   * RAIN CLUTTER (Story 11.6 scope add, render/radarClutter.ts): the rain
+   * frame source (main.ts hands it the FogFieldView; null = no clutter, the
+   * default and every test that does not set one) and the pooled clutter
+   * slices — a list apart from `paints`, stamped under them (max-wins).
+   */
+  private clutterSource: ClutterFrameSource | null = null;
+  private readonly clutter = new ClutterTrack(
+    { ...RAIN_CLUTTER_DEFAULTS, cellU: CLIENT_CONFIG.blip.heatmap.cellU },
+    maxSlices() / 2 + 1,
+  );
   /** See `setStaleClock`. */
   private staleClock: (() => number) | null = null;
 
@@ -977,6 +991,7 @@ export class Radar {
   /** Drop every live mark at once (entering spectate: contacts go live/unfogged). */
   clearBlips(): void {
     this.paints.length = 0;
+    this.clutter.clear();
     this.pending.length = 0;
     this.pendingWake.length = 0;
     this.sliceFrom = null;
@@ -1053,6 +1068,8 @@ export class Radar {
     const plan = planMarch(this.sliceFrom ?? rot, rot, cfg.march);
     this.sliceFrom = plan.from;
     if (plan.owed <= 0) return;
+    const rain = this.clutterSource?.frameAt(serverNow) ?? null;
+    const clutterU = this.clutterReach(own, rain);
     const field = buildField({
       obs: own,
       raster: this.heightRaster,
@@ -1065,7 +1082,9 @@ export class Radar {
       const to = from + cfg.march.sliceRad;
       const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg, { diskR: this.mapR });
       if (slice !== null) this.enrollSlice(slice);
+      this.clutter.step({ frame: rain, ox: own.x, oy: own.y, from, to, t: serverNow, rangeU: clutterU });
       this.sliceFrom = wrapPositive(to);
+      if (this.sliceFrom < from) this.clutter.wrapped(); // a new revolution rolls fresh clutter
     }
   }
 
@@ -1313,6 +1332,26 @@ export class Radar {
     this.cloudSource = source;
   }
 
+  /** The rain clutter's bounded range this frame (render/radarClutter.ts
+   *  `clutterReachU`): 0 with no rain. */
+  private clutterReach(own: OwnPoint, rain: FogFrame | null): number {
+    if (rain === null) return 0;
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    return clutterReachU(own.x, own.y, this.view, this.radarRange, cfg.march.sliceRad, cfg.cellU, cfg.rainClutter);
+  }
+
+  /** Hand the scope the rain frame its clutter reads (main.ts passes the
+   *  FogFieldView). Null (the default) paints no clutter. */
+  setClutterSource(source: ClutterFrameSource | null): void {
+    this.clutterSource = source;
+    if (source === null) this.clutter.clear();
+  }
+
+  /** The live rain-clutter slices (debug/tests). */
+  get clutterSlices(): readonly MarchSlice[] {
+    return this.clutter.slices;
+  }
+
   /** Hand the scope the STALENESS clock (`ServerClock.frameNow`) the cloud
    *  return hold ages by. Null (the default, and every test) ages it by the
    *  frame's `serverNow`, which is the same thing on an on-time server. */
@@ -1372,6 +1411,7 @@ export class Radar {
       if (blipAlpha(serverNow - this.paints[i].t, life) > 0) continue;
       this.paints.splice(i, 1);
     }
+    this.clutter.prune(serverNow, life);
   }
 
   /**
@@ -1437,7 +1477,7 @@ export class Radar {
     // own creation (amendment 83), so this call is handed no observer state and
     // the rasterizer has none to consult.
     anchorGrid(heat.grid, win.x, win.y);
-    heat.sprite.visible = this.paints.length > 0;
+    heat.sprite.visible = this.paints.length > 0 || this.clutter.slices.length > 0;
     if (!heat.sprite.visible) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const lifeMs = blipLifeMs(this.sweepPeriodMs);
@@ -1455,6 +1495,7 @@ export class Radar {
     // are MATERIALS in the field now, so there is one record type left and one
     // stamp for it.
     rasterize(heat.grid, this.paints, ctx);
+    this.clutter.stamp(heat.grid, serverNow, lifeMs, ctx.alphaFloor); // UNDER the returns: max-wins on strength
     quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     this.clipHeat(heat.sprite, heat.grid);

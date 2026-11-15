@@ -13,12 +13,31 @@
 // layout. The rain is public weather, so this is the client re-deriving what
 // the server already used to send the hull; it is presentation only.
 //
+// SMOKE (Story 11.6 scope add, Eric 2026-11-14: SMOKE SCREEN clouds occlude
+// sight like rain; the owner is blinded too): each point's τ is the rain τ PLUS
+// the shared `smokeDepthAlong` of the clouds the client holds (`smokeDiscsInto`,
+// radius `cloudOutlineRadius` at the render time from each cloud's stamp), at
+// the `CONFIG.countermeasure` sight dials. No ownership read anywhere: your own
+// cloud costs you exactly what anybody's does. The paint's own-ship halo (a
+// see-through hole in the drawn haze) is presentation and stays.
+//
 // THE CADENCE (`HullRainVis`): 12 marches per hull of up to the whole sight
 // reach at `marchStepU` are ~1 ms per hull in rain (node, 2026-11-14), so a
 // hull re-marches every `visRefreshMs` (staggered per hull) and the drawn V
 // eases toward the latest march (`visEaseMs`). A newly seen hull snaps.
 
-import { CONFIG, fogDepthAlong, fogHullGrid, fogVisibility, type FogFrame } from '@salvo/shared';
+import {
+  CONFIG,
+  cloudOutlineRadius,
+  fogDepthAlong,
+  fogHullGrid,
+  fogVisibility,
+  smokeDepthAlong,
+  type CloudSize,
+  type FogFrame,
+  type SmokeDisc,
+  type SmokeSightConfig,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 const L = CLIENT_CONFIG.rainLook;
@@ -35,19 +54,69 @@ export const RAIN_GRID_N = RAIN_GRID_COLS * RAIN_GRID_ROWS;
  */
 export const CLEAR_V = 1 - 1 / 512;
 
-/** Who is looking through the rain: the frame and the observer's world point. */
+/** Who is looking through the weather: the rain frame (null = no rain), the
+ *  smoke discs (absent / empty = none) and the observer's world point. */
 export interface RainEye {
-  frame: FogFrame;
+  frame: FogFrame | null;
+  smoke?: readonly SmokeDisc[];
   x: number;
   y: number;
+}
+
+/** The smoke sight dials (CONFIG.countermeasure). */
+export const SMOKE_SIGHT: SmokeSightConfig = {
+  thickness: CONFIG.countermeasure.sightThickness,
+  softFrac: CONFIG.countermeasure.sightSoftFrac,
+};
+
+/** A held cloud as sight reads it: its place, its stamp time and its stamped size. */
+export interface SmokeCloudLike extends CloudSize {
+  x: number;
+  y: number;
+  t0: number; // ms — server time the cloud was made
+}
+
+/** A mutable disc (the scratch `smokeDiscsInto` fills). */
+export interface SmokeDiscSlot {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * Pure, allocation-free once warm: the held clouds as sight discs at server
+ * time `nowMs` — radius `cloudOutlineRadius(age, stamp)`; a cloud past its
+ * stamped life, or with a non-finite stamp, is left out. Refills `pool`
+ * (growing it only when more clouds are held than ever before) and sets
+ * `out.length`; returns `out`. Ownership is never read.
+ */
+export function smokeDiscsInto(
+  clouds: readonly SmokeCloudLike[], nowMs: number, pool: SmokeDiscSlot[], out: SmokeDiscSlot[],
+): SmokeDiscSlot[] {
+  let n = 0;
+  for (const c of clouds) {
+    const age = Math.max(0, nowMs - c.t0);
+    if (!(age < c.lifeMs)) continue;
+    const r = cloudOutlineRadius(age, c);
+    if (!(r > 0) || !Number.isFinite(r)) continue;
+    const slot = pool[n] ?? (pool[n] = { x: 0, y: 0, r: 0 });
+    slot.x = c.x;
+    slot.y = c.y;
+    slot.r = r;
+    out[n++] = slot;
+  }
+  out.length = n;
+  return out;
 }
 
 /** A hull's look this frame: unfiltered, the A+D filter, or the no-WebGL plain fade. */
 export type RainLookMode = 'off' | 'filter' | 'fade';
 
+const NO_SMOKE: readonly SmokeDisc[] = [];
+
 /**
  * Pure: V at each of the hull's sight-grid points — the hull at (cx, cy),
- * `heading` (rad, bow), `lengthU` × `beamU` — seen from `eye`. `pts` is a
+ * `heading` (rad, bow), `lengthU` × `beamU` — seen from `eye` (τ = rain + smoke). `pts` is a
  * scratch of at least 2 × RAIN_GRID_N; `out` receives RAIN_GRID_N values in
  * [0, 1]. Returns `out`.
  */
@@ -56,9 +125,12 @@ export function hullVisGrid(
   pts: Float64Array, out: Float32Array,
 ): Float32Array {
   const n = fogHullGrid(cx, cy, heading, lengthU, beamU, RAIN_GRID_COLS, RAIN_GRID_ROWS, pts);
+  const smoke = eye.smoke ?? NO_SMOKE;
   for (let i = 0; i < n; i++) {
-    const tau = fogDepthAlong(eye.frame, eye.x, eye.y, pts[2 * i], pts[2 * i + 1]);
-    out[i] = fogVisibility(tau, CONFIG.fog);
+    const px = pts[2 * i];
+    const py = pts[2 * i + 1];
+    const rain = eye.frame === null ? 0 : fogDepthAlong(eye.frame, eye.x, eye.y, px, py);
+    out[i] = fogVisibility(rain + smokeDepthAlong(smoke, eye.x, eye.y, px, py, SMOKE_SIGHT), CONFIG.fog);
   }
   return floorSentHull(out, n);
 }
@@ -123,8 +195,8 @@ export class HullRainVis {
 
   /**
    * Advance by `dtMs` with the hull at (x, y, heading), `lengthU` × `beamU`,
-   * seen from `eye`. Returns the drawn grid, or null with no eye (no observer
-   * or no rain — the next eye snaps again).
+   * seen from `eye`. Returns the drawn grid, or null with no eye (no observer, or
+   * neither rain nor smoke — the next eye snaps again).
    */
   step(eye: RainEye | null, x: number, y: number, heading: number, lengthU: number, beamU: number, dtMs: number): Float32Array | null {
     if (eye === null) {

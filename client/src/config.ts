@@ -2951,6 +2951,21 @@ export const CLIENT_CONFIG = {
         catchUpRad: 0.4,
       },
       /**
+       * RAIN CLUTTER'S COST BOUND (Story 11.6 scope add — render/radarClutter.ts).
+       * Each march step also paints rain clutter for its sector, out to the radar
+       * range cut to the farthest corner of the camera view grown by
+       * `viewPadFrac`, and cut again so one step's wedge holds at most
+       * `maxCellsPerStep` lattice cells (each a shared density query). 2,500
+       * cells at the 0.0505 rad quantum is a ~2,830 u disc: the whole screen at
+       * the default framing; zoomed far out, clutter stays a disc around the own
+       * hull. Feel/perf knobs, not gameplay; the look's amounts and strengths are
+       * `RAIN_CLUTTER_DEFAULTS` (Eric's).
+       */
+      rainClutter: {
+        maxCellsPerStep: 2500,
+        viewPadFrac: 0.1,
+      },
+      /**
        * THE PHYSICAL RETURN MODEL (Story 4.10, amendments 105-106, 118, 127-136;
        * re-tuned by cycle 62) — every coefficient and reference range the ONE
        * model needs. The math itself is render/radarFalloff.ts; this block is only

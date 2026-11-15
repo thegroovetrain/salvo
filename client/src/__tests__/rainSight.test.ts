@@ -19,6 +19,8 @@ import {
   fogHullGrid,
   fogVisibility,
   makeFogField,
+  baseSmokeStats,
+  cloudOutlineRadius,
   type FogFrame,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -33,7 +35,9 @@ import {
   meanVisibility,
   needsDissolve,
   rainLookMode,
+  smokeDiscsInto,
   type RainEye,
+  type SmokeDiscSlot,
 } from '../render/rainSight.js';
 import {
   HullDissolve,
@@ -94,6 +98,69 @@ describe('hullVisGrid — V at the shared sight grid', () => {
     const dry = fogFrameAt(makeFogField(1, CONFIG.fog, OCEAN), T, null, 0, 0);
     hullVisGrid({ frame: dry, x: PART.eye.x, y: PART.eye.y }, PART.x, PART.y, 0, HULL.length, HULL.beam, new Float64Array(2 * RAIN_GRID_N), out);
     expect(out.every((v) => v === 1)).toBe(true);
+  });
+});
+
+describe('hullVisGrid — smoke adds its optical depth (τ = rain + smoke)', () => {
+  const SIZE = (({ lifeMs, r0, r1 }) => ({ lifeMs, r0, r1 }))(baseSmokeStats());
+  /** One held cloud at (cx, 0), aged to just before the end of its life (full growth). */
+  const grownDiscs = (cx: number): SmokeDiscSlot[] => {
+    const now = 100_000;
+    return smokeDiscsInto([{ x: cx, y: 0, t0: now - (SIZE.lifeMs - 1), ...SIZE }], now, [], []);
+  };
+  const R = cloudOutlineRadius(SIZE.lifeMs - 1, SIZE);
+  const cut = CONFIG.fog.sightCutoffV;
+  const grid = (eye: RainEye, x: number): Float32Array => {
+    const out = new Float32Array(RAIN_GRID_N);
+    return hullVisGrid(eye, x, 0, Math.PI / 2, HULL.length, HULL.beam, new Float64Array(2 * RAIN_GRID_N), out);
+  };
+  const below = (v: Float32Array): number => v.filter((x) => x < cut).length;
+
+  it('a hull behind a grown cloud reads below the cutoff (only the sent floor at it); with no cloud it reads 1', () => {
+    const d = 2 * R + 400; // observer and hull on opposite sides of the cloud
+    const behind = grid({ frame: null, smoke: grownDiscs(d / 2), x: 0, y: 0 }, d);
+    expect(below(behind)).toBeGreaterThanOrEqual(RAIN_GRID_N - 1);
+    expect(Math.max(...behind)).toBeLessThanOrEqual(Math.fround(cut));
+    const clear = grid({ frame: null, smoke: [], x: 0, y: 0 }, d);
+    expect(clear.every((v) => v === 1)).toBe(true);
+    const aside = grid({ frame: null, smoke: grownDiscs(-d), x: 0, y: 0 }, d); // the cloud behind the OBSERVER, off the line
+    expect(aside.every((v) => v === 1)).toBe(true);
+  });
+
+  it('the observer standing in a cloud is not exempt (your own smoke blinds you)', () => {
+    const v = grid({ frame: null, smoke: grownDiscs(0), x: 0, y: 0 }, R + 200);
+    expect(below(v)).toBeGreaterThanOrEqual(RAIN_GRID_N - 1);
+  });
+
+  it('adds to the rain along the same line', () => {
+    const pts = new Float64Array(2 * RAIN_GRID_N);
+    const rainOnly = Float32Array.from(PART.vis);
+    const both = new Float32Array(RAIN_GRID_N);
+    const mid = { x: (PART.eye.x + PART.x) / 2, y: PART.eye.y };
+    const thin = [{ x: mid.x, y: mid.y, r: 30 }];
+    hullVisGrid({ ...PART.eye, smoke: thin }, PART.x, PART.y, PART.h, HULL.length, HULL.beam, pts, both);
+    let darker = 0;
+    for (let i = 0; i < RAIN_GRID_N; i++) {
+      expect(both[i]).toBeLessThanOrEqual(rainOnly[i] + 1e-6);
+      if (both[i] < rainOnly[i] - 1e-4) darker++;
+    }
+    expect(darker).toBeGreaterThan(0);
+  });
+
+  it('smokeDiscsInto: radius from the stamp at the render time; a cloud past its life is left out', () => {
+    const now = 50_000;
+    const pool: SmokeDiscSlot[] = [];
+    const out: SmokeDiscSlot[] = [];
+    smokeDiscsInto([
+      { x: 1, y: 2, t0: now - 1000, ...SIZE },
+      { x: 3, y: 4, t0: now - SIZE.lifeMs, ...SIZE },
+    ], now, pool, out);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ x: 1, y: 2, r: cloudOutlineRadius(1000, SIZE) });
+    const first = out[0];
+    smokeDiscsInto([{ x: 5, y: 6, t0: now, ...SIZE }], now, pool, out);
+    expect(out[0]).toBe(first); // the slot is reused, not reallocated
+    expect(out[0].r).toBe(cloudOutlineRadius(0, SIZE));
   });
 });
 
