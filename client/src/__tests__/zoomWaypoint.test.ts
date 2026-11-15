@@ -6,7 +6,7 @@
 // The zoom-out limit is the WHOLE MAP fit (2 × mapRadius × reveal.mapFitMargin,
 // the reveal's framing) for the alive camera and the spectator alike; the live
 // ring fit is a DETENT on the way (a step that would cross it lands on it); the
-// centre slides ship → ring centre up to the detent, then ring centre → map
+// centre slides anchor → ring centre up to the detent (from half of it since Story 11.8), then ring centre → map
 // centre (the origin) out to the map fit. Every number below is derived from
 // config / the shared map sizing, never a literal span.
 
@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, mapRadius } from '@salvo/shared';
 import { Camera, detentSpanU, ringFitSpanU, stepZoom, zoomOutSpanU, type CameraOptions } from '../render/camera.js';
 import { wheelZoom } from '../render/spectate.js';
-import { EXTRA_MARGIN_PX, fogFrameRects } from '../render/fog.js';
+import { fogBakeSize, fogFrameRects } from '../render/fog.js';
 import { fillOuterRadius } from '../render/zone.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -29,10 +29,6 @@ const OPTS: CameraOptions = {
   defaultSpanU: Z.defaultSpanU,
   closeSpanU: Z.closeSpanU,
   ringFitMargin: MARGIN,
-  followRate: CLIENT_CONFIG.camera.followRate,
-  leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
-  leadMax: CLIENT_CONFIG.camera.leadMax,
-  keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
 };
 
 /** A camera with the map fed and a ring of radius `r` centred at (cx, cy). */
@@ -103,7 +99,7 @@ describe('the zoom-OUT limit is the WHOLE MAP (amendment 142)', () => {
       cam.setUserZoom(0);
       expect(cam.userSpanU, `ring ${r}`).toBeCloseTo(MAP_SPAN, 6); // the map still frames
       expect(cam.zoomDetent, `ring ${r}`).toBe(1); // the waypoint is the default framing
-      cam.update(0.05, { x: 100, y: 100, heading: 0, speed: 0 });
+      cam.update(0.05, { x: 100, y: 100 });
       expect(Number.isFinite(cam.center.x) && Number.isFinite(cam.center.y), `ring ${r}`).toBe(true);
     }
   });
@@ -193,110 +189,54 @@ describe('the live ring fit is a DETENT on the way out (amendment 142)', () => {
     expect(first.userSpanU).toBeCloseTo(MAP_SPAN, 6);
   });
 });
-
-describe('the two centre slides: ship → ring centre → map centre (amendment 142)', () => {
-  const RING = { x: MAP_R * 0.3, y: -MAP_R * 0.2, r: MAP_R * 0.4 };
-  const SHIP = { x: RING.x + 50, y: RING.y - 30, heading: 0, speed: 0 };
-
-  function at(span: number, ship = SHIP): Camera {
-    const cam = mapped(RING.r, RING.x, RING.y);
-    cam.setUserZoom(Z.defaultSpanU / span);
-    cam.snapTo(ship);
-    cam.update(0.05, ship);
-    return cam;
-  }
-
-  it('exactly the RING CENTRE at the detent', () => {
-    const cam = at(ringFitSpanU(RING.r, MARGIN));
-    expect(cam.slideT).toBe(1);
-    expect(cam.mapSlideT).toBe(0);
-    expect(cam.center.x).toBeCloseTo(RING.x, 9);
-    expect(cam.center.y).toBeCloseTo(RING.y, 9);
-  });
-
-  it('exactly the MAP CENTRE (the origin) at the out limit', () => {
-    const cam = at(MAP_SPAN);
-    expect(cam.mapSlideT).toBe(1);
-    expect(cam.center.x).toBeCloseTo(0, 9);
-    expect(cam.center.y).toBeCloseTo(0, 9);
-  });
-
-  it('linear in span between the detent and the map fit', () => {
-    const ringSpan = ringFitSpanU(RING.r, MARGIN);
-    for (const k of [0.25, 0.5, 0.75]) {
-      const cam = at(ringSpan + k * (MAP_SPAN - ringSpan));
-      expect(cam.mapSlideT).toBeCloseTo(k, 9);
-      expect(cam.center.x).toBeCloseTo(RING.x * (1 - k), 6);
-      expect(cam.center.y).toBeCloseTo(RING.y * (1 - k), 6);
-    }
-  });
-
-  it('the first slide is unchanged: the ship at the default framing, halfway at the midpoint span', () => {
-    const d = at(Z.defaultSpanU);
-    expect(d.center.x).toBeCloseTo(SHIP.x, 9);
-    expect(d.center.y).toBeCloseTo(SHIP.y, 9);
-    const mid = at((Z.defaultSpanU + ringFitSpanU(RING.r, MARGIN)) / 2);
-    expect(mid.mapSlideT).toBe(0);
-    expect(mid.center.x).toBeCloseTo((SHIP.x + RING.x) / 2, 6);
-  });
-
-  it('with the ring under the default framing the map slide runs from the ship straight to the origin', () => {
-    const cam = mapped(0, RING.x, RING.y);
-    cam.setUserZoom(Z.defaultSpanU / ((Z.defaultSpanU + MAP_SPAN) / 2));
-    cam.snapTo({ x: 200, y: 100 });
-    cam.update(0.05, { x: 200, y: 100, heading: 0, speed: 0 });
-    expect(cam.center.x).toBeCloseTo(100, 6);
-    expect(cam.center.y).toBeCloseTo(50, 6);
-  });
-
-  it('the own hull stays inside the view rect at the out limit (and every zoom out to it), anywhere on the map', () => {
-    const pad = CLIENT_CONFIG.camera.keepInViewPadU;
-    const ringSpan = ringFitSpanU(RING.r, MARGIN);
-    const spans = [Z.defaultSpanU, ringSpan, (ringSpan + MAP_SPAN) / 2, MAP_SPAN];
-    for (let a = 0; a < 16; a++) {
-      for (const k of [0, 0.5, 0.9, 1]) {
-        const ship = { x: Math.cos(a) * k * MAP_R, y: Math.sin(a) * k * MAP_R, heading: a, speed: 30 };
-        for (const span of spans) {
-          const cam = at(span, ship);
-          const v = cam.worldView;
-          const tag = `a ${a} k ${k} span ${span.toFixed(0)}`;
-          expect(Math.abs(ship.x - v.x), tag).toBeLessThanOrEqual(v.halfW - pad + 1e-6);
-          expect(Math.abs(ship.y - v.y), tag).toBeLessThanOrEqual(v.halfH - pad + 1e-6);
-        }
-      }
-    }
-  });
-});
-
 describe('fog and storm still cover the screen at the map fit (amendment 142)', () => {
   const RING = { x: -MAP_R * 0.35, y: MAP_R * 0.25, r: MAP_R * 0.15 };
 
-  it('the baked sprite + frame strips tile the whole screen with the hull anywhere on the map', () => {
-    for (let a = 0; a < 12; a++) {
-      const ship = { x: Math.cos(a) * MAP_R, y: Math.sin(a) * MAP_R, heading: 0, speed: 0 };
-      const cam = mapped(RING.r, RING.x, RING.y);
-      cam.setUserZoom(0);
-      cam.snapTo(ship);
-      cam.update(0.05, ship);
-      // Fog.rebake + Fog.update geometry (render/fog.ts, render/textures.ts).
-      const margin = CLIENT_CONFIG.camera.leadMax * cam.zoom + EXTRA_MARGIN_PX;
-      const sw = Math.ceil(VW + 2 * margin);
-      const sh = Math.ceil(VH + 2 * margin);
-      const hole = cam.worldToScreen(ship);
-      const left = Math.round(hole.x - sw / 2);
-      const top = Math.round(hole.y - sh / 2);
-      const strips = fogFrameRects(left, top, sw, sh, VW, VH);
-      const ix = Math.max(0, Math.min(VW, left + sw) - Math.max(0, left));
-      const iy = Math.max(0, Math.min(VH, top + sh) - Math.max(0, top));
-      const covered = ix * iy + strips.reduce((s, r) => s + r.w * r.h, 0);
-      expect(covered, `a ${a}`).toBeCloseTo(VW * VH, 6);
+  /** Fog.rebake + Fog.update geometry (render/fog.ts): the sprite about the
+   *  hull's screen point, the flat strips around it. */
+  function fogLayout(cam: Camera, ship: { x: number; y: number }): {
+    hole: { x: number; y: number }; holePx: number; left: number; top: number; sw: number; sh: number;
+  } {
+    const holePx = CONFIG.vision.hullSight * cam.zoom;
+    const { w, h, scale } = fogBakeSize(VW, VH, holePx);
+    const sw = Math.ceil(w * scale) / scale;
+    const sh = Math.ceil(h * scale) / scale;
+    const hole = cam.worldToScreen(ship);
+    return { hole, holePx, left: Math.round(hole.x - sw / 2), top: Math.round(hole.y - sh / 2), sw, sh };
+  }
+
+  // Story 11.8: the hull may be panned OFF screen. Whatever the sprite does not
+  // cover is filled flat — so every strip must lie wholly outside the hole, or
+  // it would paint fog over water the eye sees.
+  it('the baked sprite + frame strips tile the whole screen, and no strip ever reaches into the hole — hull on or off screen', () => {
+    for (const span of [Z.closeSpanU, Z.defaultSpanU, MAP_SPAN / 2, MAP_SPAN]) {
+      for (let a = 0; a < 12; a++) {
+        const ship = { x: Math.cos(a) * MAP_R, y: Math.sin(a) * MAP_R };
+        const cam = mapped(RING.r, RING.x, RING.y);
+        cam.setUserZoom(Z.defaultSpanU / span);
+        cam.update(0.05, ship);
+        cam.pan(-Math.cos(a) * MAP_R * 0.8, -Math.sin(a) * MAP_R * 0.8); // toward the far side
+        cam.update(0.05, ship);
+        const f = fogLayout(cam, ship);
+        const strips = fogFrameRects(f.left, f.top, f.sw, f.sh, VW, VH);
+        const ix = Math.max(0, Math.min(VW, f.left + f.sw) - Math.max(0, f.left));
+        const iy = Math.max(0, Math.min(VH, f.top + f.sh) - Math.max(0, f.top));
+        const covered = ix * iy + strips.reduce((s, r) => s + r.w * r.h, 0);
+        const tag = `span ${span} a ${a}`;
+        expect(covered, tag).toBeCloseTo(VW * VH, 3);
+        for (const r of strips) {
+          const nx = Math.max(r.x, Math.min(f.hole.x, r.x + r.w));
+          const ny = Math.max(r.y, Math.min(f.hole.y, r.y + r.h));
+          expect(Math.hypot(nx - f.hole.x, ny - f.hole.y), tag).toBeGreaterThanOrEqual(f.holePx - 1);
+        }
+      }
     }
   });
 
   it('the storm fill disc about the ring centre reaches every screen corner at the map fit', () => {
     const cam = mapped(RING.r, RING.x, RING.y);
     cam.setUserZoom(0);
-    const ship = { x: MAP_R * 0.9, y: -MAP_R * 0.4, heading: 0, speed: 0 };
+    const ship = { x: MAP_R * 0.9, y: -MAP_R * 0.4 };
     cam.snapTo(ship);
     cam.update(0.05, ship);
     const fillR = fillOuterRadius({
@@ -315,32 +255,22 @@ describe('fog and storm still cover the screen at the map fit (amendment 142)', 
   });
 });
 
-describe('spectate zoom-about-cursor across the detent and at the map limit (amendment 142)', () => {
-  it('the cursor point stays fixed on the step that lands on the detent, the one past it, and at the map limit', () => {
+describe('spectate zoom-out across the detent and at the map limit (amendment 142; Story 11.8 rules)', () => {
+  it('a wheel run out stops on the detent on the way, ends on the whole map with the board centred, and never leaves FOLLOW', () => {
     const cam = mapped(MAP_R / 3, 500, -300);
-    cam.snapTo({ x: 900, y: 400 });
+    const hull = { x: 900, y: 400 };
+    cam.update(0, hull);
     const s = { x: 1300, y: 200 };
-    let guard = 0;
-    while (spanOf(cam) < MAP_SPAN - 1e-6 && guard++ < 400) {
-      const p = cam.screenToWorld(s);
-      cam.zoomAbout(s.x, s.y, wheelZoom(cam.zoomFactor, 100, cam.zoomDetent));
-      const back = cam.worldToScreen(p);
-      expect(back.x).toBeCloseTo(s.x, 6);
-      expect(back.y).toBeCloseTo(s.y, 6);
-    }
-    expect(spanOf(cam)).toBeCloseTo(MAP_SPAN, 6);
-    // ...and it DID stop on the detent on the way (re-run from the default).
-    const again = mapped(MAP_R / 3, 500, -300);
     const seen: number[] = [];
-    for (let i = 0; i < 400 && spanOf(again) < MAP_SPAN - 1e-6; i++) {
-      again.zoomAbout(s.x, s.y, wheelZoom(again.zoomFactor, 100, again.zoomDetent));
-      seen.push(again.zoomFactor);
+    for (let i = 0; i < 400 && spanOf(cam) < MAP_SPAN - 1e-6; i++) {
+      cam.zoomAbout(s.x, s.y, wheelZoom(cam.zoomFactor, 100, cam.zoomDetent));
+      cam.update(0, hull);
+      seen.push(cam.zoomFactor);
+      expect(cam.mode).toBe('follow');
     }
-    expect(seen).toContain(again.zoomDetent);
-    // At the clamped map limit a further notch holds the cursor point too.
-    const p = cam.screenToWorld(s);
-    cam.zoomAbout(s.x, s.y, wheelZoom(cam.zoomFactor, 100, cam.zoomDetent));
-    expect(cam.worldToScreen(p).x).toBeCloseTo(s.x, 6);
-    expect(cam.worldToScreen(p).y).toBeCloseTo(s.y, 6);
+    expect(seen).toContain(cam.zoomDetent);
+    expect(spanOf(cam)).toBeCloseTo(MAP_SPAN, 6);
+    expect(cam.center.x).toBeCloseTo(0, 6);
+    expect(cam.center.y).toBeCloseTo(0, 6);
   });
 });

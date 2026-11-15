@@ -54,9 +54,6 @@ describe('wheelZoom', () => {
       defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
       closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
       ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-      followRate: 5,
-      leadSeconds: 4,
-      leadMax: 110,
     });
     c.setViewport(1600, 900);
     c.setRing(0, 0, 2800);
@@ -115,9 +112,6 @@ describe('Camera zoom factor + pan (spectators only)', () => {
       defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
       closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
       ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-      followRate: 5,
-      leadSeconds: 4,
-      leadMax: 110,
     });
     c.setViewport(1600, 900);
     c.setRing(0, 0, RING_R); // the spectate feed (Eric 2026-10-14)

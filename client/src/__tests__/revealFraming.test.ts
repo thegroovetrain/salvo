@@ -26,9 +26,6 @@ function makeCamera(): Camera {
     defaultSpanU: DEFAULT_SPAN,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: 5,
-    leadSeconds: 4,
-    leadMax: 110,
   });
   c.setViewport(1600, 900); // short axis 900
   // The live ring the spectate clamp fits (Eric 2026-10-14: the spectate range
@@ -219,11 +216,10 @@ describe('Manual input releases the reveal — then the clamp governs again', ()
     expect(cam.zoomFactor).toBe(lim.max);
   });
 
-  it('a free-pan releases the mode but does NOT move the zoom', () => {
+  it('a free-pan that moves releases the mode but does NOT move the zoom', () => {
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
-    settle(cam, 1);
-    const framing = cam.zoomFactor;
+    const framing = cam.zoomFactor; // the reveal's first frame: the anchor still has a say
 
     const d = spectatePan({ throttle: 1, rudder: 0 }, 0.1, cam.zoomFactor);
     cam.pan(d.dx, d.dy);
@@ -231,6 +227,18 @@ describe('Manual input releases the reveal — then the clamp governs again', ()
     expect(cam.zoomFactor).toBe(framing); // a pan is not a zoom: nothing jumps
     settle(cam, 1);
     expect(cam.zoomFactor).toBe(framing); // and it stays put
+  });
+
+  it('a free-pan at the whole-board framing is a no-op: it leaves the reveal running (Story 11.8 review)', () => {
+    const cam = makeCamera();
+    cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
+    settle(cam, 1);
+    const center = { ...cam.center };
+    const d = spectatePan({ throttle: 1, rudder: 0 }, 0.1, cam.zoomFactor);
+    cam.pan(d.dx, d.dy);
+    expect(cam.revealing).toBe(true);
+    expect(cam.mode).toBe('follow');
+    expect(cam.center).toEqual(center);
   });
 
   it('resetZoomFactor (respawn / rejoin) leaves the mode too', () => {

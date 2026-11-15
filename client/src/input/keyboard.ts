@@ -12,8 +12,11 @@
 //
 // The fixed v1 bindings (Eric rulings 2026-07-24, epic-2-context-amendments
 // entries 1–9):
-//   W/S (+arrows)  telegraph ±1 detent, edge-only (input/telegraph.ts)
-//   A/D (+arrows)  held rudder
+//   W/S            telegraph ±1 detent, edge-only (input/telegraph.ts)
+//   A/D            held rudder (Story 11.8: the arrows no longer steer)
+//   ARROWS         held camera PAN (Story 11.8) — state only, read by
+//                  `arrowPanAxes()`; swallowed by a focused overlay
+//   SPACE          CAMERA HOME (Story 11.8): back to FOLLOW, edge-only
 //   Q / E / R      the three FAMILY weapon slots 2 / 3 / 4 (torpedo / mine /
 //                  special shell — shared WEAPON_SLOTS, Story 10.5): weapons
 //                  switch-to (prime toggle); a key on an EMPTY weapon slot is
@@ -53,7 +56,7 @@
 //                  RETURN TO PORT; inert in-match
 //   X / Z          camera zoom in / out (alive-only — main.ts gates)
 //   M / P          mute / prediction-debug toggle
-//   Space / CTRL   unbound; Space keydown still prevented (page scroll)
+//   CTRL           unbound
 //
 // Prime model (Eric rulings 2026-07-21 + 2026-07-24): the gun (slot 0) is the
 // permanently selected default with NO key of its own. A weapon slot key
@@ -93,15 +96,24 @@ export interface Axes {
   rudder: number;
 }
 
-const LEFT = ['KeyA', 'ArrowLeft'];
-const RIGHT = ['KeyD', 'ArrowRight'];
+const LEFT = ['KeyA'];
+const RIGHT = ['KeyD'];
+
+/**
+ * THE CAMERA PAN KEYS (Story 11.8, Eric 2026-11-15: the arrows left the helm —
+ * WASD only — and pan the map while held). Exported so the settings reference
+ * reconciles against it.
+ */
+export const PAN_KEY_CODES = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' } as const;
+
+/** CAMERA HOME (Story 11.8): Space snaps the camera back to FOLLOW. */
+export const CAMERA_HOME_CODE = 'Space';
 
 /**
  * The LABELED helm keys — the ones the on-screen chips actually teach (W/S at
- * the ladder, A/D at the rudder track). The arrows steer identically and always
- * will, but they are an unlabeled alias: a player who only ever uses the arrows
- * has learned nothing the chips are there to teach, so arrow input must NOT
- * count toward the glyph fade (Story 2.4). Tone/steering are unaffected.
+ * the ladder, A/D at the rudder track). Since Story 11.8 they are the ONLY
+ * helm keys (the arrows pan the camera), so every helm press counts toward the
+ * glyph fade (Story 2.4); the sets stay as the fade's one definition.
  */
 const LABELED_THROTTLE = new Set(['KeyW', 'KeyS']);
 const LABELED_RUDDER = new Set(['KeyA', 'KeyD']);
@@ -224,7 +236,7 @@ function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
 }
 
-/** Pure: rudder axis from held keys (A/D or arrows). -1 left .. +1 right. */
+/** Pure: rudder axis from held keys (A/D). -1 left .. +1 right. */
 export function rudderFrom(keys: Set<string>): number {
   let rudder = 0;
   if (anyHeld(keys, RIGHT)) rudder += 1;
@@ -242,6 +254,18 @@ export function panAxesFrom(keys: Set<string>): Axes {
   if (anyHeld(keys, THROTTLE_AHEAD)) throttle += 1;
   if (anyHeld(keys, THROTTLE_ASTERN)) throttle -= 1;
   return { throttle, rudder: rudderFrom(keys) };
+}
+
+/**
+ * Pure: the held ARROW keys as pan axes (Story 11.8) — throttle +1 up / −1
+ * down, rudder +1 right / −1 left, the same convention as `panAxesFrom`, so
+ * both feed render/spectate.ts `spectatePan` (W / ↑ pans the view up).
+ */
+export function arrowPanAxesFrom(keys: Set<string>): Axes {
+  const k = PAN_KEY_CODES;
+  const throttle = (keys.has(k.up) ? 1 : 0) - (keys.has(k.down) ? 1 : 0);
+  const rudder = (keys.has(k.right) ? 1 : 0) - (keys.has(k.left) ? 1 : 0);
+  return { throttle, rudder };
 }
 
 /**
@@ -325,16 +349,14 @@ export function textEntryFocused(doc: Document = document): boolean {
  */
 export interface KeyboardHooks {
   /** A throttle keydown edge: step direction, whether the detent changed (false
-   *  at an end stop), and whether the key was a LABELED one (W/S, not an arrow)
-   *  — wired to the telegraph-click tone (all keys) AND (Story 2.4) the W/S
+   *  at an end stop), and whether the key was a LABELED one (W/S — every helm
+   *  key since Story 11.8) — wired to the telegraph-click tone (all keys) AND (Story 2.4) the W/S
    *  helm-glyph fade, which counts only CHANGED steps from LABELED keys. */
   onDetent?: (dir: Step, changed: boolean, labeled: boolean) => void;
   /**
    * A LABELED rudder key (A/D) ACTIVATION edge that reached the sim — one per
    * physical press, never per held frame, and never while a focused overlay is
-   * suppressing input (the dispatcher swallows those before the handler). The
-   * arrows steer identically but do not fire this: they are an unlabeled alias
-   * and the chips teach A/D. Feeds the A/D helm-glyph fade (Story 2.4,
+   * suppressing input (the dispatcher swallows those before the handler). Feeds the A/D helm-glyph fade (Story 2.4,
    * amendment 26); it changes no steering behavior — the rudder is still read
    * from the held-key set.
    */
@@ -429,6 +451,9 @@ export interface KeyboardHooks {
   /** X (+1, in) / Z (-1, out) camera zoom step. OS auto-repeat is deliberately
    *  allowed — holding the key zooms smoothly, mirroring the wheel. */
   onZoom?: (dir: 1 | -1) => void;
+  /** SPACE — CAMERA HOME (Story 11.8): back to FOLLOW at the same zoom. One
+   *  per physical press; swallowed by a focused overlay. */
+  onCameraHome?: () => void;
   /** M — master mute toggle. */
   onMute?: () => void;
   /** P — prediction ⇄ interpolation netcode debug toggle. */
@@ -518,10 +543,12 @@ export class KeyboardInput {
     });
     bind(Object.keys(REFIT_DIGIT_CODES), this.handleDigitKey);
     // F: the FOGHORN (Story 4.5) — edge-gated so a held key is ONE honk, and
-    // suspended by a focused overlay. Space stays BOUND-INERT: prevented (page
-    // scroll), no action.
+    // suspended by a focused overlay.
     bind(['KeyF'], this.edge(() => this.handleFoghorn()));
-    bind(['Space'], () => undefined);
+    // SPACE: CAMERA HOME (Story 11.8) — edge-gated, prevented (page scroll).
+    bind([CAMERA_HOME_CODE], this.edge(() => this.hooks.onCameraHome?.()));
+    // ARROWS: the held camera pan (Story 11.8) — state only, like A/D.
+    bind(Object.values(PAN_KEY_CODES), this.holdKey);
     // TAB: the held modifier (R3). It opens nothing; it only arms the digits.
     bind(['Tab'], this.holdTab);
     bind(['Escape'], this.edge(() => this.hooks.onEscape?.()));
@@ -614,7 +641,17 @@ export class KeyboardInput {
     return this.hooks.isOverlayFocused?.() === true && !OVERLAY_KEYS.has(code);
   }
 
-  /** W/S (+arrows): record the held state (spectator pan reads it) and step
+  /** A held-state-only key (the arrows' camera pan, Story 11.8). An OS
+   *  auto-repeat never RE-latches a pan key the set no longer holds (Story
+   *  11.8 review): after `clearKeys` (spectate entry, a blur) a key still
+   *  physically down keeps auto-repeating, and re-latching on that would
+   *  resume a pan the boundary meant to stop. A fresh press latches it. */
+  private readonly holdKey = (e: KeyboardEvent): void => {
+    if (e.repeat && !this.keys.has(e.code)) return;
+    this.keys.add(e.code);
+  };
+
+  /** W/S: record the held state (spectator pan reads it) and step
    *  the telegraph one detent per keydown EDGE (repeat → stepFromKey null). */
   private readonly handleThrottleKey = (e: KeyboardEvent): void => {
     this.keys.add(e.code);
@@ -625,7 +662,7 @@ export class KeyboardInput {
   };
 
   /**
-   * A/D (+arrows): held rudder — state only, read by axes()/panAxes(). A keydown
+   * A/D: held rudder — state only, read by axes()/panAxes(). A keydown
    * that NEWLY LATCHES the key is an activation edge and reports to onRudder
    * (labeled A/D only) for the helm-glyph fade.
    *
@@ -857,6 +894,13 @@ export class KeyboardInput {
   /** Spectator free-pan axes: held WASD (throttle = live held W/S, not the order). */
   panAxes(): Axes {
     return panAxesFrom(this.keys);
+  }
+
+  /** The held-ARROW camera pan axes (Story 11.8); zero while a focused overlay
+   *  is up (an arrow held as it opened must not keep panning behind it). */
+  arrowPanAxes(): Axes {
+    if (this.hooks.isOverlayFocused?.() === true) return { throttle: 0, rudder: 0 };
+    return arrowPanAxesFrom(this.keys);
   }
 
   /** Current throttle order in [-1, 1] (for the neutral-send that preserves it). */

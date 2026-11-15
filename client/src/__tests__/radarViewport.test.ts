@@ -131,9 +131,6 @@ function camera(userZoom: number): Camera {
     defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: 6,
-    leadSeconds: 0,
-    leadMax: 0,
   });
   c.setViewport(VIEW_W, VIEW_H);
   c.setRing(0, 0, RING_R);
@@ -513,7 +510,10 @@ describe('a paint at the radar rim is not clipped as the observer sails away', (
   it('and it comes BACK when it scrolls into view again — the buffer is scratch, '
     + 'the paint list is the history (amendment 96)', () => {
     const { radar } = harness();
-    const cam = camera(USER_ZOOM_MIN);
+    // The DEFAULT framing (Story 11.8): at the ring-fit zoom the strategic slide
+    // holds the view on the ring centre whatever the hull does, so only a view
+    // that follows the hull can scroll a paint off screen by sailing.
+    const cam = camera(1);
     const e = echo(0, 620);
     frame(radar, cam, { x: 0, y: 0 }, 900);
     radar.onBlip(e.e);

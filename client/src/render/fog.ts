@@ -113,22 +113,46 @@ export const FOG_BAKE_MAX_PX = 2048;
 /**
  * Pure: the fog bake's logical size (px) and its resolution scale (≤ 1).
  *
- * THE BAKE COVERS THE SCREEN FROM ANY ON-SCREEN HULL (Story 11.2). The hole is
- * the plain-hull reach — thousands of u — so at the zoom-out framings the hole
- * is wider than the old viewport + lead margin, and the flat strips around a
- * sliding sprite (`fogFrameRects`) would paint fog over water inside the hole.
- * The sprite is centered on the own hull, and the camera keeps the hull on
- * screen (`keepInViewPadU`), so a sprite of 2 × the viewport (+ the shake
- * margin each side) covers every screen pixel wherever the hull sits; the
- * strips stay as the fallback and never fire in play. The canvas is capped at
- * `FOG_BAKE_MAX_PX` on its longer side by the returned `scale` — the WORST
- * CASE canvas is FOG_BAKE_MAX_PX on the long side at any zoom and viewport.
+ * THE BAKE COVERS THE SCREEN FROM ANY ON-SCREEN HULL (Story 11.2): the sprite
+ * is centered on the own hull, so a sprite of 2 × the viewport (+ the shake
+ * margin each side) covers every screen pixel wherever on screen the hull sits
+ * — the NORMAL bake (`holeRadiusPx` 0), at the pre-11.8 resolution.
+ *
+ * THE WIDE BAKE, ONLY WHILE THE HULL IS OFF SCREEN (Story 11.8; `fogWideBake`
+ * decides): the free camera can pan the hull past any viewport-sized sprite,
+ * and the flat strips around it (`fogFrameRects`) would then paint fog over
+ * on-screen water inside the hole. Passing the hole radius makes each side at
+ * least the hole's diameter (+ the margin): everything outside the sprite is
+ * then outside the hole, and the strips are exactly right wherever the hull
+ * is. The canvas is capped at `FOG_BAKE_MAX_PX` on its longer side by the
+ * returned `scale` (the fill is flat and the feather a quarter of the hole, so
+ * the coarser wide bake reads the same). A non-finite or negative hole radius
+ * adds nothing.
  */
-export function fogBakeSize(viewW: number, viewH: number): { w: number; h: number; scale: number } {
-  const w = Math.max(1, 2 * viewW + 2 * EXTRA_MARGIN_PX);
-  const h = Math.max(1, 2 * viewH + 2 * EXTRA_MARGIN_PX);
+export function fogBakeSize(viewW: number, viewH: number, holeRadiusPx = 0): { w: number; h: number; scale: number } {
+  const hole = Number.isFinite(holeRadiusPx) && holeRadiusPx > 0 ? 2 * holeRadiusPx + 2 * EXTRA_MARGIN_PX : 0;
+  const w = Math.max(1, 2 * viewW + 2 * EXTRA_MARGIN_PX, hole);
+  const h = Math.max(1, 2 * viewH + 2 * EXTRA_MARGIN_PX, hole);
   const scale = Math.min(1, FOG_BAKE_MAX_PX / Math.max(w, h));
   return { w, h, scale };
+}
+
+/** px — how far inside the screen a hull must come back before the wide bake
+ *  is dropped (the hysteresis band of `fogWideBake`). */
+export const FOG_WIDE_BAND_PX = 32;
+
+/**
+ * Pure: does the fog need the WIDE bake (Story 11.8 review)? The normal bake
+ * (2 × the viewport about the hull) covers the screen exactly while the hull
+ * is on screen, so the wide one is taken only once the hull's screen point
+ * (`sx`, `sy`) leaves the viewport, and dropped only once it is back inside by
+ * `FOG_WIDE_BAND_PX` — an edge-straddling hull never flips the bake (each flip
+ * is a full re-bake). A non-finite point counts as off screen.
+ */
+export function fogWideBake(wide: boolean, sx: number, sy: number, viewW: number, viewH: number): boolean {
+  const edge = Math.min(sx, viewW - sx, sy, viewH - sy);
+  if (!Number.isFinite(edge)) return true;
+  return wide ? edge < FOG_WIDE_BAND_PX : edge < 0;
 }
 
 /**
@@ -161,7 +185,7 @@ export interface FogHole {
 }
 
 /**
- * Extra bake margin (px) beyond camera lead: shake headroom (step 11) + slack.
+ * Extra bake margin (px): shake headroom (step 11) + slack.
  * Exported so render/shake.ts can clamp its peak magnitude to the same budget
  * — the fog overlay must never expose a screen edge, however hard the hit.
  */
@@ -227,6 +251,10 @@ export class Fog {
   private bakedZoomValue = NaN;
   private viewW = 0;
   private viewH = 0;
+  /** The WIDE bake (Story 11.8 review: the hull is off screen) is current. */
+  private wide = false;
+  /** The resolution scale of the last bake (`fogBakeSize`). */
+  private bakeScaleValue = NaN;
   /** Inverse mask that punches star-shell lit-zone holes in the fog sprite —
    *  its filled circles become the CLEARED regions (setMask inverse). Empty when
    *  no owned zone is active, in which case the mask is detached so the fog
@@ -300,17 +328,37 @@ export class Fog {
     this.viewW = viewW;
     this.viewH = viewH;
     const old = this.sprite.texture;
-    const { w, h, scale } = fogBakeSize(viewW, viewH);
-    this.sprite.texture = bakeFogTexture(Math.ceil(w * scale), Math.ceil(h * scale), this.holeRadiusU() * zoom * scale, 0);
+    const holePx = this.holeRadiusU() * zoom;
+    const { w, h, scale } = fogBakeSize(viewW, viewH, this.wide ? holePx : 0);
+    this.bakeScaleValue = scale;
+    this.sprite.texture = bakeFogTexture(Math.ceil(w * scale), Math.ceil(h * scale), holePx * scale, 0);
     this.sprite.scale.set(1 / scale);
     if (old !== Texture.EMPTY) old.destroy(true);
   }
 
+  /** The resolution scale of the last bake (NaN before the first). */
+  get bakeScale(): number {
+    return this.bakeScaleValue;
+  }
+
+  /** Whether the current bake is the wide (hull off screen) one. */
+  get wideBake(): boolean {
+    return this.wide;
+  }
+
   /** Track the own ship: place the baked hole on its screen position, and
-   *  fill whatever the sprite no longer covers (the centre slide, Story 9.8).
+   *  fill whatever the sprite no longer covers (the centre slide, Story 9.8;
+   *  past the hole's own edge once the wide bake is up, Story 11.8).
    *  The sprite's top-left is snapped to whole pixels (the hole moves < 0.5 px)
    *  so its edges meet the strips without a coverage seam. */
   update(holeScreenX: number, holeScreenY: number): void {
+    // The hull left (or came back on) the screen: switch bakes (hysteresis in
+    // `fogWideBake`, so only a real crossing re-bakes) — before placing.
+    const wide = fogWideBake(this.wide, holeScreenX, holeScreenY, this.viewW, this.viewH);
+    if (wide !== this.wide) {
+      this.wide = wide;
+      if (Number.isFinite(this.bakedZoomValue)) this.rebake(this.viewW, this.viewH, this.bakedZoomValue);
+    }
     // The DRAWN size (texture × the bake's resolution scale, `fogBakeSize`).
     const sw = this.sprite.width;
     const sh = this.sprite.height;

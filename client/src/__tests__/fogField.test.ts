@@ -24,6 +24,8 @@ import {
   packDensityRgba,
   rainFlowAt,
   screenReachU,
+  hullOffScreen,
+  OFF_SCREEN_BAND,
   type FogDensityFn,
 } from '../render/fogField.js';
 import { bakePuffTile } from '../render/fogPuffTile.js';
@@ -520,5 +522,37 @@ describe('aliveRasterGeometry — the alive raster is bounded at every halo and 
   it('screenReachU is the farthest screen corner from the centre', () => {
     expect(screenReachU({ x: -30, y: -40, w: 60, h: 80 }, { x: 0, y: 0 })).toBeCloseTo(50, 9);
     expect(screenReachU({ x: 0, y: 0, w: 60, h: 80 }, { x: 0, y: 0 })).toBeCloseTo(100, 9);
+  });
+});
+
+describe('hullOffScreen — the panned camera (Story 11.8)', () => {
+  const screen = { x: -100, y: -50, w: 200, h: 100 };
+  const band = OFF_SCREEN_BAND * 100; // of the short side
+  it('true only for a finite hull CLEARLY outside the on-screen rect', () => {
+    expect(hullOffScreen({ x: 0, y: 0 }, screen)).toBe(false);
+    expect(hullOffScreen({ x: 100, y: 50 }, screen)).toBe(false); // on the edge
+    expect(hullOffScreen({ x: 100 + band / 2, y: 0 }, screen)).toBe(false); // straddling: not yet
+    expect(hullOffScreen({ x: 100 + band + 1, y: 0 }, screen)).toBe(true);
+    expect(hullOffScreen({ x: 0, y: -50 - band - 1 }, screen)).toBe(true);
+    expect(hullOffScreen(null, screen)).toBe(false);
+    expect(hullOffScreen({ x: NaN, y: 0 }, screen)).toBe(false);
+    expect(hullOffScreen({ x: 1e6, y: 0 }, null)).toBe(false);
+  });
+
+  it('hysteresis (Story 11.8 review): once off, it stays off until clearly back inside', () => {
+    expect(hullOffScreen({ x: 100, y: 0 }, screen, true)).toBe(true); // on the edge: still off
+    expect(hullOffScreen({ x: 100 - band / 2, y: 0 }, screen, true)).toBe(true);
+    expect(hullOffScreen({ x: 100 - band - 1, y: 0 }, screen, true)).toBe(false);
+  });
+
+  it('an edge-straddling hull never flips state frame to frame', () => {
+    let off = false;
+    let flips = 0;
+    for (let i = 0; i < 40; i++) {
+      const next = hullOffScreen({ x: 100 + (i % 2 === 0 ? -1 : 1) * (band / 2), y: 0 }, screen, off);
+      if (next !== off) flips++;
+      off = next;
+    }
+    expect(flips).toBe(0);
   });
 });

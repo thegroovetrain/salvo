@@ -228,6 +228,10 @@ export class RadarDisplay {
     const g = this.compass;
     g.clear();
     this.compassLabels.begin();
+    if (place.mode === 'hidden') {
+      this.compassLabels.end(); // the own ship is off screen (Story 11.8): no scale
+      return;
+    }
     for (const tick of TICKS) {
       const a = bearingToAngle((tick.deg * Math.PI) / 180);
       const c = Math.cos(a);

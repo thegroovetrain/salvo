@@ -35,6 +35,13 @@
 // 10 u hit disc itself is untouched). The kind rides `MineView.c` for EVERY
 // observer who can see the mine ("Everyone sees the kind", reversing amendment
 // 76), so an enemy's field reads by kind too.
+//
+// STORY 11.8 — THE CHART ICON (Eric 2026-11-15, render/chartMarks.ts). Zoomed
+// out, while the glyph's true box would draw under 10 px, the SAME glyph is
+// drawn at a fixed 10 px (`icon`, screen size, created on first need),
+// cross-fading with the true-size marker over the shared 30 % band. The own
+// radius rings live in their OWN Graphics (`rings`) so the fade and the icon
+// never touch them: rings stay true size at every zoom.
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
@@ -44,6 +51,7 @@ import { dashArcs } from '../util/math.js';
 import { settings } from '../settings/store.js';
 import { drawEquipmentIcon } from './equipmentIcons.js';
 import { alertClock, alertTint, OWN_TINT } from './alertBlend.js';
+import { chartIconAlpha, screenScale } from './chartMarks.js';
 
 const R = CLIENT_CONFIG.mineRings;
 const P = CLIENT_CONFIG.aimPreview;
@@ -220,7 +228,13 @@ export function reconcileMines(current: ReadonlySet<string>, incoming: readonly 
  *  the alert tint. No position and no course: a mine is moored, so the
  *  Graphics is placed once at spawn and never walked. */
 interface MineSprite {
+  /** The true-size marker (the kind's glyph). Its tint is the mine's. */
   g: Graphics;
+  /** The own radius rings (true size, never faded by the icon handover);
+   *  created on the first ring draw. */
+  ringG: Graphics | null;
+  /** The fixed-size chart icon (Story 11.8); created on first need. */
+  icon: Graphics | null;
   own: boolean;
   /** THE KIND THIS MINE WAS LAID AS (Story 8.13) — read once off the wire view
    *  at spawn and never re-derived. It is read off the wire view for EVERY
@@ -288,6 +302,45 @@ export class Mines {
     for (const s of this.sprites.values()) s.g.tint = s.own ? OWN_TINT : tint;
   }
 
+  /**
+   * Per render frame (Story 11.8), after `render`: the chart-icon handover at
+   * `zoom` px per u. The true marker wears `1 − a`, the 10 px icon `a`, in
+   * the marker's tint; the rings are never touched.
+   */
+  renderIcons(zoom: number): void {
+    const a = chartIconAlpha(2 * GLYPH_R * zoom);
+    const scale = screenScale(zoom);
+    for (const s of this.sprites.values()) {
+      s.g.alpha = 1 - a;
+      s.g.visible = a < 1;
+      if (a > 0) this.showIcon(s, a, scale);
+      else if (s.icon !== null) s.icon.visible = false;
+    }
+  }
+
+  private showIcon(s: MineSprite, a: number, scale: number): void {
+    if (s.icon === null) {
+      s.icon = new Graphics();
+      drawEquipmentIcon(s.icon, MARKER_GLYPH[s.kind], 0, 0, CLIENT_CONFIG.chartMarks.iconPx, {
+        width: CLIENT_CONFIG.chartMarks.iconLinePx, color: MINE_COLOR, alpha: MARKER_ALPHA,
+      });
+      s.icon.position.copyFrom(s.g.position);
+      s.g.parent?.addChild(s.icon);
+    }
+    s.icon.visible = true;
+    s.icon.alpha = a;
+    s.icon.tint = s.g.tint;
+    s.icon.scale.set(scale);
+  }
+
+  /** The chart icon's alpha for a held mine (0 while none shows) — the
+   *  handover tests' seam. Null for an id we hold no sprite for. */
+  iconAlphaAt(id: string): number | null {
+    const s = this.sprites.get(id);
+    if (!s) return null;
+    return s.icon?.visible ? s.icon.alpha : 0;
+  }
+
   /** The tint a held mine currently wears (test seam). Null for an id we hold
    *  no sprite for. */
   tintAt(id: string): number | null {
@@ -308,10 +361,17 @@ export class Mines {
     this.redraw(s);
   }
 
-  /** The whole sprite: marker + (own) radius rings, all in white. */
+  /** The whole sprite: marker + (own) radius rings — the rings in their own
+   *  Graphics, above the marker (Story 11.8) — all in white. */
   private redraw(s: MineSprite): void {
     drawMarker(s.g, s.kind);
-    for (const ring of s.rings) drawRing(s.g, ring);
+    if (s.ringG === null) {
+      s.ringG = new Graphics();
+      s.ringG.position.copyFrom(s.g.position);
+      s.g.parent?.addChild(s.ringG);
+    }
+    s.ringG.clear();
+    for (const ring of s.rings) drawRing(s.ringG, ring);
   }
 
   /** Where a held mine's SPRITE sits — the render-state seam the placement
@@ -343,7 +403,7 @@ export class Mines {
     // Right from the first draw: own white, an enemy at this frame's alert tint.
     g.tint = m.own ? OWN_TINT : alertTint(alertClock.phase, settings.current.motion);
     const s: MineSprite = {
-      g, own: m.own, kind: mineKindOfView(m),
+      g, ringG: null, icon: null, own: m.own, kind: mineKindOfView(m),
       // A mine appearing after the first synced frame is one we just dropped
       // (own mines never leave our own frame list), so first-seen IS the drop
       // time — dated by the FRAME's clock, the same one `now` reads.
@@ -359,6 +419,8 @@ export class Mines {
     const s = this.sprites.get(id);
     if (!s) return;
     s.g.destroy();
+    s.ringG?.destroy();
+    s.icon?.destroy();
     this.sprites.delete(id);
   }
 }

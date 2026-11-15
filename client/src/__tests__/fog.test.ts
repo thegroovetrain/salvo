@@ -76,6 +76,18 @@ describe('fogBakeSize — the bake covers the screen from any on-screen hull, ca
       expect(b.scale).toBeLessThanOrEqual(1);
     }
   });
+
+  // Story 11.8: a panned camera can put the hull off screen — each side also
+  // spans the hole's diameter, so whatever the sprite leaves to the flat strips
+  // is outside the hole wherever the hull is; still capped.
+  it('each side also covers the whole hole (Story 11.8), still under the cap; a junk radius adds nothing', () => {
+    for (const hole of [10, 2000, 9000, 40_000]) {
+      const b = fogBakeSize(1600, 900, hole);
+      expect(Math.min(b.w, b.h), `hole ${hole}`).toBeGreaterThanOrEqual(2 * hole);
+      expect(Math.ceil(Math.max(b.w, b.h) * b.scale)).toBeLessThanOrEqual(FOG_BAKE_MAX_PX);
+    }
+    for (const junk of [NaN, -5, Infinity]) expect(fogBakeSize(1600, 900, junk)).toEqual(fogBakeSize(1600, 900));
+  });
 });
 
 describe('quantizeSightU — the rebake quantum', () => {

@@ -48,6 +48,8 @@ import { CLIENT_CONFIG } from '../config.js';
 import {
   BOOST_KEY_CODES,
   ABILITY_KEY_CODES,
+  CAMERA_HOME_CODE,
+  PAN_KEY_CODES,
   REFIT_DIGIT_CODES,
   SLOT_KEY_CODES,
 } from '../input/keyboard.js';
@@ -369,17 +371,17 @@ describe('bindingRows — the view-only reference model', () => {
     ESC: ['Escape'],
     ENTER: ['Enter'],
     ARROWS: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'],
+    SPACE: ['Space'],
   };
   /** Words in a keys label that name no key (a mouse action, an absence, a qualifier). */
-  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'RIGHT', 'NUMPAD']);
+  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'RIGHT', 'NUMPAD', 'MIDDLE', 'DRAG']);
   /** keyboard.ts binds these directly (not via an exported table). */
-  const DIRECT_CODES = [
-    'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM',
-  ];
+  const DIRECT_CODES = ['KeyA', 'KeyD', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM'];
   const BOUND = new Set<string>([
     ...THROTTLE_AHEAD, ...THROTTLE_ASTERN, ...DIRECT_CODES,
     ...Object.keys(SLOT_KEY_CODES), ...BOOST_KEY_CODES,
     ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(ABILITY_KEY_CODES),
+    ...Object.values(PAN_KEY_CODES), CAMERA_HOME_CODE,
   ]);
 
   /** A row's keys label → the codes it advertises; an unmapped token throws, naming it. */
@@ -405,7 +407,7 @@ describe('bindingRows — the view-only reference model', () => {
     for (const r of bindingRows()) {
       for (const code of advertisedCodes(r.keys)) {
         expect(BOUND.has(code), `${r.keys} → ${code} is not bound in keyboard.ts`).toBe(true);
-        expect(['KeyP', 'Space', 'ControlLeft', 'ControlRight'], `${r.keys} advertises ${code}`).not.toContain(code);
+        expect(['KeyP', 'ControlLeft', 'ControlRight'], `${r.keys} advertises ${code}`).not.toContain(code);
       }
     }
   });
@@ -417,6 +419,8 @@ describe('bindingRows — the view-only reference model', () => {
       BOOST_KEY_CODES,
       REFIT_DIGIT_CODES: Object.keys(REFIT_DIGIT_CODES),
       ABILITY_KEY_CODES: Object.keys(ABILITY_KEY_CODES),
+      PAN_KEY_CODES: Object.values(PAN_KEY_CODES),
+      CAMERA_HOME_CODE: [CAMERA_HOME_CODE],
     };
     for (const [name, codes] of Object.entries(tables)) {
       for (const code of codes) expect(shown.has(code), `${name}.${code} has no row`).toBe(true);

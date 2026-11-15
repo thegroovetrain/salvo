@@ -3,8 +3,9 @@
 // wheel / X-Z zoom. SINCE ERIC'S 2026-10-14 RULING (*"The full zoom-out needs to
 // apply to spectate mode, as well … localized around my mouse cursor"*) the
 // spectate zoom range IS the alive range (Camera.spectateZoomLimits = the close
-// framing in, the live ring fit out) and every spectate zoom anchors at the
-// cursor (Camera.zoomAbout); the old fixed 2,640–1,320 u spans are gone.
+// framing in, the live ring fit out); since Story 11.8 both phases share the
+// strategic-zoom rules (Camera.zoomAbout: in toward the cursor, out about the
+// anchor), and `spectatePan`'s rate is the alive arrow pan's too.
 //
 // THESE TWO ARE THE MANUAL-CONTROL SEAM (Story 5.3, amendment 25). Both feed a
 // Camera mutator — `wheelZoom` → `Camera.zoomAbout` (→ setZoomFactor),
@@ -47,13 +48,13 @@ export function wheelZoom(current: number, deltaY: number, detent?: number): num
 }
 
 /**
- * Whether this frame's driving axes should latch spectate into free-pan mode.
+ * Whether this frame's held pan axes pan the camera at all (any nonzero axis).
+ * Since Story 11.8 a pan puts the camera in PANNED (Camera.pan) — alive with
+ * the arrows, spectating with WASD + the arrows — and Space returns it home.
  * Callers MUST clear the keyboard's held-key set on the death -> spectate
  * transition (KeyboardInput.clearKeys, wired from main.ts's onSpectate hook)
- * before reading axes() here — otherwise WASD held at the moment of death
- * reads as nonzero on the very first spectate frame and this latches
- * permanently, defeating the follow-your-killer default (see FINDING 1).
- * This predicate itself is intentionally dumb: any nonzero axis latches.
+ * — otherwise WASD held at the moment of death reads as a pan on the very
+ * first spectate frame, defeating the follow-your-killer default (FINDING 1).
  */
 export function shouldEngageFreePan(axes: Axes): boolean {
   return axes.throttle !== 0 || axes.rudder !== 0;
@@ -70,4 +71,40 @@ export function pickSpectateTarget(
 ): string | null {
   if (killerId !== null && aliveIds.includes(killerId)) return killerId;
   return aliveIds[0] ?? null;
+}
+
+/** Which hull the spectate camera last anchored on (Story 11.8 review). */
+export interface SpectateFollow {
+  id: string | null;
+}
+
+/** The two camera calls `followSpectateTarget` makes (a real Camera in game). */
+export interface FollowCamera {
+  followEased(p: { x: number; y: number }): void;
+  update(dt: number, target: { x: number; y: number } | null): void;
+}
+
+/**
+ * ONE SPECTATE CAMERA FRAME (Story 11.8 review): when the followed hull's id
+ * changes (the killer sank, a hull left the contacts) the center GLIDES onto
+ * the new one over the camera's eased jump (`Camera.followEased`, the ring
+ * feed's half-second glide) instead of cutting; a frame with no sample holds
+ * the last anchor (never a jump to the origin) and forgets the id, so the next
+ * acquisition glides too.
+ */
+export function followSpectateTarget(
+  cam: FollowCamera,
+  follow: SpectateFollow,
+  id: string | null,
+  pose: { x: number; y: number } | null,
+  dt: number,
+): void {
+  if (pose === null) {
+    follow.id = null;
+    cam.update(dt, null);
+    return;
+  }
+  if (id !== follow.id) cam.followEased(pose);
+  follow.id = id;
+  cam.update(dt, pose);
 }

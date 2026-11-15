@@ -1,20 +1,54 @@
 // Pure-math camera. Owns the world<->screen mapping, a zoom expressed as
 // ABSOLUTE world spans across the viewport's short axis (Story 9.8, epic-9
-// amendments 127/128 — never a factor over radar), a follow-with-lead target
-// smoother, the centre slide toward the storm ring (held until the intel
-// waypoint, amendment 208), and a shake offset hook.
+// amendments 127/128 — never a factor over radar), and a shake offset hook.
+//
+// THE STRATEGIC ZOOM (Story 11.8, Eric 2026-11-15: *"Supreme Commander-esque
+// Strategic Zoom"*). The camera has two modes over one ANCHOR point:
+//   FOLLOW — the anchor IS the followed hull's true position every frame (the
+//            own ship alive, the watched ship spectating): no lead, no follow
+//            easing, no keep-in-view clamp;
+//   PANNED — the anchor is a point on the water the player moved it to
+//            (middle drag, held arrows, spectate WASD, a cursor zoom-in); the
+//            hull may sail off screen. `home()` (Space) snaps back to FOLLOW.
+// The DRAWN center is a pure function of the anchor and the zoom span
+// (render/cameraSlide.ts `slideCenter`): the anchor until half the ring
+// waypoint — never inside the waypoint's floor (intel alive, the default
+// framing spectating), so the ship stays dead center late in a match — then a
+// glide to the ring center and on to the board center at full zoom-out (once
+// the ring has closed inside the floor, straight to the board center). Zoom OUT is about the anchor; zoom IN heads for the cursor through
+// the slide's inverse. Event-driven moves of that center (the ring feed, a
+// resize — amendment 208 ruling 10) still ease over about half a second.
 // No Pixi import: render code reads `zoom`, `center`, `shake`, `screenCenter`
 // and applies the transform to the world/chart containers. Fully unit-testable.
 
-import { expDecay, clamp, clamp01, lerp } from '../util/math.js';
+import { expDecay, clamp } from '../util/math.js';
+import { anchorGlideT, anchorWeight, boardGlideT, clampToDisc, slideAnchor, slideCenter, WEIGHT_EPS, type SlideFrame } from './cameraSlide.js';
+import {
+  detentSpanU,
+  intelFitSpanU,
+  revealZoomFactor,
+  ringFitSpanU,
+  spanFactor,
+  usableSpan,
+  userZoomLimits,
+  zoomOutSpanU,
+} from './cameraZoom.js';
 
-/** Anything with a position + kinematics the camera can follow. */
-export interface Followable {
-  x: number;
-  y: number;
-  heading: number; // rad
-  speed: number; // u/s (signed)
-}
+export {
+  canUserZoom,
+  detentSpanU,
+  intelFitSpanU,
+  revealZoomFactor,
+  ringFitSpanU,
+  spanFactor,
+  stepZoom,
+  userZoomLimits,
+  zoomOutSpanU,
+} from './cameraZoom.js';
+export { anchorWeight, slideAnchor, slideCenter, type SlideFrame } from './cameraSlide.js';
+
+/** FOLLOW (the anchor rides the followed hull) or PANNED (the anchor holds). */
+export type CameraMode = 'follow' | 'panned';
 
 export interface Point {
   x: number;
@@ -33,24 +67,17 @@ export interface CameraOptions {
    *  × this spans the short axis (CLIENT_CONFIG.reveal.mapFitMargin — the
    *  reveal's own border, so both whole-disc framings read alike). */
   ringFitMargin: number;
-  /** Exponential follow rate (1/s). */
-  followRate: number;
-  /** Look-ahead time (s): lead distance = |speed| * leadSeconds, capped. */
-  leadSeconds: number;
-  /** Maximum lead distance (u). */
-  leadMax: number;
-  /** How far (u) inside every view edge the own hull point is held while the
-   *  centre slides toward the ring (Story 9.8 review gate, F2 —
-   *  CLIENT_CONFIG.camera.keepInViewPadU). Omitted = 0 (the hull point itself
-   *  stays on screen). */
-  keepInViewPadU?: number;
+  /** THE HOME RADIUS (px, Story 11.8 — Eric: 16): a zoom-IN in FOLLOW with the
+   *  cursor within this of the followed hull's screen position stays FOLLOW
+   *  and zooms about the hull (CLIENT_CONFIG.camera.homeRadiusPx). Omitted = 0
+   *  (only a cursor exactly on the hull keeps FOLLOW). */
+  homeRadiusPx?: number;
   /** THE INTEL WAYPOINT's radius (u, epic-9 amendment 208): main.ts feeds
    *  CONFIG.vision.radar, the radar sweep disc. The alive zoom stops where that
-   *  disc × `ringFitMargin` plus the maximum follow lead (`leadMax`, ruling 9),
-   *  around the own ship, has its bottom edge on the HUD bar's top edge
-   *  (`setBottomInset`) at any speed and heading, and the centre slide toward
-   *  the ring starts there. Omitted = no intel waypoint (the intel span is the
-   *  default framing: the pre-208 behavior). */
+   *  disc × `ringFitMargin` around the own ship has its bottom edge on the HUD
+   *  bar's top edge (`setBottomInset`). Omitted = no intel waypoint (the intel
+   *  span is the default framing: the pre-208 behavior). Story 11.8 retired the
+   *  follow lead, so the fit no longer carries one (ruling 9 went with it). */
   intelRadiusU?: number;
   /** EASED CENTER JUMPS (Eric 2026-10-19, amendment 208 ruling 10): the rate
    *  (1/s) at which a center jump caused by an EVENT — the ring feed, a
@@ -62,7 +89,7 @@ export interface CameraOptions {
 }
 
 /** Below this (u) an easing jump counts as finished and is dropped, so the
- *  decaying tail never keeps the own-hull clamp armed forever. */
+ *  decaying tail never lingers in the sixth decimal forever. */
 const JUMP_SETTLE_EPS = 1e-3;
 
 /**
@@ -73,218 +100,6 @@ const JUMP_SETTLE_EPS = 1e-3;
  * .redrawZoomFrac) for motion no one can see.
  */
 const REVEAL_SETTLE_EPS = 1e-4;
-
-/**
- * The zoom FACTOR (over the default framing) that shows `spanU` world units
- * across the short axis: defaultSpanU / spanU. The one conversion every
- * absolute framing in this module goes through. A degenerate input returns 1
- * (the plain default framing) rather than a NaN/Infinity factor, which would
- * permanently poison the composed zoom.
- */
-export function spanFactor(defaultSpanU: number, spanU: number): number {
-  if (!Number.isFinite(defaultSpanU) || defaultSpanU <= 0) return 1;
-  if (!Number.isFinite(spanU) || spanU <= 0) return 1;
-  return defaultSpanU / spanU;
-}
-
-/**
- * THE REVEAL FRAMING FACTOR (Story 5.3, epic-5 amendment 25) — the zoomFactor
- * that frames the WHOLE OCEAN, for the omniscient reveal at your own founder.
- *
- * ABSOLUTE SINCE STORY 9.8 (ruling 127): the reveal shows 2 × mapRadius ×
- * margin world units across the short axis — shortAxis / (2 × mapRadius ×
- * margin) px per u — written directly. As a factor over the default framing
- * that is defaultSpanU / (2 × mapRadius × margin), the same number the old
- * radar-diameter derivation gave while the default framing was 2 × 660 u.
- *
- * `margin` (> 1) is breathing room: it fits a slightly LARGER disc than the map
- * so the ocean's edge is not flush with the short axis. The map radius is the
- * Game's live, roster-dynamic one (Story 6.2), so no literal lives here. A
- * degenerate input returns 1 (the default framing), never NaN.
- */
-export function revealZoomFactor(defaultSpanU: number, mapRadius: number, margin: number): number {
-  return spanFactor(defaultSpanU, 2 * mapRadius * margin);
-}
-
-/**
- * THE RING-FIT SPAN (ruling 127): the live ring's diameter × the fit margin, in
- * world units across the short axis. NaN when the ring is unusable (non-finite
- * or negative radius, or a degenerate margin) — the caller then falls back to
- * the default framing. A radius of exactly 0 (the final ring closed onto its
- * point) is a legitimate span of 0; `userZoomLimits` holds the out limit at
- * the default framing for any fit under it, so r → 0 is continuous.
- */
-export function ringFitSpanU(ringRadius: number, margin: number): number {
-  if (!Number.isFinite(ringRadius) || ringRadius < 0) return NaN;
-  if (!Number.isFinite(margin) || margin <= 0) return NaN;
-  return 2 * ringRadius * margin;
-}
-
-/**
- * THE USER-ZOOM LIMITS as factors over the default framing (ruling 127):
- * `max` (zoomed fully IN) = defaultSpanU / closeSpanU; `min` (zoomed fully OUT)
- * = defaultSpanU / outSpanU — the whole-map fit since amendment 142
- * (`zoomOutSpanU`; it was the live ring fit in Story 9.8).
- *
- * THE OUT SPAN IS A ZOOM-OUT LIMIT ONLY (Story 9.8 review gate, F3): `min` is
- * never above 1, so the default framing is always reachable. An out span
- * under the default framing stops the out limit AT the default framing — it
- * never forces a captain in toward the close framing. A span of 0 is the same
- * case, and an unusable one (NaN) falls back to the default framing too.
- */
-export function userZoomLimits(
-  defaultSpanU: number,
-  closeSpanU: number,
-  outSpanU: number,
-): { min: number; max: number } {
-  const max = spanFactor(defaultSpanU, closeSpanU);
-  const fit = Number.isNaN(outSpanU) || outSpanU <= 0 ? 1 : defaultSpanU / outSpanU;
-  return { min: Math.min(1, max, fit), max };
-}
-
-/** A span (u) that can frame anything: finite and positive. */
-function usableSpan(spanU: number): boolean {
-  return Number.isFinite(spanU) && spanU > 0;
-}
-
-/** Every input finite and positive. */
-function allUsable(...xs: number[]): boolean {
-  return xs.every(usableSpan);
-}
-
-/**
- * THE INTEL FIT SPAN (Eric 2026-10-19, epic-9 amendment 208: *"insert a
- * 'waypoint' in between them that keeps the camera centered until I have
- * zoomed out to my entire intel area, which should have a bit of clearance
- * around it so that the hotbar isn't covering it up."*), in world units across
- * the short axis.
- *
- * The own ship sits at the exact screen center (H/2) at rest; under way the
- * camera centers on the ship + its follow lead, so the ship sits up to `leadU`
- * off center in any direction (Eric 2026-10-19, ruling 9: LEAD IN THE FIT).
- * The fit therefore covers an effective radius E = R·m + lead (m = the fit
- * margin, the clearance): the disc's bottom edge clears the bar's top edge
- * when H/2 + E·z ≤ H − inset, its sides when W/2 ≥ E·z (the top is symmetric
- * with the bottom, so implied), at any speed and heading. The widest zoom that
- * holds both is z = min(H/2 − inset, W/2) / E px per u, i.e. a span of
- * min(W, H) / z. Everything in REAL px: `bottomInsetPx` is the bar's logical
- * inset × the UI scale. NaN when unusable (no room above the bar, a missing
- * radius or margin, a negative or non-finite lead, a degenerate viewport or
- * inset) — the caller then falls back to the default framing.
- */
-export function intelFitSpanU(
-  viewW: number,
-  viewH: number,
-  bottomInsetPx: number,
-  radiusU: number,
-  margin: number,
-  leadU = 0,
-): number {
-  if (!allUsable(viewW, viewH, radiusU, margin)) return NaN;
-  if (!Number.isFinite(bottomInsetPx) || !(Number.isFinite(leadU) && leadU >= 0)) return NaN;
-  const room = Math.min(viewH / 2 - Math.max(0, bottomInsetPx), viewW / 2);
-  if (!(room > 0)) return NaN;
-  return (Math.min(viewW, viewH) * (radiusU * margin + leadU)) / room;
-}
-
-/**
- * THE ZOOM-OUT SPAN (Eric 2026-10-14, amendment 142: *"Maybe we shouldn't cap
- * the zoom out to the current ring. Instead lets set the current ring as a sort
- * of 'waypoint' and from there you could zoom out to the entire map, even the
- * stormed-out bits."*): the WHOLE MAP fit (2 × mapRadius × margin, the reveal's
- * own framing), storm and all. Never tighter than the live ring fit (the ring
- * never outgrows the map, but a junk feed must not put the waypoint past the
- * limit). Before the map radius is known it falls back to the ring fit; NaN
- * when neither is usable (`userZoomLimits` then holds the default framing).
- */
-export function zoomOutSpanU(mapSpanU: number, ringSpanU: number): number {
-  const m = Math.max(usableSpan(mapSpanU) ? mapSpanU : 0, usableSpan(ringSpanU) ? ringSpanU : 0);
-  return m > 0 ? m : NaN;
-}
-
-/**
- * THE RING WAYPOINT (amendment 142) as a span: the live ring fit, never
- * tighter than the floor span (so after the final close, or before any ring,
- * the waypoint IS the floor). Every zoom step that would cross it lands exactly
- * on it (`stepZoom`); the next step continues past it. The spectate camera
- * floors it at the default framing; the alive camera at the intel waypoint
- * (amendment 208), so a ring fit at or inside the intel span merges into it.
- */
-export function detentSpanU(defaultSpanU: number, ringSpanU: number): number {
-  return usableSpan(ringSpanU) ? Math.max(defaultSpanU, ringSpanU) : defaultSpanU;
-}
-
-/**
- * THE CENTRE SLIDE (ruling 128): how far the camera centre has travelled from
- * the own ship toward the ring centre, 0..1. `spanU` is the CURRENT user span
- * across the short axis; at and inside the start span (the second argument)
- * t = 0 (the ship is centered), at the ring-fit span t = 1 (the ring centre
- * is). Linear in span between them. A ring no wider than the start span, or an
- * unusable one, never slides. The alive camera starts it at the intel waypoint
- * since amendment 208 (it was the default framing).
- */
-export function centreSlideT(spanU: number, defaultSpanU: number, ringSpanU: number): number {
-  const room = ringSpanU - defaultSpanU;
-  if (!Number.isFinite(room) || room <= 0) return 0;
-  if (!Number.isFinite(spanU)) return 0;
-  return clamp01((spanU - defaultSpanU) / room);
-}
-
-/**
- * THE KEY / WHEEL ZOOM STEP (Story 9.8, ruling 127). MULTIPLICATIVE in the
- * factor: `amount` is the logarithmic step, so next = f × e^amount. The X/Z
- * keys pass ±keyStep (0.1), the wheel −deltaY × wheelRate (0.0008/unit).
- *
- * Why not today's additive step: the range now runs from the close framing
- * (1.5×) down to a ring fit near 0.2× on a big ocean, and a fixed +0.1 is a
- * ~10 % step at the default framing but a ~50 % jolt at the ring fit. A log
- * step is the same PERCEIVED step everywhere, and at today's framings it is
- * today's feel: around the default framing e^±0.1 = ×1.105 / ×0.905 against
- * the old ±0.1, and one 100-unit wheel notch e^−0.08 = ×0.923 against the old
- * −0.08. A non-finite amount returns the factor unchanged.
- *
- * `detents` (amendment 142; a list since amendment 208) are the waypoints as
- * factors: the spectate ring waypoint (Camera.zoomDetent) or the alive pair
- * [intel, ring] (Camera.aliveZoomDetents). A step that would CROSS any of them
- * from either side lands exactly on the FIRST one crossed (the one nearest the
- * starting factor) and the rest of the step is dropped (a wheel event's whole
- * delta is one step); a step that STARTS on one moves on. Omitted or unusable
- * = a free step.
- */
-export function stepZoom(factor: number, amount: number, detents?: number | readonly number[]): number {
-  if (!Number.isFinite(amount)) return factor;
-  const next = factor * Math.exp(amount);
-  return firstCrossed(factor, next, detentList(detents)) ?? next;
-}
-
-/** The detent argument of `stepZoom` as a list. */
-function detentList(detents: number | readonly number[] | undefined): readonly number[] {
-  if (detents === undefined) return [];
-  return typeof detents === 'number' ? [detents] : detents;
-}
-
-/** Among the usable detents strictly crossed by from → to, the one nearest
- *  `from`; undefined when none is crossed. */
-function firstCrossed(from: number, to: number, detents: readonly number[]): number | undefined {
-  let best: number | undefined;
-  for (const d of detents) {
-    if (!usableSpan(d) || (from - d) * (to - d) >= 0) continue;
-    if (best === undefined || Math.abs(d - from) < Math.abs(best - from)) best = d;
-  }
-  return best;
-}
-
-/**
- * THE alive-only gate for user zoom (X/Z + wheel), pure so it is testable apart
- * from main.ts's bootstrap glue. Zoom applies ONLY to a genuinely-alive captain:
- * spectators use the separate spectate zoom-out path, and a MISSING own ship
- * (`alive` undefined — pre-join, pre-first-frame, between lives) is treated as
- * NOT alive. Checking `alive === false` instead would let zoom (and the fog
- * re-bake it schedules) run before the first frame ever arrives.
- */
-export function canUserZoom(spectating: boolean, alive: boolean | undefined): boolean {
-  return !spectating && alive === true;
-}
 
 /** The world rectangle the screen shows this frame, shake included (see
  *  `Camera.screenWorldRect`) — what a masked layer's filter pass is clipped to
@@ -313,10 +128,12 @@ export class Camera {
   /** Screen-space shake offset (px), added on top of the transform. */
   readonly shake: Point = { x: 0, y: 0 };
 
-  /** The smoothed ship-follow point (ship + lead, eased at followRate). The
-   *  centre is this point slid toward the ring centre (ruling 128); follow and
-   *  lead apply to this term ONLY. */
-  private readonly follow: Point = { x: 0, y: 0 };
+  /** THE ANCHOR (Story 11.8): the followed hull's position in FOLLOW, the
+   *  panned point in PANNED. The drawn center is `slideCenter(anchor, span)`. */
+  private readonly anchor: Point = { x: 0, y: 0 };
+  private modeValue: CameraMode = 'follow';
+  /** The spectate phase drives the zoom (`setSpectating`). */
+  private spectatingValue = false;
   /** The decaying offset (u) between the eased center and the pure slide
    *  target (ruling 10): an event that moves the target (ring feed, resize, UI
    *  scale) adds the move here, and `update` decays it at `slideEaseRate`.
@@ -391,31 +208,65 @@ export class Camera {
   }
 
   /**
-   * ZOOM AT THE CURSOR (spectators — Eric 2026-10-14: *"the zoom in/out should
-   * be localized around my mouse cursor (since my ship has sunk/is otherwise
-   * nonexistent)"*). Sets the spectator zoom factor exactly as setZoomFactor
-   * does (clamped, reveal released, non-finite ignored), then moves the centre
-   * so the world point that was under screen point (screenX, screenY) is still
-   * under it: `worldToScreen(p)` is unchanged. A non-finite screen point
-   * anchors at the screen centre (a plain zoom about the centre).
-   *
-   * The follow point moves with the centre, exactly as `pan` moves it, so a
-   * spectator FOLLOWING a hull keeps the cursor anchor for this frame and the
-   * eased follow then carries on from the new centre back toward its target.
-   * The alive camera never calls this — its zoom stays own-ship-anchored.
+   * THE SPECTATE ZOOM AT THE CURSOR (Eric 2026-10-14; the strategic-zoom rules
+   * since Story 11.8): sets the spectator zoom factor exactly as setZoomFactor
+   * does (clamped, reveal released, non-finite ignored) under `zoomWith`'s
+   * rules — OUT about the anchor, IN toward the screen point (screenX,
+   * screenY). A non-finite screen point is the screen centre.
    */
   zoomAbout(screenX: number, screenY: number, newZoom: number): void {
-    const sc = this.screenCenter;
-    const s = Number.isFinite(screenX) && Number.isFinite(screenY) ? { x: screenX, y: screenY } : sc;
+    this.zoomWith(screenX, screenY, () => this.setZoomFactor(newZoom));
+  }
+
+  /** THE ALIVE ZOOM AT THE CURSOR (Story 11.8): `setUserZoom(next)` under
+   *  `zoomWith`'s rules. */
+  zoomUserAbout(screenX: number, screenY: number, next: number): void {
+    this.zoomWith(screenX, screenY, () => this.setUserZoom(next));
+  }
+
+  /**
+   * THE STRATEGIC ZOOM RULES (Story 11.8, Eric 2026-11-15). `apply` moves the
+   * zoom (clamped by its own setter). Zoom OUT is about the anchor: the mode
+   * and the anchor stay (FOLLOW stays FOLLOW). Zoom IN heads for the cursor:
+   * the world point under (screenX, screenY) stays under it — the new anchor
+   * solved through the slide's inverse (exact while the anchor still has a say;
+   * on the ring → board leg, where it has none, the anchor is that world point
+   * so continued zooming heads there) and clamped to the board fit — and the
+   * camera is PANNED. The exception: in FOLLOW with the cursor within
+   * `homeRadiusPx` of the followed hull — or no cursor position known at all —
+   * the zoom stays FOLLOW about the hull.
+   */
+  private zoomWith(screenX: number, screenY: number, apply: () => void): void {
+    const known = Number.isFinite(screenX) && Number.isFinite(screenY);
+    const s = known ? { x: screenX, y: screenY } : this.screenCenter;
     const p = this.screenToWorld(s);
-    this.setZoomFactor(newZoom);
+    // No cursor known (a key zoom before the pointer ever moved): FOLLOW
+    // zooms about the anchor and stays FOLLOW (Story 11.8 review).
+    const home = this.modeValue === 'follow' && (!known || this.withinHome(s));
+    const before = this.zoom;
+    apply();
+    if (this.zoom > before && !home) this.aimAt(p, s);
+    this.placeCenter();
+  }
+
+  /** Is screen point `s` within the home radius of the anchor's screen spot? */
+  private withinHome(s: Point): boolean {
+    const a = this.worldToScreen(this.anchor);
+    return Math.hypot(s.x - a.x, s.y - a.y) <= (this.opts.homeRadiusPx ?? 0);
+  }
+
+  /** PANNED, with the anchor that draws world point `p` under screen point `s`
+   *  at the current zoom (see `zoomWith`). */
+  private aimAt(p: Point, s: Point): void {
+    const sc = this.screenCenter;
     const z = this.zoom;
-    const dx = p.x - (s.x - sc.x - this.shake.x) / z - this.center.x;
-    const dy = p.y - (s.y - sc.y - this.shake.y) / z - this.center.y;
-    this.follow.x += dx;
-    this.follow.y += dy;
-    this.center.x += dx;
-    this.center.y += dy;
+    const want = {
+      x: p.x - (s.x - sc.x - this.shake.x) / z - this.jump.x,
+      y: p.y - (s.y - sc.y - this.shake.y) / z - this.jump.y,
+    };
+    const a = slideAnchor(want, this.spanU, this.slideFrame()) ?? { x: p.x, y: p.y };
+    this.setAnchor(a);
+    this.modeValue = 'panned';
   }
 
   /** Back to normal zoom (respawn / rejoin) — and out of the reveal framing:
@@ -470,8 +321,8 @@ export class Camera {
    * Advance the REVEAL zoom animation by `dtMs` — the game's first animated
    * zoom (every other zoom in the client is instantaneous; only the camera
    * CENTRE has ever been smoothed). Exponential approach at the kickoff rate,
-   * the same expDecay the follow smoother uses, so the module has one easing
-   * vocabulary. A no-op while the reveal mode is off.
+   * the same expDecay the eased center jumps use, so the module has one
+   * easing vocabulary. A no-op while the reveal mode is off.
    *
    * MOTION SETTING (amendment 26, which closed UX open question #25 as NOT
    * EXEMPT): `motionScale` is the level's intensity multiplier —
@@ -487,14 +338,20 @@ export class Camera {
   tickZoom(dtMs: number, motionScale: number): void {
     const target = this.revealTargetValue;
     if (target === null) return;
+    this.zoomFactorValue = this.revealStep(target, dtMs, motionScale);
+    // The drawn center follows this frame's zoom at once (Story 11.8 review):
+    // a center placed at the old zoom would draw one stale frame — at motion:
+    // off a cropped first frame of the reveal.
+    this.placeCenter();
+  }
+
+  /** The reveal factor after `dtMs` toward `target` (see tickZoom). */
+  private revealStep(target: number, dtMs: number, motionScale: number): number {
     // motion: off (or any degenerate scale) — arrive, do not travel.
-    if (!Number.isFinite(motionScale) || motionScale <= 0) {
-      this.zoomFactorValue = target;
-      return;
-    }
+    if (!Number.isFinite(motionScale) || motionScale <= 0) return target;
     const dt = Number.isFinite(dtMs) ? Math.max(0, dtMs) / 1000 : 0;
     const next = expDecay(this.zoomFactorValue, target, this.revealRateValue / motionScale, dt);
-    this.zoomFactorValue = Math.abs(next - target) < REVEAL_SETTLE_EPS ? target : next;
+    return Math.abs(next - target) < REVEAL_SETTLE_EPS ? target : next;
   }
 
   /** Alive user-zoom factor over the default framing, within userZoomLimits. */
@@ -536,19 +393,18 @@ export class Camera {
    * THE INTEL WAYPOINT as a span (amendment 208): the intel fit
    * (`intelFitSpanU`) of the LIVE viewport and bar inset — a getter, never a
    * cached value, so a resize or a UI-scale change re-fits it — never tighter
-   * than the default framing. The fit
-   * includes the maximum follow lead (`leadMax`, ruling 9). Without
+   * than the default framing. Without
    * `intelRadiusU`, with an unusable fit, or with a fit at or past the
    * whole-map fit (Story 11.2), it IS the default framing (the pre-208 camera).
    */
   get intelSpanU(): number {
     const d = this.opts.defaultSpanU;
     const r = this.opts.intelRadiusU ?? NaN;
-    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin, this.opts.leadMax);
+    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin);
     if (!usableSpan(fit)) return d;
     // AN INTEL DISC AS WIDE AS THE BOARD IS NO STOP (Story 11.2, R11): at the
     // 400 hm radar the intel fit reaches the whole-map fit, and a stop AT the
-    // map fit left both centre slides no room (`centreSlideT` → 0), so the
+    // map fit left both centre slides no room, so the
     // fully-zoomed-out camera stayed on the ship instead of the board centre.
     // At or past the map fit the waypoint is the default framing — the
     // pre-208 camera, whose slides run to the ring and then the map centre.
@@ -612,18 +468,60 @@ export class Camera {
     return this.opts.defaultSpanU / this.userZoomValue;
   }
 
-  /** This instant's centre slide toward the ring centre, 0..1 (ruling 128),
-   *  starting at the intel waypoint (amendment 208). */
-  get slideT(): number {
-    return centreSlideT(this.userSpanU, this.intelSpanU, this.ringSpanValue);
+  /** The COMPOSED span (u across the short axis) the screen shows: the
+   *  default framing over both zoom factors (only one is ever off 1). */
+  get spanU(): number {
+    return this.opts.defaultSpanU / (this.zoomFactorValue * this.userZoomValue);
   }
 
-  /** The SECOND slide (amendment 142), 0..1: ring centre → map centre (the
-   *  origin) from the alive ring waypoint out to the whole-map fit. With the
-   *  waypoints merged (ring ≤ intel) the first slide never engages, so this
-   *  one runs from the follow point straight to the map centre. */
+  /** The composed zoom factor over the default framing (spectate × alive). */
+  get composedFactor(): number {
+    return this.zoomFactorValue * this.userZoomValue;
+  }
+
+  /**
+   * Which phase's ring waypoint the slide reads (Story 11.8): the spectate one
+   * (floored at the default framing) once `setSpectating(true)`, else the
+   * alive one (floored at the intel waypoint) — R is "the ring waypoint" of
+   * whichever zoom is driving. main.ts flips it at spectate entry.
+   */
+  setSpectating(on: boolean): void {
+    this.spectatingValue = on;
+  }
+
+  /**
+   * What the slide reads (Story 11.8): R = the ring waypoint of the driving
+   * zoom (`setSpectating`), the board fit, the live ring center (null before
+   * the first ring feed) and F = the floor that waypoint is floored at (the
+   * slide never starts inside it — the endgame-centering ruling).
+   */
+  private slideFrame(): SlideFrame {
+    return {
+      ringSpanU: this.spectatingValue ? this.detentSpanU : this.aliveDetentSpanU,
+      boardSpanU: this.mapSpanValue,
+      ring: Number.isNaN(this.ringSpanValue) ? null : this.ring,
+      floorSpanU: this.spectatingValue ? this.opts.defaultSpanU : this.intelSpanU,
+    };
+  }
+
+  /** This instant's first glide (anchor → ring center), 0..1 (Story 11.8). */
+  get slideT(): number {
+    return anchorGlideT(this.spanU, this.slideFrame());
+  }
+
+  /** This instant's second glide (ring center → board center), 0..1. */
   get mapSlideT(): number {
-    return centreSlideT(this.userSpanU, this.aliveDetentSpanU, this.mapSpanValue);
+    return boardGlideT(this.spanU, this.slideFrame());
+  }
+
+  /** FOLLOW or PANNED (Story 11.8). */
+  get mode(): CameraMode {
+    return this.modeValue;
+  }
+
+  /** The anchor (a copy): the followed hull in FOLLOW, the panned point else. */
+  get anchorPoint(): Point {
+    return { x: this.anchor.x, y: this.anchor.y };
   }
 
   /**
@@ -710,8 +608,7 @@ export class Camera {
   /**
    * Feed the HUD bar's top inset from the viewport floor in REAL px
    * (`hudBarTopInset()` × the UI scale; amendment 208). The intel waypoint
-   * keeps the radar disc above it, and the own-hull clamp treats it as the
-   * view's bottom edge. A non-finite or negative value is ignored. A user zoom
+   * keeps the radar disc above it. A non-finite or negative value is ignored. A user zoom
    * parked on the intel or the alive ring waypoint rides to the re-fitted one
    * (`refit`). Returns whether the user zoom moved, like `setRing`, so a
    * caller can schedule a fog re-bake.
@@ -794,26 +691,66 @@ export class Camera {
     });
   }
 
-  /** Jump the camera center directly to a point (no smoothing, and any easing
-   *  center jump dropped). */
+  /** Put the anchor (and the drawn center) on a point at once, any easing
+   *  center jump dropped. The mode is unchanged. */
   snapTo(p: Point): void {
-    this.follow.x = p.x;
-    this.follow.y = p.y;
-    this.center.x = p.x;
-    this.center.y = p.y;
+    this.anchor.x = p.x;
+    this.anchor.y = p.y;
+    this.clearJump();
+    this.placeCenter();
+  }
+
+  /**
+   * THE FOLLOWED HULL CHANGED (Story 11.8 review: the spectate target switched
+   * — the killer sank or left the contacts): in FOLLOW the anchor moves to `p`
+   * but the drawn center GLIDES there over the same eased jump the ring feed
+   * uses (amendment 208 ruling 10) instead of cutting. PANNED (the anchor is
+   * the player's) or a non-finite point: a no-op.
+   */
+  followEased(p: Point): void {
+    if (this.modeValue !== 'follow' || !Number.isFinite(p.x + p.y)) return;
+    const before = this.slideTarget();
+    this.anchor.x = p.x;
+    this.anchor.y = p.y;
+    this.addJump(before);
+    this.placeCenter();
+  }
+
+  /**
+   * CAMERA HOME (Space, Story 11.8): back to FOLLOW at the same zoom. The snap
+   * is instant — any easing center jump is dropped — and the anchor lands on
+   * the followed hull at the next `update`.
+   */
+  home(): void {
+    this.modeValue = 'follow';
     this.clearJump();
   }
 
-  /** THE PURE SLIDE TARGET (ruling 128, amendment 142) over the stored
-   *  follow point: lerp(lerp(follow, ring center, slideT), map center, mapSlideT).
-   *  A pure function of the zoom, the ring, the map and the follow point. */
+  /** A SPAWN or a reconnect's re-seat (Story 11.8 review): FOLLOW, snapped onto
+   *  the new hull at once — `snapTo` alone would keep a PANNED anchor. */
+  respawnAt(p: Point): void {
+    this.home();
+    this.snapTo(p);
+  }
+
+  /** The anchor, clamped inside the board fit (radius = the whole-map fit
+   *  span / 2 = map radius × the fit margin; no clamp before the map is known). */
+  private setAnchor(p: Point): void {
+    const a = clampToDisc({ x: p.x, y: p.y }, this.mapSpanValue / 2);
+    this.anchor.x = a.x;
+    this.anchor.y = a.y;
+  }
+
+  /** THE PURE SLIDE TARGET (Story 11.8): `slideCenter(anchor, span, frame)`. */
   private slideTarget(): Point {
-    const t = this.slideT;
-    const m = this.mapSlideT; // the map center is the origin (amendment 142)
-    return {
-      x: lerp(lerp(this.follow.x, this.ring.x, t), 0, m),
-      y: lerp(lerp(this.follow.y, this.ring.y, t), 0, m),
-    };
+    return slideCenter(this.anchor, this.spanU, this.slideFrame());
+  }
+
+  /** The drawn center: the slide target plus the easing event jump. */
+  private placeCenter(): void {
+    const t = this.slideTarget();
+    this.center.x = t.x + this.jump.x;
+    this.center.y = t.y + this.jump.y;
   }
 
   /** Whether event-driven center jumps ease (ruling 10): `slideEaseRate` set,
@@ -851,23 +788,31 @@ export class Camera {
     this.jump.y = 0;
   }
 
-  /** Whether the center may sit off the follow point this frame: the slide is
-   *  engaged, or an event jump is still easing out. */
-  private get offFollow(): boolean {
-    return this.slideT > 0 || this.mapSlideT > 0 || this.jump.x !== 0 || this.jump.y !== 0;
+  /**
+   * PAN the view by a world-space delta (dx, dy) of the DRAWN center (Story
+   * 11.8: held arrows, spectate WASD; `panScreen` for the middle drag). Enters
+   * PANNED. The anchor moves by Δ / its weight in the slide (`anchorWeight`,
+   * 1 − t) so the view tracks the hand, clamped inside the board fit; on the
+   * anchor glide's far end (weight ≤ WEIGHT_EPS, full zoom-out) the anchor has
+   * no say and the pan is a no-op: it returns before touching the mode or the
+   * reveal framing. A pan that moves releases the reveal framing (amendment
+   * 25), a manual camera action. A non-finite or zero delta is ignored.
+   */
+  pan(dx: number, dy: number): void {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
+    const w = anchorWeight(this.spanU, this.slideFrame());
+    if (!(w > WEIGHT_EPS)) return;
+    this.clearRevealTarget();
+    this.modeValue = 'panned';
+    this.setAnchor({ x: this.anchor.x + dx / w, y: this.anchor.y + dy / w });
+    this.placeCenter();
   }
 
-  /** Nudge the camera center by a world-space delta (spectator free pan).
-   *  The OTHER manual camera action, so it releases the reveal framing too
-   *  (amendment 25): once the player has taken the camera, the normal clamped
-   *  spectate path owns it. The factor itself is left where the animation had
-   *  reached — a pan is not a zoom, so nothing jumps until the wheel is used. */
-  pan(dx: number, dy: number): void {
-    this.clearRevealTarget();
-    this.follow.x += dx;
-    this.follow.y += dy;
-    this.center.x += dx;
-    this.center.y += dy;
+  /** THE MIDDLE DRAG (Story 11.8): the pointer moved (dxPx, dyPx) screen px
+   *  with the button held — the water under it follows the hand 1:1. */
+  panScreen(dxPx: number, dyPx: number): void {
+    const z = this.zoom;
+    this.pan(-dxPx / z, -dyPx / z);
   }
 
   /** World point -> screen point (px), including shake. */
@@ -888,6 +833,14 @@ export class Camera {
     return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
   }
 
+  /** The world rectangle the screen shows WITHOUT the shake offset — the
+   *  steady view an on/off-screen test reads, so a shake jitter is never a
+   *  crossing (Story 11.8 review). */
+  get steadyWorldRect(): ScreenWorldRect {
+    const v = this.worldView;
+    return { x: v.x - v.halfW, y: v.y - v.halfH, w: 2 * v.halfW, h: 2 * v.halfH };
+  }
+
   /** Screen point (px) -> world point (inverse of worldToScreen). */
   screenToWorld(p: Point): Point {
     const c = this.screenCenter;
@@ -897,68 +850,21 @@ export class Camera {
     };
   }
 
-  /** Lead offset (world units) ahead of the ship along its travel direction. */
-  private leadOffset(ship: Followable): Point {
-    // velocity direction = heading, signed by speed (reverse leads astern)
-    const dirX = Math.cos(ship.heading) * Math.sign(ship.speed);
-    const dirY = Math.sin(ship.heading) * Math.sign(ship.speed);
-    const mag = Math.min(Math.abs(ship.speed) * this.opts.leadSeconds, this.opts.leadMax);
-    return { x: dirX * mag, y: dirY * mag };
-  }
-
   /**
-   * Advance the follow smoother by `dt` seconds toward the ship + its lead
-   * offset (exponential approach at followRate, deterministic given dt and
-   * ship), then place the centre on the slide (ruling 128): lerp(follow point,
-   * ring centre, slideT). At and inside the default framing slideT is 0 and the
-   * centre IS the follow point, exactly as before Story 9.8 — out to the intel
-   * waypoint since amendment 208. The slide itself is not smoothed: it is a
-   * pure function of the zoom, which the player moves directly. What IS eased
-   * is a jump of that target caused by an EVENT (ring feed, resize, UI scale —
-   * Eric 2026-10-19, ruling 10): center = slide target + a jump offset that
-   * decays at `slideEaseRate`, so the center glides over about half a second.
-   * While the slide is engaged or a jump is easing out, the own hull is then
-   * kept on screen (`keepShipInView`) on the final center.
+   * Advance one render frame. In FOLLOW the anchor is `target` — the followed
+   * hull's true position, no lead, no easing (Story 11.8); in PANNED, or with
+   * no target (a spectator with nobody to watch), the anchor holds. The drawn
+   * center is then the slide of the anchor (a pure function of the zoom, which
+   * the player moves directly) plus an event jump (ring feed, resize, UI scale
+   * — Eric 2026-10-19, ruling 10) that decays at `slideEaseRate`, so an
+   * event-driven move glides over about half a second.
    */
-  update(dt: number, ship: Followable): void {
-    const lead = this.leadOffset(ship);
-    this.follow.x = expDecay(this.follow.x, ship.x + lead.x, this.opts.followRate, dt);
-    this.follow.y = expDecay(this.follow.y, ship.y + lead.y, this.opts.followRate, dt);
+  update(dt: number, target: Point | null): void {
+    if (this.modeValue === 'follow' && target !== null && Number.isFinite(target.x + target.y)) {
+      this.anchor.x = target.x;
+      this.anchor.y = target.y;
+    }
     this.decayJump(dt);
-    const target = this.slideTarget();
-    this.center.x = target.x + this.jump.x;
-    this.center.y = target.y + this.jump.y;
-    if (this.offFollow) this.keepShipInView(ship);
-  }
-
-  /**
-   * THE OWN HULL STAYS ON SCREEN (Story 9.8 review gate, F2). At the waypoint
-   * the centre is the ring centre (ruling 128), at the out limit the map centre
-   * (amendment 142), so a captain in the storm — farther from that centre than the view's half
-   * extent — would be off screen with nothing pulling the camera back. Clamp
-   * the centre, per axis of the VIEW RECT (not a circle), so the hull point
-   * stays `keepInViewPadU` inside every edge. The BOTTOM edge is the HUD bar's
-   * top edge across the whole width (amendment 208; conservative outside the
-   * bar's column, never wrong), so the hull never sits under the bar. A
-   * captain inside the ring never reaches the clamp, so their centre is
-   * exactly the slide's. Only while the slide is engaged (or an event jump is
-   * easing out): at and inside the intel waypoint the centre is the follow
-   * point, untouched (the ship is above the bar there by construction, lead
-   * included — ruling 9).
-   *
-   * A VIEWPORT TOO SHORT FOR THE BAR (review gate, Codex): the bottom
-   * half-extent is NOT floored at 0, so with the lower half exhausted the bar
-   * edge still wins; if the bar-edge bound then passes the top bound, the bar
-   * edge is preferred outright.
-   */
-  private keepShipInView(ship: Point): void {
-    const v = this.worldView;
-    const pad = this.opts.keepInViewPadU ?? 0;
-    const hw = Math.max(0, v.halfW - pad);
-    const hh = Math.max(0, v.halfH - pad);
-    const lower = ship.y - (v.halfH - this.bottomInsetValue / this.zoom - pad);
-    const upper = ship.y + hh;
-    this.center.x = clamp(this.center.x, ship.x - hw, ship.x + hw);
-    this.center.y = lower > upper ? lower : clamp(this.center.y, lower, upper);
+    this.placeCenter();
   }
 }

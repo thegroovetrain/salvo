@@ -441,6 +441,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     colors: vi.fn(() => null),
     ...(over.ownBurstRadius ? { ownBurstRadius: over.ownBurstRadius } : {}),
     ...(over.flashBursts ? { flashBursts: over.flashBursts } : {}),
+    ...(over.pegs ? { pegs: over.pegs } : {}),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, onBurst, onBoom, spawnEffect, onBallisticUpdate, play };
@@ -564,6 +565,24 @@ describe('bindRoom own boom + Hit Call', () => {
 });
 
 // --- Story 2.8: the homing torpedo's track update -------------------------------
+
+describe('bindRoom splash pegs (Story 11.8) — own shell ends only', () => {
+  it('an own sp lays a MISS peg and an own hc a HIT peg at the point, stamped with the frame time', () => {
+    const add = vi.fn();
+    const { sink } = setupEvents({ pegs: { add } });
+    sink.handler(eventFrame({ k: 'sp', id: 'me', x: 12, y: -4 }));
+    sink.handler(eventFrame({ k: 'hc', id: 'me', x: 30, y: 9 }));
+    expect(add.mock.calls).toEqual([['miss', 12, -4, 200], ['hit', 30, 9, 200]]);
+  });
+
+  it('another captain\'s sp or hc (spectator-public rows) lays nothing', () => {
+    const add = vi.fn();
+    const { sink } = setupEvents({ pegs: { add } });
+    sink.handler(eventFrame({ k: 'sp', id: 'them', x: 1, y: 1 }));
+    sink.handler(eventFrame({ k: 'hc', id: 'them', x: 1, y: 1 }));
+    expect(add).not.toHaveBeenCalled();
+  });
+});
 
 describe('bindRoom torpU events', () => {
   it('routes a torpU to the projectile track update — and nothing else', () => {
