@@ -26,6 +26,10 @@
 // paints' wire-echo slack, which clutter never emits — recycled, so a warm
 // track allocates nothing (a record grows only past its largest step).
 //
+// NOT IN ISLAND RADAR SHADOW (Eric 2026-11-15, "Skip radar shadow"): the step
+// carries the radar's height raster and `rainClutter` drops a cell whose center
+// the server's own hull gate would call shadowed (`visibilityTo > 0`).
+//
 // NO CLUTTER when there is no rain frame (no field yet / a non-finite input), with no own
 // pose (the radar marches nothing; spectate renders the radar pose-less), or
 // for a non-finite input.
@@ -34,7 +38,7 @@ import { blipAlpha } from './phosphor.js';
 import type { HeatGrid } from './radarHeatmap.js';
 import type { MarchSlice } from './radarMarch.js';
 import { emptyClutterSlice, rainClutter, type RainClutterOpts } from './rainClutter.js';
-import type { FogFrame } from '@salvo/shared';
+import type { FogFrame, HeightRaster } from '@salvo/shared';
 
 /** The camera's world rect (render/radar.ts `ViewRect`). */
 export interface ClutterView {
@@ -115,6 +119,7 @@ export interface ClutterStep {
   to: number; // rad — its end (to > from)
   t: number; // ms — server time, the slice's paint time
   rangeU: number; // u — from `clutterReachU`
+  raster?: HeightRaster | null; // the island height raster: no clutter in its radar shadow (Eric 2026-11-15)
 }
 
 /** The radar's live clutter slices: pooled, revolution-counted, time-retired. */
@@ -145,7 +150,7 @@ export class ClutterTrack {
     if (st.frame === null || !(st.rangeU > 0)) return 0;
     const rec = this.take();
     const s = rainClutter(
-      { frame: st.frame, ox: st.ox, oy: st.oy, rangeU: st.rangeU, sweepIndex: this.sweep, from: st.from, to: st.to, t: st.t },
+      { frame: st.frame, ox: st.ox, oy: st.oy, rangeU: st.rangeU, sweepIndex: this.sweep, from: st.from, to: st.to, t: st.t, raster: st.raster },
       this.opts, rec,
     );
     if (s.n === 0) {

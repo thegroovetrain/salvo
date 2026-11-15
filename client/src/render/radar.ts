@@ -1082,7 +1082,7 @@ export class Radar {
       const to = from + cfg.march.sliceRad;
       const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg, { diskR: this.mapR });
       if (slice !== null) this.enrollSlice(slice);
-      this.clutter.step({ frame: rain, ox: own.x, oy: own.y, from, to, t: serverNow, rangeU: clutterU });
+      this.clutter.step({ frame: rain, ox: own.x, oy: own.y, from, to, t: serverNow, rangeU: clutterU, raster: this.heightRaster });
       this.sliceFrom = wrapPositive(to);
       if (this.sliceFrom < from) this.clutter.wrapped(); // a new revolution rolls fresh clutter
     }

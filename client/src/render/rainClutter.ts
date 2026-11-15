@@ -27,8 +27,17 @@
 //                               soft edges instead of a hard cut
 // A lit cell rolls `cellNoise < amount`; its intensity is the tier's strength
 // × (1 ± grain), the same "1 ± amount" grain law the return model uses.
+//
+// NOT WHERE THE BEAM NEVER GETS (Eric 2026-11-15, AskUserQuestion "Skip radar
+// shadow"; epic-11 amendment 13(k)): a lit cell is dropped when its center is
+// in island radar shadow from the observer — the SAME predicate the server's
+// blip gate puts on a hull standing there (`visibilityTo(raster, observer,
+// point) > 0`, shared/sim/radarShadow.ts), so clutter never paints where a
+// ship would be shadowed. Asked LAST, only of a cell that already rolled to
+// paint (an exact "nearest island" pre-skip was measured and bought nothing:
+// the walk's own sea-tile skip already makes clear bearings cheap).
 
-import { FOG_SOLID_DENSITY, fogDensityAt, type FogFrame } from '@salvo/shared';
+import { FOG_SOLID_DENSITY, fogDensityAt, visibilityTo, type FogFrame, type HeightRaster } from '@salvo/shared';
 import { cellNoise, paintSeed } from './radarHeatmap.js';
 import type { MarchSlice } from './radarMarch.js';
 
@@ -74,6 +83,7 @@ export interface RainClutterInput {
   from: number; // rad — the beam's bearing at the start of the step (world axes: dx = cos, dy = sin)
   to: number; // rad — at the end; the step covers [from, to), to ≥ from
   t: number; // ms — paint time stamped on the slice (its phosphor age)
+  raster?: HeightRaster | null; // the island height raster: a cell in its radar shadow paints nothing (absent / null = no terrain)
 }
 
 /** The tier of a cell with rain density `d` at ρ = distance from the eye / ring radius. */
@@ -165,7 +175,13 @@ function cell(w: Walk, s: MarchSlice, gx: number, gy: number, cx: number, cy: nu
   const tier = clutterTierAt(d, rho, w.o.midDensity);
   const g = w.o.grain > 0 ? w.o.grain : 0;
   const intensity = tierStrength(tier, w.o) * (1 + g * (2 * cellNoise(w.seedW, gx, gy) - 1));
-  return intensity > 0 ? push(s, gx, gy, intensity, w.o.cellU) : s;
+  return intensity > 0 && lit(w, cx, cy) ? push(s, gx, gy, intensity, w.o.cellU) : s;
+}
+
+/** Does the beam reach (cx, cy) past the islands? The server gate's own hull predicate. */
+function lit(w: Walk, cx: number, cy: number): boolean {
+  const r = w.in.raster;
+  return r === undefined || r === null || visibilityTo(r, w.in.ox, w.in.oy, cx, cy) > 0;
 }
 
 /** Walk the lattice rows of one convex wedge piece (≤ a quarter turn). */

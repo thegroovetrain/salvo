@@ -3853,3 +3853,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - cosmetic - 2026-11-13 (review gate)
   summary: THE OWN HEAT BAR CAN STEP BACK AND FORTH BY ONE ROUND'S HEAT UNDER LATENCY, and one round's heat is now up to about 9 % of the bar (it was a fixed 3 %): `OwnBattery.correct` overwrites the predicted heat from every own frame with no unacked-input guard (the turrets have one).
   evidence: `client/src/sim/ownBattery.ts` (`correct`); the mechanism predates this change, the step size is new (a round fired near full heat adds its ~900 ms interval / 10 s).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-6-rain-first.md`
+  summary: Dev rooms with a `zoneOverride` timeline compute different rain on server and client (the client's `FogFieldView.frameAt` always passes `CONFIG.zone`; the server passes the room's own timeline).
+  evidence: Codex + Blind Hunter (Story 11.6 review); dev-only (`HC_DEV_OPTIONS=1`), real matches unaffected; fixing needs the override on the wire.
