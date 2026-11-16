@@ -151,7 +151,7 @@ export function bindingRows(): BindingRow[] {
     { keys: 'Q / E / R', action: 'TORPEDO / MINE / SPECIAL SHELL — PRESS TO READY, AGAIN TO CANCEL' },
     { keys: 'C', action: 'HULL REPAIR' },
     { keys: 'V', action: 'SMOKE SCREEN' },
-    { keys: 'SHIFT', action: 'SPECIAL — YOUR PICK ON YOUR SHIP' },
+    { keys: 'SHIFT', action: 'SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE MAIN BATTERY, OR THE READIED WEAPON' },
     { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD)' },

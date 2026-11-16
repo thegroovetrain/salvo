@@ -3865,6 +3865,6 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: 10.13'S SOUND CUES ARE NOT RE-AUDITIONED FOR THE BIG OCEAN'S REACHES (epic-11 amendment 2(c)); an audition needs Eric listening (sound audition process: one artifact page from the real audio modules).
   evidence: Story 11.11 AC; cue distances in `client/src/audio/`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-11-how-to-play-and-record.md`
-  status: resolved - 2026-11-16 (Eric: "You can change the obvious shit on the settings page"; row now SPECIAL — YOUR PICK ON YOUR SHIP, stale (NONE) gun row removed)
+  status: resolved - 2026-11-16 (Eric: "You can change the obvious shit on the settings page"; row now SPECIAL, stale (NONE) gun row removed)
   summary: THE SETTINGS CONTROLS LIST SAYS "SHIFT — CLASS SPECIAL" but the Special is the captain's pick on YOUR SHIP, not the hull's; left as is (no in-game copy unasked).
   evidence: `client/src/ui/settings.ts` controls rows.
