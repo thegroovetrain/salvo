@@ -201,3 +201,5 @@ No torpedo one-shots any hull at either step. The ratio between the three torped
 | mines (built) | a shot mine | detonates → destroyed, no blast / slow / chain |
 
 **Open:** the 4:00 supercav and phosphor edges (next levers, unmeasured: supercav Tier I run or reload further; phosphor zone radius or duration); Iowa; the torpedo share of kills (~36 %).
+
+**Ruling 2026-11-16 (Eric) — torpedo reload cuts REJECTED:** *"Such low cooldowns on torpedoes is the absolute wrong direction. My main gun has a cooldown of around 15 seconds at 100 RELOAD, why on earth should I be able to fire my light torpedoes exactly as often? … Torpedoes ALREADY deal lots of damage."* Light 25 → 15 s and heavy 30 → 26 s are withdrawn; torpedo reloads stay well above the main gun's ~15 s. Every r1–r4 arm carried the light 15 s cut, so **the torpedo parity readings above were measured with light firing too often and must be re-measured** at shipped (or longer) reloads before any torpedo number is ruled.
