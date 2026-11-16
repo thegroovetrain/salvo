@@ -148,3 +148,56 @@ No torpedo one-shots any hull at either step. The ratio between the three torped
 4. **Iowa at +15 (11.0 %) is the only hull interval all day outside 25 %** — one of twelve hull readings across the three arms; Iowa has the lowest ARMOR (85), so a mechanism is plausible, but it is unconfirmed until a second arm repeats it.
 
 **Not measured:** any change to a weapon's Tier I numbers. `--tune` still cannot reach `lightTorpedo.*`, `supercavTorpedo.*`, `starShells.*`, `phosphorShells.*` (gap H1); `torpedo.*` is the heavy line's.
+
+## Category parity campaign (2026-11-15 → 16, eight arms)
+
+**Eric's brief (2026-11-15):** get the weapons in each category in line with each other. Weapon tiers add weapon POWER (damage) and per-weapon RELOAD, so **only base damage and reload numbers move; everything else is fair game**. A shot mine is destroyed, never detonated. Identities: **light** torpedo = lowest speed and damage, quickest reload; **heavy** = higher speed and damage, longer reload; **supercav** = highest speed, damage and reload, never tracks; **Tier I torpedo speeds (45 / 65 / 195) are real-world and never change**. Mines: smaller naval/fouling trigger, larger captive ring (more reaction time), area control more than killing, no "must take". Shells are utility: star reveals anywhere it lands (already true in code), phosphor damage / area denial, fouling and flash initiate / escape / set up. His yardstick choices: **measure +10 and +15**; **placement parity** for mines; **the same test for all four shells**; **up to ~8 arms**.
+
+**Built for it (branch `experiment-weapon-power`):** harness — every weapon stat tunable (PR #354: weapon CONFIG families, per-run tuned catalog, `ladder.*` per-tier steps); gameplay — **a mine shot to 0 hp is destroyed with no blast, slow or chain** (396de21a; six tests flipped). Tier I torpedo tracking was measured through `ladder.<torpedo>.homingTurnRate.1` (the code pins a row's Tier I homing at 0; shipping it needs a code change).
+
+**Arms:** `r1`–`r4`, each run at `armor.weaponPowerPerTier` 10 and 15 → 8 × 91 matches, 16 bots, even roster, `--bot-spend random`, seed 500 (paired with `randomSpend` / `wp10` / `wp15`). Tune files and shards: `~/hc-campaigns/parity-2026-11-15/` (`r*_tunes.txt`). Metric: `category.py` — OWNS-the-weapon landmark regression at 4:00 and 8:00, hull + total-tier controls, gap to the category's best in placement percentile points, 95 % match bootstrap; plus `torp_eff.py` (torpedo kills per holder).
+
+**What each round changed:**
+
+| Round | Torpedoes | Mines | Shells |
+|---|---|---|---|
+| r1 | light reload 15 s, speed step +5; heavy speed step +5; supercav dmg 350, reload 60 s | trigger factor 2/3 → 0.4 (naval + fouling); captive ring 120 → 180; naval dmg 200 → 250 | phosphor reload 26 s; star 15 s; flash 22 s; fouling 22 s |
+| r2 | + light/heavy Tier I tracking 0.125; supercav reload 70 s, run 55→40 hm (I) / 140→88 hm (V) | — | flash 18 s; fouling 16 s, radius 150 → 200 |
+| r3 | Tier I tracking light 0.3, heavy 0.25 | — | flash 15 s |
+| r4 | supercav dmg 320, reload 80 s; heavy Tier I tracking 0.3, reload 26 s | — | phosphor reload 32 s, burn 20 → 15 hp/s |
+
+**Gap to the category's best, 4:00 / 8:00 (bold = CI excludes 0):**
+
+| | baseline (+10) | r1 +10 / +15 | r2 +10 / +15 | r3 +10 / +15 | r4 +10 / +15 |
+|---|---|---|---|---|---|
+| heavy vs supercav | **−9.1 / −6.3** | **−10.8/−5.8**, **−10.5/−4.6** | **−12.7**/−3.2, **−11.3**/−1.1 | **−6.9/−3.7**, **−7.1/−5.0** | **−6.8**/−3.1, **−6.4**/−1.8 |
+| light vs supercav | **−10.8 / −8.0** | **−9.3/−5.6**, **−8.8/−3.7** | **−11.5/−4.0**, **−11.8/−5.1** | −4.9/−1.0, **−7.8/−2.8** | **−6.8**/−1.7, **−5.4**/(light best at 8:00) |
+| worst mine | **−3.8 / −3.7** | −2.0/−0.3, −3.2/−1.9 | −2.1/**−3.4**, **−4.5**/−1.3 | **−5.8/−3.1**, −2.8/−0.2 | −1.7/−2.3, −2.5/−1.9 |
+| worst shell vs phosphor | **−5.7 / −5.5** | **−8.4**/−1.4, **−9.3**/−2.3 | **−8.0/−3.9**, **−7.8/−4.6** | **−10.0/−3.7**, **−8.4/−4.3** | **−7.4/−3.7**, **−7.3/−4.6** |
+
+**Torpedo kills per holder (light / heavy / supercav):** `randomSpend` 0.09 / 0.14 / 0.77 → r2 +10 0.14 / 0.23 / 0.54 → r3 +10 0.26 / 0.27 / 0.45 → **r4 +10 0.30 / 0.40 / 0.42, +15 0.36 / 0.41 / 0.38**. Torpedo kills per arm rose 341 → ~435 (light and heavy now hit).
+
+**Mines pooled r1–r3 (546 matches; settings identical):** gap to best 4:00 −0.4 / −1.3, 8:00 −0.7 / −0.9, every CI inside ±2.3 and containing 0 — **parity**. Mine kills per arm 60–67 (baseline) → 29–42.
+
+**Side readings:** attrition unchanged in every arm (≈13.6 / 7.0 / 2.1 alive at 4/8/12 min). **Iowa** 14–22 % in 7 of the 8 round arms under both steps (baseline `randomSpend` 28.6 %) — a hull finding, not a weapon one. Land-contact bar fails 1.0–1.9 % in most random-spend arms (baseline too); r4 +10 passes all four bars. **+10 vs +15:** no consistent difference in any category or hull across four paired rounds.
+
+**Why the torpedoes moved only once tracking arrived:** a bot fires a straight-running torpedo only inside 250 u (`TORPEDO_CREDIBLE_U`) and a supercav inside 800 u (`bots.supercavCredibleU`) — about the same 4–5 s of flight. With tracking, the credible range is run − π × speed / turn rate; r2's 0.125 sat under the threshold (light 1250 − 1131 u), r3's 0.25–0.3 cleared it (light ≈ 780 u). The early supercav lead is the physics of a 195 u/s straight-runner versus 45–65 u/s ones; tracking is what lets the slow ones play.
+
+**Readings.** Mines: parity, measured precisely. Torpedoes: parity at 8:00 and in kills; a ~6-point supercav edge remains at 4:00. Shells: phosphor still leads at 4:00 in all ten arms; parity-ish at 8:00 — the utility shells' value is the part bots measure worst (Eric chose the same test knowing it).
+
+**Proposal set (r4) — pending Eric, line by line:**
+
+| Weapon | Dial | Shipped → proposed |
+|---|---|---|
+| all weapons | weapon POWER per tier | (damage ladders) → **+10** (+15 measured, no difference) |
+| light torpedo | reload; speed step / tier; Tier I tracking | 25 s → 15 s; 2.5 → 5 (45 → 65 at V); 0 → 0.3 rad/s (+0.125 / tier after) |
+| heavy torpedo | reload; speed step / tier; Tier I tracking | 30 s → 26 s; 2.5 → 5 (65 → 85 at V); 0 → 0.3 rad/s |
+| supercav | damage; reload; run I / V | 400 → 320; 45 s → 80 s; 55 → 40 hm / 140 → 88 hm |
+| naval + fouling mines | trigger factor (× blast) | 2/3 → 0.4 |
+| captive mine | trigger ring | 120 → 180 u |
+| naval mine | damage | 200 → 250 |
+| phosphor | reload; burn | 20 s → 32 s; 20 → 15 hp/s |
+| star / flash / fouling shell | reload (fouling also radius) | 20 → 15 s / 30 → 15 s / 30 → 16 s, 150 → 200 u |
+| mines (built) | a shot mine | detonates → destroyed, no blast / slow / chain |
+
+**Open:** the 4:00 supercav and phosphor edges (next levers, unmeasured: supercav Tier I run or reload further; phosphor zone radius or duration); Iowa; the torpedo share of kills (~36 %).
