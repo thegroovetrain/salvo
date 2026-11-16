@@ -82,7 +82,7 @@ export function seatBeacons(w: World, intoMs: number, at: readonly Vec2[]): Beac
   w.startZone(t0);
   w.beacons.replace(0, t0, (_rng, taken) => {
     const p = at[taken.length] ?? farAway(taken.length);
-    return { x: p.x, y: p.y, fallback: false };
+    return { x: p.x, y: p.y };
   });
   return w.beacons.records.slice(0, at.length);
 }

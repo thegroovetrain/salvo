@@ -28,6 +28,7 @@ import {
   SHIP_CLASS_IDS,
   zoneClosedAtMs,
   zoneGroups,
+  type Catalog,
   type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
@@ -62,6 +63,9 @@ const ZONE_SEED_ORDINAL = 0x7a0e;
 
 export interface RunSpec {
   seed: number;
+  /** The run's tuned catalog (catalogTune.ts buildTunedCatalog) — absent on
+   *  an untuned run, which then plays the shipped CATALOG. */
+  catalog?: Catalog;
   matches: number;
   captains: number;
   /**
@@ -460,7 +464,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(matchSeed, ZONE_SEED_ORDINAL + i));
   // NO POOL SEED ANY MORE (Story 8.14): the hidden match pool is retired, and
   // a draw is a pure read of the drawing ship's own state off its own stream.
-  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds });
+  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds, catalog: spec.catalog }); // undefined = shipped
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,

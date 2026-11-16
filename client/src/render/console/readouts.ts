@@ -244,6 +244,48 @@ export interface ReadoutSource {
   loadout: readonly (EquipmentId | null)[];
   cards: readonly string[];
   cls: HullId;
+  /** The fitted Shift's running window (absent = none running). */
+  window?: ShiftWindow;
+}
+
+/** Which fitted-Shift window is running this frame — Speed Boost's or
+ *  Hunker's. The two temporary index bonuses the console prints ride it;
+ *  the fold (`effectiveStats`) never carries them. */
+export interface ShiftWindow {
+  readonly boost: boolean;
+  readonly hunker: boolean;
+}
+
+/** The four window states, frozen once — a frame compares identities and
+ *  allocates nothing. Indexed `boost + 2 × hunker`. */
+const WINDOWS: readonly ShiftWindow[] = [
+  Object.freeze({ boost: false, hunker: false }),
+  Object.freeze({ boost: true, hunker: false }),
+  Object.freeze({ boost: false, hunker: true }),
+  Object.freeze({ boost: true, hunker: true }),
+];
+
+/** No window running. */
+export const NO_SHIFT_WINDOW: ShiftWindow = WINDOWS[0];
+
+/** Pure: the (shared, frozen) window for the fitted Shift — a window counts
+ *  only when that equipment IS the fitted Shift. */
+export function shiftWindowFor(shift: EquipmentId | null, boostOpen: boolean, hunkerOpen: boolean): ShiftWindow {
+  const boost = shift === 'boost' && boostOpen;
+  const hunker = shift === 'hunker' && hunkerOpen;
+  return WINDOWS[(boost ? 1 : 0) + (hunker ? 2 : 0)];
+}
+
+/** Pure: the index value the console prints under the running Shift window.
+ *  ENGINES is linear in top speed, so a Speed Boost raises it by the boost
+ *  factor (the same addition order as `boostedKinematics`), floored to the
+ *  integer index; Hunker adds its ARMOR bonus. Every other index — and either
+ *  index with no window — is the fold's own number. Display only. */
+export function shiftedIndex(stats: EffectiveStats, id: IndexId, window: ShiftWindow): number {
+  const v = stats[id];
+  if (id === 'engines' && window.boost) return Math.floor(v + v * CONFIG.boost.factor);
+  if (id === 'armor' && window.hunker) return v + stats.equipment.hunker.armorBonus;
+  return v;
 }
 
 /** The equipment a weapon row shows, or null (empty Q/E/R; the slotless
@@ -253,10 +295,10 @@ export function rowEquipment(kind: WeaponRowKind, loadout: readonly (EquipmentId
   return slot === null ? null : (loadout[slot] ?? null);
 }
 
-function indexReadouts(stats: EffectiveStats, cards: readonly string[]): Readout[] {
+function indexReadouts(stats: EffectiveStats, cards: readonly string[], window: ShiftWindow): Readout[] {
   const out: Readout[] = [];
   for (const id of INDEX_IDS) {
-    const v = stats[id];
+    const v = shiftedIndex(stats, id, window);
     out.push({ key: READOUT_KEY.index(id), label: indexWord(id), value: String(v), raw: v, role: 'index' });
     const held = Math.min(lineTier(cards, id), CLIENT_CONFIG.console.ship.tierBars);
     out.push({ key: READOUT_KEY.held(id), label: '', value: String(held), raw: held, role: 'held' });
@@ -331,7 +373,7 @@ const ABILITY_LINE: Readonly<Record<CooldownAbilityId, string>> = { repair: 'hul
  *  rows top to bottom, then C / V. */
 export function consoleReadouts(src: ReadoutSource): Readout[] {
   return [
-    ...indexReadouts(src.stats, src.cards),
+    ...indexReadouts(src.stats, src.cards, src.window ?? NO_SHIFT_WINDOW),
     ...WEAPON_ROW_KINDS.flatMap((kind) => weaponReadouts(kind, src)),
     ...abilityReadouts(src.stats, src.cards),
   ];
@@ -343,6 +385,9 @@ export interface ReadoutShip {
   cards: readonly string[];
   ib: IndexBonus;
   shift: ShiftId;
+  /** The running Shift window — both re-folds of a hover preview read this
+   *  same one, so an open window never paints a false mark. */
+  window?: ShiftWindow;
 }
 
 /** Pure: fold the own ship (plus an optional hovered card line) and read
@@ -353,7 +398,7 @@ export function shipReadouts(you: ReadoutShip, extraLine?: string): Readout[] | 
   const cards = extraLine === undefined ? you.cards : [...you.cards, extraLine];
   const stats = effectiveStats(CONFIG.shipClasses[you.cls], cards, CATALOG, you.ib);
   const loadout = slotsWithCards(stats, cards, CATALOG, you.shift).map((s) => s.equipmentId);
-  return consoleReadouts({ stats, loadout, cards, cls: you.cls });
+  return consoleReadouts({ stats, loadout, cards, cls: you.cls, window: you.window });
 }
 
 // --- the preview (R18) ----------------------------------------------------------

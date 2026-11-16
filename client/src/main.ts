@@ -107,9 +107,12 @@ import {
   hullAmberChannel,
   hullFraction,
   hullHoldsLit,
+  NO_SHIFT_WINDOW,
+  shiftWindowFor,
   weaponRowModels,
   type PreviewMarks,
   type Readout,
+  type ShiftWindow,
 } from './render/console/readouts.js';
 import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
 import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
@@ -753,12 +756,16 @@ interface ConsoleCache {
   /** The fold the readouts were taken off (identity — `applyOwnStats` swaps it). */
   stats: EffectiveStats | null;
   slots: readonly (EquipmentId | null)[] | null;
+  /** The Shift window the readouts were taken under (a frozen constant —
+   *  compared by identity, so a window opening/closing redraws). */
+  window: ShiftWindow;
   readouts: readonly Readout[];
   layout: ConsoleLayout | null;
   weapons: WeaponsConsoleLayout | null;
   layoutKey: string;
   previewLine: string | null;
   previewStats: EffectiveStats | null;
+  previewWindow: ShiftWindow;
   preview: PreviewMarks | null;
   /** The weapons console's denied flags, reused frame to frame. */
   denied: { rows: boolean[]; abilities: boolean[] };
@@ -768,12 +775,14 @@ function freshConsoleCache(): ConsoleCache {
   return {
     stats: null,
     slots: null,
+    window: NO_SHIFT_WINDOW,
     readouts: [],
     layout: null,
     weapons: null,
     layoutKey: '',
     previewLine: null,
     previewStats: null,
+    previewWindow: NO_SHIFT_WINDOW,
     preview: null,
     denied: { rows: WEAPON_ROW_KINDS.map(() => false), abilities: ABILITY_KINDS.map(() => false) },
   };
@@ -3393,8 +3402,9 @@ function updateConsoles(
     return;
   }
   const layout = consoleLayoutNow(g);
-  const readouts = consoleReadoutsNow(g);
-  const preview = hoverMarksNow(g);
+  const shiftWin = shiftWindowNow(g);
+  const readouts = consoleReadoutsNow(g, shiftWin);
+  const preview = hoverMarksNow(g, shiftWin);
   const frame: ConsoleFrame = { status, pose, readouts, preview, ringUrgent, freeze, nowSec, nowMs };
   g.shipConsole.update(shipConsoleView(g, frame), layout.ship);
   g.weaponsConsole.update(weaponsConsoleView(g, frame), g.consoleCache.weapons!);
@@ -3431,15 +3441,32 @@ function hideConsolesTransient(g: Game): void {
  * EVERY CONSOLE NUMBER (O7), off the own fold — memoised on the fold's
  * identity (`applyOwnStats` swaps `ownStats` / `ownSlots` together whenever the
  * class, the cards, the Shift or the index bonus change), so a frame with
- * nothing new reuses the same array and the consoles redraw nothing.
+ * nothing new reuses the same array and the consoles redraw nothing — and on
+ * the running Shift window (`shiftWindowNow`), so ENGINES / ARMOR move exactly
+ * when a Speed Boost / Hunker window opens or closes.
  */
-function consoleReadoutsNow(g: Game): readonly Readout[] {
+function consoleReadoutsNow(g: Game, shiftWin: ShiftWindow): readonly Readout[] {
   const c = g.consoleCache;
-  if (c.stats === g.ownStats && c.slots === g.ownSlots) return c.readouts;
+  if (c.stats === g.ownStats && c.slots === g.ownSlots && c.window === shiftWin) return c.readouts;
   c.stats = g.ownStats;
   c.slots = g.ownSlots;
-  c.readouts = consoleReadouts({ stats: g.ownStats, loadout: g.ownSlots, cards: g.state.net.you?.cards ?? NO_CARDS, cls: g.ownClass });
+  c.window = shiftWin;
+  c.readouts = consoleReadouts({ stats: g.ownStats, loadout: g.ownSlots, cards: g.state.net.you?.cards ?? NO_CARDS, cls: g.ownClass, window: shiftWin });
   return c.readouts;
+}
+
+/**
+ * The fitted Shift's running window this frame — the same sources
+ * `activeWindows` reads: the fitted Shift slot, the prediction-aware
+ * `boostUntilNow` for Speed Boost, the server's self-private `you.hunkerUntil`
+ * for Hunker. A frozen constant
+ * (`shiftWindowFor`), so the per-frame path allocates nothing.
+ */
+function shiftWindowNow(g: Game): ShiftWindow {
+  const you = g.state.net.you;
+  if (!you) return NO_SHIFT_WINDOW;
+  const now = g.clock.serverNow();
+  return shiftWindowFor(g.ownSlots[SLOT_BOOST] ?? null, now < boostUntilNow(g), now < (you.hunkerUntil ?? 0));
 }
 
 /**
@@ -3466,14 +3493,16 @@ function consoleLayoutNow(g: Game): ConsoleLayout {
 /** THE HOVER PREVIEW (R18): the hovered offer card's marks — a REAL re-fold of
  *  `effectiveStats` with the card (`hoverPreview`), memoised on (line, fold).
  *  A REFUSED card (the shared `pickRefusal` over the replayed slot ids — the
- *  refusal `offerView` greys it on) previews nothing: no amber lie. */
-function hoverMarksNow(g: Game): PreviewMarks | null {
+ *  refusal `offerView` greys it on) previews nothing: no amber lie. Both
+ *  re-folds carry the same Shift window, so an open window marks nothing. */
+function hoverMarksNow(g: Game, shiftWin: ShiftWindow): PreviewMarks | null {
   const c = g.consoleCache;
-  if (c.previewLine === g.hoverLine && c.previewStats === g.ownStats) return c.preview;
+  if (c.previewLine === g.hoverLine && c.previewStats === g.ownStats && c.previewWindow === shiftWin) return c.preview;
   c.previewLine = g.hoverLine;
   c.previewStats = g.ownStats;
+  c.previewWindow = shiftWin;
   const you = g.state.net.you;
-  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT }, g.hoverLine, g.ownSlots) : null;
+  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT, window: shiftWin }, g.hoverLine, g.ownSlots) : null;
   return c.preview;
 }
 

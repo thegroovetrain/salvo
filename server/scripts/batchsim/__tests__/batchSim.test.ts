@@ -1569,9 +1569,9 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
 
   // STORY 9.8 (epic-9 ruling 125): every weapon's reach is its OWN tiered
   // dial, read live by the fold — so `<w>.rangeU` LEFT the derived-refusal
-  // map and is a real --tune dial (floor 1), while `<w>.rangeUAtV`, which
-  // authors the per-card step once at module load, is REFUSED (the
-  // amendment-110 pattern: tuning it would change nothing).
+  // map and is a real --tune dial (floor 1). `<w>.rangeUAtV` was REFUSED until
+  // 2026-11-15 (the per-card step is read once at module load); the run's
+  // tuned catalog now re-derives that step, so it is a dial too.
   const REACH_ROWS = ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells'] as const;
 
   it('--tune <weapon>.rangeU is a real dial: accepted, floored at 1, and it moves the fold\'s Tier I base', () => {
@@ -1593,10 +1593,10 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
     expect(CONFIG.gun.rangeU).toBe(before);
   });
 
-  it('--tune <weapon>.rangeUAtV is REFUSED: the Tier V reach authors the per-card step at module load', () => {
+  it('--tune <weapon>.rangeUAtV is a real dial, floored at 1', () => {
     for (const row of REACH_ROWS) {
-      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(TunableError);
-      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(/tune rangeU for the base/);
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).not.toThrow();
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=0`]), row).toThrow(/>= 1/);
     }
   });
 

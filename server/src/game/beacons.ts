@@ -41,7 +41,6 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { logWarn } from '../log.js';
-import type { FleetAnchor } from './spawn.js';
 import type { AssistTally, ShipRecord } from './world.js';
 
 /** One beacon. Everything but `x` / `y` / `sinkT` (and the cycle it belongs
@@ -113,8 +112,10 @@ function wireCount(cycle: number): number {
 const NO_CHART: BeaconChart = Object.freeze({ cycle: -1, cycleStartT: 0, beacons: Object.freeze([]) });
 
 /** One placement request: the cycle's private stream and the beacons already
- *  picked this cycle (each pick enters the next one's `occupied`). */
-export type BeaconPick = (rng: Rng, taken: readonly Vec2[]) => FleetAnchor;
+ *  placed this cycle (each placed beacon enters the next request's `taken`).
+ *  Null = no spot for this beacon: it is skipped, and logging that is the
+ *  CALLER's job (World.placeBeacons logs `beacon.placeSkipped`). */
+export type BeaconPick = (rng: Rng, taken: readonly Vec2[]) => Vec2 | null;
 
 /** Pays one hull its integer share of a beacon's pot. */
 export type BeaconPay = (hull: ShipRecord, shareMs: number) => void;
@@ -134,9 +135,10 @@ export class BeaconField {
   readonly inRangeTicks: number[] = [];
 
   /** `seed` is SERVER-PRIVATE material (the World mints it off the room's
-   *  private entropy, never the public map seed): max-min placement against
-   *  the captains' positions on a stream a client could replay would turn the
-   *  public chart into a position oracle. */
+   *  private entropy, never the public map seed): the random placement
+   *  (Eric 2026-11-15, Story 11.7) still keeps out of every captain's disc,
+   *  so on a stream a client could replay the public chart would leak where
+   *  the captains are not — a position oracle. */
   constructor(private readonly seed: number) {}
 
   /** The last ring cycle placed for (-1 = none yet). */
@@ -170,8 +172,10 @@ export class BeaconField {
   /**
    * REPLACE THE SET for ring cycle `cycle` (R2): the previous cycle's beacons
    * are dropped whatever state they are in, and `beaconCountFor(cycle)` new
-   * ones are picked in order on the cycle's own private stream. A cycle with
-   * no beacons (sudden death) simply clears the set.
+   * ones are picked in order on the cycle's own private stream. A pick that
+   * returns null is skipped (the cycle simply has fewer beacons) and the ids
+   * and slots stay DENSE — numbered by the beacons actually placed. A cycle
+   * with no beacons (sudden death) simply clears the set.
    */
   replace(cycle: number, cycleStartT: number, pick: BeaconPick): void {
     this.list = [];
@@ -183,15 +187,16 @@ export class BeaconField {
     if (count === 0) return;
     const rng = mulberry32((this.seed ^ Math.imul(cycle + 1, 0x9e3779b9)) >>> 0);
     const taken: Vec2[] = [];
-    for (let slot = 0; slot < count; slot += 1) {
+    for (let n = 0; n < count; n += 1) {
       const at = pick(rng, taken);
+      if (at === null) continue;
       // FLOAT32-EXACT: the schema carries x / y as float32, so the record,
       // its body, its polygon and every range test hold the WIRE value — the
       // server and every client test the very same point.
       const x = Math.fround(at.x);
       const y = Math.fround(at.y);
       taken.push({ x, y });
-      this.add(cycle, slot, x, y);
+      this.add(cycle, this.list.length, x, y);
     }
   }
 

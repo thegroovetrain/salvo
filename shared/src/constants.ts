@@ -2983,8 +2983,9 @@ export const CONFIG = {
    * Destroyed afloat (0 hp) the sink minute starts at once (R6) — the early
    * sink time is public (R9).
    *
-   * COUNTS (R2): `counts[c]` beacons in ring cycle c — *"8 / 4 / 2"* for the
-   * cycles starting 0:00 / 4:00 / 8:00; a cycle past the list (the 12:00
+   * COUNTS (R2; Eric 2026-11-15, Story 11.7): `counts[c]` beacons in ring
+   * cycle c — *"7 / 5 / 3"* (*"Just to keep it odd lol"*; was 8 / 4 / 2) for
+   * the cycles starting 0:00 / 4:00 / 8:00; a cycle past the list (the 12:00
    * sudden-death cycle) gets NONE.
    *
    * RATE (R4): *"lets actually say it transmits 3 levels worth of XP per minute
@@ -2999,15 +3000,22 @@ export const CONFIG = {
    * say, 2 levels worth of XP to kill it, which would be divided among
    * participants like ship kills would be"*).
    *
-   * PLACEMENT (R10): the whole `rangeU` circle inside the live ring —
-   * `edgeMarginU` from the ring edge. The captain keep-out disc of the
-   * fleet-anchor placement rule is `keepOutU` — its OWN fact since Story 11.2
-   * (2026-11-12, R20): it used to read `vision.dropout.startU` (1000 u),
-   * which is REMOVED with the dropout (R8), so the disc keeps today's 1000 u
-   * here and no longer moves with any sensor reach.
+   * PLACEMENT (R10; RANDOM since Eric 2026-11-15, Story 11.7 — *"Its a game
+   * where randomness is part of things. I don't mind if there's one or two in
+   * the middle."*): each beacon goes on a uniformly random open-water point
+   * of the live ring, the whole `rangeU` circle inside it (`edgeMarginU` from
+   * the ring edge), clear of land, at least `minSpacingFrac` × the placement
+   * radius from every beacon already placed this cycle (hard rules), and outside every afloat
+   * captain's `keepOutU` disc (the soft rule: when no draw of `placeAttempts`
+   * clears it, the first draw that met the hard rules is taken and logged;
+   * when none met them, that beacon is skipped and logged). The old
+   * fleet-anchor max-min rule is retired. `keepOutU` is its OWN fact since
+   * Story 11.2 (2026-11-12, R20): it used to read `vision.dropout.startU`
+   * (1000 u), which is REMOVED with the dropout (R8), so the disc keeps
+   * today's 1000 u here and no longer moves with any sensor reach.
    */
   beacons: {
-    counts: [8, 4, 2], // beacons per ring cycle, cycle 0 first; past the list = 0 (R2)
+    counts: [7, 5, 3], // beacons per ring cycle, cycle 0 first; past the list = 0 (R2; Eric 2026-11-15, Story 11.7)
     rangeU: 500, // u — a hull's CENTRE within this of the beacon's centre is paid (inclusive)
     surfaceMs: 60000, // ms — cycle start → surfaces (R3: charted 0:00, surfaces 1:00)
     floatMs: 60000, // ms — afloat at the full rate (R3)
@@ -3017,7 +3025,17 @@ export const CONFIG = {
     armor: 100, // ARMOR index — the damage gate AND the ram mass (R5, R7)
     killLevels: 2, // levels paid for destroying it, split as a ship kill (R13)
     edgeMarginU: 500, // u — placement: at least this far inside the live ring edge (R10)
-    keepOutU: 1000, // u — the captain keep-out disc of the fleet-anchor placement (Story 11.2, R20: today's 1000 u as its own fact; was `vision.dropout.startU`)
+    keepOutU: 500, // u — the captain keep-out disc of the placement, the soft rule. Story 11.7 (Eric 2026-11-15, "Solve the problem"): 1000 -> 500 = rangeU, nobody starts a cycle already paid; at 1000 the 16 spawn discs walled off the ring outside ~3,300 u (was 1000 u since Story 11.2, R20)
+    // × the placement radius (live ring r − edgeMarginU) — the least distance
+    // between two beacons of one cycle, a hard rule. Eric 2026-11-15 after
+    // playing it at a fixed 1000 u: "They need to be spread out from each
+    // other a bit more. They were all clumped together for the first ring."
+    // 0.5 = 2250 / 1500 / 750 u on today's rings: the widest fraction that
+    // never skipped a beacon in 400 simulated cycles per ring (0.6 skipped
+    // 0.9 % of cycle-0 beacons, 0.7 12.6 %). Scales with the ring so a later,
+    // smaller ring still fits its count.
+    minSpacingFrac: 0.5,
+    placeAttempts: 256, // uniform draws tried per beacon before it is skipped (never thrown); an implementation knob (Story 11.7)
     // u — circumradius of the regular-octagon body. PROVISIONAL — NOT RULED BY
     // ERIC: pending his yes on the RENDERED candidate (the spec's Block-If).
     // Picked at ~one battleship half-beam (Yamato 17.8 / Bismarck 16.5 /

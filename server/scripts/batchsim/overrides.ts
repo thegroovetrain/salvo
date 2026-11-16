@@ -28,6 +28,7 @@
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
 import { CONFIG, TERRAIN_PARAMS } from '@salvo/shared';
+import { isLadderKey, ladderKeyProblem, ladderValueProblem, LADDER_PREFIX } from './catalogTune.js';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
@@ -90,6 +91,14 @@ const TUNE_FAMILIES = [
   'hunker.',
   'broadside.',
   'torpedo.',
+  // THE OTHER TWO TORPEDO KINDS and FLASH SHELLS (Eric 2026-11-15: "all weapon
+  // stats can be played with") — `torpedo.` above is the HEAVY torpedo and
+  // the family's shared numbers; these are each kind's own block.
+  'lightTorpedo.',
+  'supercavTorpedo.',
+  'flashShells.',
+  // GUN DISPERSION (Story 11.1) — the scatter every main-gun shell lands with.
+  'dispersion.',
   'mine.',
   // CAPTIVE and FOULING MINES (Story 9.1 session 3, Eric 2026-10-08: "run
   // progressive experiments on trigger/blast radius for all types of mines")
@@ -230,10 +239,11 @@ export function isTuneKey(key: string): boolean {
 //
 // THE WEAPON REACHES ARE DIALS SINCE STORY 9.8 (ruling 125): every
 // `<weapon>.rangeU` is the Tier I reach, read live by the fold, so it LEFT
-// this map and is tunable (floor 1 — TUNE_MIN_ONE_LEAVES). Its sibling
-// `<weapon>.rangeUAtV` is REFUSED (RANGE_AT_V below, the amendment-110
-// pattern): the Tier V reach authors the per-card step ONCE, at module load
-// (sim/catalog.ts rangeStep), so a --tune of it would change nothing.
+// this map and is tunable (floor 1 — TUNE_MIN_ONE_LEAVES). Its siblings
+// `<weapon>.rangeUAtV` / `<kind>.runUAtV` were REFUSED until 2026-11-15 (the
+// per-card step is read once at module load); the run's tuned catalog
+// (catalogTune.ts) now re-derives that step from the live CONFIG, so both are
+// real dials (floor 1).
 const DERIVED_TUNE_KEYS = new Map<string, string>([
   [
     'mine.triggerRadius',
@@ -256,15 +266,9 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
 /** `<weapon>.rangeUAtV` — read once at module load (see DERIVED_TUNE_KEYS) —
  *  and its torpedo sibling `<kind>.runUAtV` (sim/catalog.ts `runStep`, the
  *  same read-once law; Story 11.2 review gate, F7). */
-const RANGE_AT_V = /\.(rangeUAtV|runUAtV)$/;
 
 /** Refuse a path the firewall re-derives post-fold (see DERIVED_TUNE_KEYS). */
 function assertNotDerived(key: string): void {
-  if (RANGE_AT_V.test(key)) {
-    throw new TunableError(
-      `'${key}' is REFUSED: the Tier V reach authors the per-card step at module load; tune ${key.endsWith('runUAtV') ? 'runU' : 'rangeU'} for the base`,
-    );
-  }
   const advice = DERIVED_TUNE_KEYS.get(key);
   if (advice !== undefined) {
     throw new TunableError(`'${key}' is a DERIVED stat — tuning it has no effect on the sim: ${advice}`);
@@ -304,7 +308,7 @@ function assertKeyAllowed(key: string, allowTune: boolean): void {
     assertNotDerived(key);
     if (isTuneKey(key)) return;
     throw new TunableError(
-      `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')})`,
+      `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')}) — or a catalog step: ${LADDER_PREFIX}<line>.<stat>[.<tier>]`,
     );
   }
   if (isTunableKey(key)) return;
@@ -437,6 +441,11 @@ export function validateTunableValue(key: string, value: number): void {
 
 /** Validate a --tune key without touching CONFIG (arg-parse time). */
 export function validateTuneKey(key: string): void {
+  if (isLadderKey(key)) {
+    const problem = ladderKeyProblem(key);
+    if (problem !== null) throw new TunableError(problem);
+    return;
+  }
   resolveLeaf(key, true);
 }
 
@@ -485,10 +494,12 @@ const TUNE_MIN_ONE_LEAVES = new Set([
   // multiplies it (ai/profiles.ts engagementBand) — a 0 reach is a weapon
   // that fires into its own muzzle and a bot band collapsed to a point.
   'rangeU',
+  'rangeUAtV', // a real dial since the tuned catalog re-derives the step (2026-11-15)
   // runU (Story 11.2 review gate, F7): a torpedo's run is its launch
   // `distLeft` — at 0 the fish expires in its tube and the arm measures no
   // torpedo while the report reads normal.
   'runU',
+  'runUAtV', // likewise
   'steerageSpeed',
   'reload',
   'engines',
@@ -569,6 +580,13 @@ function tuneFloor(key: string): number {
  *  be 0 — `gun.burstRadius=0` is what ARMOR-PIERCING already does, and a
  *  0-damage arm is a real control. */
 export function validateTuneValue(key: string, value: number): void {
+  if (!isLadderKey(key)) return validateCombatValue(key, value);
+  const problem = ladderValueProblem(key, value);
+  if (problem !== null) throw new TunableError(problem);
+}
+
+/** The CONFIG-leaf half of validateTuneValue (every key but `ladder.*`). */
+function validateCombatValue(key: string, value: number): void {
   if (validateBotRange(key, value)) return;
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
@@ -919,7 +937,9 @@ export function applyOverrides(
     if (Object.hasOwn(set, 'map.baseRadius') && !Object.hasOwn(set, 'terrain.regionWavelength')) {
       write('terrain.regionWavelength', set['map.baseRadius'], false);
     }
-    for (const key of Object.keys(tune)) write(key, tune[key], true);
+    // `ladder.*` keys are catalog steps, not CONFIG leaves: the run's tuned
+    // catalog (catalogTune.ts buildTunedCatalog) applies them.
+    for (const key of Object.keys(tune)) if (!isLadderKey(key)) write(key, tune[key], true);
     // Relations between leaves, on the FINISHED CONFIG — inside the try, so a
     // violation rolls every write back exactly like a bad leaf does.
     validateCrossKeyInvariants();
