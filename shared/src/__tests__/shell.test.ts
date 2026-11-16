@@ -838,6 +838,56 @@ describe('stepShell — homing torpedo steering', () => {
   });
 });
 
+// --- ACOUSTIC HOMING (experiment, Eric 2026-11-16) -------------------------
+// Arbitrary turn rate, range and loudness: the mechanism, never a balance number.
+
+describe('stepShell — acoustic homing (turn rate × target loudness)', () => {
+  const RATE = 2;
+  const RANGE = 400;
+  const acoustic = (extra: Partial<NonNullable<ShellState['homing']>> = {}): ShellState =>
+    homingTorp({ homing: { turnRate: RATE, acquireRange: RANGE, acoustic: true, ...extra } });
+  const loud = (t: Target, l: number): Target => ({ ...t, loud: l });
+  const turnOf = (t: ShellState): number => Math.abs(Math.atan2(t.vy, t.vx));
+
+  it('locks the LOUDEST target in range, not the nearest', () => {
+    const t = acoustic();
+    stepShell(t, ctx({ targets: [loud(hullAt(60, 40, 0, 'near'), 0.3), loud(hullAt(200, -150, 0, 'loud'), 0.9)] }));
+    expect(t.homing!.targetId).toBe('loud');
+    expect(t.vy).toBeLessThan(0); // turned toward the loud one (−y)
+  });
+
+  it('turns at exactly turnRate × loudness × dt when the target is off the bow', () => {
+    for (const l of [0.25, 1, 1.5]) {
+      const t = acoustic();
+      stepShell(t, ctx({ targets: [loud(hullAt(10, 300, 0, 'prey'), l)] })); // ~90° off: the turn saturates
+      expect(turnOf(t)).toBeCloseTo(RATE * l * DT, 9);
+      expect(Math.hypot(t.vx, t.vy)).toBeCloseTo(CONFIG.torpedo.speed, 9); // speed preserved
+    }
+  });
+
+  it('a SILENT target (loudness 0) is never locked: the fish runs straight', () => {
+    const t = acoustic();
+    stepShell(t, ctx({ targets: [loud(hullAt(80, 50, 0, 'quiet'), 0)] }));
+    expect(t.homing!.targetId).toBeUndefined();
+    expect(t.vy).toBe(0);
+  });
+
+  it('a target with no loudness set reads as loudness 1', () => {
+    const t = acoustic();
+    stepShell(t, ctx({ targets: [hullAt(10, 300, 0, 'plain')] }));
+    expect(turnOf(t)).toBeCloseTo(RATE * DT, 9);
+  });
+
+  it('a LOCKED acoustic fish keeps its victim and turns at turnRate × the victim\'s loudness', () => {
+    for (const l of [0, 0.5, 1]) {
+      const t = acoustic({ targetId: 'victim', locked: true });
+      stepShell(t, ctx({ targets: [loud(hullAt(10, 300, 0, 'victim'), l), loud(hullAt(10, -300, 0, 'louder'), 2)] }));
+      expect(t.homing!.targetId).toBe('victim'); // never re-acquired
+      expect(turnOf(t)).toBeCloseTo(RATE * l * DT, 9);
+    }
+  });
+});
+
 // --- CYCLE-148 REVIEW GATE, P6: A LOCKED FISH HAS ONE TARGET, FOR GOOD -------
 //
 // The CAPTIVE MINE fires at the hull that tripped it AND cleared the hostile

@@ -1916,7 +1916,11 @@ export const CONFIG = {
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
     // tier-V ring is 175.7 u, was 210.8).
     triggerRadius: 180, // u — the TRIP ring at tier I: 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
-    triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
+    triggerStepPerTier: 1.1,
+    // rad/s — the captive fish's ACOUSTIC reference turn rate at every tier
+    // (experiment, Eric 2026-11-16: "use their current Tier V tracking number
+    // as their baseline" — 4 × 0.075); scaled in flight by the victim's noise.
+    homingTurnRate: 0.3, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
     damage: 100, // hp — the fish's warhead at tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "CAPTIVE 100 → 200"; was 90 +11/+11/+11/+12 → 135, Eric 2026-10-16, Story 9.12; 55 +5 before, R25)
     // The naval chassis is SHARED, not duplicated: the rear placement sector

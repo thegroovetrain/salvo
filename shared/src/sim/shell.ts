@@ -241,7 +241,7 @@ export interface ShellState {
    * homing torpedo leaves it unset and keeps the nearest-acquire rule above,
    * unchanged.
    */
-  homing?: { turnRate: number; acquireRange: number; targetId?: string; locked?: true };
+  homing?: { turnRate: number; acquireRange: number; targetId?: string; locked?: true; acoustic?: true };
 }
 
 /**
@@ -289,6 +289,12 @@ export interface Target {
   id: string;
   kind: TargetKind;
   poly: readonly Vec2[]; // world-space verts (length 1 = a point target)
+  /** ACOUSTIC LOUDNESS (experiment, Eric 2026-11-16): how loud this target is
+   *  to an acoustic torpedo — 1 = an ENGINES-100 hull at full throttle. The
+   *  server sets it on hulls (ENGINES / 100 × |throttle|); absent reads as 1
+   *  (a beacon, or any caller that never sets it). Only `homing.acoustic`
+   *  steering reads it. */
+  loud?: number;
 }
 
 /** Everything stepShell needs about the world this tick. */
@@ -479,6 +485,7 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   const homing = shell.homing!;
   const speed = Math.hypot(shell.vx, shell.vy);
   if (speed <= 0) return;
+  if (homing.acoustic === true) return steerAcoustic(shell, homing, ctx, speed);
   const best = homing.locked === true ? lockedCentroid(homing.targetId, ctx) : acquireNearest(shell, homing, ctx);
   if (best === null) return;
   const current = Math.atan2(shell.vy, shell.vx);
@@ -488,6 +495,71 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   const dir = current + delta;
   shell.vx = speed * Math.cos(dir);
   shell.vy = speed * Math.sin(dir);
+}
+
+/** Rotate the velocity toward `to` by at most `maxTurn` (speed preserved). */
+function turnToward(shell: ShellState, to: Vec2, maxTurn: number, speed: number): void {
+  const current = Math.atan2(shell.vy, shell.vx);
+  const desired = Math.atan2(to.y - shell.y, to.x - shell.x);
+  const dir = current + Math.max(-maxTurn, Math.min(maxTurn, wrapAngle(desired - current)));
+  shell.vx = speed * Math.cos(dir);
+  shell.vy = speed * Math.sin(dir);
+}
+
+/** A target's loudness to an acoustic torpedo: its `loud`, absent = 1, never
+ *  negative or NaN. */
+const loudnessOf = (t: Target): number => {
+  const l = t.loud ?? 1;
+  return Number.isFinite(l) && l > 0 ? l : 0;
+};
+
+/** May a torpedo lock this target? Never a mine (amendment 20), never the owner's hull. */
+const lockable = (t: Target, ownerId: string): boolean => t.kind !== 'mine' && !(t.kind === 'hull' && t.id === ownerId);
+
+/** The LOUDEST legal target within `acquireRange` (nearer wins a tie),
+ *  recorded in `homing.targetId`; null when nothing in range makes a sound.
+ *  Same legality as acquireNearest (never a mine, never the owner). */
+function loudestTarget(shell: ShellState, homing: NonNullable<ShellState['homing']>, ctx: ShellContext): Target | null {
+  let best: Target | null = null;
+  let bestL = 0;
+  let bestD = Infinity;
+  for (const t of ctx.targets) {
+    if (!lockable(t, shell.ownerId)) continue;
+    const l = loudnessOf(t);
+    const c = polyCentroid(t.poly);
+    const d = Math.hypot(c.x - shell.x, c.y - shell.y);
+    if (l <= 0 || d > homing.acquireRange) continue;
+    if (l > bestL || (l === bestL && d < bestD)) [best, bestL, bestD] = [t, l, d];
+  }
+  homing.targetId = best?.id;
+  return best;
+}
+
+/** The PINNED target itself (a captive fish's victim), or null once it has
+ *  left `ctx.targets` — the lockedCentroid rule, keeping the target's loudness. */
+function lockedTarget(targetId: string | undefined, ctx: ShellContext): Target | null {
+  if (targetId === undefined) return null;
+  for (const t of ctx.targets) if (t.id === targetId) return t;
+  return null;
+}
+
+/**
+ * ACOUSTIC HOMING (experiment, Eric 2026-11-16): the fish turns toward its
+ * target at `turnRate × the target's loudness` — a quiet hull pulls it less,
+ * a silent one (loudness 0) not at all. A free fish locks the LOUDEST legal
+ * target in range, re-picked every tick; a LOCKED (captive) fish keeps its
+ * pinned victim and only its turn rate follows that victim's noise.
+ */
+function steerAcoustic(
+  shell: ShellState,
+  homing: NonNullable<ShellState['homing']>,
+  ctx: ShellContext,
+  speed: number,
+): void {
+  const t = homing.locked === true ? lockedTarget(homing.targetId, ctx) : loudestTarget(shell, homing, ctx);
+  if (t === null) return;
+  const l = loudnessOf(t);
+  if (l > 0) turnToward(shell, polyCentroid(t.poly), homing.turnRate * l * ctx.dt, speed);
 }
 
 /** The nearest legal target's centroid within `acquireRange`, RE-ACQUIRED
