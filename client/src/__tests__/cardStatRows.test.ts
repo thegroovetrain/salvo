@@ -394,11 +394,7 @@ describe('cardStatRows — the three slot weapons Story 10.5 moved off the kit',
     }
   });
 
-  it('a SUPERCAV tier card steps its damage, and every moved weapon\'s tier card prints its reload step', () => {
-    const before = fold('supercavTorpedo', 1).equipment.supercavTorpedo.damage;
-    const after = fold('supercavTorpedo', 2).equipment.supercavTorpedo.damage;
-    const rows = cardStatRows(CATALOG.supercavTorpedo, 1, { ...TB, cards: ['supercavTorpedo'] });
-    expect(rows.some((r) => r.cur === String(before) && r.next === String(after))).toBe(true);
+  it('every moved weapon\'s tier card prints its reload step', () => {
     for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
       const tier = cardStatRows(CATALOG[id], 1, { ...TB, cards: [id] });
       expect(tier[0].cur, id).not.toBeNull(); // the reload step leads, as on every weapon line

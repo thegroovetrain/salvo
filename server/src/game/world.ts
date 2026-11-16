@@ -63,6 +63,7 @@ import {
   stepTurrets,
   DEFAULT_HORN_ID,
   damageMultiplierFor,
+  weaponPowerFor,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -6348,7 +6349,7 @@ export class World {
     if (byId === undefined || weapon === undefined) return 0;
     const row = this.ships.get(byId)?.stats.equipment[weapon];
     if (row === undefined) return 0;
-    return CONFIG.armor.weaponPowerPerTier * Math.max(0, row.tier - 1);
+    return weaponPowerFor(row.tier);
   }
 
   /** A whole blow after the Armor multiply: floored to a whole number, but a

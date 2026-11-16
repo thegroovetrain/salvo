@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  hullSilhouette,
   beaconStateAt,
   damageMultiplierFor,
   type GameEvent,
@@ -29,7 +30,7 @@ import {
 } from '@salvo/shared';
 import { World, type DamageSource, type ShipRecord } from '../game/world.js';
 import type { BeaconRecord } from '../game/beacons.js';
-import { B, DT, SINK_MS, SURFACE_MS, bareWorld, captain, inp, run, seatBeacon, xpMsOf } from './beaconFixture.js';
+import { B, DT, SINK_MS, SURFACE_MS, bareWorld, captain, inp, moveTo, run, seatBeacon, xpMsOf } from './beaconFixture.js';
 
 /** The port beam of a heading-0 hull at the origin: where the cases seat the beacon. */
 const BEAM = Math.PI / 2;
@@ -251,14 +252,25 @@ describe('every weapon damages an AFLOAT beacon through the door (R8, R12)', () 
 
   it('a MINE never TRIPS on a beacon, and its BLAST damages one (R12)', () => {
     const c = range(6130);
-    const mine = { id: 'm1', ownerId: 'a', x: AT.x + 20, y: AT.y, armedAt: 0, kind: 'naval' as const, hp: CONFIG.mine.hp };
-    expect(20).toBeLessThan(c.a.stats.equipment.navalMines.triggerRadius); // the beacon is inside the trip ring
-    c.w.mines.set(mine.id, mine);
+    const row = c.a.stats.equipment.navalMines;
+    // The beacon sits inside the trip ring (half its radius, whatever it is) and never trips it.
+    const near = { id: 'm0', ownerId: 'a', x: AT.x + row.triggerRadius / 2, y: AT.y, armedAt: 0, kind: 'naval' as const, hp: CONFIG.mine.hp };
+    c.w.mines.set(near.id, near);
     run(c.w, 20);
-    expect(c.w.mines.has('m1')).toBe(true);
+    expect(c.w.mines.has('m0')).toBe(true);
     expect(c.beacon.hp).toBe(B.hp);
-    // A hull trips it; the blast covers the beacon too.
-    const v = captain(c.w, 'v', AT.x + 20, AT.y - 30);
+    c.w.mines.delete('m0');
+    // A hull sitting over a mine trips it at any trip ring. The beacon sits
+    // beside the mine, clear of the hull's side and inside the blast — both
+    // read from the row and the hull's own outline, never a literal.
+    const v = captain(c.w, 'v', AT.x, AT.y + 2000); // heading 0: the long axis runs along x
+    const halfBeam = Math.max(...hullSilhouette(v.hullId).map((p) => Math.abs(p.y))); // the hull's own outline, local frame
+    const clear = halfBeam + B.bodyRadiusU;
+    expect(clear).toBeLessThan(row.blastRadius); // the blast reaches past the hull's side
+    const gap = (clear + row.blastRadius) / 2;
+    const mine = { id: 'm1', ownerId: 'a', x: AT.x, y: AT.y - gap, armedAt: 0, kind: 'naval' as const, hp: CONFIG.mine.hp };
+    c.w.mines.set(mine.id, mine);
+    moveTo(v, mine.x, mine.y);
     const log: GameEvent[] = [];
     for (let i = 0; i < 3; i += 1) {
       c.w.step();
@@ -383,8 +395,9 @@ describe('before it surfaces and once its sink has started, nothing damages it (
     expect(farthest).toBeGreaterThan(AT.y + 4 * B.bodyRadiusU);
     // A burning zone and a mine blast over it.
     w.burnZones.set('z', { id: 'z', ownerId: 'a', x: AT.x, y: AT.y, r: 100, until: w.now + 60_000, dps: 40 });
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: AT.x + 20, y: AT.y, armedAt: 0, kind: 'naval', hp: CONFIG.mine.hp });
-    captain(w, 'v', AT.x + 20, AT.y - 30);
+    const mx = AT.x + a.stats.equipment.navalMines.blastRadius / 2; // the beacon inside the blast
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: mx, y: AT.y, armedAt: 0, kind: 'naval', hp: CONFIG.mine.hp });
+    captain(w, 'v', mx, AT.y); // a hull over the mine trips it at any trip ring (a charted beacon is not solid)
     run(w, 5);
     expect(w.mines.has('m1')).toBe(false);
     // A hull sails across the spot.

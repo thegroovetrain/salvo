@@ -547,7 +547,7 @@ describe('shared barrel', () => {
   it('re-exports the mine RING derivations (sim/stats.ts — the one home for both)', () => {
     // A CONTACT mine's trip ring is a fixed fraction of its blast...
     expect(mineTriggerRadius(CONFIG.mine.blastRadius)).toBe(CONFIG.mine.triggerRadius);
-    expect(mineTriggerRadius(72)).toBeCloseTo(48, 9);
+    expect(mineTriggerRadius(72)).toBeCloseTo(72 * CONFIG.mine.triggerFactor, 9);
     // ...and the CAPTIVE's rides its TIER instead (epic-8 amendment 84d).
     expect(captiveTriggerRadius(1)).toBe(CONFIG.captiveMines.triggerRadius);
     expect(captiveTriggerRadius(5)).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.692 u at the 2026-10-08 ring

@@ -33,6 +33,7 @@ import {
   abilityCooldownFraction,
   abilityCooldownMs,
   damageMultiplierFor,
+  weaponPowerFor,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -99,7 +100,8 @@ export const READOUT_KEY = {
 /**
  * Pure: R19 — the DAMAGE a weapon shows, `floor(base × damageMultiplierFor(
  * CONFIG.index.base − power))`: what one hit deals against an ARMOR-100 hull
- * at today's gate. ×1 at POWER = base; a non-finite input fails to the base
+ * at today's gate. A weapon row passes the ship's POWER plus that weapon's
+ * tier POWER (`weaponPowerFor`, epic-11 amendment 17). ×1 at POWER = base; a non-finite input fails to the base
  * multiplier the gate itself fails to (×1), never NaN.
  */
 export function shownDamage(base: number, power: number): number {
@@ -315,7 +317,9 @@ function gunsPerSalvo(cls: HullId): number {
 function statReadout(kind: WeaponRowKind, target: EquipmentId, field: string, src: ReadoutSource): Readout {
   const row = src.stats.equipment[target] as unknown as Record<string, number>;
   const label = fieldLabels(target, src.stats).get(field) ?? '';
-  const raw = field === 'damage' ? shownDamage(row.damage, src.stats.power) : row[field];
+  // The weapon's own tier POWER rides on the ship's (amendment 17), so the
+  // printed damage climbs with every tier exactly as the gate's hit does.
+  const raw = field === 'damage' ? shownDamage(row.damage, src.stats.power + weaponPowerFor(row.tier ?? 1)) : row[field];
   let value = fieldText(field, raw);
   if (kind === 'mainBattery' && field === 'damage') value = `${value}×${gunsPerSalvo(src.cls)}`;
   return { key: READOUT_KEY.stat(kind, field), label, value, raw, role: 'stat' };
