@@ -26,11 +26,13 @@ import {
   type EffectiveStats,
   type LitZoneView,
   type EquipmentId,
+  type HullId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotSelf } from './types.js';
 import type { BotProfile } from './profiles.js';
 import type { TacticContext } from './tacticKit.js';
+import { barRangeU } from './hitChance.js';
 
 /** The slot-0 guns — the only weapons the lit lift serves: the captain's MAIN
  *  BATTERY (Story 10.4) and the three deck-gun rows (kept for reference,
@@ -73,6 +75,19 @@ export interface GunBand {
 }
 
 /**
+ * u — THE MAIN BATTERY'S BAND BASE (Story 11.9 R4, Eric 2026-11-16): the
+ * standoff follows the hit bar. The band's edges are fractions of
+ * `B = barRangeU / maxFrac` instead of the reach, so the far edge (maxFrac,
+ * the cannon band's 0.8) lands exactly on the bar range for a zero-nudge
+ * profile. The bar range is for a SIDE-ON hull of the target's class — the
+ * R3 blip model when the class is unknown or there is no target. A far
+ * fraction of 0 keeps the reach (no division by it).
+ */
+function barBaseU(targetCls: HullId | null, rangeU: number, maxFrac: number): number {
+  return maxFrac > 0 ? barRangeU(targetCls, rangeU) / maxFrac : rangeU;
+}
+
+/**
  * THE GUN'S BAND (amendment 198): CONFIG.bots.gunBand[<mounted gun>] × rangeU,
  * both edges shifted by `profile.bandNudge × rangeU` and kept on [0, rangeU];
  * for the machine gun and flak the near edge is 0 (they close, never open)
@@ -80,14 +95,24 @@ export interface GunBand {
  * (`shadowing`: the `kite` posture, Eric 2026-10-17, epic-9 amendment 205),
  * when the hold line is lifted to the gun's full `rangeU`: a shadowing bot
  * does not close, so it may fire attenuated at range. The band edges (where
- * the helm holds station) do not move.
+ * the helm holds station) do not move. THE MAIN BATTERY's edges are fractions
+ * of its bar base (`barBaseU`, Story 11.9 R4 — `targetCls` the current
+ * target's class, null = the blip model), still clamped to [0, rangeU]; the
+ * MG / flak / deck-gun rows read `rangeU` as before.
  */
-export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: EquipmentId | null, shadowing = false): GunBand {
+export function gunBand(
+  profile: BotProfile,
+  stats: EffectiveStats,
+  gunId?: EquipmentId | null,
+  shadowing = false,
+  targetCls: HullId | null = null,
+): GunBand {
   const gun = mountedGun(gunId);
   const rangeU = gunRangeU(stats, gun);
   const [minFrac, maxFrac] = CONFIG.bots.gunBand[bandKey(gun)];
   const nudge = bandNudgeOf(profile);
-  const edge = (f: number): number => Math.min(rangeU, Math.max(0, (f + nudge) * rangeU));
+  const base = gun === 'mainBattery' ? barBaseU(targetCls, rangeU, maxFrac) : rangeU;
+  const edge = (f: number): number => Math.min(rangeU, Math.max(0, (f + nudge) * base));
   const max = edge(maxFrac);
   if (bandKey(gun) === 'cannon') return { min: Math.min(max, edge(minFrac)), max, holdFireAboveU: Infinity };
   return { min: 0, max, holdFireAboveU: shadowing ? rangeU : max };
@@ -173,7 +198,8 @@ export function mountedReachOf(ctx: TacticContext): EffectiveReach {
 }
 
 /** The MOUNTED gun's doctrine band in a tactic context — the hold line
- *  lifted while the bot is shadowing (`kite`, amendment 205). */
+ *  lifted while the bot is shadowing (`kite`, amendment 205); the main
+ *  battery's bar base read for the context's target (Story 11.9 R4). */
 export function mountedBandOf(ctx: TacticContext): GunBand {
-  return gunBand(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx), ctx.posture === 'kite');
+  return gunBand(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx), ctx.posture === 'kite', ctx.target?.cls ?? null);
 }

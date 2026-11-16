@@ -572,7 +572,7 @@ function stageEvents(world: World, events: GameEvent[]): void {
 
 const NUMERIC_FIELDS = [
   'groundedTicks', 'stuckEpisodes', 'outsideRingTicks', 'stormDeathStuck', 'stormDeathAground',
-  'gunShells', 'starShellsFired', 'fogTicks', 'actPresses',
+  'gunShells', 'mbClicks', 'starShellsFired', 'fogTicks', 'actPresses',
   'gunsBearing', 'gunsInReach', 'minesSwept', 'repairPresses', 'repairHullFracSum',
 ] as const;
 const RECORD_FIELDS = [
@@ -721,6 +721,7 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
     const row = col.samples(world)[0];
     expect(row.mbBandShells).toEqual([1, 0, 0, 1]);
     expect(row.mbBandHits).toEqual([1, 0, 0, 0]);
+    expect(row.mbClicks).toBe(1); // Story 11.9: two shells of one owner first seen on one tick = one click
   });
 
   it('stuckEpisodes counts a staged 2 s landContact run once; groundedTicks counts every contact tick', () => {

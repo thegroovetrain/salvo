@@ -39,6 +39,7 @@ import { avoidBeacons, avoidHulls, avoidReachU } from '../game/ai/navigate.js';
 import { beaconStandoffU } from '../game/ai/beacons.js';
 import { ownReachU, pullBand } from '../game/ai/utility.js';
 import { gunBand } from '../game/ai/doctrine.js';
+import { barRangeU } from '../game/ai/hitChance.js';
 import { leadPoint } from '../game/ai/tacticKit.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { navCacheFor } from '../game/navCache.js';
@@ -182,6 +183,14 @@ function inReach(rec: ShipRecord, port: FakePort, frac = 0.6): number {
   const reach = ownReachU(situationOf(rec, mkMind('raider'), port));
   expect(reach * frac).toBeGreaterThan(hullBumper(rec.hullId, 'bismarck'));
   return reach * frac;
+}
+
+/** u — half the hit bar's blip-model range (Story 11.9): a target there
+ *  clears the per-shell bar, so a CLICK test is decided by the gate it tests. */
+function inBar(rec: ShipRecord, port: FakePort): number {
+  const d = barRangeU(null, ownReachU(situationOf(rec, mkMind('raider'), port))) / 2;
+  expect(d).toBeGreaterThan(hullBumper(rec.hullId, 'bismarck'));
+  return d;
 }
 
 /** One non-deliberating decision with `posture` held on a parked target. */
@@ -357,7 +366,7 @@ describe('COMBAT_BRAIN — the arc opening on the posture bearing (R2)', () => {
   it('EVERY CLICK ON THE WAY ROUND IS ON TARGET AT THE SERVER: stepped as the server steps (hull, then turrets, then the pick)', () => {
     const rig = rigFor('bismarck', 1212);
     const { rec, port } = rig;
-    const target = { x: inReach(rec, port), y: 0 };
+    const target = { x: inBar(rec, port), y: 0 }; // inside the hit bar (Story 11.9)
     const mind = mkMind('raider');
     holdTarget(mind, track(port.now, target), 'pursue');
     const reloadMs = rec.stats.equipment.mainBattery.reloadMs;
@@ -409,8 +418,7 @@ describe('COMBAT_BRAIN — a beacon farmer with a target (R4, the helm half)', (
 
   it('ON STATION with a target in reach: dead in the water (no lane nudge, no arc opening) — and it still CLICKS when a turret is on target', () => {
     const { rec, port, mind } = stationed('iowa', 1220);
-    const reach = ownReachU(situationOf(rec, mind, port));
-    const target = { x: rec.state.x + reach * 0.6, y: 0 }; // dead ahead: the aft turrets are masked
+    const target = { x: rec.state.x + inBar(rec, port), y: 0 }; // dead ahead: the aft turrets are masked; inside the hit bar (Story 11.9)
     holdTarget(mind, track(port.now, target), 'farm');
     trainOn(rec, target.x, target.y);
     const d = COMBAT_BRAIN.decide(rec, mind, port, false);

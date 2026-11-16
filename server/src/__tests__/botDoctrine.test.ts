@@ -25,6 +25,7 @@ import { ABILITY_WANTS } from '../game/ai/abilities.js';
 import { FLARE_TO_SHOOT } from '../game/ai/equipment.js';
 import { profileOf, type BotProfile } from '../game/ai/profiles.js';
 import { effectiveReach, gunBand, mountedGun, ownLitZones } from '../game/ai/doctrine.js';
+import { barRangeU } from '../game/ai/hitChance.js';
 import { hunkerCues, type TacticContext } from '../game/ai/tacticKit.js';
 import type { BotMind, BotPosture, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 import type { PerceptionView } from '../game/perception.js';
@@ -170,6 +171,38 @@ describe('the doctrine band (amendment 198)', () => {
       expect(band.min).toBeCloseTo((lo + n) * R, 9);
       expect(band.max).toBeCloseTo((hi + n) * R, 9);
       expect(band.holdFireAboveU).toBe(Infinity); // the cannon never holds fire
+    }
+  });
+
+  it('THE MAIN BATTERY\'s band follows the hit bar (Story 11.9 R4): at zero nudge its far edge IS the side-on bar range for the target\'s class (the blip model with none); edges stay in [0, rangeU]', () => {
+    const w = openWorld(9134);
+    const [lo, hi] = CONFIG.bots.gunBand.cannon;
+    for (const hull of ['yamato', 'iowa', 'warspite'] as const) {
+      const rec = mkBot(w, hull);
+      const R = rec.stats.equipment.mainBattery.rangeU;
+      for (const cls of [null, 'bismarck', 'yamato'] as const) {
+        const bar = barRangeU(cls, R);
+        const band = gunBand(withNudge(profileOf('bulwark'), 0), rec.stats, 'mainBattery', false, cls);
+        expect(band.max).toBeCloseTo(bar, 6);
+        expect(band.min).toBeCloseTo((lo / hi) * bar, 6);
+        expect(band.holdFireAboveU).toBe(Infinity);
+        const nudged = gunBand(withNudge(profileOf('bulwark'), 0.1), rec.stats, 'mainBattery', false, cls);
+        expect(nudged.max).toBeCloseTo(Math.min(R, ((hi + 0.1) / hi) * bar), 6);
+      }
+      // No class given reads the blip model.
+      expect(gunBand(profileOf('bulwark'), rec.stats, 'mainBattery')).toEqual(gunBand(profileOf('bulwark'), rec.stats, 'mainBattery', false, null));
+    }
+  });
+
+  it('an unreachable bar collapses the main battery\'s band to [0, 0] (no NaN)', () => {
+    const rec = mkBot(openWorld(9135), 'iowa');
+    const was = CONFIG.bots.hitBar;
+    try {
+      (CONFIG.bots as { hitBar: number }).hitBar = 1.01;
+      const band = gunBand(profileOf('bulwark'), rec.stats, 'mainBattery');
+      expect([band.min, band.max]).toEqual([0, 0]);
+    } finally {
+      (CONFIG.bots as { hitBar: number }).hitBar = was;
     }
   });
 

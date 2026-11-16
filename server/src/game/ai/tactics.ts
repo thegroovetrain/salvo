@@ -600,9 +600,11 @@ export function approachPoint(profile: BotProfile, t: BotTrack, sit?: Pick<BotSi
  *  ai/doctrine.ts gunBand; the profile only nudges it), with the BAND PULL
  *  (Eric ruling 2026-08-20) applied here: a READY fitted weapon whose reach
  *  lies below the band's near edge tugs that edge halfway toward its reach
- *  (utility.ts pullBand). The beam-on orbit is ai/navigate.ts bandOrbit. */
+ *  (utility.ts pullBand). The main battery's band follows the hit bar for
+ *  the target's class (Story 11.9 R4). The beam-on orbit is ai/navigate.ts
+ *  bandOrbit. */
 function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
-  const band = pullBand(gunBand(sit.profile, sit.stats, sit.gunId), readyShotReaches(self, sit.stats));
+  const band = pullBand(gunBand(sit.profile, sit.stats, sit.gunId, false, t.cls), readyShotReaches(self, sit.stats));
   return bandOrbit(self.state, approachPoint(sit.profile, t, sit), band);
 }
 

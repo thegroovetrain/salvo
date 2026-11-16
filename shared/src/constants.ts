@@ -711,6 +711,15 @@ export const CONFIG = {
       flak: [0, 0.5],
     },
     /**
+     * THE HIT BAR (Eric 2026-11-16, Story 11.9 R1): a bot fires its main
+     * battery only when one shell has at least a 20 % chance to land inside
+     * the target — the bot's own aim wobble (`gunAimScatterU`) and the real
+     * dispersion both counted (server ai/hitChance.ts). Per ONE shell, not
+     * per salvo. The main-battery band's far edge follows it (ai/doctrine.ts
+     * gunBand). A harness dial on CLOSED [0, 1].
+     */
+    hitBar: 0.2,
+    /**
      * NAVIGATION (Story 9.13, epic-9 amendments 192/199/202,
      * [accepted 2026-10-17]) — the dials of shared sim/nav.ts (flow field to
      * the ring, A* routes when the line is blocked) and the server-side

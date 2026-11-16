@@ -17,7 +17,9 @@
 // finishes this tick counts), then the shared `pickTurret`. A target in
 // reach that no ready turret can bear (the blind sector) keeps the aim and
 // never clicks. The reach is the row's folded `rangeU` with the cannon's lit
-// lift; the coastline gate is the cannon's.
+// lift; the coastline gate is the cannon's. THE HIT BAR (Story 11.9): it also
+// holds the click until one shell has at least `CONFIG.bots.hitBar` chance to
+// land inside the target (ai/hitChance.ts); the aim is still written.
 //
 // SECONDARIES. Held (`InputMsg.sec`) while the bot has a LIVE hull target
 // inside `stats.secondaryRangeU`, with a burst discipline: released once heat
@@ -71,6 +73,7 @@ import type { BotMind, BotPosture, BotSelf } from './types.js';
 import { ownReachU, type BotSituation, type BotTrack } from './utility.js';
 import { reachOf } from './doctrine.js';
 import { hullLengthU } from './navigate.js';
+import { shotHitChance } from './hitChance.js';
 import { distTo, leadPoint, overLandReaches, scatterOffset, stamped, type EquipmentTactic, type Shot, type TacticContext } from './tacticKit.js';
 
 /** The bot's held aim for the main battery: bearing + distance from the hull
@@ -133,9 +136,20 @@ export function readyOnTarget(self: BotSelf, aim: BatteryAim, pose: AimPose = se
   return pickTurret(next, self.hullId, pose, p) !== null;
 }
 
+/** THE HIT BAR (Story 11.9, Eric 2026-11-16, R1/R2): does ONE shell at the
+ *  held aim clear `CONFIG.bots.hitBar` — the bot's wobble and the real
+ *  dispersion counted, the target's outline at the lead point (ai/hitChance.ts),
+ *  the range the held aim distance from the hull centre? It applies in every
+ *  posture and inside an own lit zone (the lit lift is about reach, not
+ *  accuracy). */
+export function clearsHitBar(t: BotTrack, a: BatteryAim): boolean {
+  return shotHitChance(t, a.aim, a.aimDist) >= CONFIG.bots.hitBar;
+}
+
 /** The main battery's shot: a click on the held aim when it is legal (reach,
- *  high ground) and a ready turret bears on it; else null (the brain keeps
- *  writing the held aim regardless — tactics.ts triggerOf). */
+ *  high ground), clears the hit bar and a ready turret bears on it; else null
+ *  (the brain keeps writing the held aim regardless — tactics.ts triggerOf;
+ *  a held click keeps the held scatter). */
 function batterySolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
   if (t === null || sweepingNow(ctx.mind, ctx.sit.now)) return null; // the aim is the mine's this tick
@@ -144,6 +158,7 @@ function batterySolve(ctx: TacticContext): Shot | null {
   const reach = reachOf(ctx, 'mainBattery');
   if (a.aimDist > reach.maxU && !reach.litExempt(a.point)) return null;
   if (!overLandReaches(ctx.self, ctx.sit, a.point)) return null; // high ground, not the coastline (epic-11 amendment 8)
+  if (!clearsHitBar(t, a)) return null; // Story 11.9: hold — the held scatter is kept (no redraw)
   if (!readyOnTarget(ctx.self, a, turretPoseOf(ctx.self, ctx.mind, ctx.sit.now))) return null;
   ctx.mind.batteryScatter = null; // a fresh scatter for the next salvo
   return stamped(ctx, 'mainBattery', { aim: a.aim, aimDist: a.aimDist, slot: ctx.slot });

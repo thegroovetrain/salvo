@@ -214,7 +214,8 @@ const TUNE_FAMILIES = [
   // finite number. (`decoyDemote`, `decoyStillSweeps` and the `carried` /
   // `beltHunger` card scores left CONFIG with the decoys and the kit, Story
   // 10.5.) Story 10.12: `shiftFitWeight` (the weighted Shift roll's fitting
-  // share) on CLOSED [0, 1] (BOT_FRACTION_KEYS). `nav.cellU`,
+  // share) on CLOSED [0, 1] (BOT_FRACTION_KEYS); Story 11.9: `hitBar` (a
+  // probability) likewise. `nav.cellU`,
   // `disengageHpFrac` and `arcOpenMarginDeg` are REFUSED (DERIVED_TUNE_KEYS):
   // the first must equal the generator's NAV_CELL and is never read, the
   // second is snapshotted into the profile tables and the third into
@@ -627,12 +628,15 @@ const PROBABILITY_KEYS = new Set<string>();
 
 /** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat
  *  lines since Story 10.4; the weighted Shift roll's fitting share since Story
- *  10.12 — read live by ai/profiles.ts rollShift; see the `bots.` family). */
+ *  10.12 — read live by ai/profiles.ts rollShift; the main battery's per-shell
+ *  hit bar since Story 11.9 — read live by ai/battery.ts and ai/doctrine.ts;
+ *  see the `bots.` family). */
 const BOT_FRACTION_KEYS = new Set([
   'bots.disengageHysteresis',
   'bots.secReleaseHeat',
   'bots.secRepressHeat',
   'bots.shiftFitWeight',
+  'bots.hitBar',
 ]);
 /** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
 const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;

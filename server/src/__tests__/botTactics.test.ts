@@ -65,6 +65,7 @@ import { profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
 import { noteTorpedoes } from '../game/ai/torpedoThreat.js';
 import { gunBand } from '../game/ai/doctrine.js';
+import { barRangeU } from '../game/ai/hitChance.js';
 import type {
   BotDecision,
   BotMind,
@@ -1220,19 +1221,34 @@ describe('weapons — every shot is a LEGAL shot', () => {
     // the battery's reach — and the broadside's reach is shorter still.
     plot(mind, track(port.now, { x: far, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
-    // The bot's OWN live flare over the plot lifts the reach (the server's
-    // gunReachU rule, amendment 187): the cannon fires into the light.
-    const lit = mkMind('bulwark');
-    plot(lit, track(port.now, { x: far, y: 0, speed: 0 }));
-    lit.view = litView(rec.id);
-    const d = COMBAT_BRAIN.decide(rec, lit, port);
-    expect(d.fireSlot).toBe(slotOf(rec, 'mainBattery'));
-    expect(d.aimDist).toBeGreaterThan(rec.stats.equipment.mainBattery.rangeU);
-    // ANOTHER captain's flare over the same plot lifts nothing.
-    const theirs = mkMind('bulwark');
-    plot(theirs, track(port.now, { x: far, y: 0, speed: 0 }));
-    theirs.view = litView('someone-else');
-    expect(COMBAT_BRAIN.decide(rec, theirs, port).fireSlot).toBeNull();
+    // The HIT BAR still applies inside an own lit zone (Story 11.9: the lit
+    // lift is about reach, not accuracy) — past the reach a shell is far
+    // under the bar, so the lit shot holds …
+    const litHeld = mkMind('bulwark');
+    plot(litHeld, track(port.now, { x: far, y: 0, speed: 0 }));
+    litHeld.view = litView(rec.id);
+    expect(COMBAT_BRAIN.decide(rec, litHeld, port).fireSlot).toBeNull();
+    // … and with the bar at 0 (the reach rule isolated) the bot's OWN live
+    // flare over the plot lifts the reach (the server's gunReachU rule,
+    // amendment 187): the cannon fires into the light.
+    const was = CONFIG.bots.hitBar;
+    try {
+      (CONFIG.bots as { hitBar: number }).hitBar = 0;
+      expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull(); // unlit: still out of reach
+      const lit = mkMind('bulwark');
+      plot(lit, track(port.now, { x: far, y: 0, speed: 0 }));
+      lit.view = litView(rec.id);
+      const d = COMBAT_BRAIN.decide(rec, lit, port);
+      expect(d.fireSlot).toBe(slotOf(rec, 'mainBattery'));
+      expect(d.aimDist).toBeGreaterThan(rec.stats.equipment.mainBattery.rangeU);
+      // ANOTHER captain's flare over the same plot lifts nothing.
+      const theirs = mkMind('bulwark');
+      plot(theirs, track(port.now, { x: far, y: 0, speed: 0 }));
+      theirs.view = litView('someone-else');
+      expect(COMBAT_BRAIN.decide(rec, theirs, port).fireSlot).toBeNull();
+    } finally {
+      (CONFIG.bots as { hitBar: number }).hitBar = was;
+    }
   });
 
   it('abilities ride the act channel: a raider boosts out', () => {
@@ -2878,7 +2894,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     const tb = mkBot(w, 'bismarck', 0, 0, 0);
     const boost = slotOf(tb, 'boost');
     expect(boost).toBe(SLOT_BOOST);
-    const bandMax = gunBand(profileOf('raider'), tb.stats).max;
+    const bandMax = gunBand(profileOf('raider'), tb.stats, 'mainBattery', false, track(0).cls).max;
     stationX = astride(w, bandMax + PAST_BAND_U).botX;
     tb.state.x = stationX;
     return { port, tb, boost, bandMax };
@@ -2919,7 +2935,7 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
 
   it('Boost hold: the same bot pursuing a target inside the band -> not pressed', () => {
     const { port, tb } = setup(8204);
-    const band = gunBand(profileOf('raider'), tb.stats);
+    const band = gunBand(profileOf('raider'), tb.stats, 'mainBattery', false, track(0).cls);
     const mind = heldOn(port, (band.min + band.max) / 2, 'pursue');
     expect(COMBAT_BRAIN.decide(tb, mind, port, false).act).not.toBe(abilityCode('shift'));
   });
@@ -2952,14 +2968,19 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
 // turret step. The secondaries are a held level with a burst discipline.
 
 describe('THE MAIN BATTERY — the held aim and the on-target click (Story 10.4)', () => {
-  /** An Iowa (its fixtures fit no Q/E/R weapon) and a parked target dead
-   *  ahead inside main reach but beyond the secondaries' reach. */
-  function rig(seed: number): { rec: ShipRecord; port: FakePort; mind: BotMind; dist: number } {
+  /** An Iowa (its fixtures fit no Q/E/R weapon) and a parked radar blip
+   *  (no heading: the R3 blip model) dead ahead at HALF its bar range (Story
+   *  11.9 — well inside the hit bar, so only the gate under test can hold the
+   *  click), or at `far` — inside main reach, beyond the secondaries' reach
+   *  and past the bar range. */
+  function rig(seed: number, far = false): { rec: ShipRecord; port: FakePort; mind: BotMind; dist: number } {
     const w = openWorld(seed);
     const port = fakePort(w);
     const rec = mkBot(w, 'iowa', 0, 0, 0);
     for (const i of WEAPON_SLOTS) expect(rec.loadout[i].equipmentId).toBeNull();
-    const dist = (rec.stats.secondaryRangeU + rec.stats.equipment.mainBattery.rangeU) / 2;
+    const reach = rec.stats.equipment.mainBattery.rangeU;
+    const dist = far ? (rec.stats.secondaryRangeU + reach) / 2 : barRangeU(null, reach) / 2;
+    if (far) expect(dist).toBeGreaterThan(barRangeU(null, reach));
     const mind = mkMind('duelist');
     plot(mind, track(port.now, { x: dist, y: 0, speed: 0, heading: null }));
     return { rec, port, mind, dist };
@@ -2971,7 +2992,27 @@ describe('THE MAIN BATTERY — the held aim and the on-target click (Story 10.4)
     expect(d.fireSlot).toBe(0);
     expect(Math.abs(d.aim)).toBeLessThan(0.1);
     expect(Math.abs(d.aimDist - dist)).toBeLessThan(CONFIG.bots.gunAimScatterU * (dist / CONFIG.bots.aimScatterRefU) + 1);
-    expect(d.sec ?? false).toBe(false); // beyond the secondaries' reach
+  });
+
+  it('THE HIT BAR (Story 11.9): a ready turret bears on a target past the bar range → NO click; the aim is still written and the held scatter KEPT; at a zero bar the same shot clicks', () => {
+    const { rec, port, mind, dist } = rig(10406, true);
+    const held = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(held.fireSlot).toBeNull();
+    expect(Math.abs(held.aim)).toBeLessThan(0.1);
+    expect(Math.abs(held.aimDist - dist)).toBeLessThan(CONFIG.bots.gunAimScatterU * (dist / CONFIG.bots.aimScatterRefU) + 1);
+    const scatter = mind.batteryScatter;
+    expect(scatter).toBeTruthy();
+    const again = COMBAT_BRAIN.decide(rec, mind, port, false);
+    expect(again.fireSlot).toBeNull();
+    expect(mind.batteryScatter).toBe(scatter); // no redraw on a held click
+    expect([again.aim, again.aimDist]).toEqual([held.aim, held.aimDist]);
+    const was = CONFIG.bots.hitBar;
+    try {
+      (CONFIG.bots as { hitBar: number }).hitBar = 0;
+      expect(COMBAT_BRAIN.decide(rec, mind, port, false).fireSlot).toBe(0); // the bar was the only gate holding it
+    } finally {
+      (CONFIG.bots as { hitBar: number }).hitBar = was;
+    }
   });
 
   it('every turret reloading → NO click, but the aim is still HELD on the target (the turrets keep chasing it)', () => {

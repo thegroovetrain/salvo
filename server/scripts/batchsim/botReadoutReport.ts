@@ -51,6 +51,9 @@ export interface BotReadoutAggregate {
    *  band of the turret's reach (four equal bands, nearest first). */
   mbBandShells: number[];
   mbBandHits: number[];
+  /** Story 11.9: main-battery clicks (salvos fired) per bot per match — one
+   *  value per BotSample row (one bot in one match). */
+  mbClicksPerBot: Summary;
   postureTicks: Record<string, number>;
   postureTransitions: Record<string, number>;
   tacticCounts: Record<string, number>;
@@ -123,7 +126,7 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
   };
 }
 
-type ShotKeys = 'gunShells' | 'starShellsFired' | 'mbBandShells' | 'mbBandHits';
+type ShotKeys = 'gunShells' | 'starShellsFired' | 'mbBandShells' | 'mbBandHits' | 'mbClicksPerBot';
 
 /** Band-wise sum of per-bot band arrays (a missing array reads as zeros). */
 function sumBands(rows: readonly BotSample[], f: (r: BotSample) => readonly number[] | undefined): number[] {
@@ -138,6 +141,7 @@ function shotReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, Sho
     starShellsFired: sum(rows, (r) => r.starShellsFired),
     mbBandShells: sumBands(rows, (r) => r.mbBandShells),
     mbBandHits: sumBands(rows, (r) => r.mbBandHits),
+    mbClicksPerBot: summarize(rows.map((r) => r.mbClicks)),
   };
 }
 
@@ -221,6 +225,7 @@ export function renderReadoutLines(a: BotReadoutAggregate): string[] {
     `  kills by source: ${countLine(a.killsBySource)}`,
     `  deck-gun shells: ${a.gunShells} | star shells: ${a.starShellsFired}`,
     `  main-battery hit share by range band (of reach): ${bandLine(a.mbBandShells, a.mbBandHits)}`,
+    `  main-battery clicks per bot per match: ${fmtSummary(a.mbClicksPerBot)}`,
     `  solid fog: ${a.fogTicks} ticks = ${pct(a.fogRate)} of afloat`,
     `  ability presses: ${a.actPresses} | by ability: ${countLine(a.pressesByAbility)}`,
     `  activations (took effect): ${countLine(a.activations)}`,
