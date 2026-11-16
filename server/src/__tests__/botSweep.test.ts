@@ -43,6 +43,7 @@ import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
 import { inSweepLane, readyOnTarget, sweepPick, sweepStandOffU, sweepingNow, turretPoseOf, type BatteryAim, type SweepMine } from '../game/ai/battery.js';
 import { minePressing } from '../game/ai/navigate.js';
 import { ownReachU } from '../game/ai/utility.js';
+import { barRangeU } from '../game/ai/hitChance.js';
 import type { BotDecision, BotMind } from '../game/ai/types.js';
 import type { ShipRecord } from '../game/world.js';
 import { DT_S, fakePort, holdTarget, mkBot, mkMind, ocean, sightMines, track, trainOn, type FakePort } from './botHelmFixture.js';
@@ -236,13 +237,14 @@ describe('ai/battery.ts — sweepPick (unit)', () => {
 });
 
 describe('COMBAT_BRAIN — the mine sweep', () => {
-  /** A parked target dead ahead inside battery reach, beyond the
-   *  secondaries' — with the forward turrets already on it, so the battery
-   *  WOULD click this tick. */
+  /** A parked target dead ahead inside battery reach at half the hit bar's
+   *  blip-model range (Story 11.9 — well inside the bar; the bar range lies
+   *  inside the secondaries' reach) — with the forward turrets already on
+   *  it, so the battery WOULD click this tick. */
   function withTarget(rig: Rig): Vec2 {
     const { rec, port, mind } = rig;
     const sit = situationOf(rec, mind, port);
-    const target = { x: (sit.stats.secondaryRangeU + ownReachU(sit)) / 2, y: 0 };
+    const target = { x: barRangeU(null, ownReachU(sit)) / 2, y: 0 };
     holdTarget(mind, track(port.now, target), 'engage');
     trainOn(rec, target.x, target.y);
     return target;
@@ -347,9 +349,13 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
   });
 
   it('NO SWEEP of an own mine, a mine behind land, or with the secondaries overheated — the battery keeps the aim', () => {
-    const cases: readonly { name: string; prep: (rig: Rig) => void; isles?: Parameters<typeof ocean>[1] }[] = [
+    // `sec`: the secondaries' level. Since Story 11.9 the target sits inside
+    // the hit bar, which lies inside the secondaries' reach, so with no sweep
+    // the secondaries ride the TARGET (own mine) — unless overheated.
+    const cases: readonly { name: string; sec: boolean; prep: (rig: Rig) => void; isles?: Parameters<typeof ocean>[1] }[] = [
       {
         name: 'own',
+        sec: true,
         prep: (rig) => {
           const m = inWay(rig);
           sightMines(rig.mind, [own(m.x, m.y)]);
@@ -357,6 +363,7 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
       },
       {
         name: 'overheated',
+        sec: false,
         prep: (rig) => {
           sightMines(rig.mind, [inWay(rig)]);
           rig.rec.sec.heat = (CONFIG.bots.secReleaseHeat + 1) / 2;
@@ -368,7 +375,7 @@ describe('COMBAT_BRAIN — the mine sweep', () => {
       const target = withTarget(rig);
       c.prep(rig);
       const d = COMBAT_BRAIN.decide(rig.rec, rig.mind, rig.port, false);
-      expect(d.sec ?? false, c.name).toBe(false);
+      expect(d.sec ?? false, c.name).toBe(c.sec);
       expect(d.fireSlot, c.name).toBe(SLOT_GUN);
       expect(Math.abs(angleDiff(bearing(rig.rec.state, target), d.aim)), c.name).toBeLessThan(0.1);
       expect(sweepingNow(rig.mind, rig.port.now), c.name).toBe(false);
@@ -504,7 +511,7 @@ describe('THE NEXT-TICK POSE — the on-target check reads the pose the server s
         for (const frac of [0.25, 0.5, 0.75]) {
           const brg = next.heading + rest + side * (train - swing * frac);
           const p = { x: st.x + Math.cos(brg) * reach * 0.6, y: st.y + Math.sin(brg) * reach * 0.6 };
-          const aim: BatteryAim = { aim: bearing(next, p), aimDist: Math.hypot(p.x - next.x, p.y - next.y), point: p };
+          const aim: BatteryAim = { aim: bearing(next, p), aimDist: Math.hypot(p.x - next.x, p.y - next.y), point: p, leadBearing: bearing(next, p) };
           const pre = { x: rec.state.x + Math.cos(aim.aim) * aim.aimDist, y: rec.state.y + Math.sin(aim.aim) * aim.aimDist };
           if (found === null && turretBears(hullId, 0, next, p) && !turretBears(hullId, 0, rec.state, pre)) found = aim;
         }
@@ -523,7 +530,7 @@ describe('THE AIM STEAL is free since Story 11.1 (no traverse, R16)', () => {
       rec.state.speed = 0;
       const reach = rec.stats.equipment.mainBattery.rangeU;
       const target = { x: 0, y: reach * 0.6 }; // abeam: every turret bears
-      const aim: BatteryAim = { aim: bearing(rec.state, target), aimDist: reach * 0.6, point: target };
+      const aim: BatteryAim = { aim: bearing(rec.state, target), aimDist: reach * 0.6, point: target, leadBearing: bearing(rec.state, target) };
       for (const k of [1, 3, 10]) {
         trainOn(rec, target.x, target.y);
         for (let i = 0; i < k; i += 1) stepTurrets(rec.turrets, rec.hullId, rec.state, { x: -CONFIG.mine.triggerRadius * 2, y: 0 }, DT_MS);

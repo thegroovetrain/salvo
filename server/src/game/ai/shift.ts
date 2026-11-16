@@ -15,7 +15,7 @@ import {
   type ShiftId,
 } from '@salvo/shared';
 import type { BotPosture, BotSelf } from './types.js';
-import { gunRangeU, mountedBandOf, mountedGun } from './doctrine.js';
+import { gunRangeU, mountedGun, mountedLegacyMaxOf } from './doctrine.js';
 import {
   APPETITE_NEUTRAL,
   appetiteFor,
@@ -35,12 +35,14 @@ import {
  *  2026-10-17): the bot is CLOSING — posture `pursue`, which the odds gate
  *  only grants when closing is ruled — on a target beyond the FAR edge of its
  *  mounted gun's doctrine band (ai/doctrine.ts), so the boost closes the gap
- *  to fighting range. Never in `engage`, `kite`, `hold`, `hide` or `farm`
+ *  to fighting range. The far edge is the LEGACY one (Story 11.9 R7, Eric
+ *  2026-11-16 "Keep the old trigger": `legacyBandMaxU`, the cannon band's
+ *  far fraction + nudge × reach), not the hit-bar band. Never in `engage`, `kite`, `hold`, `hide` or `farm`
  *  (R13: farming never boosts in). */
 function chargingIn(ctx: TacticContext): boolean {
   const t = ctx.target;
   if (t === null || ctx.posture !== 'pursue') return false;
-  return distTo(ctx.sit, t) > mountedBandOf(ctx).max;
+  return distTo(ctx.sit, t) > mountedLegacyMaxOf(ctx);
 }
 
 /** The postures a boost is always pressed in on the way OUT (amendment 194:

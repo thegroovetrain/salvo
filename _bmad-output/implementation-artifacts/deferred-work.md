@@ -3868,3 +3868,14 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: resolved - 2026-11-16 (Eric: "You can change the obvious shit on the settings page"; row now SPECIAL, stale (NONE) gun row removed)
   summary: THE SETTINGS CONTROLS LIST SAYS "SHIFT — CLASS SPECIAL" but the Special is the captain's pick on YOUR SHIP, not the hull's; left as is (no in-game copy unasked).
   evidence: `client/src/ui/settings.ts` controls rows.
+
+## 2026-11-16 - Story 11.9 Bot Posture on the Big Ocean (cycle 241, 0.19.35, PV 109; epic-11 amendment 19)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-9-bot-posture-on-the-big-ocean.md`
+  status: open - parked until 11.4 - 2026-11-16
+  summary: THE BIG OCEAN THREAD (4) "BOTS SEE GHOSTS: 11.9'S PERSISTENCE READ" IS NOT BUILT - there is nothing for it to filter: no ghosts (11.4 not built), no splash returns (11.5 shelved), rain clutter is client-only, and no radar knobs exist for "one honest setting". If 11.4 is ever built, the persistence read and the bots' knob setting are owed by that story.
+  evidence: bot view = ships + airdrops only (`server/src/game/signals.ts` paint rows; `perception.ts` offers bots no shells); `server/src/game/ai/utility.ts` `foldBlip`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-9-bot-posture-on-the-big-ocean.md`
+  status: open - low - Eric's if it matters - 2026-11-16
+  summary: THE STAR-SHELL LIT LIFT NO LONGER HELPS A BOT'S MAIN BATTERY IN PRACTICE - a shot past gun reach is far below the 20 % hit bar, so the bot holds; the lift still works for a human captain.
+  evidence: review gate (Blind Hunter); `server/src/game/ai/doctrine.ts` `effectiveReach`, `battery.ts` `clearsHitBar`.

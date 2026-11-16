@@ -101,6 +101,12 @@ export interface BotReadouts {
   mbBandShells: number[];
   /** … and those of them that damaged a hull. */
   mbBandHits: number[];
+  /** MAIN-BATTERY CLICKS (Story 11.9): salvos this bot fired — a click fires
+   *  one turret (the bow-most ready one), so it is counted ONCE per tick in
+   *  which new main-battery shells of this owner appear (the shell table;
+   *  the same blind spot as the bands: a salvo spent inside its own tick is
+   *  never seen). */
+  mbClicks: number;
   /** Star shells launched (shells carrying the `lit` tag). */
   starShellsFired: number;
   /** Afloat ticks per deliberated posture (`BotController.postureOf`). Sums
@@ -163,6 +169,7 @@ export function emptyBotReadouts(): BotReadouts {
     gunShells: 0,
     mbBandShells: emptyBands(),
     mbBandHits: emptyBands(),
+    mbClicks: 0,
     starShellsFired: 0,
     postureTicks: emptyPostureTally(),
     postureTransitions: emptyEdgeTally(),
@@ -400,12 +407,17 @@ export class BotReadoutCollector {
 
   private noteNewShells(world: World): void {
     const next = new Set<string>();
+    const clicked = new Set<string>();
     for (const s of world.shells.values()) {
       next.add(s.id);
       if (this.seen.shell.has(s.id)) continue;
       const t = this.tracks.get(s.ownerId);
       if (t === undefined) continue;
       creditShell(t.out, s);
+      if (isMainBatteryShell(s) && !clicked.has(s.ownerId)) {
+        clicked.add(s.ownerId);
+        t.out.mbClicks += 1;
+      }
       const owner = world.ships.get(s.ownerId);
       if (owner !== undefined) this.bands.launched(s, owner.stats.equipment.mainBattery.rangeU, t.out);
     }
