@@ -22,6 +22,7 @@
 import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
+import { buildTunedCatalog } from './catalogTune.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { runBatch, type BatchResult, type RunSpec } from './runner.js';
 import { setSpawnLayout } from '../../src/game/spawn.js';
@@ -187,8 +188,11 @@ function runVariants(
   for (const variant of variants) {
     const restore = applyOverrides(variant.set, opts.tune);
     try {
+      // Built AFTER applyOverrides: the catalog's CONFIG-derived steps read
+      // the tuned CONFIG, then the `ladder.*` keys apply (catalogTune.ts).
+      const catalog = buildTunedCatalog(opts.tune);
       const result = runBatch(
-        runSpecOf(opts),
+        { ...runSpecOf(opts), ...(catalog !== undefined ? { catalog } : {}) },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
       const agg = buildAggregate(result, opts.captains);
