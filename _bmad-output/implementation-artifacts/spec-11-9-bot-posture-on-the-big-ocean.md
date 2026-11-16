@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-11-16'
 status: 'done'
 baseline_revision: 'b523abec'
+final_revision: '0225d14e'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'
