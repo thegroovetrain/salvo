@@ -658,12 +658,12 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     expect(victim.hp).toBeCloseTo(victim.stats.maxHp - 2 * o.stats.equipment.navalMines.damage, 6);
   });
 
-  it('a SECONDARIES stream ON a same-owner cluster pops each mine once (landing test ∩ cascade, amendment 200; Story 10.4: the secondaries are the captain\'s mine-hurting weapon)', () => {
+  it('a SECONDARIES stream ON a same-owner cluster pops each mine it lands on exactly once and chains nothing (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated; Story 10.4: the secondaries are the captain\'s mine-hurting weapon)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0, 0, 'warspite');
-    // Three mines clustered so the LANDING TEST (m1 and m2 are 5u off the
-    // click, inside the 10u disc) AND the chain (m3, 15u off) both reach them:
-    // m1's pop chains m2 and m3, and the landing loop then finds m2 gone.
+    // Three mines clustered: m1 and m2 sit 5u off the click, inside the 10u
+    // landing disc; m3 is 15u off. A pop chains nothing, so only rounds that
+    // LAND on a mine take it, and no mine ever booms twice.
     lay(w, 'm1', 'o', 200, 0, 'naval');
     lay(w, 'm2', 'o', 210, 0, 'naval');
     lay(w, 'm3', 'o', 220, 0, 'naval');
@@ -674,9 +674,12 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
       w.step();
       seen.push(...w.tickEvents);
     }
-    expect(w.mines.size).toBe(0);
+    expect(w.mines.has('m1')).toBe(false);
+    expect(w.mines.has('m2')).toBe(false);
     const mineBooms = (seen.filter((e) => e.k === 'boom') as { id: string }[]).filter((b) => b.id.startsWith('m'));
-    expect(mineBooms.map((b) => b.id).sort()).toEqual(['m1', 'm2', 'm3']); // exactly one each
+    const ids = mineBooms.map((b) => b.id);
+    expect(new Set(ids).size).toBe(ids.length); // never twice
+    for (const id of ['m1', 'm2', 'm3']) expect(ids.includes(id)).toBe(!w.mines.has(id)); // a boom iff gone
   });
 });
 

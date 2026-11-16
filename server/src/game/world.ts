@@ -6901,18 +6901,14 @@ export class World {
   }
 
   /**
-   * A MINE SHOT TO 0 HP (amendment 200). A NAVAL or FOULING mine detonates
-   * exactly as a tripped one does — boom (no `hit`), its own blast on its
-   * OWNER's numbers at its own point, and (naval only) the chain. A CAPTIVE
-   * mine is DESTROYED: taken off the water with the same sight-gated `boom`
-   * so observers see it go (201(c)), but no `hit`, no blast and no fish — only
-   * a TRIP launches a captive's torpedo.
+   * A MINE SHOT TO 0 HP is DESTROYED, every kind (Eric 2026-11-15: "shooting
+   * mines destroys them but doesn't make them detonate early or anything";
+   * until then a naval / fouling mine detonated as if tripped, amendment 200,
+   * and a naval one set off its chain). It is taken off the water with the
+   * sight-gated `boom` so observers see it go (201(c)) — no `hit`, no blast,
+   * no slow, no chain and no fish. Only a TRIP detonates a mine.
    */
   private popMine(mine: MineState): void {
-    if (mine.kind !== 'captive') {
-      this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
-      return;
-    }
     if (!this.consumeMine(mine.id)) return;
     this.pending.push({ k: 'boom', id: mine.id, x: mine.x, y: mine.y });
   }
