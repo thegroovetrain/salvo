@@ -179,7 +179,7 @@ describe('the CANNON — one click on the mine pops it (the twin volley sums pas
     expect(w.mines.has('own')).toBe(false);
   });
 
-  it('an ARMING mine (laid 1 s ago, arm 3 s) takes the damage and pops — with its blast', () => {
+  it('an ARMING mine (laid 1 s ago, arm 3 s) takes the damage and pops — no blast (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated)', () => {
     const w = bareWorld();
     captain(w, 'a', 0, 0);
     // A bystander hull inside the mine's 48 u blast, outside the 15 u shell burst.
@@ -190,7 +190,7 @@ describe('the CANNON — one click on the mine pops it (the twin volley sums pas
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);
     expect(mineBooms(log, 'm1')).toHaveLength(1);
-    expect(hp0 - b.hp).toBe(CONFIG.mine.damage); // the mine's own blast, not the shell
+    expect(b.hp).toBe(hp0); // a shot mine never detonates
   });
 
   it('a CAPTIVE mine clicked is consumed: a `boom` with no `hit`, no blast, no fish', () => {
@@ -473,7 +473,7 @@ describe('NOTHING ELSE damages a mine — broadside and phosphor lost the bit', 
 });
 
 describe('CHAINS — naval mines only, both ways', () => {
-  it('a naval pop chains a naval neighbour; fouling and captive bystanders in its blast are untouched', () => {
+  it('a naval pop chains NOTHING (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated): naval, fouling and captive bystanders in its blast are untouched', () => {
     const w = bareWorld();
     captain(w, 'a', 0, 0);
     lay(w, 'A', 'x', 300, 0); // the one the shell lands on
@@ -482,7 +482,7 @@ describe('CHAINS — naval mines only, both ways', () => {
     lay(w, 'D', 'a', 300, -40, 'captive'); // captive (the shooter's own, so nothing trips it), inside A's blast
     const log = click(w, 'a', 300);
     expect(w.mines.has('A')).toBe(false);
-    expect(w.mines.has('B')).toBe(false); // chained
+    expect(w.mines.get('B')!.hp).toBe(CONFIG.mine.hp); // a pop never chains
     expect(w.mines.get('C')!.hp).toBe(CONFIG.mine.hp); // fouling never receives
     expect(w.mines.get('D')!.hp).toBe(CONFIG.mine.hp); // captive never receives
     expect(mineBooms(log, 'C')).toEqual([]);

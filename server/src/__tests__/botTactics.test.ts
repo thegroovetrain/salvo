@@ -771,7 +771,8 @@ describe('steering — the priority order is the policy', () => {
     const mind = mkMind('trapper');
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const view = (own: boolean | null): BotMind['view'] => ({
-      contacts: [], events: [], mines: own === null ? [] : [{ id: 'm1', x: 60, y: 20, by: 'enemy', own }],
+      // Ahead and to port, well inside the mine probe (three trip radii), whatever the radius.
+      contacts: [], events: [], mines: own === null ? [] : [{ id: 'm1', x: CONFIG.mine.triggerRadius * 1.5, y: CONFIG.mine.triggerRadius * 0.5, by: 'enemy', own }],
       litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [],
     });
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it

@@ -117,10 +117,22 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
                      mainBattery.*, secondaries.*,
                      gun.* (the reference deck gun), machineGun.*, flak.*,
-                     broadside.*, torpedo.*,
-                     mine.*, starShells.*, boost.*, instantReload.*,
+                     broadside.*, torpedo.* (heavy + the family),
+                     lightTorpedo.*, supercavTorpedo.*, mine.* (naval),
+                     captiveMines.*, foulingMines.*, starShells.*,
+                     phosphorShells.*, flashShells.*, foulingShell.*,
+                     dispersion.*, boost.*, instantReload.*,
                      hunker.*, armor.*, shipClasses.*, offer.weighting.*,
                      bots.* (the bot brain's dials, Story 9.13).
+                     Tier V dials (rangeUAtV, runUAtV) and per-card
+                     amounts re-derive the upgrade steps for the run.
+                     ladder.<line>.<stat>[.<tier>]=V sets a PER-TIER STEP in
+                     the run's copy of the catalog: no tier = every upgrade
+                     tier (II–V on a weapon), a tier (1–5) = that tier only;
+                     an add step takes V as its add, a mult step as its
+                     factor; a stat with no step gets a new add step
+                     (e.g. ladder.lightTorpedo.speed=5,
+                     ladder.supercavTorpedo.damage.5=150).
                      Requires
                      HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
                      combat numbers, not harness dials. Not sweepable (one

@@ -1739,7 +1739,7 @@ export const CONFIG = {
    */
   supercavTorpedo: {
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 400, // hp per contact hit — tier I; +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
+    damage: 300, // hp per contact hit at every tier — 400 → 300, Eric 2026-11-16 ("Supercav 300 base damage"), with tiers adding weapon POWER instead of damage; was +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
     maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
     reloadMs: 45000, // ms — Eric 2026-11-05, Story 10.5, R4 ("SUPERCAV 45")
     // AR44: hulls only, never a mine — it runs UNDER a minefield.
@@ -1785,15 +1785,15 @@ export const CONFIG = {
     // at runtime this is DERIVED from the effective blast radius via
     // `triggerFactor` below (Eric ruling 2026-08-16), never read directly, so a
     // blast-widening boon carries the trip ring out with it.
-    triggerRadius: 32,
+    triggerRadius: 48 * 0.4, // 32 → 19.2 with the factor below, Eric 2026-11-16 — written as blast × factor so it is the exact double the runtime derives
     // The runtime scale the trip ring is derived at: `trigger = blast ×
     // triggerFactor`. It is the SAME ratio as the two base constants above and
-    // below by construction (32 / 48 = 2/3), pinned in tests — never edit one
+    // below by construction (19.2 / 48 = 0.4), pinned in tests — never edit one
     // without the other.
     // Deriving rather than clamping is what retired the old
     // `min(trigger, blastRadius)` clamp: the trip ring can no longer be eaten by
     // a ceiling, because it is now a fixed fraction of that ceiling.
-    triggerFactor: 2 / 3,
+    triggerFactor: 0.4, // 2/3 → 0.4, Eric 2026-11-15/16 ("turn down the trigger radius considerably on naval/fouling mines"; measured at parity, batch-sim-evidence-2026-11-15.md)
     // u — full damage to every non-owner hull within it; > triggerRadius by
     // design (the trip is the detection ring; the blast reaches farther).
     blastRadius: 48,
@@ -1915,7 +1915,7 @@ export const CONFIG = {
     // the captive mine "can upgrade to having a range where they will fire before
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
     // tier-V ring is 175.7 u, was 210.8).
-    triggerRadius: 120, // u — the TRIP ring at tier I (R25; 144 until 2026-10-08)
+    triggerRadius: 180, // u — the TRIP ring at tier I: 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
     triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
     damage: 100, // hp — the fish's warhead at tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "CAPTIVE 100 → 200"; was 90 +11/+11/+11/+12 → 135, Eric 2026-10-16, Story 9.12; 55 +5 before, R25)
@@ -2035,6 +2035,13 @@ export const CONFIG = {
    */
   armor: {
     k: 100, // the K in K / (K + E) (amendment 86; 5 → 100 by amendment 144 — every 9.7 ratio preserved: Armor 100 = ×0.5)
+    // WEAPON POWER (EXPERIMENT, Eric 2026-11-15 on the balance-sim ledger): a
+    // weapon's damage stays its Tier I base, and each upgrade tier above I adds
+    // this much POWER that applies ONLY to that weapon's hits — E = victim ARMOR
+    // (+ HUNKER) − (attacker POWER + perTier × (weapon tier − 1)). Read live at
+    // impact by the server gate (world.ts weaponPowerOf), so `--tune
+    // armor.weaponPowerPerTier=…` reaches it. Eric named +10 or +15.
+    weaponPowerPerTier: 10, // RULED +10, Eric 2026-11-16 ("+10 weapon power per tier")
   },
 
   /**

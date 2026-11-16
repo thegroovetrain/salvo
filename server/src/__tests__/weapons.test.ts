@@ -507,16 +507,16 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
     throw new Error('no burst within the tick budget');
   }
 
-  it('the owner’s shell landing on its ARMED mine pops it: mine gone, blast damages the nearby enemy', () => {
+  it('the owner’s shell landing on its ARMED mine pops it: mine gone, NO blast (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated)', () => {
     const { w, a, b } = board();
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // armed, at the click point
     shootAt(w, 300);
     expect(w.mines.size).toBe(0); // popped by the owner's shell (16 dmg >= 10 hp)
-    // b's hull is outside the 30u gun burst but inside the mine's 48u blast:
-    // exactly one full mine damage, nothing from the shell.
-    expect(b.hp).toBe(b.stats.maxHp - blow(CONFIG.mine.damage, b, a));
+    // b's hull is outside the gun burst but inside the mine's blast: a shot
+    // mine never detonates, so b takes nothing.
+    expect(b.hp).toBe(b.stats.maxHp);
     expect(a.hp).toBe(a.stats.maxHp); // owner excluded from both
-    // The detonation's own boom carries NO victim id (no tripping ship).
+    // The pop's boom carries NO victim id (no tripping ship).
     const boom = w.tickEvents.find((e) => e.k === 'boom' && e.id === 'm1');
     expect(boom).toEqual({ k: 'boom', id: 'm1', x: 300, y: 0 });
     expect(boom && 'hit' in boom).toBe(false);
@@ -606,16 +606,16 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
     expect(w.mines.get('m2')!.hp).toBe(CONFIG.mine.hp);
   });
 
-  it('CHAIN THROUGH THE POP (Story 2.8 flip of the 1.8 no-cascade pin): the shot-down naval mine chains its naval neighbour off the landing point', () => {
+  it('NO CHAIN THROUGH THE POP (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated): the shot-down naval mine leaves its naval neighbour standing', () => {
     const { w } = board();
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // under the click
-    // 40u from m1: inside m1's 48u blast, far outside the 10u landing disc —
-    // the shell never touches it, but m1's detonation cascades into it
-    // (amendments 18/200: naval into naval, any owner).
+    // 40u from m1: inside m1's blast, far outside the 10u landing disc — the
+    // shell never touches it, and a shot mine never detonates, so nothing
+    // cascades into it (a TRIPPED naval mine still chains).
     w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(false); // popped by the landing shell
-    expect(w.mines.has('m2')).toBe(false); // chained off m1's blast
+    expect(w.mines.has('m2')).toBe(true); // a pop never chains
   });
 });
 
@@ -866,11 +866,10 @@ describe('SUPERCAV TORPEDO — a torpedo-slot weapon on the reload pool (Story 1
     expect(ship.loadout[SLOT_SUPERCAV].state!.n).toBe(row.maxAmmo);
   });
 
-  it('its TIER raises the fish\'s damage (amendment 8(e)); speed and reload follow the row', () => {
+  it('the fish carries its row\'s damage; speed and reload follow the row', () => {
     const w = bareWorld(38);
     const one = carrier(w, 'a', 'supercavTorpedo', 1, HALF_PI, SLOT_SUPERCAV);
     const two = carrier(w, 'b', 'supercavTorpedo', 2, HALF_PI, SLOT_SUPERCAV);
-    expect(two.stats.equipment.supercavTorpedo.damage).toBeGreaterThan(one.stats.equipment.supercavTorpedo.damage);
     expect(w.sinkingActivationGate(two, SLOT_SUPERCAV)).toEqual({ ok: true });
     const fish = [...w.shells.values()].find((sh) => sh.kind === 'torp' && sh.ownerId === 'b')!;
     expect(fish.damage).toBe(two.stats.equipment.supercavTorpedo.damage);

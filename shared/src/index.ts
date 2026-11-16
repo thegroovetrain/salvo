@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  109 — WEAPON POWER (2026-11-16, Eric; epic-11 amendment 17; cycle 239,
+ *  0.19.33): boon-catalog content — every weapon damage ladder is gone (a
+ *  weapon's damage stays its Tier I base; each tier above I adds
+ *  `CONFIG.armor.weaponPowerPerTier` = 10 POWER to that weapon's own hits at
+ *  the server gate); supercav base damage 400 → 300; naval / fouling trigger
+ *  factor 2/3 → 0.4 and captive trip ring 120 → 180. A mine shot to 0 hp is
+ *  destroyed, never detonated (server only).
  *  108 — RAIN FIRST: THE STORM EYE AND PARTIAL SIGHT (2026-11-14, Eric;
  *  Story 11.6; epic-11 amendment 13; cycle 234, 0.19.28): wire shape — the
  *  schema loses `fogCut` (the coverage-target cut is gone; the rain is a pure
@@ -1110,7 +1117,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 108;
+export const PROTOCOL_VERSION = 109;
 
 // Tunables
 export * from './constants.js';

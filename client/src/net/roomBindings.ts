@@ -2429,7 +2429,12 @@ export function maxBurnDps(): number {
  * impact: anything bigger than this arrived some other way — a torpedo, a
  * shell, a mine — and must read as the slam it was.
  */
-export const BURN_AMOUNT_CAP = maxBurnDps() * (BURN_WINDOW_S + BURN_TICK_S);
+/** The damage curve's bound: `damageMultiplierFor` is strictly under ×2 for any
+ *  effective armor, so a burn tick — multiplied at the gate by the owner's POWER
+ *  plus phosphor's own weapon POWER (epic-11 amendment 17) — never exceeds twice
+ *  its raw rate. */
+export const BURN_MAX_MULTIPLIER = 2;
+export const BURN_AMOUNT_CAP = maxBurnDps() * BURN_MAX_MULTIPLIER * (BURN_WINDOW_S + BURN_TICK_S);
 
 /**
  * Pure: does a damage event read as FIRE rather than as an impact? Both halves

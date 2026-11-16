@@ -551,9 +551,8 @@ function machineGunTier(magStep: number): BoonEffect[] {
  *  (200 → 400), heavy +75 ×4 (300 → 600). (Eric 2026-10-16, Story 9.12:
  *  light +10 ×4, 80 → 120; heavy +11 / +11 / +11 / +12, 90 → 135.) And the
  *  RUN step (Story 11.2, R5: 55 → 140 hm over the four tiers). */
-function torpedoTier(line: 'lightTorpedo' | 'heavyTorpedo', damageStep: number): BoonEffect[] {
+function torpedoTier(line: 'lightTorpedo' | 'heavyTorpedo'): BoonEffect[] {
   return [
-    statEffect(`equipment.${line}.damage`, { add: damageStep }),
     statEffect(`equipment.${line}.speed`, { add: 2.5 }),
     statEffect(`equipment.${line}.homingTurnRate`, { add: 0.125 }),
     torpedoRun(line),
@@ -565,9 +564,8 @@ function torpedoTier(line: 'lightTorpedo' | 'heavyTorpedo', damageStep: number):
  *  90 → 135, Eric 2026-10-16, Story 9.12) and ×1.1 blast every rung. NO
  *  HELD STEP since Story 10.6 (R4 — it was +1 a rung): the rack's size is the
  *  one-off cards' (R7). */
-function navalMineTier(damageStep: number): BoonEffect[] {
+function navalMineTier(): BoonEffect[] {
   return [
-    statEffect('equipment.navalMines.damage', { add: damageStep }),
     statEffect('equipment.navalMines.blastRadius', { mult: 1.1 }),
   ];
 }
@@ -577,9 +575,8 @@ function navalMineTier(damageStep: number): BoonEffect[] {
  *  +11 / +12, 90 → 135, Eric 2026-10-16, Story 9.12) and +0.075 rad/s of
  *  homing every rung. NO HELD STEP since Story 10.6 (R4 — it was +0.5 on the
  *  rungs to II and III). */
-function captiveMineTier(damageStep: number): BoonEffect[] {
+function captiveMineTier(): BoonEffect[] {
   return [
-    statEffect('equipment.captiveMines.damage', { add: damageStep }),
     statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ];
 }
@@ -590,11 +587,10 @@ function captiveMineTier(damageStep: number): BoonEffect[] {
  *  10.3, Eric 2026-11-04, ruling 9 — the split is the implementer's; was +2,
  *  +3, +2, +3 → 20 / 22 / 25 / 27 / 30). NO FLARE STEP since Story 10.6
  *  (R4: "Special shells are ONE shot for good" — it was +0.5 flares a rung). */
-function starShellTier(damageStep: number): BoonEffect[] {
+function starShellTier(): BoonEffect[] {
   return [
     statEffect('equipment.starShells.litDurationMs', { add: 2500 }),
     statEffect('equipment.starShells.litRadius', { mult: 1.1 }),
-    statEffect('equipment.starShells.damage', { add: damageStep }),
     statEffect('equipment.starShells.rangeU', { add: STAR_SHELLS_RANGE_STEP }), // ruling 125: 523 → 570 hm (Story 11.2)
   ];
 }
@@ -604,10 +600,8 @@ function starShellTier(damageStep: number): BoonEffect[] {
  *  +13 → 50 → 100, burn +5 ×4 → 20 → 40 hp/s — the splits the implementer's),
  *  ×1.1 zone radius, and the duration step when it is non-zero (a zero step
  *  is omitted — the validator refuses an `add: 0`). */
-function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: number): BoonEffect[] {
+function phosphorTier(durationStepMs: number): BoonEffect[] {
   const tier: BoonEffect[] = [
-    statEffect('equipment.phosphorShells.damage', { add: damageStep }),
-    statEffect('equipment.phosphorShells.dps', { add: dpsStep }),
     statEffect('equipment.phosphorShells.zoneRadius', { mult: 1.1 }),
     statEffect('equipment.phosphorShells.rangeU', { add: PHOSPHOR_SHELLS_RANGE_STEP }), // ruling 125: 380 → 475 hm (Story 11.2)
   ];
@@ -803,6 +797,11 @@ export const CATALOG: Catalog = deepFreezeRows({
     { appliesTo: ['gun'] },
   ),
   // --- the eleven equipment lines (+ supercavTorpedo, which kept its slot) ---
+  // WEAPON POWER EXPERIMENT (Eric 2026-11-15): every DAMAGE step below is gone —
+  // damage (and phosphor's burn) stays the Tier I base; each tier above I adds
+  // CONFIG.armor.weaponPowerPerTier of POWER to that weapon's hits at the gate
+  // (server world.ts weaponPowerOf). The per-tier damage numbers quoted in the
+  // comments below are the pre-experiment ladders.
   // Copy 1 fits the weapon. The TORPEDO AND MINE ladders below are Story
   // 8.13's (catalog-v3 §4 as amended by Eric's 2026-09-19 rulings, epic-8
   // amendments 74/77/80/81/82); the BROADSIDE and STAR SHELLS ones are Story
@@ -815,10 +814,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // +10 ×4, Eric 2026-10-16, Story 9.12). No tube step since Story 10.6 (R4).
   // HOMING IS A TIER STAT, NOT A CARD (amendment 80).
   lightTorpedo: tieredWeaponSteps('lightTorpedo', 'lightTorpedo', [
-    torpedoTier('lightTorpedo', 50),
-    torpedoTier('lightTorpedo', 50),
-    torpedoTier('lightTorpedo', 50),
-    torpedoTier('lightTorpedo', 50),
+    torpedoTier('lightTorpedo'),
+    torpedoTier('lightTorpedo'),
+    torpedoTier('lightTorpedo'),
+    torpedoTier('lightTorpedo'),
   ]),
   // HEAVY TORPEDO (R17; damage re-ruled by Story 10.3, ruling 5 — "HEAVY
   // 300 → 600"): the shipped torpedo, renamed — damage +75 every rung
@@ -826,10 +825,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // ruling 184(d)), +2.5 u/s and +0.125 rad/s every rung: 600 dmg / 75 u/s /
   // 0.5 rad/s at V. No tube step since Story 10.6 (R4).
   heavyTorpedo: tieredWeaponSteps('heavyTorpedo', 'heavyTorpedo', [
-    torpedoTier('heavyTorpedo', 75),
-    torpedoTier('heavyTorpedo', 75),
-    torpedoTier('heavyTorpedo', 75),
-    torpedoTier('heavyTorpedo', 75),
+    torpedoTier('heavyTorpedo'),
+    torpedoTier('heavyTorpedo'),
+    torpedoTier('heavyTorpedo'),
+    torpedoTier('heavyTorpedo'),
   ]),
   // SUPERCAVITATING TORPEDO (Eric 2026-11-05, Story 10.5, epic-10 amendment
   // 11, R4): a TORPEDO-SLOT equipment line again (a consumable from amendment
@@ -839,7 +838,6 @@ export const CATALOG: Catalog = deepFreezeRows({
   // hm); it never homes, the speed and the single tube are fixed. The
   // per-weapon RELOAD bonus is derived (R5).
   supercavTorpedo: tieredWeapon('supercavTorpedo', 'supercavTorpedo', [
-    statEffect('equipment.supercavTorpedo.damage', { add: 100 }),
     torpedoRun('supercavTorpedo'),
   ]),
   // NAVAL MINES (R23/R24; damage re-ruled by Story 10.3, Eric 2026-11-04,
@@ -850,10 +848,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // step since Story 10.6 (R4 — it was +1 a rung). IT NO LONGER FOULS
   // (amendment 81).
   navalMines: tieredWeaponSteps('navalMines', 'navalMines', [
-    navalMineTier(25),
-    navalMineTier(25),
-    navalMineTier(25),
-    navalMineTier(25),
+    navalMineTier(),
+    navalMineTier(),
+    navalMineTier(),
+    navalMineTier(),
   ]),
   // CAPTIVE MINES (R25, amendments 77/82/84d; damage re-ruled by Story 10.3,
   // ruling 6 — "CAPTIVE 100 → 200 (+25)"): fish damage +25 every rung
@@ -864,10 +862,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // (120 → 175.7 u since 2026-10-08; 144 → 210.8 before), and the 32 u burst
   // is fixed.
   captiveMines: tieredWeaponSteps('captiveMines', 'captiveMines', [
-    captiveMineTier(25),
-    captiveMineTier(25),
-    captiveMineTier(25),
-    captiveMineTier(25),
+    captiveMineTier(),
+    captiveMineTier(),
+    captiveMineTier(),
+    captiveMineTier(),
   ]),
   // MACHINE GUN (amendment 104; the numbers Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the machine gun's LADDER —
   // offered only while it is mounted (sim/draw.ts ladderHost reads
@@ -926,10 +924,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // split the implementer's; was 20 → 30; amendment 39's "structurally
   // damageless" is SUPERSEDED). The per-weapon RELOAD bonus is derived (R5).
   starShells: tieredWeaponSteps('starShells', 'starShells', [
-    starShellTier(12),
-    starShellTier(13),
-    starShellTier(12),
-    starShellTier(13),
+    starShellTier(),
+    starShellTier(),
+    starShellTier(),
+    starShellTier(),
   ]),
   // --- the one STUB ----------------------------------------------------------
   // HULL REPAIR, SHIELD BLOCK and the COUNTERMEASURE line sat here until Story
@@ -948,7 +946,6 @@ export const CATALOG: Catalog = deepFreezeRows({
   // was FIXED at 10 with no step; it now has one)"), +25 damage. The 5 s
   // window never moves. UNHOMED: it sat in no default deck.
   foulingMines: tieredWeapon('foulingMines', 'foulingMines', [
-    statEffect('equipment.foulingMines.damage', { add: 25 }),
     statEffect('equipment.foulingMines.blastRadius', { mult: 1.1 }),
     statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
   ]),
@@ -972,10 +969,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // (100 → 146.41 u), duration +0/+1/+0/+1 s (8 / 8 / 9 / 9 / 10 s).
   // The per-weapon RELOAD bonus is derived (Story 10.6, R5).
   phosphorShells: tieredWeaponSteps('phosphorShells', 'phosphorShells', [
-    phosphorTier(12, 5, 0),
-    phosphorTier(13, 5, 1000),
-    phosphorTier(12, 5, 0),
-    phosphorTier(13, 5, 1000),
+    phosphorTier(0),
+    phosphorTier(1000),
+    phosphorTier(0),
+    phosphorTier(1000),
   ]),
   // --- Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) ----------
   // FLASH SHELLS (epic-8 amendment 132, restored by 10.9): one 360° shell on

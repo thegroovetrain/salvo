@@ -386,7 +386,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     expect(w.mines.has('m1')).toBe(false);
   });
 
-  it('(c) a NAVAL pop CHAINS ACROSS OWNERS in the same tick (amendments 18/200), skipping captives and arming mines', () => {
+  it('(c) a NAVAL pop chains NOBODY (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated): neighbours of any owner, captives and arming mines all stay', () => {
     const w = board(24);
     place(w, 'cap', 900, 900, 0, 'warspite');
     mine(w, 'shot', 'x', 600, 0); // the one the shell LANDS on
@@ -396,8 +396,8 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     mine(w, 'captive', 'cap', 600, 45, 0, 'captive'); // captive — immune, propagates nothing
     shootAt(w, 'a', 600);
     expect(w.mines.has('shot')).toBe(false);
-    expect(w.mines.has('mine-mine')).toBe(false);
-    expect(w.mines.has('third')).toBe(false);
+    expect(w.mines.has('mine-mine')).toBe(true);
+    expect(w.mines.has('third')).toBe(true);
     expect(w.mines.has('cold')).toBe(true);
     expect(w.mines.has('captive')).toBe(true);
   });

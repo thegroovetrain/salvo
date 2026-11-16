@@ -931,6 +931,18 @@ export function damageMultiplierFor(effectiveArmor: number): number {
  * it computes E = victim armor + HUNKER − attacker power itself and calls
  * `damageMultiplierFor` directly. The harness and any HUD row print this.
  */
+/**
+ * WEAPON POWER (Eric 2026-11-16, epic-11 amendment 17): the POWER a weapon at
+ * `tier` adds to its OWN hits — `CONFIG.armor.weaponPowerPerTier` per tier above
+ * I (Tier I adds nothing). The server gate adds it to the attacker's POWER at
+ * impact; the battle HUD adds it to the damage a weapon row prints. A
+ * non-finite tier reads as Tier I (0), never NaN.
+ */
+export function weaponPowerFor(tier: number): number {
+  if (!Number.isFinite(tier)) return 0;
+  return CONFIG.armor.weaponPowerPerTier * Math.max(0, tier - 1);
+}
+
 export function publishedDamageMultiplier(armor: number): number {
   return damageMultiplierFor(armor - CONFIG.index.base);
 }

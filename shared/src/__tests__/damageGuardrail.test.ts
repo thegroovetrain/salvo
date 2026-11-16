@@ -122,42 +122,6 @@ describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendmen
 // nothing left to sweep: a future damage line lands under the law
 // automatically, on the day it lands, instead of needing a new pin.
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
-  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 300hp lightest CLASS hull', () => {
-    // Swept from the catalog rather than listed, so a new damage card is
-    // covered the day it lands and a deleted one needs no edit here. Catalog
-    // v3 widened the sweep: every `equipment.<id>.damage` path the GENERATED
-    // whitelist carries is checked, built or not.
-    const damagePaths = BOON_STAT_PATHS.filter((p) => p.endsWith('.damage'));
-    const read = (st: EffectiveStats, path: string): number => {
-      const [, id, field] = path.split('.');
-      return (st.equipment as unknown as Record<string, Record<string, number>>)[id][field];
-    };
-    expect(damagePaths.length).toBeGreaterThanOrEqual(9);
-    for (const path of damagePaths) {
-      const s2 = effectiveStats(CONFIG.shipClasses.iowa, maxStackFor(path));
-      expect(read(s2, path), path).toBeLessThan(minHullHp);
-    }
-    // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN, the FIVE
-    // torpedo / mine lines (FOULING MINES gained its first damage step in
-    // Story 10.3, Eric 2026-11-04, ruling 6), FLAK, and since Story 8.17 STAR
-    // SHELLS and PHOSPHOR SHELLS (Eric 2026-09-29, amendments 130/131). The
-    // BROADSIDE is deliberately absent — its per-shell damage is fixed at every
-    // tier (amendment 133) — and so, since Story 9.12, is the MACHINE GUN,
-    // whose per-shell damage is flat.
-    expect(damagePaths.filter((p) => maxStackFor(p).length > 0).sort()).toEqual([
-      'equipment.captiveMines.damage',
-      'equipment.flak.damage',
-      'equipment.foulingMines.damage',
-      'equipment.gun.damage',
-      'equipment.heavyTorpedo.damage',
-      'equipment.lightTorpedo.damage',
-      'equipment.navalMines.damage',
-      'equipment.phosphorShells.damage',
-      'equipment.starShells.damage',
-      // Story 10.5: the SUPERCAV is a tiered slot weapon again (amendment 8(e)).
-      'equipment.supercavTorpedo.damage',
-    ]);
-  });
 
   it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the lightest hull', () => {
     // Story 10.3 (Eric 2026-11-04, rulings 5–6): no single torpedo or mine

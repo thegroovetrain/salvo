@@ -27,7 +27,7 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, FLASH_WINDOW_MS, familySlotFor, effectiveStats, hullEnvelope, launcherStation, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, damageMultiplierFor, FLASH_WINDOW_MS, familySlotFor, effectiveStats, hullEnvelope, launcherStation, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -460,7 +460,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     // The heavy line's tiers now move speed for real, so this is no longer a
     // forced divergence — it is a real build.
     fitTier(w, o, 'heavyTorpedo', CATALOG.heavyTorpedo.cap);
-    fitTier(w, o, 'captiveMines', 2); // tier II: +5 fish damage, homing on
+    fitTier(w, o, 'captiveMines', 2); // tier II: homing on, + the line's weapon POWER at the gate
     expect(o.stats.equipment.heavyTorpedo.speed).toBeGreaterThan(CONFIG.torpedo.speed);
     const row = o.stats.equipment.captiveMines;
     const b = place(w, 'b', 0, 40);
@@ -473,9 +473,11 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(fish.burstRadius).toBe(CONFIG.captiveMines.blastRadius); // ...at the FIXED 32u burst
     // The NAVAL rack the layer also carries contributes nothing at all.
     expect(fish.damage).not.toBe(o.stats.equipment.navalMines.damage);
-    // It runs home and detonates for the captive row's damage.
+    // It runs home and detonates for the captive row's damage, through the gate
+    // with the attacker's POWER plus the line's own weapon POWER (CONFIG dial).
     for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - row.damage, 6);
+    const power = o.stats.power + CONFIG.armor.weaponPowerPerTier * (row.tier - 1);
+    expect(b.hp).toBe(b.stats.maxHp - Math.floor(row.damage * damageMultiplierFor(b.stats.armor - power)));
   });
 
   // FAIL-FIRST REGRESSION (epic-8 amendment 82): the captive fish's homing is
@@ -580,8 +582,8 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   it('a VACATED owner keeps the KIND and loses only the TIER — the orphan still launches, at CONFIG base', () => {
     const w = bareWorld(47);
     const o = placeBare(w, 'o', 600, 600, 0, 'warspite');
-    fitTier(w, o, 'captiveMines', 5); // tier V: 75 dmg, a homing fish
-    expect(o.stats.equipment.captiveMines.damage).toBeGreaterThan(CONFIG.captiveMines.damage);
+    fitTier(w, o, 'captiveMines', 5); // tier V: a homing fish
+    expect(o.stats.equipment.captiveMines.tier).toBe(5);
     const b = place(w, 'b', 0, 25);
     lay(w, 'm1', 'o', 0, 0, 'captive');
     w.removeShip('o');
@@ -656,12 +658,12 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     expect(victim.hp).toBeCloseTo(victim.stats.maxHp - 2 * o.stats.equipment.navalMines.damage, 6);
   });
 
-  it('a SECONDARIES stream ON a same-owner cluster pops each mine once (landing test ∩ cascade, amendment 200; Story 10.4: the secondaries are the captain\'s mine-hurting weapon)', () => {
+  it('a SECONDARIES stream ON a same-owner cluster pops each mine it lands on exactly once and chains nothing (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated; Story 10.4: the secondaries are the captain\'s mine-hurting weapon)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0, 0, 'warspite');
-    // Three mines clustered so the LANDING TEST (m1 and m2 are 5u off the
-    // click, inside the 10u disc) AND the chain (m3, 15u off) both reach them:
-    // m1's pop chains m2 and m3, and the landing loop then finds m2 gone.
+    // Three mines clustered: m1 and m2 sit 5u off the click, inside the 10u
+    // landing disc; m3 is 15u off. A pop chains nothing, so only rounds that
+    // LAND on a mine take it, and no mine ever booms twice.
     lay(w, 'm1', 'o', 200, 0, 'naval');
     lay(w, 'm2', 'o', 210, 0, 'naval');
     lay(w, 'm3', 'o', 220, 0, 'naval');
@@ -672,9 +674,12 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
       w.step();
       seen.push(...w.tickEvents);
     }
-    expect(w.mines.size).toBe(0);
+    expect(w.mines.has('m1')).toBe(false);
+    expect(w.mines.has('m2')).toBe(false);
     const mineBooms = (seen.filter((e) => e.k === 'boom') as { id: string }[]).filter((b) => b.id.startsWith('m'));
-    expect(mineBooms.map((b) => b.id).sort()).toEqual(['m1', 'm2', 'm3']); // exactly one each
+    const ids = mineBooms.map((b) => b.id);
+    expect(new Set(ids).size).toBe(ids.length); // never twice
+    for (const id of ['m1', 'm2', 'm3']) expect(ids.includes(id)).toBe(!w.mines.has(id)); // a boom iff gone
   });
 });
 
@@ -979,19 +984,6 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     expect(w.burnZones.size).toBe(0); // a flare never burns
   });
 
-  it('higher star-shell tiers deal more, in whole numbers, landed in full through the gate', () => {
-    let prev: number = CONFIG.starShells.damage;
-    for (const copies of [2, 4] as const) {
-      const { w, a, inside } = board(copies);
-      const dmg = a.stats.equipment.starShells.damage;
-      expect(Number.isInteger(dmg)).toBe(true);
-      expect(dmg).toBeGreaterThan(prev);
-      prev = dmg;
-      fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
-      expect(inside.hp).toBe(inside.stats.maxHp - dmg);
-    }
-  });
-
   it('the OWNER inside its own lit circle is immune (permanent owner immunity)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 300, 0, 0, 'yamato'); // 100 u short of the burst point: inside r165
@@ -1093,13 +1085,10 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     const { w, a, slot, A } = board(5);
     const row = a.stats.equipment.phosphorShells;
     const P = CONFIG.phosphorShells;
-    expect(row.damage).toBeGreaterThan(P.damage);
     expect(row.zoneRadius).toBeGreaterThan(P.zoneRadius);
     expect(row.zoneDurationMs).toBeGreaterThan(P.zoneDurationMs);
-    expect(row.dps).toBeGreaterThan(P.dps);
     const hp0 = A.hp;
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
-    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: row.damage });
     expect(hp0 - A.hp).toBeGreaterThanOrEqual(row.damage);
     const zone = [...w.burnZones.values()][0];
     expect(zone.r).toBe(row.zoneRadius);

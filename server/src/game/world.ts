@@ -63,6 +63,7 @@ import {
   stepTurrets,
   DEFAULT_HORN_ID,
   damageMultiplierFor,
+  weaponPowerFor,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -1391,6 +1392,14 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * the client hit cue up to five times a second) — the burn already had the
  * windowed fractional path, and the bleed takes the same one.
  */
+/** WEAPON POWER (experiment, Eric 2026-11-15): the line whose tiers add POWER
+ *  to a mine blast — the captive's torpedo detonates as kind `captive`. */
+const MINE_WEAPON: Readonly<Record<MineKind, EquipmentId>> = {
+  naval: 'navalMines',
+  captive: 'captiveMines',
+  fouling: 'foulingMines',
+};
+
 export type DamageSource =
   | 'shell'
   | 'burst'
@@ -6001,7 +6010,7 @@ export class World {
       // door (Story 10.8, R12) and counts as RESOLVED for the layer's `hc`;
       // it has no engines, so the fouling slow below never applies to it.
       if (t.kind === 'beacon') {
-        if (this.damageBeacon(victimId, damage, 'mine', ownerId)) resolved += 1;
+        if (this.damageBeacon(victimId, damage, 'mine', ownerId, MINE_WEAPON[kind])) resolved += 1;
         continue;
       }
       const victim = t.kind === 'hull' ? this.ships.get(victimId) : undefined;
@@ -6010,7 +6019,7 @@ export class World {
       // in this re-check rather than in the snapshot (amendment 5).
       if (!victim || !isAfloat(victim.lifecycle)) continue;
       resolved += 1;
-      this.hitShip(victim, damage, ownerId, 'mine');
+      this.hitShip(victim, damage, ownerId, 'mine', MINE_WEAPON[kind]);
       // FOULING (amendments 81, 88): a fouling blast's victim is slowed. The
       // clock is REFRESHED on every hit; the factor is KEEP-THE-STRONGEST —
       // while a slow is still running, a later fouling can only deepen it
@@ -6074,7 +6083,7 @@ export class World {
    * seat the PvE fleet's aggro read — amendment 36 — retired with the fleet at
    * Story 10.8.)
    */
-  private hitShip(victim: ShipRecord, amount: number, byId: string, src: DamageSource): void {
+  private hitShip(victim: ShipRecord, amount: number, byId: string, src: DamageSource, weapon?: EquipmentId): void {
     if (!this.damageEnabled) return;
     // A SINKING HULL CANNOT BE FINISHED OFF (Story 5.2, amendment 12): damage
     // landing inside the window is a NO-OP — no hp, no dmg event, no re-sink,
@@ -6087,7 +6096,7 @@ export class World {
     if (isSinking(victim.lifecycle)) return;
     // THE GATE does the rest (Story 8.4 / AR47): hp, assist ledger, sink
     // check, `dmg` — applyDamage is the ONLY place a hull's hp is decremented.
-    this.applyDamage(victim, amount, src, byId);
+    this.applyDamage(victim, amount, src, byId, weapon);
   }
 
   /**
@@ -6127,11 +6136,17 @@ export class World {
    *   (f)/(g) The per-source report and the sink check (reportDamage below):
    *       today's emitted order per source, byte-identical.
    */
-  private applyDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): void {
+  private applyDamage(
+    victim: ShipRecord,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): void {
     if (byId !== undefined && byId === victim.id) return; // (a) NO FRIENDLY FIRE, every source
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
-    const net = this.armorDamage(victim, amount, src, byId); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's POWER) (Stories 9.7 / 9.9 / 10.3)
+    const net = this.armorDamage(victim, amount, src, byId, weapon); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's POWER) (Stories 9.7 / 9.9 / 10.3)
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
@@ -6217,10 +6232,16 @@ export class World {
    * (amendment 120(e)) and is never composed in here — the gate always calls
    * the curve with the full E.
    */
-  private armorDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): number {
+  private armorDamage(
+    victim: ShipRecord,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): number {
     if (src === 'storm') return amount;
     const bonus = this.now < victim.hunkerUntil ? victim.stats.equipment.hunker.armorBonus : 0;
-    return this.armorGate(victim.stats.armor + bonus, amount, src, byId);
+    return this.armorGate(victim.stats.armor + bonus, amount, src, byId, weapon);
   }
 
   /** THE MULTIPLY ITSELF, on a plain ARMOR number (Story 10.8 extraction —
@@ -6229,8 +6250,15 @@ export class World {
    *  floor of one, a 'burn' / 'grind' fraction kept exact. A hull reaches it
    *  with its ARMOR (+ HUNKER); a RADIO BEACON with `CONFIG.beacons.armor`
    *  (R8: "exactly as a ship with ARMOR 100"). */
-  private armorGate(armor: number, amount: number, src: DamageSource, byId: string | undefined): number {
-    const scaled = amount * damageMultiplierFor(armor - this.powerOf(byId));
+  private armorGate(
+    armor: number,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): number {
+    const power = this.powerOf(byId) + this.weaponPowerOf(byId, weapon);
+    const scaled = amount * damageMultiplierFor(armor - power);
     return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
   }
 
@@ -6254,11 +6282,17 @@ export class World {
    *   - AT 0 HP IT SINKS EARLY (sinkBeacon).
    * Weapons-safe phases lose no hp, as on a hull.
    */
-  damageBeacon(id: string, amount: number, src: DamageSource, byId: string | undefined): boolean {
+  damageBeacon(
+    id: string,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): boolean {
     const beacon = this.beacons.get(id);
     if (beacon === undefined || !this.beacons.hittable(beacon, this.now)) return false;
     if (!this.damageEnabled || !World.isBlow(amount)) return true;
-    const net = this.armorGate(CONFIG.beacons.armor, amount, src, byId);
+    const net = this.armorGate(CONFIG.beacons.armor, amount, src, byId, weapon);
     const dealt = Math.max(0, Math.min(net, beacon.hp)); // the overkill clamp, read before the write
     beacon.hp -= dealt; // THE ONE BEACON-HP DECREMENT IN THE GAME
     if (byId !== undefined) this.creditBeaconDamage(beacon, byId, net, dealt);
@@ -6304,6 +6338,18 @@ export class World {
   private powerOf(byId: string | undefined): number {
     if (byId === undefined) return CONFIG.index.base;
     return this.ships.get(byId)?.stats.power ?? CONFIG.index.base;
+  }
+
+  /** WEAPON POWER (EXPERIMENT, Eric 2026-11-15): the firing weapon's OWN POWER,
+   *  `CONFIG.armor.weaponPowerPerTier` × (its tier − 1), read LIVE at impact
+   *  from the attacker's current stats — the amendment-156 rule POWER follows.
+   *  0 for no weapon (main battery, ram, storm, coast), no attacker, or an
+   *  attacker who left (their record is gone). */
+  private weaponPowerOf(byId: string | undefined, weapon: EquipmentId | undefined): number {
+    if (byId === undefined || weapon === undefined) return 0;
+    const row = this.ships.get(byId)?.stats.equipment[weapon];
+    if (row === undefined) return 0;
+    return weaponPowerFor(row.tier);
   }
 
   /** A whole blow after the Armor multiply: floored to a whole number, but a
@@ -6625,7 +6671,7 @@ export class World {
     // does (the decoy branch left with Story 10.5).
     const src: DamageSource = shell.kind === 'torp' ? 'torpedo' : 'shell';
     if (kind === 'beacon') {
-      this.damageBeacon(outcome.victimId, amount, src, shell.ownerId);
+      this.damageBeacon(outcome.victimId, amount, src, shell.ownerId, shell.weapon);
       return;
     }
     if (kind !== 'hull') return;
@@ -6635,7 +6681,7 @@ export class World {
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
     // not a single click (the same-click salvo ledger is deleted).
-    this.hitShip(victim, amount, shell.ownerId, src);
+    this.hitShip(victim, amount, shell.ownerId, src, shell.weapon);
   }
 
   /**
@@ -6787,11 +6833,13 @@ export class World {
     if (amount <= 0) return 0;
     // A RADIO BEACON caught by the burst (Story 10.8, R8): the same settled
     // amount through its own door; it RESOLVED iff it was still afloat.
-    if (t.kind === 'beacon') return this.damageBeacon(t.id, amount, landingSource(shell), shell.ownerId) ? 1 : 0;
+    if (t.kind === 'beacon') {
+      return this.damageBeacon(t.id, amount, landingSource(shell), shell.ownerId, shell.weapon) ? 1 : 0;
+    }
     if (t.kind !== 'hull') return 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
-    this.hitShip(victim, amount, shell.ownerId, landingSource(shell));
+    this.hitShip(victim, amount, shell.ownerId, landingSource(shell), shell.weapon);
     return 1;
   }
 
@@ -6854,18 +6902,14 @@ export class World {
   }
 
   /**
-   * A MINE SHOT TO 0 HP (amendment 200). A NAVAL or FOULING mine detonates
-   * exactly as a tripped one does — boom (no `hit`), its own blast on its
-   * OWNER's numbers at its own point, and (naval only) the chain. A CAPTIVE
-   * mine is DESTROYED: taken off the water with the same sight-gated `boom`
-   * so observers see it go (201(c)), but no `hit`, no blast and no fish — only
-   * a TRIP launches a captive's torpedo.
+   * A MINE SHOT TO 0 HP is DESTROYED, every kind (Eric 2026-11-15: "shooting
+   * mines destroys them but doesn't make them detonate early or anything";
+   * until then a naval / fouling mine detonated as if tripped, amendment 200,
+   * and a naval one set off its chain). It is taken off the water with the
+   * sight-gated `boom` so observers see it go (201(c)) — no `hit`, no blast,
+   * no slow, no chain and no fish. Only a TRIP detonates a mine.
    */
   private popMine(mine: MineState): void {
-    if (mine.kind !== 'captive') {
-      this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
-      return;
-    }
     if (!this.consumeMine(mine.id)) return;
     this.pending.push({ k: 'boom', id: mine.id, x: mine.x, y: mine.y });
   }
@@ -7117,7 +7161,7 @@ export class World {
     // sinking guard, the overkill clamp, the hp write, the assist credit and
     // the DoT bucket all live in applyDamage / reportDamage, and the 'burn'
     // source is what selects the windowed report instead of an immediate `dmg`.
-    this.applyDamage(victim, amount, 'burn', ownerId);
+    this.applyDamage(victim, amount, 'burn', ownerId, 'phosphorShells'); // only phosphor burns
   }
 
   /** Emit one aggregated victim-private `dmg` for a DoT bucket and drop it.
@@ -7145,7 +7189,7 @@ export class World {
     for (const beacon of this.beacons.records) {
       if (!this.beacons.hittable(beacon, this.now)) continue;
       for (const [ownerId, dps] of this.markZoneEffects({ id: beacon.id, state: beacon })) {
-        this.damageBeacon(beacon.id, dps * dt, 'burn', ownerId);
+        this.damageBeacon(beacon.id, dps * dt, 'burn', ownerId, 'phosphorShells'); // only phosphor burns
       }
     }
   }

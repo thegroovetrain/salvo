@@ -14,6 +14,7 @@ import {
   INDEX_IDS,
   SLOT_COUNT,
   damageMultiplierFor,
+  weaponPowerFor,
   effectiveStats,
   initialRacks,
   rackCapacity,
@@ -92,9 +93,23 @@ describe('shownDamage — R19: the gate multiplier against an ARMOR-100 hull', (
     const stats = fold(cards);
     const rs = byKey(shipReadouts({ ...SHIP, cards })!);
     for (const [kind, id] of [['mainBattery', 'mainBattery'], ['torpedo', 'lightTorpedo'], ['mines', 'navalMines'], ['special', 'starShells']] as const) {
-      expect(rs.get(READOUT_KEY.stat(kind, 'damage'))!.raw).toBe(shownDamage(stats.equipment[id].damage, stats.power));
+      const row = stats.equipment[id] as unknown as { damage: number; tier?: number };
+      expect(rs.get(READOUT_KEY.stat(kind, 'damage'))!.raw).toBe(shownDamage(row.damage, stats.power + weaponPowerFor(row.tier ?? 1)));
     }
     expect(rs.get(READOUT_KEY.stat('secondaries', 'damage'))!.raw).toBe(shownDamage(CONFIG.secondaries.damage, stats.power));
+  });
+
+  it('a weapon row adds its own tier POWER (amendment 17): the printed damage is the gate\'s hit at each tier', () => {
+    for (const [kind, id] of [['torpedo', 'supercavTorpedo'], ['mines', 'navalMines'], ['special', 'phosphorShells']] as const) {
+      for (let copies = 1; copies <= 5; copies += 1) {
+        const cards = Array<string>(copies).fill(id);
+        const stats = fold(cards);
+        const row = stats.equipment[id];
+        const rs = byKey(shipReadouts({ ...SHIP, cards })!);
+        const expected = shownDamage(row.damage, stats.power + CONFIG.armor.weaponPowerPerTier * (row.tier - 1));
+        expect(rs.get(READOUT_KEY.stat(kind, 'damage'))!.raw, `${id} x${copies}`).toBe(expected);
+      }
+    }
   });
 });
 

@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, SHIFT_IDS, baseSmokeStats, type OwnShip } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
+  BURN_MAX_MULTIPLIER,
   bindRoom,
   isFlashBurst,
   frameIsDeadOrSpectating,
@@ -2164,8 +2165,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     // once `now - since >= 500 ms` AFTER adding the bite, so at 20 Hz a window
     // holds 11 bites (t = 0..500 ms) = 0.55 s of burn.
     const cap = BURN_AMOUNT_CAP;
-    expect(cap).toBeCloseTo(maxBurnDps() * (0.5 + CONFIG.tick.simDtMs / 1000), 9);
-    expect(CONFIG.phosphorShells.dps).toBeLessThan(maxBurnDps()); // the ladder raised it
+    expect(cap).toBeCloseTo(maxBurnDps() * BURN_MAX_MULTIPLIER * (0.5 + CONFIG.tick.simDtMs / 1000), 9);
     expect(readsAsBurn(cap, 0)).toBe(true);
     expect(readsAsBurn(cap, 600)).toBe(true); // the grace's last instant
     expect(readsAsBurn(cap + 0.1, 0)).toBe(false); // too big to be a DoT flush

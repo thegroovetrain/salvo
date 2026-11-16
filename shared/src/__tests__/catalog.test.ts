@@ -260,27 +260,6 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('the NON-UNIFORM torpedo and mine ladders (Story 9.12): one whole-number damage step per rung, and the authored steps sum to the fold\'s Tier V damage', () => {
-    const TB = CONFIG.shipClasses.iowa;
-    const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines'] as const;
-    for (const id of lines) {
-      const steps = CATALOG[id].tiers.slice(1);
-      const damageSum = steps
-        .flat()
-        .filter((e) => e.kind === 'stat' && e.path === `equipment.${id}.damage`)
-        .reduce((sum, e) => sum + (e as { add: number }).add, 0);
-      const atI = effectiveStats(TB, [id]).equipment[id];
-      const atV = effectiveStats(TB, [id, id, id, id, id]).equipment[id];
-      expect(atI.damage + damageSum, id).toBe(atV.damage);
-      // Every authored damage step is a positive whole number (amendment 39).
-      for (const tier of steps) {
-        const dmg = tier.filter((e) => e.kind === 'stat' && e.path === `equipment.${id}.damage`);
-        expect(dmg, id).toHaveLength(1);
-        expect(Number.isInteger((dmg[0] as { add: number }).add), id).toBe(true);
-      }
-    }
-  });
-
   it('THE TORPEDO RUN (Story 11.2, R5): every torpedo line folds a run that never shrinks tier to tier, starts at its kind\'s Tier I fact and lands on its Tier V fact', () => {
     const TB = CONFIG.shipClasses.iowa;
     const kinds = [
@@ -342,25 +321,6 @@ describe('catalog v3 identity', () => {
           if (e.kind === 'stat') expect(e.path.endsWith('.reloadMs'), `${id}:${e.path}`).toBe(false);
         }
       }
-    }
-  });
-
-  it('the three MOVED lines (Story 10.5) author their steps per upgrade tier: supercav damage (+ its run since Story 11.2), the two shells\' radius read from CONFIG', () => {
-    const only = (id: LineId) => CATALOG[id].tiers.slice(1).map((tier) => {
-      expect(tier, id).toHaveLength(1);
-      return tier[0] as { kind: string; path: string; add: number };
-    });
-    for (const tier of CATALOG.supercavTorpedo.tiers.slice(1)) {
-      const paths = tier.map((e) => (e as { path: string }).path).sort();
-      expect(paths).toEqual(['equipment.supercavTorpedo.damage', 'equipment.supercavTorpedo.runU']);
-      const dmg = tier.find((e) => (e as { path: string }).path === 'equipment.supercavTorpedo.damage') as { add: number };
-      expect(Number.isInteger(dmg.add) && dmg.add > 0).toBe(true);
-    }
-    for (const e of only('dazzleShells')) {
-      expect(e).toEqual({ kind: 'stat', path: 'equipment.dazzleShells.radius', add: CONFIG.flashShells.radiusStepPerTier });
-    }
-    for (const e of only('foulingShell')) {
-      expect(e).toEqual({ kind: 'stat', path: 'equipment.foulingShell.radius', add: CONFIG.foulingShell.radiusStepPerTier });
     }
   });
 
@@ -615,49 +575,6 @@ describe('STORY 10.3 — the index ladders and the re-ruled weapon rungs', () =>
         }
       }
     }
-  });
-
-  it('the five stepped weapon lines (rulings 5–6): Tier V damage = Tier I + Σ steps, every step a positive whole number, uniform per line, FOULING MINES stepped at last', () => {
-    const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines'] as const;
-    for (const id of lines) {
-      const path = `equipment.${id}.damage`;
-      const steps = CATALOG[id].tiers.slice(1).map((tier) => addOf(tier, path) as number);
-      expect(steps, id).toHaveLength(4);
-      for (const st of steps) expect(Number.isInteger(st) && st > 0, id).toBe(true);
-      expect(new Set(steps).size, id).toBe(1);
-      const atI = effectiveStats(TB, [id]).equipment[id].damage;
-      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
-      expect(atV, id).toBe(atI + steps.reduce((a, b) => a + b, 0));
-    }
-    // The torpedoes and the two light mines DOUBLE Tier I at Tier V (the ×2
-    // ladder rule carried: 200 → 400, 300 → 600, 100 → 200, 100 → 200); the
-    // NAVAL MINE's 200 → 300 is the one ruled exception (ruling 6).
-    for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines', 'foulingMines'] as const) {
-      const atI = effectiveStats(TB, [id]).equipment[id].damage;
-      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
-      expect(atV, id).toBe(atI * 2);
-    }
-    const nmI = effectiveStats(TB, ['navalMines']).equipment.navalMines.damage;
-    const nmV = effectiveStats(TB, new Array<LineId>(5).fill('navalMines')).equipment.navalMines.damage;
-    expect(nmV).toBeGreaterThan(nmI);
-    expect(nmV).toBeLessThan(nmI * 2);
-  });
-
-  it('STAR and PHOSPHOR SHELLS (ruling 9): four whole-number burst steps DOUBLING the Tier I burst at V; phosphor\'s burn steps uniform and doubling its base', () => {
-    for (const id of ['starShells', 'phosphorShells'] as const) {
-      const steps = CATALOG[id].tiers.slice(1).map((tier) => addOf(tier, `equipment.${id}.damage`) as number);
-      for (const st of steps) expect(Number.isInteger(st) && st > 0, id).toBe(true);
-      const atI = effectiveStats(TB, [id]).equipment[id].damage;
-      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
-      expect(atV, id).toBe(atI + steps.reduce((a, b) => a + b, 0));
-      expect(atV, id).toBe(atI * 2);
-    }
-    const dps = CATALOG.phosphorShells.tiers.slice(1).map((tier) => addOf(tier, 'equipment.phosphorShells.dps') as number);
-    expect(new Set(dps).size).toBe(1);
-    const atI = effectiveStats(TB, ['phosphorShells']).equipment.phosphorShells.dps;
-    const atV = effectiveStats(TB, new Array<LineId>(5).fill('phosphorShells')).equipment.phosphorShells.dps;
-    expect(atV).toBe(atI + dps.reduce((a, b) => a + b, 0));
-    expect(atV).toBe(atI * 2);
   });
 
   it('the ×3 placeholders (ruling 10): CANNON and FLAK still author a whole-number damage step on every rung, and their Tier V is Tier I + Σ steps', () => {
