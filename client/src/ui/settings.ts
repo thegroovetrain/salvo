@@ -135,18 +135,23 @@ export interface BindingRow {
  * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
  * Shift, so `Q / E` + `R` are one `Q / E / R` row and SHIFT has its own. The
  * word DEFAULT left the gun row because no client copy may carry it.
+ *
+ * 2026-11-16 (after Story 11.11, Eric: "You can change the obvious shit on the
+ * settings page"): the `(NONE)` gun row is gone — the hotbar it pointed at left
+ * with Story 10.10 and firing reverts to the main battery by itself (the CLICK
+ * row says so); SHIFT is the captain's SPECIAL picked on YOUR SHIP, not the
+ * class's (Story 10.4 made it a per-seat pick).
  */
 export function bindingRows(): BindingRow[] {
   return [
     { keys: 'W / S', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
     { keys: 'A / D', action: 'RUDDER — HELD' },
-    { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
     // Story 10.5 (2026-11-05, epic-10 amendment 11): the three family slots, the
     // two cooldown abilities and the digits' one meaning.
     { keys: 'Q / E / R', action: 'TORPEDO / MINE / SPECIAL SHELL — PRESS TO READY, AGAIN TO CANCEL' },
     { keys: 'C', action: 'HULL REPAIR' },
     { keys: 'V', action: 'SMOKE SCREEN' },
-    { keys: 'SHIFT', action: 'CLASS SPECIAL' },
+    { keys: 'SHIFT', action: 'SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE MAIN BATTERY, OR THE READIED WEAPON' },
     { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD)' },
