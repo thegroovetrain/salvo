@@ -2,9 +2,10 @@
 title: 'Ship console shows the Shift bonus: ENGINES under Speed Boost, ARMOR under Hunker'
 type: 'bugfix'
 created: '2026-11-15'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '08fbe9a2'
+final_revision: '588b0945'
 context: []
 warnings: []
 ---
@@ -89,4 +90,6 @@ Assumption made unattended (flag in the PR): the boosted ENGINES figure is floor
 - **Change:** the ship console's ENGINES index rises by the Speed Boost factor (floored) and ARMOR by Hunker's `armorBonus` while the fitted Shift's window runs; the hover preview re-folds under the same window. Client only; server untouched; PV unchanged.
 - **Files:** `client/src/render/console/readouts.ts` (`ShiftWindow`, `shiftWindowFor`, `shiftedIndex`, windowed `consoleReadouts` / `shipReadouts`); `client/src/main.ts` (`shiftWindowNow`, memo keys); `client/src/__tests__/consoleReadouts.test.ts` (+6 tests).
 - **Review:** Blind Hunter + Edge Case Hunter (Fable) + Codex. Codex: no bugs. 1 patch applied, 9 rejected (optimistic boost window = the Shift button's existing behaviour; slows/draft out of scope; float floor latent at factor 0.25; no main.ts harness for the memo).
+- **Verification:** `npm run check` steps all green (shared 1465, server 2988, client 176 files, hooks 266; lint 0 errors; tsc x3); matchSmoke + weaponsSmoke first try.
+- **PR:** #353.
 - **Residual risk:** the floor-vs-round reading (epic-11 amendment 16(b)) is Eric's veto.
