@@ -2,7 +2,7 @@
 title: 'Story 11.9 Bot Posture on the Big Ocean — the 20 % hit bar and the standoff that follows it'
 type: 'feature'
 created: '2026-11-16'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'b523abec'
 review_loop_iteration: 0
 context:
@@ -65,15 +65,15 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- add `CONFIG.bots.hitBar: 0.2` with a doc comment citing Eric's ruling -- R1.
-- [ ] `server/src/game/ai/hitChance.ts` (new) -- `hitChance(rangeU, outline, bearingRad, cfg?)` and `barRangeU(cls|null, rangeU)`. Use a fixed lattice over the wobble disc × the dispersion ellipse, weighted to `dispersedPoint`'s law, tested with `pointInPolygon`, plus the R3 blip model. Memoize by (class, aspect bucket, range bucket) -- R2/R3.
-- [ ] `server/src/game/ai/battery.ts` -- the hold gate in `batterySolve` -- R2.
-- [ ] `server/src/game/ai/doctrine.ts` + `tactics.ts` -- rescale the main-battery band to `B = barRangeU / 0.8`, passing the target's class -- R4.
-- [ ] `server/src/game/ai/__tests__/hitChance.test.ts` -- contracts: in [0,1]; non-increasing with range; end-on ≥ side-on at equal range; a larger outline ≥ a smaller one; the blip model equals the smallest hull side-on; matches a seeded Monte Carlo of `dispersedPoint` + `scatterOffset` within a stated tolerance; `barRangeU` is where the chance crosses the bar.
-- [ ] `server/src/game/ai/__tests__/` (battery suite) -- holds below the bar with the scatter kept; clicks at or above it; the band far edge equals `barRangeU` at zero nudge.
-- [ ] `server/scripts/batchsim/*` -- count main-battery clicks per bot per match and print them with the 9.13 readouts.
-- [ ] `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-11-16.md` -- the baseline vs new 50-match tables (land contact, storm share, ram deaths, placement and win share by hull, hit share by range band, main-battery clicks), plus the `tickCost.mjs` pair.
-- [ ] Record: epic-11 amendment (number at PR time), the both trackers, `deferred-work.md` (close the "bots see ghosts" thread as moot until 11.4), and How-to-Play only if a line is owed (none expected: bots are not explained there).
+- [x] `shared/src/constants.ts` -- add `CONFIG.bots.hitBar: 0.2` with a doc comment citing Eric's ruling -- R1.
+- [x] `server/src/game/ai/hitChance.ts` (new) -- `hitChance(rangeU, outline, bearingRad, cfg?)` and `barRangeU(cls|null, rangeU)`. Use a fixed lattice over the wobble disc × the dispersion ellipse, weighted to `dispersedPoint`'s law, tested with `pointInPolygon`, plus the R3 blip model. Memoize by (class, aspect bucket, range bucket) -- R2/R3.
+- [x] `server/src/game/ai/battery.ts` -- the hold gate in `batterySolve` -- R2.
+- [x] `server/src/game/ai/doctrine.ts` + `tactics.ts` -- rescale the main-battery band to `B = barRangeU / 0.8`, passing the target's class -- R4.
+- [x] `server/src/game/ai/__tests__/hitChance.test.ts` -- contracts: in [0,1]; non-increasing with range; end-on ≥ side-on at equal range; a larger outline ≥ a smaller one; the blip model equals the smallest hull side-on; matches a seeded Monte Carlo of `dispersedPoint` + `scatterOffset` within a stated tolerance; `barRangeU` is where the chance crosses the bar.
+- [x] `server/src/game/ai/__tests__/` (battery suite) -- holds below the bar with the scatter kept; clicks at or above it; the band far edge equals `barRangeU` at zero nudge.
+- [x] `server/scripts/batchsim/*` -- count main-battery clicks per bot per match and print them with the 9.13 readouts.
+- [x] `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-11-16.md` -- the baseline vs new 50-match tables (land contact, storm share, ram deaths, placement and win share by hull, hit share by range band, main-battery clicks), plus the `tickCost.mjs` pair.
+- [x] Record: epic-11 amendment (number at PR time), the both trackers, `deferred-work.md` (close the "bots see ghosts" thread as moot until 11.4), and How-to-Play only if a line is owed (none expected: bots are not explained there).
 
 **Acceptance Criteria:**
 - Given a bot whose ready turret bears on a target, when the per-shell hit chance is below 0.20, then no click is sent and its aim and held scatter persist; when the chance is at or above 0.20, then it clicks.
@@ -120,3 +120,13 @@ Why the wobble counts: Eric picked 20 % from a table that included the bot's wob
 - `HC_DEV_OPTIONS=1 node server/scripts/weaponsSmoke.mjs` and `matchSmoke.mjs` (booted server, PIDs killed after) -- pass.
 - `node server/scripts/tickCost.mjs` on baseline vs branch -- reported.
 - `HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 16 --matches 50 --seed 7 --roster even` on baseline and branch -- reported.
+
+## Auto Run Result
+
+Status: done (PR to `development`; Eric merges).
+
+- **Change:** bots hold the main battery until one shell has a 20 % chance to hit (wobble × real dispersion, deterministic lattice); the battery standoff sits at 90 % of the bar range; kiting follows the bar; Speed Boost keeps its old trigger; a remembered class is judged as itself, an unknown class as the smallest hull side-on.
+- **Files:** `server/src/game/ai/hitChance.ts` (new), `battery.ts`, `doctrine.ts`, `tactics.ts`, `navigate.ts`, `shift.ts`, `types.ts`; `shared/src/constants.ts` (`hitBar`, `barStandoffFrac`), `shared/src/sim/dispersion.ts` (`bellRadius` exported); harness `overrides.ts`, `botReadouts.ts`, `botReadoutReport.ts`; tests `hitChance`, `botDoctrine`, `botTactics`, `botArcs`, `botSweep`, `botHarness`.
+- **Review:** 6 patches applied (3 high, 2 medium, 1 low; three via Eric's rulings R5–R7), 0 deferred from review (2 ledger notes from the story itself), 5 rejected.
+- **Verification:** `npm run check` green in one run (server 3,015, client 176 files, hooks 266); `matchSmoke.mjs` and `weaponsSmoke.mjs` passed first try; `tickCost.mjs` 5.42 → 4.87 ms; 50 + 50 batch matches in `batch-sim-evidence-2026-11-16.md`.
+- **Residual risk:** Warspite lost win share (4.5 → 3.0 %, 50 matches, noisy); no staging pass yet; side-on is not the hardest aspect past ~110–160 hm (covered by the 10 % margin).
