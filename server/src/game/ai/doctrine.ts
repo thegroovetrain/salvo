@@ -26,11 +26,13 @@ import {
   type EffectiveStats,
   type LitZoneView,
   type EquipmentId,
+  type HullId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotSelf } from './types.js';
 import type { BotProfile } from './profiles.js';
 import type { TacticContext } from './tacticKit.js';
+import { barRangeU } from './hitChance.js';
 
 /** The slot-0 guns — the only weapons the lit lift serves: the captain's MAIN
  *  BATTERY (Story 10.4) and the three deck-gun rows (kept for reference,
@@ -73,6 +75,46 @@ export interface GunBand {
 }
 
 /**
+ * u — THE BAR STANDOFF (Story 11.9 R5/R6, Eric 2026-11-16: "Hold at 90 % of
+ * bar range"): `CONFIG.bots.barStandoffFrac` × the bar range for a SIDE-ON
+ * hull of `targetCls` (the R3 blip model when the class is unknown or there
+ * is no target) at reach `rangeU`. The main battery's band far edge at zero
+ * nudge, the ceiling of every band edge, and a battery hull's kite hold.
+ */
+export function barStandoffU(targetCls: HullId | null, rangeU: number): number {
+  return CONFIG.bots.barStandoffFrac * barRangeU(targetCls, rangeU);
+}
+
+/**
+ * u — THE LEGACY FAR EDGE (Story 11.9 R7, Eric 2026-11-16: "Keep the old
+ * trigger"): the mounted gun's band far edge as it stood before the hit bar —
+ * `(CONFIG.bots.gunBand[<gun>][1] + profile nudge) × rangeU`, clamped to
+ * [0, rangeU]. Speed Boost's charging-in trigger reads it.
+ */
+export function legacyBandMaxU(profile: BotProfile, stats: EffectiveStats, gunId?: EquipmentId | null): number {
+  const gun = mountedGun(gunId);
+  const rangeU = gunRangeU(stats, gun);
+  const maxFrac = CONFIG.bots.gunBand[bandKey(gun)][1];
+  return Math.min(rangeU, Math.max(0, (maxFrac + bandNudgeOf(profile)) * rangeU));
+}
+
+/** The band's edge function: `(f + nudge) × base`, on [0, ceil]. */
+function edgeFn(nudge: number, base: number, ceil: number): (f: number) => number {
+  return (f) => Math.min(ceil, Math.max(0, (f + nudge) * base));
+}
+
+/** The main battery's edge function (Story 11.9 R4/R5): edges are fractions
+ *  of `B = barStandoffU / maxFrac`, so the far edge (maxFrac) lands on the
+ *  bar standoff for a zero nudge; every edge is clamped to ≤ the standoff (a
+ *  positive nudge never pushes it out; a negative one still moves it in) and
+ *  to [0, rangeU]. A far fraction of 0 keeps the reach as the base. */
+function batteryEdgeFn(nudge: number, rangeU: number, maxFrac: number, targetCls: HullId | null): (f: number) => number {
+  const standoff = barStandoffU(targetCls, rangeU);
+  const base = maxFrac > 0 ? standoff / maxFrac : rangeU;
+  return edgeFn(nudge, base, Math.min(rangeU, standoff));
+}
+
+/**
  * THE GUN'S BAND (amendment 198): CONFIG.bots.gunBand[<mounted gun>] × rangeU,
  * both edges shifted by `profile.bandNudge × rangeU` and kept on [0, rangeU];
  * for the machine gun and flak the near edge is 0 (they close, never open)
@@ -80,14 +122,24 @@ export interface GunBand {
  * (`shadowing`: the `kite` posture, Eric 2026-10-17, epic-9 amendment 205),
  * when the hold line is lifted to the gun's full `rangeU`: a shadowing bot
  * does not close, so it may fire attenuated at range. The band edges (where
- * the helm holds station) do not move.
+ * the helm holds station) do not move. THE MAIN BATTERY's edges follow the
+ * hit bar (`batteryEdgeFn`, Story 11.9 R4/R5 — `targetCls` the current
+ * target's class, null = the blip model): far edge = the bar standoff at
+ * zero nudge, never beyond it; the MG / flak / deck-gun rows read `rangeU`
+ * as before.
  */
-export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: EquipmentId | null, shadowing = false): GunBand {
+export function gunBand(
+  profile: BotProfile,
+  stats: EffectiveStats,
+  gunId?: EquipmentId | null,
+  shadowing = false,
+  targetCls: HullId | null = null,
+): GunBand {
   const gun = mountedGun(gunId);
   const rangeU = gunRangeU(stats, gun);
   const [minFrac, maxFrac] = CONFIG.bots.gunBand[bandKey(gun)];
   const nudge = bandNudgeOf(profile);
-  const edge = (f: number): number => Math.min(rangeU, Math.max(0, (f + nudge) * rangeU));
+  const edge = gun === 'mainBattery' ? batteryEdgeFn(nudge, rangeU, maxFrac, targetCls) : edgeFn(nudge, rangeU, rangeU);
   const max = edge(maxFrac);
   if (bandKey(gun) === 'cannon') return { min: Math.min(max, edge(minFrac)), max, holdFireAboveU: Infinity };
   return { min: 0, max, holdFireAboveU: shadowing ? rangeU : max };
@@ -173,7 +225,34 @@ export function mountedReachOf(ctx: TacticContext): EffectiveReach {
 }
 
 /** The MOUNTED gun's doctrine band in a tactic context — the hold line
- *  lifted while the bot is shadowing (`kite`, amendment 205). */
+ *  lifted while the bot is shadowing (`kite`, amendment 205); the main
+ *  battery's bar base read for the context's target (Story 11.9 R4). */
 export function mountedBandOf(ctx: TacticContext): GunBand {
-  return gunBand(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx), ctx.posture === 'kite');
+  return gunBand(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx), ctx.posture === 'kite', ctx.target?.cls ?? null);
+}
+
+/** u — the MOUNTED gun's legacy far edge in a tactic context (Story 11.9 R7:
+ *  Speed Boost's charging-in trigger — `legacyBandMaxU`). */
+export function mountedLegacyMaxOf(ctx: TacticContext): number {
+  return legacyBandMaxU(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx));
+}
+
+/** The KITE hold: the plot is held at `holdU`, closed on past `reachU`. */
+export interface KiteHold {
+  holdU: number;
+  reachU: number;
+}
+
+/**
+ * THE KITE HOLD (Story 11.9 R6, Eric 2026-11-16: "Kite at the bar range"):
+ * a MAIN-BATTERY hull holds at its bar standoff (`barStandoffU` — the band's
+ * own far edge) and closes past the bar range, so a kiting bot keeps
+ * clearing the hit bar as it backs off; every other gun holds at
+ * CONFIG.bots.kiteHoldFrac × `reachU` and closes past `reachU`, as before.
+ * `targetCls` null = the R3 blip model.
+ */
+export function kiteHoldOf(stats: EffectiveStats, gunId: EquipmentId | null | undefined, targetCls: HullId | null, reachU: number): KiteHold {
+  if (mountedGun(gunId) !== 'mainBattery') return { holdU: CONFIG.bots.kiteHoldFrac * reachU, reachU };
+  const rangeU = gunRangeU(stats, 'mainBattery');
+  return { holdU: barStandoffU(targetCls, rangeU), reachU: barRangeU(targetCls, rangeU) };
 }

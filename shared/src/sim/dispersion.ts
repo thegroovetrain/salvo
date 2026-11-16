@@ -63,8 +63,10 @@ export function dispersionAxes(rangeU: number, cfg: DispersionCfg = CONFIG.dispe
   };
 }
 
-/** Normalized radius in [0, 1]: a Rayleigh radius truncated at `k` sigmas, from one uniform. */
-function bellRadius(u: number, k: number): number {
+/** Normalized radius in [0, 1]: a Rayleigh radius truncated at `k` sigmas, from one uniform.
+ *  Exported so the server's bot hit-chance quadrature (ai/hitChance.ts, Story
+ *  11.9) weights its lattice by THIS law rather than a copy of it. */
+export function bellRadius(u: number, k: number): number {
   if (!(k > MIN_SIGMAS)) return Math.sqrt(u); // uniform disc
   const r = Math.sqrt(-2 * Math.log(1 - u * (1 - Math.exp((-k * k) / 2)))) / k;
   return Math.min(1, Math.max(0, r));

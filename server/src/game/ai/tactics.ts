@@ -135,7 +135,7 @@ import { distTo, leadPoint, shotReaches, type Shot, type TacticContext } from '.
 import { noteTorpedoes } from './torpedoThreat.js';
 import { batteryAim, planSecondaries, secTarget, turretPoseOf, type SecondariesPlan } from './battery.js';
 import { openArcBearing } from './arcs.js';
-import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
+import { gunBand, kiteHoldOf, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
 import { probeExit } from './unbeachProbe.js';
@@ -600,9 +600,11 @@ export function approachPoint(profile: BotProfile, t: BotTrack, sit?: Pick<BotSi
  *  ai/doctrine.ts gunBand; the profile only nudges it), with the BAND PULL
  *  (Eric ruling 2026-08-20) applied here: a READY fitted weapon whose reach
  *  lies below the band's near edge tugs that edge halfway toward its reach
- *  (utility.ts pullBand). The beam-on orbit is ai/navigate.ts bandOrbit. */
+ *  (utility.ts pullBand). The main battery's band follows the hit bar for
+ *  the target's class (Story 11.9 R4). The beam-on orbit is ai/navigate.ts
+ *  bandOrbit. */
 function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
-  const band = pullBand(gunBand(sit.profile, sit.stats, sit.gunId), readyShotReaches(self, sit.stats));
+  const band = pullBand(gunBand(sit.profile, sit.stats, sit.gunId, false, t.cls), readyShotReaches(self, sit.stats));
   return bandOrbit(self.state, approachPoint(sit.profile, t, sit), band);
 }
 
@@ -684,13 +686,20 @@ function postureBearing(
   return targetBearing(ctx, self, port, sit, target, posture);
 }
 
+/** KITE / SHADOW: the hold off ai/doctrine.ts kiteHoldOf — a main-battery
+ *  hull at its bar standoff for the target's class (Story 11.9 R6). */
+function kiteFor(self: BotSelf, sit: BotSituation, target: BotTrack): number {
+  const k = kiteHoldOf(sit.stats, sit.gunId, target.cls, ownReachU(sit));
+  return kiteBearing(self.state, plotAt(sit, target), k.reachU, k.holdU);
+}
+
 /** The posture's bearing ON A TARGET (a `farm` with no beacon goal holds its
  *  band like `engage`, as before). */
 function targetBearing(ctx: NavCtx, self: BotSelf, port: BotWorldPort, sit: BotSituation, target: BotTrack, posture: BotPosture): number {
   if (posture === 'reposition' || posture === 'hold') return idleBearing(ctx, port, sit);
   if (posture === 'pursue') return steerToward(ctx, approachPoint(sit.profile, target, sit));
   if (posture === 'ram') return bearing(ctx.pos, ramPoint(self, sit, target));
-  if (posture === 'kite') return kiteBearing(self.state, plotAt(sit, target), ownReachU(sit));
+  if (posture === 'kite') return kiteFor(self, sit, target);
   return bandBearing(self, sit, target);
 }
 
