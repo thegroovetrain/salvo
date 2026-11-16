@@ -107,3 +107,44 @@ No proposal on hulls: nothing is outside parity.
 ## Rulings
 
 *(Eric's line-by-line rulings go here.)*
+
+- **2026-11-15, Eric (in place of P1/P2): "For damage on all weapons … each Tier grants +10 power that *only* applies to that weapon. +10 or +15 … Lets try that and see how that goes, and if that reigns in supercavs. … I'd like everything to have its niche, and at least for there not to be a 'bad choice' among all the weapons in a particular category."** Built as an experiment (below); not merged.
+
+## Experiment: WEAPON POWER per tier (2026-11-15, same day)
+
+**Mechanism (branch `experiment-weapon-power`, 817a91a3, not merged, no PR):** every weapon damage ladder removed — light / heavy / supercav torpedo, naval / captive / fouling mines, star and phosphor shells (burst and burn) stay at their Tier I base. At the server damage gate, E = victim ARMOR (+ HUNKER) − (attacker POWER + `CONFIG.armor.weaponPowerPerTier` × (that weapon's tier − 1)), the weapon's tier read live at impact like POWER. Reading made by the implementer and not yet confirmed by Eric: **Tier I adds nothing; tiers II–V add the step** ("the weapon's power from upgrades"). Non-damage tier effects (run, speed, homing, blast, zone, lit time) unchanged. The client still shows row damage (the Tier I base) — not updated, an experiment only.
+
+**Code-exact Tier V torpedo hits (all hulls 1000 hp):**
+
+| Hit | today (800 / 600 / 400) | +10 a tier | +15 a tier |
+|---|---|---|---|
+| Yamato bare → Warspite: supercav / heavy / light | **1028** / 771 / 514 | 577 / 433 / 288 | 600 / 450 / 300 |
+| Yamato POWER V → Iowa (worst case) | **1286** / 964 / 643 | 664 / 498 / 332 | 673 / 504 / 336 |
+
+No torpedo one-shots any hull at either step. The ratio between the three torpedoes is unchanged at every tier (the bases 400 : 300 : 200 are multiplied by the same curve).
+
+**Arms:** `wp10`, `wp15` — 91 matches each, 16 bots, even roster, `--bot-spend random`, base seed 500 (**the same seeds as `randomSpend`**, so maps and spawns are paired), `--tune armor.weaponPowerPerTier=10|15`. Shards: `~/hc-campaigns/weapon-power-2026-11-15/`. Analysis: `category.py` (new) + `lines.py`.
+
+**Within-category gap to the category's best** (OWNS-the-weapon landmark regression, hull + total-tiers controls, placement percentile points, 95 % match bootstrap; bold = CI excludes 0):
+
+| Gap (4:00 / 8:00) | `randomSpend` (today) | `wp10` | `wp15` |
+|---|---|---|---|
+| heavy vs supercav | **−10.5 / −8.1** | **−9.1 / −6.3** | **−6.3 / −4.8** |
+| light vs supercav | **−10.4 / −6.6** | **−10.8 / −8.0** | **−9.0 / −5.4** |
+| worst shell vs phosphor | **−7.4** (flash) / **−5.1** (fouling) | **−5.7** (flash) / **−5.5** (fouling) | **−7.8** (flash) / **−5.5** (star) |
+| naval mines vs best mine | −2.2 / **−2.8** | **−3.8 / −3.7** | −3.3 / **−3.7** |
+
+| Other readings | `randomSpend` | `wp10` | `wp15` |
+|---|---|---|---|
+| Alive at 4:00 / 8:00 / 12:00 | 13.62 / 6.78 / 2.11 | 13.59 / 7.02 / 2.19 | 13.62 / 6.99 / 2.27 |
+| Yamato / Bismarck / Warspite / Iowa win % | 30.8 / 18.7 / 20.9 / 28.6 | 28.6 / 19.8 / 26.4 / 25.3 | 30.8 / 28.6 / 29.7 / **11.0 [6.1, 19.1]** |
+| Kills by torpedo (of all) | 374 | 360 | 354 |
+| Land-contact bar (< 1 %) | FAIL 1.5 % | FAIL 1.6 % | FAIL 1.3 % |
+
+**Readings.**
+1. **Weapon power ends the one-shot** (code-exact) and does not move attrition.
+2. **It does not end supercav's lead in the torpedo slot.** The gap is largest at 4:00, when almost every holder is still Tier I — so the lead comes from the weapon's own Tier I kit (400 damage, 195 u/s straight runner, 45 s reload; heavy 300, light 200), not from its ladder. +15 narrows the gap a little; it does not close it.
+3. **Phosphor still leads the shell slot**, and naval mines trail the mine slot slightly in every arm.
+4. **Iowa at +15 (11.0 %) is the only hull interval all day outside 25 %** — one of twelve hull readings across the three arms; Iowa has the lowest ARMOR (85), so a mechanism is plausible, but it is unconfirmed until a second arm repeats it.
+
+**Not measured:** any change to a weapon's Tier I numbers. `--tune` still cannot reach `lightTorpedo.*`, `supercavTorpedo.*`, `starShells.*`, `phosphorShells.*` (gap H1); `torpedo.*` is the heavy line's.
