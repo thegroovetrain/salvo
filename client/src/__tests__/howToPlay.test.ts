@@ -1,8 +1,9 @@
 // THE HOW-TO-PLAY PAGE (Story 7.3, FR39 / UX-DR29).
 //
 // Two things are pinned here and they are different in kind. The COPY tests
-// guard structure and coverage — every live catalog line is described, under
-// its card name, no stub is, and the keycaps teach only bound keys. The MOUNT
+// guard structure and coverage — every dealable catalog line is described,
+// under its card name, nothing undealable is, and the keycaps teach only bound
+// keys. The MOUNT
 // tests guard that the page uses the shared chrome rather than inventing its
 // own. No sentence, heading or word is pinned (Story 9.14, ruling R3).
 //
@@ -19,7 +20,16 @@ import {
 } from '../how-to-play/copy.js';
 import { entryGlyphId, mountHowToPlayPage } from '../how-to-play/main.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { LINE_IDS, isStubLine } from '@salvo/shared';
+import {
+  FAMILY_SLOT,
+  LINE_IDS,
+  SLOT_COUNT,
+  SLOT_FAMILIES,
+  eligibleLines,
+  familyMembers,
+  isStubLine,
+  type EquipmentId,
+} from '@salvo/shared';
 import { glyphPaths } from '../render/equipmentIcons.js';
 import { boonName } from '../ui/boonCopy.js';
 
@@ -27,42 +37,28 @@ const page = (): HTMLElement => document.getElementById('how-to-play-page') as H
 
 const allEntries = (): HowToEntry[] => HOWTO_SECTIONS.flatMap((s) => [...(s.entries ?? [])]);
 
-/** Is this entry's line still in the catalog? CHAFF left the catalog in Story
- *  9.2 (epic-9 amendment 31), but Eric froze the How-to-Play copy until Story
- *  9.11 (amendment 36), so its entry stays on the page — named by the copy, with
- *  no derived table ("a kind that leaves the catalog leaves any table built
- *  from it") until 9.11 carries the copy. */
-const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).includes(e.lineId);
-/** Lines that went live while the How-to-Play copy is frozen (amendment 36,
- *  until Story 9.11) and so have no entry yet: the MULTI-SPECTRAL
- *  COUNTERMEASURE (Story 9.3) replaced SMOKE SCREEN, whose stale entry stays on
- *  the page beside CHAFF's; the FOULING SHELL (Story 9.4) replaced FLASH
- *  SHELLS, whose stale entry stays too (its `dazzleShells` line left the
- *  catalog, so `inCatalog` tolerates it). 9.11 writes the copy and empties
- *  this set. ARMOR PIERCING (Story 9.9, epic-9 amendment 159) waits on Eric's
- *  copy too (its entry is Story 9.17's). */
-const AWAITING_COPY: ReadonlySet<string> = new Set([
-  'countermeasure',
-  'foulingShell',
-  'armor',
-  'power',
-  // Story 10.9: the four BUOYS replaced the DECOY BUOY (whose stale entry stays,
-  // tolerated by `inCatalog`); their copy is owed to Story 10.8. FLASH SHELLS'
-  // 8.17 entry is live again under its own name.
-  'radarBuoy',
-  'healingBuoy',
-  'shieldBuoy',
-  'speedBuoy',
-  // Story 10.6 (Eric 2026-11-05): three new SHIP ladders and four one-off
-  // WEAPON cards; the page's copy is FROZEN until Story 10.14.
-  'range',
-  'hullRepair',
-  'smokeScreen',
-  'aftTorpedoLauncher',
-  'secondLauncherTube',
-  'secondMineRack',
-  'expandedMineRacks',
-]);
+/**
+ * EVERY LINE A CAPTAIN CAN BE DEALT, derived from the draw's own eligibility
+ * law (`eligibleLines`), never hand-listed: the union of what an empty ship is
+ * dealt (the bare weapons and the universal ladders) and what a ship with each
+ * weapon in its family slot is dealt (its tier cards and the add-ons it hosts).
+ * A captain's slot 0 always mounts `'mainBattery'` (server `drawShipOf`), so the
+ * deck-gun ladders are never dealt; BROADSIDE has no family slot; a stub never
+ * deals.
+ */
+function dealableLines(): Set<string> {
+  const ship = (slotIds: (EquipmentId | null)[]) => ({ held: [], slotIds, mountedGun: 'mainBattery' as const });
+  const empty = (): (EquipmentId | null)[] => Array<EquipmentId | null>(SLOT_COUNT).fill(null);
+  const states = [ship(empty())];
+  for (const family of SLOT_FAMILIES) {
+    for (const eq of familyMembers(family)) {
+      const slots = empty();
+      slots[FAMILY_SLOT[family]] = eq;
+      states.push(ship(slots));
+    }
+  }
+  return new Set(states.flatMap((st) => eligibleLines(st).map((e) => e.id as string)));
+}
 
 describe('how-to-play copy', () => {
   it('every section has a heading, and something under it', () => {
@@ -75,18 +71,24 @@ describe('how-to-play copy', () => {
     }
   });
 
-  // Derived from the catalog, so a new live line (or a stub flipping live)
-  // fails the page until it is described (Edge Case Hunter, cycle 161).
-  it('every non-stub catalog line is an entry, derived from LINE_IDS', () => {
+  // Derived from the draw's eligibility law, so a new dealable line (or a stub
+  // flipping live) fails the page until it is described (Edge Case Hunter,
+  // cycle 161; re-cut to "dealable" by Story 11.11).
+  it('every line a captain can be dealt is an entry, derived from the draw', () => {
+    const dealable = dealableLines();
+    expect(dealable.size).toBeGreaterThan(0);
     const names = allEntries().map((e) => e.name);
-    for (const id of LINE_IDS) {
-      if (isStubLine(id) || AWAITING_COPY.has(id)) continue;
-      expect(names, id).toContain(boonName(id, 0));
-    }
+    for (const id of dealable) expect(names, id).toContain(boonName(id, 0));
   });
 
-  it('every entry names a real catalog line, under its card name (copy frozen by amendment 36 aside)', () => {
-    for (const e of allEntries().filter(inCatalog)) {
+  it('no entry describes a line a captain can never be dealt', () => {
+    const dealable = dealableLines();
+    expect(LINE_IDS.some((id) => !dealable.has(id)), 'some line is undealable, so this is not vacuous').toBe(true);
+    for (const e of allEntries()) expect(dealable.has(e.lineId), e.lineId).toBe(true);
+  });
+
+  it('every entry names a real catalog line, under its card name', () => {
+    for (const e of allEntries()) {
       expect(LINE_IDS as readonly string[], e.lineId).toContain(e.lineId);
       expect(e.name, e.lineId).toBe(boonName(e.lineId, 0));
     }
@@ -102,12 +104,10 @@ describe('how-to-play copy', () => {
     for (const e of allEntries()) expect(isStubLine(e.lineId), e.lineId).toBe(false);
   });
 
-  it('no keycaps row carries CTRL or SPACE', () => {
+  // SPACE is bound since Story 11.8 (camera home), so only CTRL is banned.
+  it('no keycaps row carries CTRL', () => {
     for (const s of HOWTO_SECTIONS) {
-      for (const row of s.keys ?? []) {
-        expect(row.keys, s.heading).not.toContain('CTRL');
-        expect(row.keys, s.heading).not.toContain('SPACE');
-      }
+      for (const row of s.keys ?? []) expect(row.keys, s.heading).not.toContain('CTRL');
     }
   });
 
@@ -155,14 +155,12 @@ describe('how-to-play page mount', () => {
     for (const k of keys) expect(text, k).toContain(k);
   });
 
-  // Eric 2026-10-01: every weapon, consumable and ship upgrade carries a
-  // derived stat table.
-  it('renders one stat table per entry, plus the controls table', () => {
+  // Eric 2026-10-01: every weapon, ability and ship upgrade carries a derived
+  // stat table; a one-off card (`'none'`) carries none.
+  it('renders one stat table per tabled entry, plus the key tables', () => {
     const tables = page().querySelectorAll('table');
     const keyTables = HOWTO_SECTIONS.filter((s) => s.keys !== undefined).length;
-    // Story 10.5: a `consumable`-tagged entry derives no table until the copy
-    // pass (Story 10.14) — the kit's lines are gone.
-    const tabled = allEntries().filter(inCatalog).filter((e) => e.table !== 'consumable');
+    const tabled = allEntries().filter((e) => e.table !== 'none');
     expect(tables).toHaveLength(tabled.length + keyTables);
   });
 

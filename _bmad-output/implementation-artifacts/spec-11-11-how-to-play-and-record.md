@@ -2,7 +2,7 @@
 title: 'Story 11.11 — How-to-Play and Record'
 type: 'chore'
 created: '2026-11-16'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: 'b5713a4f'
 review_loop_iteration: 0
 context:
