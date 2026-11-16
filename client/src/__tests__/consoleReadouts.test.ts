@@ -35,6 +35,9 @@ import {
   hoverPreview,
   mountClock,
   previewReadouts,
+  NO_SHIFT_WINDOW,
+  shiftedIndex,
+  shiftWindowFor,
   shipReadouts,
   shownDamage,
   statRowFields,
@@ -181,6 +184,72 @@ describe('hoverPreview — the incoming values ARE effectiveStats with the card 
 
   it('nothing hovered → no marks', () => {
     expect(hoverPreview(SHIP, null)).toBeNull();
+  });
+});
+
+describe('the fitted Shift`s running window — ENGINES under Speed Boost, ARMOR under Hunker', () => {
+  const BOOST = shiftWindowFor('boost', true, false);
+  const HUNKER = shiftWindowFor('hunker', false, true);
+
+  function indexRaw(you: ReadoutShip, id: (typeof INDEX_IDS)[number]): number {
+    return byKey(shipReadouts(you)!).get(READOUT_KEY.index(id))!.raw;
+  }
+
+  function changedKeys(a: readonly Readout[], b: readonly Readout[]): string[] {
+    const before = byKey(a);
+    return b.filter((r) => before.get(r.key)?.raw !== r.raw).map((r) => r.key);
+  }
+
+  it('a boost window raises ENGINES by the boost law and nothing else', () => {
+    const plain = shipReadouts(SHIP)!;
+    const you = { ...SHIP, window: BOOST };
+    const engines = byKey(plain).get(READOUT_KEY.index('engines'))!.raw;
+    expect(indexRaw(you, 'engines')).toBe(Math.floor(engines + engines * CONFIG.boost.factor));
+    expect(indexRaw(you, 'engines')).toBeGreaterThan(engines);
+    expect(changedKeys(plain, shipReadouts(you)!)).toEqual([READOUT_KEY.index('engines')]);
+  });
+
+  it('a hunker window adds the Hunker ARMOR bonus and nothing else', () => {
+    const you = { ...SHIP, shift: 'hunker' as const };
+    const plain = shipReadouts(you)!;
+    const armor = byKey(plain).get(READOUT_KEY.index('armor'))!.raw;
+    expect(indexRaw({ ...you, window: HUNKER }, 'armor')).toBe(armor + fold([]).equipment.hunker.armorBonus);
+    expect(changedKeys(plain, shipReadouts({ ...you, window: HUNKER })!)).toEqual([READOUT_KEY.index('armor')]);
+  });
+
+  it('no window reads exactly the permanent fold', () => {
+    const none = shiftWindowFor('boost', false, false);
+    expect(none).toBe(NO_SHIFT_WINDOW);
+    expect(shipReadouts({ ...SHIP, window: none })).toEqual(shipReadouts(SHIP));
+    for (const id of INDEX_IDS) expect(shiftedIndex(fold([]), id, NO_SHIFT_WINDOW)).toBe(fold([])[id]);
+  });
+
+  it('only the FITTED Shift`s window counts (shared frozen states)', () => {
+    expect(shiftWindowFor('hunker', true, false)).toBe(NO_SHIFT_WINDOW);
+    expect(shiftWindowFor('boost', false, true)).toBe(NO_SHIFT_WINDOW);
+    expect(shiftWindowFor('instantReload', true, true)).toBe(NO_SHIFT_WINDOW);
+    expect(shiftWindowFor('boost', true, true)).toBe(BOOST);
+    expect(shiftWindowFor('hunker', true, true)).toBe(HUNKER);
+  });
+
+  it('a hover during an open window marks only the hovered card`s keys, from the windowed value', () => {
+    const you = { ...SHIP, shift: 'hunker' as const };
+    const plainMarks = hoverPreview(you, 'armor')!;
+    const marks = hoverPreview({ ...you, window: HUNKER }, 'armor')!;
+    expect([...marks.keys()].sort()).toEqual([...plainMarks.keys()].sort());
+    expect(marks.has(READOUT_KEY.index('engines'))).toBe(false);
+    const m = marks.get(READOUT_KEY.index('armor'))!;
+    expect(m.from).toBe(shiftedIndex(fold([]), 'armor', HUNKER));
+    expect(m.raw).toBe(shiftedIndex(fold(['armor']), 'armor', HUNKER));
+    expect(m.direction).toBe('up');
+  });
+
+  it('a boost window never paints a mark the card itself does not make', () => {
+    for (const line of ['armor', 'power', 'engines']) {
+      const plain = hoverPreview(SHIP, line)!;
+      const boosted = hoverPreview({ ...SHIP, window: BOOST }, line)!;
+      expect([...boosted.keys()].sort(), line).toEqual([...plain.keys()].sort());
+    }
   });
 });
 
