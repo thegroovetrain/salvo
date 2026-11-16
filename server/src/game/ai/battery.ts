@@ -5,7 +5,8 @@
 // `leadPoint` at the main-battery shell speed) plus the competence scatter
 // (`CONFIG.bots.gunAimScatterU` — the guns' own disc since epic-11 amendment
 // 11; untouched by Story 11.1's real dispersion — R8)
-// — the scatter offset HELD (`BotMind.batteryScatter`) rather than re-drawn
+// — the scatter offset HELD (`BotMind.batteryScatter`, a UNIT offset per u of
+// range rescaled to the current range at every use — Story 11.9) rather than re-drawn
 // every tick, so the aim it writes into `InputMsg.aim` / `aimDist` stays one
 // point between clicks. The offset is re-drawn after each click, and
 // whenever the target changes (`BotMind.batteryScatterKey`). The bot CLICKS
@@ -83,20 +84,28 @@ export interface BatteryAim {
   aimDist: number;
   /** The world point the aim names (= aimPointOf(self.state, aim, aimDist)). */
   point: Vec2;
+  /** rad — the UNWOBBLED lead bearing: hull to the lead point, before the
+   *  held offset. The hit bar reads the target's aspect off it (Story 11.9 —
+   *  the bot knows its skill, not its own error). */
+  leadBearing: number;
 }
 
-/** The held scatter offset, drawn on first use (range-scaled at the draw) and
- *  KEYED to the target it was drawn for (gate S4): a different target key —
- *  the bot switched before clicking — redraws, so one target's range-scaled
- *  offset never lands on another. The same target draws nothing. */
-function heldScatter(mind: BotMind, range: number): Vec2 {
+/** The held scatter offset AT `range` u: a UNIT offset (per u of range —
+ *  tacticKit `scatterOffset` drawn at range 1) drawn on first use and HELD,
+ *  rescaled to the CURRENT range at every call (Story 11.9 review: a hold
+ *  through the approach never carries a long-range error into a short-range
+ *  shot). KEYED to the target it was drawn for (gate S4): a different target
+ *  key — the bot switched before clicking — redraws. The same target draws
+ *  nothing. */
+export function heldScatter(mind: BotMind, range: number): Vec2 {
   const key = mind.targetKey;
-  const held = mind.batteryScatter;
-  if (held !== undefined && held !== null && mind.batteryScatterKey === key) return held;
-  const drawn = scatterOffset(range, mind.rng, CONFIG.bots.gunAimScatterU);
-  mind.batteryScatter = drawn;
-  mind.batteryScatterKey = key;
-  return drawn;
+  let unit = mind.batteryScatter;
+  if (unit === undefined || unit === null || mind.batteryScatterKey !== key) {
+    unit = scatterOffset(1, mind.rng, CONFIG.bots.gunAimScatterU);
+    mind.batteryScatter = unit;
+    mind.batteryScatterKey = key;
+  }
+  return { x: unit.x * range, y: unit.y * range };
 }
 
 /** Does this hull carry a battery at all (a self-read)? */
@@ -110,7 +119,8 @@ export function batteryAim(self: BotSelf, mind: BotMind, sit: BotSituation, t: B
   const lead = leadPoint(sit, t, CONFIG.mainBattery.shellSpeed);
   const off = heldScatter(mind, Math.hypot(lead.x - sit.x, lead.y - sit.y));
   const point = { x: lead.x + off.x, y: lead.y + off.y };
-  return { aim: bearing(self.state, point), aimDist: Math.hypot(point.x - sit.x, point.y - sit.y), point };
+  const aimDist = Math.hypot(point.x - sit.x, point.y - sit.y);
+  return { aim: bearing(self.state, point), aimDist, point, leadBearing: bearing(self.state, lead) };
 }
 
 /** The pose the server's turret step and pick will read this tick: the
@@ -126,7 +136,7 @@ export function turretPoseOf(self: BotSelf, mind: BotMind, now: number): AimPose
  *  `pose`, the pose the server will read them from (`turretPoseOf`; the
  *  current pose when the caller has none). The name is kept from the
  *  traverse era: "on target" now means "a ready turret bears". */
-export function readyOnTarget(self: BotSelf, aim: BatteryAim, pose: AimPose = self.state): boolean {
+export function readyOnTarget(self: BotSelf, aim: Pick<BatteryAim, 'aim' | 'aimDist'>, pose: AimPose = self.state): boolean {
   const own = self.turrets;
   if (own === undefined || own.length === 0) return false;
   const p = batteryAimPoint(pose, aim.aim, aim.aimDist);
@@ -139,11 +149,12 @@ export function readyOnTarget(self: BotSelf, aim: BatteryAim, pose: AimPose = se
 /** THE HIT BAR (Story 11.9, Eric 2026-11-16, R1/R2): does ONE shell at the
  *  held aim clear `CONFIG.bots.hitBar` — the bot's wobble and the real
  *  dispersion counted, the target's outline at the lead point (ai/hitChance.ts),
- *  the range the held aim distance from the hull centre? It applies in every
- *  posture and inside an own lit zone (the lit lift is about reach, not
- *  accuracy). */
-export function clearsHitBar(t: BotTrack, a: BatteryAim): boolean {
-  return shotHitChance(t, a.aim, a.aimDist) >= CONFIG.bots.hitBar;
+ *  its aspect read off the UNWOBBLED lead bearing (Codex review: the held
+ *  offset is the bot's own error, which it does not know), the range the
+ *  held aim distance from the hull centre? It applies in every posture and
+ *  inside an own lit zone (the lit lift is about reach, not accuracy). */
+export function clearsHitBar(t: BotTrack, a: Pick<BatteryAim, 'aimDist' | 'leadBearing'>): boolean {
+  return shotHitChance(t, a.leadBearing, a.aimDist) >= CONFIG.bots.hitBar;
 }
 
 /** The main battery's shot: a click on the held aim when it is legal (reach,

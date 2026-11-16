@@ -547,10 +547,12 @@ export function bandOrbit(pos: ShipState, aim: Vec2, band: { min: number; max: n
   return wrapAngle(brg + (Math.PI / 2) * side);
 }
 
-/** KITE (amendments 193/194): hold the plot at CONFIG.bots.kiteHoldFrac × own reach —
- *  open when it closes inside, close when it opens past own reach. */
-export function kiteBearing(pos: ShipState, aim: Vec2, reachU: number): number {
-  return bandOrbit(pos, aim, { min: CONFIG.bots.kiteHoldFrac * reachU, max: reachU });
+/** KITE (amendments 193/194): hold the plot at `holdU` (default
+ *  CONFIG.bots.kiteHoldFrac × own reach) — open when it closes inside, close
+ *  when it opens past `reachU`. A main-battery hull passes its bar standoff
+ *  and bar range (Story 11.9 R6 — ai/doctrine.ts kiteHoldOf). */
+export function kiteBearing(pos: ShipState, aim: Vec2, reachU: number, holdU: number = CONFIG.bots.kiteHoldFrac * reachU): number {
+  return bandOrbit(pos, aim, { min: Math.min(holdU, reachU), max: reachU });
 }
 
 // ---------------------------------------------------------------------------

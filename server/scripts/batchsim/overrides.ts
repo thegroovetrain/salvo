@@ -215,7 +215,7 @@ const TUNE_FAMILIES = [
   // `beltHunger` card scores left CONFIG with the decoys and the kit, Story
   // 10.5.) Story 10.12: `shiftFitWeight` (the weighted Shift roll's fitting
   // share) on CLOSED [0, 1] (BOT_FRACTION_KEYS); Story 11.9: `hitBar` (a
-  // probability) likewise. `nav.cellU`,
+  // probability) and `barStandoffFrac` likewise. `nav.cellU`,
   // `disengageHpFrac` and `arcOpenMarginDeg` are REFUSED (DERIVED_TUNE_KEYS):
   // the first must equal the generator's NAV_CELL and is never read, the
   // second is snapshotted into the profile tables and the third into
@@ -637,6 +637,7 @@ const BOT_FRACTION_KEYS = new Set([
   'bots.secRepressHeat',
   'bots.shiftFitWeight',
   'bots.hitBar',
+  'bots.barStandoffFrac',
 ]);
 /** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
 const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;

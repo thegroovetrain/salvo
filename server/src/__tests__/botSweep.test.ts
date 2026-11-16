@@ -511,7 +511,7 @@ describe('THE NEXT-TICK POSE — the on-target check reads the pose the server s
         for (const frac of [0.25, 0.5, 0.75]) {
           const brg = next.heading + rest + side * (train - swing * frac);
           const p = { x: st.x + Math.cos(brg) * reach * 0.6, y: st.y + Math.sin(brg) * reach * 0.6 };
-          const aim: BatteryAim = { aim: bearing(next, p), aimDist: Math.hypot(p.x - next.x, p.y - next.y), point: p };
+          const aim: BatteryAim = { aim: bearing(next, p), aimDist: Math.hypot(p.x - next.x, p.y - next.y), point: p, leadBearing: bearing(next, p) };
           const pre = { x: rec.state.x + Math.cos(aim.aim) * aim.aimDist, y: rec.state.y + Math.sin(aim.aim) * aim.aimDist };
           if (found === null && turretBears(hullId, 0, next, p) && !turretBears(hullId, 0, rec.state, pre)) found = aim;
         }
@@ -530,7 +530,7 @@ describe('THE AIM STEAL is free since Story 11.1 (no traverse, R16)', () => {
       rec.state.speed = 0;
       const reach = rec.stats.equipment.mainBattery.rangeU;
       const target = { x: 0, y: reach * 0.6 }; // abeam: every turret bears
-      const aim: BatteryAim = { aim: bearing(rec.state, target), aimDist: reach * 0.6, point: target };
+      const aim: BatteryAim = { aim: bearing(rec.state, target), aimDist: reach * 0.6, point: target, leadBearing: bearing(rec.state, target) };
       for (const k of [1, 3, 10]) {
         trainOn(rec, target.x, target.y);
         for (let i = 0; i < k; i += 1) stepTurrets(rec.turrets, rec.hullId, rec.state, { x: -CONFIG.mine.triggerRadius * 2, y: 0 }, DT_MS);

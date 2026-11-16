@@ -11,10 +11,13 @@
 // is NOT used: the bot knows its skill, not its own error. Range is the held
 // aim distance from the hull centre (orchestrator ruling).
 //
-// THE TARGET (R3): a contact with a known class AND heading is its real hull
-// silhouette at its heading; anything else (a radar blip — null class or
-// null heading) is judged SIDE-ON as the hull with the smallest silhouette
-// area of SHIP_CLASS_IDS — the hard case.
+// THE TARGET (R3, amended 2026-11-16): a contact with a known class AND
+// heading is its real hull silhouette at its heading; a known class with no
+// heading (a remembered class on a radar paint) is THAT hull SIDE-ON; only a
+// contact with no class is judged SIDE-ON as the hull with the smallest
+// silhouette area of SHIP_CLASS_IDS (the blip model — the hard case). The
+// main-battery band (ai/doctrine.ts) reads the same model, so the band and
+// the fire check never disagree on the target.
 //
 // THE QUADRATURE. A fixed Kronecker lattice of LATTICE_N points in the 4-D
 // unit cube (the generalized golden-ratio R4 sequence — deterministic, no
@@ -245,11 +248,14 @@ export interface TargetModel {
 
 /**
  * THE CHANCE OF A SHOT the bot is about to click: `t`'s class at its heading
- * relative to the line of fire `fireBearing` (rad), or — with no class or no
- * heading — the blip model side-on (R3). `rangeU` is the held aim distance.
+ * relative to the line of fire `fireBearing` (rad, the UNWOBBLED lead
+ * bearing); a known class with no heading (a remembered class on a radar
+ * paint) is THAT hull side-on; no class is the blip model side-on (R3 as
+ * amended 2026-11-16 — the band reads the same model). `rangeU` is the held
+ * aim distance.
  */
 export function shotHitChance(t: TargetModel, fireBearing: number, rangeU: number, cfg: HitChanceCfg = liveHitChanceCfg()): number {
-  if (t.cls === null || t.heading === null) return classHitChance(null, rangeU, SIDE_ON, cfg);
+  if (t.cls === null || t.heading === null) return classHitChance(t.cls, rangeU, SIDE_ON, cfg);
   return classHitChance(t.cls, rangeU, t.heading - fireBearing, cfg);
 }
 

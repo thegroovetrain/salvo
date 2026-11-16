@@ -106,13 +106,19 @@ describe('hitChance — one main-battery shell inside the target outline', () =>
     }
   });
 
-  it('a radar blip (no class, or no heading) is judged as the smallest hull SIDE-ON (R3)', () => {
+  it('a radar blip (no class) is judged as the smallest hull SIDE-ON; a remembered class with no heading is THAT hull side-on (R3 as amended 2026-11-16)', () => {
+    let differs = false;
     for (const r of [hmToU(50), hmToU(140), hmToU(300)]) {
       const model = classHitChance(smallest, r, SIDE_ON);
       expect(shotHitChance({ cls: null, heading: null }, 1.2, r)).toBe(model);
       expect(shotHitChance({ cls: null, heading: 0.3 }, 1.2, r)).toBe(model);
-      for (const id of SHIP_CLASS_IDS) expect(shotHitChance({ cls: id, heading: null }, 1.2, r)).toBe(model);
+      for (const id of SHIP_CLASS_IDS) {
+        const own = classHitChance(id, r, SIDE_ON);
+        expect(shotHitChance({ cls: id, heading: null }, 1.2, r)).toBe(own);
+        if (id !== smallest && own !== model) differs = true;
+      }
     }
+    expect(differs).toBe(true); // the class is really read, not the blip
   });
 
   it('reads the target heading RELATIVE to the line of fire', () => {

@@ -24,7 +24,7 @@ import { EQUIPMENT_TACTICS, SHIFT_ROWS } from '../game/ai/tacticRegistry.js';
 import { ABILITY_WANTS } from '../game/ai/abilities.js';
 import { FLARE_TO_SHOOT } from '../game/ai/equipment.js';
 import { profileOf, type BotProfile } from '../game/ai/profiles.js';
-import { effectiveReach, gunBand, mountedGun, ownLitZones } from '../game/ai/doctrine.js';
+import { barStandoffU, effectiveReach, gunBand, kiteHoldOf, legacyBandMaxU, mountedGun, ownLitZones } from '../game/ai/doctrine.js';
 import { barRangeU } from '../game/ai/hitChance.js';
 import { hunkerCues, type TacticContext } from '../game/ai/tacticKit.js';
 import type { BotMind, BotPosture, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
@@ -174,20 +174,25 @@ describe('the doctrine band (amendment 198)', () => {
     }
   });
 
-  it('THE MAIN BATTERY\'s band follows the hit bar (Story 11.9 R4): at zero nudge its far edge IS the side-on bar range for the target\'s class (the blip model with none); edges stay in [0, rangeU]', () => {
+  it('THE MAIN BATTERY\'s band follows the hit bar (Story 11.9 R4/R5): at zero nudge its far edge IS barStandoffFrac × the side-on bar range for the target\'s class (the blip model with none); a positive nudge never pushes it out, a negative one moves it in; edges stay in [0, rangeU]', () => {
     const w = openWorld(9134);
     const [lo, hi] = CONFIG.bots.gunBand.cannon;
     for (const hull of ['yamato', 'iowa', 'warspite'] as const) {
       const rec = mkBot(w, hull);
       const R = rec.stats.equipment.mainBattery.rangeU;
       for (const cls of [null, 'bismarck', 'yamato'] as const) {
-        const bar = barRangeU(cls, R);
+        const standoff = CONFIG.bots.barStandoffFrac * barRangeU(cls, R);
+        expect(barStandoffU(cls, R)).toBeCloseTo(standoff, 9);
         const band = gunBand(withNudge(profileOf('bulwark'), 0), rec.stats, 'mainBattery', false, cls);
-        expect(band.max).toBeCloseTo(bar, 6);
-        expect(band.min).toBeCloseTo((lo / hi) * bar, 6);
+        expect(band.max).toBeCloseTo(standoff, 6);
+        expect(band.min).toBeCloseTo((lo / hi) * standoff, 6);
         expect(band.holdFireAboveU).toBe(Infinity);
-        const nudged = gunBand(withNudge(profileOf('bulwark'), 0.1), rec.stats, 'mainBattery', false, cls);
-        expect(nudged.max).toBeCloseTo(Math.min(R, ((hi + 0.1) / hi) * bar), 6);
+        const out = gunBand(withNudge(profileOf('bulwark'), 0.1), rec.stats, 'mainBattery', false, cls);
+        expect(out.max).toBeLessThanOrEqual(standoff + 1e-9);
+        expect(out.min).toBeLessThanOrEqual(out.max);
+        const inward = gunBand(withNudge(profileOf('bulwark'), -0.1), rec.stats, 'mainBattery', false, cls);
+        if (standoff > 0) expect(inward.max).toBeLessThan(standoff);
+        expect(inward.max).toBeGreaterThanOrEqual(0);
       }
       // No class given reads the blip model.
       expect(gunBand(profileOf('bulwark'), rec.stats, 'mainBattery')).toEqual(gunBand(profileOf('bulwark'), rec.stats, 'mainBattery', false, null));
@@ -203,6 +208,28 @@ describe('the doctrine band (amendment 198)', () => {
       expect([band.min, band.max]).toEqual([0, 0]);
     } finally {
       (CONFIG.bots as { hitBar: number }).hitBar = was;
+    }
+  });
+
+  it('THE KITE HOLD (Story 11.9 R6): a main-battery hull holds at its bar standoff and closes past the bar range — the whole hold is within the bar; other guns keep kiteHoldFrac × reach', () => {
+    const rec = mkBot(openWorld(9136), 'iowa');
+    const R = rec.stats.equipment.mainBattery.rangeU;
+    for (const cls of [null, 'bismarck', 'yamato'] as const) {
+      const k = kiteHoldOf(rec.stats, 'mainBattery', cls, R);
+      expect(k.holdU).toBeCloseTo(barStandoffU(cls, R), 9);
+      expect(k.reachU).toBeLessThanOrEqual(barRangeU(cls, R));
+      expect(k.holdU).toBeLessThanOrEqual(k.reachU);
+    }
+    const gunR = rec.stats.equipment.gun.rangeU;
+    expect(kiteHoldOf(rec.stats, 'gun', 'bismarck', gunR)).toEqual({ holdU: CONFIG.bots.kiteHoldFrac * gunR, reachU: gunR });
+  });
+
+  it('THE LEGACY FAR EDGE (Story 11.9 R7) is the pre-bar cannon far fraction + nudge × the mounted gun\'s reach, on [0, rangeU]', () => {
+    const rec = mkBot(openWorld(9137), 'iowa');
+    const R = rec.stats.equipment.mainBattery.rangeU;
+    const hi = CONFIG.bots.gunBand.cannon[1];
+    for (const n of [0, 0.05, -0.1]) {
+      expect(legacyBandMaxU(withNudge(profileOf('raider'), n), rec.stats, 'mainBattery')).toBeCloseTo(Math.min(R, Math.max(0, (hi + n) * R)), 9);
     }
   });
 
@@ -507,5 +534,24 @@ describe('special / ability triggers (amendment 199)', () => {
     expect(at('pursue')).toBe(true);
     expect(at('hide')).toBe(true);
     expect(at('disengage')).toBe(true);
+  });
+
+  it('SPEED BOOST charging in keeps the OLD trigger (Story 11.9 R7): a pursued target past the hit-bar band but inside the legacy far edge does not boost; past the legacy edge it does', () => {
+    const w = openWorld(9149);
+    const port = fakePort(w);
+    const tb = mkBot(w, 'iowa');
+    const boost = SHIFT_ROWS.boost;
+    const legacy = legacyBandMaxU(profileOf('raider'), tb.stats, 'mainBattery');
+    const at = (x: number): boolean => {
+      const mind = mkMind('raider');
+      const t = plot(mind, track(port.now, { x }));
+      const ctx = ctxOf(tb, mind, port, 'pursue', t, 1);
+      expect(ctx.sit.gunId).toBe('mainBattery');
+      return boost.want(ctx);
+    };
+    const bandMax = gunBand(profileOf('raider'), tb.stats, 'mainBattery', false, 'bismarck').max;
+    expect(bandMax).toBeLessThan(legacy - 20); // the scenario needs the gap
+    expect(at((bandMax + legacy) / 2)).toBe(false);
+    expect(at(legacy + 10)).toBe(true);
   });
 });

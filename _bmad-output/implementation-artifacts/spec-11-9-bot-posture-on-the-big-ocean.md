@@ -2,7 +2,7 @@
 title: 'Story 11.9 Bot Posture on the Big Ocean — the 20 % hit bar and the standoff that follows it'
 type: 'feature'
 created: '2026-11-16'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'b523abec'
 review_loop_iteration: 0
 context:
@@ -79,6 +79,33 @@ warnings: ['oversized']
 - Given a bot whose ready turret bears on a target, when the per-shell hit chance is below 0.20, then no click is sent and its aim and held scatter persist; when the chance is at or above 0.20, then it clicks.
 - Given a 16-bot match, when it runs, then bots hold station at about the bar range and the main-battery hit share rises against the baseline (reported, not asserted).
 - Given the full gate, when `npm run check`, `weaponsSmoke.mjs` and `matchSmoke.mjs` run, then all pass first try. `PROTOCOL_VERSION` is unchanged; no client file changes.
+
+## Spec Change Log
+
+### 2026-11-16 — review pass 1 (Eric rulings by AskUserQuestion, outside the intent contract)
+- Trigger: all three reviewers (two Opus hunters — Fable was rate-limited and Eric chose Opus — and Codex) found bots parking EXACTLY on the bar range and then holding fire forever (angled / opening targets, stale aim error, remembered class with no heading, positive nudge).
+- R5 (Eric: "Hold at 90 % of bar range"): `CONFIG.bots.barStandoffFrac` 0.9 — the main-battery band's far edge = 0.9 × bar range; a profile nudge never pushes it past that.
+- R6 (Eric: "Kite at the bar range"): the kite posture's hold distance is the same 0.9 × bar range, so a kiting bot keeps firing as it backs off.
+- R7 (Eric: "Keep the old trigger"): Speed Boost's `chargingIn` reads the OLD trigger — target past `CONFIG.bots.gunBand.cannon[1]` (0.8, + nudge) × main-battery reach, not the new band.
+- Orchestrator fixes: the held aim error is stored as a unit offset and rescaled to the current range at every use; the fire check reads the target's angle from the UNWOBBLED lead bearing (Codex); a remembered class with no heading is judged as THAT hull side-on, the smallest-hull blip model only when the class is unknown (supersedes the "or heading" half of R3) — the band and the gate use one model.
+- Known and accepted: past ~110–160 hm side-on is not always the hardest aspect (the wobble disc is round) — the 10 % margin covers the ~1-point gap; the I/O row "end-on ≥ side-on" holds only to ~110 hm. The star-shell lit lift no longer helps the main battery in practice.
+- KEEP: hitChance.ts lattice + memo (all reviewers: sound); the batterySolve gate placement; the mbClicks readout.
+
+## Review Triage Log
+
+### 2026-11-16 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 3, medium 2, low 1)
+- defer: 0
+- reject: 5: (low 5)
+- addressed_findings:
+  - `[high]` `[patch]` bots park on the exact bar range and never fire — margin R5 (Eric) + nudge clamp
+  - `[high]` `[patch]` band vs gate model mismatch for a remembered class with no heading — one model
+  - `[high]` `[patch]` kite posture can never fire — R6 (Eric)
+  - `[medium]` `[patch]` held aim error drawn at long range reused at the bar — unit offset rescaled per use
+  - `[medium]` `[patch]` Speed Boost now fired from the bar range — R7 (Eric) old trigger
+  - `[low]` `[patch]` aspect read off the wobbled bearing (Codex) — lead bearing
 
 ## Design Notes
 

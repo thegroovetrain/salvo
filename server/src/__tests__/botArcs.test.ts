@@ -38,7 +38,7 @@ import { COMBAT_BRAIN, readyShotReaches, situationOf } from '../game/ai/tactics.
 import { avoidBeacons, avoidHulls, avoidReachU } from '../game/ai/navigate.js';
 import { beaconStandoffU } from '../game/ai/beacons.js';
 import { ownReachU, pullBand } from '../game/ai/utility.js';
-import { gunBand } from '../game/ai/doctrine.js';
+import { gunBand, kiteHoldOf } from '../game/ai/doctrine.js';
 import { barRangeU } from '../game/ai/hitChance.js';
 import { leadPoint } from '../game/ai/tacticKit.js';
 import { profileOf } from '../game/ai/profiles.js';
@@ -319,8 +319,10 @@ describe('COMBAT_BRAIN — the arc opening on the posture bearing (R2)', () => {
     const rig = rigFor('iowa', 1208, -Math.PI / 2); // the target due east is dead abeam
     const { rec, port } = rig;
     const sit = situationOf(rec, mkMind('raider'), port);
-    const reach = ownReachU(sit);
-    expectUntouched(rudderOn(rig, { x: (reach * (1 + CONFIG.bots.kiteHoldFrac)) / 2, y: 0 }, 'kite'));
+    // The kite hold of a battery hull is its bar standoff (Story 11.9 R6).
+    const kite = kiteHoldOf(rec.stats, sit.gunId, track(port.now).cls, ownReachU(sit));
+    expect(kite.reachU).toBeGreaterThan(kite.holdU);
+    expectUntouched(rudderOn(rig, { x: (kite.holdU + kite.reachU) / 2, y: 0 }, 'kite'));
     const band = pullBand(gunBand(profileOf('raider'), rec.stats, sit.gunId), readyShotReaches(rec, rec.stats));
     expect(band.max).toBeGreaterThan(band.min);
     expectUntouched(rudderOn(rig, { x: (band.min + band.max) / 2, y: 0 }, 'engage'));
@@ -348,7 +350,8 @@ describe('COMBAT_BRAIN — the arc opening on the posture bearing (R2)', () => {
   it('a KITE opening from inside its hold line runs on the reciprocal — and angles off it', () => {
     const rig = rigFor('bismarck', 1209, Math.PI); // bow dead away
     const reach = inReach(rig.rec, rig.port, 1);
-    expectTurning(rudderOn(rig, { x: reach * CONFIG.bots.kiteHoldFrac * 0.5, y: 0 }, 'kite'));
+    const kite = kiteHoldOf(rig.rec.stats, situationOf(rig.rec, mkMind('raider'), rig.port).gunId, track(rig.port.now).cls, reach);
+    expectTurning(rudderOn(rig, { x: kite.holdU * 0.5, y: 0 }, 'kite'));
   });
 
   it('RAM never angles off: a target dead ahead is steered AT', () => {

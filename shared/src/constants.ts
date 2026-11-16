@@ -720,6 +720,14 @@ export const CONFIG = {
      */
     hitBar: 0.2,
     /**
+     * THE BAR STANDOFF (Eric 2026-11-16, Story 11.9 R5: "Hold at 90 % of bar
+     * range"): the main-battery band's far edge — and a battery hull's kite
+     * hold distance (R6) — sit at this fraction of the bar range, so a bot
+     * never parks exactly on the edge of the hit bar. A profile nudge never
+     * pushes the far edge past it. A harness dial on CLOSED [0, 1].
+     */
+    barStandoffFrac: 0.9,
+    /**
      * NAVIGATION (Story 9.13, epic-9 amendments 192/199/202,
      * [accepted 2026-10-17]) — the dials of shared sim/nav.ts (flow field to
      * the ring, A* routes when the line is blocked) and the server-side

@@ -64,8 +64,9 @@ import { EQUIPMENT } from '../game/equipment/index.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
 import { noteTorpedoes } from '../game/ai/torpedoThreat.js';
-import { gunBand } from '../game/ai/doctrine.js';
-import { barRangeU } from '../game/ai/hitChance.js';
+import { gunBand, legacyBandMaxU } from '../game/ai/doctrine.js';
+import { barRangeU, shotHitChance } from '../game/ai/hitChance.js';
+import { batteryAim, clearsHitBar, heldScatter } from '../game/ai/battery.js';
 import type {
   BotDecision,
   BotMind,
@@ -2894,7 +2895,8 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     const tb = mkBot(w, 'bismarck', 0, 0, 0);
     const boost = slotOf(tb, 'boost');
     expect(boost).toBe(SLOT_BOOST);
-    const bandMax = gunBand(profileOf('raider'), tb.stats, 'mainBattery', false, track(0).cls).max;
+    // The boost's charging-in edge is the LEGACY far edge (Story 11.9 R7).
+    const bandMax = legacyBandMaxU(profileOf('raider'), tb.stats, 'mainBattery');
     stationX = astride(w, bandMax + PAST_BAND_U).botX;
     tb.state.x = stationX;
     return { port, tb, boost, bandMax };
@@ -3053,6 +3055,40 @@ describe('THE MAIN BATTERY — the held aim and the on-target click (Story 10.4)
     COMBAT_BRAIN.decide(rec, mind, port, false);
     expect(mind.batteryScatter).not.toBe(first);
     expect(mind.batteryScatterKey).toBe('other');
+  });
+
+  // Story 11.9 review: the held error is a UNIT offset rescaled to the
+  // current range, so a hold through the approach never carries a long-range
+  // error into a short-range shot.
+  it('the held offset scales with the CURRENT range: the same unit draw at half the range is half the offset', () => {
+    const mind = mkMind('duelist', 11901);
+    mind.targetKey = 'tgt';
+    const reach = CONFIG.bots.aimScatterRefU * 2;
+    const far = heldScatter(mind, reach);
+    const unit = mind.batteryScatter;
+    const near = heldScatter(mind, reach / 2);
+    expect(mind.batteryScatter).toBe(unit); // no redraw
+    expect(Math.hypot(far.x, far.y)).toBeGreaterThan(0);
+    expect(near.x).toBeCloseTo(far.x / 2, 9);
+    expect(near.y).toBeCloseTo(far.y / 2, 9);
+  });
+
+  it('the hit bar reads the target\'s aspect off the UNWOBBLED lead bearing: two different held offsets give the same lead bearing and the same chance at equal range', () => {
+    const { rec, port, mind } = rig(11902);
+    const sit = situationOf(rec, mind, port);
+    const t = [...mind.contacts.values()][0];
+    t.heading = 0.4; // a known class at a known heading: the aspect matters
+    mind.targetKey = 'tgt';
+    mind.batteryScatterKey = 'tgt';
+    mind.batteryScatter = { x: 0, y: 0.02 };
+    const a = batteryAim(rec, mind, sit, t)!;
+    mind.batteryScatter = { x: 0, y: -0.02 };
+    const b = batteryAim(rec, mind, sit, t)!;
+    expect(a.aim).not.toBeCloseTo(b.aim, 6); // the offsets really differ
+    expect(a.leadBearing).toBe(b.leadBearing);
+    const d = a.aimDist;
+    expect(clearsHitBar(t, { aimDist: d, leadBearing: a.leadBearing })).toBe(clearsHitBar(t, { aimDist: d, leadBearing: b.leadBearing }));
+    expect(shotHitChance(t, a.leadBearing, d)).toBe(shotHitChance(t, b.leadBearing, d));
   });
 
   it('BLIND SECTOR: only turrets that cannot bear are ready → it keeps aiming and does not click', () => {

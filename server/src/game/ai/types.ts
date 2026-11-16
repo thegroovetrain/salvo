@@ -647,7 +647,8 @@ export interface BotMind {
    * carries, drawn ONCE off `rng` and HELD until the bot clicks — so the aim
    * it writes every tick is steady enough for the turrets (which chase it at
    * a finite traverse rate) to arrive on it. Re-drawn after every click.
-   * Optional; absent / null = draw on next use.
+   * Since Story 11.9 a UNIT offset (per u of range), rescaled to the current
+   * range at every use. Optional; absent / null = draw on next use.
    */
   batteryScatter?: Vec2 | null;
   /**
