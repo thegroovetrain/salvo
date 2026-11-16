@@ -6,9 +6,10 @@
 // wrong row pick fails here.
 
 import { describe, expect, it } from 'vitest';
-import { consumableTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
-import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
-import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, effectiveStats } from '@salvo/shared';
+import { abilityTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
+import { shownWeaponDamage } from '../render/console/readouts.js';
+import { ABILITY_LADDERS, abilityStatRows, statValueText } from '../ui/boonCopy.js';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, effectiveStats, type LineId } from '@salvo/shared';
 
 const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
@@ -16,9 +17,9 @@ const TIERED = [
 ];
 // HULL POINTS and PASSIVE HEALING left with Story 10.3 (Eric 2026-11-04,
 // epic-10 amendment 8); RUDDER left with Story 10.6 (R2) and RANGE joined —
-// the six index cards (HULL REPAIR and SMOKE SCREEN wait on Story 10.14's
-// How-to-Play copy).
+// the index cards. HULL REPAIR and SMOKE SCREEN print ability tables.
 const SHIP = INDEX_IDS;
+const ABILITY = ['hullRepair', 'smokeScreen'] as const;
 
 /** Every row's cells, label-blind — a derived row is found by its VALUES. */
 const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.values);
@@ -48,11 +49,18 @@ describe('tier tables', () => {
   });
 
   // The values are Eric's dials (a 2026-10-13 experiment moved them), so the
-  // expectation is read off the fold the card reads, tier I..V = 0..4 copies.
-  it('CANNON damage reads the folded gun damage at every tier', () => {
-    const at = (k: number): string =>
-      String(effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], new Array<string>(k).fill('deckGun')).equipment.gun.damage);
+  // expectation is read off the fold the card reads, tier I..V = 0..4 copies,
+  // as the battle HUD shows it (Story 11.11: weapon POWER per tier included).
+  it('CANNON damage reads the HUD-shown gun damage at every tier', () => {
+    const at = (k: number): string => String(shownWeaponDamage(fold('deckGun', k), 'gun'));
     expect(cells(tierTable('deckGun'))).toContainEqual([0, 1, 2, 3, 4].map(at));
+  });
+
+  // Epic-11 amendment 17: +10 weapon POWER a tier, so the shown damage climbs.
+  it('a torpedo table\'s damage row is the HUD-shown damage, and Tier V out-hits Tier I', () => {
+    const want = tierCopies('heavyTorpedo').map((k) => String(shownWeaponDamage(fold('heavyTorpedo', k), 'heavyTorpedo')));
+    expect(cells(tierTable('heavyTorpedo'))).toContainEqual(want);
+    expect(Number(want[4])).toBeGreaterThan(Number(want[0]));
   });
 
   it('FLAK reload reads the folded flak reload (seconds, to the printed tenth) at every tier', () => {
@@ -62,9 +70,9 @@ describe('tier tables', () => {
     expect(match.length).toBeGreaterThan(0);
   });
 
-  it('STAR SHELLS and PHOSPHOR SHELLS burst damage reads the floored folded damage at every tier', () => {
+  it('STAR SHELLS and PHOSPHOR SHELLS burst damage reads the HUD-shown damage at every tier', () => {
     for (const id of ['starShells', 'phosphorShells'] as const) {
-      const want = tierCopies(id).map((k) => String(Math.floor(fold(id, k).equipment[id].damage)));
+      const want = tierCopies(id).map((k) => String(shownWeaponDamage(fold(id, k), id)));
       expect(cells(tierTable(id)), id).toContainEqual(want);
     }
   });
@@ -97,16 +105,36 @@ describe('ship upgrade tables', () => {
   });
 });
 
-describe('consumable tables', () => {
-  it('a consumable entry derives no table since the kit retired (Story 10.5; the copy is 10.14\'s)', () => {
-    // The page's copy is FROZEN until Story 10.14 and still tags some entries
-    // `consumable`; no consumable line exists any more (2026-11-05, epic-10
-    // amendment 11), so each renders without a table until the copy pass.
-    const entries = HOWTO_SECTIONS.flatMap((s) => s.entries ?? []).filter((e) => e.table === 'consumable');
-    for (const e of entries) expect(consumableTable(e.lineId), e.lineId).toBeNull();
+describe('ability tables', () => {
+  it('a BASE column then one column per card up to the cap, one value per column', () => {
+    for (const id of ABILITY) {
+      const t = abilityTable(id);
+      expect(t.columns, id).toHaveLength(1 + CATALOG[id].cap);
+      expect(t.rows.length, id).toBeGreaterThan(0);
+      for (const r of t.rows) expect(r.values, `${id} ${r.label}`).toHaveLength(t.columns.length);
+    }
   });
 
-  it('a line with no live rows yields no table', () => {
-    expect(consumableTable('depthCharge')).toBeNull();
+  // Every cell is the ability tooltip's row off that copy count's fold.
+  it('each column is the ability tooltip off the fold with that many cards', () => {
+    for (const id of ABILITY) {
+      const ability = ABILITY_LADDERS[id as LineId]!;
+      const t = abilityTable(id);
+      t.columns.forEach((_, k) => {
+        const want = abilityStatRows(ability, fold(id, k)).map(statValueText);
+        expect(t.rows.map((r) => r.values[k]), `${id} +${k}`).toEqual(want);
+      });
+    }
+  });
+
+  it('the top card moves some row off BASE', () => {
+    for (const id of ABILITY) {
+      const t = abilityTable(id);
+      expect(t.rows.some((r) => r.values.at(-1) !== r.values[0]), id).toBe(true);
+    }
+  });
+
+  it('a line that improves no ability throws', () => {
+    expect(() => abilityTable('armor')).toThrow();
   });
 });

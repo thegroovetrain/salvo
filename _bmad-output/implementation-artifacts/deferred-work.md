@@ -3857,3 +3857,14 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 - source_spec: `_bmad-output/implementation-artifacts/spec-11-6-rain-first.md`
   summary: Dev rooms with a `zoneOverride` timeline compute different rain on server and client (the client's `FogFieldView.frameAt` always passes `CONFIG.zone`; the server passes the room's own timeline).
   evidence: Codex + Blind Hunter (Story 11.6 review); dev-only (`HC_DEV_OPTIONS=1`), real matches unaffected; fixing needs the override on the wire.
+
+## 2026-11-16 - Story 11.11 How-to-Play and Record (cycle 240, 0.19.34, PV 109; epic-11 amendment 18)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-11-how-to-play-and-record.md`
+  status: open - needs Eric's ear - 2026-11-16
+  summary: 10.13'S SOUND CUES ARE NOT RE-AUDITIONED FOR THE BIG OCEAN'S REACHES (epic-11 amendment 2(c)); an audition needs Eric listening (sound audition process: one artifact page from the real audio modules).
+  evidence: Story 11.11 AC; cue distances in `client/src/audio/`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-11-how-to-play-and-record.md`
+  status: open - low - in-game copy, Eric's - 2026-11-16
+  summary: THE SETTINGS CONTROLS LIST SAYS "SHIFT — CLASS SPECIAL" but the Special is the captain's pick on YOUR SHIP, not the hull's; left as is (no in-game copy unasked).
+  evidence: `client/src/ui/settings.ts` controls rows.

@@ -1099,8 +1099,9 @@ export function abilityCooldownRow(id: CooldownAbilityId, stats: EffectiveStats)
   return abilityAbsoluteRow(cooldownSpec(id), stats);
 }
 
-/** The ship ladders that improve a cooldown ability (Story 10.6, R8 / R9). */
-const ABILITY_LADDERS: Readonly<Partial<Record<LineId, CooldownAbilityId>>> = {
+/** The ship ladders that improve a cooldown ability (Story 10.6, R8 / R9).
+ *  Exported for the How-to-Play ability tables (Story 11.11). */
+export const ABILITY_LADDERS: Readonly<Partial<Record<LineId, CooldownAbilityId>>> = {
   hullRepair: 'repair',
   smokeScreen: 'smoke',
 };

@@ -269,3 +269,26 @@ Dazzle + Phosphor stack on one flare (no exclusivity).
 **Build-time consequences ledgered (E8 stories, not design questions):** `CONFIG.mine.maxLive` and `addMine`'s oldest-eviction go — whether the room-wide `globalCap` (60) survives as a pure engineering ceiling needs a call; the radar buoy equipment and its gun/jamming doctrines are deleted (the jamming fake-blip machinery is REUSED by CHAFF); the Monitor Gun's no-burst plunging hit test; the missile's en-route direct-hit damage (burst figure vs a lower contact figure); `cooldownScale` floor moves from 0.1 to 0.75 by construction; every `[D]` above is a CONFIG dial the harness tunes once bots run v3 decks.
 
 **Still [DRAFT]:** Turning step; Shift boost numbers; Machine Gun numbers bar the arc; Flak Gun base numbers; Captive Mines' pool 1 / 20 s; Shield Block's damage-source scope; the unlock economy's flat price (note 11).
+
+## 6. Addendum — lines since v3 (dated 2026-11-16, Story 11.11)
+
+*(Superseded 2026-11-16, Story 11.11 — this section records, never rewrites. Canonical: `LINE_IDS` in `shared/src/sim/catalog.ts` and `CONFIG`; rulings in the epic-9 / -10 / -11 context amendments.)*
+
+**Live lines added or re-kinded since v3:**
+
+- **ARMOR** — ship ladder; damage × K / (K + E), K = 100, +20 a card (epic-9 amendments 86 and 144; epic-10 amendment 12).
+- **POWER** — was ARMOR PIERCING; subtracts from the victim's ARMOR in the gate, +20 a card (epic-9 amendment 145; epic-10 amendments 8 and 12).
+- **ENGINES** (was SPEED), **INTEL** (was RADAR SWEEP), **RELOAD** — index rows; INTEL +20, ENGINES / RELOAD +10 a card (epic-10 amendments 8 and 12).
+- **HULL REPAIR** and **SMOKE SCREEN** — the `C` / `V` ability ladders, not consumables (epic-10 amendments 11 and 12).
+- **AFT TORPEDO LAUNCHER**, **SECOND LAUNCHER TUBE**, **SECOND MINE RACK**, **EXPANDED MINE RACKS** (the card prints **RACK CAPACITY**) — the four one-off weapon cards that own all extra capacity (epic-10 amendments 12 and 19(k)).
+- **FOULING SHELL** — replaced FLASH SHELLS in 9.4 (epic-9 amendment 24); a reloading `R` slot weapon since 10.5 (epic-10 amendment 11).
+- **FLASH SHELLS** (`dazzleShells`) — back beside the FOULING SHELL (epic-10 amendments 2, 4 and 5); a reloading `R` slot weapon (epic-10 amendment 11).
+- **SUPERCAVITATING TORPEDO** — a `Q` slot weapon again, 45 s (epic-10 amendment 11); base damage 300 (epic-11 amendment 17(c)).
+- **Every weapon tier** adds +10 to that weapon's own RELOAD score (epic-10 amendment 12) and +10 weapon POWER for that weapon only; damage no longer climbs by tier (epic-11 amendment 17).
+- **DEPTH CHARGE** — a stub, never dealt (epic-9 amendment 85).
+
+**Retired:**
+
+- The **consumable kit** — SHIELD BLOCK, the four buoys (RADAR / HEALING / SHIELD / SPEED), keys 1–4 / 1–6 (epic-10 amendment 11); the **DECOY BUOY** (split into the four buoys, epic-10 amendment 4); **CHAFF** (merged into the MULTI-SPECTRAL COUNTERMEASURE, epic-9 amendment 23, which was renamed SMOKE SCREEN again, epic-10 amendment 3, and is now the `V` ability).
+- **HULL POINTS** and the **PASSIVE HEALING** ladder (epic-10 amendment 8); **RUDDER** (epic-10 amendment 12); **RANGE** (epic-11 amendment 4(g)).
+- The **deck-gun picks** — CANNON / MACHINE GUN / FLAK stay in the file for reference, never dealt (epic-10 amendment 6(d)); **BROADSIDE** leaves the deal too (epic-10 amendment 11(f)).

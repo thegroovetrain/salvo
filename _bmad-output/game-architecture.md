@@ -50,6 +50,8 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 >
 > **RENUMBERING NOTICE — 2026-11-08** (`sprint-change-proposal-2026-11-08.md`). **Epic 11 is now The Big Ocean** (the 2026-11-07 brainstorm / forge: real reach by ratio on the 10,000 u board, the arc, the operated set with server-side knobs and ghosts, dispersion, rain-first weather, the free camera); the Ledger, the Front Door and the Account are **Epics 12 / 13 / 14** with their text whole. Every "Epic 11 / 12 / 13" and "E11 / E12 / E13" in the notice above and in the body reads one higher. Architecture notices for Epic 11 (five knob inputs through `inputs.ts`, the strength model and ghosts as a signal source, the splash event, the weather seat on the welcome) are owed to Story 11.11.
 
+> **RECORD NOTICE — 2026-11-16 (Story 11.11, epic-11 amendment 2(b)).** Dated notices for what Epics 9–11 changed; the text below is left as written, and where it disagrees the amendment governs. (1) **Index fold** (epic-10 amendment 8): `effectiveStats()` folds every stat as an index around 100, once; every hull is 1000 HP; the damage gate is K / (K + E), K = 100, E = ARMOR (+ HUNKER) − POWER − `CONFIG.armor.weaponPowerPerTier` × (weapon tier − 1), one law `weaponPowerFor` shared by the gate and the HUD (epic-11 amendment 17). (2) **Two new world objects:** radio beacons (epic-10 amendment 14) and airdrop crates (epic-10 amendment 18); the PvE drone fleet is retired (epic-10 amendment 14(o)). (3) **Hectometer reach** (epic-11 amendment 4): one ruler, `shared/src/sim/hm.ts`; every reach is a named `hmToU(n)` fact in `CONFIG`; the eighths / twelfths ladder and the radar dropout are gone. (4) **Dispersion** (epic-11 amendments 3(h) and 8(a)): a pure shared function (`shared/src/sim/dispersion.ts`, `CONFIG.dispersion`); only the server samples a landing, seeded per shell from a per-room 32-byte `dispersionKey` (HMAC), so `shared` stays crypto-free. Distance attenuation is removed (amendment 3(d)); the per-gun attenuation and the HIGH EXPLOSIVE damage-over-time source were never built (Stories 10.15 / 10.16 cancelled, epic-10 amendment 6). (5) **Rain** (epic-11 amendment 13): the fog field is the storm-eye rain anchored to the live ring; sight is an optical depth through rain + held smoke; rain radar clutter is client-drawn from the public field. (6) **Camera** (epic-11 amendment 14): client-only strategic zoom (`client/src/render/cameraSlide.ts`, `cameraZoom.ts`), no wire change; the range scale IS the zoom. (7) **NOT BUILT as of 2026-11-16:** the five knob inputs through `inputs.ts`, the return-strength model, server-made ghosts as a signal source, the splash event and the weather seat on the welcome are planned patterns only — 11.4 and 11.10 are unbuilt, 11.5 is shelved (epic-11 amendment 12), the arc (11.3) is shelved (amendment 10). The perception exceptions are still exactly SIX.
+
 > **AMENDMENT NOTICE — 2026-09-10 (The Deck, E8 / upgrades v3).** A second scoped
 > `gds-game-architecture` pass covers the systems catalog v3 (2026-09-09) and GDD epic *The Deck*
 > add: **D2 is AMENDED, D19–D31 ADDED, Novel Patterns 2–3 AMENDED and 10–13 ADDED**, with
@@ -157,6 +159,8 @@ constraint; this document's job is AI-agent implementation consistency.
   and the click are retired; the FPS bar, the load budget and the viewport floor are not.)*
 - **Networking:** client-server over Colyseus 0.16 (WebSocket); roster via schema sync, all
   spatial state via per-client frames; PROTOCOL_VERSION gates wire breaks.
+
+*(Superseded 2026-11-16, Story 11.11 — epic-10 amendment 14(m): the schema is no longer roster-only — it also syncs the zone rings, `matchPhase`, `bountyId` and the live radio beacons as flat `ArenaState` fields (`beaconCycle`, `beaconCount`, `bcn0..7 X / Y / SinkT`); beacons are placed server-side, at random on open water since epic-11 amendment 15.)*
 - **Transport:** WebSocket (TCP) is the incumbent; its real risk at ~150 ms is head-of-line
   blocking under packet loss, not latency. Transport choice is an explicit engine-selection
   criterion (Step 3), evaluated jointly with the lag-compensation decision.
@@ -525,6 +529,8 @@ section below.)*
 
 - Two QueueRooms (Standard BR, Solo vs AI) → seat reservation into arena rooms.
 - Min 2 humans, fill-or-timer, cap 20; zero bot-fill in Standard (drones are not fill).
+
+*(Superseded 2026-11-16, Story 11.11 — epic-9 amendment 130 and epic-10 amendments 14 and 20: the cap is 16; the standard queue fills with bots when `HC_QUEUE_BOT_FILL` is set; there are no PvE drones.)*
 - Map seed + generation params derived from ACTUAL roster at countdown (roster-scaled ocean).
 - Mode selection is a queue choice in the menu — no room-flag forks inside arena logic.
 - **UX constraint (flagged to design):** the menu must surface queue liveness (player counts /
@@ -989,6 +995,8 @@ export function loadoutFor(): LoadoutSlot[]   // gun + boost fitted, seven empty
   `segCircleHit` per (observer, subject, puff). A perf pin runs perception at 20 observers × 200
   puffs against the 50 ms tick.
 
+*(Superseded 2026-11-16, Story 11.11 — epic-9 amendment 23, epic-10 amendment 3, epic-11 amendment 13(d): the puff trail became one stationary cloud (the countermeasure, called SMOKE SCREEN again, now the `V` ability); the binary `segCircleHit` occluder is replaced by optical depth — each held cloud adds depth across its disc like rain, the owner is blinded too, and radar is never blocked.)*
+
 ### D25 — Ordnance collision: one target collector (detail)
 
 ```ts
@@ -1062,6 +1070,8 @@ hitTargets(mask: readonly TargetKind[]): readonly Target[]     // memoized per t
   sweep. The perception tests' fourth `verifyBlip` arm recomputes them from `(seed, epoch,
   source)`. **The carve-out gains a second SOURCE, not a new clause; the six declared exceptions
   stay six.**
+
+*(Superseded 2026-11-16, Story 11.11 — epic-9 amendment 23 and epic-10 amendment 11: CHAFF is retired — merged into the countermeasure, then deleted with the kit; the chaff-fakes source is not live. The DECOY and the SHIELD are deleted too.)*
 - **DECOY, SMOKE, SHIELD:** the decoy and the smoke puff are frame CHANNELS (`decoys`, `smoke`),
   not events; the shield is `OwnShip.shield?` and emits nothing — a shooter's `hc` fires on the
   hit and `dmg` (victim-private) reads 0, so the shooter gets no tell. Ledgered as a design

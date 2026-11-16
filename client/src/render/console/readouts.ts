@@ -110,6 +110,20 @@ export function shownDamage(base: number, power: number): number {
   return Number.isFinite(v) ? v : 0;
 }
 
+/**
+ * Pure: the DAMAGE a weapon row shows on this fold — `shownDamage` of the
+ * row's own damage at the ship's POWER plus the weapon's tier POWER
+ * (`weaponPowerFor`, epic-11 amendment 17), so the printed damage climbs with
+ * every tier exactly as the gate's hit does. Undefined for a row with no
+ * damage. The battle console and the How-to-Play tables (Story 11.11) both
+ * print this one number.
+ */
+export function shownWeaponDamage(stats: EffectiveStats, target: EquipmentId): number | undefined {
+  const row = stats.equipment[target] as unknown as { damage?: unknown; tier?: number };
+  if (typeof row.damage !== 'number') return undefined;
+  return shownDamage(row.damage, stats.power + weaponPowerFor(row.tier ?? 1));
+}
+
 /** Seconds to one decimal with the console's unit glyph — `9.5S` (O4). */
 function secsText(ms: number): string {
   return `${(ms / 1000).toFixed(1)}S`;
@@ -319,7 +333,7 @@ function statReadout(kind: WeaponRowKind, target: EquipmentId, field: string, sr
   const label = fieldLabels(target, src.stats).get(field) ?? '';
   // The weapon's own tier POWER rides on the ship's (amendment 17), so the
   // printed damage climbs with every tier exactly as the gate's hit does.
-  const raw = field === 'damage' ? shownDamage(row.damage, src.stats.power + weaponPowerFor(row.tier ?? 1)) : row[field];
+  const raw = field === 'damage' ? (shownWeaponDamage(src.stats, target) ?? 0) : row[field];
   let value = fieldText(field, raw);
   if (kind === 'mainBattery' && field === 'damage') value = `${value}×${gunsPerSalvo(src.cls)}`;
   return { key: READOUT_KEY.stat(kind, field), label, value, raw, role: 'stat' };

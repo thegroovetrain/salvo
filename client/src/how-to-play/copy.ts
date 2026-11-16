@@ -1,60 +1,42 @@
-// THE HOW-TO-PLAY COPY (Story 7.3).
+// THE HOW-TO-PLAY COPY (Story 7.3; rewritten for the big ocean by Story 11.11,
+// 2026-11-16, which owns Story 10.14 whole — epic-11 amendments 2 and 18).
 //
-// DRAFT COPY, AWAITING ERIC'S PASS. Eric holds the pen on this page — he said
-// so when the story opened — and epic-6 amendment 41 is standing project law:
-// *a ruling to put information somewhere is NOT a licence to author the copy
-// that goes there.* Every sentence below was drafted by the implementer from
-// facts verified against the code, in the `policyCopy.ts` R9 mould: draft from
-// verified facts, Eric approves, then it FREEZES the way `ui/taglines.ts` is
-// frozen. Until that pass lands, treat this file as a proposal.
+// DRAFT COPY, AWAITING ERIC'S PASS. Eric holds the pen on this page, and
+// epic-6 amendment 41 is standing project law: *a ruling to put information
+// somewhere is NOT a licence to author the copy that goes there.* Story 11.11
+// kept every one of Eric's 2026-10-01 sentences that is still true WORD FOR
+// WORD, made the smallest edit to the ones the game outgrew, and drafted the
+// rest from facts verified against the code at b5713a4f (the Story 7.3 /
+// `policyCopy.ts` R9 mould: draft from verified facts, Eric approves).
 //
-// SCOPE IS ERIC'S, 2026-08-19, and it is NARROWER than the story's AC:
-//   *"This page needs to give people the basics on how to steer their ship,
-//    select weapons, upgrade, and shoot. They can figure the rest out through
-//    play."*
-// That SUPERSEDES the AC's coverage list (three sensor tiers, storm rhythm,
-// classes and slot grammar, the boon economy) and UX-DR29's boon glossary —
-// *"No need for a boon glossary"*, *"NO FUCKING GLOSSARY. One page."* The
-// glossary clause of UX-DR29 and FR39 is struck, not deferred. What survives
-// from FR39 is the WIN CONDITION, which is stated here because it is stated
-// nowhere else a new player can read (epic-5 amendment 46(c)), and Eric ruled
-// on 2026-08-14 that the copy moves to this page.
+// SCOPE IS ERIC'S, 2026-08-19: *"This page needs to give people the basics on
+// how to steer their ship, select weapons, upgrade, and shoot. They can figure
+// the rest out through play."* No glossary ("NO FUCKING GLOSSARY. One page.").
 //
-// REGISTER: terse naval, and SENTENCES ARE SANCTIONED HERE. `EXPERIENCE.md:53`
-// names How-to-Play as one of only two surfaces where prose is allowed rather
-// than uppercase mono — headings stay uppercase mono because they are still
-// system lines. This is the opposite of the privacy page, which deliberately
-// drops the naval voice; here the voice is the point.
+// REGISTER: terse naval; sentences are sanctioned here (EXPERIENCE.md names
+// How-to-Play as a prose surface); headings stay uppercase mono.
 //
-// EVERY FACT BELOW IS FROM THE CODE, NOT THE DESIGN DOCS. Several docs —
-// CLAUDE.md and EXPERIENCE.md among them — are stale on the controls and were
-// NOT used: there is no CTRL binding of any kind, the refit window is TAB, the
-// picks are 1-4 (5 is unbound — Story 8.8 deleted the DAMAGE CONTROL rail it
-// used to spend a level on), and the gun has no key at all.
+// WHAT THE PAGE TEACHES IS WHAT A CAPTAIN CAN BE DEALT. The CANNON, MACHINE
+// GUN, FLAK and BROADSIDE lines are still in the catalog but no captain is ever
+// offered them (every hull mounts the main battery; BROADSIDE has no family
+// slot), so they have no entry. Epic 11's unbuilt stories (11.4 the operated
+// set, 11.9, 11.10 — Eric 2026-11-16: "we're skipping 11-10") and its shelved
+// ones (11.3 the arc, 11.5 the splash return) are not described.
 //
-// RE-CUT 2026-10-01 (Story 8.22, FR71 / UX-DR72): the pool draw, the gun pick,
-// the class SPECIAL on Shift, the nine squares, consumables, the countdown
-// offer and REDRAW, the three class names (epic-8 amendment 204). Every number
-// below was read from CONFIG at authoring time and is cited beside its
-// sentence; the page imports no game module by design, so the numbers are
-// prose — a retune must come back here (deferred-work 2026-09-17 entry, closed
-// as restated-with-citation).
-//
-// The four sections after UPGRADES describe every gun, weapon, consumable and
-// ship upgrade (Eric 2026-10-01, amendment 206; DEPTH CHARGE is a stub and is
-// not described). Eric 2026-10-01: *"For each weapon, instead of writing out
-// its stats in the description, give me a stat table showing its exact
-// attributes at each tier."* So each one is an ENTRY: a name, a description
-// with NO NUMBERS, and a table `main.ts` derives through `weaponTables.ts`
-// from the sim's one stat function — the numbers live in exactly one place.
+// Section prose may carry numbers (a retune must come back here); an ENTRY's
+// description never does — Eric 2026-10-01: *"give me a stat table showing its
+// exact attributes at each tier"* — `main.ts` derives each table through
+// `weaponTables.ts` from the sim's one stat function.
 
 import type { KeyBinding } from '../ui/page.js';
 
-/** Which derived table an entry carries (see `weaponTables.ts`). */
-export type HowToTableKind = 'tier' | 'consumable' | 'shipUpgrade';
+/** Which derived table an entry carries (see `weaponTables.ts`): a weapon's
+ *  tiers, a ship stat ladder per hull, a C / V ability ladder, or none (a
+ *  one-off card changes one mount count, which its description says). */
+export type HowToTableKind = 'tier' | 'shipUpgrade' | 'ability' | 'none';
 
-/** One described weapon, consumable or ship upgrade: its name, a plain-words
- *  description, and the catalog line its derived table is built from. */
+/** One described card line: its name, a plain-words description, and the
+ *  catalog line its derived table is built from. */
 export interface HowToEntry {
   /** The card name, uppercase (the catalog line's `boonName`). */
   name: string;
@@ -90,8 +72,11 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       'A nasty storm is closing in. Stay inside the ring or it will drown you.',
       'If you run out of HP, you sink. You have 5 seconds to try and snag a revenge kill before you go down with the ship.',
       'You slowly regenerate HP as long as you haven\'t taken damage in the last 15 seconds.',
-      'Shoot a spotted mine with your deck gun to damage/destroy it.',
-      'Islands block sight, radar, ships, and incoming ordinance.'
+      // Story 11.11: only the secondaries hurt a mine now (CONFIG.secondaries).
+      'Shoot a spotted mine with your secondaries to destroy it.',
+      // Story 11.11: gunfire clears the lowest ground; special shells arc over everything (epic-11 amendment 8).
+      'Islands block sight, radar, and ships. Gunfire clears low ground but not high ground, and special shells arc over everything.',
+      'Your shells never hurt your own ship.',
     ],
   },
   {
@@ -99,77 +84,110 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     keys: [
       { keys: ['W', 'S'], action: 'Throttle Up/Down. Tap to go to the next step, engine will accelerate/decelerate.' },
       { keys: ['A', 'D'], action: 'Rudder Left/Right. Hold to turn.' },
-      { keys: ['LEFT CLICK'], action: 'Fire your Deck Gun (or your currently selected weapon).'},
-      { keys: ['Q', 'E', 'R'], action: 'Select or Fire one of your equipped weapons.'},
-      { keys: ['SHIFT'], action: 'Use your hull\'s special equipment.'},
-      { keys: ['TAB'], action: 'Open/Close the Refit Window.'},
-      { keys: ['1', '2', '3', '4'], action: 'Use a consumable item. | Select a card while the Refit Window is open.'},
+      { keys: ['LEFT CLICK'], action: 'Fire your Main Battery (or your currently selected weapon).' },
+      { keys: ['RIGHT CLICK'], action: 'Hold to fire your Secondaries.' },
+      { keys: ['Q', 'E', 'R'], action: 'Select one of your equipped weapons, then click to fire. Press again to cancel.' },
+      { keys: ['SHIFT'], action: 'Use your Special.' },
+      { keys: ['C'], action: 'Hull Repair.' },
+      { keys: ['V'], action: 'Smoke Screen.' },
+      { keys: ['TAB', '1', '2', '3', '4'], action: 'Hold Tab and press a number to take that upgrade card. Clicking a card works too.' },
+      { keys: ['MOUSE WHEEL', 'X', 'Z'], action: 'Zoom the camera in/out.' },
+      { keys: ['MIDDLE DRAG', '↑', '↓', '←', '→'], action: 'Pan the camera.' },
+      { keys: ['SPACE'], action: 'Bring the camera back to your ship.' },
+      { keys: ['F'], action: 'Sound your horn.' },
+      { keys: ['M'], action: 'Mute.' },
+      { keys: ['ESC'], action: 'Settings.' },
     ],
   },
   {
-    heading: '[ EXPERIENCE ]',
+    heading: '[ YOUR SHIP ]',
     paragraphs: [
-      // CONFIG.xp.levelMs 60000 — a level a minute; CONFIG.xp.killLevels 1
-      'All players automatically gain one level\'s worth of experience every minute.',
-      // CONFIG.xp.killLevels 1 / assistWindowMs 60000 / killerShare 0.1
-      'Killing any ship is worth XP. Players are worth more, drones are worth less. The current Kill Leader is worth double. The killer is guaranteed some fraction of the XP value of kill, the rest is split proportionally to everyone who damaged that ship within the last 60 seconds.',
-      'Whenever you get enough XP to gain a level, you get an upgrade point with it to spend at your leisure.'
+      'Pick your battleship and your Special before you queue: open YOUR SHIP on the home screen.',
+      'There are four battleships: YAMATO, BISMARCK, HMS WARSPITE, and USS IOWA. Every one has 1000 HP. They differ in their five stats, in how their main guns are laid out, and in how far those guns reach.',
+      'Your Special goes on SHIFT. SPEED BOOST makes you faster for a few seconds. INSTANT RELOAD finishes every reload on the ship at once and cools your secondaries. HUNKER gives you a big burst of temporary armor.',
+      'Every ship has five stats, each around 100. ARMOR cuts the damage you take, and makes you heavier when ramming. POWER cuts through the other ship\'s ARMOR. RELOAD shortens your gun and weapon reloads. ENGINES is your top speed. INTEL is how fast your radar spins.',
+      'Ramming and running aground both hurt. The faster you hit, the more it costs.',
+    ],
+  },
+  {
+    heading: '[ GUNS ]',
+    paragraphs: [
+      'Left click fires one Main Battery turret at the cursor: the first loaded turret that can turn to face it. Each turret reloads on its own.',
+      'Shells scatter a little around where you aim, and the oval around your cursor shows how much. A shell only hurts the ship it lands on.',
+      'Hold right click to fire your Secondaries in any direction. They reach about half as far as your main guns, and slow down as they heat up.',
+      'Wherever your own shells land, a mark stays on the water for a few seconds: amber for a hit, grey-green for a miss.',
     ],
   },
   {
     heading: '[ UPGRADES ]',
     paragraphs: [
-      'When you have Upgrade Points to spend, open the Refit Window and choose one of the available Weapons, Ship/Weapon Upgrades, or Consumables.',
-      'All players begin with one free upgrade point, with which you are guranteed to see at least one equippable item (either a Weapon or a Consumable). You may reroll the free upgrade once before the game starts if desired.'
-    ]
-  },
-  {
-    heading: '[ DECK GUNS ]',
-    entries: [
-      { name: 'CANNON', lineId: 'deckGun', table: 'tier', description: 'Decent damage and fire rate. Small blast radius.' },
-      { name: 'MACHINE GUN', lineId: 'machineGun', table: 'tier', description: 'Hold to fire a stream of shells.' },
-      { name: 'FLAK', lineId: 'flak', table: 'tier', description: 'Faster reload and a larger blast radius than the Cannon; its damage climbs steeply with tier.' },
-    ]
+      // CONFIG.xp.levelMs 60000; killLevels 1; killerShare 0.1; assistWindowMs 60000; bounty +1.
+      'All players automatically gain one level\'s worth of experience every minute.',
+      'Sinking any ship is worth a level. The killer is guaranteed some of it; the rest is split by damage among everyone who hit that ship in the last 60 seconds. The current Kill Leader is worth double.',
+      'Every level gives you an upgrade offer of four cards in the corner of the screen: a Ship card, an Equipment card, and two wildcards. Take one by clicking it or with Tab and its number. You can bank levels and spend them whenever you like, even in a fight. Hover a card to see what it would change.',
+      'Everyone starts with one free level during the countdown, and may redraw that first offer once.',
+      'Ship cards raise one of your five stats, or improve Hull Repair or Smoke Screen. Equipment cards give you a new weapon, raise a weapon\'s tier (up to Tier V), or add a one-off extra.',
+      'Once nothing is left to offer you, every level adds a point to a random stat instead.',
+    ],
   },
   {
     heading: '[ WEAPONS ]',
+    paragraphs: [
+      'You have three weapon slots: torpedoes on Q, mines on E, and special shells on R. The first card of a kind fills its slot for the rest of the match, and more copies raise its tier. Every tier reloads faster and hits harder.',
+    ],
     entries: [
-      { name: 'HEAVY TORPEDO', lineId: 'heavyTorpedo', table: 'tier', description: 'Fires forward within the bow arc. From Tier II on it homes in on the nearest ship.' },
-      { name: 'LIGHT TORPEDO', lineId: 'lightTorpedo', table: 'tier', description: 'Fires out of either side. Slower and lighter than the heavy.' },
-      { name: 'BROADSIDE GUN', lineId: 'broadside', table: 'tier', description: 'Click to either side and every turret on that side fires. Shorter range than your Deck Gun, and it can\'t fire forward or backward.' },
-      { name: 'STAR SHELLS', lineId: 'starShells', table: 'tier', description: 'Fires a flare to where you click. Grants you vision on anything in the circle, and damages every ship under it when it bursts. You can always fire your Deck Gun anywhere into the region lit up by your Star Shells no matter where it is on the map.' },
-      { name: 'PHOSPHOR SHELLS', lineId: 'phosphorShells', table: 'tier', description: 'Explodes into a patch of burning water. Damages on burst, then keeps burning anyone who sits in it.' },
+      { name: 'LIGHT TORPEDO', lineId: 'lightTorpedo', table: 'tier', description: 'Fires from a launcher that can face the cursor. Homes in more with each tier.' },
+      { name: 'HEAVY TORPEDO', lineId: 'heavyTorpedo', table: 'tier', description: 'Slower to reload and harder hitting than the light. Homes in more with each tier.' },
+      { name: 'SUPERCAV TORPEDO', lineId: 'supercavTorpedo', table: 'tier', description: 'Very fast, no homing.' },
       { name: 'NAVAL MINES', lineId: 'navalMines', table: 'tier', description: 'Click behind your ship to drop a mine. Explodes when an enemy sails over it, and sets off every other Naval Mine in its blast.' },
       { name: 'CAPTIVE MINES', lineId: 'captiveMines', table: 'tier', description: 'Drops like a Naval Mine. Instead of exploding, it fires a torpedo at the first enemy to come in range.' },
-      { name: 'FOULING MINES', lineId: 'foulingMines', table: 'tier', description: 'Drops like a Naval Mine. Barely hurts, but slows any enemy caught in the blast.' },
+      { name: 'FOULING MINES', lineId: 'foulingMines', table: 'tier', description: 'Drops like a Naval Mine. Hurts less, but slows any enemy caught in the blast.' },
+      { name: 'STAR SHELLS', lineId: 'starShells', table: 'tier', description: 'Fires a flare to where you click. Grants you vision on anything in the circle, and damages every ship under it when it bursts. You can always fire your Main Battery anywhere into the region lit up by your Star Shells no matter where it is on the map.' },
+      { name: 'PHOSPHOR SHELLS', lineId: 'phosphorShells', table: 'tier', description: 'Explodes into a patch of burning water. Damages on burst, then keeps burning anyone who sits in it.' },
+      { name: 'FOULING SHELL', lineId: 'foulingShell', table: 'tier', description: 'Leaves a patch of fouled water where it lands. Any enemy inside is slowed, and stays slow for a moment after leaving.' },
+      { name: 'FLASH SHELLS', lineId: 'dazzleShells', table: 'tier', description: 'Every enemy caught in the flash is blinded for a while. Radar unaffected. No damage.' },
+      { name: 'AFT LAUNCHER', lineId: 'aftTorpedoLauncher', table: 'none', description: 'Adds a torpedo launcher at your stern.' },
+      { name: 'SECOND TUBE', lineId: 'secondLauncherTube', table: 'none', description: 'Every torpedo launcher gets one more tube.' },
+      { name: 'SECOND MINE RACK', lineId: 'secondMineRack', table: 'none', description: 'A second mine rack with its own mines and reload. Your racks take turns.' },
+      { name: 'RACK CAPACITY', lineId: 'expandedMineRacks', table: 'none', description: 'Every mine rack holds one more mine.' },
     ],
   },
   {
-    heading: '[ CONSUMABLES ]',
+    heading: '[ REPAIR AND SMOKE ]',
     paragraphs: [
-      'Consumables go in your 1-4 slots. Each card is one use, and copies of the same consumable stack. No reload, no upgrades.',
+      'Every ship carries Hull Repair on C and Smoke Screen on V from the start. Each has its own cooldown, which your RELOAD stat does not change; their own Ship cards do. Neither works while you are sinking.',
     ],
     entries: [
-      { name: 'HULL REPAIR', lineId: 'hullRepair', table: 'consumable', description: 'Heals some HP instantly and the rest over a few seconds. Using another one restarts the timer instead of adding to it.' },
-      { name: 'SHIELD BLOCK', lineId: 'shieldBlock', table: 'consumable', description: 'Absorbs incoming damage until it is used up or runs out of time.' },
-      { name: 'SMOKE SCREEN', lineId: 'smokeScreen', table: 'consumable', description: 'Lays a trail of smoke behind you. Smoke blocks sight, not radar. Anyone inside smoke, including you, is nearly blind. But they also can\'t see you.' },
-      { name: 'CHAFF', lineId: 'chaff', table: 'consumable', description: 'Fills the area around you with fake radar contacts.' },
-      { name: 'DECOY BUOY', lineId: 'decoyBuoy', table: 'consumable', description: 'Select it, then click behind your ship to drop a buoy. It shows up on radar and homing torpedoes will chase it instead of you.' },
-      { name: 'SUPERCAV TORPEDO', lineId: 'supercavTorpedo', table: 'consumable', description: 'Select it, then click near the bow. Very fast, no homing.' },
-      { name: 'FLASH SHELLS', lineId: 'dazzleShells', table: 'consumable', description: 'Select it, then click. Every enemy caught in the flash is blinded for a while. Radar unaffected. No damage.' },
+      { name: 'HULL REPAIR', lineId: 'hullRepair', table: 'ability', description: 'Heals some HP instantly and the rest over a few seconds. Using another one restarts the timer instead of adding to it.' },
+      { name: 'SMOKE SCREEN', lineId: 'smokeScreen', table: 'ability', description: 'Puts a growing cloud of smoke around you. Smoke blocks sight, not radar. Anyone inside smoke, including you, is nearly blind. But they also can\'t see you.' },
     ],
   },
   {
     heading: '[ SHIP UPGRADES ]',
     entries: [
-      // The HULL entry (lineId `hullPoints`) left with its line in Story 10.3
-      // (Eric 2026-11-04, epic-10 amendment 8); three lineIds renamed in place
-      // and their TITLES follow the index words (ENGINES / INTEL). The RUDDER
-      // entry left with its line in Story 10.6 (Eric 2026-11-05, R2).
-      // The descriptions are FROZEN COPY — Story 10.14 owns them.
+      { name: 'ARMOR', lineId: 'armor', table: 'shipUpgrade', description: 'Take less damage, and hit harder when ramming.' },
+      { name: 'POWER', lineId: 'power', table: 'shipUpgrade', description: 'Every hit you land cuts through more of the target\'s ARMOR.' },
       { name: 'ENGINES', lineId: 'engines', table: 'shipUpgrade', description: 'Higher top speed.' },
       { name: 'INTEL', lineId: 'intel', table: 'shipUpgrade', description: 'Radar spins faster.' },
-      { name: 'RELOAD', lineId: 'reload', table: 'shipUpgrade', description: 'Every reload and cooldown on the ship gets shorter, except consumables.' },
+      { name: 'RELOAD', lineId: 'reload', table: 'shipUpgrade', description: 'Your main guns and Q / E / R weapons reload faster.' },
+    ],
+  },
+  {
+    heading: '[ BEACONS AND AIRDROPS ]',
+    paragraphs: [
+      'Radio beacons are marked on everyone\'s map at the start of each ring. A minute later they surface and pay experience to every ship close by, split evenly, until they sink again. A beacon can be shot to pieces, which pays its killers and sinks it early.',
+      'Airdrop crates are scattered across the ocean every minute, fewer as the match goes on. Sail over one to pick it up: it raises the stat its icon shows by a random amount. The storm destroys any crate it closes over.',
+      'A ship sunk in battle leaves a wreck you can sail over for three random stat boosts.',
+    ],
+  },
+  {
+    heading: '[ SIGHT AND RADAR ]',
+    paragraphs: [
+      // CONFIG reach table: sight 200 hm, hull fade to 350 hm, radar 400 hm (Story 11.2).
+      'Distances are in hectometers (hm). You can see ships clearly out to 200 hm, and they fade out by 350 hm. Your radar reaches 400 hm and paints ships and their wakes, but never tells you who they are.',
+      'The battle sits in the eye of a storm. Rain blocks part of your sight and fills your radar with clutter, and the edge of the ring is the wettest.',
+      'Torpedoes and mines are hard to spot. You only see them up close.',
+      'Zoom all the way out to see the whole ocean. Small ships get corner brackets so you can still find them.',
     ],
   },
 ];

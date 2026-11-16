@@ -47,15 +47,23 @@ import {
   type HowToEntry,
   type HowToSection,
 } from './copy.js';
-import { consumableTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
+import { abilityTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 
-/** An entry's derived table, or null (a consumable with no live rows). */
+/** An entry's derived table, or null (`'none'`: a one-off card has no
+ *  table). */
 function entryTable(entry: HowToEntry): StatTable | null {
-  if (entry.table === 'tier') return tierTable(entry.lineId);
-  if (entry.table === 'shipUpgrade') return shipUpgradeTable(entry.lineId);
-  return consumableTable(entry.lineId);
+  switch (entry.table) {
+    case 'tier':
+      return tierTable(entry.lineId);
+    case 'shipUpgrade':
+      return shipUpgradeTable(entry.lineId);
+    case 'ability':
+      return abilityTable(entry.lineId);
+    case 'none':
+      return null;
+  }
 }
 
 /**
