@@ -251,3 +251,9 @@ Format: numbered, dated, source-attributed. "Supersedes" names the exact plannin
    - (b) **Restored:** amendments 1–19 put back verbatim from commit `0225d14e` above amendment 20; commit `98c7c715` (PR #359) had replaced the whole file with amendment 20 alone, and amendment 19 survived only in git. Rule from here: an amendment file is only ever appended to (project-context.md).
    - (c) **CHANGELOG.md** stops at 0.19.20; left as is by Eric's call — not an action item.
    - (d) No significant discovery for Epic 12; its 12.1 / 12.2 wording predates Epic 10's retirements and is refreshed at 12.1's create-story.
+
+## Release 0.20.0 — 2026-11-16 (no build cycle; development -> main)
+
+22. **EPIC 11 SHIPS TO PRODUCTION AS 0.20.0.** Eric 2026-11-16: *"merge into development and ff, then lets up the version to 0.20.0 and merge to production and ff."*
+   - (a) VERSION + root `package.json` + `package-lock.json` 0.19.36 -> **0.20.0** (minor bump at the epic close, the 0.19.0 precedent of epic-9 amendment 218); PV 110 unchanged; no CHANGELOG entry (amendment 21(c)).
+   - (b) Production goes 0.19.0 -> 0.20.0 in one release: Epic 10 (cycles 207-225) and Epic 11 (cycles 226-242) together, the "own production release" of the 11-08 correct-course. The next cycle's number is Eric's call.
