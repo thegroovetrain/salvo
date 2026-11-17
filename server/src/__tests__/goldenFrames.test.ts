@@ -355,6 +355,16 @@
 // test, so the frame reads round boom, `sp`, mine boom (was round boom, mine
 // boom, `sp`). The same three events with the same values; no key, kind,
 // position or recipient moved anywhere else.
+//
+// RE-RECORDED 2026-11-16 (ACOUSTIC HOMING standard; Eric). Two things moved.
+// (1) scnHoming: a fish homes only on engine noise now, so its target `b`
+// runs its engines (throttle 1) — the scenario had lost its `torpU` channel
+// against a silent hull. `c`'s frames now show `b` creeping east, the fish
+// steering at the full row rate (`torpU` at new ticks) and striking `b` (boom
+// at t 3 600), so the scenario ends 18 frames sooner. (2) The heavy torpedo
+// reload 30 000 → 40 000 ms: two later rows' (shooter `a`) `you.ammo[2]` /
+// `launchers[0].tubes[0]` reload clocks (28 560 → 38 080 at t 16 200; at
+// t 47 400 the tube is still reloading, 6 880 ms left). Nothing else moved.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -1233,9 +1243,12 @@ function scnHoming(g: Golden): void {
   const spanU = 250; // a..c, west to east
   const x0 = -(BEYOND_RADAR + spanU) / 2;
   const a = place(w, 'a', x0, 0, -Math.PI / 2);
-  w.applyCard(a, 'heavyTorpedo'); // the second copy: tier II — the fish homes
+  w.applyCard(a, 'heavyTorpedo'); // a second copy (every tier homes since acoustic homing went standard)
   for (const l of a.launchers) l.a = Math.PI / 2;
   place(w, 'b', x0 + 200, 60); // the torpedo acquires and steers toward this hull mid-flight
+  // ACOUSTIC HOMING (Eric 2026-11-16): a fish homes only on ENGINE NOISE, so
+  // the target runs its engines (a hull at throttle 0 is silent).
+  w.submitInput('b', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   const c = place(w, 'c', x0 + spanU, -60); // torpedo sight covers the turning stretch
   const d = place(w, 'd', x0 + spanU + BEYOND_RADAR, 0); // beyond every eye reach AND the radar of every hull
   for (const s of [c, d]) {

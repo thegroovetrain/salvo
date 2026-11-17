@@ -4590,7 +4590,9 @@ export class World {
       if (!isAfloat(ship.lifecycle)) continue;
       const st = ship.state;
       transformPolygon(hullSilhouette(ship.hullId), st.x, st.y, st.heading, ship.hullPoly);
-      out.push({ id: ship.id, kind: 'hull', poly: ship.hullPoly });
+      // ACOUSTIC LOUDNESS (experiment, Eric 2026-11-16): engine noise —
+      // ENGINES / 100 × the throttle opening (reverse is as loud as ahead).
+      out.push({ id: ship.id, kind: 'hull', poly: ship.hullPoly, loud: (ship.stats.engines / 100) * Math.abs(ship.input.throttle) });
     }
   }
 

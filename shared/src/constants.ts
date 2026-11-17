@@ -360,7 +360,7 @@ export const CONFIG = {
       hull: { length: 270.4 * U_PER_M, beam: 33.0 * U_PER_M }, // u — USS Iowa, 1943–45: 270.4 m × 33.0 m (124.0 × 15.1 u)
       hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3); shown as a whole-number percent, never raw
       index: {
-        armor: 85,
+        armor: 95, // 85 → 95, Eric 2026-11-16
         power: 105,
         reload: 95,
         engines: 120,
@@ -1661,7 +1661,7 @@ export const CONFIG = {
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
     // longer commitment cycle. A max RELOAD build (cooldownScale 0.5) lands
     // it at 15 s (Story 10.5, R11: RELOAD scales the Q / E / R weapons).
-    reloadMs: 30000,
+    reloadMs: 40000, // 30000 → 40000, Eric 2026-11-16 (with acoustic homing standard)
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     // --- HOMING — the family's shared fields (epic-8 amendment 84e). A homing
     // fish steers toward the nearest non-owner hull within acquireRange at
@@ -1727,7 +1727,7 @@ export const CONFIG = {
    */
   lightTorpedo: {
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
-    damage: 200, // hp per contact hit — tier I; +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
+    damage: 250, // hp per contact hit at every tier — 200 → 250, Eric 2026-11-16 (with acoustic homing standard); was +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
     maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls — it runs UNDER a minefield.
@@ -1933,7 +1933,11 @@ export const CONFIG = {
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
     // tier-V ring is 175.7 u, was 210.8).
     triggerRadius: 180, // u — the TRIP ring at tier I: 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
-    triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
+    triggerStepPerTier: 1.1,
+    // rad/s — the captive fish's ACOUSTIC reference turn rate at every tier
+    // (experiment, Eric 2026-11-16: "use their current Tier V tracking number
+    // as their baseline" — 4 × 0.075); scaled in flight by the victim's noise.
+    homingTurnRate: 0.3, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
     damage: 100, // hp — the fish's warhead at tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "CAPTIVE 100 → 200"; was 90 +11/+11/+11/+12 → 135, Eric 2026-10-16, Story 9.12; 55 +5 before, R25)
     // The naval chassis is SHARED, not duplicated: the rear placement sector

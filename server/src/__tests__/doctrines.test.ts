@@ -166,6 +166,26 @@ const dmgFor = (events: readonly GameEvent[], id: string) =>
 // die-distance) stepping +0.125 to 0.5 rad/s at tier V, on BOTH torpedo lines.
 // So these cases buy RUNGS instead of a card, and the "a standard fish" control
 // every one of them carried is simply a tier-I fish.
+//
+// ACOUSTIC HOMING IS STANDARD (Eric 2026-11-16): the light and heavy fish home
+// at CONFIG.torpedo.homingTurnRate from Tier I, scaled in flight by the
+// target's loudness (ENGINES / 100 × |throttle| — a hull at throttle 0 is
+// SILENT and never homed on). So the target below runs its engines, and the
+// straight-running control is the SUPERCAV line (its row never homes).
+
+/** A supercav shooter laid out exactly like `torpShooter` — the line whose row
+ *  never homes, the straight-running control. */
+function supercavShooter(w: World, id: string, x: number, y: number): ShipRecord {
+  const heading = -Math.PI / 2;
+  const rec = placeBare(w, id, 0, 0, heading);
+  w.applyCard(rec, 'supercavTorpedo');
+  expect(rec.stats.equipment.supercavTorpedo.homingTurnRate).toBe(0);
+  const off = launcherStation(rec.hullId, 0).x;
+  rec.state = { x: x - Math.cos(heading) * off, y: y - Math.sin(heading) * off, heading, speed: 0 };
+  for (const l of rec.launchers) l.a = Math.PI / 2;
+  return rec;
+}
+const SLOT_SUPERCAV = familySlotFor('supercavTorpedo')!;
 
 /** The COPIES that take a torpedo line to its top rung — where its turn rate
  *  is the 0.5 rad/s the shipped ACOUSTIC HOMING doctrine used to grant, so the
@@ -181,42 +201,29 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1); // copy 1 came from the class fit
     expect(a.stats.equipment.heavyTorpedo.homingTurnRate).toBeCloseTo(CONFIG.torpedo.homingTurnRate, 9);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
+    setInput(b, { throttle: 1 }); // LOUD: an acoustic fish homes only on engine noise
     setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     return { w, a, b };
   }
 
-  // FAIL-FIRST REGRESSION (Story 8.13): the rung where steering STARTS. At
-  // tier I the fish must carry NO `homing` tag at all — that structural zero
-  // is what keeps sim/shell.ts from steering it and perception from emitting a
-  // `torpU` for it — and at tier II it must carry the ROW's rate, not the
-  // family's tier-V reference value.
-  it('tier I carries NO homing tag; tier II carries the ROW\'s rate; both launch on their own row\'s run (Story 11.2, R5)', () => {
+  // ACOUSTIC HOMING IS STANDARD: a Tier I fish already carries the ROW's rate,
+  // flagged acoustic, and launches on its row's run (Story 11.2, R5).
+  it('a TIER I light/heavy fish carries the row\'s acoustic homing tag and launches on its own row\'s run (Story 11.2, R5)', () => {
     const w = bareWorld();
     const one = torpShooter(w, 'a', 0, 0); // the class fit alone = tier I
-    expect(one.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
+    const row = one.stats.equipment.heavyTorpedo;
+    expect(row.homingTurnRate).toBe(CONFIG.torpedo.homingTurnRate);
     setInput(one, { ...clickAt(one, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
-    const straight = [...w.shells.values()][0];
-    expect(straight.homing).toBeUndefined();
+    const fish = [...w.shells.values()][0];
+    expect(fish.homing).toEqual({ turnRate: row.homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange, acoustic: true });
     // EVERY fish has a run now (Story 11.2, R5): the launch budget is the
     // row's folded `runU` (less the launch tick's own travel).
-    expect(straight.distLeft).toBeGreaterThan(0);
-    expect(straight.distLeft).toBeLessThanOrEqual(one.stats.equipment.heavyTorpedo.runU);
-
-    const w2 = bareWorld(4);
-    const two = torpShooter(w2, 'a', 0, 0);
-    fitTier(w2, two, 'heavyTorpedo', 1); // tier II
-    const rate = two.stats.equipment.heavyTorpedo.homingTurnRate;
-    expect(rate).toBeGreaterThan(0); // steering starts at tier II
-    expect(rate).toBeLessThan(CONFIG.torpedo.homingTurnRate); // NOT the tier-V reference
-    setInput(two, { ...clickAt(two, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
-    w2.step();
-    const homer = [...w2.shells.values()][0];
-    expect(homer.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
-    expect(homer.distLeft).toBeLessThanOrEqual(two.stats.equipment.heavyTorpedo.runU);
+    expect(fish.distLeft).toBeGreaterThan(0);
+    expect(fish.distLeft).toBeLessThanOrEqual(row.runU);
   });
 
-  it('the fish steers off its launch bearing toward the nearest enemy hull; a standard fish never does', () => {
+  it('the fish steers off its launch bearing toward a LOUD enemy hull; a straight-runner (supercav) never does', () => {
     const { w } = homingBoard();
     let maxVy = 0;
     for (let i = 0; i < 200 && w.shells.size >= 0; i++) {
@@ -227,16 +234,16 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     expect(maxVy).toBeGreaterThan(1); // it turned
 
     const control = bareWorld();
-    const ca = torpShooter(control, 'a', 0, 0); // NO doctrine
-    place(control, 'b', 320, 80);
-    setInput(ca, { ...clickAt(ca, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    const ca = supercavShooter(control, 'a', 0, 0); // a row that never homes
+    setInput(place(control, 'b', 320, 80), { throttle: 1 });
+    setInput(ca, { ...clickAt(ca, 300, 0), slot: SLOT_SUPERCAV, fireSeq: 1, seq: 2 });
     let controlVy = 0;
     for (let i = 0; i < 200; i++) {
       control.step();
       for (const sh of control.shells.values()) controlVy = Math.max(controlVy, Math.abs(sh.vy));
       if (i > 2 && control.shells.size === 0) break;
     }
-    expect(controlVy).toBe(0); // a standard fish flies straight
+    expect(controlVy).toBe(0); // a straight-runner flies straight
   });
 
   // Story 2.8 review, P8: a homing fish's turn radius at base speed
@@ -252,20 +259,29 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
     const prey = place(w, 'b', 300, 110); // acquired, but inside the fish's turn radius
     prey.hp = 1e9; // survive any glancing contact — this is about the FISH dying
+    // ACOUSTIC homing (amendment 20): a silent hull is never homed on, so the
+    // prey runs its engines — and is held in place each tick so the fish keeps
+    // circling it instead of chasing it.
+    setInput(prey, { throttle: 1, seq: 2 });
+    const hold = { ...prey.state };
     setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
 
     let travelled = 0;
     let prev: { x: number; y: number } | null = null;
     let maxR = 0;
     let ticks = 0;
+    let steered = false;
     for (; ticks < 2000; ticks++) {
+      prey.state = { ...hold, speed: 0 };
       w.step();
       const fish = [...w.shells.values()][0];
       if (!fish) break;
+      if (fish.homing?.targetId === 'b') steered = true;
       if (prev) travelled += Math.hypot(fish.x - prev.x, fish.y - prev.y);
       prev = { x: fish.x, y: fish.y };
       maxR = Math.max(maxR, Math.hypot(fish.x, fish.y));
     }
+    expect(steered).toBe(true); // it locked the loud prey — a real orbit, not a straight run
     expect(ticks).toBeLessThan(2000); // it DIED — the whole point
     expect(maxR).toBeLessThan(w.map.radius); // ...and never by reaching the map edge
     expect(prey.hp).toBe(1e9); // ...and never by hitting anything: a true orbit
@@ -282,10 +298,10 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
   // used to pin the opposite: a straight-runner's unbounded range.)
   it('a STRAIGHT-RUNNING fish with nothing to hit expires at its row\'s run, never at the map edge', () => {
     const w = bareWorld();
-    const a = torpShooter(w, 'a', 0, 0); // tier I — a straight runner
-    const runU = a.stats.equipment.heavyTorpedo.runU;
+    const a = supercavShooter(w, 'a', 0, 0); // the supercav row never homes
+    const runU = a.stats.equipment.supercavTorpedo.runU;
     expect(runU).toBeLessThan(w.map.radius); // premise: the run ends on open water
-    setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    setInput(a, { ...clickAt(a, 300, 0), slot: SLOT_SUPERCAV, fireSeq: 1, seq: 2 });
     let last: { x: number; y: number } | null = null;
     let ticks = 0;
     for (; ticks < 4000; ticks++) {
@@ -297,7 +313,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     }
     expect(ticks).toBeLessThan(4000); // it expired
     expect(last).not.toBeNull();
-    const perTick = a.stats.equipment.heavyTorpedo.speed * (DT / 1000);
+    const perTick = a.stats.equipment.supercavTorpedo.speed * (DT / 1000);
     // Measured from the launching hull: a straight line of the run's length
     // (the launch point sits a hull's reach off the centre).
     const ran = Math.hypot(last!.x - a.state.x, last!.y - a.state.y);
@@ -480,42 +496,30 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(b.hp).toBe(b.stats.maxHp - Math.floor(row.damage * damageMultiplierFor(b.stats.armor - power)));
   });
 
-  // FAIL-FIRST REGRESSION (epic-8 amendment 82): the captive fish's homing is
-  // a TIER STAT of its own line, capped at 0.3 rad/s — not the torpedo
-  // family's 0.5, and not a card.
-  it('the fish is a straight-runner at tier I and HOMES from tier II, at the captive row\'s own rate', () => {
-    let prevRate = -1;
-    for (const copies of [1, 2, 5] as const) {
+  // ACOUSTIC HOMING IS STANDARD (Eric 2026-11-16): the captive fish homes at
+  // its OWN row's CONFIG rate at EVERY tier, its lock pinned at launch.
+  it('the fish HOMES at every tier at the captive row\'s own CONFIG rate, locked on the tripping hull and acoustic', () => {
+    for (let copies = 1; copies <= CATALOG.captiveMines.cap; copies += 1) {
       const w = bareWorld(40 + copies);
       const o = placeBare(w, 'o', 600, 600, 0, 'warspite');
       fitTier(w, o, 'captiveMines', copies);
-      const expected = o.stats.equipment.captiveMines.homingTurnRate;
-      // Tier I is a straight runner; the rate climbs from tier II and stays
-      // under the torpedo family's own top rate (amendment 82).
-      if (copies === 1) expect(expected).toBe(0);
-      else expect(expected).toBeGreaterThan(prevRate);
-      expect(expected).toBeLessThan(CONFIG.torpedo.homingTurnRate);
-      prevRate = expected;
+      const rate = o.stats.equipment.captiveMines.homingTurnRate;
+      expect(rate, `tier ${copies}`).toBe(CONFIG.captiveMines.homingTurnRate);
       place(w, 'b', 0, 40);
       lay(w, 'm1', 'o', 0, 0, 'captive');
       w.step();
       const fish = [...w.shells.values()][0];
-      if (expected === 0) {
-        expect(fish.homing).toBeUndefined();
-        // Story 11.2 (R5): the captive's fish has a run too — the heavy
-        // torpedo's Tier I run (Story 11.2, R21 — Eric 2026-11-12).
-        expect(fish.distLeft).toBe(CONFIG.torpedo.runU);
-      } else {
-        // The LOCK is pinned at launch (cycle-148 review gate, P6): this fish
-        // is the tripping hull's and nobody else's, for its whole run.
-        expect(fish.homing).toEqual({
-          turnRate: expected,
-          acquireRange: CONFIG.torpedo.homingAcquireRange,
-          targetId: 'b',
-          locked: true,
-        });
-        expect(fish.distLeft).toBe(CONFIG.torpedo.runU);
-      }
+      // The LOCK is pinned at launch (cycle-148 review gate, P6): this fish
+      // is the tripping hull's and nobody else's, for its whole run.
+      expect(fish.homing).toEqual({
+        turnRate: rate,
+        acquireRange: CONFIG.torpedo.homingAcquireRange,
+        targetId: 'b',
+        locked: true,
+        acoustic: true,
+      });
+      // Story 11.2 (R5): the captive's fish runs the heavy torpedo's Tier I run.
+      expect(fish.distLeft).toBe(CONFIG.torpedo.runU);
     }
   });
 

@@ -47,3 +47,19 @@ Shots at ghosts: not measurable — there are no ghosts (11.4 not built).
 |---|---|---|---|---|---|
 | baseline | 5.42 | 9.54 | 13.78 | 30.23 | 69.1 |
 | 11.9 | 4.87 | 8.61 | 12.51 | 17.16 | 56.4 |
+
+
+## Acoustic homing (2026-11-16, Eric's experiment; epic-11 amendment 20)
+
+**Arms** (91 matches each, 16 bots, even roster, `--bot-spend random`, seed 500; branch `worktree-acoustic-homing`; shards `~/hc-campaigns/acoustic-2026-11-16/`; `category.py` / `torp_eff.py` / `lines.py` as in `batch-sim-evidence-2026-11-15.md`):
+
+| Arm | Code | Torpedo kills / holder (light / heavy / supercav) | light vs supercav, 4:00 / 8:00 | heavy vs supercav, 4:00 / 8:00 | Iowa win % | alive 4 / 8 / 12 min |
+|---|---|---|---|---|---|---|
+| `shipped` | development before 11.9 | 0.09 / 0.16 / 0.53 | **−6.5 / −3.5** | **−8.7 / −4.1** | 19.8 | 13.5 / 7.2 / 2.1 |
+| `acoustic` | + acoustic homing, before 11.9 | 0.19 / 0.51 / 0.43 | **−8.4 / −3.3** | −1.4 / −2.2 | 14.3 | 13.4 / 7.0 / 2.0 |
+| `acousticB` | + acoustic, with 11.9 bots | 0.22 / 0.56 / 0.43 | **−7.3 / −3.3** | −1.9 / −1.0 | 18.7 | 12.8 / 5.6 / 1.2 |
+| `acoustic2` | `acousticB` + heavy reload 40 s, light damage 250, Iowa ARMOR 100 | 0.31 / 0.40 / 0.39 | −1.4 / **−4.0** | −0.5 / **−4.1** | 30.8 [22.2, 40.9] | 12.9 / 6.1 / 1.4 |
+
+Bold = the 95 % CI excludes 0. Readings: acoustic homing alone lifts the heavy torpedo level with the supercav; the light stays behind until its damage rises; with the three dials the three torpedoes are level at 4:00 and even in kills, the supercav keeps a ~4-point lead at 8:00 (one arm). Iowa is the loudest hull at full throttle (ENGINES 120) and fell under acoustic homing; ARMOR 100 lifted it to 30.8 % — Eric ruled **95** (not measured). The 11.9 bots shorten the late game (≈ 40 % of matches over before 12:00) — a pacing reading for the next balance pass, not caused by this change. Land-contact bar fails 1.2–2.1 % in every random-spend arm, as before.
+
+**Rulings 2026-11-16:** acoustic homing standard (light / heavy at the old Tier V 0.5, captive at its old Tier V 0.3), heavy reload 40 s, light damage 250, Iowa ARMOR 95 — built as amendment 20.

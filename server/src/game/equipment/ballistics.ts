@@ -115,7 +115,7 @@ export interface BallisticParams {
   flash?: { radius: number; durationMs: number };
   /** ACOUSTIC HOMING doctrine (Story 2.8): the per-tick steering params
    *  (ShellState.homing — turn rate + acquire range). Never on the wire. */
-  homing?: { turnRate: number; acquireRange: number };
+  homing?: { turnRate: number; acquireRange: number; acoustic?: true };
 }
 
 /** One dispersed shell's flight: where it lands, the bearing it flies and how far. */

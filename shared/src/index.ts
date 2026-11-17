@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  110 — ACOUSTIC HOMING STANDARD (2026-11-16, Eric; epic-11 amendment 20;
+ *  cycle 242, 0.19.36): boon-catalog content — the light / heavy / captive
+ *  homing tier steps are gone (they home from Tier I at the CONFIG reference
+ *  rate, scaled in flight by the target's engine noise, server only); heavy
+ *  reload 40 s, light damage 250, Iowa ARMOR 95.
  *  109 — WEAPON POWER (2026-11-16, Eric; epic-11 amendment 17; cycle 239,
  *  0.19.33): boon-catalog content — every weapon damage ladder is gone (a
  *  weapon's damage stays its Tier I base; each tier above I adds
@@ -1117,7 +1122,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 109;
+export const PROTOCOL_VERSION = 110;
 
 // Tunables
 export * from './constants.js';

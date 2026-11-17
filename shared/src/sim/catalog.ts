@@ -554,7 +554,6 @@ function machineGunTier(magStep: number): BoonEffect[] {
 function torpedoTier(line: 'lightTorpedo' | 'heavyTorpedo'): BoonEffect[] {
   return [
     statEffect(`equipment.${line}.speed`, { add: 2.5 }),
-    statEffect(`equipment.${line}.homingTurnRate`, { add: 0.125 }),
     torpedoRun(line),
   ];
 }
@@ -577,7 +576,6 @@ function navalMineTier(): BoonEffect[] {
  *  rungs to II and III). */
 function captiveMineTier(): BoonEffect[] {
   return [
-    statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ];
 }
 

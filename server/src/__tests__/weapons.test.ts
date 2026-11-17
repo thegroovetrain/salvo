@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CATALOG,
   familySlotFor,
   SLOT_COUNT,
   isAfloat,
@@ -782,23 +783,18 @@ describe('LIGHT TORPEDO — the launcher, not a sector (Story 10.6, R6)', () => 
     expect(astern.loadout[SLOT_WEAPON_1].state).toEqual({ n: 1, reloadMsLeft: 0 }); // tube untouched
   });
 
-  // A STRAIGHT-RUNNER AT TIER I, A HOMER FROM TIER II (epic-8 amendment 80).
-  // The structural half matters more than the number: at rate 0 the fish
-  // carries NO `homing` tag at all, so sim/shell.ts never steers it, perception
-  // never emits a `torpU` for it, and it carries no die-distance.
-  it('tier I gets NO homing; tier II DOES home, at the row\'s rate; each launches on its own row\'s run (Story 11.2, R5)', () => {
+  // ACOUSTIC HOMING IS STANDARD (Eric 2026-11-16): the light fish homes at
+  // CONFIG.torpedo.homingTurnRate from Tier I, flagged acoustic, at every tier.
+  it('every tier launches an ACOUSTIC homer at the row\'s CONFIG rate, on its own row\'s run (Story 11.2, R5)', () => {
     const w = bareWorld(32);
-    const one = carrier(w, 'a', 'lightTorpedo', 1, Math.PI / 2, SLOT_WEAPON_1);
-    const t1 = fireTorpedo(one, 0, mkId, 'lightTorpedo')!;
-    expect(t1.homing).toBeUndefined();
-    expect(t1.distLeft).toBe(one.stats.equipment.lightTorpedo.runU);
-
-    const two = carrier(w, 'b', 'lightTorpedo', 2, Math.PI / 2, SLOT_WEAPON_1);
-    const rate = two.stats.equipment.lightTorpedo.homingTurnRate;
-    expect(rate).toBeGreaterThan(0); // tier II homes (amendment 80)
-    const t2 = fireTorpedo(two, 0, mkId, 'lightTorpedo')!;
-    expect(t2.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
-    expect(t2.distLeft).toBe(two.stats.equipment.lightTorpedo.runU);
+    for (let n = 1; n <= CATALOG.lightTorpedo.cap; n += 1) {
+      const rec = carrier(w, `h${n}`, 'lightTorpedo', n, Math.PI / 2, SLOT_WEAPON_1);
+      const row = rec.stats.equipment.lightTorpedo;
+      expect(row.homingTurnRate, `tier ${n}`).toBe(CONFIG.torpedo.homingTurnRate);
+      const fish = fireTorpedo(rec, 0, mkId, 'lightTorpedo')!;
+      expect(fish.homing, `tier ${n}`).toEqual({ turnRate: row.homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange, acoustic: true });
+      expect(fish.distLeft, `tier ${n}`).toBe(row.runU);
+    }
   });
 
   it('tier copies never add a tube (Story 10.6, R4: capacity left the tiers)', () => {

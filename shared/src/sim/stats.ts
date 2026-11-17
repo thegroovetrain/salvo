@@ -580,24 +580,30 @@ export function captiveTriggerRadius(tier: number): number {
   return CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** steps;
 }
 
-/** A torpedo row at CONFIG base. `homingTurnRate` starts at ZERO on EVERY
- *  line — a tier-I fish is a straight-runner, and the lines' tiers II–V buy
- *  the steering (epic-8 amendment 80). `runU` starts at the kind's Tier I run
- *  (Story 11.2, R5) and the line's tiers step it. */
-function torpedoRow(src: {
-  reloadMs: number;
-  maxAmmo: number;
-  speed: number;
-  damage: number;
-  runU: number;
-}): EffectiveTorpedo {
+/** A torpedo row at CONFIG base. `homingTurnRate` is the row's ACOUSTIC
+ *  reference rate (experiment, Eric 2026-11-16: acoustic homing comes standard
+ *  on light and heavy torpedoes, no longer bought by tiers) — the turn rate
+ *  against a loudness-1 target, scaled by the target's loudness in flight
+ *  (sim/shell.ts steerAcoustic). The supercav passes 0: it never homes.
+ *  `runU` starts at the kind's Tier I run (Story 11.2, R5) and the line's
+ *  tiers step it. */
+function torpedoRow(
+  src: {
+    reloadMs: number;
+    maxAmmo: number;
+    speed: number;
+    damage: number;
+    runU: number;
+  },
+  homingTurnRate = 0,
+): EffectiveTorpedo {
   return {
     tier: 1,
     reloadMs: src.reloadMs,
     maxAmmo: src.maxAmmo,
     speed: src.speed,
     damage: src.damage,
-    homingTurnRate: 0,
+    homingTurnRate,
     runU: src.runU,
   };
 }
@@ -612,6 +618,7 @@ function mineRow(src: {
   blastRadius: number;
   triggerRadius: number;
   slowFactor?: number;
+  homingTurnRate?: number;
 }): EffectiveMine {
   return {
     tier: 1,
@@ -620,7 +627,7 @@ function mineRow(src: {
     damage: src.damage,
     blastRadius: src.blastRadius,
     triggerRadius: src.triggerRadius,
-    homingTurnRate: 0,
+    homingTurnRate: src.homingTurnRate ?? 0,
     slowFactor: src.slowFactor ?? 1,
   };
 }
@@ -803,11 +810,11 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     // `CONFIG.boost` verbatim — RELOAD no longer scales it (Story 10.5, R10).
     boost: boostRow(CONFIG.boost),
     // LIGHT TORPEDO (catalog-v3 R18) — its own CONFIG block since Story 8.13.
-    lightTorpedo: torpedoRow(CONFIG.lightTorpedo),
+    lightTorpedo: torpedoRow(CONFIG.lightTorpedo, CONFIG.torpedo.homingTurnRate),
     // THE LEGACY RENAME: `heavyTorpedo` IS the shipped torpedo, CONFIG.torpedo
     // verbatim — including catalog-v3 R17's 65 u/s tier-I speed, which Story
     // 8.1 landed in CONFIG itself (epic-8 amendment 6).
-    heavyTorpedo: torpedoRow(CONFIG.torpedo),
+    heavyTorpedo: torpedoRow(CONFIG.torpedo, CONFIG.torpedo.homingTurnRate),
     // ...and `navalMines` IS the shipped mine, CONFIG.mine verbatim. It NO
     // LONGER FOULS (amendment 81), so its `slowFactor` is the inert 1.
     navalMines: mineRow({
@@ -825,6 +832,7 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
       damage: CONFIG.captiveMines.damage,
       blastRadius: CONFIG.captiveMines.blastRadius,
       triggerRadius: CONFIG.captiveMines.triggerRadius,
+      homingTurnRate: CONFIG.captiveMines.homingTurnRate,
     }),
     // FOULING MINES (amendment 81) — the naval chassis with a bigger, weaker
     // blast and the victim slow the naval mine gave up.

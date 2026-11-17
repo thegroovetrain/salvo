@@ -171,15 +171,15 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           durationMs: CONFIG.boost.durationMs,
         },
         // LIGHT TORPEDO (R18) — its own CONFIG block since Story 8.13.
-        // `homingTurnRate` REPLACED the `homing` boolean: homing is a TIER
-        // STAT now (epic-8 amendment 80) and tier I is a straight-runner.
+        // ACOUSTIC HOMING is standard: the row homes at the family's
+        // CONFIG turn rate from Tier I.
         lightTorpedo: {
           tier: 1,
           reloadMs: CONFIG.lightTorpedo.reloadMs,
           maxAmmo: CONFIG.lightTorpedo.maxAmmo,
           speed: CONFIG.lightTorpedo.speed,
           damage: CONFIG.lightTorpedo.damage,
-          homingTurnRate: 0,
+          homingTurnRate: CONFIG.torpedo.homingTurnRate,
           runU: CONFIG.lightTorpedo.runU, // the Tier I run (Story 11.2, R5)
         },
         // THE LEGACY RENAME — byte-identical to the shipped `torpedo` block.
@@ -189,7 +189,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           maxAmmo: CONFIG.torpedo.maxAmmo,
           speed: CONFIG.torpedo.speed,
           damage: CONFIG.torpedo.damage,
-          homingTurnRate: 0,
+          homingTurnRate: CONFIG.torpedo.homingTurnRate,
           runU: CONFIG.torpedo.runU, // the Tier I run (Story 11.2, R5)
         },
         // ...and byte-identical to the shipped `mine` block. It NO LONGER
@@ -213,7 +213,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           damage: CONFIG.captiveMines.damage,
           blastRadius: CONFIG.captiveMines.blastRadius,
           triggerRadius: CONFIG.captiveMines.triggerRadius,
-          homingTurnRate: 0,
+          homingTurnRate: CONFIG.captiveMines.homingTurnRate,
           slowFactor: 1,
         },
         // FOULING MINES (amendment 81) — its own equipment line since 8.13.
@@ -1027,11 +1027,16 @@ describe('STORY 8.15 — the class Shift rows; RELOAD leaves them alone since St
 // (The +0.5 pool steps are GONE: Story 10.6, R4 — capacity left the tiers.)
 // ---------------------------------------------------------------------------
 describe('STORY 8.13 — the torpedo ladders (amendments 80/84f)', () => {
-  it('tier I is a STRAIGHT-RUNNER on both lines — turn rate 0, and 0.5 rad/s at V', () => {
+  it('ACOUSTIC HOMING is standard: both lines home at CONFIG.torpedo.homingTurnRate at EVERY tier; the captive fish at its own CONFIG rate', () => {
     for (const id of ['lightTorpedo', 'heavyTorpedo'] as const) {
-      expect(effectiveStats(BASE, stack(id, 1)).equipment[id].homingTurnRate, id).toBe(0);
-      expect(effectiveStats(BASE, stack(id, 5)).equipment[id].homingTurnRate, id)
-        .toBeCloseTo(CONFIG.torpedo.homingTurnRate, 9);
+      for (let n = 1; n <= CATALOG[id].cap; n += 1) {
+        expect(effectiveStats(BASE, stack(id, n)).equipment[id].homingTurnRate, `${id} x${n}`)
+          .toBe(CONFIG.torpedo.homingTurnRate);
+      }
+    }
+    for (let n = 1; n <= CATALOG.captiveMines.cap; n += 1) {
+      expect(effectiveStats(BASE, stack('captiveMines', n)).equipment.captiveMines.homingTurnRate, `captive x${n}`)
+        .toBe(CONFIG.captiveMines.homingTurnRate);
     }
   });
 });
@@ -1201,7 +1206,6 @@ describe('effectiveStats — doctrine verb folds (NO add-on is left since Story 
       expect('propFouling' in eq[id], id).toBe(false);
       expect('captive' in eq[id], id).toBe(false);
     }
-    expect(effectiveStats(BASE, ['lightTorpedo']).equipment.lightTorpedo.homingTurnRate).toBe(0);
   });
 
   it('a doctrine effect naming the DELETED star-shell verbs is a fail-closed no-op (amendment 134)', () => {

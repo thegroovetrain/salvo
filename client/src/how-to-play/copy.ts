@@ -136,8 +136,8 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       'You have three weapon slots: torpedoes on Q, mines on E, and special shells on R. The first card of a kind fills its slot for the rest of the match, and more copies raise its tier. Every tier reloads faster and hits harder.',
     ],
     entries: [
-      { name: 'LIGHT TORPEDO', lineId: 'lightTorpedo', table: 'tier', description: 'Fires from a launcher that can face the cursor. Homes in more with each tier.' },
-      { name: 'HEAVY TORPEDO', lineId: 'heavyTorpedo', table: 'tier', description: 'Slower to reload and harder hitting than the light. Homes in more with each tier.' },
+      { name: 'LIGHT TORPEDO', lineId: 'lightTorpedo', table: 'tier', description: 'Fires from a launcher that can face the cursor. Homes in on the loudest ship nearby.' },
+      { name: 'HEAVY TORPEDO', lineId: 'heavyTorpedo', table: 'tier', description: 'Slower to reload and harder hitting than the light. Homes in on the loudest ship nearby.' },
       { name: 'SUPERCAV TORPEDO', lineId: 'supercavTorpedo', table: 'tier', description: 'Very fast, no homing.' },
       { name: 'NAVAL MINES', lineId: 'navalMines', table: 'tier', description: 'Click behind your ship to drop a mine. Explodes when an enemy sails over it, and sets off every other Naval Mine in its blast.' },
       { name: 'CAPTIVE MINES', lineId: 'captiveMines', table: 'tier', description: 'Drops like a Naval Mine. Instead of exploding, it fires a torpedo at the first enemy to come in range.' },

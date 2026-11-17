@@ -397,6 +397,7 @@ export function captiveTorpedo(
       acquireRange: CONFIG.torpedo.homingAcquireRange,
       targetId: p.targetId,
       locked: true,
+      acoustic: true, // its turn follows the victim's engine noise (experiment, Eric 2026-11-16)
     };
   }
   return shell;

@@ -111,7 +111,7 @@ export function launchTorpedo(
     hits: opts.hits,
     family: null, // a torpedo has no gun family and its reveal never carries `w`
     ...(homes
-      ? { homing: { turnRate: homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange } }
+      ? { homing: { turnRate: homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange, acoustic: true as const } }
       : {}),
   });
   fireTube(ship.launchers, pick.launcher, pick.tube, reloadMs);
