@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { Container, type Graphics } from 'pixi.js';
 import {
+  CATALOG,
   CONFIG,
   DEFAULT_CLASS_ID,
   burstPointAlong,
@@ -645,10 +646,10 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(l.x2).toBeCloseTo(750, 3);
   });
 
-  // HOMING IS A TIER STAT (Story 8.13, epic-8 amendment 80 — ACOUSTIC HOMING is
-  // deleted): the band appears from TIER II, which is the second copy of the
-  // line, and the acquire/die numbers stay the FAMILY's shared ones.
-  it('a TIERED torpedo adds the acquisition band along the initial track', () => {
+  // A HOMING torpedo draws the acquisition band (acoustic homing is standard
+  // on light and heavy since epic-11 amendment 20); the acquire/die numbers
+  // stay the FAMILY's shared ones.
+  it('a HOMING torpedo adds the acquisition band along the initial track', () => {
     const m = computeAimPreview(torp({ stats: stats('heavyTorpedo', 'heavyTorpedo') }));
     expect(m.band).not.toBeNull();
     expect(m.band!.halfWidth).toBe(CONFIG.torpedo.homingAcquireRange);
@@ -676,14 +677,21 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): the three commanded-
   // point pins and the command half of the no-band pin are gone with the weapon
   // behavior — there is no longer a torpedo that bursts at a clicked point.
-  it('no band on a TIER-I fish — a straight-runner has no acquisition to draw', () => {
-    expect(computeAimPreview(torp()).band).toBeNull();
-    expect(computeAimPreview(torp({ id: 'lightTorpedo' })).lines).toHaveLength(1);
-    expect(computeAimPreview(torp({ id: 'lightTorpedo' })).band).toBeNull();
-    // ...and the SUPERCAV fish never steers at ANY build (amendment 74), even
-    // beside a fully tiered torpedo ladder.
-    const tiered = stats('heavyTorpedo', 'heavyTorpedo', 'lightTorpedo', 'lightTorpedo');
-    expect(computeAimPreview(torp({ id: 'supercavTorpedo', stats: tiered })).band).toBeNull();
+  // ACOUSTIC HOMING IS STANDARD (Eric 2026-11-16): the band follows the ROW's
+  // turn rate — present iff it is above zero, at every tier of every line.
+  it('the band appears IFF the row homes (homingTurnRate > 0) — every id, every tier', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      const cap = CATALOG[id].cap;
+      for (let n = 1; n <= cap; n += 1) {
+        const st = stats(...new Array<string>(n).fill(id));
+        const homes = st.equipment[id].homingTurnRate > 0;
+        expect(computeAimPreview(torp({ id, stats: st })).band !== null, `${id} x${n}`).toBe(homes);
+      }
+    }
+    // A row whose rate is zero draws no band, whatever its line.
+    const still = stats();
+    still.equipment.heavyTorpedo.homingTurnRate = 0;
+    expect(computeAimPreview(torp({ stats: still })).band).toBeNull();
   });
 
   // STORY 8.13, THE FAIL-FIRST PIN: the dispatch keyed on `heavyTorpedo` alone,
@@ -694,11 +702,14 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
       expect(computeAimPreview(torp({ id })).lines, id).toHaveLength(1);
     }
-    // The LIGHT line's own ladder buys the LIGHT fish's band, and leaves the
-    // heavy one a straight-runner.
-    const light = stats('lightTorpedo', 'lightTorpedo');
-    expect(computeAimPreview(torp({ id: 'lightTorpedo', stats: light })).band).not.toBeNull();
-    expect(computeAimPreview(torp({ id: 'heavyTorpedo', stats: light })).band).toBeNull();
+    // Each fish's band reads ITS OWN row: zero one line's rate and only that
+    // line loses its band.
+    for (const [own, other] of [['lightTorpedo', 'heavyTorpedo'], ['heavyTorpedo', 'lightTorpedo']] as const) {
+      const st = stats();
+      st.equipment[other].homingTurnRate = 0;
+      expect(computeAimPreview(torp({ id: own, stats: st })).band !== null, own).toBe(st.equipment[own].homingTurnRate > 0);
+      expect(computeAimPreview(torp({ id: other, stats: st })).band, other).toBeNull();
+    }
   });
 
   // Story 11.1 R21 ("All aim previews, even torpedoes ... Everything gets AIM

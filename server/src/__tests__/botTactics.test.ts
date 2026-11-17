@@ -1660,13 +1660,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
       rec.stats.equipment.heavyTorpedo.homingTurnRate = homingTurnRate;
       return rec;
     };
-    // A STRAIGHT-RUNNING torpedo (tier I, rate 0) is credible at knife range
-    // only. A TOP-RUNG one (the rate written straight onto the row, exactly
-    // where the fold puts it at tier V: the SUBJECT here is the gate, not the
-    // ladder) reaches the row's own run (`runU`, Story 11.2, R5) less a
-    // half-turn of correction room.
-    const base = mkBot(w, 'bismarck', 0, 0, -Math.PI / 2);
-    expect(base.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
+    // A STRAIGHT-RUNNING torpedo (rate 0) is credible at knife range only. A
+    // HOMING one (the rate written straight onto the row: the SUBJECT here is
+    // the gate, not the ladder) reaches the row's own run (`runU`, Story 11.2,
+    // R5) less a half-turn of correction room.
+    const base = shooter(0);
     const homing = shooter(CONFIG.torpedo.homingTurnRate);
     const row = homing.stats.equipment.heavyTorpedo;
     const straightU = reachOf(base);
@@ -2066,14 +2064,16 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const tube = fitExtra(rec, 'heavyTorpedo');
     const siege = profileOf('siege');
     const band = gunBand(siege, rec.stats);
-    // Loaded: the torpedo's 250u credible reach sits under siege's near edge,
-    // so the pulled edge lands exactly halfway toward it — bounded, so the
-    // profile fractions stay the anchor and siege never becomes a duelist.
+    // Loaded: a torpedo credible reach under siege's near edge pulls the edge
+    // exactly halfway toward it (one at or past it moves nothing) — bounded,
+    // so the profile fractions stay the anchor and siege never becomes a
+    // duelist. The reach is the row's own (EQUIPMENT_TACTICS), never a literal.
+    const reach = EQUIPMENT_TACTICS.heavyTorpedo.reachU(rec.stats);
     const loaded = pullBand(band, readyShotReaches(rec, rec.stats));
-    expect(loaded.min).toBeCloseTo((band.min + 250) / 2, 6);
+    expect(loaded.min).toBeCloseTo(reach < band.min ? (band.min + reach) / 2 : band.min, 6);
     expect(loaded.max).toBe(band.max);
     // Tube empty: the pull is gone the moment the round is (only-while-loaded).
-    rec.loadout[tube].state = { n: 0, reloadMsLeft: 30000 };
+    rec.loadout[tube].state = { n: 0, reloadMsLeft: rec.stats.equipment.heavyTorpedo.reloadMs };
     expect(pullBand(band, readyShotReaches(rec, rec.stats))).toEqual(band);
   });
 

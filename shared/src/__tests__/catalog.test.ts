@@ -183,6 +183,11 @@ describe('catalog v3 identity', () => {
         for (const tier of CATALOG[id].tiers) expect(tier, id).toEqual([]);
         continue;
       }
+      // An EQUIPMENT line's tier is load-bearing by DERIVATION (the
+      // per-weapon RELOAD bonus and weapon POWER read the row's tier), so an
+      // equipment rung may author nothing; every other line must author
+      // every rung.
+      if (CATALOG[id].kind === 'equipment') continue;
       CATALOG[id].tiers.forEach((tier, k) => expect(tier.length, `${id} tier ${k + 1}`).toBeGreaterThan(0));
     }
   });
@@ -240,7 +245,7 @@ describe('catalog v3 identity', () => {
     expect(isStubLine('nope')).toBe(false);
   });
 
-  it('gives every equipment line a copy-1 slotFill and FOUR AUTHORED tiers — no empty tier is left (Story 8.17)', () => {
+  it('gives every equipment line a copy-1 slotFill, and its upgrade tiers author only stat effects (Story 8.17)', () => {
     // The UNIFORM ladders (`tieredWeapon`): FOULING MINES and, since 8.17,
     // BROADSIDE (amendment 133). Every equipment line's fold is a relation in
     // stats.test.ts THE TIERED-LINE FOLD (zero-card row + authored adds /
@@ -251,10 +256,7 @@ describe('catalog v3 identity', () => {
       const line = CATALOG[id];
       if (line.kind !== 'equipment') continue;
       expect(line.tiers[0], id).toEqual([{ kind: 'slotFill', equipmentId: id }]);
-      for (const tier of line.tiers.slice(1)) {
-        expect(tier.length, id).toBeGreaterThan(0);
-        for (const e of tier) expect(e.kind, id).toBe('stat');
-      }
+      for (const tier of line.tiers.slice(1)) for (const e of tier) expect(e.kind, id).toBe('stat');
       // Tiers II–V are the SAME step, four times, each in its OWN array.
       if (UNIFORM.includes(id)) for (const tier of line.tiers.slice(1)) expect(tier, id).toEqual(line.tiers[1]);
     }
